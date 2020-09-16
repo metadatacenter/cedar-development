@@ -5,10 +5,6 @@
 # CEDAR hostname for backend services
 export CEDAR_HOST=metadatacenter.orgx
 
-# Docker network, IP address
-export CEDAR_NET_GATEWAY=192.168.17.1
-export CEDAR_NET_SUBNET=192.168.17.0
-
 #CEDAR version modifier
 export CEDAR_VERSION_MODIFIER=""
 
@@ -52,10 +48,8 @@ export CEDAR_NEO4J_USER_PASSWORD="changeme"
 export CEDAR_SALT_API_KEY="changeme"
 
 #Field, element, template validation
-export CEDAR_VALIDATION_ENABLED="false"
+export CEDAR_VALIDATION_ENABLED="true"
 
-# CaDSR
+# CaDSR data
 export CEDAR_CADSR_ADMIN_USER_API_KEY="0000111122223333444455556666777788889999aaaabbbbccccddddeeeefffe"
 export CEDAR_CDE_FOLDER_ID="https://repo.metadatacenter.orgx/folders/00000000-1111-2222-3333-444444444444"
-
-
