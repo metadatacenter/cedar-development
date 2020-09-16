@@ -1,2 +1,1 @@
-# cedar-develop
-Scripts and utils to facilitate CEDAR development 
+# CEDAR Develop - Utils to facilitate CEDAR development
