@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #DEV Util common locations
-export CEDAR_UTIL_BIN=${CEDAR_DOCKER_DEPLOY}/bin/util/
+export CEDAR_UTIL_BIN=${CEDAR_DEVELOP_HOME}/bin/util/
 
 #CEDAR location aliases
 alias gocedar='cd $CEDAR_HOME'
@@ -30,6 +30,10 @@ alias gosubmission='cd $CEDAR_HOME/cedar-submission-server'
 alias goworker='cd $CEDAR_HOME/cedar-worker-server'
 alias goopenview='cd $CEDAR_HOME/cedar-openview-server'
 alias gointernals='cd $CEDAR_HOME/cedar-internals-server'
+alias gomkdocs='cd $CEDAR_HOME/cedar-mkdocs'
+alias godevel='cd $CEDAR_HOME/cedar-development'
+alias gobuild='cd $CEDAR_HOME/cedar-docker-build'
+alias godeploy='cd $CEDAR_HOME/cedar-docker-deploy'
 
 alias goeventlistener='cd $CEDAR_HOME/cedar-keycloak-event-listener'
 
@@ -128,6 +132,9 @@ alias startall='$CEDAR_UTIL_BIN/services/startall.sh'
 
 alias startinfra='$CEDAR_UTIL_BIN/services/startinfra.sh'
 alias stopinfra='$CEDAR_UTIL_BIN/services/stopinfra.sh'
+
+alias cedarenv='set | grep -a CEDAR_'
+alias cedarss='${CEDAR_DEVELOP_HOME}/bin/util/cedarstatus.sh'
 
 alias ij="'/Applications/IntelliJ IDEA.app/Contents/MacOS/idea'"
 
