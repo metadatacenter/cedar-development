@@ -1,36 +1,39 @@
 #!/bin/bash
 
 CEDAR_HOSTS=(
-    "auth.metadatacenter.orgx"
-    "cedar.metadatacenter.orgx"
-    "cert.metadatacenter.orgx"
-    "group.metadatacenter.orgx"
-    "internals.metadatacenter.orgx"
-    "messaging.metadatacenter.orgx"
-    "repo.metadatacenter.orgx"
-    "resource.metadatacenter.orgx"
-    "schema.metadatacenter.orgx"
-    "submission.metadatacenter.orgx"
-    "artifact.metadatacenter.orgx"
-    "terminology.metadatacenter.orgx"
-    "user.metadatacenter.orgx"
-    "valuerecommender.metadatacenter.orgx"
-    "worker.metadatacenter.orgx"
+    "artifact"
+    "auth"
+    "cedar"
+    "component"
+    "group"
+    "internals"
+    "messaging"
+    "open"
+    "openview"
+    "repo"
+    "resource"
+    "schema"
+    "submission"
+    "terminology"
+    "user"
+    "valuerecommender"
+    "worker"
 )
 
 counter=0
-echo "List of CEDAR hosts:"
+echo "Testing the list of CEDAR hosts:"
 for i in "${CEDAR_HOSTS[@]}"
 do
-  ping -c 1 $i > /dev/null 2>&1
+  HOST=$i.${CEDAR_HOST}
+  ping -c 1 ${HOST} > /dev/null 2>&1
 
   if [[ $? != 0 ]];
   then
-    echo "Host unknown :" $i
-    hosts[$counter]=$i
+    echo "Host unknown :" ${HOST}
+    hosts[$counter]=${HOST}
     ((counter++))
   else
-    echo "Host known   :" $i
+    echo "Host known   :" ${HOST}
   fi
 done
 
@@ -42,7 +45,7 @@ then
 else
   echo "Some CEDAR hosts are unknown, we will prompt for your password in order to make modifications to /etc/hosts !"
   echo
-  STR="$'\n'$'\n'Added by CEDAR Docker install process on $(date +%Y.%m.%d) [YYYY.mm.dd] from here:$'\n'"
+  STR="$'\n'$'\n'# Added by CEDAR install process on $(date +%Y.%m.%d) [YYYY.mm.dd] from here:$'\n'"
   sudo bash -c "echo ${STR} >> /etc/hosts"
   for i in "${hosts[@]}"
   do
@@ -50,7 +53,7 @@ else
     STR="127.0.0.1$'\t'$i"
     sudo bash -c "echo ${STR} >> /etc/hosts"
   done
-  STR="$'\n'Added by CEDAR Docker install process until here.$'\n'"
+  STR="$'\n'# Added by CEDAR install process until here.$'\n'"
   sudo bash -c "echo ${STR} >> /etc/hosts"
 fi
 
