@@ -6,8 +6,8 @@ export CEDAR_DEVELOP_HOME=${CEDAR_HOME}/cedar-development
 
 #------------------------------------------------------
 # Home folders of software components
-export KEYCLOAK_HOME=${CEDAR_HOME}/keycloak/
-export NEO4J_HOME=${CEDAR_HOME}/neo4j/
+export CEDAR_KEYCLOAK_HOME=${CEDAR_HOME}/keycloak/
+export CEDAR_NEO4J_HOME=${CEDAR_HOME}/neo4j/
 
 #------------------------------------------------------
 # CEDAR custom environment variables
