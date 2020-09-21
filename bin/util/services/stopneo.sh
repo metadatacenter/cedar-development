@@ -4,4 +4,4 @@ echo Stopping Neo4j
 echo --------------------------------------------------------------------------------
 echo
 
-$NEO4J_HOME/bin/neo4j stop
+${CEDAR_NEO4J_HOME}/bin/neo4j stop

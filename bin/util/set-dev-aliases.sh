@@ -40,7 +40,7 @@ alias goeventlistener='cd $CEDAR_HOME/cedar-keycloak-event-listener'
 alias goeditor='cd $CEDAR_HOME/cedar-template-editor'
 alias goopenfront='cd $CEDAR_HOME/cedar-openview'
 
-alias gokk='cd $KEYCLOAK_HOME/bin'
+alias gokk='cd ${CEDAR_KEYCLOAK_HOME}/bin'
 
 #CEDAR Git util aliases
 alias cedargstatus='$CEDAR_UTIL_BIN/git/gitstatus.sh'
@@ -140,4 +140,4 @@ alias ij="'/Applications/IntelliJ IDEA.app/Contents/MacOS/idea'"
 
 alias rmmvn='rm -rf ~/.m2/repository/'
 
-alias copylistener='cp $CEDAR_HOME/cedar-keycloak-event-listener/target/cedar-keycloak-event-listener.jar $KEYCLOAK_HOME/standalone/deployments/.'
+alias copylistener='cp $CEDAR_HOME/cedar-keycloak-event-listener/target/cedar-keycloak-event-listener.jar ${CEDAR_KEYCLOAK_HOME}/standalone/deployments/.'

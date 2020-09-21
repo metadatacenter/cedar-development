@@ -4,4 +4,4 @@ echo Starting Neo4j
 echo --------------------------------------------------------------------------------
 echo
 
-$NEO4J_HOME/bin/neo4j start &
+${CEDAR_NEO4J_HOME}/bin/neo4j start &
