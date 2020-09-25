@@ -9,6 +9,13 @@ cd ${CEDAR_HOME}/cedar-metadata-form
 ng build --prod --output-hashing=none
 cat dist/cedar-form/{runtime,polyfills,main}.js > custom-elements.js
 
-echo Updating cedar-component-distribution repo. Please commit those changes!!!
+echo
+echo "*******************************************************"
+echo "***                                                 ***"
+echo "***   Updating cedar-component-distribution repo.   ***"
+echo "***         Please commit those changes !!!         ***"
+echo "***                                                 ***"
+echo "*******************************************************"
+echo
 
 mv custom-elements.js ${CEDAR_HOME}/cedar-component-distribution/cedar-form/cedar-form-${CEDAR_VERSION}.js
