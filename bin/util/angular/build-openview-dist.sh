@@ -8,6 +8,13 @@ echo
 cd ${CEDAR_HOME}/cedar-openview
 ng build --prod --output-hashing=none
 
-echo Updating cedar-openview-dist repo. Please commit those changes!!!
+echo
+echo "*******************************************************"
+echo "***                                                 ***"
+echo "***        Updating cedar-openview-dist repo.       ***"
+echo "***         Please commit those changes !!!         ***"
+echo "***                                                 ***"
+echo "*******************************************************"
+echo
 
 cp -a dist/cedar-openview/. ${CEDAR_HOME}/cedar-openview-dist/
