@@ -6,6 +6,7 @@ format="\n\nCloning Git repo status ${GREEN}%-32s${NORMAL} : (%-70s)\n"
 
 function cloneRepo {
   printf "$format" $1 $CEDAR_DOCKER_HOME/$1
+  printf "git -C \"$CEDAR_DOCKER_HOME/$1\" clone https://github.com/metadatacenter/$1"
   git -C "$CEDAR_DOCKER_HOME/$1" clone https://github.com/metadatacenter/$1
   git -C "$CEDAR_DOCKER_HOME/$1" status
   git -C "$CEDAR_DOCKER_HOME/$1" status | egrep 'Your branch is up to date with|Your branch is up-to-date with'
