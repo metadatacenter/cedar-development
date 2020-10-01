@@ -1,18 +1,13 @@
 #!/bin/bash
 
 #------------------------------------------------------
-# CEDAR Development Util home folder
-export CEDAR_DEVELOP_HOME=${CEDAR_HOME}/cedar-development
-
-#------------------------------------------------------
-# Home folders of software components
-export CEDAR_KEYCLOAK_HOME=${CEDAR_HOME}/keycloak/
-export CEDAR_NEO4J_HOME=${CEDAR_HOME}/neo4j/
+# CEDAR Docker Development Util home folder
+export CEDAR_DEVELOP_HOME=${CEDAR_DOCKER_HOME}/cedar-development
 
 #------------------------------------------------------
 # CEDAR custom environment variables
-source ${CEDAR_HOME}/set-env-external.sh
-source ${CEDAR_HOME}/set-env-internal.sh
+source ${CEDAR_DOCKER_HOME}/bin/templates/set-env-external.sh
+source ${CEDAR_DOCKER_HOME}/bin/templates/set-env-internal.sh
 
 #------------------------------------------------------
 # CEDAR network settings
