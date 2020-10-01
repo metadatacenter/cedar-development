@@ -6,8 +6,8 @@ export CEDAR_DEVELOP_HOME=${CEDAR_DOCKER_HOME}/cedar-development
 
 #------------------------------------------------------
 # CEDAR custom environment variables
-source ${CEDAR_DOCKER_HOME}/bin/templates/set-env-external.sh
-source ${CEDAR_DOCKER_HOME}/bin/templates/set-env-internal.sh
+source ${CEDAR_DEVELOP_HOME}/bin/templates/set-env-external.sh
+source ${CEDAR_DEVELOP_HOME}/bin/templates/set-env-internal.sh
 
 #------------------------------------------------------
 # CEDAR network settings
