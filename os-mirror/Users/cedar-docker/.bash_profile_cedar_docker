@@ -1,0 +1,4 @@
+# CEDAR Docker
+export CEDAR_DOCKER_HOME=${HOME}/CEDAR_DOCKER/
+source ${CEDAR_DOCKER_HOME}/cedar-development/bin/templates/cedar-profile-docker-eval-1.sh
+source ${CEDAR_DOCKER_HOME}/cedar-development/bin/templates/cedar-profile-docker-eval-2.sh
