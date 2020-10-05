@@ -149,7 +149,7 @@ organizationalUnitName_default  = CEDAR
 
 commonName			= Common Name (e.g. server FQDN or YOUR name)
 commonName_max			= 64
-#commonName_default      = metadatacenter.orgx
+commonName_default      = auth.metadatacenter.orgx
 
 emailAddress			= Email Address
 emailAddress_max		= 64
