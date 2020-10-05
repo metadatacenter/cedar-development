@@ -124,7 +124,7 @@ checkHttpResponse Neo4j 7474 'HTTP/1.1\s200\sOK'
 checkRedisPing Redis-persistent 6379
 #checkRedisPing Redis-non-persistent 6380
 checkOpenPort MySQL 3306
-printf "$header" '--- Monitor ---------------'
+printf "$header" '--- Monitoring ------------'
 checkHttpResponse Kibana 5601 'kbn-name:\skibana'
 checkHttpResponse Redis-Commander 8081 'X-Powered-By:\sEx'
 printf "$header" '--- Front End -------------'
