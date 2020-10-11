@@ -108,6 +108,7 @@ CEDAR_CONFIGURATION_REPOS=(
 CEDAR_DOCUMENTATION_REPOS=(
     "cedar-docs"
     "cedar-swagger-ui"
+    "cedar-mkdocs"
 )
 
 CEDAR_CLIENT_REPOS=(
@@ -130,6 +131,10 @@ CEDAR_DOCKER_DEPLOY_REPOS=(
     "cedar-docker-deploy"
 )
 
+CEDAR_DEVELOPMENT_REPOS=(
+    "cedar-development"
+)
+
 CEDAR_ALL_REPOS=(
     "${CEDAR_PARENT_REPOS[@]}"
     "${CEDAR_SERVER_REPOS[@]}"
@@ -141,6 +146,7 @@ CEDAR_ALL_REPOS=(
     "${CEDAR_PROJECT_REPOS[@]}"
     "${CEDAR_DOCKER_BUILD_REPOS[@]}"
     "${CEDAR_DOCKER_DEPLOY_REPOS[@]}"
+    "${CEDAR_DEVELOPMENT_REPOS[@]}"
 )
 
 clone_repos_if_needed() {
@@ -389,7 +395,6 @@ release_docker_deploy_repo()
     # Tag the latest development version
     git checkout develop
     git pull origin develop
-    sed -i '' 's/^export CEDAR_VERSION=.*$/export CEDAR_VERSION='${CEDAR_RELEASE_VERSION}'/' ./bin/util/set-env-generic.sh
     find . -name .env -exec sed -i '' 's/^CEDAR_DOCKER_VERSION=.*$/CEDAR_DOCKER_VERSION='${CEDAR_RELEASE_VERSION}'/' {} \; -print
     git commit -a -m "Set the release version in the Dockerfiles"
     git push origin develop
@@ -399,11 +404,33 @@ release_docker_deploy_repo()
     
     # Return to develop branch 
     git checkout develop
-    sed -i '' 's/^export CEDAR_VERSION=.*$/export CEDAR_VERSION='${CEDAR_NEXT_DEVELOPMENT_VERSION}'/' ./bin/util/set-env-generic.sh
     find . -name .env -exec sed -i '' 's/CEDAR_DOCKER_VERSION=.*$/CEDAR_DOCKER_VERSION='${CEDAR_NEXT_DEVELOPMENT_VERSION}'/' {} \; -print
     git commit -a -m "Updated to next development version"
     git push origin develop
     
+    popd
+}
+
+release_development_repo()
+{
+    pushd $CEDAR_HOME/$1
+
+    # Tag the latest development version
+    git checkout develop
+    git pull origin develop
+    sed -i '' 's/^export CEDAR_VERSION=.*$/export CEDAR_VERSION='${CEDAR_RELEASE_VERSION}'/' ./bin/util/set-env-generic.sh
+    git commit -a -m "Set the release version in the shell scripts"
+    git push origin develop
+
+    tag_repo_with_release_version $1
+    copy_release_to_master $1
+
+    # Return to develop branch
+    git checkout develop
+    sed -i '' 's/^export CEDAR_VERSION=.*$/export CEDAR_VERSION='${CEDAR_NEXT_DEVELOPMENT_VERSION}'/' ./bin/util/set-env-generic.sh
+    git commit -a -m "Updated to next development version"
+    git push origin develop
+
     popd
 }
 
@@ -655,6 +682,15 @@ release_all_docker_deploy_repos()
     done
 }
 
+release_all_development_repos()
+{
+    echo "Releasing Development repos..."
+    for r in "${CEDAR_DEVELOPMENT_REPOS[@]}"
+    do
+        release_development_repo $r
+    done
+}
+
 build_all_parent_repos()
 {
     for r in "${CEDAR_PARENT_REPOS[@]}"
@@ -694,5 +730,7 @@ release_all_client_repos
 
 release_all_docker_build_repos
 release_all_docker_deploy_repos
+
+release_all_development_repos
 
 #TODO check that master release version builds locally and that the next snapshot builds locally.
