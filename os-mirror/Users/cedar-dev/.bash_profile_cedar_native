@@ -1,0 +1,4 @@
+# Native CEDAR Development
+export CEDAR_HOME=${HOME}/CEDAR/
+source ${CEDAR_HOME}/cedar-profile-native-develop.sh
+
