@@ -27,11 +27,11 @@ source ${CEDAR_DEVELOP_HOME}/bin/util/set-env-generic.sh
 # CEDAR aliases and colors for Local Development
 source ${CEDAR_DEVELOP_HOME}/bin/util/set-aliases-and-colors.sh
 source ${CEDAR_DEVELOP_HOME}/bin/util/set-dev-aliases.sh
-source ${CEDAR_DEVELOP_HOME}/bin/util/set-infra-aliases-osx.sh
+source ${CEDAR_DEVELOP_HOME}/bin/util/set-infra-aliases-ubuntu.sh
 
 #-------------------------------------------------
 # CEDAR Frontend behavior develop|server
-export CEDAR_FRONTEND_BEHAVIOR="develop"
+export CEDAR_FRONTEND_BEHAVIOR="server"
 #CEDAR frontend test target name
 export CEDAR_FRONTEND_TARGET="local"
 
