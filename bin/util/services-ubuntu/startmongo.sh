@@ -4,4 +4,4 @@ echo Starting MongoDB
 echo --------------------------------------------------------------------------------
 echo
 
-service mongo start
+service mongod start

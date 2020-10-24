@@ -4,4 +4,4 @@ echo Stopping MongoDB
 echo --------------------------------------------------------------------------------
 echo
 
-service mongo stop
+service mongod stop
