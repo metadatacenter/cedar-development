@@ -4,9 +4,6 @@
 alias startnginx='$CEDAR_UTIL_BIN/services-osx/startnginx.sh'
 alias stopnginx='$CEDAR_UTIL_BIN/services-osx/stopnginx.sh'
 
-alias startkk='$CEDAR_UTIL_BIN/services-osx/startkeycloak.sh'
-alias killkk='$CEDAR_UTIL_BIN/services-osx/killkeycloak.sh'
-
 alias startmongo='$CEDAR_UTIL_BIN/services-osx/startmongo.sh'
 alias stopmongo='$CEDAR_UTIL_BIN/services-osx/stopmongo.sh'
 
