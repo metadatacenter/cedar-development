@@ -66,38 +66,6 @@ alias mcit='mvn clean install -DskipTests=true'
 alias m2clean='rm -rf ~/.m2/repository/*'
 alias m2cleancedar='rm -rf ~/.m2/repository/org/metadatacenter/*'
 
-#3rd party server aliases
-alias startnginx='$CEDAR_UTIL_BIN/services/startnginx.sh'
-alias stopnginx='$CEDAR_UTIL_BIN/services/stopnginx.sh'
-
-alias startkk='$CEDAR_UTIL_BIN/services/startkeycloak.sh'
-alias killkk='$CEDAR_UTIL_BIN/services/killkeycloak.sh'
-
-alias startmongo='$CEDAR_UTIL_BIN/services/startmongo.sh'
-alias stopmongo='$CEDAR_UTIL_BIN/services/stopmongo.sh'
-
-alias startmysql='$CEDAR_UTIL_BIN/services/startmysql.sh'
-alias stopmysql='$CEDAR_UTIL_BIN/services/stopmysql.sh'
-
-alias startkibana='$CEDAR_UTIL_BIN/services/startkibana.sh'
-alias stopkibana='$CEDAR_UTIL_BIN/services/stopkibana.sh'
-
-alias startelastic='$CEDAR_UTIL_BIN/services/startelastic.sh'
-alias stopelastic='$CEDAR_UTIL_BIN/services/stopelastic.sh'
-
-alias startneo='$CEDAR_UTIL_BIN/services/startneo.sh'
-alias stopneo='$CEDAR_UTIL_BIN/services/stopneo.sh'
-
-alias startredis='$CEDAR_UTIL_BIN/services/startredis.sh'
-alias stopredis='$CEDAR_UTIL_BIN/services/stopredis.sh'
-
-alias startrc='$CEDAR_UTIL_BIN/services/startrediscommander.sh'
-alias killrc='$CEDAR_UTIL_BIN/services/killrediscommander.sh'
-
-#CEDAR server aliases
-alias starteditor='goeditor && gulp &'
-alias stopeditor='kill `pgrep gulp`'
-
 alias startmessaging='$CEDAR_UTIL_BIN/services/start-dw-server.sh messaging &'
 alias stopmessaging='$CEDAR_UTIL_BIN/services/stop-dw-server.sh messaging 9212'
 alias startgroup='$CEDAR_UTIL_BIN/services/start-dw-server.sh group &'
