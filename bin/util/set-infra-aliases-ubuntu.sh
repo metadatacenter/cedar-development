@@ -4,9 +4,6 @@
 alias startnginx='sudo $CEDAR_UTIL_BIN/services-ubuntu/startnginx.sh'
 alias stopnginx='sudo $CEDAR_UTIL_BIN/services-ubuntu/stopnginx.sh'
 
-alias startkk='sudo $CEDAR_UTIL_BIN/services-ubuntu/startkeycloak.sh'
-alias killkk='sudo $CEDAR_UTIL_BIN/services-ubuntu/killkeycloak.sh'
-
 alias startmongo='sudo $CEDAR_UTIL_BIN/services-ubuntu/startmongo.sh'
 alias stopmongo='sudo $CEDAR_UTIL_BIN/services-ubuntu/stopmongo.sh'
 
