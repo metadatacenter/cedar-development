@@ -15,8 +15,8 @@ if uname -a | grep buntu > /dev/null 2>&1
     source $CEDAR_UTIL_BIN/set-infra-aliases-osx.sh
 fi
 
-killkk
 stopmongo
+killkk
 stopelastic
 stopkibana
 stopneo

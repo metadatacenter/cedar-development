@@ -328,6 +328,12 @@ release_frontend_repo()
         sed -i '' 's/\/cedar-form-.*\.js/\/cedar-form-'${CEDAR_RELEASE_VERSION}'\.js/g' src/index.html
         sed -i '' 's/\/component\.metadatacenter\..*\/cedar-form\//\/component\.metadatacenter\.org\/cedar-form\//g' src/index.html
     fi
+    APP_CONFIG_FILE="src/assets/data/appConfig.json"
+    if [ -f ${APP_CONFIG_FILE} ]; then
+      jq '.apiUrl="'https://open.metadatacenter.org/'"' "${APP_CONFIG_FILE}" > "${APP_CONFIG_FILE}.jq" && mv "${APP_CONFIG_FILE}.jq" "${APP_CONFIG_FILE}"
+      jq '.cedarUrl="'https://cedar.metadatacenter.org/'"' "${APP_CONFIG_FILE}" > "${APP_CONFIG_FILE}.jq" && mv "${APP_CONFIG_FILE}.jq" "${APP_CONFIG_FILE}"
+      jq '.terminologyUrl="'https://terminology.metadatacenter.org/'"' "${APP_CONFIG_FILE}" > "${APP_CONFIG_FILE}.jq" && mv "${APP_CONFIG_FILE}.jq" "${APP_CONFIG_FILE}"
+    fi
     if [ -f "package-lock.json" ]; then
         jq '.version="'${CEDAR_RELEASE_VERSION}'"' package-lock.json > jpackage-lock-jqed.json && mv jpackage-lock-jqed.json package-lock.json
     fi
