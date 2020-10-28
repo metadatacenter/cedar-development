@@ -31,7 +31,7 @@ alias goworker='cd $CEDAR_HOME/cedar-worker-server'
 alias goopenview='cd $CEDAR_HOME/cedar-openview-server'
 alias gointernals='cd $CEDAR_HOME/cedar-internals-server'
 alias gomkdocs='cd $CEDAR_HOME/cedar-mkdocs'
-alias godevel='cd $CEDAR_HOME/cedar-development'
+alias godevelopment='cd $CEDAR_HOME/cedar-development'
 alias gobuild='cd $CEDAR_HOME/cedar-docker-build'
 alias godeploy='cd $CEDAR_HOME/cedar-docker-deploy'
 
