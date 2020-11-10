@@ -88,6 +88,7 @@ CEDAR_SERVER_REPOS=(
     "cedar-messaging-server"
     "cedar-openview-server"
     "cedar-internals-server"
+    "cedar-impex-server"
 )
 
 CEDAR_FRONTEND_REPOS=(
