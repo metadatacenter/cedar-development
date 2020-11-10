@@ -12,6 +12,7 @@ CEDAR_REPOS=(
   "cedar-docker-build"
   "cedar-docker-deploy"
   "cedar-docs"
+  "cedar-impex-server"
   "cedar-internals-server"
   "cedar-openview"
   "cedar-openview-dist"
