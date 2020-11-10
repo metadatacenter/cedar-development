@@ -30,6 +30,7 @@ alias gosubmission='cd $CEDAR_HOME/cedar-submission-server'
 alias goworker='cd $CEDAR_HOME/cedar-worker-server'
 alias goopenview='cd $CEDAR_HOME/cedar-openview-server'
 alias gointernals='cd $CEDAR_HOME/cedar-internals-server'
+alias goimpex='cd $CEDAR_HOME/cedar-impex-server'
 alias gomkdocs='cd $CEDAR_HOME/cedar-mkdocs'
 alias godevelopment='cd $CEDAR_HOME/cedar-development'
 alias gobuild='cd $CEDAR_HOME/cedar-docker-build'
@@ -96,6 +97,8 @@ alias startopenview='$CEDAR_UTIL_BIN/services-generic/start-dw-server.sh openvie
 alias stopopenview='$CEDAR_UTIL_BIN/services-generic/stop-dw-server.sh openview 9213'
 alias startinternals='$CEDAR_UTIL_BIN/services-generic/start-dw-server.sh internals &'
 alias stopinternals='$CEDAR_UTIL_BIN/services-generic/stop-dw-server.sh internals 9214'
+alias startimpex='$CEDAR_UTIL_BIN/services-generic/start-dw-server.sh impex &'
+alias stopimpex='$CEDAR_UTIL_BIN/services-generic/stop-dw-server.sh impex 9208'
 
 alias sleepbetweenstarts='sleep 2'
 
