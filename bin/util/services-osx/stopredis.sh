@@ -4,4 +4,4 @@ echo Stopping Redis
 echo --------------------------------------------------------------------------------
 echo
 
-brew services stop redis@3.2
+brew services stop redis

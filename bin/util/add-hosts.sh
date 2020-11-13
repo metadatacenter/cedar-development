@@ -6,6 +6,7 @@ CEDAR_HOSTS=(
     "cedar"
     "component"
     "group"
+    "impex"
     "internals"
     "messaging"
     "open"
