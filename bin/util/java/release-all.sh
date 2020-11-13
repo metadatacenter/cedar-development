@@ -73,7 +73,6 @@ CEDAR_SERVER_REPOS=(
     "cedar-model-validation-library"
     "cedar-server-core-library"
     "cedar-keycloak-event-listener"
-    "cedar-util"
     "cedar-admin-tool"
     "cedar-user-server"
     "cedar-artifact-server"
@@ -104,6 +103,7 @@ CEDAR_COMPONENT_REPOS=(
 
 CEDAR_CONFIGURATION_REPOS=(
     "cedar-conf"
+    "cedar-util"
 )
 
 CEDAR_DOCUMENTATION_REPOS=(
