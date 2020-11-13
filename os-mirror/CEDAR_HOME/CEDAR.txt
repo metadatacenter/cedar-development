@@ -1,5 +1,0 @@
-Place
-	set-env-external.sh
-	set-env-internal.sh
-	cedar-profile-native-develop.sh
-here.
