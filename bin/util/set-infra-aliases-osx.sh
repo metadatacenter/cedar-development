@@ -26,5 +26,5 @@ alias startrc='$CEDAR_UTIL_BIN/services-osx/startrediscommander.sh'
 alias killrc='$CEDAR_UTIL_BIN/services-osx/killrediscommander.sh'
 
 #CEDAR server aliases
-alias starteditor='goeditor && gulp &'
+alias starteditor='goeditor && gulp'
 alias stopeditor='kill `pgrep gulp`'
