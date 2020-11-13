@@ -150,12 +150,20 @@ CEDAR_ALL_REPOS=(
     "${CEDAR_DEVELOPMENT_REPOS[@]}"
 )
 
+log_progress()
+{
+	STR='CEDAR Release | '$(date +"%Y-%m-%d %H:%M:%S")' | '${1}
+	echo ${STR}
+	echo ${STR} >> cedar-release.log
+}
+
 clone_repos_if_needed() {
+    log_progress 'Cloning repos'
     pushd ${CEDAR_HOME}
     for r in "${CEDAR_ALL_REPOS[@]}"
     do
         if [[ ! -d $r ]]; then
-            echo "Cloning repo " $r 
+            log_progress "Cloning repo "$r
             git clone https://github.com/metadatacenter/$r
             pushd $r
             git checkout develop
@@ -258,6 +266,7 @@ tag_repo_with_release_version()
 
 release_parent_repo()
 {
+    log_progress 'Releasing repo '$1
     pushd $CEDAR_HOME/$1
     git checkout develop
     sed -i '' 's/<cedar.version>.*<\/cedar.version>/<cedar.version>'${CEDAR_RELEASE_VERSION}'<\/cedar.version>/g' pom.xml 
@@ -279,6 +288,7 @@ release_parent_repo()
 
 release_server_repo()
 {
+    log_progress 'Releasing repo '$1
     pushd $CEDAR_HOME/$1
 
     update_repo_parent_to_release $1
@@ -294,6 +304,7 @@ release_server_repo()
 
 release_project_repo()
 {
+    log_progress 'Releasing repo '$1
     pushd $CEDAR_HOME/$1
 
     # Update to next release version
@@ -319,6 +330,7 @@ release_project_repo()
 
 release_frontend_repo()
 {
+    log_progress 'Releasing repo '$1
     pushd $CEDAR_HOME/$1
 
     git checkout develop
@@ -368,6 +380,7 @@ release_frontend_repo()
 
 release_docker_build_repo()
 {
+    log_progress 'Releasing repo '$1
     pushd $CEDAR_HOME/$1
 
     # Tag the latest development version
@@ -397,6 +410,7 @@ release_docker_build_repo()
 
 release_docker_deploy_repo()
 {
+    log_progress 'Releasing repo '$1
     pushd $CEDAR_HOME/$1
 
     # Tag the latest development version
@@ -420,6 +434,7 @@ release_docker_deploy_repo()
 
 release_development_repo()
 {
+    log_progress 'Releasing repo '$1
     pushd $CEDAR_HOME/$1
 
     # Tag the latest development version
@@ -443,6 +458,7 @@ release_development_repo()
 
 release_mavenless_repo()
 {
+    log_progress 'Releasing repo '$1
     pushd $CEDAR_HOME/$1
 
     tag_repo_with_release_version $1
@@ -454,6 +470,7 @@ release_mavenless_repo()
 
 release_client_repo()
 {
+    log_progress 'Releasing repo '$1
     pushd $CEDAR_HOME/$1
 
     update_repo_parent_to_release $1
@@ -496,6 +513,7 @@ build_openview_frontend()
 
 release_component_distribution_repo()
 {
+    log_progress 'Releasing repo '$1
     pushd $CEDAR_HOME/$1
 
     # Tag the latest development version
@@ -528,6 +546,7 @@ release_component_distribution_repo()
 
 release_openview_dist_repo()
 {
+    log_progress 'Releasing repo '$1
     pushd $CEDAR_HOME/$1
 
     # Tag the latest development version
@@ -573,7 +592,7 @@ git_pull_branch()
 
 git_pull_all_repos()
 {
-    echo "Pulling all CEDAR repos"
+    log_progress "Pulling all CEDAR repos"
     for r in "${CEDAR_ALL_REPOS[@]}"
     do
         git_pull_branch $r develop
@@ -582,12 +601,13 @@ git_pull_all_repos()
 
 empty_user_maven_cache()
 {
-    echo "Removing CEDAR artifacts from local Maven cache"
+    log_progress "Removing CEDAR artifacts from local Maven cache"
     rm -rf ~/.m2/repository/org/metadatacenter
 }
 
 build_repo()
 {
+    log_progress 'Building '$1
     pushd $CEDAR_HOME/$1
     mvn -DskipTests clean install
     popd
@@ -596,7 +616,7 @@ build_repo()
 release_all_parent_repos()
 {
     # Release parent repos
-    echo "Releasing parent repos..."
+    log_progress 'Releasing parent repos...'
     for r in "${CEDAR_PARENT_REPOS[@]}"
     do
         release_parent_repo $r
@@ -605,7 +625,7 @@ release_all_parent_repos()
 
 release_all_server_repos()
 {
-    echo "Releasing server repos..."
+    log_progress "Releasing server repos..."
     for r in "${CEDAR_SERVER_REPOS[@]}"
     do
         release_server_repo $r
@@ -614,7 +634,7 @@ release_all_server_repos()
 
 release_all_project_repos()
 {
-    echo "Releasing project repos..."
+    log_progress "Releasing project repos..."
     for r in "${CEDAR_PROJECT_REPOS[@]}"
     do
         release_project_repo $r
@@ -623,7 +643,7 @@ release_all_project_repos()
 
 release_all_frontend_repos()
 {
-    echo "Releasing frontend repos..."
+    log_progress "Releasing frontend repos..."
     for r in "${CEDAR_FRONTEND_REPOS[@]}"
     do
         release_frontend_repo $r
@@ -632,7 +652,7 @@ release_all_frontend_repos()
 
 release_all_component_repos()
 {
-    echo "Releasing component repos..."
+    log_progress "Releasing component repos..."
     for r in "${CEDAR_COMPONENT_REPOS[@]}"
     do
         if [ "$r" = "cedar-component-distribution" ]; then
@@ -646,7 +666,7 @@ release_all_component_repos()
 
 release_all_configuration_repos()
 {
-    echo "Releasing configuration repos..."
+    log_progress "Releasing configuration repos..."
     for r in "${CEDAR_CONFIGURATION_REPOS[@]}"
     do
         release_mavenless_repo $r
@@ -655,7 +675,7 @@ release_all_configuration_repos()
 
 release_all_documentation_repos()
 {
-    echo "Releasing documentation repos..."
+    log_progress "Releasing documentation repos..."
     for r in "${CEDAR_DOCUMENTATION_REPOS[@]}"
     do
         release_mavenless_repo $r
@@ -664,7 +684,7 @@ release_all_documentation_repos()
 
 release_all_client_repos()
 {
-    echo "Releasing client repos..."
+    log_progress "Releasing client repos..."
     for r in "${CEDAR_CLIENT_REPOS[@]}"
     do
         release_client_repo $r
@@ -673,7 +693,7 @@ release_all_client_repos()
 
 release_all_docker_build_repos()
 {
-    echo "Releasing Docker build repos..."
+    log_progress "Releasing Docker build repos..."
     for r in "${CEDAR_DOCKER_BUILD_REPOS[@]}"
     do
         release_docker_build_repo $r
@@ -682,7 +702,7 @@ release_all_docker_build_repos()
 
 release_all_docker_deploy_repos()
 {
-    echo "Releasing Docker deploy repos..."
+    log_progress "Releasing Docker deploy repos..."
     for r in "${CEDAR_DOCKER_DEPLOY_REPOS[@]}"
     do
         release_docker_deploy_repo $r
@@ -691,7 +711,7 @@ release_all_docker_deploy_repos()
 
 release_all_development_repos()
 {
-    echo "Releasing Development repos..."
+    log_progress "Releasing Development repos..."
     for r in "${CEDAR_DEVELOPMENT_REPOS[@]}"
     do
         release_development_repo $r
@@ -700,6 +720,7 @@ release_all_development_repos()
 
 build_all_parent_repos()
 {
+    log_progress 'Building parent repos'
     for r in "${CEDAR_PARENT_REPOS[@]}"
     do
         build_repo $r
@@ -708,11 +729,14 @@ build_all_parent_repos()
 
 build_all_project_repos()
 {
+    log_progress 'Building project repos'
     for r in "${CEDAR_PROJECT_REPOS[@]}"
     do
         build_repo $r
     done
 }
+
+log_progress 'Release process START'
 
 clone_repos_if_needed
 git_pull_all_repos
@@ -740,4 +764,5 @@ release_all_docker_deploy_repos
 
 release_all_development_repos
 
+log_progress 'Release process DONE'
 #TODO check that master release version builds locally and that the next snapshot builds locally.
