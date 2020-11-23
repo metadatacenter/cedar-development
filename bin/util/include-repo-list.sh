@@ -38,6 +38,7 @@ CEDAR_REPOS=(
   "cedar-util"
   "cedar-valuerecommender-server"
   "cedar-worker-server"
+  "cedar-embeddable-editor"
 )
 
 echo List of CEDAR repos:
