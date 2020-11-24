@@ -737,6 +737,7 @@ build_all_project_repos()
 }
 
 log_progress 'Release process START'
+log_progress "Release version ${CEDAR_RELEASE_VERSION}"
 
 clone_repos_if_needed
 git_pull_all_repos
