@@ -744,6 +744,8 @@ git_pull_all_repos
 
 empty_user_maven_cache
 
+release_all_client_repos
+
 build_all_parent_repos
 build_all_project_repos
 
@@ -757,8 +759,6 @@ release_all_frontend_repos
 release_all_component_repos
 
 release_all_documentation_repos
-
-release_all_client_repos
 
 release_all_docker_build_repos
 release_all_docker_deploy_repos
