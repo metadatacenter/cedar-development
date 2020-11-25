@@ -94,11 +94,14 @@ CEDAR_FRONTEND_REPOS=(
     "cedar-template-editor"
     "cedar-metadata-form"
     "cedar-openview"
+    "cedar-embeddable-editor"
+    "cedar-cee-demo-angular"
 )
 
 CEDAR_COMPONENT_REPOS=(
     "cedar-component-distribution"
     "cedar-openview-dist"
+    "cedar-cee-demo-angular-dist"
 )
 
 CEDAR_CONFIGURATION_REPOS=(
@@ -340,6 +343,9 @@ release_frontend_repo()
     if [ -f "src/index.html" ]; then
         sed -i '' 's/\/cedar-form-.*\.js/\/cedar-form-'${CEDAR_RELEASE_VERSION}'\.js/g' src/index.html
         sed -i '' 's/\/component\.metadatacenter\..*\/cedar-form\//\/component\.metadatacenter\.org\/cedar-form\//g' src/index.html
+
+        sed -i '' 's/\/cedar-embeddable-editor-.*\.js/\/cedar-embeddable-editor-'${CEDAR_RELEASE_VERSION}'\.js/g' src/index.html
+        sed -i '' 's/\/component\.metadatacenter\..*\/cedar-embeddable-editor\//\/component\.metadatacenter\.org\/cedar-embeddable-editor\//g' src/index.html
     fi
     APP_CONFIG_FILE="src/assets/data/appConfig.json"
     if [ -f ${APP_CONFIG_FILE} ]; then
@@ -365,6 +371,9 @@ release_frontend_repo()
     if [ -f "src/index.html" ]; then
         sed -i '' 's/\/cedar-form-.*\.js/\/cedar-form-'${CEDAR_NEXT_DEVELOPMENT_VERSION}'\.js/g' src/index.html
         sed -i '' 's/\/component\.metadatacenter\..*\/cedar-form\//\/component\.metadatacenter\.org\/cedar-form\//g' src/index.html
+
+        sed -i '' 's/\/cedar-embeddable-editor-.*\.js/\/cedar-embeddable-editor-'${CEDAR_NEXT_DEVELOPMENT_VERSION}'\.js/g' src/index.html
+        sed -i '' 's/\/component\.metadatacenter\..*\/cedar-embeddable-editor\//\/component\.metadatacenter\.org\/cedar-embeddable-editor\//g' src/index.html
     fi
     if [ -f "package-lock.json" ]; then
         jq '.version="'${CEDAR_NEXT_DEVELOPMENT_VERSION}'"' package-lock.json > jpackage-lock-jqed.json && mv jpackage-lock-jqed.json package-lock.json
@@ -526,6 +535,21 @@ build_openview_frontend()
     popd
 }
 
+build_cee_demo_angular_frontend()
+{
+    RELEASE_VERSION=$1
+    BRANCH=$2
+    pushd ${CEDAR_HOME}/cedar-cee-demo-angular
+    git checkout ${BRANCH}
+    git pull
+
+    npm install
+    ng build --prod --output-hashing=none
+    cp -a dist/cedar-cee-demo-angular/. ${CEDAR_HOME}/cedar-cee-demo-angular-dist/
+
+    popd
+}
+
 release_component_distribution_repo()
 {
     log_progress 'Releasing repo '$1
@@ -589,6 +613,37 @@ release_openview_dist_repo()
     git checkout develop
 
     build_metadata_form_component ${CEDAR_NEXT_DEVELOPMENT_VERSION} develop
+    git add .
+
+    git commit -a -m "Updated to next development version"
+    git push origin develop
+
+    popd
+
+}
+
+release_cee_demo_angular_dist_repo()
+{
+    log_progress 'Releasing repo '$1
+    pushd $CEDAR_HOME/$1
+
+    # Tag the latest development version
+    git checkout develop
+    git pull origin develop
+
+    build_cee_demo_angular_frontend ${CEDAR_RELEASE_VERSION} master
+    git add .
+
+    git commit -a -m "Produce release version of component"
+    git push origin develop
+
+    tag_repo_with_release_version $1
+    copy_release_to_master $1
+
+    # Return to develop branch
+    git checkout develop
+
+    build_embeddable_editor_component ${CEDAR_NEXT_DEVELOPMENT_VERSION} develop
     git add .
 
     git commit -a -m "Updated to next development version"
@@ -683,6 +738,9 @@ release_all_component_repos()
         fi
         if [ "$r" = "cedar-openview-dist" ]; then
             release_openview_dist_repo $r
+        fi
+        if [ "$r" = "cedar-cee-demo-angular-dist" ]; then
+            release_cee_demo_angular_dist_repo $r
         fi
     done
 }
