@@ -496,6 +496,21 @@ build_metadata_form_component()
 		popd
 }
 
+build_embeddable_editor_component()
+{
+    RELEASE_VERSION=$1
+    BRANCH=$2
+ 		pushd ${CEDAR_HOME}/cedar-embeddable-editor
+ 		git checkout ${BRANCH}
+ 		git pull
+
+    npm install
+		ng build --prod --output-hashing=none
+		cat dist/cedar-embeddable-editor/{runtime,polyfills,main}.js > ${CEDAR_HOME}/cedar-component-distribution/cedar-embeddable-editor/cedar-embeddable-editor-${RELEASE_VERSION}.js
+
+		popd
+}
+
 build_openview_frontend()
 {
     RELEASE_VERSION=$1
@@ -524,6 +539,10 @@ release_component_distribution_repo()
     build_metadata_form_component ${CEDAR_RELEASE_VERSION} master
     git add cedar-form/cedar-form-${CEDAR_RELEASE_VERSION}.js
 
+    rm cedar-embeddable-editor/cedar-embeddable-editor-*.js
+    build_embeddable_editor_component ${CEDAR_RELEASE_VERSION} master
+    git add cedar-embeddable-editor/cedar-embeddable-editor-${CEDAR_RELEASE_VERSION}.js
+
     git commit -a -m "Produce release version of component"
     git push origin develop
 
@@ -536,6 +555,10 @@ release_component_distribution_repo()
     rm cedar-form/cedar-form-*.js
     build_metadata_form_component ${CEDAR_NEXT_DEVELOPMENT_VERSION} develop
     git add cedar-form/cedar-form-${CEDAR_NEXT_DEVELOPMENT_VERSION}.js
+
+    rm cedar-embeddable-editor/cedar-embeddable-editor-*.js
+    build_embeddable_editor_component ${CEDAR_NEXT_DEVELOPMENT_VERSION} develop
+    git add cedar-embeddable-editor/cedar-embeddable-editor-${CEDAR_NEXT_DEVELOPMENT_VERSION}.js
 
     git commit -a -m "Updated to next development version"
     git push origin develop

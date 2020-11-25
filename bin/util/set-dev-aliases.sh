@@ -35,6 +35,9 @@ alias gomkdocs='cd $CEDAR_HOME/cedar-mkdocs'
 alias godevelopment='cd $CEDAR_HOME/cedar-development'
 alias gobuild='cd $CEDAR_HOME/cedar-docker-build'
 alias godeploy='cd $CEDAR_HOME/cedar-docker-deploy'
+alias gocomponent='cd $CEDAR_HOME/cedar-component-distribution'
+alias goceeang='cd $CEDAR_HOME/cedar-cee-demo-angular'
+alias goceeangdist='cd $CEDAR_HOME/cedar-cee-demo-angular-dist'
 
 alias goeventlistener='cd $CEDAR_HOME/cedar-keycloak-event-listener'
 
@@ -53,6 +56,7 @@ alias cedargcheckout='$CEDAR_UTIL_BIN/git/git-checkout-branch.sh'
 alias buildmetadataform='$CEDAR_UTIL_BIN/angular/build-metadata-form.sh'
 alias buildcee='$CEDAR_UTIL_BIN/angular/build-embeddable-editor.sh'
 alias buildopenviewdist='$CEDAR_UTIL_BIN/angular/build-openview-dist.sh'
+alias buildceeangulardist='$CEDAR_UTIL_BIN/angular/build-cee-demo-angular-dist.sh'
 
 #CEDAR Admin Tool alias
 alias cedarat='$CEDAR_UTIL_BIN/admintool/cedar-admin-tool.sh'
