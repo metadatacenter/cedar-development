@@ -19,6 +19,8 @@ CEDAR_HOSTS=(
     "user"
     "valuerecommender"
     "worker"
+    "demo-dist.cee"
+    "demo.cee"
 )
 
 counter=0
