@@ -39,6 +39,8 @@ CEDAR_REPOS=(
   "cedar-valuerecommender-server"
   "cedar-worker-server"
   "cedar-embeddable-editor"
+  "cedar-cee-demo-angular"
+  "cedar-cee-demo-angular-dist"
 )
 
 echo List of CEDAR repos:
