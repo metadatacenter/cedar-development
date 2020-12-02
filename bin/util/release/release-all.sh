@@ -74,6 +74,7 @@ CEDAR_SERVER_REPOS=(
     "cedar-server-core-library"
     "cedar-keycloak-event-listener"
     "cedar-admin-tool"
+    "cedar-cadsr-tools"
     "cedar-user-server"
     "cedar-artifact-server"
     "cedar-repo-server"
@@ -88,7 +89,6 @@ CEDAR_SERVER_REPOS=(
     "cedar-openview-server"
     "cedar-internals-server"
     "cedar-impex-server"
-    "cedar-cadsr-tools"
 )
 
 CEDAR_FRONTEND_REPOS=(
