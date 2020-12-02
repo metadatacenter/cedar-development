@@ -88,6 +88,7 @@ CEDAR_SERVER_REPOS=(
     "cedar-openview-server"
     "cedar-internals-server"
     "cedar-impex-server"
+    "cedar-cadsr-tools"
 )
 
 CEDAR_FRONTEND_REPOS=(
@@ -120,7 +121,6 @@ CEDAR_CLIENT_REPOS=(
     "cedar-archetype-instance-reader"
     "cedar-archetype-instance-writer" 
     "cedar-archetype-exporter" 
-    "cedar-cadsr-tools"
 )
 
 CEDAR_PROJECT_REPOS=(
@@ -160,7 +160,8 @@ log_progress()
 	echo ${STR} >> cedar-release.log
 }
 
-clone_repos_if_needed() {
+clone_repos_if_needed()
+{
     log_progress 'Cloning repos'
     pushd ${CEDAR_HOME}
     for r in "${CEDAR_ALL_REPOS[@]}"
@@ -176,7 +177,17 @@ clone_repos_if_needed() {
     popd
 }
 
-prompt_to_continue() {
+
+execute_jaxb2_workaround()
+{
+    log_progress 'Executing JAXB2 workaround script'
+    pushd ${CEDAR_HOME}
+    source ./cedar-development/bin/util/create-jaxb2-workaround.sh
+    popd
+}
+
+prompt_to_continue()
+{
     read -n 1 -p "Press enter to continue, any other key to quit. " answer
     if [ -z $answer ]
     then
@@ -190,7 +201,7 @@ prompt_to_continue() {
 exit_if_error()
 {
     if [ $? != 0 ]; then
-	echo "${RED}Something went wrong here!${NORMAL}"
+	      echo "${RED}Something went wrong here!${NORMAL}"
         #        exit 1
     fi
 }
@@ -824,6 +835,8 @@ clone_repos_if_needed
 git_pull_all_repos
 
 empty_user_maven_cache
+
+execute_jaxb2_workaround
 
 release_all_client_repos
 
