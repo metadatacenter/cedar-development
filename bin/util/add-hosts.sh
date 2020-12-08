@@ -21,6 +21,8 @@ CEDAR_HOSTS=(
     "worker"
     "demo-dist.cee"
     "demo.cee"
+    "api.cee"
+    "api-php.cee"
 )
 
 counter=0
