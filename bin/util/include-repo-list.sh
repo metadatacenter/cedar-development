@@ -23,6 +23,7 @@ CEDAR_REPOS=(
   "cedar-messaging-server"
   "cedar-metadata-form"
   "cedar-mkdocs"
+  "cedar-mkdocs-developer"
   "cedar-parent"
   "cedar-project"
   "cedar-repo-server"
@@ -41,6 +42,9 @@ CEDAR_REPOS=(
   "cedar-embeddable-editor"
   "cedar-cee-demo-angular"
   "cedar-cee-demo-angular-dist"
+  "cedar-cee-docs-angular"
+  "cedar-cee-docs-angular-dist"
+  "cedar-cee-demo-api-php"
 )
 
 echo List of CEDAR repos:
