@@ -19,8 +19,11 @@ CEDAR_HOSTS=(
     "user"
     "valuerecommender"
     "worker"
-    "demo-dist.cee"
     "demo.cee"
+    "demo-dist.cee"
+    "docs.cee"
+    "docs-dist.cee"
+    "api-php.cee"
 )
 
 counter=0

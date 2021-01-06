@@ -97,12 +97,14 @@ CEDAR_FRONTEND_REPOS=(
     "cedar-openview"
     "cedar-embeddable-editor"
     "cedar-cee-demo-angular"
+    "cedar-cee-docs-angular"
 )
 
 CEDAR_COMPONENT_REPOS=(
     "cedar-component-distribution"
     "cedar-openview-dist"
     "cedar-cee-demo-angular-dist"
+    "cedar-cee-docs-angular-dist"
 )
 
 CEDAR_CONFIGURATION_REPOS=(
@@ -114,6 +116,7 @@ CEDAR_DOCUMENTATION_REPOS=(
     "cedar-docs"
     "cedar-swagger-ui"
     "cedar-mkdocs"
+    "cedar-mkdocs-developer"
 )
 
 CEDAR_CLIENT_REPOS=(

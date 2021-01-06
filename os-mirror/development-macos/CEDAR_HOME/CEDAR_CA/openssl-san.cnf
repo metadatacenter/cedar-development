@@ -245,6 +245,11 @@ DNS.15  = terminology.metadatacenter.orgx
 DNS.16  = user.metadatacenter.orgx
 DNS.17  = valuerecommender.metadatacenter.orgx
 DNS.18  = worker.metadatacenter.orgx
+DNS.19  = demo.cee.metadatacenter.orgx
+DNS.20  = demo-dist.cee.metadatacenter.orgx
+DNS.21  = docs.cee.metadatacenter.orgx
+DNS.22  = docs-dist.cee.metadatacenter.orgx
+DNS.23  = api-php.cee.metadatacenter.orgx
 
 [ v3_ca ]
 
