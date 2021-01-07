@@ -102,6 +102,7 @@ CEDAR_FRONTEND_REPOS=(
 
 CEDAR_COMPONENT_REPOS=(
     "cedar-component-distribution"
+    "cedar-shared-data"
     "cedar-openview-dist"
     "cedar-cee-demo-angular-dist"
     "cedar-cee-docs-angular-dist"
@@ -620,6 +621,34 @@ release_component_distribution_repo()
     popd || exit
 }
 
+release_shared_data_repo()
+{
+    log_progress "Releasing repo $1"
+    pushd "$CEDAR_HOME/$1" || exit
+
+    # Tag the latest development version
+    git checkout develop
+    git pull origin develop
+
+    git add .
+
+    git commit -a -m "Produce release version of component"
+    git push origin develop
+
+    tag_repo_with_release_version "$1"
+    copy_release_to_master "$1"
+
+    # Return to develop branch
+    git checkout develop
+
+    git add .
+
+    git commit -a -m "Updated to next development version"
+    git push origin develop
+
+    popd || exit
+}
+
 release_openview_dist_repo()
 {
     log_progress "Releasing repo $1"
@@ -721,7 +750,6 @@ update_cedar_parent_version()
 git_pull_branch()
 {
     log_progress "Pulling repo $1"
-    printf "$1" "$CEDAR_HOME/$1"
     git -C "$CEDAR_HOME/$1" checkout "$2"
     git -C "$CEDAR_HOME/$1" pull
 }
@@ -793,6 +821,9 @@ release_all_component_repos()
     do
         if [ "$r" = "cedar-component-distribution" ]; then
             release_component_distribution_repo "$r"
+        fi
+        if [ "$r" = "cedar-shared-data" ]; then
+            release_shared_data_repo "$r"
         fi
         if [ "$r" = "cedar-openview-dist" ]; then
             release_openview_dist_repo "$r"
