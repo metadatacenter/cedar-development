@@ -159,40 +159,40 @@ CEDAR_ALL_REPOS=(
 log_progress()
 {
 	STR='CEDAR Release | '$(date +"%Y-%m-%d %H:%M:%S")' | '${1}
-	echo ${STR}
-	echo ${STR} >> cedar-release.log
+	echo "${STR}"
+	echo "${STR}" >> cedar-release.log
 }
 
 clone_repos_if_needed()
 {
     log_progress 'Cloning repos'
-    pushd ${CEDAR_HOME}
+    pushd "${CEDAR_HOME}" || exit
     for r in "${CEDAR_ALL_REPOS[@]}"
     do
         if [[ ! -d $r ]]; then
-            log_progress "Cloning repo "$r
-            git clone https://github.com/metadatacenter/$r
-            pushd $r
+            log_progress "Cloning repo $r"
+            git clone "https://github.com/metadatacenter/$r"
+            pushd "$r" || exit
             git checkout develop
-            popd
+            popd || exit
         fi
     done
-    popd
+    popd || exit
 }
 
 
 execute_jaxb2_workaround()
 {
     log_progress 'Executing JAXB2 workaround script'
-    pushd ${CEDAR_HOME}
+    pushd "${CEDAR_HOME}" || exit
     source ./cedar-development/bin/util/create-jaxb2-workaround.sh
-    popd
+    popd || exit
 }
 
 prompt_to_continue()
 {
     read -n 1 -p "Press enter to continue, any other key to quit. " answer
-    if [ -z $answer ]
+    if [ -z "$answer" ]
     then
         return 0
     else
@@ -218,11 +218,11 @@ update_repo_parent_to_release()
     mvn -DallowSnapshots=false versions:update-properties # Update version properties to point to latest release versions
 
     SWAGGER_COUNT="$(find . -name 'swagger.json' | grep /src/ | wc -l)"
-    echo 'Found' $SWAGGER_COUNT ' swagger.json files'
-    if [ $SWAGGER_COUNT -eq 1 ]; then
+    echo "Found $SWAGGER_COUNT swagger.json files"
+    if [ "$SWAGGER_COUNT" -eq 1 ]; then
       echo "Replace version in swagger.json"
       SWAGGER_FILE="$(find . -name 'swagger.json' | grep /src/)"
-      jq '.info.version="'${CEDAR_RELEASE_VERSION}'"' "$SWAGGER_FILE" > "$SWAGGER_FILE.jq" && mv "$SWAGGER_FILE.jq" "$SWAGGER_FILE"
+      jq '.info.version="'"${CEDAR_RELEASE_VERSION}"'"' "$SWAGGER_FILE" > "$SWAGGER_FILE.jq" && mv "$SWAGGER_FILE.jq" "$SWAGGER_FILE"
     fi
 
     git commit -a -m "Updated parent POM and dependency versions to release version"
@@ -232,7 +232,7 @@ update_repo_parent_to_release()
 release_artifact()
 {
     # Perform a release using the Maven Releases Plugin and tag it
-    mvn -Darguments="-DskipTests" --batch-mode -Dtag=$CEDAR_RELEASE_TAG -DreleaseVersion=$CEDAR_RELEASE_VERSION -DscmCommentPrefix="[ci skip] " release:clean release:prepare
+    mvn -Darguments="-DskipTests" --batch-mode -Dtag="$CEDAR_RELEASE_TAG" -DreleaseVersion="$CEDAR_RELEASE_VERSION" -DscmCommentPrefix="[ci skip] " release:clean release:prepare
     mvn -Darguments="-DskipTests -Dmaven.javadoc.skip=true" release:perform
     git push 
 }
@@ -242,7 +242,7 @@ copy_release_to_master()
     # Make the master branch reflect the released version
     git checkout master
     git pull
-    git merge -X theirs --no-ff -m "$CEDAR_RELEASE_VERSION" $CEDAR_RELEASE_TAG
+    git merge -X theirs --no-ff -m "$CEDAR_RELEASE_VERSION" "$CEDAR_RELEASE_TAG"
     git push
 }
 
@@ -260,11 +260,11 @@ update_repo_to_next_development_version()
     mvn -DallowSnapshots=true versions:update-properties # Update version properties to point to latest development versions
 
     SWAGGER_COUNT="$(find . -name 'swagger.json' | grep /src/ | wc -l)"
-    echo 'Found' $SWAGGER_COUNT ' swagger.json files'
-    if [ $SWAGGER_COUNT -eq 1 ]; then
+    echo "Found $SWAGGER_COUNT swagger.json files"
+    if [ "$SWAGGER_COUNT" -eq 1 ]; then
       echo "Replace version in swagger.json"
       SWAGGER_FILE="$(find . -name 'swagger.json' | grep /src/)"
-      jq '.info.version="'${CEDAR_NEXT_DEVELOPMENT_VERSION}'"' "$SWAGGER_FILE" > "$SWAGGER_FILE.jq" && mv "$SWAGGER_FILE.jq" "$SWAGGER_FILE"
+      jq '.info.version="'"${CEDAR_NEXT_DEVELOPMENT_VERSION}"'"' "$SWAGGER_FILE" > "$SWAGGER_FILE.jq" && mv "$SWAGGER_FILE.jq" "$SWAGGER_FILE"
     fi
 
     git commit -a -m "Updated CEDAR component dependencies to point to current development snapshots"
@@ -277,62 +277,63 @@ tag_repo_with_release_version()
     # Tag the latest development version
     git checkout develop
     git pull 
-    git tag $CEDAR_RELEASE_TAG
-    git push origin $CEDAR_RELEASE_TAG
+    git tag "$CEDAR_RELEASE_TAG"
+    git push origin "$CEDAR_RELEASE_TAG"
 }
 
 release_parent_repo()
 {
-    log_progress 'Releasing repo '$1
-    pushd $CEDAR_HOME/$1
+    log_progress "Releasing repo $1"
+    pushd "$CEDAR_HOME/$1" || exit
     git checkout develop
-    sed -i '' 's/<cedar.version>.*<\/cedar.version>/<cedar.version>'${CEDAR_RELEASE_VERSION}'<\/cedar.version>/g' pom.xml 
+    sed -i '' 's/<cedar.version>.*<\/cedar.version>/<cedar.version>'"${CEDAR_RELEASE_VERSION}"'<\/cedar.version>/g' pom.xml
     git commit -a -m "Updated cedar.version to release version"
     git push 
 
-    release_artifact $1
-    copy_release_to_master $1
+    release_artifact "$1"
+    copy_release_to_master "$1"
     install_artifact
     
     # Return to develop branch and deploy latest development version
     git checkout develop
-    sed -i '' 's/<cedar.version>.*<\/cedar.version>/<cedar.version>'${CEDAR_NEXT_DEVELOPMENT_VERSION}'<\/cedar.version>/g' pom.xml 
+    sed -i '' 's/<cedar.version>.*<\/cedar.version>/<cedar.version>'"${CEDAR_NEXT_DEVELOPMENT_VERSION}"'<\/cedar.version>/g' pom.xml
     git commit -a -m "Updated cedar.version to next development version"
     git push 
     mvn clean deploy # deploy development artifact
-    popd
+
+    popd || exit
 }
 
 release_server_repo()
 {
-    log_progress 'Releasing repo '$1
-    pushd $CEDAR_HOME/$1
+    log_progress "Releasing repo $1"
+    pushd "$CEDAR_HOME/$1" || exit
 
-    update_repo_parent_to_release $1
+    update_repo_parent_to_release "$1"
 
-    release_artifact $1
-    copy_release_to_master $1
+    release_artifact "$1"
+    copy_release_to_master "$1"
     install_artifact
     
-    update_repo_to_next_development_version $1
+    update_repo_to_next_development_version "$1"
 
-    popd
+    popd || exit
 }
 
 release_project_repo()
 {
-    log_progress 'Releasing repo '$1
-    pushd $CEDAR_HOME/$1
+    log_progress "Releasing repo $1"
+    pushd "$CEDAR_HOME/$1" || exit
 
     # Update to next release version
     git checkout develop
     git pull 
-    mvn versions:set -DnewVersion=$CEDAR_RELEASE_VERSION -DupdateMatchingVersions=false
+    mvn versions:set -DnewVersion="$CEDAR_RELEASE_VERSION" -DupdateMatchingVersions=false
     git commit -a -m "Update to next release version"
     git push
 
-    tag_repo_with_release_version $1    
-    copy_release_to_master $1
+    tag_repo_with_release_version "$1"
+    copy_release_to_master "$1"
     install_artifact
     
     # Return to develop branch and update to next development version
@@ -342,23 +343,23 @@ release_project_repo()
     git commit -a -m "Update to next development version"
     git push
 
-    popd
+    popd || exit
 }
 
 release_frontend_repo()
 {
-    log_progress 'Releasing repo '$1
-    pushd $CEDAR_HOME/$1
+    log_progress "Releasing repo $1"
+    pushd "$CEDAR_HOME/$1" || exit
 
     git checkout develop
     git pull
-    sed -i '' 's/- CEDAR_VERSION\s*=.*\".*\"/- CEDAR_VERSION=\"'${CEDAR_RELEASE_VERSION}'\"/g' .travis.yml
+    sed -i '' 's/- CEDAR_VERSION\s*=.*\".*\"/- CEDAR_VERSION=\"'"${CEDAR_RELEASE_VERSION}"'\"/g' .travis.yml
     # cedar-openview webcomponent reference
     if [ -f "src/index.html" ]; then
-        sed -i '' 's/\/cedar-form-.*\.js/\/cedar-form-'${CEDAR_RELEASE_VERSION}'\.js/g' src/index.html
+        sed -i '' 's/\/cedar-form-.*\.js/\/cedar-form-'"${CEDAR_RELEASE_VERSION}"'\.js/g' src/index.html
         sed -i '' 's/\/component\.metadatacenter\..*\/cedar-form\//\/component\.metadatacenter\.org\/cedar-form\//g' src/index.html
 
-        sed -i '' 's/\/cedar-embeddable-editor-.*\.js/\/cedar-embeddable-editor-'${CEDAR_RELEASE_VERSION}'\.js/g' src/index.html
+        sed -i '' 's/\/cedar-embeddable-editor-.*\.js/\/cedar-embeddable-editor-'"${CEDAR_RELEASE_VERSION}"'\.js/g' src/index.html
         sed -i '' 's/\/component\.metadatacenter\..*\/cedar-embeddable-editor\//\/component\.metadatacenter\.org\/cedar-embeddable-editor\//g' src/index.html
     fi
     APP_CONFIG_FILE="src/assets/data/appConfig.json"
@@ -368,317 +369,360 @@ release_frontend_repo()
       jq '.terminologyUrl="'https://terminology.metadatacenter.org/'"' "${APP_CONFIG_FILE}" > "${APP_CONFIG_FILE}.jq" && mv "${APP_CONFIG_FILE}.jq" "${APP_CONFIG_FILE}"
     fi
     if [ -f "package-lock.json" ]; then
-        jq '.version="'${CEDAR_RELEASE_VERSION}'"' package-lock.json > jpackage-lock-jqed.json && mv jpackage-lock-jqed.json package-lock.json
+        jq '.version="'"${CEDAR_RELEASE_VERSION}"'"' package-lock.json > jpackage-lock-jqed.json && mv jpackage-lock-jqed.json package-lock.json
     fi
-    jq '.version="'${CEDAR_RELEASE_VERSION}'"' package.json > package-jqed.json && mv package-jqed.json package.json
+    jq '.version="'"${CEDAR_RELEASE_VERSION}"'"' package.json > package-jqed.json && mv package-jqed.json package.json
     git commit -a -m "Set release version for .travis.yml and package.json"
     git push
     
-    tag_repo_with_release_version $1
-    copy_release_to_master $1
+    tag_repo_with_release_version "$1"
+    copy_release_to_master "$1"
     npm publish 
     
     # Return to develop branch 
     git checkout develop
-    sed -i '' 's/- CEDAR_VERSION\s*=.*\".*\"/- CEDAR_VERSION=\"'${CEDAR_NEXT_DEVELOPMENT_VERSION}'\"/g' .travis.yml
+    sed -i '' 's/- CEDAR_VERSION\s*=.*\".*\"/- CEDAR_VERSION=\"'"${CEDAR_NEXT_DEVELOPMENT_VERSION}"'\"/g' .travis.yml
     # cedar-openview webcomponent reference
     if [ -f "src/index.html" ]; then
-        sed -i '' 's/\/cedar-form-.*\.js/\/cedar-form-'${CEDAR_NEXT_DEVELOPMENT_VERSION}'\.js/g' src/index.html
+        sed -i '' 's/\/cedar-form-.*\.js/\/cedar-form-'"${CEDAR_NEXT_DEVELOPMENT_VERSION}"'\.js/g' src/index.html
         sed -i '' 's/\/component\.metadatacenter\..*\/cedar-form\//\/component\.metadatacenter\.org\/cedar-form\//g' src/index.html
 
-        sed -i '' 's/\/cedar-embeddable-editor-.*\.js/\/cedar-embeddable-editor-'${CEDAR_NEXT_DEVELOPMENT_VERSION}'\.js/g' src/index.html
+        sed -i '' 's/\/cedar-embeddable-editor-.*\.js/\/cedar-embeddable-editor-'"${CEDAR_NEXT_DEVELOPMENT_VERSION}"'\.js/g' src/index.html
         sed -i '' 's/\/component\.metadatacenter\..*\/cedar-embeddable-editor\//\/component\.metadatacenter\.org\/cedar-embeddable-editor\//g' src/index.html
     fi
     if [ -f "package-lock.json" ]; then
-        jq '.version="'${CEDAR_NEXT_DEVELOPMENT_VERSION}'"' package-lock.json > jpackage-lock-jqed.json && mv jpackage-lock-jqed.json package-lock.json
+        jq '.version="'"${CEDAR_NEXT_DEVELOPMENT_VERSION}"'"' package-lock.json > jpackage-lock-jqed.json && mv jpackage-lock-jqed.json package-lock.json
     fi
-    jq '.version="'${CEDAR_NEXT_DEVELOPMENT_VERSION}'"' package.json > package-jqed.json && mv package-jqed.json package.json
+    jq '.version="'"${CEDAR_NEXT_DEVELOPMENT_VERSION}"'"' package.json > package-jqed.json && mv package-jqed.json package.json
     git commit -a -m "Updated to next development version"
     git push
 
     npm publish 
 
-    popd
+    popd || exit
 }
 
 release_docker_build_repo()
 {
-    log_progress 'Releasing repo '$1
-    pushd $CEDAR_HOME/$1
+    log_progress "Releasing repo $1"
+    pushd "$CEDAR_HOME/$1" || exit
 
     # Tag the latest development version
     git checkout develop
     git pull origin develop
-    find . -name Dockerfile -exec sed -i '' 's/^FROM metadatacenter\/cedar-microservice:.*$/FROM metadatacenter\/cedar-microservice:'${CEDAR_RELEASE_VERSION}'/' {} \; -print
-    find . -name Dockerfile -exec sed -i '' 's/^FROM metadatacenter\/cedar-java:.*$/FROM metadatacenter\/cedar-java:'${CEDAR_RELEASE_VERSION}'/' {} \; -print
-    find . -name Dockerfile -exec sed -i '' 's/^ENV CEDAR_VERSION=.*$/ENV CEDAR_VERSION='${CEDAR_RELEASE_VERSION}'/' {} \; -print
-    sed -i '' 's/^export IMAGE_VERSION=.*$/export IMAGE_VERSION='${CEDAR_RELEASE_VERSION}'/' ./bin/cedar-images-base.sh
+    find . -name Dockerfile -exec sed -i '' 's/^FROM metadatacenter\/cedar-microservice:.*$/FROM metadatacenter\/cedar-microservice:'"${CEDAR_RELEASE_VERSION}"'/' {} \; -print
+    find . -name Dockerfile -exec sed -i '' 's/^FROM metadatacenter\/cedar-java:.*$/FROM metadatacenter\/cedar-java:'"${CEDAR_RELEASE_VERSION}"'/' {} \; -print
+    find . -name Dockerfile -exec sed -i '' 's/^ENV CEDAR_VERSION=.*$/ENV CEDAR_VERSION='"${CEDAR_RELEASE_VERSION}"'/' {} \; -print
+    sed -i '' 's/^export IMAGE_VERSION=.*$/export IMAGE_VERSION='"${CEDAR_RELEASE_VERSION}"'/' ./bin/cedar-images-base.sh
     git commit -a -m "Set the release version in the Dockerfiles"
     git push origin develop
 
-    tag_repo_with_release_version $1
-    copy_release_to_master $1
+    tag_repo_with_release_version "$1"
+    copy_release_to_master "$1"
     
     # Return to develop branch 
     git checkout develop
-    find . -name Dockerfile -exec sed -i '' 's/^FROM metadatacenter\/cedar-microservice:.*$/FROM metadatacenter\/cedar-microservice:'${CEDAR_NEXT_DEVELOPMENT_VERSION}'/' {} \; -print
-    find . -name Dockerfile -exec sed -i '' 's/^FROM metadatacenter\/cedar-java:.*$/FROM metadatacenter\/cedar-java:'${CEDAR_NEXT_DEVELOPMENT_VERSION}'/' {} \; -print
-    find . -name Dockerfile -exec sed -i '' 's/^ENV CEDAR_VERSION=.*$/ENV CEDAR_VERSION='${CEDAR_NEXT_DEVELOPMENT_VERSION}'/' {} \; -print
-    sed -i '' 's/^export IMAGE_VERSION=.*$/export IMAGE_VERSION='${CEDAR_NEXT_DEVELOPMENT_VERSION}'/' ./bin/cedar-images-base.sh
+    find . -name Dockerfile -exec sed -i '' 's/^FROM metadatacenter\/cedar-microservice:.*$/FROM metadatacenter\/cedar-microservice:'"${CEDAR_NEXT_DEVELOPMENT_VERSION}"'/' {} \; -print
+    find . -name Dockerfile -exec sed -i '' 's/^FROM metadatacenter\/cedar-java:.*$/FROM metadatacenter\/cedar-java:'"${CEDAR_NEXT_DEVELOPMENT_VERSION}"'/' {} \; -print
+    find . -name Dockerfile -exec sed -i '' 's/^ENV CEDAR_VERSION=.*$/ENV CEDAR_VERSION='"${CEDAR_NEXT_DEVELOPMENT_VERSION}"'/' {} \; -print
+    sed -i '' 's/^export IMAGE_VERSION=.*$/export IMAGE_VERSION='"${CEDAR_NEXT_DEVELOPMENT_VERSION}"'/' ./bin/cedar-images-base.sh
     git commit -a -m "Updated to next development version"
     git push origin develop
 
-    popd
+    popd || exit
 }
 
 release_docker_deploy_repo()
 {
-    log_progress 'Releasing repo '$1
-    pushd $CEDAR_HOME/$1
+    log_progress "Releasing repo $1"
+    pushd "$CEDAR_HOME/$1" || exit
 
     # Tag the latest development version
     git checkout develop
     git pull origin develop
-    find . -name .env -exec sed -i '' 's/^CEDAR_DOCKER_VERSION=.*$/CEDAR_DOCKER_VERSION='${CEDAR_RELEASE_VERSION}'/' {} \; -print
+    find . -name .env -exec sed -i '' 's/^CEDAR_DOCKER_VERSION=.*$/CEDAR_DOCKER_VERSION='"${CEDAR_RELEASE_VERSION}"'/' {} \; -print
     git commit -a -m "Set the release version in the Dockerfiles"
     git push origin develop
 
-    tag_repo_with_release_version $1
-    copy_release_to_master $1
+    tag_repo_with_release_version "$1"
+    copy_release_to_master "$1"
     
     # Return to develop branch 
     git checkout develop
-    find . -name .env -exec sed -i '' 's/CEDAR_DOCKER_VERSION=.*$/CEDAR_DOCKER_VERSION='${CEDAR_NEXT_DEVELOPMENT_VERSION}'/' {} \; -print
+    find . -name .env -exec sed -i '' 's/CEDAR_DOCKER_VERSION=.*$/CEDAR_DOCKER_VERSION='"${CEDAR_NEXT_DEVELOPMENT_VERSION}"'/' {} \; -print
     git commit -a -m "Updated to next development version"
     git push origin develop
     
-    popd
+    popd || exit
 }
 
 release_development_repo()
 {
-    log_progress 'Releasing repo '$1
-    pushd $CEDAR_HOME/$1
+    log_progress "Releasing repo $1"
+    pushd "$CEDAR_HOME/$1" || exit
 
     # Tag the latest development version
     git checkout develop
     git pull origin develop
-    sed -i '' 's/^export CEDAR_VERSION=.*$/export CEDAR_VERSION='${CEDAR_RELEASE_VERSION}'/' ./bin/util/set-env-generic.sh
+    sed -i '' 's/^export CEDAR_VERSION=.*$/export CEDAR_VERSION='"${CEDAR_RELEASE_VERSION}"'/' ./bin/util/set-env-generic.sh
     git commit -a -m "Set the release version in the shell scripts"
     git push origin develop
 
-    tag_repo_with_release_version $1
-    copy_release_to_master $1
+    tag_repo_with_release_version "$1"
+    copy_release_to_master "$1"
 
     # Return to develop branch
     git checkout develop
-    sed -i '' 's/^export CEDAR_VERSION=.*$/export CEDAR_VERSION='${CEDAR_NEXT_DEVELOPMENT_VERSION}'/' ./bin/util/set-env-generic.sh
+    sed -i '' 's/^export CEDAR_VERSION=.*$/export CEDAR_VERSION='"${CEDAR_NEXT_DEVELOPMENT_VERSION}"'/' ./bin/util/set-env-generic.sh
     git commit -a -m "Updated to next development version"
     git push origin develop
 
-    popd
+    popd || exit
 }
 
 release_mavenless_repo()
 {
-    log_progress 'Releasing repo '$1
-    pushd $CEDAR_HOME/$1
+    log_progress "Releasing repo $1"
+    pushd "$CEDAR_HOME/$1" || exit
 
-    tag_repo_with_release_version $1
-    copy_release_to_master $1
+    tag_repo_with_release_version "$1"
+    copy_release_to_master "$1"
     git checkout develop
 
-    popd
+    popd || exit
 }
 
 release_client_repo()
 {
-    log_progress 'Releasing repo '$1
-    pushd $CEDAR_HOME/$1
+    log_progress "Releasing repo $1"
+    pushd "$CEDAR_HOME/$1" || exit
 
-    update_repo_parent_to_release $1
-    release_artifact $1
-    copy_release_to_master $1
-    update_repo_to_next_development_version $1
+    update_repo_parent_to_release "$1"
+    release_artifact "$1"
+    copy_release_to_master "$1"
+    update_repo_to_next_development_version "$1"
 
-    popd
+    popd || exit
 }
 
 build_metadata_form_component()
 {
     RELEASE_VERSION=$1
     BRANCH=$2
- 		pushd ${CEDAR_HOME}/cedar-metadata-form
- 		git checkout ${BRANCH}
+ 		pushd "${CEDAR_HOME}/cedar-metadata-form" || exit
+ 		git checkout "${BRANCH}"
  		git pull
 
     npm install
 		ng build --prod --output-hashing=none
-		cat dist/cedar-form/{runtime,polyfills,main}.js > ${CEDAR_HOME}/cedar-component-distribution/cedar-form/cedar-form-${RELEASE_VERSION}.js
+		cat dist/cedar-form/{runtime,polyfills,main}.js > "${CEDAR_HOME}/cedar-component-distribution/cedar-form/cedar-form-${RELEASE_VERSION}.js"
 
-		popd
+		popd || exit
 }
 
 build_embeddable_editor_component()
 {
     RELEASE_VERSION=$1
     BRANCH=$2
- 		pushd ${CEDAR_HOME}/cedar-embeddable-editor
- 		git checkout ${BRANCH}
+ 		pushd "${CEDAR_HOME}/cedar-embeddable-editor" || exit
+ 		git checkout "${BRANCH}"
  		git pull
 
     npm install
 		ng build --prod --output-hashing=none
-		cat dist/cedar-embeddable-editor/{runtime,polyfills,main}.js > ${CEDAR_HOME}/cedar-component-distribution/cedar-embeddable-editor/cedar-embeddable-editor-${RELEASE_VERSION}.js
+		cat dist/cedar-embeddable-editor/{runtime,polyfills,main}.js > "${CEDAR_HOME}/cedar-component-distribution/cedar-embeddable-editor/cedar-embeddable-editor-${RELEASE_VERSION}.js"
 
-		popd
+		popd || exit
 }
 
 build_openview_frontend()
 {
     RELEASE_VERSION=$1
     BRANCH=$2
-    pushd ${CEDAR_HOME}/cedar-openview
-    git checkout ${BRANCH}
+    pushd "${CEDAR_HOME}/cedar-openview" || exit
+    git checkout "${BRANCH}"
     git pull
 
     npm install
     ng build --prod --output-hashing=none
-    cp -a dist/cedar-openview/. ${CEDAR_HOME}/cedar-openview-dist/
+    cp -a dist/cedar-openview/. "${CEDAR_HOME}/cedar-openview-dist/"
 
-    popd
+    popd || exit
 }
 
 build_cee_demo_angular_frontend()
 {
     RELEASE_VERSION=$1
     BRANCH=$2
-    pushd ${CEDAR_HOME}/cedar-cee-demo-angular
-    git checkout ${BRANCH}
+    pushd "${CEDAR_HOME}/cedar-cee-demo-angular" || exit
+    git checkout "${BRANCH}"
     git pull
 
     npm install
     ng build --prod --output-hashing=none
-    cp -a dist/cedar-cee-demo-angular/. ${CEDAR_HOME}/cedar-cee-demo-angular-dist/
+    cp -a dist/cedar-cee-demo-angular/. "${CEDAR_HOME}/cedar-cee-demo-angular-dist/"
 
-    popd
+    popd || exit
+}
+
+build_cee_docs_angular_frontend()
+{
+    RELEASE_VERSION=$1
+    BRANCH=$2
+    pushd "${CEDAR_HOME}/cedar-cee-docs-angular" || exit
+    git checkout "${BRANCH}"
+    git pull
+
+    npm install
+    ng build --prod --output-hashing=none
+    cp -a dist/cedar-cee-docs-angular/. "${CEDAR_HOME}/cedar-cee-docs-angular-dist/"
+
+    popd || exit
 }
 
 release_component_distribution_repo()
 {
-    log_progress 'Releasing repo '$1
-    pushd $CEDAR_HOME/$1
+    log_progress "Releasing repo $1"
+    pushd "$CEDAR_HOME/$1" || exit
 
     # Tag the latest development version
     git checkout develop
     git pull origin develop
 
     rm cedar-form/cedar-form-*.js
-    build_metadata_form_component ${CEDAR_RELEASE_VERSION} master
-    git add cedar-form/cedar-form-${CEDAR_RELEASE_VERSION}.js
+    build_metadata_form_component "${CEDAR_RELEASE_VERSION}" master
+    git add "cedar-form/cedar-form-${CEDAR_RELEASE_VERSION}.js"
 
     rm cedar-embeddable-editor/cedar-embeddable-editor-*.js
-    build_embeddable_editor_component ${CEDAR_RELEASE_VERSION} master
-    git add cedar-embeddable-editor/cedar-embeddable-editor-${CEDAR_RELEASE_VERSION}.js
+    build_embeddable_editor_component "${CEDAR_RELEASE_VERSION}" master
+    git add "cedar-embeddable-editor/cedar-embeddable-editor-${CEDAR_RELEASE_VERSION}.js"
 
     git commit -a -m "Produce release version of component"
     git push origin develop
 
-    tag_repo_with_release_version $1
-    copy_release_to_master $1
+    tag_repo_with_release_version "$1"
+    copy_release_to_master "$1"
 
     # Return to develop branch
     git checkout develop
 
     rm cedar-form/cedar-form-*.js
-    build_metadata_form_component ${CEDAR_NEXT_DEVELOPMENT_VERSION} develop
-    git add cedar-form/cedar-form-${CEDAR_NEXT_DEVELOPMENT_VERSION}.js
+    build_metadata_form_component "${CEDAR_NEXT_DEVELOPMENT_VERSION}" develop
+    git add "cedar-form/cedar-form-${CEDAR_NEXT_DEVELOPMENT_VERSION}.js"
 
     rm cedar-embeddable-editor/cedar-embeddable-editor-*.js
-    build_embeddable_editor_component ${CEDAR_NEXT_DEVELOPMENT_VERSION} develop
-    git add cedar-embeddable-editor/cedar-embeddable-editor-${CEDAR_NEXT_DEVELOPMENT_VERSION}.js
+    build_embeddable_editor_component "${CEDAR_NEXT_DEVELOPMENT_VERSION}" develop
+    git add "cedar-embeddable-editor/cedar-embeddable-editor-${CEDAR_NEXT_DEVELOPMENT_VERSION}.js"
 
     git commit -a -m "Updated to next development version"
     git push origin develop
 
-    popd
-
+    popd || exit
 }
 
 release_openview_dist_repo()
 {
-    log_progress 'Releasing repo '$1
-    pushd $CEDAR_HOME/$1
+    log_progress "Releasing repo $1"
+    pushd "$CEDAR_HOME/$1" || exit
 
     # Tag the latest development version
     git checkout develop
     git pull origin develop
 
-    build_openview_frontend ${CEDAR_RELEASE_VERSION} master
+    build_openview_frontend "${CEDAR_RELEASE_VERSION}" master
     git add .
 
     git commit -a -m "Produce release version of component"
     git push origin develop
 
-    tag_repo_with_release_version $1
-    copy_release_to_master $1
+    tag_repo_with_release_version "$1"
+    copy_release_to_master "$1"
 
     # Return to develop branch
     git checkout develop
 
-    build_metadata_form_component ${CEDAR_NEXT_DEVELOPMENT_VERSION} develop
+    build_openview_frontend "${CEDAR_NEXT_DEVELOPMENT_VERSION}" develop
     git add .
 
     git commit -a -m "Updated to next development version"
     git push origin develop
 
-    popd
-
+    popd || exit
 }
 
 release_cee_demo_angular_dist_repo()
 {
-    log_progress 'Releasing repo '$1
-    pushd $CEDAR_HOME/$1
+    log_progress "Releasing repo $1"
+    pushd "$CEDAR_HOME/$1" || exit
 
     # Tag the latest development version
     git checkout develop
     git pull origin develop
 
-    build_cee_demo_angular_frontend ${CEDAR_RELEASE_VERSION} master
+    build_cee_demo_angular_frontend "${CEDAR_RELEASE_VERSION}" master
     git add .
 
     git commit -a -m "Produce release version of component"
     git push origin develop
 
-    tag_repo_with_release_version $1
-    copy_release_to_master $1
+    tag_repo_with_release_version "$1"
+    copy_release_to_master "$1"
 
     # Return to develop branch
     git checkout develop
 
-    build_embeddable_editor_component ${CEDAR_NEXT_DEVELOPMENT_VERSION} develop
+    build_cee_demo_angular_frontend "${CEDAR_NEXT_DEVELOPMENT_VERSION}" develop
     git add .
 
     git commit -a -m "Updated to next development version"
     git push origin develop
 
-    popd
+    popd || exit
+}
 
+release_cee_docs_angular_dist_repo()
+{
+    log_progress "Releasing repo $1"
+    pushd "$CEDAR_HOME/$1" || exit
+
+    # Tag the latest development version
+    git checkout develop
+    git pull origin develop
+
+    build_cee_docs_angular_frontend "${CEDAR_RELEASE_VERSION}" master
+    git add .
+
+    git commit -a -m "Produce release version of component"
+    git push origin develop
+
+    tag_repo_with_release_version "$1"
+    copy_release_to_master "$1"
+
+    # Return to develop branch
+    git checkout develop
+
+    build_cee_docs_angular_frontend "${CEDAR_NEXT_DEVELOPMENT_VERSION}" develop
+    git add .
+
+    git commit -a -m "Updated to next development version"
+    git push origin develop
+
+    popd || exit
 }
 
 update_cedar_parent_version()
 {
     git checkout develop
-    sed -i '' 's/<cedar.version>.*<\/cedar.version>/<cedar.version>'${CEDAR_RELEASE_VERSION}'<\/cedar.version>/g' pom.xml 
+    sed -i '' 's/<cedar.version>.*<\/cedar.version>/<cedar.version>'"${CEDAR_RELEASE_VERSION}"'<\/cedar.version>/g' pom.xml
     git commit -a -m "Updated cedar.version to release version"
     git push
 }
 
 git_pull_branch()
 {
-    printf "$format" $1 $CEDAR_HOME/$1
-    git -C "$CEDAR_HOME/$1" checkout $2
+    log_progress "Pulling repo $1"
+    printf "$1" "$CEDAR_HOME/$1"
+    git -C "$CEDAR_HOME/$1" checkout "$2"
     git -C "$CEDAR_HOME/$1" pull
 }
 
@@ -687,7 +731,7 @@ git_pull_all_repos()
     log_progress "Pulling all CEDAR repos"
     for r in "${CEDAR_ALL_REPOS[@]}"
     do
-        git_pull_branch $r develop
+        git_pull_branch "$r" develop
     done
 }
 
@@ -699,10 +743,10 @@ empty_user_maven_cache()
 
 build_repo()
 {
-    log_progress 'Building '$1
-    pushd $CEDAR_HOME/$1
+    log_progress "Building $1"
+    pushd "$CEDAR_HOME/$1" || exit
     mvn -DskipTests clean install
-    popd
+    popd || exit
 }
 
 release_all_parent_repos()
@@ -711,7 +755,7 @@ release_all_parent_repos()
     log_progress 'Releasing parent repos...'
     for r in "${CEDAR_PARENT_REPOS[@]}"
     do
-        release_parent_repo $r
+        release_parent_repo "$r"
     done
 }
 
@@ -720,7 +764,7 @@ release_all_server_repos()
     log_progress "Releasing server repos..."
     for r in "${CEDAR_SERVER_REPOS[@]}"
     do
-        release_server_repo $r
+        release_server_repo "$r"
     done
 }
 
@@ -729,7 +773,7 @@ release_all_project_repos()
     log_progress "Releasing project repos..."
     for r in "${CEDAR_PROJECT_REPOS[@]}"
     do
-        release_project_repo $r
+        release_project_repo "$r"
     done
 }
 
@@ -738,7 +782,7 @@ release_all_frontend_repos()
     log_progress "Releasing frontend repos..."
     for r in "${CEDAR_FRONTEND_REPOS[@]}"
     do
-        release_frontend_repo $r
+        release_frontend_repo "$r"
     done
 }
 
@@ -748,13 +792,16 @@ release_all_component_repos()
     for r in "${CEDAR_COMPONENT_REPOS[@]}"
     do
         if [ "$r" = "cedar-component-distribution" ]; then
-            release_component_distribution_repo $r
+            release_component_distribution_repo "$r"
         fi
         if [ "$r" = "cedar-openview-dist" ]; then
-            release_openview_dist_repo $r
+            release_openview_dist_repo "$r"
         fi
         if [ "$r" = "cedar-cee-demo-angular-dist" ]; then
-            release_cee_demo_angular_dist_repo $r
+            release_cee_demo_angular_dist_repo "$r"
+        fi
+        if [ "$r" = "cedar-cee-docs-angular-dist" ]; then
+            release_cee_docs_angular_dist_repo "$r"
         fi
     done
 }
@@ -764,7 +811,7 @@ release_all_configuration_repos()
     log_progress "Releasing configuration repos..."
     for r in "${CEDAR_CONFIGURATION_REPOS[@]}"
     do
-        release_mavenless_repo $r
+        release_mavenless_repo "$r"
     done
 }
 
@@ -773,7 +820,7 @@ release_all_documentation_repos()
     log_progress "Releasing documentation repos..."
     for r in "${CEDAR_DOCUMENTATION_REPOS[@]}"
     do
-        release_mavenless_repo $r
+        release_mavenless_repo "$r"
     done
 }
 
@@ -782,7 +829,7 @@ release_all_client_repos()
     log_progress "Releasing client repos..."
     for r in "${CEDAR_CLIENT_REPOS[@]}"
     do
-        release_client_repo $r
+        release_client_repo "$r"
     done
 }
 
@@ -791,7 +838,7 @@ release_all_docker_build_repos()
     log_progress "Releasing Docker build repos..."
     for r in "${CEDAR_DOCKER_BUILD_REPOS[@]}"
     do
-        release_docker_build_repo $r
+        release_docker_build_repo "$r"
     done
 }
 
@@ -800,7 +847,7 @@ release_all_docker_deploy_repos()
     log_progress "Releasing Docker deploy repos..."
     for r in "${CEDAR_DOCKER_DEPLOY_REPOS[@]}"
     do
-        release_docker_deploy_repo $r
+        release_docker_deploy_repo "$r"
     done
 }
 
@@ -809,7 +856,7 @@ release_all_development_repos()
     log_progress "Releasing Development repos..."
     for r in "${CEDAR_DEVELOPMENT_REPOS[@]}"
     do
-        release_development_repo $r
+        release_development_repo "$r"
     done
 }
 
@@ -818,7 +865,7 @@ build_all_parent_repos()
     log_progress 'Building parent repos'
     for r in "${CEDAR_PARENT_REPOS[@]}"
     do
-        build_repo $r
+        build_repo "$r"
     done
 }
 
@@ -827,7 +874,7 @@ build_all_project_repos()
     log_progress 'Building project repos'
     for r in "${CEDAR_PROJECT_REPOS[@]}"
     do
-        build_repo $r
+        build_repo "$r"
     done
 }
 
