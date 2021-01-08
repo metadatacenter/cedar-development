@@ -500,8 +500,11 @@ release_client_repo()
     pushd "$CEDAR_HOME/$1" || exit
 
     update_repo_parent_to_release "$1"
+
     release_artifact "$1"
     copy_release_to_master "$1"
+    install_artifact
+
     update_repo_to_next_development_version "$1"
 
     popd || exit
@@ -916,7 +919,7 @@ release_all_docker_deploy_repos()
 
 release_all_development_repos()
 {
-    log_progress "Releasing Development repos..."
+    log_progress "Releasing development repos..."
     for r in "${CEDAR_DEVELOPMENT_REPOS[@]}"
     do
         release_development_repo "$r"
