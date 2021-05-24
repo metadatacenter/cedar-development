@@ -24,5 +24,15 @@ mkdir -p ${CEDAR_HOME}/log/cedar-terminology-server/
 mkdir -p ${CEDAR_HOME}/log/cedar-user-server/
 mkdir -p ${CEDAR_HOME}/log/cedar-valuerecommender-server/
 mkdir -p ${CEDAR_HOME}/log/cedar-worker-server/
+mkdir -p ${CEDAR_HOME}/log/cedar-impex-server
+mkdir -p ${CEDAR_HOME}/log/cedar-template-editor
+mkdir -p ${CEDAR_HOME}/log/cedar-component-distribution
+mkdir -p ${CEDAR_HOME}/log/cedar-cee-demo-angular-dist
+mkdir -p ${CEDAR_HOME}/log/cedar-cee-demo-angular
+mkdir -p ${CEDAR_HOME}/log/cedar-cee-docs-angular-dist
+mkdir -p ${CEDAR_HOME}/log/cedar-cee-docs-angular
+mkdir -p ${CEDAR_HOME}/log/cedar-openview
 
 mkdir -p ${CEDAR_HOME}/log/nginx/
+
+
