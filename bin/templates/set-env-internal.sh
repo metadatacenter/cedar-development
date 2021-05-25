@@ -53,3 +53,6 @@ export CEDAR_VALIDATION_ENABLED="true"
 # CaDSR data
 export CEDAR_CADSR_ADMIN_USER_API_KEY="0000111122223333444455556666777788889999aaaabbbbccccddddeeeefffe"
 export CEDAR_CDE_FOLDER_ID="https://repo.metadatacenter.orgx/folders/00000000-1111-2222-3333-444444444444"
+
+# Trusted folders
+export CEDAR_TRUSTED_FOLDERS="{\\\"caDSR\\\":[\\\"https://repo.metadatacenter.orgx/folders/00000000-1111-2222-3333-444444444444\\\"]}"
