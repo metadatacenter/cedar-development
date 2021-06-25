@@ -4,4 +4,4 @@ echo Stopping Kibana
 echo --------------------------------------------------------------------------------
 echo
 
-brew services stop kibana
+brew services stop kibana@6
