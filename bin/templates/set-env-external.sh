@@ -2,7 +2,8 @@
 
 # This file contains connection information to external resources
 
-#CEDAR BioPortal API Key - place your own key here
+#CEDAR BioPortal REST endpoint base and API Key - place your own here
+export CEDAR_BIOPORTAL_REST_BASE="http://data.bioontology.org/"
 export CEDAR_BIOPORTAL_API_KEY="changeme-bbbb-cccc-dddd-eeeeeeeeeeee"
 
 #CEDAR Google Analytics Key - place your own key here if the site is publicly available
