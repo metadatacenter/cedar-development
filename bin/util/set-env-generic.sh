@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #CEDAR version
-export CEDAR_VERSION=2.6.0
+export CEDAR_VERSION=2.6.15
 
 # Keycloak connection data
 export CEDAR_KEYCLOAK_HOST="${CEDAR_NET_GATEWAY}"
@@ -95,9 +95,6 @@ export CEDAR_REDIS_PERSISTENT_HOST="${CEDAR_NET_GATEWAY}"
 export CEDAR_REDIS_PERSISTENT_PORT=6379
 export CEDAR_REDIS_NONPERSISTENT_HOST="${CEDAR_NET_GATEWAY}"
 export CEDAR_REDIS_NONPERSISTENT_PORT=6380
-
-# Bioportal
-export CEDAR_BIOPORTAL_REST_BASE="http://data.bioontology.org/"
 
 # Elasticsearch
 export CEDAR_ELASTICSEARCH_HOST="${CEDAR_NET_GATEWAY}"
