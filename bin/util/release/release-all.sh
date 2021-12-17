@@ -954,8 +954,6 @@ empty_user_maven_cache
 
 execute_jaxb2_workaround
 
-release_all_client_repos
-
 build_all_parent_repos
 build_all_project_repos
 
@@ -965,6 +963,8 @@ release_all_project_repos
 release_all_configuration_repos
 
 release_all_frontend_repos
+
+release_all_client_repos
 
 release_all_component_repos
 
