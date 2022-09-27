@@ -126,7 +126,7 @@ checkRedisPing Redis-persistent 6379
 #checkRedisPing Redis-non-persistent 6380
 checkOpenPort MySQL 3306
 printf "$header" '--- Monitoring ------------'
-checkHttpResponse Kibana 5601 'kbn-name:\skibana'
+checkHttpResponse Kibana 5601 'HTTP/1.1\s302\sFound'
 checkHttpResponse Redis-Commander 8081 'HTTP/1.1\s200\sOK'
 checkHttpResponse PhpMyAdmin 8082 'HTTP/1.1\s200\sOK'
 printf "$header" '--- Front End -------------'
