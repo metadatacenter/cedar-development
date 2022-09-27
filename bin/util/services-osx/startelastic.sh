@@ -4,4 +4,4 @@ echo Starting Elasticsearch
 echo --------------------------------------------------------------------------------
 echo
 
-brew services start elasticsearch@6
+brew services start elastic/tap/elasticsearch-full

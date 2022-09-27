@@ -4,4 +4,4 @@ echo Starting Kibana
 echo --------------------------------------------------------------------------------
 echo
 
-brew services start kibana@6
+brew services start elastic/tap/kibana-full
