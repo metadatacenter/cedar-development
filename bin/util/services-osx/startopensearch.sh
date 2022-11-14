@@ -1,7 +1,7 @@
 #!/bin/bash
 echo --------------------------------------------------------------------------------
-echo Starting Elasticsearch
+echo Starting Opensearch
 echo --------------------------------------------------------------------------------
 echo
 
-brew services start elastic/tap/elasticsearch-full
+brew services start opensearch
