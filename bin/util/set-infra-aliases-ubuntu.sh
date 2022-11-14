@@ -13,8 +13,8 @@ alias stopmysql='sudo $CEDAR_UTIL_BIN/services-ubuntu/stopmysql.sh'
 alias startkibana='sudo $CEDAR_UTIL_BIN/services-ubuntu/startkibana.sh'
 alias stopkibana='sudo $CEDAR_UTIL_BIN/services-ubuntu/stopkibana.sh'
 
-alias startelastic='sudo $CEDAR_UTIL_BIN/services-ubuntu/startelastic.sh'
-alias stopelastic='sudo $CEDAR_UTIL_BIN/services-ubuntu/stopelastic.sh'
+alias startsearch='sudo $CEDAR_UTIL_BIN/services-ubuntu/startelastic.sh'
+alias stopsearch='sudo $CEDAR_UTIL_BIN/services-ubuntu/stopelastic.sh'
 
 alias startneo='sudo $CEDAR_UTIL_BIN/services-ubuntu/startneo.sh'
 alias stopneo='sudo $CEDAR_UTIL_BIN/services-ubuntu/stopneo.sh'

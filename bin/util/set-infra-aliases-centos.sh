@@ -16,8 +16,8 @@ alias stopmysql='$CEDAR_UTIL_BIN/services-centos/stopmysql.sh'
 alias startkibana='$CEDAR_UTIL_BIN/services-centos/startkibana.sh'
 alias stopkibana='$CEDAR_UTIL_BIN/services-centos/stopkibana.sh'
 
-alias startelastic='$CEDAR_UTIL_BIN/services-centos/startelastic.sh'
-alias stopelastic='$CEDAR_UTIL_BIN/services-centos/stopelastic.sh'
+alias startsearch='$CEDAR_UTIL_BIN/services-centos/startelastic.sh'
+alias stopsearch='$CEDAR_UTIL_BIN/services-centos/stopelastic.sh'
 
 alias startneo='$CEDAR_UTIL_BIN/services-centos/startneo.sh'
 alias stopneo='$CEDAR_UTIL_BIN/services-centos/stopneo.sh'
