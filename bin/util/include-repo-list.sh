@@ -22,7 +22,6 @@ CEDAR_REPOS=(
   "cedar-messaging-server"
   "cedar-metadata-form"
   "cedar-mkdocs"
-  "cedar-mkdocs-developer"
   "cedar-parent"
   "cedar-project"
   "cedar-repo-server"
