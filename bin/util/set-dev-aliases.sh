@@ -114,7 +114,7 @@ alias startall='$CEDAR_UTIL_BIN/services-generic/startall.sh'
 alias startinfra='$CEDAR_UTIL_BIN/services-generic/startinfra.sh'
 alias stopinfra='$CEDAR_UTIL_BIN/services-generic/stopinfra.sh'
 
-alias cedarenv='set | grep -a CEDAR_'
+alias cedarenv='set | grep -a ^CEDAR_'
 alias cedarss='${CEDAR_DEVELOP_HOME}/bin/util/cedarstatus.sh'
 
 alias ij="'/Applications/IntelliJ IDEA.app/Contents/MacOS/idea'"
