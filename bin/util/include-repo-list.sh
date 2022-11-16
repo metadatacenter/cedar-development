@@ -7,7 +7,6 @@ CEDAR_REPOS=(
   "cedar-artifact-server"
   "cedar-cadsr-tools"
   "cedar-component-distribution"
-  "cedar-conf"
   "cedar-development"
   "cedar-docker-build"
   "cedar-docker-deploy"
