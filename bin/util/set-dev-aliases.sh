@@ -10,7 +10,6 @@ alias goparent='cd $CEDAR_HOME/cedar-parent'
 alias goproject='cd $CEDAR_HOME/cedar-project'
 
 alias goutil='cd $CEDAR_HOME/cedar-util'
-alias goconf='cd $CEDAR_HOME/cedar-conf'
 alias godocs='cd $CEDAR_HOME/cedar-docs'
 alias goservercore='cd $CEDAR_HOME/cedar-server-core-library'
 alias gomodel='cd $CEDAR_HOME/cedar-model-validation-library'
