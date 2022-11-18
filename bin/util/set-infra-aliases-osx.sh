@@ -10,8 +10,8 @@ alias stopmongo='$CEDAR_UTIL_BIN/services-osx/stopmongo.sh'
 alias startmysql='$CEDAR_UTIL_BIN/services-osx/startmysql.sh'
 alias stopmysql='$CEDAR_UTIL_BIN/services-osx/stopmysql.sh'
 
-alias startkibana='$CEDAR_UTIL_BIN/services-osx/startkibana.sh'
-alias stopkibana='$CEDAR_UTIL_BIN/services-osx/stopkibana.sh'
+alias startsearchdash='$CEDAR_UTIL_BIN/services-osx/startsearchdash.sh'
+alias stopsearchdash='$CEDAR_UTIL_BIN/services-osx/stopsearchdash.sh'
 
 alias startsearch='$CEDAR_UTIL_BIN/services-osx/startopensearch.sh'
 alias stopsearch='$CEDAR_UTIL_BIN/services-osx/stopopensearch.sh'

@@ -1,7 +1,7 @@
 #!/bin/bash
 echo --------------------------------------------------------------------------------
-echo Starting Kibana
+echo Starting OpenSearch Dashboards
 echo --------------------------------------------------------------------------------
 echo
 
-echo 'Kibana not supported yet'
+echo 'OpenSearch Dashboards not supported yet'

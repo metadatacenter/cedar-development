@@ -1,7 +1,7 @@
 #!/bin/bash
 echo --------------------------------------------------------------------------------
-echo Starting Kibana
+echo Starting OpenSearch Dashboards
 echo --------------------------------------------------------------------------------
 echo
 
-brew services start elastic/tap/kibana-full
+brew services start opensearch-dashboards

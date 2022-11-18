@@ -13,8 +13,8 @@ alias stopmongo='$CEDAR_UTIL_BIN/services-centos/stopmongo.sh'
 alias startmysql='$CEDAR_UTIL_BIN/services-centos/startmysql.sh'
 alias stopmysql='$CEDAR_UTIL_BIN/services-centos/stopmysql.sh'
 
-alias startkibana='$CEDAR_UTIL_BIN/services-centos/startkibana.sh'
-alias stopkibana='$CEDAR_UTIL_BIN/services-centos/stopkibana.sh'
+alias startsearchdash='$CEDAR_UTIL_BIN/services-centos/startsearchdash.sh'
+alias stopsearchdash='$CEDAR_UTIL_BIN/services-centos/stopsearchdash.sh'
 
 alias startsearch='$CEDAR_UTIL_BIN/services-centos/startelastic.sh'
 alias stopsearch='$CEDAR_UTIL_BIN/services-centos/stopelastic.sh'
