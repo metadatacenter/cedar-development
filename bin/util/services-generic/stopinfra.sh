@@ -18,7 +18,7 @@ fi
 stopmongo
 killkk
 stopsearch
-stopkibana
+stopsearchdash
 stopneo
 killrc
 stopredis

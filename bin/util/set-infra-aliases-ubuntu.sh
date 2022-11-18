@@ -10,8 +10,8 @@ alias stopmongo='sudo $CEDAR_UTIL_BIN/services-ubuntu/stopmongo.sh'
 alias startmysql='sudo $CEDAR_UTIL_BIN/services-ubuntu/startmysql.sh'
 alias stopmysql='sudo $CEDAR_UTIL_BIN/services-ubuntu/stopmysql.sh'
 
-alias startkibana='sudo $CEDAR_UTIL_BIN/services-ubuntu/startkibana.sh'
-alias stopkibana='sudo $CEDAR_UTIL_BIN/services-ubuntu/stopkibana.sh'
+alias startsearchdash='sudo $CEDAR_UTIL_BIN/services-ubuntu/startsearchdash.sh'
+alias stopsearchdash='sudo $CEDAR_UTIL_BIN/services-ubuntu/stopsearchdash.sh'
 
 alias startsearch='sudo $CEDAR_UTIL_BIN/services-ubuntu/startelastic.sh'
 alias stopsearch='sudo $CEDAR_UTIL_BIN/services-ubuntu/stopelastic.sh'

@@ -117,8 +117,8 @@ checkHealth ValueRecommender 9106
 checkHealth Worker 9111
 printf "$header" '--- Infrastructure --------'
 checkOpenPort MongoDB 27017
-checkHttpResponse Elasticsearch-REST 9200 'HTTP/1.1\s200\sOK'
-checkOpenPort Elasticsearch-Transport 9300 'HTTP/1.1\s200\sOK'
+checkHttpResponse OpenSearch-REST 9200 'HTTP/1.1\s200\sOK'
+checkOpenPort OpenSearch-Transport 9300 'HTTP/1.1\s200\sOK'
 checkHttpResponse NGINX 80 'Server:\snginx'
 checkHttpResponse Keycloak 8080 'HTTP/1.1\s200\sOK'
 checkHttpResponse Neo4j 7474 'HTTP/1.1\s200\sOK'
@@ -126,7 +126,7 @@ checkRedisPing Redis-persistent 6379
 #checkRedisPing Redis-non-persistent 6380
 checkOpenPort MySQL 3306
 printf "$header" '--- Monitoring ------------'
-checkHttpResponse Kibana 5601 'HTTP/1.1\s302\sFound'
+checkHttpResponse OpenSearch-Dashboards 5601 'HTTP/1.1\s302\sFound'
 checkHttpResponse Redis-Commander 8081 'HTTP/1.1\s200\sOK'
 checkHttpResponse PhpMyAdmin 8082 'HTTP/1.1\s200\sOK'
 printf "$header" '--- Front End -------------'

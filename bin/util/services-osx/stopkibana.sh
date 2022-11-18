@@ -1,7 +1,7 @@
 #!/bin/bash
 echo --------------------------------------------------------------------------------
-echo Stopping Kibana
+echo Stopping OpenSearch Dashboards
 echo --------------------------------------------------------------------------------
 echo
 
-brew services stop elastic/tap/kibana-full
+brew services stop opensearch-dashboards
