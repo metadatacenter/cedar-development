@@ -110,7 +110,6 @@ CEDAR_COMPONENT_REPOS=(
 )
 
 CEDAR_CONFIGURATION_REPOS=(
-    "cedar-conf"
     "cedar-util"
 )
 
