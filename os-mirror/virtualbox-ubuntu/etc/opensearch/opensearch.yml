@@ -14,7 +14,7 @@
 #
 # Use a descriptive name for your cluster:
 #
-cluster.name: elasticsearch_brew
+cluster.name: opensearch_cedar
 #
 # ------------------------------------ Node ------------------------------------
 #
@@ -30,11 +30,11 @@ cluster.name: elasticsearch_brew
 #
 # Path to directory where to store the data (separate multiple locations by comma):
 #
-path.data: /usr/local/var/lib/elasticsearch/
+path.data: /var/lib/opensearch
 #
 # Path to log files:
 #
-path.logs: /usr/local/var/log/elasticsearch/
+path.logs: /var/log/opensearch
 #
 # ----------------------------------- Memory -----------------------------------
 #
