@@ -1,7 +1,7 @@
 #!/bin/bash
 echo --------------------------------------------------------------------------------
-echo Stopping Elasticsearch
+echo Starting Opensearch
 echo --------------------------------------------------------------------------------
 echo
 
-service elasticsearch stop
+service opensearch start
