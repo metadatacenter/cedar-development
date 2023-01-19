@@ -14,14 +14,6 @@ source ${CEDAR_DEVELOP_HOME}/bin/templates/set-env-internal.sh
 export CEDAR_NET_GATEWAY=192.168.17.1
 export CEDAR_NET_SUBNET=192.168.17.0
 
-export CEDAR_KEYCLOAK_MYSQL_HOST=192.168.17.101
-export CEDAR_MONGO_HOST=192.168.17.102
-export CEDAR_REDIS_PERSISTENT_HOST=192.168.17.103
-export CEDAR_OPENSEARCH_HOST=192.168.17.104
-export CEDAR_NEO4J_HOST=192.168.17.105
-export CEDAR_KEYCLOAK_HOST=192.168.17.106
-export CEDAR_NGINX_HOST=192.168.17.107
-
 #------------------------------------------------------
 # CEDAR generic environment variables
 source ${CEDAR_DEVELOP_HOME}/bin/util/set-env-generic.sh
