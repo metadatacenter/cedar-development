@@ -10,6 +10,7 @@ formatlong="| %-27s| %-8s| %-49s|\n"
 RED=$(tput setaf 1)
 GREEN=$(tput setaf 2)
 BLUE=$(tput setaf 4)
+YELLOW=$(tput setaf 3)
 NORMAL=$(tput sgr0)
 
 function checkOpenPort {
@@ -74,7 +75,7 @@ function checkRedisPing {
 function showEnvironmentVar {
         varname=$1
         varvalue=${!varname}
-        value="${BLUE}"$varvalue"${NORMAL}"
+        value="${YELLOW}"$varvalue"${NORMAL}"
         printf "$formatlong" $1 "" $value
 }
 
