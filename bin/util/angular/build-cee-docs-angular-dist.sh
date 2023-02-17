@@ -6,7 +6,7 @@ echo ---------------------------------------------------------------------------
 echo
 
 cd ${CEDAR_HOME}/cedar-cee-docs-angular
-ng build --prod --output-hashing=none
+ng build --configuration=production --output-hashing=none
 
 echo
 echo "*******************************************************"
