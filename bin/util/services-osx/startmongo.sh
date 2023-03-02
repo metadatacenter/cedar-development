@@ -4,4 +4,4 @@ echo Starting MongoDB
 echo --------------------------------------------------------------------------------
 echo
 
-brew services start mongodb-community@3.4
+brew services start mongodb-community@5.0

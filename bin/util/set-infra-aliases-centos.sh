@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#3rd party server aliases
+# 3rd party server aliases
 # We do not use sudo here, because we should not know the 
 # password for 'cedar' user.
 # We will need to 'sudo su -' to stop the infra services
@@ -13,11 +13,11 @@ alias stopmongo='$CEDAR_UTIL_BIN/services-centos/stopmongo.sh'
 alias startmysql='$CEDAR_UTIL_BIN/services-centos/startmysql.sh'
 alias stopmysql='$CEDAR_UTIL_BIN/services-centos/stopmysql.sh'
 
-alias startkibana='$CEDAR_UTIL_BIN/services-centos/startkibana.sh'
-alias stopkibana='$CEDAR_UTIL_BIN/services-centos/stopkibana.sh'
+alias startsearchdash='$CEDAR_UTIL_BIN/services-centos/startopensearchdashboards.sh'
+alias stopsearchdash='$CEDAR_UTIL_BIN/services-centos/stopopensearchdashboards.sh'
 
-alias startelastic='$CEDAR_UTIL_BIN/services-centos/startelastic.sh'
-alias stopelastic='$CEDAR_UTIL_BIN/services-centos/stopelastic.sh'
+alias startsearch='$CEDAR_UTIL_BIN/services-centos/startopensearch.sh'
+alias stopsearch='$CEDAR_UTIL_BIN/services-centos/stopopensearch.sh'
 
 alias startneo='$CEDAR_UTIL_BIN/services-centos/startneo.sh'
 alias stopneo='$CEDAR_UTIL_BIN/services-centos/stopneo.sh'

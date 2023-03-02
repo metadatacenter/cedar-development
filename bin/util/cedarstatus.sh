@@ -10,6 +10,7 @@ formatlong="| %-27s| %-8s| %-49s|\n"
 RED=$(tput setaf 1)
 GREEN=$(tput setaf 2)
 BLUE=$(tput setaf 4)
+YELLOW=$(tput setaf 3)
 NORMAL=$(tput sgr0)
 
 function checkOpenPort {
@@ -74,7 +75,7 @@ function checkRedisPing {
 function showEnvironmentVar {
         varname=$1
         varvalue=${!varname}
-        value="${BLUE}"$varvalue"${NORMAL}"
+        value="${YELLOW}"$varvalue"${NORMAL}"
         printf "$formatlong" $1 "" $value
 }
 
@@ -117,8 +118,8 @@ checkHealth ValueRecommender 9106
 checkHealth Worker 9111
 printf "$header" '--- Infrastructure --------'
 checkOpenPort MongoDB 27017
-checkHttpResponse Elasticsearch-REST 9200 'HTTP/1.1\s200\sOK'
-checkOpenPort Elasticsearch-Transport 9300 'HTTP/1.1\s200\sOK'
+checkHttpResponse OpenSearch-REST 9200 'HTTP/1.1\s200\sOK'
+checkOpenPort OpenSearch-Transport 9300 'HTTP/1.1\s200\sOK'
 checkHttpResponse NGINX 80 'Server:\snginx'
 checkHttpResponse Keycloak 8080 'HTTP/1.1\s200\sOK'
 checkHttpResponse Neo4j 7474 'HTTP/1.1\s200\sOK'
@@ -126,7 +127,7 @@ checkRedisPing Redis-persistent 6379
 #checkRedisPing Redis-non-persistent 6380
 checkOpenPort MySQL 3306
 printf "$header" '--- Monitoring ------------'
-checkHttpResponse Kibana 5601 'kbn-name:\skibana'
+checkHttpResponse OpenSearch-Dashboards 5601 'HTTP/1.1\s302\sFou'
 checkHttpResponse Redis-Commander 8081 'HTTP/1.1\s200\sOK'
 checkHttpResponse PhpMyAdmin 8082 'HTTP/1.1\s200\sOK'
 printf "$header" '--- Front End -------------'
