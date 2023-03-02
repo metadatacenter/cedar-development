@@ -6,7 +6,7 @@ echo ---------------------------------------------------------------------------
 echo
 
 cd ${CEDAR_HOME}/cedar-embeddable-editor
-ng build --configuration=production --output-hashing=none
+ng build --configuration=production
 cat dist/cedar-embeddable-editor/{runtime,polyfills,main}.js > custom-elements.js
 
 echo

@@ -6,7 +6,7 @@ echo ---------------------------------------------------------------------------
 echo
 
 cd ${CEDAR_HOME}/cedar-metadata-form
-ng build --configuration=production --output-hashing=none
+ng build --configuration=production
 cat dist/cedar-form/{runtime,polyfills,main}.js > custom-elements.js
 
 echo
