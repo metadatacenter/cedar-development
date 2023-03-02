@@ -5,12 +5,12 @@ export CEDAR_UTIL_BIN=${CEDAR_DEVELOP_HOME}/bin/util/
 
 #CEDAR location aliases
 alias gocedar='cd $CEDAR_HOME'
+alias godocker='cd $CEDAR_DOCKER_HOME'
 
 alias goparent='cd $CEDAR_HOME/cedar-parent'
 alias goproject='cd $CEDAR_HOME/cedar-project'
 
 alias goutil='cd $CEDAR_HOME/cedar-util'
-alias goconf='cd $CEDAR_HOME/cedar-conf'
 alias godocs='cd $CEDAR_HOME/cedar-docs'
 alias goservercore='cd $CEDAR_HOME/cedar-server-core-library'
 alias gomodel='cd $CEDAR_HOME/cedar-model-validation-library'
@@ -114,7 +114,7 @@ alias startall='$CEDAR_UTIL_BIN/services-generic/startall.sh'
 alias startinfra='$CEDAR_UTIL_BIN/services-generic/startinfra.sh'
 alias stopinfra='$CEDAR_UTIL_BIN/services-generic/stopinfra.sh'
 
-alias cedarenv='set | grep -a CEDAR_'
+alias cedarenv='set | grep -a ^CEDAR_'
 alias cedarss='${CEDAR_DEVELOP_HOME}/bin/util/cedarstatus.sh'
 
 alias ij="'/Applications/IntelliJ IDEA.app/Contents/MacOS/idea'"
