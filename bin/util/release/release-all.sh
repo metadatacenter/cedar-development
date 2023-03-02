@@ -513,17 +513,14 @@ release_client_repo()
 
 build_metadata_form_component()
 {
-   RELEASE_VERSION=$1
-   BRANCH=$2
-   pushd "${CEDAR_HOME}/cedar-metadata-form" || exit
-   git checkout "${BRANCH}"
-		git pull
+    RELEASE_VERSION=$1
+    BRANCH=$2
+    pushd "${CEDAR_HOME}/cedar-metadata-form" || exit
+    git checkout "${BRANCH}"
+    git pull
 
-               echo "Before npm install"
-   npm install
-               echo "After npm install"
+    npm install
 		ng build --configuration=production
-               echo "After npm build"
 		cat dist/cedar-form/{runtime.*,polyfills.*,main.*}.js > "${CEDAR_HOME}/cedar-component-distribution/cedar-form/cedar-form-${RELEASE_VERSION}.js"
 
 		popd || exit
@@ -531,13 +528,13 @@ build_metadata_form_component()
 
 build_embeddable_editor_component()
 {
-   RELEASE_VERSION=$1
-   BRANCH=$2
-		pushd "${CEDAR_HOME}/cedar-embeddable-editor" || exit
+    RELEASE_VERSION=$1
+    BRANCH=$2
+    pushd "${CEDAR_HOME}/cedar-embeddable-editor" || exit
 		git checkout "${BRANCH}"
 		git pull
 
-   npm install
+    npm install
 		ng build --configuration=production
 		cat dist/cedar-embeddable-editor/{runtime.*,polyfills.*,main.*}.js > "${CEDAR_HOME}/cedar-component-distribution/cedar-embeddable-editor/cedar-embeddable-editor-${RELEASE_VERSION}.js"
 
@@ -546,47 +543,47 @@ build_embeddable_editor_component()
 
 build_openview_frontend()
 {
-   RELEASE_VERSION=$1
-   BRANCH=$2
-   pushd "${CEDAR_HOME}/cedar-openview" || exit
-   git checkout "${BRANCH}"
-   git pull
+    RELEASE_VERSION=$1
+    BRANCH=$2
+    pushd "${CEDAR_HOME}/cedar-openview" || exit
+    git checkout "${BRANCH}"
+    git pull
 
-   npm install
-		ng build --configuration=production
-   cp -a dist/cedar-openview/. "${CEDAR_HOME}/cedar-openview-dist/"
+    npm install
+	  ng build --configuration=production
+    cp -a dist/cedar-openview/. "${CEDAR_HOME}/cedar-openview-dist/"
 
-   popd || exit
+    popd || exit
 }
 
 build_cee_demo_angular_frontend()
 {
-   RELEASE_VERSION=$1
-   BRANCH=$2
-   pushd "${CEDAR_HOME}/cedar-cee-demo-angular" || exit
-   git checkout "${BRANCH}"
-   git pull
+    RELEASE_VERSION=$1
+    BRANCH=$2
+    pushd "${CEDAR_HOME}/cedar-cee-demo-angular" || exit
+    git checkout "${BRANCH}"
+    git pull
 
-   npm install
-		ng build --configuration=production
-   cp -a dist/cedar-cee-demo-angular/. "${CEDAR_HOME}/cedar-cee-demo-angular-dist/"
+    npm install
+	  ng build --configuration=production
+    cp -a dist/cedar-cee-demo-angular/. "${CEDAR_HOME}/cedar-cee-demo-angular-dist/"
 
-   popd || exit
+    popd || exit
 }
 
 build_cee_docs_angular_frontend()
 {
-   RELEASE_VERSION=$1
-   BRANCH=$2
-   pushd "${CEDAR_HOME}/cedar-cee-docs-angular" || exit
-   git checkout "${BRANCH}"
-   git pull
+    RELEASE_VERSION=$1
+    BRANCH=$2
+    pushd "${CEDAR_HOME}/cedar-cee-docs-angular" || exit
+    git checkout "${BRANCH}"
+    git pull
 
-   npm install
-		ng build --configuration=production
-   cp -a dist/cedar-cee-docs-angular/. "${CEDAR_HOME}/cedar-cee-docs-angular-dist/"
+    npm install
+	  ng build --configuration=production
+    cp -a dist/cedar-cee-docs-angular/. "${CEDAR_HOME}/cedar-cee-docs-angular-dist/"
 
-   popd || exit
+    popd || exit
 }
 
 release_component_distribution_repo()
