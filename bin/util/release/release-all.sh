@@ -163,7 +163,7 @@ log_progress()
 {
 	STR='CEDAR Release | '$(date +"%Y-%m-%d %H:%M:%S")' | '${1}
 	echo "${STR}"
-	echo "${STR}" >> cedar-release.log
+	echo "${STR}" >> ${CEDAR_HOME}/cedar-release.log
 }
 
 clone_repos_if_needed()
