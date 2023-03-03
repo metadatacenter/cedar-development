@@ -354,6 +354,7 @@ release_frontend_repo() {
   fi
   if [ -f "package-lock.json" ]; then
     jq '.version="'"${CEDAR_RELEASE_VERSION}"'"' package-lock.json >jpackage-lock-jqed.json && mv jpackage-lock-jqed.json package-lock.json
+    jq '.packages[""].version="'"${CEDAR_NEXT_DEVELOPMENT_VERSION}"'"' package-lock.json >jpackage-lock-jqed.json && mv jpackage-lock-jqed.json package-lock.json
   fi
   jq '.version="'"${CEDAR_RELEASE_VERSION}"'"' package.json >package-jqed.json && mv package-jqed.json package.json
   git commit -a -m "Set release version for .travis.yml and package.json"
@@ -376,6 +377,7 @@ release_frontend_repo() {
   fi
   if [ -f "package-lock.json" ]; then
     jq '.version="'"${CEDAR_NEXT_DEVELOPMENT_VERSION}"'"' package-lock.json >jpackage-lock-jqed.json && mv jpackage-lock-jqed.json package-lock.json
+    jq '.packages[""].version="'"${CEDAR_NEXT_DEVELOPMENT_VERSION}"'"' package-lock.json >jpackage-lock-jqed.json && mv jpackage-lock-jqed.json package-lock.json
   fi
   jq '.version="'"${CEDAR_NEXT_DEVELOPMENT_VERSION}"'"' package.json >package-jqed.json && mv package-jqed.json package.json
   git commit -a -m "Updated to next development version"
