@@ -91,22 +91,25 @@ CEDAR_SERVER_REPOS=(
   "cedar-impex-server"
 )
 
-CEDAR_FRONTEND_REPOS=(
-  #    "cedar-template-editor"
+CEDAR_FRONTEND_OLD_REPOS=(
+  "cedar-template-editor"
+)
+
+CEDAR_FRONTEND_NEW_REPOS=(
   "cedar-metadata-form"
-  #    "cedar-openview"
-  #    "cedar-embeddable-editor"
-  #    "cedar-cee-demo-angular"
-  #    "cedar-cee-docs-angular"
+  "cedar-openview"
+  "cedar-embeddable-editor"
+  "cedar-cee-demo-angular"
+  "cedar-cee-docs-angular"
 )
 
 CEDAR_COMPONENT_REPOS=(
-  "cedar-component-distribution"
-  #    "cedar-shared-data"
-  #    "cedar-cee-demo-api-php"
-  #    "cedar-openview-dist"
-  #    "cedar-cee-demo-angular-dist"
-  #    "cedar-cee-docs-angular-dist"
+#  "cedar-component-distribution"
+#  "cedar-shared-data"
+#  "cedar-cee-demo-api-php"
+#  "cedar-openview-dist"
+#  "cedar-cee-demo-angular-dist"
+  "cedar-cee-docs-angular-dist"
 )
 
 CEDAR_CONFIGURATION_REPOS=(
@@ -147,7 +150,8 @@ CEDAR_DEVELOPMENT_REPOS=(
 CEDAR_ALL_REPOS=(
   "${CEDAR_PARENT_REPOS[@]}"
   "${CEDAR_SERVER_REPOS[@]}"
-  "${CEDAR_FRONTEND_REPOS[@]}"
+  "${CEDAR_FRONTEND_OLD_REPOS[@]}"
+  "${CEDAR_FRONTEND_NEW_REPOS[@]}"
   "${CEDAR_COMPONENT_REPOS[@]}"
   "${CEDAR_CONFIGURATION_REPOS[@]}"
   "${CEDAR_DOCUMENTATION_REPOS[@]}"
@@ -331,12 +335,60 @@ release_project_repo() {
   popd || exit
 }
 
-release_frontend_repo() {
+release_frontend_old_repo() {
   log_progress "Releasing repo $1"
   pushd "$CEDAR_HOME/$1" || exit
 
   git checkout develop
   git pull
+  sed -i '' 's/- CEDAR_VERSION\s*=.*\".*\"/- CEDAR_VERSION=\"'"${CEDAR_RELEASE_VERSION}"'\"/g' .travis.yml
+  if [ -f "package-lock.json" ]; then
+    jq '.version="'"${CEDAR_RELEASE_VERSION}"'"' package-lock.json >jpackage-lock-jqed.json && mv jpackage-lock-jqed.json package-lock.json
+    jq '.packages[""].version="'"${CEDAR_RELEASE_VERSION}"'"' package-lock.json >jpackage-lock-jqed.json && mv jpackage-lock-jqed.json package-lock.json
+  fi
+  if [ -f "package.json" ]; then
+    jq '.version="'"${CEDAR_RELEASE_VERSION}"'"' package.json >package-jqed.json && mv package-jqed.json package.json
+  fi
+  git commit -a -m "Set release version for .travis.yml and package.json"
+  git push
+
+  tag_repo_with_release_version "$1"
+  copy_release_to_main "$1"
+  npm publish
+
+  # Return to develop branch
+  git checkout develop
+  sed -i '' 's/- CEDAR_VERSION\s*=.*\".*\"/- CEDAR_VERSION=\"'"${CEDAR_NEXT_DEVELOPMENT_VERSION}"'\"/g' .travis.yml
+  if [ -f "package-lock.json" ]; then
+    jq '.version="'"${CEDAR_NEXT_DEVELOPMENT_VERSION}"'"' package-lock.json >jpackage-lock-jqed.json && mv jpackage-lock-jqed.json package-lock.json
+    jq '.packages[""].version="'"${CEDAR_NEXT_DEVELOPMENT_VERSION}"'"' package-lock.json >jpackage-lock-jqed.json && mv jpackage-lock-jqed.json package-lock.json
+  fi
+  if [ -f "package.json" ]; then
+    jq '.version="'"${CEDAR_NEXT_DEVELOPMENT_VERSION}"'"' package.json >package-jqed.json && mv package-jqed.json package.json
+  fi
+  git commit -a -m "Updated to next development version"
+  git push
+
+  npm publish
+
+  popd || exit
+}
+
+release_frontend_new_repo() {
+  log_progress "Releasing repo $1"
+  pushd "$CEDAR_HOME/$1" || exit
+
+  git checkout develop
+  git pull
+
+  # cedar-openview / cedar-cee-demo-angular / cedar-cee-docs-angular
+  APP_CONFIG_FILE="src/assets/data/appConfig.json"
+  if [ -f ${APP_CONFIG_FILE} ]; then
+    jq '.apiUrl="'https://open.metadatacenter.org/'"' "${APP_CONFIG_FILE}" >"${APP_CONFIG_FILE}.jq" && mv "${APP_CONFIG_FILE}.jq" "${APP_CONFIG_FILE}"
+    jq '.cedarUrl="'https://cedar.metadatacenter.org/'"' "${APP_CONFIG_FILE}" >"${APP_CONFIG_FILE}.jq" && mv "${APP_CONFIG_FILE}.jq" "${APP_CONFIG_FILE}"
+    jq '.terminologyUrl="'https://terminology.metadatacenter.org/'"' "${APP_CONFIG_FILE}" >"${APP_CONFIG_FILE}.jq" && mv "${APP_CONFIG_FILE}.jq" "${APP_CONFIG_FILE}"
+  fi
+
   sed -i '' 's/- CEDAR_VERSION\s*=.*\".*\"/- CEDAR_VERSION=\"'"${CEDAR_RELEASE_VERSION}"'\"/g' .travis.yml
   # cedar-openview webcomponent reference
   if [ -f "src/index.html" ]; then
@@ -346,17 +398,15 @@ release_frontend_repo() {
     sed -i '' 's/\/cedar-embeddable-editor-.*\.js/\/cedar-embeddable-editor-'"${CEDAR_RELEASE_VERSION}"'\.js/g' src/index.html
     sed -i '' 's/\/component\.metadatacenter\..*\/cedar-embeddable-editor\//\/component\.metadatacenter\.org\/cedar-embeddable-editor\//g' src/index.html
   fi
-  APP_CONFIG_FILE="src/assets/data/appConfig.json"
-  if [ -f ${APP_CONFIG_FILE} ]; then
-    jq '.apiUrl="'https://open.metadatacenter.org/'"' "${APP_CONFIG_FILE}" >"${APP_CONFIG_FILE}.jq" && mv "${APP_CONFIG_FILE}.jq" "${APP_CONFIG_FILE}"
-    jq '.cedarUrl="'https://cedar.metadatacenter.org/'"' "${APP_CONFIG_FILE}" >"${APP_CONFIG_FILE}.jq" && mv "${APP_CONFIG_FILE}.jq" "${APP_CONFIG_FILE}"
-    jq '.terminologyUrl="'https://terminology.metadatacenter.org/'"' "${APP_CONFIG_FILE}" >"${APP_CONFIG_FILE}.jq" && mv "${APP_CONFIG_FILE}.jq" "${APP_CONFIG_FILE}"
-  fi
+  # all angular repos
   if [ -f "package-lock.json" ]; then
     jq '.version="'"${CEDAR_RELEASE_VERSION}"'"' package-lock.json >jpackage-lock-jqed.json && mv jpackage-lock-jqed.json package-lock.json
     jq '.packages[""].version="'"${CEDAR_RELEASE_VERSION}"'"' package-lock.json >jpackage-lock-jqed.json && mv jpackage-lock-jqed.json package-lock.json
   fi
-  jq '.version="'"${CEDAR_RELEASE_VERSION}"'"' package.json >package-jqed.json && mv package-jqed.json package.json
+  if [ -f "package.json" ]; then
+    jq '.version="'"${CEDAR_RELEASE_VERSION}"'"' package.json >package-jqed.json && mv package-jqed.json package.json
+  fi
+  npm install
   git commit -a -m "Set release version for .travis.yml and package.json"
   git push
 
@@ -375,11 +425,15 @@ release_frontend_repo() {
     sed -i '' 's/\/cedar-embeddable-editor-.*\.js/\/cedar-embeddable-editor-'"${CEDAR_NEXT_DEVELOPMENT_VERSION}"'\.js/g' src/index.html
     sed -i '' 's/\/component\.metadatacenter\..*\/cedar-embeddable-editor\//\/component\.metadatacenter\.org\/cedar-embeddable-editor\//g' src/index.html
   fi
+  # all angular repos
   if [ -f "package-lock.json" ]; then
     jq '.version="'"${CEDAR_NEXT_DEVELOPMENT_VERSION}"'"' package-lock.json >jpackage-lock-jqed.json && mv jpackage-lock-jqed.json package-lock.json
     jq '.packages[""].version="'"${CEDAR_NEXT_DEVELOPMENT_VERSION}"'"' package-lock.json >jpackage-lock-jqed.json && mv jpackage-lock-jqed.json package-lock.json
   fi
-  jq '.version="'"${CEDAR_NEXT_DEVELOPMENT_VERSION}"'"' package.json >package-jqed.json && mv package-jqed.json package.json
+  if [ -f "package.json" ]; then
+    jq '.version="'"${CEDAR_NEXT_DEVELOPMENT_VERSION}"'"' package.json >package-jqed.json && mv package-jqed.json package.json
+  fi
+  npm install
   git commit -a -m "Updated to next development version"
   git push
 
@@ -793,10 +847,17 @@ release_all_project_repos() {
   done
 }
 
-release_all_frontend_repos() {
-  log_progress "Releasing frontend repos..."
-  for r in "${CEDAR_FRONTEND_REPOS[@]}"; do
-    release_frontend_repo "$r"
+release_all_frontend_old_repos() {
+  log_progress "Releasing frontend old repos..."
+  for r in "${CEDAR_FRONTEND_OLD_REPOS[@]}"; do
+    release_frontend_old_repo "$r"
+  done
+}
+
+release_all_frontend_new_repos() {
+  log_progress "Releasing frontend new repos..."
+  for r in "${CEDAR_FRONTEND_NEW_REPOS[@]}"; do
+    release_frontend_new_repo "$r"
   done
 }
 
@@ -898,7 +959,8 @@ release_all_server_repos
 release_all_project_repos
 release_all_configuration_repos
 
-release_all_frontend_repos
+release_all_frontend_old_repos
+release_all_frontend_new_repos
 
 release_all_client_repos
 
