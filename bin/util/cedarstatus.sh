@@ -101,7 +101,7 @@ printf "$header" 'Server' 'Status' 'CheckedFor' 'Port' 'Value'
 
 printLine '\x2D'
 
-printf "$header" '--- Microservices ---------'
+printf "$header" '-- Microservices ----------'
 checkHealth Artifact 9101
 checkHealth Group 9109
 checkHealth Impex 9108
@@ -116,7 +116,7 @@ checkHealth Terminology 9104
 checkHealth User 9105
 checkHealth ValueRecommender 9106
 checkHealth Worker 9111
-printf "$header" '--- Infrastructure --------'
+printf "$header" '-- Infrastructure ---------'
 checkOpenPort MongoDB 27017
 checkHttpResponse OpenSearch-REST 9200 'HTTP/1.1\s200\sOK'
 checkOpenPort OpenSearch-Transport 9300 'HTTP/1.1\s200\sOK'
@@ -126,14 +126,20 @@ checkHttpResponse Neo4j 7474 'HTTP/1.1\s200\sOK'
 checkRedisPing Redis-persistent 6379
 #checkRedisPing Redis-non-persistent 6380
 checkOpenPort MySQL 3306
-printf "$header" '--- Monitoring ------------'
+printf "$header" '-- Front End --------------'
+checkHttpResponse Base-Frontend 4200 'HTTP/1.1\s200\sOK'
+checkHttpResponse OpenView-Frontend 4220 'HTTP/1.1'
+checkHttpResponse InternalsView-Frontend 4300 'HTTP/1.1'
+checkHttpResponse Artifacts-Frontend 4320 'HTTP/1.1'
+printf "$header" '-- Monitoring -------------'
 checkHttpResponse OpenSearch-Dashboards 5601 'HTTP/1.1\s302\sFou'
 checkHttpResponse Redis-Commander 8081 'HTTP/1.1\s200\sOK'
 checkHttpResponse PhpMyAdmin 8082 'HTTP/1.1\s200\sOK'
-printf "$header" '--- Front End -------------'
-checkHttpResponse Base-Frontend 4200 'HTTP/1.1\s200\sOK'
-checkHttpResponse OpenView-Frontend 4220 'HTTP/1.1'
-printf "$header" '--- Environment ----------'
+printf "$header" '-- Front End Non-essential-'
+checkHttpResponse CEE-DEV-Frontend 4240 'HTTP/1.1'
+checkHttpResponse CEE-Demo-Frontend 4260 'HTTP/1.1'
+checkHttpResponse CEE-Docs-Frontend 4280 'HTTP/1.1'
+printf "$header" '-- Environment ------------'
 showEnvironmentVar 'CEDAR_NET_GATEWAY'
 showEnvironmentVar 'CEDAR_NET_SUBNET'
 

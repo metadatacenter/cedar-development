@@ -8,6 +8,7 @@ CEDAR_HOSTS=(
     "group"
     "impex"
     "internals"
+    "internalsview"
     "messaging"
     "open"
     "openview"
@@ -51,7 +52,7 @@ then
 else
   echo "Some CEDAR hosts are unknown, we will prompt for your password in order to make modifications to /etc/hosts !"
   echo
-  STR="$'\n'$'\n'# Added by CEDAR install process on $(date +%Y.%m.%d) [YYYY.mm.dd] from here:$'\n'"
+  STR="$'\n'$'\n'# Added by CEDAR install process on $(date +%Y-%m-%d) [YYYY-mm-dd] from here:$'\n'"
   sudo bash -c "echo ${STR} >> /etc/hosts"
   for i in "${hosts[@]}"
   do
