@@ -1,4 +1,0 @@
-Place
-	cedar.metadatacenter.orgx.crt
-	cedar.metadatacenter.orgx.key
-here
