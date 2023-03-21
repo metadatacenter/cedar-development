@@ -8,4 +8,4 @@ echo Keycloak processes:
 ps ax | grep "[k]eycloak/standalone"
 
 echo Kill them all:
-kill `ps ax | grep "[k]eycloak/standalone" | awk '{print $1}'`
+kill `ps ax | grep "QuarkusEntryPoint" | awk '{print $1}'`
