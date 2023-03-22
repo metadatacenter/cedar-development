@@ -1,3 +1,0 @@
-Generate
-	cedar.keycloak.keystore
-here.
