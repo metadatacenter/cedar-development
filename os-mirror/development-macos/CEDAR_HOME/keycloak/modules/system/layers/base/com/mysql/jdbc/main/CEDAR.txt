@@ -1,3 +1,0 @@
-Place
-	mysql-connector-java-5.1.49.jar
-here.
