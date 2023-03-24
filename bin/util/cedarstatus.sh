@@ -1,12 +1,9 @@
 #!/bin/bash
-echo ---------------------------------------------
-echo Checking all CEDAR servers
-echo ---------------------------------------------
-echo
 
-format="| %-27s| %-19s| %-12s|%5s| %-18s|\n"
-header="| %-27s| %-8s| %-12s|%5s| %-18s|\n"
-formatlong="| %-27s| %-8s| %-49s|\n"
+format="| %-27s|%-7s|%-12s|%5s|%-17s|\n"
+header="| %-27s|%-7s|%-12s|%5s|%-17s|\n"
+formatlong3="| %-27s|%-7s|%-47s|\n"
+formatlong1="| %-72s|\n"
 RED=$(tput setaf 1)
 GREEN=$(tput setaf 2)
 BLUE=$(tput setaf 4)
@@ -76,12 +73,12 @@ function showEnvironmentVar {
         varname=$1
         varvalue=${!varname}
         value="${YELLOW}"$varvalue"${NORMAL}"
-        printf "$formatlong" $1 "" $value
+        printf "$formatlong3" $1 "" $value
 }
 
 function printLine {
         printf '|'
-        printf $1'%.0s' {1..78}
+        printf $1'%.0s' {1..73}
         printf '|'
         printf '\n'
 }
@@ -94,6 +91,10 @@ return
         curl --ipv4 -I http://localhost:$2
         printLine '^'
 }
+
+echo
+printLine '='
+printf "$formatlong1" "                            Checking all CEDAR servers"
 
 printLine '='
 
@@ -132,7 +133,7 @@ checkHttpResponse OpenView-Frontend 4220 'HTTP/1.1'
 checkHttpResponse InternalsView-Frontend 4300 'HTTP/1.1'
 checkHttpResponse Artifacts-Frontend 4320 'HTTP/1.1'
 printf "$header" '-- Monitoring -------------'
-checkHttpResponse OpenSearch-Dashboards 5601 'HTTP/1.1\s302\sFou'
+checkHttpResponse OpenSearch-Dashboards 5601 'HTTP/1.1\s302\sFo'
 checkHttpResponse Redis-Commander 8081 'HTTP/1.1\s200\sOK'
 checkHttpResponse PhpMyAdmin 8082 'HTTP/1.1\s200\sOK'
 printf "$header" '-- Front End Non-essential-'
