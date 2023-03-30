@@ -552,7 +552,7 @@ build_metadata_form_component() {
 
   npm install
   ng build --configuration=production
-  cat dist/cedar-form/{runtime.*,polyfills.*,main.*}.js >"${CEDAR_HOME}/cedar-component-distribution/cedar-form/cedar-form-${RELEASE_VERSION}.js"
+  cat dist/cedar-form/{runtime,polyfills,main}.js >"${CEDAR_HOME}/cedar-component-distribution/cedar-form/cedar-form-${RELEASE_VERSION}.js"
 
   popd || exit
 }
@@ -566,7 +566,7 @@ build_embeddable_editor_component() {
 
   npm install
   ng build --configuration=production
-  cat dist/cedar-embeddable-editor/{runtime.*,polyfills.*,main.*}.js >"${CEDAR_HOME}/cedar-component-distribution/cedar-embeddable-editor/cedar-embeddable-editor-${RELEASE_VERSION}.js"
+  cat dist/cedar-embeddable-editor/{runtime,polyfills,main}.js >"${CEDAR_HOME}/cedar-component-distribution/cedar-embeddable-editor/cedar-embeddable-editor-${RELEASE_VERSION}.js"
 
   popd || exit
 }
