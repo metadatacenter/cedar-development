@@ -17,3 +17,10 @@ V	250421191758Z		10	unknown	/C=US/ST=CA/O=BMIR/OU=CEDAR/CN=terminology.metadatac
 V	250421193158Z		11	unknown	/C=US/ST=CA/O=BMIR/OU=CEDAR/CN=user.metadatacenter.orgx/emailAddress=metadatacenter@gmail.com
 V	250421193409Z		12	unknown	/C=US/ST=CA/O=BMIR/OU=CEDAR/CN=valuerecommender.metadatacenter.orgx/emailAddress=metadatacenter@gmail.com
 V	250421193636Z		13	unknown	/C=US/ST=CA/O=BMIR/OU=CEDAR/CN=worker.metadatacenter.orgx/emailAddress=metadatacenter@gmail.com
+V	250611012414Z		14	unknown	/C=US/ST=CA/O=BMIR/OU=CEDAR/CN=artifacts.metadatacenter.orgx/emailAddress=metadatacenter@gmail.com
+V	250611012542Z		15	unknown	/C=US/ST=CA/O=BMIR/OU=CEDAR/CN=demo.cee.metadatacenter.orgx/emailAddress=metadatacenter@gmail.com
+V	250611012635Z		16	unknown	/C=US/ST=CA/O=BMIR/OU=CEDAR/CN=docs.cee.metadatacenter.orgx/emailAddress=metadatacenter@gmail.com
+V	250611012719Z		17	unknown	/C=US/ST=CA/O=BMIR/OU=CEDAR/CN=internalsview.metadatacenter.orgx/emailAddress=metadatacenter@gmail.com
+V	250611012804Z		18	unknown	/C=US/ST=CA/O=BMIR/OU=CEDAR/CN=shared.metadatacenter.orgx/emailAddress=metadatacenter@gmail.com
+V	250611012905Z		19	unknown	/C=US/ST=CA/O=BMIR/OU=CEDAR/CN=demo-dist.cee.metadatacenter.orgx/emailAddress=metadatacenter@gmail.com
+V	250611012955Z		1A	unknown	/C=US/ST=CA/O=BMIR/OU=CEDAR/CN=docs-dist.cee.metadatacenter.orgx/emailAddress=metadatacenter@gmail.com

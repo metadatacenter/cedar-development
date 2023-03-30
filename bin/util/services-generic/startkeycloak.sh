@@ -4,4 +4,4 @@ echo Starting Keycloak Server
 echo --------------------------------------------------------------------------------
 echo
 
-${CEDAR_KEYCLOAK_HOME}/bin/standalone.sh &
+${CEDAR_KEYCLOAK_HOME}/bin/kc.sh start &

@@ -3,9 +3,13 @@
 echo "Creating CEDAR directories for local development"
 mkdir -p ${CEDAR_HOME}/cache/terminology/
 
+mkdir -p ${CEDAR_HOME}/log/cedar-artifacts/
 mkdir -p ${CEDAR_HOME}/log/cedar-frontend-component/
 mkdir -p ${CEDAR_HOME}/log/cedar-frontend-openview/
 mkdir -p ${CEDAR_HOME}/log/cedar-frontend-editor/
+mkdir -p ${CEDAR_HOME}/log/cedar-internalsview/
+
+mkdir -p ${CEDAR_HOME}/log/cedar-shared/
 
 mkdir -p ${CEDAR_HOME}/log/cedar-auth-server/
 
