@@ -104,11 +104,11 @@ CEDAR_FRONTEND_NEW_REPOS=(
 )
 
 CEDAR_COMPONENT_REPOS=(
-#  "cedar-component-distribution"
-#  "cedar-shared-data"
-#  "cedar-cee-demo-api-php"
-#  "cedar-openview-dist"
-#  "cedar-cee-demo-angular-dist"
+  "cedar-component-distribution"
+  "cedar-shared-data"
+  "cedar-cee-demo-api-php"
+  "cedar-openview-dist"
+  "cedar-cee-demo-angular-dist"
   "cedar-cee-docs-angular-dist"
 )
 
@@ -959,10 +959,10 @@ release_all_server_repos
 release_all_project_repos
 release_all_configuration_repos
 
+release_all_client_repos
+
 release_all_frontend_old_repos
 release_all_frontend_new_repos
-
-release_all_client_repos
 
 release_all_component_repos
 
