@@ -121,6 +121,6 @@ alias ij="'/Applications/IntelliJ IDEA.app/Contents/MacOS/idea'"
 
 alias rmmvn='rm -rf ~/.m2/repository/'
 
-alias copylistener='cp $CEDAR_HOME/cedar-keycloak-event-listener/target/cedar-keycloak-event-listener.jar ${CEDAR_KEYCLOAK_HOME}/standalone/deployments/.'
+alias copylistener='pushd; cp $CEDAR_HOME/cedar-keycloak-event-listener/target/cedar-keycloak-event-listener.jar ${CEDAR_KEYCLOAK_HOME}/providers/.; gokk; ./kc.sh build; popd;'
 
 alias createjaxb2workaround='$CEDAR_UTIL_BIN/create-jaxb2-workaround.sh'

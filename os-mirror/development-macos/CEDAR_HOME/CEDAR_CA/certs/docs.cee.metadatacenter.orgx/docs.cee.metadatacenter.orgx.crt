@@ -1,0 +1,98 @@
+Certificate:
+    Data:
+        Version: 3 (0x2)
+        Serial Number: 22 (0x16)
+        Signature Algorithm: sha256WithRSAEncryption
+        Issuer: C=US, ST=CA, L=Stanford, O=BMIR, OU=CEDAR, CN=metadatacenter.orgx/emailAddress=metadatacenter@gmail.com
+        Validity
+            Not Before: Mar 10 01:26:35 2023 GMT
+            Not After : Jun 11 01:26:35 2025 GMT
+        Subject: C=US, ST=CA, O=BMIR, OU=CEDAR, CN=docs.cee.metadatacenter.orgx/emailAddress=metadatacenter@gmail.com
+        Subject Public Key Info:
+            Public Key Algorithm: rsaEncryption
+                RSA Public-Key: (2048 bit)
+                Modulus:
+                    00:ca:6d:8a:33:ff:42:31:81:1e:e5:8e:ba:60:27:
+                    79:d5:1e:82:a5:f8:86:55:f5:04:53:96:c8:e8:77:
+                    aa:a6:b7:45:d5:da:1f:3b:2a:49:a9:8a:65:67:c4:
+                    19:0b:de:78:d8:8b:4f:fe:4b:0f:05:2d:e2:f1:b2:
+                    59:3d:4e:ac:13:a6:60:69:3e:9d:c9:0b:bd:7d:cb:
+                    d8:f9:a7:58:36:1e:45:55:41:34:f5:1f:62:f4:eb:
+                    38:a5:3b:e8:eb:a7:99:ac:62:cf:a2:4f:1e:9b:63:
+                    a1:0b:0e:a0:8f:d3:e2:84:c9:ab:9c:63:d5:b4:52:
+                    fb:68:36:59:1f:62:18:3e:a4:bd:0e:ad:de:cd:0c:
+                    4e:d5:6d:2d:11:59:51:e0:35:9a:fc:0e:2d:92:a0:
+                    8e:5d:ae:cd:60:e0:ad:ff:d7:17:fc:e1:fa:65:f7:
+                    9b:9c:0a:98:fc:d4:14:b9:33:0f:87:41:a5:b3:1f:
+                    fd:75:92:d6:b9:b2:c7:e3:78:25:63:ba:91:17:a5:
+                    a8:80:49:51:3f:ea:05:fa:a1:6d:4c:65:9b:ae:68:
+                    e1:cd:9f:01:29:e7:9d:b5:4f:02:61:21:4b:74:71:
+                    35:a7:24:b7:76:06:ec:5c:66:77:eb:06:ea:a9:16:
+                    3e:1e:02:1c:1d:ff:98:d2:a1:99:28:f2:04:95:04:
+                    47:ed
+                Exponent: 65537 (0x10001)
+        X509v3 extensions:
+            X509v3 Basic Constraints: 
+                CA:FALSE
+            X509v3 Key Usage: 
+                Digital Signature, Non Repudiation, Key Encipherment
+            X509v3 Subject Alternative Name: 
+                DNS:docs.cee.metadatacenter.orgx
+    Signature Algorithm: sha256WithRSAEncryption
+         82:69:0c:db:36:06:06:46:9a:89:81:36:e7:33:05:69:75:a3:
+         83:95:15:74:f3:8b:21:c0:2e:68:79:b3:05:9b:0c:6a:97:6e:
+         6e:ac:38:5d:dd:91:4e:bf:95:1a:45:d6:b6:71:46:d7:fb:98:
+         87:b6:a6:d2:8f:96:ed:cb:3b:08:e1:76:96:71:f9:64:2e:72:
+         b6:2b:08:ae:59:a8:56:52:aa:0c:aa:a4:1d:38:00:58:3e:3a:
+         e0:5f:47:af:aa:79:f4:c4:8d:cf:c6:5a:8e:6f:95:a7:7c:b1:
+         ee:3c:e5:34:3b:1e:18:13:17:e9:43:75:fd:a2:62:42:97:0f:
+         90:ce:23:2d:90:11:40:2f:2d:14:59:6d:a8:3c:b7:8e:1f:14:
+         a8:35:91:59:50:09:a2:19:d6:f8:3a:d7:78:2c:37:a3:83:bd:
+         03:17:08:ee:4e:47:41:4b:86:75:47:3d:31:39:82:50:94:05:
+         6e:9e:ea:e7:f1:a6:fe:f1:3b:bd:cc:33:48:ac:4c:7c:b0:7f:
+         21:62:f1:88:69:e2:ea:6e:a4:79:14:1c:f2:48:41:d6:6d:88:
+         ba:6d:98:25:e9:7f:a2:a5:94:52:dd:34:56:b8:36:1f:14:31:
+         2f:f1:f6:84:6a:3d:ce:77:c2:43:1c:cd:33:9c:35:06:39:ed:
+         e9:c0:8b:ea:e1:ec:f5:ea:72:ca:df:ed:35:3c:f9:4d:4e:e8:
+         43:28:ae:c7:40:24:7c:24:6d:54:ae:3d:27:42:69:1c:6c:dc:
+         98:6b:10:b6:ed:63:bb:4f:58:95:5a:fe:9b:2f:78:29:e1:ce:
+         bf:7e:ae:1f:fb:a6:4d:52:29:05:bf:bb:70:6a:cc:14:54:71:
+         da:de:a1:61:95:93:f2:41:fa:8f:bf:5e:60:7d:1c:5d:95:5f:
+         06:ac:39:55:58:1f:ea:0d:7c:59:3c:8c:0f:df:c5:60:ac:f6:
+         c3:b4:47:e1:9d:fc:94:e2:7a:fd:6e:b5:a9:cc:b2:49:26:03:
+         f5:fe:3d:39:d2:02:91:a1:08:ec:b2:70:1f:61:b2:2f:94:4f:
+         3b:55:6f:c7:fc:6b:68:bd:f1:87:28:b6:8f:7d:c4:80:8a:4e:
+         1c:bb:43:98:3b:c3:82:24:5d:7e:c2:60:9d:b4:58:8f:d5:9b:
+         1d:56:1a:71:63:aa:1f:0c:43:e8:57:0a:41:8f:13:68:c4:d7:
+         9b:75:71:3e:39:3d:d8:87:37:87:24:ba:f1:d5:76:12:8d:9d:
+         e7:41:36:bc:fb:90:22:0e:16:70:49:fb:c1:b8:73:f2:6e:89:
+         07:06:e8:d6:95:dd:73:31:01:3f:e2:6f:9e:44:01:55:9e:ea:
+         45:f1:cc:4a:cb:d3:be:d5
+-----BEGIN CERTIFICATE-----
+MIIE3DCCAsSgAwIBAgIBFjANBgkqhkiG9w0BAQsFADCBkzELMAkGA1UEBhMCVVMx
+CzAJBgNVBAgMAkNBMREwDwYDVQQHDAhTdGFuZm9yZDENMAsGA1UECgwEQk1JUjEO
+MAwGA1UECwwFQ0VEQVIxHDAaBgNVBAMME21ldGFkYXRhY2VudGVyLm9yZ3gxJzAl
+BgkqhkiG9w0BCQEWGG1ldGFkYXRhY2VudGVyQGdtYWlsLmNvbTAeFw0yMzAzMTAw
+MTI2MzVaFw0yNTA2MTEwMTI2MzVaMIGJMQswCQYDVQQGEwJVUzELMAkGA1UECAwC
+Q0ExDTALBgNVBAoMBEJNSVIxDjAMBgNVBAsMBUNFREFSMSUwIwYDVQQDDBxkb2Nz
+LmNlZS5tZXRhZGF0YWNlbnRlci5vcmd4MScwJQYJKoZIhvcNAQkBFhhtZXRhZGF0
+YWNlbnRlckBnbWFpbC5jb20wggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIB
+AQDKbYoz/0IxgR7ljrpgJ3nVHoKl+IZV9QRTlsjod6qmt0XV2h87KkmpimVnxBkL
+3njYi0/+Sw8FLeLxslk9TqwTpmBpPp3JC719y9j5p1g2HkVVQTT1H2L06zilO+jr
+p5msYs+iTx6bY6ELDqCP0+KEyaucY9W0UvtoNlkfYhg+pL0Ord7NDE7VbS0RWVHg
+NZr8Di2SoI5drs1g4K3/1xf84fpl95ucCpj81BS5Mw+HQaWzH/11kta5ssfjeCVj
+upEXpaiASVE/6gX6oW1MZZuuaOHNnwEp5521TwJhIUt0cTWnJLd2BuxcZnfrBuqp
+Fj4eAhwd/5jSoZko8gSVBEftAgMBAAGjQzBBMAkGA1UdEwQCMAAwCwYDVR0PBAQD
+AgXgMCcGA1UdEQQgMB6CHGRvY3MuY2VlLm1ldGFkYXRhY2VudGVyLm9yZ3gwDQYJ
+KoZIhvcNAQELBQADggIBAIJpDNs2BgZGmomBNuczBWl1o4OVFXTziyHALmh5swWb
+DGqXbm6sOF3dkU6/lRpF1rZxRtf7mIe2ptKPlu3LOwjhdpZx+WQucrYrCK5ZqFZS
+qgyqpB04AFg+OuBfR6+qefTEjc/GWo5vlad8se485TQ7HhgTF+lDdf2iYkKXD5DO
+Iy2QEUAvLRRZbag8t44fFKg1kVlQCaIZ1vg613gsN6ODvQMXCO5OR0FLhnVHPTE5
+glCUBW6e6ufxpv7xO73MM0isTHywfyFi8Yhp4upupHkUHPJIQdZtiLptmCXpf6Kl
+lFLdNFa4Nh8UMS/x9oRqPc53wkMczTOcNQY57enAi+rh7PXqcsrf7TU8+U1O6EMo
+rsdAJHwkbVSuPSdCaRxs3JhrELbtY7tPWJVa/psveCnhzr9+rh/7pk1SKQW/u3Bq
+zBRUcdreoWGVk/JB+o+/XmB9HF2VXwasOVVYH+oNfFk8jA/fxWCs9sO0R+Gd/JTi
+ev1utanMskkmA/X+PTnSApGhCOyycB9hsi+UTztVb8f8a2i98Ycoto99xICKThy7
+Q5g7w4IkXX7CYJ20WI/Vmx1WGnFjqh8MQ+hXCkGPE2jE15t1cT45PdiHN4ckuvHV
+dhKNnedBNrz7kCIOFnBJ+8G4c/JuiQcG6NaV3XMxAT/ib55EAVWe6kXxzErL077V
+-----END CERTIFICATE-----
