@@ -86,7 +86,7 @@ CEDAR_SERVER_REPOS=(
   "cedar-worker-server"
   "cedar-messaging-server"
   "cedar-openview-server"
-  "cedar-internals-server"
+  "cedar-monitor-server"
   "cedar-cadsr-tools"
   "cedar-impex-server"
 )

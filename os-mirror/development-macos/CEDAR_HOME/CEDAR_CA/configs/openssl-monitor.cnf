@@ -158,7 +158,7 @@ organizationalUnitName_default  = CEDAR
 
 commonName			= Common Name (e.g. server FQDN or YOUR name)
 commonName_max			= 64
-commonName_default      = internals.metadatacenter.orgx
+commonName_default      = monitor.metadatacenter.orgx
 
 emailAddress			= Email Address
 emailAddress_max		= 64
@@ -236,7 +236,7 @@ keyUsage = nonRepudiation, digitalSignature, keyEncipherment
 subjectAltName = @alt_names
 
 [alt_names]
-DNS.1   = internals.metadatacenter.orgx
+DNS.1   = monitor.metadatacenter.orgx
 
 [ v3_ca ]
 

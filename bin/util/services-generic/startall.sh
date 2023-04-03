@@ -31,6 +31,6 @@ startworker
 sleepbetweenstarts
 startopenview
 sleepbetweenstarts
-startinternals
+startmonitor
 sleepbetweenstarts
 startimpex
