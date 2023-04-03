@@ -9,6 +9,8 @@ alias godocker='cd $CEDAR_DOCKER_HOME'
 
 alias goparent='cd $CEDAR_HOME/cedar-parent'
 alias goproject='cd $CEDAR_HOME/cedar-project'
+alias golibraries='cd $CEDAR_HOME/cedar-libraries'
+alias goclients='cd $CEDAR_HOME/cedar-clients'
 
 alias goutil='cd $CEDAR_HOME/cedar-util'
 alias godocs='cd $CEDAR_HOME/cedar-docs'
