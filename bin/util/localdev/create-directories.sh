@@ -7,7 +7,7 @@ mkdir -p ${CEDAR_HOME}/log/cedar-artifacts/
 mkdir -p ${CEDAR_HOME}/log/cedar-frontend-component/
 mkdir -p ${CEDAR_HOME}/log/cedar-frontend-openview/
 mkdir -p ${CEDAR_HOME}/log/cedar-frontend-editor/
-mkdir -p ${CEDAR_HOME}/log/cedar-internalsview/
+mkdir -p ${CEDAR_HOME}/log/cedar-monitoring/
 
 mkdir -p ${CEDAR_HOME}/log/cedar-shared/
 
@@ -17,7 +17,7 @@ mkdir -p ${CEDAR_HOME}/log/cedar-cadsr-tools/
 
 mkdir -p ${CEDAR_HOME}/log/cedar-artifact-server/
 mkdir -p ${CEDAR_HOME}/log/cedar-group-server/
-mkdir -p ${CEDAR_HOME}/log/cedar-internals-server/
+mkdir -p ${CEDAR_HOME}/log/cedar-monitor-server/
 mkdir -p ${CEDAR_HOME}/log/cedar-messaging-server/
 mkdir -p ${CEDAR_HOME}/log/cedar-openview-server/
 mkdir -p ${CEDAR_HOME}/log/cedar-repo-server/
