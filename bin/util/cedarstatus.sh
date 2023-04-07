@@ -130,6 +130,7 @@ checkOpenPort MySQL 3306
 printf "$header" '-- Front End --------------'
 checkHttpResponse Base-Frontend 4200 'HTTP/1.1\s200\sOK'
 checkHttpResponse OpenView-Frontend 4220 'HTTP/1.1'
+checkHttpResponse Component-Frontend 4240 'HTTP/1.1'
 checkHttpResponse Monitoring-Frontend 4300 'HTTP/1.1'
 checkHttpResponse Artifacts-Frontend 4320 'HTTP/1.1'
 printf "$header" '-- Monitoring -------------'
