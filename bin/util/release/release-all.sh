@@ -130,7 +130,7 @@ CEDAR_CLIENT_REPOS=(
   "cedar-archetype-instance-reader"
   "cedar-archetype-instance-writer"
   "cedar-archetype-exporter"
-  "cedar-artifact-tools"
+  "cedar-artifact-library"
 )
 
 CEDAR_PROJECT_REPOS=(

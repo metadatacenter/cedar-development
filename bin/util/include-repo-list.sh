@@ -7,7 +7,7 @@ CEDAR_REPOS=(
   "cedar-artifact-server"
   "cedar-artifacts"
   "cedar-artifacts-dist"
-  "cedar-artifact-tools"
+  "cedar-artifact-library"
   "cedar-cadsr-tools"
   "cedar-clients"
   "cedar-component-distribution"
