@@ -72,6 +72,7 @@ CEDAR_PARENT_REPOS=(
 CEDAR_SERVER_REPOS=(
   "cedar-model-validation-library"
   "cedar-server-core-library"
+  "cedar-artifact-library"
   "cedar-keycloak-event-listener"
   "cedar-admin-tool"
   "cedar-user-server"
@@ -130,7 +131,6 @@ CEDAR_CLIENT_REPOS=(
   "cedar-archetype-instance-reader"
   "cedar-archetype-instance-writer"
   "cedar-archetype-exporter"
-  "cedar-artifact-library"
 )
 
 CEDAR_PROJECT_REPOS=(
