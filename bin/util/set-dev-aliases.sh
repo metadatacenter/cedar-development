@@ -14,7 +14,7 @@ alias goclients='cd $CEDAR_HOME/cedar-clients'
 
 alias goutil='cd $CEDAR_HOME/cedar-util'
 alias godocs='cd $CEDAR_HOME/cedar-docs'
-alias goservercore='cd $CEDAR_HOME/cedar-server-core-library'
+alias gomicroservice='cd $CEDAR_HOME/cedar-microservice-libraries'
 alias gomodel='cd $CEDAR_HOME/cedar-model-validation-library'
 
 alias goadmintool='cd $CEDAR_HOME/cedar-admin-tool'

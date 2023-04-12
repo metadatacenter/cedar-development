@@ -71,7 +71,7 @@ CEDAR_PARENT_REPOS=(
 
 CEDAR_SERVER_REPOS=(
   "cedar-model-validation-library"
-  "cedar-server-core-library"
+  "cedar-microservice-libraries"
   "cedar-artifact-library"
   "cedar-keycloak-event-listener"
   "cedar-admin-tool"
