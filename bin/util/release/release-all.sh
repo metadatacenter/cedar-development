@@ -76,6 +76,7 @@ CEDAR_LIBRARY_REPOS=(
   "cedar-model-library"
   "cedar-model-validation-library"
   "cedar-rest-library"
+  "cedar-libraries"
 )
 
 CEDAR_SERVER_REPOS=(
