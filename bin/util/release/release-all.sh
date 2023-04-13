@@ -69,6 +69,15 @@ CEDAR_PARENT_REPOS=(
   "cedar-parent"
 )
 
+CEDAR_LIBRARY_REPOS=(
+  "cedar-artifact-library"
+  "cedar-config-library"
+  "cedar-core-library"
+  "cedar-model-library"
+  "cedar-model-validation-library"
+  "cedar-rest-library"
+)
+
 CEDAR_SERVER_REPOS=(
   "cedar-model-validation-library"
   "cedar-microservice-libraries"
@@ -115,7 +124,7 @@ CEDAR_COMPONENT_REPOS=(
   "cedar-cee-docs-angular-dist"
 )
 
-CEDAR_CONFIGURATION_REPOS=(
+CEDAR_UTIL_REPOS=(
   "cedar-util"
 )
 
@@ -151,14 +160,15 @@ CEDAR_DEVELOPMENT_REPOS=(
 
 CEDAR_ALL_REPOS=(
   "${CEDAR_PARENT_REPOS[@]}"
+  "${CEDAR_LIBRARY_REPOS[@]}"
   "${CEDAR_SERVER_REPOS[@]}"
+  "${CEDAR_PROJECT_REPOS[@]}"
+  "${CEDAR_UTIL_REPOS[@]}"
+  "${CEDAR_DOCUMENTATION_REPOS[@]}"
+  "${CEDAR_CLIENT_REPOS[@]}"
   "${CEDAR_FRONTEND_OLD_REPOS[@]}"
   "${CEDAR_FRONTEND_NEW_REPOS[@]}"
   "${CEDAR_COMPONENT_REPOS[@]}"
-  "${CEDAR_CONFIGURATION_REPOS[@]}"
-  "${CEDAR_DOCUMENTATION_REPOS[@]}"
-  "${CEDAR_CLIENT_REPOS[@]}"
-  "${CEDAR_PROJECT_REPOS[@]}"
   "${CEDAR_DOCKER_BUILD_REPOS[@]}"
   "${CEDAR_DOCKER_DEPLOY_REPOS[@]}"
   "${CEDAR_DEVELOPMENT_REPOS[@]}"
@@ -293,6 +303,21 @@ release_parent_repo() {
   git commit -a -m "Updated cedar.version to next development version"
   git push
   mvn clean deploy # deploy development artifact
+
+  popd || exit
+}
+
+release_library_repo() {
+  log_progress "Releasing repo $1"
+  pushd "$CEDAR_HOME/$1" || exit
+
+  update_repo_parent_to_release "$1"
+
+  release_artifact "$1"
+  copy_release_to_main "$1"
+  install_artifact
+
+  update_repo_to_next_development_version "$1"
 
   popd || exit
 }
@@ -893,6 +918,13 @@ release_all_server_repos() {
   done
 }
 
+release_all_library_repos() {
+  log_progress "Releasing library repos..."
+  for r in "${CEDAR_LIBRARY_REPOS[@]}"; do
+    release_library_repo "$r"
+  done
+}
+
 release_all_project_repos() {
   log_progress "Releasing project repos..."
   for r in "${CEDAR_PROJECT_REPOS[@]}"; do
@@ -990,6 +1022,13 @@ build_all_parent_repos() {
   done
 }
 
+build_all_library_repos() {
+  log_progress 'Building library repos'
+  for r in "${CEDAR_LIBRARY_REPOS[@]}"; do
+    build_repo "$r"
+  done
+}
+
 build_all_project_repos() {
   log_progress 'Building project repos'
   for r in "${CEDAR_PROJECT_REPOS[@]}"; do
@@ -1008,12 +1047,14 @@ empty_user_maven_cache
 execute_jaxb2_workaround
 
 build_all_parent_repos
+build_all_library_repos
 build_all_project_repos
 
 release_all_parent_repos
+release_all_library_repos
 release_all_server_repos
 release_all_project_repos
-release_all_configuration_repos
+release_all_util_repos
 
 release_all_client_repos
 
