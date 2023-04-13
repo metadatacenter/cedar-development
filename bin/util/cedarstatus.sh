@@ -106,8 +106,8 @@ printf "$header" '-- Microservices ----------'
 checkHealth Artifact 9101
 checkHealth Group 9109
 checkHealth Impex 9108
-checkHealth Internals 9114
 checkHealth Messaging 9112
+checkHealth Monitor 9114
 checkHealth OpenView 9113
 checkHealth Repo 9102
 checkHealth Resource 9107
@@ -130,7 +130,8 @@ checkOpenPort MySQL 3306
 printf "$header" '-- Front End --------------'
 checkHttpResponse Base-Frontend 4200 'HTTP/1.1\s200\sOK'
 checkHttpResponse OpenView-Frontend 4220 'HTTP/1.1'
-checkHttpResponse InternalsView-Frontend 4300 'HTTP/1.1'
+checkHttpResponse Component-Frontend 4240 'HTTP/1.1'
+checkHttpResponse Monitoring-Frontend 4300 'HTTP/1.1'
 checkHttpResponse Artifacts-Frontend 4320 'HTTP/1.1'
 printf "$header" '-- Monitoring -------------'
 checkHttpResponse OpenSearch-Dashboards 5601 'HTTP/1.1\s302\sFo'

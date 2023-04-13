@@ -69,9 +69,20 @@ CEDAR_PARENT_REPOS=(
   "cedar-parent"
 )
 
+CEDAR_LIBRARY_REPOS=(
+  "cedar-model-library"
+  "cedar-artifact-library"
+  "cedar-core-library"
+  "cedar-rest-library"
+  "cedar-config-library"
+  "cedar-model-validation-library"
+  "cedar-libraries"
+)
+
 CEDAR_SERVER_REPOS=(
   "cedar-model-validation-library"
-  "cedar-server-core-library"
+  "cedar-microservice-libraries"
+  "cedar-artifact-library"
   "cedar-keycloak-event-listener"
   "cedar-admin-tool"
   "cedar-user-server"
@@ -86,7 +97,7 @@ CEDAR_SERVER_REPOS=(
   "cedar-worker-server"
   "cedar-messaging-server"
   "cedar-openview-server"
-  "cedar-internals-server"
+  "cedar-monitor-server"
   "cedar-cadsr-tools"
   "cedar-impex-server"
 )
@@ -98,6 +109,7 @@ CEDAR_FRONTEND_OLD_REPOS=(
 CEDAR_FRONTEND_NEW_REPOS=(
   "cedar-metadata-form"
   "cedar-openview"
+  "cedar-monitoring"
   "cedar-embeddable-editor"
   "cedar-cee-demo-angular"
   "cedar-cee-docs-angular"
@@ -108,11 +120,12 @@ CEDAR_COMPONENT_REPOS=(
   "cedar-shared-data"
   "cedar-cee-demo-api-php"
   "cedar-openview-dist"
+  "cedar-monitoring-dist"
   "cedar-cee-demo-angular-dist"
   "cedar-cee-docs-angular-dist"
 )
 
-CEDAR_CONFIGURATION_REPOS=(
+CEDAR_UTIL_REPOS=(
   "cedar-util"
 )
 
@@ -128,7 +141,6 @@ CEDAR_CLIENT_REPOS=(
   "cedar-archetype-instance-reader"
   "cedar-archetype-instance-writer"
   "cedar-archetype-exporter"
-  "cedar-artifact-tools"
 )
 
 CEDAR_PROJECT_REPOS=(
@@ -149,14 +161,15 @@ CEDAR_DEVELOPMENT_REPOS=(
 
 CEDAR_ALL_REPOS=(
   "${CEDAR_PARENT_REPOS[@]}"
+  "${CEDAR_LIBRARY_REPOS[@]}"
   "${CEDAR_SERVER_REPOS[@]}"
+  "${CEDAR_PROJECT_REPOS[@]}"
+  "${CEDAR_UTIL_REPOS[@]}"
+  "${CEDAR_DOCUMENTATION_REPOS[@]}"
+  "${CEDAR_CLIENT_REPOS[@]}"
   "${CEDAR_FRONTEND_OLD_REPOS[@]}"
   "${CEDAR_FRONTEND_NEW_REPOS[@]}"
   "${CEDAR_COMPONENT_REPOS[@]}"
-  "${CEDAR_CONFIGURATION_REPOS[@]}"
-  "${CEDAR_DOCUMENTATION_REPOS[@]}"
-  "${CEDAR_CLIENT_REPOS[@]}"
-  "${CEDAR_PROJECT_REPOS[@]}"
   "${CEDAR_DOCKER_BUILD_REPOS[@]}"
   "${CEDAR_DOCKER_DEPLOY_REPOS[@]}"
   "${CEDAR_DEVELOPMENT_REPOS[@]}"
@@ -291,6 +304,21 @@ release_parent_repo() {
   git commit -a -m "Updated cedar.version to next development version"
   git push
   mvn clean deploy # deploy development artifact
+
+  popd || exit
+}
+
+release_library_repo() {
+  log_progress "Releasing repo $1"
+  pushd "$CEDAR_HOME/$1" || exit
+
+  update_repo_parent_to_release "$1"
+
+  release_artifact "$1"
+  copy_release_to_main "$1"
+  install_artifact
+
+  update_repo_to_next_development_version "$1"
 
   popd || exit
 }
@@ -552,7 +580,7 @@ build_metadata_form_component() {
 
   npm install
   ng build --configuration=production
-  cat dist/cedar-form/{runtime.*,polyfills.*,main.*}.js >"${CEDAR_HOME}/cedar-component-distribution/cedar-form/cedar-form-${RELEASE_VERSION}.js"
+  cat dist/cedar-form/{runtime,polyfills,main}.js >"${CEDAR_HOME}/cedar-component-distribution/cedar-form/cedar-form-${RELEASE_VERSION}.js"
 
   popd || exit
 }
@@ -566,7 +594,7 @@ build_embeddable_editor_component() {
 
   npm install
   ng build --configuration=production
-  cat dist/cedar-embeddable-editor/{runtime.*,polyfills.*,main.*}.js >"${CEDAR_HOME}/cedar-component-distribution/cedar-embeddable-editor/cedar-embeddable-editor-${RELEASE_VERSION}.js"
+  cat dist/cedar-embeddable-editor/{runtime,polyfills,main}.js >"${CEDAR_HOME}/cedar-component-distribution/cedar-embeddable-editor/cedar-embeddable-editor-${RELEASE_VERSION}.js"
 
   popd || exit
 }
@@ -581,6 +609,20 @@ build_openview_frontend() {
   npm install
   ng build --configuration=production
   cp -a dist/cedar-openview/. "${CEDAR_HOME}/cedar-openview-dist/"
+
+  popd || exit
+}
+
+build_monitoring_frontend() {
+  RELEASE_VERSION=$1
+  BRANCH=$2
+  pushd "${CEDAR_HOME}/cedar-monitoring" || exit
+  git checkout "${BRANCH}"
+  git pull
+
+  npm install --legacy-peer-deps
+  ng build --configuration=production
+  cp -a dist/cedar-monitoring/. "${CEDAR_HOME}/cedar-monitoring-dist/"
 
   popd || exit
 }
@@ -723,6 +765,8 @@ release_openview_dist_repo() {
   tag_repo_with_release_version "$1"
   copy_release_to_main "$1"
 
+  npm publish
+
   # Return to develop branch
   git checkout develop
 
@@ -731,6 +775,41 @@ release_openview_dist_repo() {
 
   git commit -a -m "Updated to next development version"
   git push origin develop
+
+  npm publish
+
+  popd || exit
+}
+
+release_monitoring_dist_repo() {
+  log_progress "Releasing repo $1"
+  pushd "$CEDAR_HOME/$1" || exit
+
+  # Tag the latest development version
+  git checkout develop
+  git pull origin develop
+
+  build_monitoring_frontend "${CEDAR_RELEASE_VERSION}" main
+  git add .
+
+  git commit -a -m "Produce release version of component"
+  git push origin develop
+
+  tag_repo_with_release_version "$1"
+  copy_release_to_main "$1"
+
+  npm publish
+
+  # Return to develop branch
+  git checkout develop
+
+  build_monitoring_frontend "${CEDAR_NEXT_DEVELOPMENT_VERSION}" develop
+  git add .
+
+  git commit -a -m "Updated to next development version"
+  git push origin develop
+
+  npm publish
 
   popd || exit
 }
@@ -840,6 +919,13 @@ release_all_server_repos() {
   done
 }
 
+release_all_library_repos() {
+  log_progress "Releasing library repos..."
+  for r in "${CEDAR_LIBRARY_REPOS[@]}"; do
+    release_library_repo "$r"
+  done
+}
+
 release_all_project_repos() {
   log_progress "Releasing project repos..."
   for r in "${CEDAR_PROJECT_REPOS[@]}"; do
@@ -875,6 +961,9 @@ release_all_component_repos() {
     fi
     if [ "$r" = "cedar-openview-dist" ]; then
       release_openview_dist_repo "$r"
+    fi
+    if [ "$r" = "cedar-monitoring-dist" ]; then
+      release_monitoring_dist_repo "$r"
     fi
     if [ "$r" = "cedar-cee-demo-angular-dist" ]; then
       release_cee_demo_angular_dist_repo "$r"
@@ -934,6 +1023,13 @@ build_all_parent_repos() {
   done
 }
 
+build_all_library_repos() {
+  log_progress 'Building library repos'
+  for r in "${CEDAR_LIBRARY_REPOS[@]}"; do
+    build_repo "$r"
+  done
+}
+
 build_all_project_repos() {
   log_progress 'Building project repos'
   for r in "${CEDAR_PROJECT_REPOS[@]}"; do
@@ -952,12 +1048,14 @@ empty_user_maven_cache
 execute_jaxb2_workaround
 
 build_all_parent_repos
+build_all_library_repos
 build_all_project_repos
 
 release_all_parent_repos
+release_all_library_repos
 release_all_server_repos
 release_all_project_repos
-release_all_configuration_repos
+release_all_util_repos
 
 release_all_client_repos
 

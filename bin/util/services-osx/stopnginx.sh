@@ -4,4 +4,4 @@ echo Stopping NginX
 echo --------------------------------------------------------------------------------
 echo
 
-sudo nginx -s stop
+nginx -s stop
