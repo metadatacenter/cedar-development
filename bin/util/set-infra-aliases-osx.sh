@@ -1,8 +1,8 @@
 #!/bin/bash
 
 #3rd party server aliases
-alias startnginx='$CEDAR_UTIL_BIN/services-osx/startnginx.sh'
-alias stopnginx='$CEDAR_UTIL_BIN/services-osx/stopnginx.sh'
+alias startnginx='sudo $CEDAR_UTIL_BIN/services-osx/startnginx.sh'
+alias stopnginx='sudo $CEDAR_UTIL_BIN/services-osx/stopnginx.sh'
 
 alias startmongo='$CEDAR_UTIL_BIN/services-osx/startmongo.sh'
 alias stopmongo='$CEDAR_UTIL_BIN/services-osx/stopmongo.sh'

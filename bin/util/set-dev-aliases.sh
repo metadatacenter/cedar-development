@@ -9,10 +9,12 @@ alias godocker='cd $CEDAR_DOCKER_HOME'
 
 alias goparent='cd $CEDAR_HOME/cedar-parent'
 alias goproject='cd $CEDAR_HOME/cedar-project'
+alias golibraries='cd $CEDAR_HOME/cedar-libraries'
+alias goclients='cd $CEDAR_HOME/cedar-clients'
 
 alias goutil='cd $CEDAR_HOME/cedar-util'
 alias godocs='cd $CEDAR_HOME/cedar-docs'
-alias goservercore='cd $CEDAR_HOME/cedar-server-core-library'
+alias gomicroservice='cd $CEDAR_HOME/cedar-microservice-libraries'
 alias gomodel='cd $CEDAR_HOME/cedar-model-validation-library'
 
 alias goadmintool='cd $CEDAR_HOME/cedar-admin-tool'
@@ -29,7 +31,7 @@ alias govaluerecommender='cd $CEDAR_HOME/cedar-valuerecommender-server'
 alias gosubmission='cd $CEDAR_HOME/cedar-submission-server'
 alias goworker='cd $CEDAR_HOME/cedar-worker-server'
 alias goopenview='cd $CEDAR_HOME/cedar-openview-server'
-alias gointernals='cd $CEDAR_HOME/cedar-internals-server'
+alias gomonitor='cd $CEDAR_HOME/cedar-monitor-server'
 alias goimpex='cd $CEDAR_HOME/cedar-impex-server'
 alias gomkdocs='cd $CEDAR_HOME/cedar-mkdocs'
 alias godevelopment='cd $CEDAR_HOME/cedar-development'
@@ -43,6 +45,7 @@ alias goeventlistener='cd $CEDAR_HOME/cedar-keycloak-event-listener'
 
 alias goeditor='cd $CEDAR_HOME/cedar-template-editor'
 alias goopenfront='cd $CEDAR_HOME/cedar-openview'
+alias gomonitoring='cd $CEDAR_HOME/cedar-monitoring'
 
 alias gokk='cd ${CEDAR_KEYCLOAK_HOME}/bin'
 
@@ -101,8 +104,8 @@ alias startworker='$CEDAR_UTIL_BIN/services-generic/start-dw-server.sh worker &'
 alias stopworker='$CEDAR_UTIL_BIN/services-generic/stop-dw-server.sh worker 9211'
 alias startopenview='$CEDAR_UTIL_BIN/services-generic/start-dw-server.sh openview &'
 alias stopopenview='$CEDAR_UTIL_BIN/services-generic/stop-dw-server.sh openview 9213'
-alias startinternals='$CEDAR_UTIL_BIN/services-generic/start-dw-server.sh internals &'
-alias stopinternals='$CEDAR_UTIL_BIN/services-generic/stop-dw-server.sh internals 9214'
+alias startmonitor='$CEDAR_UTIL_BIN/services-generic/start-dw-server.sh monitor &'
+alias stopmonitor='$CEDAR_UTIL_BIN/services-generic/stop-dw-server.sh monitor 9214'
 alias startimpex='$CEDAR_UTIL_BIN/services-generic/start-dw-server.sh impex &'
 alias stopimpex='$CEDAR_UTIL_BIN/services-generic/stop-dw-server.sh impex 9208'
 
@@ -120,6 +123,7 @@ alias cedarss='${CEDAR_DEVELOP_HOME}/bin/util/cedarstatus.sh'
 alias ij="'/Applications/IntelliJ IDEA.app/Contents/MacOS/idea'"
 
 alias rmmvn='rm -rf ~/.m2/repository/'
+alias rmmvncedar='rm -rf ~/.m2/repository/org/metadatacenter/'
 
 alias copylistener='pushd; cp $CEDAR_HOME/cedar-keycloak-event-listener/target/cedar-keycloak-event-listener.jar ${CEDAR_KEYCLOAK_HOME}/providers/.; gokk; ./kc.sh build; popd;'
 
