@@ -70,12 +70,12 @@ CEDAR_PARENT_REPOS=(
 )
 
 CEDAR_LIBRARY_REPOS=(
-  "cedar-artifact-library"
-  "cedar-config-library"
-  "cedar-core-library"
   "cedar-model-library"
-  "cedar-model-validation-library"
+  "cedar-artifact-library"
+  "cedar-core-library"
   "cedar-rest-library"
+  "cedar-config-library"
+  "cedar-model-validation-library"
   "cedar-libraries"
 )
 
