@@ -130,7 +130,6 @@ CEDAR_UTIL_REPOS=(
 )
 
 CEDAR_DOCUMENTATION_REPOS=(
-  "cedar-docs"
   "cedar-swagger-ui"
   "cedar-mkdocs"
   "cedar-mkdocs-developer"
