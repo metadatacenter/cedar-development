@@ -62,6 +62,8 @@ alias buildopenviewdist='$CEDAR_UTIL_BIN/angular/build-openview-dist.sh'
 alias buildceedemodist='$CEDAR_UTIL_BIN/angular/build-cee-demo-angular-dist.sh'
 alias buildceedocsdist='$CEDAR_UTIL_BIN/angular/build-cee-docs-angular-dist.sh'
 
+alias cedarcli='$CEDAR_UTIL_BIN/cli/cli.sh'
+
 #CEDAR Admin Tool alias
 alias cedarat='$CEDAR_UTIL_BIN/admintool/cedar-admin-tool.sh'
 
