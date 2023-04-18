@@ -21,7 +21,6 @@ CEDAR_REPOS=(
   "cedar-development"
   "cedar-docker-build"
   "cedar-docker-deploy"
-  "cedar-docs"
   "cedar-embeddable-editor"
   "cedar-group-server"
   "cedar-impex-server"
