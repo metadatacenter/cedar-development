@@ -1,0 +1,1 @@
+cedar-dev ALL=(ALL) NOPASSWD: /Users/cedar-dev/CEDAR/cedar-development/bin/util//services-osx/startnginx.sh,/Users/cedar-dev/CEDAR/cedar-development/bin/util//services-osx/stopnginx.sh

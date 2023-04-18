@@ -47,6 +47,8 @@ alias goeditor='cd $CEDAR_HOME/cedar-template-editor'
 alias goopenfront='cd $CEDAR_HOME/cedar-openview'
 alias gomonitoring='cd $CEDAR_HOME/cedar-monitoring'
 
+alias gocli='cd $CEDAR_HOME/cedar-cli'
+
 alias gokk='cd ${CEDAR_KEYCLOAK_HOME}/bin'
 
 #CEDAR Git util aliases
