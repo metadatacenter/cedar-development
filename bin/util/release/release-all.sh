@@ -108,7 +108,6 @@ CEDAR_FRONTEND_OLD_REPOS=(
 
 CEDAR_FRONTEND_NEW_REPOS=(
   "cedar-metadata-form"
-  "cedar-openview"
   "cedar-monitoring"
   "cedar-embeddable-editor"
   "cedar-cee-demo-angular"
@@ -119,8 +118,6 @@ CEDAR_COMPONENT_REPOS=(
   "cedar-component-distribution"
   "cedar-shared-data"
   "cedar-cee-demo-api-php"
-  "cedar-openview-dist"
-  "cedar-monitoring-dist"
   "cedar-cee-demo-angular-dist"
   "cedar-cee-docs-angular-dist"
 )
@@ -598,33 +595,6 @@ build_embeddable_editor_component() {
   popd || exit
 }
 
-build_openview_frontend() {
-  RELEASE_VERSION=$1
-  BRANCH=$2
-  pushd "${CEDAR_HOME}/cedar-openview" || exit
-  git checkout "${BRANCH}"
-  git pull
-
-  npm install
-  ng build --configuration=production
-  cp -a dist/cedar-openview/. "${CEDAR_HOME}/cedar-openview-dist/"
-
-  popd || exit
-}
-
-build_monitoring_frontend() {
-  RELEASE_VERSION=$1
-  BRANCH=$2
-  pushd "${CEDAR_HOME}/cedar-monitoring" || exit
-  git checkout "${BRANCH}"
-  git pull
-
-  npm install --legacy-peer-deps
-  ng build --configuration=production
-  cp -a dist/cedar-monitoring/. "${CEDAR_HOME}/cedar-monitoring-dist/"
-
-  popd || exit
-}
 
 build_cee_demo_angular_frontend() {
   RELEASE_VERSION=$1
@@ -743,72 +713,6 @@ release_cee_demo_api_php() {
 
   git commit -a -m "Updated to next development version"
   git push origin develop
-
-  popd || exit
-}
-
-release_openview_dist_repo() {
-  log_progress "Releasing repo $1"
-  pushd "$CEDAR_HOME/$1" || exit
-
-  # Tag the latest development version
-  git checkout develop
-  git pull origin develop
-
-  build_openview_frontend "${CEDAR_RELEASE_VERSION}" main
-  git add .
-
-  git commit -a -m "Produce release version of component"
-  git push origin develop
-
-  tag_repo_with_release_version "$1"
-  copy_release_to_main "$1"
-
-  npm publish
-
-  # Return to develop branch
-  git checkout develop
-
-  build_openview_frontend "${CEDAR_NEXT_DEVELOPMENT_VERSION}" develop
-  git add .
-
-  git commit -a -m "Updated to next development version"
-  git push origin develop
-
-  npm publish
-
-  popd || exit
-}
-
-release_monitoring_dist_repo() {
-  log_progress "Releasing repo $1"
-  pushd "$CEDAR_HOME/$1" || exit
-
-  # Tag the latest development version
-  git checkout develop
-  git pull origin develop
-
-  build_monitoring_frontend "${CEDAR_RELEASE_VERSION}" main
-  git add .
-
-  git commit -a -m "Produce release version of component"
-  git push origin develop
-
-  tag_repo_with_release_version "$1"
-  copy_release_to_main "$1"
-
-  npm publish
-
-  # Return to develop branch
-  git checkout develop
-
-  build_monitoring_frontend "${CEDAR_NEXT_DEVELOPMENT_VERSION}" develop
-  git add .
-
-  git commit -a -m "Updated to next development version"
-  git push origin develop
-
-  npm publish
 
   popd || exit
 }
@@ -957,12 +861,6 @@ release_all_component_repos() {
     fi
     if [ "$r" = "cedar-cee-demo-api-php" ]; then
       release_cee_demo_api_php "$r"
-    fi
-    if [ "$r" = "cedar-openview-dist" ]; then
-      release_openview_dist_repo "$r"
-    fi
-    if [ "$r" = "cedar-monitoring-dist" ]; then
-      release_monitoring_dist_repo "$r"
     fi
     if [ "$r" = "cedar-cee-demo-angular-dist" ]; then
       release_cee_demo_angular_dist_repo "$r"
