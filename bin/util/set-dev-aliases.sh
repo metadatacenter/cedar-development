@@ -45,7 +45,7 @@ alias goeventlistener='cd $CEDAR_HOME/cedar-keycloak-event-listener'
 
 alias goeditor='cd $CEDAR_HOME/cedar-template-editor'
 alias goopenfront='cd $CEDAR_HOME/cedar-openview/cedar-openview'
-alias gomonitoring='cd $CEDAR_HOME/cedar-monitoring'
+alias gomonitoring='cd $CEDAR_HOME/cedar-monitoring/cedar-monitoring'
 
 alias gocli='cd $CEDAR_HOME/cedar-cli'
 
@@ -63,7 +63,7 @@ alias buildcee='$CEDAR_UTIL_BIN/angular/build-embeddable-editor.sh'
 alias buildceedemodist='$CEDAR_UTIL_BIN/angular/build-cee-demo-angular-dist.sh'
 alias buildceedocsdist='$CEDAR_UTIL_BIN/angular/build-cee-docs-angular-dist.sh'
 
-alias cedarcli='$CEDAR_UTIL_BIN/cli/cli.sh'
+alias cedarcli='source $CEDAR_UTIL_BIN/cli/cli.sh'
 
 #CEDAR Admin Tool alias
 alias cedarat='$CEDAR_UTIL_BIN/admintool/cedar-admin-tool.sh'
