@@ -46,6 +46,7 @@ alias goeventlistener='cd $CEDAR_HOME/cedar-keycloak-event-listener'
 alias goeditor='cd $CEDAR_HOME/cedar-template-editor'
 alias goopenfront='cd $CEDAR_HOME/cedar-openview/cedar-openview'
 alias gomonitoring='cd $CEDAR_HOME/cedar-monitoring/cedar-monitoring'
+alias goartifacts='cd $CEDAR_HOME/cedar-artifacts/cedar-artifacts'
 
 alias gocli='cd $CEDAR_HOME/cedar-cli'
 
