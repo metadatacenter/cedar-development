@@ -110,13 +110,11 @@ CEDAR_FRONTEND_NEW_REPOS=(
   "cedar-metadata-form"
   "cedar-monitoring"
   "cedar-embeddable-editor"
-  "cedar-cee-docs-angular"
 )
 
 CEDAR_COMPONENT_REPOS=(
   "cedar-component-distribution"
   "cedar-shared-data"
-  "cedar-cee-docs-angular-dist"
 )
 
 CEDAR_UTIL_REPOS=(
@@ -593,20 +591,6 @@ build_embeddable_editor_component() {
 }
 
 
-build_cee_docs_angular_frontend() {
-  RELEASE_VERSION=$1
-  BRANCH=$2
-  pushd "${CEDAR_HOME}/cedar-cee-docs-angular" || exit
-  git checkout "${BRANCH}"
-  git pull
-
-  npm install
-  ng build --configuration=production
-  cp -a dist/cedar-cee-docs-angular/. "${CEDAR_HOME}/cedar-cee-docs-angular-dist/"
-
-  popd || exit
-}
-
 release_component_distribution_repo() {
   log_progress "Releasing repo $1"
   pushd "$CEDAR_HOME/$1" || exit
@@ -665,35 +649,6 @@ release_shared_data_repo() {
   # Return to develop branch
   git checkout develop
 
-  git add .
-
-  git commit -a -m "Updated to next development version"
-  git push origin develop
-
-  popd || exit
-}
-
-release_cee_docs_angular_dist_repo() {
-  log_progress "Releasing repo $1"
-  pushd "$CEDAR_HOME/$1" || exit
-
-  # Tag the latest development version
-  git checkout develop
-  git pull origin develop
-
-  build_cee_docs_angular_frontend "${CEDAR_RELEASE_VERSION}" main
-  git add .
-
-  git commit -a -m "Produce release version of component"
-  git push origin develop
-
-  tag_repo_with_release_version "$1"
-  copy_release_to_main "$1"
-
-  # Return to develop branch
-  git checkout develop
-
-  build_cee_docs_angular_frontend "${CEDAR_NEXT_DEVELOPMENT_VERSION}" develop
   git add .
 
   git commit -a -m "Updated to next development version"
@@ -785,9 +740,6 @@ release_all_component_repos() {
     fi
     if [ "$r" = "cedar-shared-data" ]; then
       release_shared_data_repo "$r"
-    fi
-    if [ "$r" = "cedar-cee-docs-angular-dist" ]; then
-      release_cee_docs_angular_dist_repo "$r"
     fi
   done
 }
