@@ -38,15 +38,14 @@ alias godevelopment='cd $CEDAR_HOME/cedar-development'
 alias gobuild='cd $CEDAR_HOME/cedar-docker-build'
 alias godeploy='cd $CEDAR_HOME/cedar-docker-deploy'
 alias gocomponent='cd $CEDAR_HOME/cedar-component-distribution'
-alias goceeang='cd $CEDAR_HOME/cedar-cee-demo/cedar-cee-demo-angular'
-alias goceeangdist='cd $CEDAR_HOME/cedar-cee-demo/cedar-cee-demo-angular-dist'
 
 alias goeventlistener='cd $CEDAR_HOME/cedar-keycloak-event-listener'
 
 alias goeditor='cd $CEDAR_HOME/cedar-template-editor'
-alias goopenfront='cd $CEDAR_HOME/cedar-openview/cedar-openview'
-alias gomonitoring='cd $CEDAR_HOME/cedar-monitoring/cedar-monitoring'
-alias goartifacts='cd $CEDAR_HOME/cedar-artifacts/cedar-artifacts'
+alias goopenfront='cd $CEDAR_HOME/cedar-openview/cedar-openview-src'
+alias gomonitoring='cd $CEDAR_HOME/cedar-monitoring/cedar-monitoring-src'
+alias goartifacts='cd $CEDAR_HOME/cedar-artifacts/cedar-artifacts-src'
+alias goceeang='cd $CEDAR_HOME/cedar-cee-demo/cedar-cee-demo-angular-src'
 
 alias gocli='cd $CEDAR_HOME/cedar-cli'
 
