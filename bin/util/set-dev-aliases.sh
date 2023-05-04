@@ -25,6 +25,7 @@ alias gorepo='cd $CEDAR_HOME/cedar-repo-server'
 alias goresource='cd $CEDAR_HOME/cedar-resource-server'
 alias goschema='cd $CEDAR_HOME/cedar-schema-server'
 alias goartifact='cd $CEDAR_HOME/cedar-artifact-server'
+alias gobridge='cd $CEDAR_HOME/cedar-bridge-server'
 alias goterminology='cd $CEDAR_HOME/cedar-terminology-server'
 alias gouser='cd $CEDAR_HOME/cedar-user-server'
 alias govaluerecommender='cd $CEDAR_HOME/cedar-valuerecommender-server'
@@ -111,6 +112,8 @@ alias startmonitor='$CEDAR_UTIL_BIN/services-generic/start-dw-server.sh monitor 
 alias stopmonitor='$CEDAR_UTIL_BIN/services-generic/stop-dw-server.sh monitor 9214'
 alias startimpex='$CEDAR_UTIL_BIN/services-generic/start-dw-server.sh impex &'
 alias stopimpex='$CEDAR_UTIL_BIN/services-generic/stop-dw-server.sh impex 9208'
+alias startbridge='$CEDAR_UTIL_BIN/services-generic/start-dw-server.sh bridge &'
+alias stopbridge='$CEDAR_UTIL_BIN/services-generic/stop-dw-server.sh bridge 9215'
 
 alias sleepbetweenstarts='sleep 2'
 

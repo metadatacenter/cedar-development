@@ -104,6 +104,7 @@ printLine '\x2D'
 
 printf "$header" '-- Microservices ----------'
 checkHealth Artifact 9101
+checkHealth Bridge 9115
 checkHealth Group 9109
 checkHealth Impex 9108
 checkHealth Messaging 9112
