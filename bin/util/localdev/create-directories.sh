@@ -16,6 +16,7 @@ mkdir -p ${CEDAR_HOME}/log/cedar-auth-server/
 mkdir -p ${CEDAR_HOME}/log/cedar-cadsr-tools/
 
 mkdir -p ${CEDAR_HOME}/log/cedar-artifact-server/
+mkdir -p ${CEDAR_HOME}/log/cedar-bridge-server/
 mkdir -p ${CEDAR_HOME}/log/cedar-group-server/
 mkdir -p ${CEDAR_HOME}/log/cedar-monitor-server/
 mkdir -p ${CEDAR_HOME}/log/cedar-messaging-server/

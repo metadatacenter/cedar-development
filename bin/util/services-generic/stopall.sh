@@ -21,3 +21,4 @@ stopworker
 stopopenview
 stopmonitor
 stopimpex
+stopbridge
