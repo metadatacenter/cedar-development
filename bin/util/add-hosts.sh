@@ -3,6 +3,7 @@
 CEDAR_HOSTS=(
     "artifact"
     "artifacts"
+    "bridge"
     "auth"
     "cedar"
     "component"

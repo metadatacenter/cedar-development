@@ -25,6 +25,7 @@ alias gorepo='cd $CEDAR_HOME/cedar-repo-server'
 alias goresource='cd $CEDAR_HOME/cedar-resource-server'
 alias goschema='cd $CEDAR_HOME/cedar-schema-server'
 alias goartifact='cd $CEDAR_HOME/cedar-artifact-server'
+alias gobridge='cd $CEDAR_HOME/cedar-bridge-server'
 alias goterminology='cd $CEDAR_HOME/cedar-terminology-server'
 alias gouser='cd $CEDAR_HOME/cedar-user-server'
 alias govaluerecommender='cd $CEDAR_HOME/cedar-valuerecommender-server'
@@ -38,14 +39,16 @@ alias godevelopment='cd $CEDAR_HOME/cedar-development'
 alias gobuild='cd $CEDAR_HOME/cedar-docker-build'
 alias godeploy='cd $CEDAR_HOME/cedar-docker-deploy'
 alias gocomponent='cd $CEDAR_HOME/cedar-component-distribution'
-alias goceeang='cd $CEDAR_HOME/cedar-cee-demo-angular'
-alias goceeangdist='cd $CEDAR_HOME/cedar-cee-demo-angular-dist'
 
 alias goeventlistener='cd $CEDAR_HOME/cedar-keycloak-event-listener'
 
 alias goeditor='cd $CEDAR_HOME/cedar-template-editor'
-alias goopenfront='cd $CEDAR_HOME/cedar-openview'
-alias gomonitoring='cd $CEDAR_HOME/cedar-monitoring'
+alias goopenfront='cd $CEDAR_HOME/cedar-openview/cedar-openview-src'
+alias gomonitoring='cd $CEDAR_HOME/cedar-monitoring/cedar-monitoring-src'
+alias goartifacts='cd $CEDAR_HOME/cedar-artifacts/cedar-artifacts-src'
+alias goceeang='cd $CEDAR_HOME/cedar-cee-demo/cedar-cee-demo-angular-src'
+
+alias gocli='cd $CEDAR_HOME/cedar-cli'
 
 alias gokk='cd ${CEDAR_KEYCLOAK_HOME}/bin'
 
@@ -58,9 +61,10 @@ alias cedargcheckout='$CEDAR_UTIL_BIN/git/git-checkout-branch.sh'
 #CEDAR Angular build aliases
 alias buildmetadataform='$CEDAR_UTIL_BIN/angular/build-metadata-form.sh'
 alias buildcee='$CEDAR_UTIL_BIN/angular/build-embeddable-editor.sh'
-alias buildopenviewdist='$CEDAR_UTIL_BIN/angular/build-openview-dist.sh'
 alias buildceedemodist='$CEDAR_UTIL_BIN/angular/build-cee-demo-angular-dist.sh'
 alias buildceedocsdist='$CEDAR_UTIL_BIN/angular/build-cee-docs-angular-dist.sh'
+
+alias cedarcli='source $CEDAR_UTIL_BIN/cli/cli.sh'
 
 #CEDAR Admin Tool alias
 alias cedarat='$CEDAR_UTIL_BIN/admintool/cedar-admin-tool.sh'
@@ -108,6 +112,8 @@ alias startmonitor='$CEDAR_UTIL_BIN/services-generic/start-dw-server.sh monitor 
 alias stopmonitor='$CEDAR_UTIL_BIN/services-generic/stop-dw-server.sh monitor 9214'
 alias startimpex='$CEDAR_UTIL_BIN/services-generic/start-dw-server.sh impex &'
 alias stopimpex='$CEDAR_UTIL_BIN/services-generic/stop-dw-server.sh impex 9208'
+alias startbridge='$CEDAR_UTIL_BIN/services-generic/start-dw-server.sh bridge &'
+alias stopbridge='$CEDAR_UTIL_BIN/services-generic/stop-dw-server.sh bridge 9215'
 
 alias sleepbetweenstarts='sleep 2'
 

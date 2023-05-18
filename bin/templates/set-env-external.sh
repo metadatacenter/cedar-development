@@ -34,3 +34,8 @@ export CEDAR_NCI_CADSR_FTP_USER="changeme"
 export CEDAR_NCI_CADSR_FTP_PASSWORD="changeme"
 export CEDAR_NCI_CADSR_FTP_CLASSIFICATIONS_DIRECTORY="changeme"
 export CEDAR_NCI_CADSR_FTP_CDES_DIRECTORY="changeme"
+
+#CEDAR DATACITE Integration - place your own data here
+export CEDAR_DATACITE_REPOSITORY_ID="changeme"
+export CEDAR_DATACITE_REPOSITORY_PASSWORD="changeme"
+export CEDAR_DATACITE_API_ENDPOINT_URL="changeme"
