@@ -52,18 +52,6 @@ alias gocli='cd $CEDAR_HOME/cedar-cli'
 
 alias gokk='cd ${CEDAR_KEYCLOAK_HOME}/bin'
 
-#CEDAR Git util aliases
-alias cedargstatus='$CEDAR_UTIL_BIN/git/gitstatus.sh'
-alias cedargbranches='$CEDAR_UTIL_BIN/git/gitbranches.sh'
-alias cedargpull='$CEDAR_UTIL_BIN/git/gitpull.sh'
-alias cedargcheckout='$CEDAR_UTIL_BIN/git/git-checkout-branch.sh'
-
-#CEDAR Angular build aliases
-alias buildmetadataform='$CEDAR_UTIL_BIN/angular/build-metadata-form.sh'
-alias buildcee='$CEDAR_UTIL_BIN/angular/build-embeddable-editor.sh'
-alias buildceedemodist='$CEDAR_UTIL_BIN/angular/build-cee-demo-angular-dist.sh'
-alias buildceedocsdist='$CEDAR_UTIL_BIN/angular/build-cee-docs-angular-dist.sh'
-
 alias cedarcli='source $CEDAR_UTIL_BIN/cli/cli.sh'
 
 #CEDAR Admin Tool alias
@@ -75,10 +63,6 @@ alias mcl='mvn clean'
 alias mci='mvn clean install'
 alias mit='mvn install -DskipTests=true'
 alias mcit='mvn clean install -DskipTests=true'
-
-#Maven and shell aliases
-alias m2clean='rm -rf ~/.m2/repository/*'
-alias m2cleancedar='rm -rf ~/.m2/repository/org/metadatacenter/*'
 
 #3rd party server aliases
 alias startkk='$CEDAR_UTIL_BIN/services-generic/startkeycloak.sh'
@@ -123,14 +107,8 @@ alias startall='$CEDAR_UTIL_BIN/services-generic/startall.sh'
 alias startinfra='$CEDAR_UTIL_BIN/services-generic/startinfra.sh'
 alias stopinfra='$CEDAR_UTIL_BIN/services-generic/stopinfra.sh'
 
-alias cedarenv='set | grep -a ^CEDAR_'
 alias cedarss='${CEDAR_DEVELOP_HOME}/bin/util/cedarstatus.sh'
 
 alias ij="'/Applications/IntelliJ IDEA.app/Contents/MacOS/idea'"
 
-alias rmmvn='rm -rf ~/.m2/repository/'
-alias rmmvncedar='rm -rf ~/.m2/repository/org/metadatacenter/'
-
 alias copylistener='pushd; cp $CEDAR_HOME/cedar-keycloak-event-listener/target/cedar-keycloak-event-listener.jar ${CEDAR_KEYCLOAK_HOME}/providers/.; gokk; ./kc.sh build; popd;'
-
-alias createjaxb2workaround='$CEDAR_UTIL_BIN/create-jaxb2-workaround.sh'
