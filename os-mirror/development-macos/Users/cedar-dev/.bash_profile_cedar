@@ -5,14 +5,14 @@ export JAVA_HOME=`/usr/libexec/java_home -v 17`
 
 # CEDAR install suggestion
 export PATH=$(brew --prefix)/opt/openssl@1.1/bin:$PATH
-
-# CEDAR development related scripts, aliases, environment variables
-export CEDAR_HOME=${HOME}/CEDAR
-source ${CEDAR_HOME}/cedar-profile-native-develop.sh
 export PATH="$(brew --prefix)/opt/node@16/bin:$PATH"
 export PATH="$(brew --prefix)/anaconda3/bin/:$PATH"
 
+# CEDAR development related scripts, aliases, environment variables
+export CEDAR_HOME=${HOME}/CEDAR
+alias cedarcli='source $CEDAR_HOME/cedar-cli/cli.sh'
+source ${CEDAR_HOME}/cedar-profile-native-develop.sh
+
 # CEDAR Docker related scripts, aliases, environment variables
-export CEDAR_DOCKER_HOME=${HOME}/CEDAR_DOCKER/
-#source ${CEDAR_DOCKER_HOME}/cedar-development/bin/templates/cedar-profile-docker-eval-1.sh
-#source ${CEDAR_DOCKER_HOME}/cedar-development/bin/templates/cedar-profile-docker-eval-2.sh
+#source ${CEDAR_HOME}/cedar-development/bin/templates/cedar-profile-docker-eval-1.sh
+#source ${CEDAR_HOME}/cedar-development/bin/templates/cedar-profile-docker-eval-2.sh

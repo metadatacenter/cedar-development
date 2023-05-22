@@ -5,7 +5,6 @@ export CEDAR_UTIL_BIN=${CEDAR_DEVELOP_HOME}/bin/util/
 
 #CEDAR location aliases
 alias gocedar='cd $CEDAR_HOME'
-alias godocker='cd $CEDAR_DOCKER_HOME'
 
 alias goparent='cd $CEDAR_HOME/cedar-parent'
 alias goproject='cd $CEDAR_HOME/cedar-project'
