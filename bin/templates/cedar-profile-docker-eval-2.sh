@@ -43,6 +43,6 @@ export COMPOSE_DOCKER_CLI_BUILD=0
 
 #------------------------------------------------------
 # CEDAR Docker aliases
-source ${CEDAR_DOCKER_HOME}/cedar-docker-deploy/bin/util/set-docker-aliases.sh
+source ${CEDAR_HOME}/cedar-docker-deploy/bin/util/set-docker-aliases.sh
 
 #----------------------------------------------------------
