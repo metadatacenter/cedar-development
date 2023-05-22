@@ -52,8 +52,6 @@ alias gocli='cd $CEDAR_HOME/cedar-cli'
 
 alias gokk='cd ${CEDAR_KEYCLOAK_HOME}/bin'
 
-alias cedarcli='source $CEDAR_UTIL_BIN/cli/cli.sh'
-
 #CEDAR Admin Tool alias
 alias cedarat='$CEDAR_UTIL_BIN/admintool/cedar-admin-tool.sh'
 
@@ -106,8 +104,6 @@ alias startall='$CEDAR_UTIL_BIN/services-generic/startall.sh'
 
 alias startinfra='$CEDAR_UTIL_BIN/services-generic/startinfra.sh'
 alias stopinfra='$CEDAR_UTIL_BIN/services-generic/stopinfra.sh'
-
-alias cedarss='${CEDAR_DEVELOP_HOME}/bin/util/cedarstatus.sh'
 
 alias ij="'/Applications/IntelliJ IDEA.app/Contents/MacOS/idea'"
 
