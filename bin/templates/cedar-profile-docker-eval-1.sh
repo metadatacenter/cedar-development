@@ -2,7 +2,7 @@
 
 #------------------------------------------------------
 # CEDAR Docker Development Util home folder
-export CEDAR_DEVELOP_HOME=${CEDAR_DOCKER_HOME}/cedar-development
+export CEDAR_DEVELOP_HOME=${CEDAR_HOME}/cedar-development
 
 #------------------------------------------------------
 # CEDAR custom environment variables
