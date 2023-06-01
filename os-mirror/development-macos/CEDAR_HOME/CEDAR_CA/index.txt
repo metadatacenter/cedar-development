@@ -24,3 +24,4 @@ V	250611012905Z		19	unknown	/C=US/ST=CA/O=BMIR/OU=CEDAR/CN=demo-dist.cee.metadat
 V	250611012955Z		1A	unknown	/C=US/ST=CA/O=BMIR/OU=CEDAR/CN=docs-dist.cee.metadatacenter.orgx/emailAddress=metadatacenter@gmail.com
 V	250705200749Z		1B	unknown	/C=US/ST=CA/O=BMIR/OU=CEDAR/CN=monitoring.metadatacenter.orgx/emailAddress=metadatacenter@gmail.com
 V	250705201129Z		1C	unknown	/C=US/ST=CA/O=BMIR/OU=CEDAR/CN=monitor.metadatacenter.orgx/emailAddress=metadatacenter@gmail.com
+V	250805211702Z		1D	unknown	/C=US/ST=CA/O=BMIR/OU=CEDAR/CN=bridge.metadatacenter.orgx/emailAddress=metadatacenter@gmail.com
