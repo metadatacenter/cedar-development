@@ -46,6 +46,7 @@ alias goopenfront='cd $CEDAR_HOME/cedar-openview/cedar-openview-src'
 alias gomonitoring='cd $CEDAR_HOME/cedar-monitoring/cedar-monitoring-src'
 alias goartifacts='cd $CEDAR_HOME/cedar-artifacts/cedar-artifacts-src'
 alias goceeang='cd $CEDAR_HOME/cedar-cee-demo/cedar-cee-demo-angular-src'
+alias gobridging='cd $CEDAR_HOME/cedar-bridging/cedar-bridging-src'
 
 alias gocli='cd $CEDAR_HOME/cedar-cli'
 
