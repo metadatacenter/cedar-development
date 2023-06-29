@@ -44,10 +44,21 @@ export CEDAR_LOG_MYSQL_PASSWORD="changeme"
 export CEDAR_NEO4J_USER_NAME="neo4j"
 export CEDAR_NEO4J_USER_PASSWORD="changeme"
 
-#Random string for API key generation - replace with a random string of your choice
+# Random string for API key generation - replace with a random string of your choice
 export CEDAR_SALT_API_KEY="changeme"
 
-#Field, element, template validation
+# Certificat Authority data for self-signed certificates
+export CEDAR_CA_PASSWORD="changeme"
+export CEDAR_CA_HOME=${CEDAR_HOME}/CEDAR_CA
+export CEDAR_CA_COUNTRY=US
+export CEDAR_CA_STATE=CA
+export CEDAR_CA_LOC=Stanford
+export CEDAR_CA_ORG=BMIR
+export CEDAR_CA_ORG_UNIT=CEDAR
+export CEDAR_CA_COMMON_NAME=${CEDAR_HOST}
+export CEDAR_CA_EMAIL=metadatacenter@gmail.com
+
+# Field, element, template validation
 export CEDAR_VALIDATION_ENABLED="true"
 
 # CaDSR data
