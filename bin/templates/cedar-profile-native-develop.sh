@@ -58,5 +58,6 @@ export CEDAR_TEST_USER1_ID="https://metadatacenter.org/users/11111111-2222-3333-
 export CEDAR_TEST_USER2_ID="https://metadatacenter.org/users/66666666-7777-8888-9999-000000000000"
 
 #----------------------------------------------------------
-# Use private repos
+# Development settings
 export CEDAR_DEV_USE_PRIVATE_REPOS="true"
+export CEDAR_DEV_BUILD_FRONTENDS="true"
