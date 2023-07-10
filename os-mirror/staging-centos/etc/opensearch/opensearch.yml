@@ -1,0 +1,7 @@
+cluster.name: opensearch_cedar
+discovery.type: single-node
+
+path.data: /srv/opensearch
+path.logs: /var/log/opensearch
+
+plugins.security.disabled: true
