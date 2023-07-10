@@ -1,0 +1,1 @@
+alias cedarcli='source $CEDAR_HOME/cedar-cli/cli.sh'
