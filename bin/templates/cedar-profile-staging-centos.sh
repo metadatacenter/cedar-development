@@ -51,9 +51,13 @@ export CEDAR_FRONTEND_staging_USER2_NAME="Test User 2"
 
 #-------------------------------------------------
 # Unit test settings
-#Test user 1
+# Test user 1
 export CEDAR_TEST_USER1_ID="https://metadatacenter.org/users/11111111-2222-3333-4444-555555555555"
 
-#Test user 2
+# Test user 2
 export CEDAR_TEST_USER2_ID="https://metadatacenter.org/users/66666666-7777-8888-9999-000000000000"
+
 #----------------------------------------------------------
+# Development settings
+export CEDAR_DEV_USE_PRIVATE_REPOS="false"
+export CEDAR_DEV_BUILD_FRONTENDS="false"
