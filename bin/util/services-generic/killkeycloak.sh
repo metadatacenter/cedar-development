@@ -5,7 +5,7 @@ echo ---------------------------------------------------------------------------
 echo
 
 echo Keycloak processes:
-ps ax | grep "[k]eycloak/standalone"
+ps ax | grep "QuarkusEntryPoint"
 
 echo Kill them all:
 kill `ps ax | grep "QuarkusEntryPoint" | awk '{print $1}'`
