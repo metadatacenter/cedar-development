@@ -36,14 +36,9 @@ export CEDAR_FRONTEND_MONITORING_HOST=192.168.17.154
 export CEDAR_FRONTEND_ARTIFACTS_HOST=192.168.17.155
 export CEDAR_FRONTEND_BRIDGING_HOST=192.168.17.156
 
-
 #------------------------------------------------------
 # CEDAR Docker BuildKit behavior
 export DOCKER_BUILDKIT=0
 export COMPOSE_DOCKER_CLI_BUILD=0
 
 #------------------------------------------------------
-# CEDAR Docker aliases
-source ${CEDAR_HOME}/cedar-docker-deploy/bin/util/set-docker-aliases.sh
-
-#----------------------------------------------------------
