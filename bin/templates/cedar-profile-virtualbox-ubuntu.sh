@@ -25,7 +25,6 @@ source ${CEDAR_DEVELOP_HOME}/bin/util/set-env-generic.sh
 
 #------------------------------------------------------
 # CEDAR aliases and colors for Local Development
-source ${CEDAR_DEVELOP_HOME}/bin/util/set-aliases-and-colors.sh
 source ${CEDAR_DEVELOP_HOME}/bin/util/set-dev-aliases.sh
 source ${CEDAR_DEVELOP_HOME}/bin/util/set-infra-aliases-ubuntu.sh
 
