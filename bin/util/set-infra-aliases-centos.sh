@@ -13,9 +13,6 @@ alias stopmongo='$CEDAR_UTIL_BIN/services-centos/stopmongo.sh'
 alias startmysql='$CEDAR_UTIL_BIN/services-centos/startmysql.sh'
 alias stopmysql='$CEDAR_UTIL_BIN/services-centos/stopmysql.sh'
 
-alias startsearchdash='$CEDAR_UTIL_BIN/services-centos/startopensearchdashboards.sh'
-alias stopsearchdash='$CEDAR_UTIL_BIN/services-centos/stopopensearchdashboards.sh'
-
 alias startsearch='$CEDAR_UTIL_BIN/services-centos/startopensearch.sh'
 alias stopsearch='$CEDAR_UTIL_BIN/services-centos/stopopensearch.sh'
 
@@ -24,9 +21,6 @@ alias stopneo='$CEDAR_UTIL_BIN/services-centos/stopneo.sh'
 
 alias startredis='$CEDAR_UTIL_BIN/services-centos/startredis.sh'
 alias stopredis='$CEDAR_UTIL_BIN/services-centos/stopredis.sh'
-
-alias startrc='$CEDAR_UTIL_BIN/services-centos/startrediscommander.sh'
-alias killrc='$CEDAR_UTIL_BIN/services-centos/killrediscommander.sh'
 
 #CEDAR server aliases
 alias starteditor='goeditor && gulp'
