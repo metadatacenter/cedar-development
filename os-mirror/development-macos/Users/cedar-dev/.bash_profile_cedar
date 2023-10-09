@@ -14,5 +14,4 @@ alias cedarcli='source $CEDAR_HOME/cedar-cli/cli.sh'
 source ${CEDAR_HOME}/cedar-profile-native-develop.sh
 
 # CEDAR Docker related scripts, aliases, environment variables
-#source ${CEDAR_HOME}/cedar-development/bin/templates/cedar-profile-docker-eval-1.sh
-#source ${CEDAR_HOME}/cedar-development/bin/templates/cedar-profile-docker-eval-2.sh
+#source ${CEDAR_HOME}/cedar-development/bin/templates/cedar-profile-docker-eval.sh

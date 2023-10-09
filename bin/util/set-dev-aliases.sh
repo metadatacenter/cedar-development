@@ -98,13 +98,10 @@ alias startbridge='$CEDAR_UTIL_BIN/services-generic/start-dw-server.sh bridge &'
 alias stopbridge='$CEDAR_UTIL_BIN/services-generic/stop-dw-server.sh bridge 9215'
 
 alias sleepbetweenstarts='sleep 2'
-
-alias stopall='$CEDAR_UTIL_BIN/services-generic/stopall.sh'
-alias startall='$CEDAR_UTIL_BIN/services-generic/startall.sh'
+alias stopmicros='$CEDAR_UTIL_BIN/services-generic/stopmicros.sh'
+alias startmicros='$CEDAR_UTIL_BIN/services-generic/startmicros.sh'
 
 alias startinfra='$CEDAR_UTIL_BIN/services-generic/startinfra.sh'
 alias stopinfra='$CEDAR_UTIL_BIN/services-generic/stopinfra.sh'
 
 alias ij="'/Applications/IntelliJ IDEA.app/Contents/MacOS/idea'"
-
-alias copylistener='pushd; cp $CEDAR_HOME/cedar-keycloak-event-listener/target/cedar-keycloak-event-listener.jar ${CEDAR_KEYCLOAK_HOME}/providers/.; gokk; ./kc.sh build; popd;'
