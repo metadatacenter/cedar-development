@@ -37,7 +37,7 @@ alias gomkdocs='cd $CEDAR_HOME/cedar-mkdocs'
 alias godevelopment='cd $CEDAR_HOME/cedar-development'
 alias gobuild='cd $CEDAR_HOME/cedar-docker-build'
 alias godeploy='cd $CEDAR_HOME/cedar-docker-deploy'
-alias gocomponent='cd $CEDAR_HOME/cedar-component-distribution'
+alias gocontent='cd $CEDAR_HOME/cedar-content-distribution'
 
 alias goeventlistener='cd $CEDAR_HOME/cedar-keycloak-event-listener'
 
