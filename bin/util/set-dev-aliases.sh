@@ -45,6 +45,7 @@ alias goeditor='cd $CEDAR_HOME/cedar-template-editor'
 alias goopenfront='cd $CEDAR_HOME/cedar-openview/cedar-openview-src'
 alias gomonitoring='cd $CEDAR_HOME/cedar-monitoring/cedar-monitoring-src'
 alias goartifacts='cd $CEDAR_HOME/cedar-artifacts/cedar-artifacts-src'
+alias gocee='cd $CEDAR_HOME/cedar-embeddable-editor'
 alias goceeang='cd $CEDAR_HOME/cedar-cee-demo/cedar-cee-demo-angular-src'
 alias gobridging='cd $CEDAR_HOME/cedar-bridging/cedar-bridging-src'
 
