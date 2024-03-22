@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #CEDAR version
-export CEDAR_VERSION=2.6.54
+export CEDAR_VERSION=2.6.56
 
 # Keycloak connection data
 export CEDAR_KEYCLOAK_HOST="${CEDAR_NET_GATEWAY}"
