@@ -34,6 +34,15 @@
             <script src="${script}" type="text/javascript"></script>
         </#list>
     </#if>
+  <style type="text/css">
+      .pf-c-login__main-footer-links {
+          display: block;
+      }
+
+      .pf-c-login__main-footer-links > li{
+          padding-top: 10px;
+      }
+  </style>
 </head>
 
 <body class="${properties.kcBodyClass!}">
