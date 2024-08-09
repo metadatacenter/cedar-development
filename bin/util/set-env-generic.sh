@@ -23,9 +23,7 @@ export CEDAR_MESSAGING_MYSQL_PORT=3306
 export CEDAR_MESSAGING_MYSQL_DB="cedar_messaging"
 
 # MySQL connection data for Logging
-export CEDAR_LOG_MYSQL_HOST="${CEDAR_NET_GATEWAY}"
 export CEDAR_LOG_MYSQL_PORT=3306
-export CEDAR_LOG_MYSQL_DB="cedar_log"
 
 # Neo4j connection data
 export CEDAR_NEO4J_HOST="${CEDAR_NET_GATEWAY}"
