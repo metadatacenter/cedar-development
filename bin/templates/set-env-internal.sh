@@ -37,6 +37,8 @@ export CEDAR_MESSAGING_MYSQL_USER="cedarMySQLMessagingUser"
 export CEDAR_MESSAGING_MYSQL_PASSWORD="changeme"
 
 # MySQL CEDAR app user data for Logging
+export CEDAR_LOG_MYSQL_HOST="${CEDAR_NET_GATEWAY}"
+export CEDAR_LOG_MYSQL_DB="cedar_log"
 export CEDAR_LOG_MYSQL_USER="cedarMySQLLogUser"
 export CEDAR_LOG_MYSQL_PASSWORD="changeme"
 
