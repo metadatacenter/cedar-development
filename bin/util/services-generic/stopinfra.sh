@@ -18,9 +18,7 @@ fi
 stopmongo
 killkk
 stopsearch
-stopsearchdash
 stopneo
-killrc
 stopredis
 stopmysql
 stopnginx
