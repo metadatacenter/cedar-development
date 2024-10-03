@@ -18,9 +18,7 @@ fi
 startmongo
 startmysql
 startsearch
-startsearchdash
 startneo
 startredis
-startrc
 startkk
 startnginx
