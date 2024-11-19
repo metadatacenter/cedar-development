@@ -8,6 +8,7 @@ export CEDAR_BIOPORTAL_API_KEY="changeme-bbbb-cccc-dddd-eeeeeeeeeeee"
 
 #CEDAR Google Analytics Key - place your own key here if the site is publicly available
 export CEDAR_ANALYTICS_KEY="false"
+export CEDAR_GA4_TRACKING_ID="false"
 
 #CEDAR NCBI SRA FTP Data - place your own data here
 export CEDAR_NCBI_SRA_FTP_HOST="changeme"
