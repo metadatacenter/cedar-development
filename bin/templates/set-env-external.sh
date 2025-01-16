@@ -43,3 +43,9 @@ export CEDAR_DATACITE_REPOSITORY_PREFIX="changeme"
 export CEDAR_DATACITE_API_ENDPOINT_URL="changeme"
 export CEDAR_DATACITE_TEMPLATE_ID="changeme"
 export CEDAR_DATACITE_ENABLED="true"
+
+#CEDAR External Authority Integration - place your own data here
+export ROR_API_PREFIX="https://api.ror.org/v2/"
+export ORCID_API_PREFIX="https://api.orcid.org/v3.0/"
+export ORCID_API_CLIENT_ID="changeme"
+export ORCID_API_CLIENT_SECRET="changeme"
