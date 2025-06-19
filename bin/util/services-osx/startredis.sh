@@ -4,4 +4,4 @@ echo Starting Redis
 echo --------------------------------------------------------------------------------
 echo
 
-brew services start redis@7.2
+brew services start redis
