@@ -45,7 +45,15 @@ export CEDAR_DATACITE_TEMPLATE_ID="changeme"
 export CEDAR_DATACITE_ENABLED="true"
 
 #CEDAR External Authority Integration - place your own data here
-export ROR_API_PREFIX="https://api.ror.org/v2/"
-export ORCID_API_PREFIX="https://api.orcid.org/v3.0/"
-export ORCID_API_CLIENT_ID="changeme"
-export ORCID_API_CLIENT_SECRET="changeme"
+#ROR External Authority Integration
+export CEDAR_ROR_API_PREFIX="https://api.ror.org/v2/"
+
+#ORCID External Authority Integration
+export CEDAR_ORCID_TOKEN_PREFIX="https://orcid.org/"
+export CEDAR_ORCID_API_PREFIX="https://pub.orcid.org/"
+export CEDAR_ORCID_API_CLIENT_ID="changeme"
+export CEDAR_ORCID_API_CLIENT_SECRET="changeme"
+
+#COMP TOX External Authority Integration
+export CEDAR_COMP_TOX_API_PREFIX="https://api-ccte.epa.gov/"
+export CEDAR_COMP_TOX_API_KEY="changeme"
