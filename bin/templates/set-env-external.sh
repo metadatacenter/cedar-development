@@ -57,3 +57,9 @@ export CEDAR_ORCID_API_CLIENT_SECRET="changeme"
 #COMP TOX External Authority Integration
 export CEDAR_COMP_TOX_API_PREFIX="https://api-ccte.epa.gov/"
 export CEDAR_COMP_TOX_API_KEY="changeme"
+
+#PubMed External Authority Integration
+export CEDAR_PUBMED_API_KEY="changeme"
+
+#RRID External Authority Integration
+export CEDAR_RRID_API_KEY="changeme"
