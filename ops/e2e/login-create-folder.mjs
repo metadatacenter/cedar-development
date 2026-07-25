@@ -90,18 +90,33 @@ try {
   if (!created) throw new Error(`folder "${FOLDER_NAME}" never appeared on the dashboard`);
   console.log(`✓ folder created: ${FOLDER_NAME}`);
 
-  // 3. Delete it again, and confirm it is gone.
+  // 3. Delete it again, and confirm it is gone. The whole gesture retries: the
+  //    row menu is an Angular dropdown that binds its handlers asynchronously,
+  //    and a click that lands too early fires the anchor's href instead of the
+  //    action — silently, with no request ever sent.
   step = 'delete-folder';
-  await openRowMenu(page, FOLDER_NAME);
-  await menuItem(page, 'Delete');
-  await page.getByRole('button', { name: 'Yes, delete it!' }).click();
   let gone = false;
-  for (let poll = 1; poll <= 6 && !gone; poll++) {
+  for (let attempt = 1; attempt <= 3 && !gone; attempt++) {
     await page.goto(`${BASE}/dashboard`);
     await page.getByRole('button', { name: 'New' }).waitFor();
-    await page.waitForTimeout(500);
-    if (!(await row(page, FOLDER_NAME).count())) gone = true;
-    else await page.waitForTimeout(1500);
+    if (!(await row(page, FOLDER_NAME).count())) { gone = true; break; }
+    try {
+      await openRowMenu(page, FOLDER_NAME);
+      await menuItem(page, 'Delete');
+      await page.getByRole('button', { name: 'Yes, delete it!' })
+          .click({ timeout: 10_000 });
+    } catch {
+      console.warn(`  delete gesture attempt ${attempt} did not reach the confirm dialog — retrying`);
+      continue;
+    }
+    for (let poll = 1; poll <= 4 && !gone; poll++) {
+      await page.goto(`${BASE}/dashboard`);
+      await page.getByRole('button', { name: 'New' }).waitFor();
+      await page.waitForTimeout(500);
+      if (!(await row(page, FOLDER_NAME).count())) gone = true;
+      else await page.waitForTimeout(1500);
+    }
+    if (!gone) console.warn(`  folder still listed after delete attempt ${attempt} — retrying`);
   }
   if (!gone) throw new Error(`folder "${FOLDER_NAME}" still listed after deletion`);
   console.log('✓ folder deleted');
