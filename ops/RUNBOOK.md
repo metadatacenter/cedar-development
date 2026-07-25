@@ -67,9 +67,18 @@ tab, by design — see below). The controller replaces that with background proc
 
 ## The controller: `ops/cedar-services.sh`
 
-Manages the 15 microservices + the main frontend as background (`nohup`) processes, each logging to
-`$CEDAR_HOME/log/`, PIDs tracked in `$CEDAR_HOME/log/run/`. It forces `JAVA_HOME=17` and sources the
-profile itself, so it is safe to run standalone.
+Manages the 15 microservices + the main frontend (`gulp`) + the 5 auxiliary Angular frontends as
+background (`nohup`) processes, each logging to `$CEDAR_HOME/log/`, PIDs tracked in
+`$CEDAR_HOME/log/run/`. It forces `JAVA_HOME=17`, puts `/opt/homebrew/bin` on `PATH` (for `node`/`ng`),
+and sources the profile itself, so it is safe to run standalone.
+
+The auxiliary frontends are the `ui-*` entries — `ui-openview` (4220), `ui-content` (4240),
+`ui-monitoring` (4300), `ui-artifacts` (4320), `ui-bridging` (4340) — each run as `ng serve` from its
+`cedar-<name>[-src]` source dir (see `fe_dir()`). They are named `ui-*` because `openview`/`monitor`/
+`bridge` are already microservice names. Their health is **port-only** (no Dropwizard `/healthcheck`).
+`cedarcli start frontends` starts the same set but opens a macOS Terminal tab per app; this controller
+runs them headless instead. The non-essential CEE demos (`cee-dev`/`demo.cee`/`docs.cee`) are not
+managed here — `cedarcli` doesn't start them by default either.
 
 ```bash
 cedar-services.sh start [name...]     # start all, or only the named services
@@ -107,6 +116,10 @@ one Terminal tab per service so a developer can watch/restart each. That does no
 | impex | 9008 | 9108 | | Keycloak | 8080 / 8443 (https) | |
 
 Admin port = app port + 100; health check at `http://127.0.0.1:<admin>/healthcheck`.
+
+Auxiliary frontends (Angular `ng serve`, port-only health): `ui-openview` 4220, `ui-content` 4240,
+`ui-monitoring` 4300, `ui-artifacts` 4320, `ui-bridging` 4340. Non-essential CEE demos (not started by
+default): `demo.cee` 4260, `docs.cee` 4280, `cee-dev` 4400.
 
 ## Known gotchas and fixes (the expensive ones)
 
