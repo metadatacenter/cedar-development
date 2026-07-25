@@ -1,0 +1,14 @@
+{
+  "name": "cedar-e2e-smoke",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "End-to-end smoke test: log in to CEDAR through Keycloak, create a folder, delete it",
+  "scripts": {
+    "smoke": "node login-create-folder.mjs",
+    "smoke:headed": "HEADED=1 node login-create-folder.mjs"
+  },
+  "dependencies": {
+    "playwright": "^1.48.0"
+  }
+}
