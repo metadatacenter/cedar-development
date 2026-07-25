@@ -1,19 +1,21 @@
 // End-to-end smoke test against a running CEDAR stack: log in through the real
-// Keycloak form, create a folder on the dashboard, verify it appears, delete it.
+// Keycloak form, create a folder on the dashboard, create a template inside it,
+// then delete the template and the folder again, verifying each step.
 //
 //   npm run smoke              headless
 //   npm run smoke:headed       watch it in a real browser
 //
-// Requires the local stack to be up (frontend, resource, user, group at least):
-//   cedar-services.sh status
+// Requires the local stack to be up (frontend, resource, user, group, artifact
+// at least): cedar-services.sh status
 //
 // Credentials and base URL come from the CEDAR profile environment
 // (CEDAR_FRONTEND_local_USER1_LOGIN / _PASSWORD, CEDAR_HOST), with the standard
 // local-dev values as fallbacks. Exit code 0 = pass; on failure a screenshot is
 // written to failures/.
 //
-// The dashboard gestures (row lookup, menus, delete confirmation) mirror the
-// selectors verified by the tutorial runner (cedar-tutorial/runner/lib.mjs).
+// The dashboard gestures (row lookup, menus, delete confirmation, template
+// save) mirror the selectors verified by the tutorial runner
+// (cedar-tutorial/runner/lib.mjs and steps.mjs).
 import { chromium } from 'playwright';
 import { mkdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
@@ -28,9 +30,13 @@ const USER = process.env.CEDAR_FRONTEND_local_USER1_LOGIN ?? 'test1@test.com';
 const PASSWORD = process.env.CEDAR_FRONTEND_local_USER1_PASSWORD ?? 'test1';
 const HEADED = !!process.env.HEADED;
 
-const FOLDER_NAME = `E2E Smoke ${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}`;
+const RUN_ID = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+const FOLDER_NAME = `E2E Smoke ${RUN_ID}`;
+const TEMPLATE_NAME = `E2E Smoke Template ${RUN_ID}`;
 
 // ── dashboard helpers (selectors verified by the tutorial runner) ───────────
+const enc = iri => encodeURIComponent(iri);
+
 const row = (page, title) => page.locator('div.resource-instance', {
   has: page.getByText(title, { exact: true }),
 }).first();
@@ -44,6 +50,42 @@ async function openRowMenu(page, title) {
   await r.scrollIntoViewIfNeeded();
   await r.locator('button.more-button').click();
   await page.waitForTimeout(800); // let the Angular dropdown bind its handlers
+}
+
+// Navigate to a listing (the dashboard root, or a folder when folderId given)
+// and wait until it is interactive.
+async function gotoListing(page, folderId) {
+  const url = folderId ? `${BASE}/dashboard?folderId=${enc(folderId)}` : `${BASE}/dashboard`;
+  await page.goto(url);
+  await page.getByRole('button', { name: 'New' }).waitFor();
+  await page.waitForTimeout(500);
+}
+
+// Delete a row by name, retrying the whole gesture: the row menu is an Angular
+// dropdown that binds its handlers asynchronously, and a click that lands too
+// early fires the anchor's href instead of the action — silently, with no
+// request ever sent.
+async function deleteRow(page, name, folderId) {
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    await gotoListing(page, folderId);
+    if (!(await row(page, name).count())) return;
+    try {
+      await openRowMenu(page, name);
+      await menuItem(page, 'Delete');
+      await page.getByRole('button', { name: 'Yes, delete it!' })
+          .click({ timeout: 10_000 });
+    } catch {
+      console.warn(`  delete gesture attempt ${attempt} for "${name}" did not reach the confirm dialog — retrying`);
+      continue;
+    }
+    for (let poll = 1; poll <= 4; poll++) {
+      await gotoListing(page, folderId);
+      if (!(await row(page, name).count())) return;
+      await page.waitForTimeout(1500);
+    }
+    console.warn(`  "${name}" still listed after delete attempt ${attempt} — retrying`);
+  }
+  throw new Error(`"${name}" still listed after deletion`);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -72,56 +114,55 @@ try {
   step = 'create-folder';
   let created = false;
   for (let attempt = 1; attempt <= 3 && !created; attempt++) {
-    await page.goto(`${BASE}/dashboard`);
+    await gotoListing(page);
     await page.getByRole('button', { name: 'New' }).click();
     await menuItem(page, 'Folder');
     const dialog = page.getByRole('dialog').or(page.locator('.modal'));
     await dialog.getByRole('textbox').fill(FOLDER_NAME);
     await dialog.getByRole('button', { name: 'Save' }).click();
     for (let poll = 1; poll <= 6; poll++) {
-      await page.goto(`${BASE}/dashboard`);
-      await page.getByRole('button', { name: 'New' }).waitFor();
-      await page.waitForTimeout(500);
+      await gotoListing(page);
       if (await row(page, FOLDER_NAME).count()) { created = true; break; }
       await page.waitForTimeout(1500);
     }
     if (!created) console.warn(`  folder create attempt ${attempt} did not appear — retrying`);
   }
   if (!created) throw new Error(`folder "${FOLDER_NAME}" never appeared on the dashboard`);
+
+  // Enter the folder to learn its id (needed for the template deep link).
+  await row(page, FOLDER_NAME).dblclick();
+  await page.waitForURL(/folderId=/);
+  const folderId = decodeURIComponent(new URL(page.url()).searchParams.get('folderId'));
   console.log(`✓ folder created: ${FOLDER_NAME}`);
 
-  // 3. Delete it again, and confirm it is gone. The whole gesture retries: the
-  //    row menu is an Angular dropdown that binds its handlers asynchronously,
-  //    and a click that lands too early fires the anchor's href instead of the
-  //    action — silently, with no request ever sent.
-  step = 'delete-folder';
-  let gone = false;
-  for (let attempt = 1; attempt <= 3 && !gone; attempt++) {
-    await page.goto(`${BASE}/dashboard`);
-    await page.getByRole('button', { name: 'New' }).waitFor();
-    if (!(await row(page, FOLDER_NAME).count())) { gone = true; break; }
-    try {
-      await openRowMenu(page, FOLDER_NAME);
-      await menuItem(page, 'Delete');
-      await page.getByRole('button', { name: 'Yes, delete it!' })
-          .click({ timeout: 10_000 });
-    } catch {
-      console.warn(`  delete gesture attempt ${attempt} did not reach the confirm dialog — retrying`);
-      continue;
-    }
-    for (let poll = 1; poll <= 4 && !gone; poll++) {
-      await page.goto(`${BASE}/dashboard`);
-      await page.getByRole('button', { name: 'New' }).waitFor();
-      await page.waitForTimeout(500);
-      if (!(await row(page, FOLDER_NAME).count())) gone = true;
-      else await page.waitForTimeout(1500);
-    }
-    if (!gone) console.warn(`  folder still listed after delete attempt ${attempt} — retrying`);
+  // 3. Create a template inside the folder via the designer deep link, name
+  //    it, and save (the toast confirms server-side creation).
+  step = 'create-template';
+  await page.goto(`${BASE}/templates/create?folderId=${enc(folderId)}`);
+  await page.getByRole('textbox', { name: 'Name' }).fill(TEMPLATE_NAME);
+  await page.waitForTimeout(1100); // flush the debounced name edit
+  await page.getByRole('button', { name: 'Save Template' }).click();
+  await page.getByText(/has been created/i).first().waitFor({ timeout: 20_000 });
+  // Confirm it is listed inside the folder.
+  let templateListed = false;
+  for (let poll = 1; poll <= 6 && !templateListed; poll++) {
+    await gotoListing(page, folderId);
+    if (await row(page, TEMPLATE_NAME).count()) templateListed = true;
+    else await page.waitForTimeout(1500);
   }
-  if (!gone) throw new Error(`folder "${FOLDER_NAME}" still listed after deletion`);
+  if (!templateListed) throw new Error(`template "${TEMPLATE_NAME}" never appeared in the folder`);
+  console.log(`✓ template created in folder: ${TEMPLATE_NAME}`);
+
+  // 4. Delete the template, then the (now empty) folder, verifying each.
+  step = 'delete-template';
+  await deleteRow(page, TEMPLATE_NAME, folderId);
+  console.log('✓ template deleted');
+
+  step = 'delete-folder';
+  await deleteRow(page, FOLDER_NAME);
   console.log('✓ folder deleted');
 
-  console.log('\nPASS: login → create folder → delete folder');
+  console.log('\nPASS: login → create folder → create template → delete template → delete folder');
   await browser.close();
   process.exit(0);
 } catch (e) {
