@@ -57,6 +57,9 @@ bash $CEDAR_HOME/cedar-development/ops/cedar-services.sh status
 
 # 3. log in
 open https://cedar.metadatacenter.orgx    # test1@test.com / test1   (also test2@test.com / test2)
+
+# 4. optional: prove the stack end to end (login, folder + template round-trip; ~45 s)
+(cd ops/e2e && npm run smoke)
 ```
 
 `cedarcli start all` does the same thing but opens ~15 Terminal tabs (one foreground process per
@@ -207,6 +210,26 @@ python3 ops/cedar_ontology_usage.py --limit 50          # quick sample
 
 Caveat: `/search` is permission-scoped, so it inventories what the key can see. For a complete,
 instance-wide picture a MongoDB aggregate over the template collection's `_valueConstraints` is faster.
+
+## End-to-End Smoke Test: `ops/e2e`
+
+One command that proves the whole stack works from the outside, the way a user would exercise it:
+a Playwright script logs in through the real Keycloak form as test user 1, creates a folder on the
+dashboard, creates a template inside it, then deletes both, verifying each step. Pass = exit 0;
+a failure leaves a screenshot in `ops/e2e/failures/`.
+
+```bash
+cd ops/e2e
+npm install            # once per machine
+npm run smoke          # headless, ~45 s
+npm run smoke:headed   # watch it in a real browser
+```
+
+Needs the app tier up (frontend, resource, user, group, artifact at least — `cedar-services.sh
+status`). Credentials and base URL come from the profile environment, with the local-dev values
+as fallbacks. The UI gestures reuse the selectors verified by the tutorial runner
+(`cedar-tutorial/runner`); the create and delete gestures retry, because the dashboard's row menu
+binds its handlers asynchronously and an early click fires silently.
 
 ## Login
 
