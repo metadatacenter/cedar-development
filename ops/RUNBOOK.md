@@ -107,6 +107,36 @@ Admin port = app port + 100; health check at `http://127.0.0.1:<admin>/healthche
 
 ## Known gotchas and fixes (the expensive ones)
 
+- **Browser blocks login with a cert error, but `curl` works** → the local TLS **leaf certs
+  expired**. The `*.metadatacenter.orgx` sites are served by nginx with self-signed leaves issued by
+  the CEDAR CA. The CA lives in `$CEDAR_CA_HOME` (`/Users/martin/CEDAR/CEDAR_CA`), is valid ~10 years,
+  and is already trusted in your login keychain — but the **leaves last only ~824 days** and Chrome
+  hard-blocks an expired cert (won't even offer "proceed"). `curl -sk https://cedar.metadatacenter.orgx/`
+  still returns 200 because `-k` ignores expiry, which is the tell. Diagnose:
+
+  ```bash
+  echo | openssl s_client -connect cedar.metadatacenter.orgx:443 -servername cedar.metadatacenter.orgx 2>/dev/null \
+    | openssl x509 -noout -dates
+  ```
+  Fix — re-issue every subdomain leaf from the existing CA and reload nginx (do **not** regenerate the
+  CA itself: `cert ca` would force re-adding it to the keychain; only the leaves expire):
+
+  ```bash
+  export CEDAR_HOME=/Users/martin/CEDAR
+  source $CEDAR_HOME/cedar-profile-native-develop.sh          # sets CEDAR_CA_HOME, CEDAR_CA_PASSWORD, CEDAR_CA_*
+  SSL=/opt/homebrew/etc/nginx/cedar/ssl
+  cp -r "$SSL" /tmp/cedar-ssl-backup                          # optional but wise (reversible)
+  : > "$CEDAR_CA_HOME/index.txt"; mkdir -p "$CEDAR_CA_HOME/newcerts"   # reset issued-cert DB so openssl re-issues same subjects
+  $CEDAR_HOME/cedar-cli/.venv/bin/python $CEDAR_HOME/cedar-cli/cedar.py cert domains   # re-sign all leaves (SAN preserved, 824 days)
+  for d in "$CEDAR_CA_HOME"/certs/*/; do sub=$(basename "$d"); tgt="$SSL/$sub"; [ -d "$tgt" ] || continue;
+    crt=$(ls "$d"*.crt | head -1); cp "$crt" "${crt%.crt}.key" "$tgt/"; done   # install into nginx ssl dirs
+  sudo nginx -s reload                                        # nginx master runs as root → needs sudo
+  ```
+  Notes: `cedar cert domains` writes leaves to `$CEDAR_CA_HOME/certs/<subdomain>/`, but nginx reads from
+  `$SSL/<subdomain>/` — hence the copy step. The subdomain dir names match on both sides. Skipping the
+  `index.txt` reset makes `openssl ca` fail with "There is already a certificate for …". The reload is
+  the only step that needs your password (the master is a root process; there is no passwordless sudo).
+
 - **Keycloak won't start** → wrong JDK. Pin `JAVA_HOME` to 17 (see above). Symptom: `Failed to start
   caches … getSubject is supported only if a security manager is allowed`.
 
@@ -134,6 +164,16 @@ Admin port = app port + 100; health check at `http://127.0.0.1:<admin>/healthche
   (Seen unbuilt in this environment: schema, repo, submission, valuerecommender, openview, monitor.)
   `schema` is needed for template operations; `resource`/`user`/`artifact`/`terminology`/`group` are
   the core for login + workspace.
+
+- **A service starts then dies with `no main manifest attribute, in …-application.jar`** → the jar is
+  a thin jar (built without the shade/assembly step), so it has no runnable `Main-Class`. Rebuild that
+  one server to produce the fat jar, then restart it:
+  ```bash
+  mvn -o -f $CEDAR_HOME/cedar-<name>-server/pom.xml install -DskipTests
+  bash $CEDAR_HOME/cedar-development/ops/cedar-services.sh start <name>
+  ```
+  (Seen on `repo` in this environment.) Different from the case above: the jar exists, it just isn't
+  a runnable artifact.
 
 ## cedarcli (headless invocation)
 
