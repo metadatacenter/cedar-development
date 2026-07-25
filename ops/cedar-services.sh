@@ -2,9 +2,13 @@
 # ------------------------------------------------------------------------------
 # cedar-services.sh — start / stop / monitor the CEDAR app tier without 15 consoles.
 #
-# Runs the 15 Dropwizard microservices + the main frontend as background processes
-# (nohup), each logging to $CEDAR_HOME/log/, with PIDs tracked in $CEDAR_HOME/log/run/.
-# One `status` view shows PID / port / health / error-count for all of them.
+# Runs the 15 Dropwizard microservices + the main frontend (gulp) + the 5 auxiliary
+# Angular frontends (ui-openview/content/monitoring/artifacts/bridging, via `ng serve`)
+# as background processes (nohup), each logging to $CEDAR_HOME/log/, PIDs in
+# $CEDAR_HOME/log/run/. One `status` view shows PID / port / health / error-count.
+# Frontend health is port-only (no Dropwizard /healthcheck). The non-essential CEE
+# demos (cee-dev/demo.cee/docs.cee) are NOT managed here — cedarcli doesn't start them
+# by default either.
 #
 # Infra (Keycloak, Mongo, Neo4j, MySQL, Redis, OpenSearch, nginx) is NOT managed here —
 # bring that up separately (it is already running in this session).
@@ -21,7 +25,7 @@
 export CEDAR_HOME="${CEDAR_HOME:-/Users/martin/CEDAR}"
 source "$CEDAR_HOME/cedar-profile-native-develop.sh" >/dev/null 2>&1
 export JAVA_HOME="$(/usr/libexec/java_home -v 17 2>/dev/null)"   # CEDAR + Keycloak need JDK 17
-PATH="$JAVA_HOME/bin:$PATH"
+PATH="$JAVA_HOME/bin:/opt/homebrew/bin:$PATH"                    # /opt/homebrew/bin for node + ng (aux frontends)
 
 RUN="$CEDAR_HOME/log/run"
 LOGDIR="$CEDAR_HOME/log"
@@ -45,13 +49,29 @@ SERVICES=(
   "impex 9008 9108"
   "bridge 9015 9115"
   "frontend 4200 0"
+  "ui-openview 4220 0"
+  "ui-content 4240 0"
+  "ui-monitoring 4300 0"
+  "ui-artifacts 4320 0"
+  "ui-bridging 4340 0"
 )
+
+# ng-serve source dir for each aux (ui-*) frontend
+fe_dir() {
+  case "$1" in
+    ui-openview)   echo "$CEDAR_HOME/cedar-openview/cedar-openview-src" ;;
+    ui-content)    echo "$CEDAR_HOME/cedar-content-distribution" ;;
+    ui-monitoring) echo "$CEDAR_HOME/cedar-monitoring/cedar-monitoring-src" ;;
+    ui-artifacts)  echo "$CEDAR_HOME/cedar-artifacts/cedar-artifacts-src" ;;
+    ui-bridging)   echo "$CEDAR_HOME/cedar-bridging/cedar-bridging-src" ;;
+  esac
+}
 
 svc_field() { local n=$1 f=$2; for s in "${SERVICES[@]}"; do set -- $s; [ "$1" = "$n" ] && { echo "${!f}"; return; }; done; }
 app_port()  { svc_field "$1" 2; }
 admin_port(){ svc_field "$1" 3; }
 pidfile()   { echo "$RUN/$1.pid"; }
-logfile()   { [ "$1" = frontend ] && echo "$LOGDIR/cedar-frontend.log" || echo "$LOGDIR/cedar-$1-server.log"; }
+logfile()   { case "$1" in frontend) echo "$LOGDIR/cedar-frontend.log";; ui-*) echo "$LOGDIR/frontend-${1#ui-}.log";; *) echo "$LOGDIR/cedar-$1-server.log";; esac; }
 alive()     { local p; p=$(cat "$(pidfile "$1")" 2>/dev/null); [ -n "$p" ] && kill -0 "$p" 2>/dev/null; }
 port_open() { nc -z -G1 127.0.0.1 "$1" >/dev/null 2>&1; }
 
@@ -59,14 +79,19 @@ start_one() {
   local name=$1 app; app=$(app_port "$name"); local log; log=$(logfile "$name")
   if alive "$name"; then echo "  $name: already running (pid $(cat "$(pidfile "$name")"))"; return; fi
   if port_open "$app"; then echo "  $name: port $app already in use (started elsewhere) — skipping"; return; fi
-  if [ "$name" = frontend ]; then
-    ( cd "$CEDAR_HOME/cedar-template-editor" && exec nohup gulp >"$log" 2>&1 ) &
-  else
-    local jar="$CEDAR_HOME/cedar-$name-server/cedar-$name-server-application/target/cedar-$name-server-application-${CEDAR_VERSION}.jar"
-    local cfg="$CEDAR_HOME/cedar-$name-server/cedar-$name-server-application/src/main/resources/config.yml"
-    [ -f "$jar" ] || { echo "  $name: JAR MISSING ($jar) — build it first"; return; }
-    nohup java -jar "$jar" server "$cfg" >"$log" 2>&1 &
-  fi
+  case "$name" in
+    frontend)
+      ( cd "$CEDAR_HOME/cedar-template-editor" && exec nohup gulp >"$log" 2>&1 ) & ;;
+    ui-*)
+      local dir; dir=$(fe_dir "$name")
+      [ -d "$dir" ] || { echo "  $name: SRC MISSING ($dir) — skip"; return; }
+      ( cd "$dir" && exec nohup ng serve --port "$app" --host 127.0.0.1 >"$log" 2>&1 ) & ;;
+    *)
+      local jar="$CEDAR_HOME/cedar-$name-server/cedar-$name-server-application/target/cedar-$name-server-application-${CEDAR_VERSION}.jar"
+      local cfg="$CEDAR_HOME/cedar-$name-server/cedar-$name-server-application/src/main/resources/config.yml"
+      [ -f "$jar" ] || { echo "  $name: JAR MISSING ($jar) — build it first"; return; }
+      nohup java -jar "$jar" server "$cfg" >"$log" 2>&1 & ;;
+  esac
   echo $! > "$(pidfile "$name")"
   echo "  started $name (pid $!) -> port $app, log $log"
 }
