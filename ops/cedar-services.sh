@@ -98,7 +98,8 @@ status() {
     p=$(cat "$(pidfile "$name")" 2>/dev/null); pid_disp="-"; kill -0 "$p" 2>/dev/null && pid_disp="$p"
     port_open "$(app_port "$name")" && port_disp="up" || port_disp="down"
     h=$(health_of "$name"); [ "$h" = healthy ] && up=$((up+1))
-    errs=$(grep -c -iE "ERROR|Exception" "$(logfile "$name")" 2>/dev/null); errs=${errs:-0}
+    # Exclude logback's own configuration chatter, which mentions appenders named FILE-ERROR
+    errs=$(grep -iE "ERROR|Exception" "$(logfile "$name")" 2>/dev/null | grep -cv "|-INFO in"); errs=${errs:-0}
     printf "%-18s %-8s %-6s %-10s %s\n" "$name" "$pid_disp" "$port_disp" "$h" "$errs"
   done < <(names)
   echo "-------------------------------------------------------------"
