@@ -305,26 +305,26 @@ Two things are locked and must not move: **Java 17**, and the **persistence and 
 server versions** (Mongo, MySQL, Neo4j, Redis, OpenSearch, Keycloak). Client libraries that talk to
 those servers may move; the servers themselves may not.
 
-Current framework baseline (all javax-namespace, all on Java 17): Dropwizard 2.1.12, Jetty 9.4,
-Jersey 2.39, Hibernate 5.6, jackson 2.17. Recently modernized client libraries: jedis 5.2, Apache
-HttpClient 5 (the exceptions are the OpenSearch low-level REST client and the Keycloak event
-listener, which stay on HttpClient 4 because those external APIs require v4 types), slf4j 1.7.36 with
-logback 1.2.13, swagger 1.6, mysql-connector 8.0.33, log4j 2.24, commons-lang3.
+Current framework baseline (all jakarta-namespace, all on Java 17): Dropwizard 4.0.17, Jetty
+11.0.26, Jersey 3.0.18, Hibernate 6.1.7, jackson 2.17. Recently modernized client libraries: jedis
+5.2, Apache HttpClient 5 (the exceptions are the OpenSearch low-level REST client and the Keycloak
+event listener, which stay on HttpClient 4 because those external APIs require v4 types), slf4j 2.0
+with logback 1.5, swagger-core v3 (OpenAPI 3), mysql-connector-j 8.4, log4j 2.24, commons-lang3.
 
 JSON Schema validation uses the maintained networknt validator, not the abandoned java-json-tools
 (FGE) fork. networknt's built-in `uri` and `date-time` formats are stricter than FGE's and would
 reject valid CEDAR data (relative `@id` references, colon-less timezone offsets), so
 `cedar-model-validation-library`'s `FgeCompatFormats` registers FGE-equivalent format checkers on the
-Draft-04 meta-schema to preserve the exact accept boundary. FGE remains only in
-`cedar-valuerecommender-server-core`'s rule-generation subsystem.
+Draft-04 meta-schema to preserve the exact accept boundary. The java-json-tools (FGE) fork is
+otherwise fully removed — no module depends on it.
 
-The **jakarta namespace migration (Dropwizard 4) is not done.** It is a defined next step, runnable
-on Java 17 (Dropwizard 4, Jetty 12, Jersey 3.1, and Hibernate 6 all support 17). Its one hard
-blocker is `dropwizard-sundial`, which has no Dropwizard 4 release: the worker server's scheduler
-must be vendored, forked, or replaced (with `dropwizard-jobs` or a plain `ScheduledExecutorService`)
-before the jump can compile. The rest is a large but mostly mechanical namespace flip plus four known
-risk points: the Jetty 12 CORS filter rewrite, the reflective `@Context`-injection feature, the
-Hibernate 6 data layer, and `commons-fileupload` to its jakarta successor.
+The **jakarta namespace migration (Dropwizard 4) is complete.** It runs on Java 17 (Dropwizard
+4.0.17, Jetty 11, Jersey 3.0, Hibernate 6). `dropwizard-sundial` had no Dropwizard 4 release, so it
+was retired rather than forked: the worker and valuerecommender schedulers are now plain `Managed`
+poll loops. The namespace flip was mechanical; the four risk points all landed — the Jetty CORS
+filter, the reflective `@Context`-injection feature, the Hibernate 6 data layer (its `AUTO` id
+generation changed, so `@GeneratedValue` columns moved to `IDENTITY` on `AUTO_INCREMENT` tables), and
+`commons-fileupload` to its jakarta successor `commons-fileupload2`.
 
 ## `ops/cedar_ontology_usage.py`
 
