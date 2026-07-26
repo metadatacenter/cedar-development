@@ -66,7 +66,11 @@ async function gotoListing(page, folderId) {
 // early fires the anchor's href instead of the action — silently, with no
 // request ever sent.
 async function deleteRow(page, name, folderId) {
-  for (let attempt = 1; attempt <= 3; attempt++) {
+  // Retry budget is generous on purpose: right after a full stack restart the
+  // search index that backs the listing lags the delete by tens of seconds, so
+  // the row can stay visible well after the backend has removed it. 5 gesture
+  // attempts x 8 polls x 1.5s ~= 60s of tolerance before we call it a failure.
+  for (let attempt = 1; attempt <= 5; attempt++) {
     await gotoListing(page, folderId);
     if (!(await row(page, name).count())) return;
     try {
@@ -78,7 +82,7 @@ async function deleteRow(page, name, folderId) {
       console.warn(`  delete gesture attempt ${attempt} for "${name}" did not reach the confirm dialog — retrying`);
       continue;
     }
-    for (let poll = 1; poll <= 4; poll++) {
+    for (let poll = 1; poll <= 8; poll++) {
       await gotoListing(page, folderId);
       if (!(await row(page, name).count())) return;
       await page.waitForTimeout(1500);
