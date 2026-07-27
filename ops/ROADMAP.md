@@ -10,14 +10,26 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
 
 ## Next
 
-- **Reconcile validate with create.** Validation requires `@id`; a create refuses it. So the exact
-  body a client is about to POST does not validate, and anyone wanting to check first has to invent a
-  placeholder identifier. Both halves are pinned in `ops/e2e/rest/suites/validation.mjs`, including the
-  error naming `@id` so the cause is at least discoverable.
+- **Decide whether create should require `@id: null` rather than accept an omitted `@id`.** The
+  meta-schema types `@id` as `{"type": ["string", "null"]}` and marks it required — deliberately: a
+  stored artifact carries its IRI, one not yet created carries `@id: null`, and both are the model's
+  idea of a valid artifact. Validation honours this exactly: the key must be present, its value may be
+  null. So the body a client is about to POST validates clean as long as it carries `@id: null`, and
+  the `validate` then `create` workflow composes with no placeholder IRI at all. This corrects an
+  earlier reading of this item, which had validation as too strict; it is faithful to the model.
 
-  Either let validation accept an artifact with no identifier, or document that a pre-create check
-  needs a placeholder. As it stands the natural client workflow — validate, then create — cannot be
-  followed literally.
+  The looser of the two is create. It accepts an omitted `@id` as well as a null one — both create a
+  201 — and rejects only a real client-supplied IRI. So the one body shape that creates but does not
+  validate is the one that leaves `@id` out entirely, which is the natural thing a client does. The
+  mismatch is create's leniency, not validation's strictness: if create required the `@id` key the way
+  the meta-schema and validation do, every createable body would also validate.
+
+  The question is which way to close it, and it is small. Either make create reject a body that omits
+  `@id`, pointing the client at `@id: null` — aligning the two contracts at the cost of refusing a body
+  that works today; or leave create lenient and document `@id: null` as the canonical pre-create shape,
+  so a client never omits the key and never meets validation's "missing required property `@id`". The
+  three shapes are pinned in `ops/e2e/rest/suites/validation.mjs`: `@id: null` validates and creates,
+  an omitted `@id` creates but does not validate, and a real IRI validates but is refused by create.
 
   Instance validation is also not purely syntactic: it resolves `schema:isBasedOn` and answers 400 when
   the template cannot be found, so an instance cannot be validated against a template that does not yet
