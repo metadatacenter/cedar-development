@@ -67,5 +67,50 @@ export async function run({ user1, folderId }) {
       'an excessive limit is refused with 400',
       `expected 400, got ${huge.status}: ${(huge.text ?? '').slice(0, 120)}`);
 
+  suite('search: the query modes beyond a term');
+
+  // Search by exact id. This mode is answered from the graph, not the index, so it is immediate.
+  const byId = await call(auth, 'GET', `/search?id=${enc(ids[0])}&limit=10`);
+  if (checkStatus(byId, 200, 'a search by id returns')) {
+    const got = (byId.body?.resources ?? []).map(r => r['@id']);
+    check(got.includes(ids[0]) && !got.includes(ids[1]),
+        'it returns the named resource and not the others',
+        `got ${JSON.stringify(got).slice(0, 160)}`);
+  }
+
+  // mode=special-folders — the special-folders view. Empty for an ordinary user on this stack, so the
+  // contract asserted is only that it answers 200 and returns folders, not that it is non-empty.
+  const special = await call(auth, 'GET', '/search?mode=special-folders&limit=20');
+  if (checkStatus(special, 200, 'mode=special-folders returns')) {
+    const kinds = new Set((special.body?.resources ?? []).map(r => r.resourceType));
+    check(![...kinds].some(k => k && k !== 'folder'), 'and every row it returns is a folder',
+        `it returned ${[...kinds].join(', ')}`);
+  }
+
+  // Sorting a term search by name. The three probes sort ascending as "<tag> 1..3"; asserted by
+  // comparing the returned order to its own sorted copy, so any extra matching rows do not matter.
+  const sorted = await call(auth, 'GET', `/search?q=${encodeURIComponent(tag)}&sort=name&limit=20`);
+  if (checkStatus(sorted, 200, 'a name-sorted term search returns')) {
+    const names = (sorted.body?.resources ?? []).map(r => r['schema:name']).filter(Boolean);
+    const asc = [...names].sort((a, b) => a.localeCompare(b));
+    check(JSON.stringify(names) === JSON.stringify(asc), 'the results come back in ascending name order',
+        `order was ${JSON.stringify(names).slice(0, 200)}`);
+  }
+
+  // is_based_on — find instances built on a given template, also graph-backed. Create one instance on
+  // the first template, then search for it.
+  const instLabel = `${tag} instance`;
+  const inst = await call(auth, 'POST', `/template-instances?folder_id=${enc(folderId)}`,
+      artifactBody('instance', instLabel, { 'schema:isBasedOn': ids[0] }));
+  if (checkStatus(inst, 201, 'an instance on the first template is created')) {
+    cleanup('instance', `/template-instances/${enc(inst.body['@id'])}`, instLabel);
+    const based = await call(auth, 'GET', `/search?is_based_on=${enc(ids[0])}&limit=20`);
+    if (checkStatus(based, 200, 'a search by is_based_on returns')) {
+      const got = (based.body?.resources ?? []).map(r => r['@id']);
+      check(got.includes(inst.body['@id']), 'it finds the instance built on that template',
+          `got ${got.length} row(s), not including the instance`);
+    }
+  }
+
   return { tag };
 }

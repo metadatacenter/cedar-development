@@ -49,6 +49,40 @@ export async function run({ user1, homeFolderId }) {
         `name was "${after.body?.['schema:name']}"`);
   }
 
+  suite('folders: contents filtering and sorting');
+
+  // A template beside the child folder, so the parent holds two resource types to filter over.
+  // Contents are graph-backed, so they appear immediately — no indexing wait.
+  const tmplName = `Folders Contents Template ${RUN}`;
+  const tmpl = await call(auth, 'POST', `/templates?folder_id=${enc(parentId)}`, artifactBody('template', tmplName));
+  if (checkStatus(tmpl, 201, 'a template is created alongside the child folder')) {
+    cleanup('template', `/templates/${enc(tmpl.body['@id'])}`, tmplName);
+
+    const foldersOnly = await call(auth, 'GET', `${parentAt}/contents?resource_types=folder&limit=50`);
+    if (checkStatus(foldersOnly, 200, 'contents filtered to folders returns')) {
+      const kinds = new Set((foldersOnly.body?.resources ?? []).map(r => r.resourceType));
+      check(kinds.has('folder') && !kinds.has('template'),
+          'a folder-only listing holds the child folder and not the template',
+          `kinds were ${[...kinds].join(', ')}`);
+    }
+
+    const templatesOnly = await call(auth, 'GET', `${parentAt}/contents?resource_types=template&limit=50`);
+    if (checkStatus(templatesOnly, 200, 'contents filtered to templates returns')) {
+      const kinds = new Set((templatesOnly.body?.resources ?? []).map(r => r.resourceType));
+      check(kinds.has('template') && !kinds.has('folder'),
+          'a template-only listing holds the template and not the child folder',
+          `kinds were ${[...kinds].join(', ')}`);
+    }
+
+    const byName = await call(auth, 'GET', `${parentAt}/contents?sort=name&limit=50`);
+    if (checkStatus(byName, 200, 'contents sorted by name returns')) {
+      const names = (byName.body?.resources ?? []).map(r => r['schema:name']).filter(Boolean);
+      const asc = [...names].sort((a, b) => a.localeCompare(b));
+      check(JSON.stringify(names) === JSON.stringify(asc), 'the contents come back in ascending name order',
+          `order was ${JSON.stringify(names).slice(0, 200)}`);
+    }
+  }
+
   suite('folders: the rules');
 
   // Two folders cannot share a name under one parent. This is the 409 added earlier; asserting it
