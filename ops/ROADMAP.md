@@ -35,15 +35,25 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
   - **Denials answer 401 or 403 depending on which code path refuses.** Detailed in its own item below.
   - **Authority checks live in different layers per subsystem**, so one of them is bypassable by a
     non-HTTP caller. Detailed in its own item below.
-  - **The ACL response is only half round-trippable.** `CedarNodePermissionsWithExtract` cannot be
-    deserialized once it contains a group grant: `CedarGroupExtract` declares only a two-argument
-    constructor with no default one, while `CedarUserExtract` has both. Any Java client parsing a
-    permissions response with the shared model fails on group grants — `SharingRoundTripTest` has to
-    read a tree for that case. A one-line constructor fixes it; the reason it is here rather than done
-    is that it is a shared-library change that wants an owner's eye.
+  - **Transferring ownership does not transfer control.** The owner field moves, but a resource inside
+    the donor's own tree is still reachable by the donor, because permissions inherit from the parent
+    they still own. So handing something over leaves the donor with read and write on it, and the
+    recipient is unlikely to expect that. Pinned in `SharingRoundTripTest`.
+  - **Ownership is the one thing a WRITE grantee cannot take**, which is the model working: the owner
+    check in `validateOwnerSetPermission` holds across folders and all four artifact types. Noted here
+    because it is the boundary the rest of the model leans on, and because it is the only place
+    `CHANGEOWNER` would be consulted if it were consulted at all.
 
-  The deliverable is a short written statement of the model — what the tiers are, what each confers,
-  and which of the above are intentional — followed by making the code and the enum agree with it.
+  One of the original findings is already fixed rather than listed: a permissions response containing a
+  group grant could not be deserialized by the shared model, because `CedarGroupExtract` had no
+  no-argument constructor while `CedarUserExtract` did. That is now a one-line constructor in
+  `cedar-core-library`, with the typed read in `SharingRoundTripTest` as its regression test.
+
+  The deliverable is **a permissions document** — there is none today, and its absence is the root of
+  everything above. It should state the tiers, what each confers, how inheritance interacts with
+  ownership, and which of the listed behaviours are intentional. Only then is it worth making the code
+  and the enum agree with it.
+
   Pinned by `FolderPermissionLevelMatrixTest`, `ArtifactPermissionLevelMatrixTest`,
   `SharingRoundTripTest`, `ArtifactsAndCategoriesAuthorizationMatrixTest`,
   `GroupMembershipAuthorizationMatrixTest`, `GroupSharingRevocationIntegrationTest` and
@@ -144,6 +154,24 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
   It needs either a test with a real index, or an assertion at the smoke level that a revoked user's
   listing no longer shows the resource. Related to the cross-service contract tests below, and to the
   folder-listing staleness already documented in `deleteRow` in the smoke.
+
+- **Give the shared test JVM room, or stop sharing it.** The resource server's suite runs every test
+  class in one JVM, and each class that boots a server creates a Neo4j driver whose Netty event-loop
+  threads are never reclaimed. Nine such classes exhaust it: the ninth fails to start with Netty's
+  "failed to create a child event loop". Eight currently pass, so the module is at its limit, and the
+  next class added will hit this.
+
+  The failure is nastier than it sounds. It appears only in the full run, never when the class is run
+  alone, and it names whichever class happened to boot last rather than the one responsible — so it
+  reads as a flaky new test rather than as exhaustion. Capping Jetty's pools was tried and does not
+  help; the threads are the driver's, not the server's.
+
+  Either close the drivers when a class finishes, or give each class its own fork
+  (`reuseForks=false`), which also removes the `CedarConfig` singleton contamination that made the
+  environment-override machinery necessary in the first place. Forking costs JVM and embedded-Neo4j
+  startup per class, which is why the JVM is shared today, so this is a trade to make deliberately.
+  Until then, new REST-level tests should merge into an existing class, as sharing and ownership
+  transfer share one.
 
 - **Add degradation tests.** Nothing asserts how a service behaves when a dependency it needs is
   unavailable. The cost of that gap is known: reading any folder whose creator could not be resolved
