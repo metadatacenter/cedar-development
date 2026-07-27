@@ -213,21 +213,34 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
   the count without failing on it, since failing a gate on a pre-existing stale index would only make
   the gate unusable.
 
-- **Answer 400, not 500, to a malformed request.** Four routes turn a client's bad request into a
-  server fault, which misdirects whoever reads the log and tells the caller nothing:
+- **Derive the response status from the error type.** One line explains a family of 500s that look
+  like separate defects. `CedarErrorPack` initialises `status` to `INTERNAL_SERVER_ERROR`, and its
+  `errorType(...)` setter does not derive the status from the type — while `CedarErrorType` already
+  declares the right mapping (`INVALID_ARGUMENT` → `BAD_REQUEST`, `NOT_FOUND` → `NOT_FOUND`,
+  `VALIDATION_ERROR` → `BAD_REQUEST`). `CedarCedarExceptionMapper` faithfully returns
+  `errorPack.getStatus()`, so every hand-built pack that sets a type but no status answers 500.
 
-  - `POST /command/move-resource-to-folder` and `POST /command/copy-artifact-to-folder` read
-    `jsonBody.get("@id").asText()` with no guard, so a body missing the identifier is a null
-    dereference. `POST /command/rename-resource` reads through `CedarParameter` but still fails on the
-    empty id. All three answer 500.
-  - `GET /search?limit=100000` answers 500. An unbounded page size is also the denial-of-service
-    vector the pagination item mentions, so this wants clamping rather than only an error.
-  - `POST /template-fields` answers 500 when the body omits `pav:version` ("You need to provide a
-    non-null value for the parameter:version"), where the other artifact kinds answer 400.
+  Only `BackendCallError` does the derivation, with `errorPack.status(errorType.getStatus())`. Every
+  other construction site would have to remember, and mostly does not. The observable result is a
+  client error reported as a server fault, with the body correctly self-describing as
+  `"errorType":"invalidArgument"` next to a 500 — so the classification is right and only the status
+  is wrong.
 
-  All are pinned in `ops/e2e/rest/suites/` as current behaviour, so each will fail and prompt an
-  update when fixed. Guarding the reads is small; deciding whether an excessive `limit` is refused or
-  clamped is a judgement call worth making once and applying to all thirty-one paged endpoints.
+  Confirmed on these routes, all pinned in `ops/e2e/rest/suites/`:
+
+  - `POST /command/validate` with an unknown or missing `resource_type`
+  - `POST /command/convert` with an unknown `format`
+  - `POST /command/move-resource-to-folder`, `/rename-resource` and `/copy-artifact-to-folder` with a
+    body missing the identifier
+  - `POST /template-fields` with a body missing `pav:version`, where the other artifact kinds answer 400
+
+  Defaulting the status from the type in `errorType(...)` — or resolving it at read time in
+  `getStatus()` when it was never set explicitly — fixes all of them at once. Worth checking the
+  `AUTHORIZATION` case at the same time, since the 401-versus-403 item above is the same shape of
+  problem one level up.
+
+  Separately, `GET /search?limit=100000` answers 500, and that one is not the error pack: an unbounded
+  page size wants clamping, which the pagination item covers.
 
 - **Decide whether a home folder may be renamed.** It can be, over REST: `PUT /folders/{home}` with a
   new `schema:name` succeeds and the folder stays flagged `isUserHome`. Deleting it is correctly
@@ -251,6 +264,19 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
   when a category is created, or make the requirement visible. `ops/e2e/rest/suites/categories.mjs`
   pins the whole sequence: refused without the grant, allowed with it.
 
+- **Reconcile validate with create.** Validation requires `@id`; a create refuses it. So the exact
+  body a client is about to POST does not validate, and anyone wanting to check first has to invent a
+  placeholder identifier. Both halves are pinned in `ops/e2e/rest/suites/validation.mjs`, including the
+  error naming `@id` so the cause is at least discoverable.
+
+  Either let validation accept an artifact with no identifier, or document that a pre-create check
+  needs a placeholder. As it stands the natural client workflow — validate, then create — cannot be
+  followed literally.
+
+  Instance validation is also not purely syntactic: it resolves `schema:isBasedOn` and answers 400 when
+  the template cannot be found, so an instance cannot be validated against a template that does not yet
+  exist. Reasonable, and worth stating.
+
 - **Add degradation tests.** Nothing asserts how a service behaves when a dependency it needs is
   unavailable. The cost of that gap is known: reading any folder whose creator could not be resolved
   returned 500 for as long as the defect existed, because `UserSummaryCache` let Guava's
@@ -264,8 +290,10 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
   first user is never told. This is a design item rather than a coverage item, since no test can be
   written until the API offers the conditional-request machinery.
 
-- **Cover pagination.** Thirty-one endpoints declare `page` and `pageSize`; one test file exercises
-  paging. Off-by-one behaviour, a page past the end, and an unbounded `pageSize` (which is also a
+- **Cover pagination.** Thirty-one endpoints declare `page` and `pageSize`. `ops/e2e/rest/suites/search.mjs`
+  now covers limit/offset on search — non-overlapping pages, a stable `totalCount`, a page past the end,
+  and type filtering — so what remains is the other paged endpoints and the clamping question:
+  `limit=100000` currently answers 500. Off-by-one behaviour, a page past the end, and an unbounded `pageSize` (which is also a
   denial-of-service vector) are all unasserted.
 
 - **Add cross-service contract tests.** The resource server proxies to the artifact, terminology and
