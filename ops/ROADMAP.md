@@ -23,30 +23,6 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
   the template cannot be found, so an instance cannot be validated against a template that does not yet
   exist. Reasonable, and worth stating.
 
-- **Separate authentication from authorization in `CedarErrorType`.** The enum maps
-  `AUTHORIZATION` to `UNAUTHORIZED`, so a permission denial that travels as a `BackendCallResult`
-  error answers 401 where it should answer 403. `PUT /folders/{id}/permissions` is the observed
-  case: an authenticated user with no grant on the folder is refused with 401, while every other
-  folder endpoint refuses the same user with 403. The exception-based denials are correct because
-  `CedarAccessException` subclasses set their status explicitly; only the call-result path falls
-  back to the type default. The enum cannot simply be remapped, because the same `AUTHORIZATION`
-  type also carries genuine authentication failures, including the missing-header case
-  (`AuthorizationNotFoundException`), which must stay 401. The fix is to distinguish the two: add a
-  permission error type that maps to `FORBIDDEN` and use it at the resource permission denial sites,
-  or set the status explicitly there. Roughly 41 usages of `AUTHORIZATION` need review.
-
-  The scope is narrower than it first appeared, and categories show what the fix should look like.
-  `PUT /categories/{id}/permissions` already answers 403, because it gates on
-  `userMustHaveWriteAccessToCategory`, which raises an exception carrying an explicit status and so
-  never reaches the call-result path. Only the resource path — folders and artifacts, both via
-  `ResourcePermissionRequestValidator` — is affected. So the category validator is the reference
-  rather than a second instance to fix.
-
-  Both affected cases are pinned, in `FoldersAuthorizationMatrixTest` and
-  `ArtifactsAndCategoriesAuthorizationMatrixTest`, which will fail and prompt an update once this
-  changes. A 401 conventionally tells a client to re-authenticate, so today the frontend can bounce a
-  user to the login screen when they merely lack rights on someone else's folder.
-
 - **Make search-index mutations reliable (grants and deletes). One architectural cause, still open.**
   This is the remaining index work and the next focused effort. Documents are indexed with a
   server-generated random `_id` (`ElasticsearchIndexingWorker.addToIndex` uses `new IndexRequest(index)`
@@ -187,33 +163,6 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
   re-enabling the guard together with a supported cleanup path (e.g. an admin-only delete, or cascading
   through folder deletion). The re-publish immutability above is unaffected — that is enforced.
 
-- **Classify the errors that still answer 500.** Two client mistakes remain reported as server faults,
-  and each has its own cause — neither is the error-pack default, which is now fixed (see below).
-
-  `POST /template-fields` with a body missing `pav:version` answers 500 with `"errorType": null` and
-  the message "You need to provide a non-null value for the parameter:version from InPlace". The pack
-  carries no error type at all, so nothing can derive a status from it: the throwing code needs to
-  classify the failure as invalid input. The other artifact kinds answer 400 for the same omission.
-
-  `GET /search?limit=100000` answers 500. `AbstractSearchResource` already calls
-  `pagedSearchQuery.validate()`, so a cap belongs there — but which behaviour is a decision worth
-  making once and applying to all thirty-one paged endpoints: refuse an excessive `limit` with 400, or
-  clamp it to a maximum and serve fewer rows than asked. Refusing is more honest; clamping is friendlier.
-  An unbounded page size is also the denial-of-service vector the pagination item mentions.
-
-  Both are pinned in `ops/e2e/rest/suites/` as current behaviour and will fail when fixed.
-
-  **Fixed already, recorded for the reader:** `CedarErrorPack` initialised `status` to
-  `INTERNAL_SERVER_ERROR` and its `errorType(...)` setter did not derive it, though `CedarErrorType`
-  already declared the right mapping. `errorType(...)` now adopts the type's status unless one was
-  chosen explicitly — the flag matters, because `CedarAssertionResult` offers `forbidden()` and
-  `errorType()` as separate builder steps and deriving unconditionally would have turned a deliberate
-  403 into a 401. `CedarErrorType.NONE` maps to 200 and is the initial value, so it is deliberately not
-  derived from. That fixed the unknown and missing `resource_type` cases and the unknown convert
-  `format`. Separately, `move-resource-to-folder`, `copy-artifact-to-folder` and `rename-resource` read
-  their required fields unguarded off the `JsonNode`; they now use `must(...).be(NonEmpty)` like the
-  sibling `CommandCategoriesResource`, so a missing field is a 400.
-
 - **Decide whether users can classify their own artifacts.** Attaching a category to an artifact
   requires a grant on the *category*, not merely on the artifact: `ATTACH` (or `WRITE`, which implies
   it) must be held on the category being attached. The category tree is writable only by someone with
@@ -241,11 +190,11 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
 
 - **Cover pagination.** Largely done. `ops/e2e/rest/suites/pagination.mjs` now walks both a folder's
   contents and search two rows at a time and reassembles each listing exactly once, asserts a stable
-  `totalCount` and a page past the end, and checks the first/last paging links. The remaining product
-  question — whether an invalid or excessive `limit`/`offset` should be a 400 or a clamped 200 rather
-  than the 500 they all answer today — is pinned there and carried as its own item above ("Reject an
-  invalid limit or offset"). Still uncovered: the other paged listings beyond contents and search
-  (categories, and the several `*-extract` variants).
+  `totalCount` and a page past the end, and checks the first/last paging links. An invalid or excessive
+  `limit`/`offset` is now refused with 400 rather than answering 500 — `PagedQuery.validateLimit()`
+  throws `badRequest()` above the configured maximum, and every paged endpoint shares it. Still
+  uncovered: the other paged listings beyond contents and search (categories, and the several
+  `*-extract` variants).
 
 - **Add cross-service contract tests.** The resource server proxies to the artifact, terminology and
   value-recommender servers. Per-service suites stop at the hop and the end-to-end smoke covers only
