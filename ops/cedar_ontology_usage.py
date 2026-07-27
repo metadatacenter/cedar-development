@@ -220,8 +220,8 @@ def main():
     ap.add_argument("--emit-constraints", metavar="PATH",
                     help="Also write every controlled-term field's _valueConstraints to PATH as JSONL, "
                          "one record per field (provenance + a trimmed, integrated-search-ready block). "
-                         "This is the raw corpus for terminology differential testing; curate it with "
-                         "cedar_termcorpus_select.py.")
+                         "This is the raw corpus for terminology differential testing; reduce it to the "
+                         "atomic-target usage matrix with cedar_usage_matrix.py.")
     args = ap.parse_args()
 
     if not args.api_key:

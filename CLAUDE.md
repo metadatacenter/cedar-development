@@ -20,8 +20,9 @@ Helper scripts are in `cedar-development/ops/`:
 - `cedar_ontology_usage.py` — inventory ontologies referenced by templates/elements. With
   `--emit-constraints` it also harvests each field's `_valueConstraints` as integrated-search-ready
   JSONL, the raw corpus for terminology differential testing.
-- `cedar_termcorpus_select.py` — curate a diverse ~100-case corpus from that harvest, for comparing
-  two terminology-server implementations (current vs SQLite-backed).
+- `cedar_usage_matrix.py` — reduce that harvest to the atomic-target usage matrix: one row per
+  distinct `(kind, acronym, target)` terminology lookup production performs, for comparing two
+  terminology-server implementations (current vs SQLite-backed).
 
 ## The four things that bite first (don't skip)
 
