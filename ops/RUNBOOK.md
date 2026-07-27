@@ -485,8 +485,32 @@ it is used (`seenIn` fields, `nArtifacts` artifacts), branch `maxDepth`s, one ex
 minimal single-target `valueConstraints` block that POSTs verbatim to `/bioportal/integrated-search`
 (auth is disabled there) — so a row doubles as a runnable case. Display-name sources ending in a
 parenthesised acronym (`BioAssay Ontology (BAO)`) are normalized to the acronym so an ontology does not
-split into two rows. The diff harness that replays rows on two servers and compares responses is not
-built yet — the matrix is the corpus it will consume.
+split into two rows.
+
+`cedar_termdiff.py` replays that matrix against `POST /bioportal/integrated-search` and compares a
+local, SQLite-backed answer to a BioPortal answer — both obtained through the same endpoint on two
+differently-configured instances, so the shapes match. BioPortal is slow and drifts, so it is
+record-then-replay:
+
+```bash
+# 1) record BioPortal goldens (the slow, standalone run) from a BioPortal-backed instance
+python3 ops/cedar_termdiff.py record --matrix matrix.jsonl --goldens goldens \
+    --server https://terminology.metadatacenter.org --ontology DOID GO HP --kinds branch class
+
+# 2) verify a local-store instance (localOntologies set, terminologyStore.localOnly=true) vs the goldens
+python3 ops/cedar_termdiff.py verify --matrix matrix.jsonl --goldens goldens \
+    --server http://localhost:9004 --ontology DOID GO HP --kinds branch class --report readiness.json
+```
+
+`record` is resumable (one file per atom; already-recorded atoms are skipped, failures left
+unrecorded to retry). Equivalence bar for the enumerate path (`inputText=""`): set-equality on result
+IRIs plus preferred-label agreement — ordering and BioPortal-only metadata are ignored, since the
+snapshot holds hierarchy plus preferred labels. The endpoint caps `pageSize` (~5000) and its
+`page`/`nextPage` are inert, so the harness fetches each set in one request sized to `totalCount`;
+sets larger than `--max-results` are marked truncated and excluded from the gate (whole-ontology
+enumeration is not a browse test). `verify` emits a per-ontology readiness report; an ontology that is
+100% set-equal with no errors is safe to add to `localOntologies`. The migration plan this feeds is
+`cedar-terminology-server/ROADMAP.md`.
 
 ## End-to-End Smoke Test: `ops/e2e`
 
