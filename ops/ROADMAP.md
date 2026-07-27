@@ -10,6 +10,60 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
 
 ## Next
 
+- **Done: the token signature is now verified.** This was the most serious finding in the estate.
+  `KeycloakUtils` used to base64-decode the JWT payload and check only expiry and that the subject
+  resolved to a real user; the signature was never checked, so a token with any signature — or one
+  hand-built with no key material — authenticated as whoever its payload named. Fixed by building a
+  real `KeycloakDeployment` through `KeycloakDeploymentBuilder` (which installs a rotating
+  `JWKPublicKeyLocator` and the client that fetches the realm's signing keys) and routing token
+  resolution through `AdapterTokenVerifier.verifyToken`, which checks the signature, the issuer, and
+  that the token is active. An expired token still reports `TOKEN_EXPIRED`/`REFRESH_TOKEN` so the
+  frontend refreshes rather than logging out; every other failure is a 401. This also closed the
+  malformed-Bearer-500: an unparseable token is now rejected cleanly rather than faulting. Verified end
+  to end — every forgery in `ops/e2e/rest/suites/authentication.mjs` is refused, genuine tokens still
+  work across the whole REST smoke and the browser login. The one loose end left for production: the
+  key-fetching client currently trusts the local self-signed `.orgx` certificate
+  (`disableTrustManager`), matching the admin client; a real deployment should point it at a truststore
+  holding the realm CA (see the comment in `KeycloakDeploymentProvider`).
+
+- **Restrict who may change a group to its administrators.** Every ordinary CEDAR user is given the
+  `groupAdministrator` role (`cedar-main.yml` `defaultRoles.normal`), and that role carries
+  `UPDATE_NOT_ADMINISTERED_GROUP` (`CedarUserRolePermissionUtil`) — the override that skips the "only
+  administrators may change this group" check in `GroupsResource`. Because everyone holds the override,
+  the check never applies to anyone: any logged-in user can rename, re-staff, or delete any other
+  user's group without being a member of it. Making yourself administrator of a group then confers
+  everything shared with that group; deleting it revokes everyone else's access through it. The fix is
+  to move `UPDATE_NOT_ADMINISTERED_GROUP` out of the default role into a privileged administrator role,
+  exactly as `WRITE_NOT_WRITABLE_CATEGORY` is already separated into `categoryPrivilegedAdministrator`.
+  Pinned by `ops/e2e/rest/suites/groups.mjs` ("who may write a group they do not administer").
+
+- **Make a permission change reach the search index.** A grant is written to the graph immediately —
+  every graph-backed view (`shared-with-me`, `shared-with-everybody`, id lookup, `view-all`) reflects
+  it at once — but it never reaches the OpenSearch document that term search filters on. The worker
+  logs processing the `RESOURCE_PERMISSION_CHANGED` event, yet the indexed document's materialized
+  `users` list is byte-for-byte identical before and after the grant (verified directly against the
+  index, and over a two-minute poll). The effect: someone you share with can open the artifact and see
+  it under "shared with me", but a search by name never finds it; a shared folder's contents are
+  unsearchable by the person you shared them with. Only the everybody grant reaches term search,
+  because it is denormalized onto the node as `everybodyPermission` rather than carried per-user. This
+  is the same subsystem as the revocation-reaching-the-index item below; both are the graph and the
+  index disagreeing. Pinned by `ops/e2e/rest/suites/finding.mjs`.
+
+- **Reject an invalid `limit` or `offset` instead of faulting.** `/folders/{id}/contents` and `/search`
+  share a paging validator that lets a bad argument through to code that throws: a limit of zero, a
+  negative limit or offset, a non-numeric limit (`limit=abc` reaches a `NumberFormatException`), and an
+  excessive limit all answer 500 where 400 belongs. The excessive-limit case is also a denial-of-service
+  vector — an unbounded page size — and is the same one the search item pins. The fix is to validate the
+  paging arguments once, in the shared validator, and refuse a bad one with 400 (or clamp an excessive
+  limit). Pinned by `ops/e2e/rest/suites/pagination.mjs` across both endpoints.
+
+- **Guard the `@id` in the four open commands.** `CommandOpenResource`'s `make-artifact-open`,
+  `make-artifact-not-open`, `make-folder-open` and `make-folder-not-open` read `@id` from the body
+  without asserting it is present, so a request omitting it becomes a lookup for the artifact whose id
+  is null and answers 404 — telling the caller the artifact does not exist rather than that their
+  request was malformed. This is the same unguarded read already fixed in `CommandFileSystemResource`;
+  apply the same `c.must(param).be(NonEmpty)` guard. Pinned by `ops/e2e/rest/suites/openness.mjs`.
+
 - **Settle the sharing and permission model, then write it down.** This is the umbrella item: the
   pieces below are each small, and separately each looks like a quirk, but together they say the model
   was never specified in one place, so every surface decided for itself. Controlled sharing is what
@@ -152,7 +206,10 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
   is the projection of it. This cannot be tested in the current suites: they run
   `NoOpNodeIndexingService` precisely so they need no OpenSearch, so the enqueue path is a no-op there.
   It needs either a test with a real index, or an assertion at the smoke level that a revoked user's
-  listing no longer shows the resource. Related to the cross-service contract tests below, and to the
+  listing no longer shows the resource. The REST smoke now reaches the real index and has found the
+  companion bug on the *grant* side — a grant never reaches term search at all (see "Make a permission
+  change reach the search index" above) — so the projection is demonstrably broken in both directions
+  and the two are almost certainly one fix. Related to the cross-service contract tests below, and to the
   folder-listing staleness already documented in `deleteRow` in the smoke.
 
 - **Give the shared test JVM room, or stop sharing it.** The resource server's suite runs every test
@@ -288,11 +345,13 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
   first user is never told. This is a design item rather than a coverage item, since no test can be
   written until the API offers the conditional-request machinery.
 
-- **Cover pagination.** Thirty-one endpoints declare `page` and `pageSize`. `ops/e2e/rest/suites/search.mjs`
-  now covers limit/offset on search — non-overlapping pages, a stable `totalCount`, a page past the end,
-  and type filtering — so what remains is the other paged endpoints and the clamping question:
-  `limit=100000` currently answers 500. Off-by-one behaviour, a page past the end, and an unbounded `pageSize` (which is also a
-  denial-of-service vector) are all unasserted.
+- **Cover pagination.** Largely done. `ops/e2e/rest/suites/pagination.mjs` now walks both a folder's
+  contents and search two rows at a time and reassembles each listing exactly once, asserts a stable
+  `totalCount` and a page past the end, and checks the first/last paging links. The remaining product
+  question — whether an invalid or excessive `limit`/`offset` should be a 400 or a clamped 200 rather
+  than the 500 they all answer today — is pinned there and carried as its own item above ("Reject an
+  invalid limit or offset"). Still uncovered: the other paged listings beyond contents and search
+  (categories, and the several `*-extract` variants).
 
 - **Add cross-service contract tests.** The resource server proxies to the artifact, terminology and
   value-recommender servers. Per-service suites stop at the hop and the end-to-end smoke covers only
