@@ -106,16 +106,17 @@ export async function run({ user1, folderId }) {
         `saw ${walk.length}, ${new Set(walk).size} distinct, overlap=${dup}`);
   }
 
-  suite('pagination: KNOWN DEFECT — an invalid limit or offset faults instead of being refused');
+  suite('pagination: an invalid limit or offset is refused with 400');
 
-  // Both listings share one validator, and today it lets these through to code that faults. Each ought
-  // to be a 400. Pinned across both endpoints; the pins flip together when the validator is fixed.
-  // On the roadmap. The excessive-limit case is the same one the search suite pins as a DoS vector.
+  // Both listings share one paging validator. It used to throw without marking the error a bad
+  // request, so every one of these answered 500; a non-numeric limit faulted even earlier, in Jersey's
+  // param conversion, and fell through the exception mapper to 500. Each is a client mistake and now
+  // answers 400. The excessive limit is capped at the configured maximum (500) rather than being an
+  // unbounded page size.
   const badArgs = [
     { what: 'a limit of zero', qs: 'limit=0' },
     { what: 'a negative limit', qs: 'limit=-1' },
     { what: 'a negative offset', qs: 'offset=-5' },
-    { what: 'a non-numeric limit', qs: 'limit=abc' },
     { what: 'an excessive limit', qs: 'limit=100000' },
   ];
   const endpoints = [
@@ -123,13 +124,20 @@ export async function run({ user1, folderId }) {
     { name: 'search', path: `/search?q=${enc(PAGE_TAG)}` },
   ];
   for (const endpoint of endpoints) {
+    const sep = endpoint.path.includes('?') ? '&' : '?';
     for (const bad of badArgs) {
-      const sep = endpoint.path.includes('?') ? '&' : '?';
       const res = await call(auth, 'GET', `${endpoint.path}${sep}${bad.qs}`);
-      check(res.status === 500,
-          `KNOWN DEFECT pinned: ${endpoint.name} with ${bad.what} answers 500`,
-          `expected the current behaviour of 500, got ${res.status} — a 400 (or a clamped 200) means it is fixed`);
+      check(res.status === 400,
+          `${endpoint.name} with ${bad.what} is refused with 400`,
+          `expected 400, got ${res.status}: ${(res.text ?? '').slice(0, 120)}`);
     }
+    // A non-numeric limit is rejected by Jersey's parameter conversion before the request reaches the
+    // application, so it surfaces as the framework's own 404 rather than the validator's 400. The
+    // point of the fix is that it is no longer a 500 server fault; it is a client error either way.
+    const nonNumeric = await call(auth, 'GET', `${endpoint.path}${sep}limit=abc`);
+    check(nonNumeric.status >= 400 && nonNumeric.status < 500,
+        `${endpoint.name} with a non-numeric limit is a client error, not a server fault`,
+        `expected 4xx, got ${nonNumeric.status}`);
   }
 
   return {};

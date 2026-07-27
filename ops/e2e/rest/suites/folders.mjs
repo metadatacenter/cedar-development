@@ -67,18 +67,18 @@ export async function run({ user1, homeFolderId }) {
       `/folders/${enc('https://repo.metadatacenter.orgx/folders/00000000-0000-0000-0000-000000000000')}`),
       404, 'an unknown folder answers 404');
 
-  // The home folder cannot be deleted — but it CAN be renamed, which is worth knowing and is not
-  // what the folder matrix's comment in the Java suite assumes. Writing this test renamed test1's
-  // home folder for real and it had to be put back by hand, so the rename is deliberately NOT
-  // attempted here: a suite that runs against a live stack should not mutate the one folder a user
-  // cannot recreate. The delete refusal is safe to assert, since a refusal changes nothing.
-  //
-  // Whether a renameable home folder is intended is on the roadmap. If it should be refused, the
-  // check belongs beside the delete one below.
+  // The home folder can be neither deleted nor renamed. Both refusals are safe to assert, since a
+  // refusal changes nothing — and the rename attempt is deliberately one that must fail: an earlier
+  // version of this suite renamed test1's home folder for real (the rename was not guarded then) and
+  // it had to be put back by hand. This asserts the guard now holds.
   const home = `/folders/${enc(homeFolderId)}`;
   const deleteHome = await call(auth, 'DELETE', home);
   check(deleteHome.status >= 400, 'the home folder cannot be deleted',
       `expected 4xx, got ${deleteHome.status}`);
+  const renameHome = await call(auth, 'PUT', home,
+      { 'schema:name': `Home renamed by the REST suites ${RUN}`, 'schema:description': 'attempt' });
+  check(renameHome.status >= 400, 'the home folder cannot be renamed',
+      `expected 4xx, got ${renameHome.status} — if 200, the home folder was just renamed for real`);
   const stillHome = await call(auth, 'GET', home);
   check(stillHome.body?.isUserHome === true, 'and it is still the user\'s home afterwards',
       `isUserHome was ${stillHome.body?.isUserHome}`);

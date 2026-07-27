@@ -3,7 +3,7 @@ import { suite, check, checkStatus, call, cleanup, artifactBody, enc, RUN } from
 
 export const name = 'versioning';
 
-export async function run({ user1, folderId }) {
+export async function run({ user1, admin, folderId }) {
   const auth = user1.auth;
   suite('versioning: publish, then draft the published version');
 
@@ -12,7 +12,10 @@ export async function run({ user1, folderId }) {
   if (!checkStatus(post, 201, 'template created')) return {};
   const id = post.body['@id'];
   const at = `/templates/${enc(id)}`;
-  cleanup('template', at, name0);
+  // A published template cannot be deleted by its owner (see below), so its teardown goes through the
+  // administrator escape hatch. If no admin credential is configured it falls back to the owner and
+  // the leftover is reported — better than silently leaking.
+  cleanup('template', at, name0, admin?.auth);
 
   check((await call(auth, 'GET', at)).body?.['bibo:status'] === 'bibo:draft',
       'a new template is a draft', 'it was not');
@@ -24,6 +27,10 @@ export async function run({ user1, folderId }) {
         `status was ${after.body?.['bibo:status']}`);
     check(after.body?.['pav:version'] === '1.0.0', 'publishing set the requested version',
         `version was ${after.body?.['pav:version']}`);
+
+    // A published artifact is immutable, so its owner cannot delete it. An administrator still can,
+    // which is how teardown removes it.
+    checkStatus(await call(auth, 'DELETE', at), 400, 'and its owner cannot delete it once published');
 
     const draft = await call(auth, 'POST', '/command/create-draft-artifact',
         { '@id': id, folderId, newVersion: '1.0.1', propagateVersion: false });
@@ -43,23 +50,23 @@ export async function run({ user1, folderId }) {
         `expected 4xx, got ${draftAgain.status}`);
   }
 
-  suite('versioning: a known defect, pinned');
+  suite('versioning: a published artifact cannot be published again');
 
-  // Re-publishing a published artifact SUCCEEDS and should not. resourceCanBePublished refuses a
-  // non-draft with PUBLISH_ONLY_DRAFT, but the check sits inside
-  // `if (resource instanceof ...AndPublicationStatus)` and the type the endpoint passes does not
-  // implement that interface, so it is skipped silently. See the roadmap. When it is fixed this
-  // check fails and should become an expectation of 4xx.
+  // A published artifact is immutable, so re-publishing it is refused. The publish endpoint now reads
+  // the artifact's real status back from the artifact server and rejects a non-draft, rather than
+  // trusting a precomputed can-publish flag that was wrongly true for an already-published artifact.
   const second = await call(auth, 'POST', `/templates?folder_id=${enc(folderId)}`,
       artifactBody('template', `Republish Probe ${RUN}`));
   if (second.status === 201) {
     const sid = second.body['@id'];
-    cleanup('template', `/templates/${enc(sid)}`, `Republish Probe ${RUN}`);
-    await call(auth, 'POST', '/command/publish-artifact', { '@id': sid, newVersion: '1.0.0' });
+    // Published, so cleaned up through the administrator escape hatch (see above).
+    cleanup('template', `/templates/${enc(sid)}`, `Republish Probe ${RUN}`, admin?.auth);
+    checkStatus(await call(auth, 'POST', '/command/publish-artifact', { '@id': sid, newVersion: '1.0.0' }),
+        [200, 201], 'the probe template is published once');
     const again = await call(auth, 'POST', '/command/publish-artifact', { '@id': sid, newVersion: '1.0.1' });
-    check(again.status === 200,
-        'KNOWN DEFECT pinned: re-publishing a published artifact is allowed',
-        `expected the current behaviour of 200, got ${again.status} — if refused, the defect is fixed`);
+    check(again.status >= 400,
+        're-publishing an already-published artifact is refused',
+        `expected 4xx, got ${again.status}: ${(again.text ?? '').slice(0, 120)}`);
   }
 
   return {};

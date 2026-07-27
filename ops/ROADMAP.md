@@ -26,43 +26,51 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
   (`disableTrustManager`), matching the admin client; a real deployment should point it at a truststore
   holding the realm CA (see the comment in `KeycloakDeploymentProvider`).
 
-- **Restrict who may change a group to its administrators.** Every ordinary CEDAR user is given the
-  `groupAdministrator` role (`cedar-main.yml` `defaultRoles.normal`), and that role carries
-  `UPDATE_NOT_ADMINISTERED_GROUP` (`CedarUserRolePermissionUtil`) — the override that skips the "only
-  administrators may change this group" check in `GroupsResource`. Because everyone holds the override,
-  the check never applies to anyone: any logged-in user can rename, re-staff, or delete any other
-  user's group without being a member of it. Making yourself administrator of a group then confers
-  everything shared with that group; deleting it revokes everyone else's access through it. The fix is
-  to move `UPDATE_NOT_ADMINISTERED_GROUP` out of the default role into a privileged administrator role,
-  exactly as `WRITE_NOT_WRITABLE_CATEGORY` is already separated into `categoryPrivilegedAdministrator`.
-  Pinned by `ops/e2e/rest/suites/groups.mjs` ("who may write a group they do not administer").
+- **Done: only administrators may change a group.** Every user was given the `groupAdministrator`
+  role, which carried `UPDATE_NOT_ADMINISTERED_GROUP` — the override that skips the "only
+  administrators may change this group" check — so any logged-in user could rename, re-staff, or delete
+  anyone's group, and could make themselves administrator to inherit everything shared with it.
+  `UPDATE_NOT_ADMINISTERED_GROUP` now lives in a new `groupPrivilegedAdministrator` role granted only to
+  the built-in admin, mirroring `categoryPrivilegedAdministrator`. Two of the four group-write handlers
+  (`updateGroup`, `patchGroup`) had no administrator check at all — only `GROUP_UPDATE`, which everyone
+  holds — so the same `userAdministersGroup(...) || has(UPDATE_NOT_ADMINISTERED_GROUP)` gate that
+  `deleteGroup`/`updateGroupMembers` already used was added there too. **Operational note:** a user's
+  permissions are expanded from roles and stored per user, so existing users keep the old override until
+  re-expanded — run the `userProfile-updateAll-updatePermissions` admin task after deploying (done on
+  the local stack). Verified by `ops/e2e/rest/suites/groups.mjs`, which now asserts an outsider and a
+  non-admin member are refused (403) while an administrator still succeeds.
 
-- **Make a permission change reach the search index.** A grant is written to the graph immediately —
-  every graph-backed view (`shared-with-me`, `shared-with-everybody`, id lookup, `view-all`) reflects
-  it at once — but it never reaches the OpenSearch document that term search filters on. The worker
-  logs processing the `RESOURCE_PERMISSION_CHANGED` event, yet the indexed document's materialized
-  `users` list is byte-for-byte identical before and after the grant (verified directly against the
-  index, and over a two-minute poll). The effect: someone you share with can open the artifact and see
-  it under "shared with me", but a search by name never finds it; a shared folder's contents are
-  unsearchable by the person you shared them with. Only the everybody grant reaches term search,
-  because it is denormalized onto the node as `everybodyPermission` rather than carried per-user. This
-  is the same subsystem as the revocation-reaching-the-index item below; both are the graph and the
-  index disagreeing. Pinned by `ops/e2e/rest/suites/finding.mjs`.
+- **Make search-index mutations reliable (grants and deletes). One architectural cause, still open.**
+  This is the remaining index work and the next focused effort. Documents are indexed with a
+  server-generated random `_id` (`ElasticsearchIndexingWorker.addToIndex` uses `new IndexRequest(index)`
+  with no id), so there is no stable resource→document identity. Every update and delete is therefore a
+  `deleteByQuery(matchQuery("cid", id))` against a searchable snapshot with **no forced refresh, no
+  retry at the mutation sites, and a silent catch** in `SearchPermissionExecutorService.upsertOnePermissions`.
+  Two symptoms follow: a permission grant never reaches the term-search document (the grantee's
+  `"<userId>|read"` key is never added, so a shared resource is openable and shows under "shared with
+  me" but a name search never finds it — only the everybody grant reaches term search, because it is
+  denormalized onto the node as `everybodyPermission`); and a deleted artifact is never removed from the
+  index. The clean fix is to index with a **deterministic `_id` derived from `cid`**, making update a
+  true upsert and delete a delete-by-id — eliminating the refresh race — and to stop swallowing the
+  reindex exception (a retrying `removeDocumentFromIndex(id, true)` overload already exists and is used
+  only by the category paths). This needs an index regeneration for existing random-`_id` documents and
+  live verification, so it is deliberately its own change. Pinned by `ops/e2e/rest/suites/finding.mjs`,
+  and it is the same subsystem as the revocation-reaching-the-index item below.
 
-- **Reject an invalid `limit` or `offset` instead of faulting.** `/folders/{id}/contents` and `/search`
-  share a paging validator that lets a bad argument through to code that throws: a limit of zero, a
-  negative limit or offset, a non-numeric limit (`limit=abc` reaches a `NumberFormatException`), and an
-  excessive limit all answer 500 where 400 belongs. The excessive-limit case is also a denial-of-service
-  vector — an unbounded page size — and is the same one the search item pins. The fix is to validate the
-  paging arguments once, in the shared validator, and refuse a bad one with 400 (or clamp an excessive
-  limit). Pinned by `ops/e2e/rest/suites/pagination.mjs` across both endpoints.
+- **Done: an invalid `limit` or `offset` is refused with 400.** `/folders/{id}/contents` and `/search`
+  share `PagedQuery`, whose `validateLimit`/`validateOffset` threw a `CedarAssertionException` without
+  marking it a bad request, so a limit of zero, a negative limit or offset, and an excessive limit
+  (already capped at the configured max of 500) all answered 500. They now chain `.badRequest()` → 400.
+  A non-numeric limit (`limit=abc`) is rejected earlier, by Jersey's parameter conversion, and surfaces
+  as the framework's 404 rather than a 400; `CedarExceptionMapper` now honors a `WebApplicationException`'s
+  own status instead of forcing 500, so it is a clean client error either way. Verified by
+  `ops/e2e/rest/suites/pagination.mjs` and the excessive-limit check in `search.mjs`.
 
-- **Guard the `@id` in the four open commands.** `CommandOpenResource`'s `make-artifact-open`,
-  `make-artifact-not-open`, `make-folder-open` and `make-folder-not-open` read `@id` from the body
-  without asserting it is present, so a request omitting it becomes a lookup for the artifact whose id
-  is null and answers 404 — telling the caller the artifact does not exist rather than that their
-  request was malformed. This is the same unguarded read already fixed in `CommandFileSystemResource`;
-  apply the same `c.must(param).be(NonEmpty)` guard. Pinned by `ops/e2e/rest/suites/openness.mjs`.
+- **Done: the four open commands guard the `@id`.** `CommandOpenResource`'s `make-artifact-open`,
+  `make-artifact-not-open`, `make-folder-open` and `make-folder-not-open` read `@id` through a
+  `CedarParameter` and assert `NonEmpty`, so a body with no identifier is a 400 rather than a lookup for
+  the null id that answered 404 — matching the guards in `CommandFileSystemResource`. Verified by
+  `ops/e2e/rest/suites/openness.mjs`.
 
 - **Settle the sharing and permission model, then write it down.** This is the umbrella item: the
   pieces below are each small, and separately each looks like a quirk, but together they say the model
@@ -230,45 +238,35 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
   Until then, new REST-level tests should merge into an existing class, as sharing and ownership
   transfer share one.
 
-- **Stop a published artifact being re-published.** `POST /command/publish-artifact` succeeds on an
-  artifact that is already published, bumping it to the new version and overwriting content the model
-  treats as immutable and citable. Reproducible on demand and not a timing window: it behaves the same
-  immediately after the first publish and six seconds later.
-
-  The rule exists and is tested — `resourceCanBePublished` refuses a non-draft with
-  `PUBLISH_ONLY_DRAFT`, which `ArtifactLifecycleMatrixTest` pins — but it is unreachable from the REST
-  layer, because the status check sits inside a type test:
-
-  ```java
-  if (resource instanceof FilesystemResourceWithCurrentUserPermissionsAndPublicationStatus res) {
-    if (res.getPublicationStatus() != BiboStatus.DRAFT) return negative(PUBLISH_ONLY_DRAFT);
-  }
-  ```
-
-  The endpoint passes a `FolderServerSchemaArtifactCurrentUserReport`, which implements
-  `ResourceWithVersionData`, `ResourceWithPreviousVersionData` and `ResourceWithOpenFlag` — not the
-  publication-status interface. So the `instanceof` never matches, the check is skipped silently, the
-  method falls through to the superseded test, a freshly published artifact has no successor, and
-  `canPublish` comes back true. The unit test passes because it constructs a type that does implement
-  the interface; production constructs one that does not.
-
-  Decide first whether re-publishing should be allowed at all — it may be wanted, in which case the
-  graph predicate and the lifecycle test are what should change. If it should not be, the fix is to
-  make the check unconditional rather than dependent on the caller's choice of type, since a guard
-  that silently does not run is worse than no guard. Pinned in `ops/e2e/rest-smoke.mjs`, which will
-  fail when this changes.
+- **Done: a published artifact cannot be published again, or deleted.** Re-publishing used to succeed
+  because the publish endpoint trusted a precomputed `canPublish` flag whose status guard
+  (`resourceCanBePublished` → `PUBLISH_ONLY_DRAFT`) sat inside an `instanceof
+  FilesystemResourceWithCurrentUserPermissionsAndPublicationStatus` test that the production report type
+  does not satisfy, so the guard was skipped silently. `CommandVersionResource.publishArtifact` now
+  reads the artifact's real `bibo:status` back from the artifact server — the source of truth — and
+  refuses a non-draft. Separately, the published-**delete** guard in
+  `AbstractResourceServerResource.executeArtifactDelete` was commented out entirely, so deletion went
+  straight through; it is now active (mirroring the update path's `PUBLISHED_ARTIFACT_CAN_NOT_BE_CHANGED`).
+  A published artifact is thus immutable to its owner. So that a published artifact — and the folder
+  holding it — is not left un-removable, the filesystem administrator's existing `WRITE_NOT_WRITABLE_NODE`
+  override also lets it be deleted (a moderation/cleanup path, the same override that already lets the
+  admin write any node). Verified by `ops/e2e/rest/suites/versioning.mjs`: re-publish is refused, the
+  owner cannot delete a published artifact, and teardown removes it via the admin escape hatch.
 
 - **Remove deleted resources from the search index.** Deletion never reaches the index. After a run of
   `ops/e2e/rest-smoke.mjs`, `GET /search` returned 28 hits of which all 28 answered 404 on a direct
   read, with entries persisting well beyond ten minutes and accumulating across runs. A user who
   deletes a folder or template keeps finding it in search.
 
-  This is the concrete form of the question above about revocation reaching the index, and the answer
-  is worse than lag: nothing is removed at all. The dashboard listing does clear, so the defect is in
-  the search projection specifically, not in the graph. It is also what the UI smoke's delete-retry
-  loop was quietly absorbing, and why that loop was long misread as index lag. `rest-smoke.mjs` reports
-  the count without failing on it, since failing a gate on a pre-existing stale index would only make
-  the gate unusable.
+  This is the same architectural cause as the grant-not-reaching-the-index item above, and is folded
+  into that one focused change ("Make search-index mutations reliable"): the delete calls the non-retry
+  `removeDocumentFromIndex`, which is a `deleteByQuery` on `cid` against an unrefreshed snapshot, so it
+  matches nothing and the document survives. A deterministic `_id = cid` makes it a reliable
+  delete-by-id. The dashboard listing does clear, so the defect is in the search projection
+  specifically, not in the graph. It is also what the UI smoke's delete-retry loop was quietly
+  absorbing, and why that loop was long misread as index lag. `rest-smoke.mjs` reports the count
+  without failing on it, since failing a gate on a pre-existing stale index would only make the gate
+  unusable.
 
 - **Classify the errors that still answer 500.** Two client mistakes remain reported as server faults,
   and each has its own cause — neither is the error-pack default, which is now fixed (see below).
@@ -297,15 +295,13 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
   their required fields unguarded off the `JsonNode`; they now use `must(...).be(NonEmpty)` like the
   sibling `CommandCategoriesResource`, so a missing field is a 400.
 
-- **Decide whether a home folder may be renamed.** It can be, over REST: `PUT /folders/{home}` with a
-  new `schema:name` succeeds and the folder stays flagged `isUserHome`. Deleting it is correctly
-  refused. The Java folder matrix's comment assumes rename is refused too, so either the comment is
-  wrong or the endpoint is.
-
-  Discovered by a test that renamed a real home folder and had to be corrected by hand, which is why
-  `ops/e2e/rest/suites/folders.mjs` deliberately no longer attempts it: a suite that runs against a
-  live stack should not mutate the one folder a user cannot recreate. If rename should be refused, the
-  check belongs beside the delete-refusal assertion already there.
+- **Done: a home or system folder cannot be renamed.** `PUT /folders/{home}` with a new `schema:name`
+  used to succeed (delete was already refused, but rename was unguarded). `updateFolderNameAndDescriptionInGraphDb`
+  now refuses a name change on a folder that `isUserHome()` or `isSystem()` with a new
+  `FOLDER_CAN_NOT_BE_CHANGED` error keyed by the same `USER_HOME_FOLDER`/`SYSTEM_FOLDER` reasons the
+  delete guard uses; a description-only change is still allowed. Verified by
+  `ops/e2e/rest/suites/folders.mjs`, which now asserts the rename is refused (the assertion an earlier
+  version could not safely make, after it renamed a real home folder).
 
 - **Decide whether users can classify their own artifacts.** Attaching a category to an artifact
   requires a grant on the *category*, not merely on the artifact: `ATTACH` (or `WRITE`, which implies
@@ -447,14 +443,13 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
   users as controlled terms silently not existing, because the picker latches its empty cache for the
   life of the page: the same defect described in the term-picker item above.
 
-- **Remove the vestigial published-delete guard.** `AbstractResourceServerResource.executeArtifactDelete`
-  carries the `PUBLISHED_ARTIFACT_CAN_NOT_BE_DELETED` check as a commented-out block, disabled
-  deliberately by commit `3f26ee7` (2021-02-08, "Allow users to delete published resources"). The
-  block left `isSchemaArtifact` and `schemaArtifact` computed but unused, and the error key is now
-  unreachable. Delete the block, the dead locals and the key. The commented code reads as an
-  accidental omission rather than a decision, which costs a reader time and invites someone to
-  "restore" behaviour that was removed on purpose. `PUBLISHED_ARTIFACT_CAN_NOT_BE_CHANGED` stays: it
-  is still enforced, and `ArtifactLifecycleMatrixTest` records the asymmetry.
+- **Resolved by re-enabling, not removing, the published-delete guard.** This item previously proposed
+  *deleting* the commented-out `PUBLISHED_ARTIFACT_CAN_NOT_BE_DELETED` block, on the basis that commit
+  `3f26ee7` (2021-02-08, "Allow users to delete published resources") had disabled it on purpose. That
+  reading was overtaken by a deliberate decision to make published artifacts match the documentation
+  (immutable), so the guard was re-enabled instead — with a filesystem-admin escape hatch for cleanup.
+  See "Done: a published artifact cannot be published again, or deleted" above. If the 2021 intent is
+  ever reaffirmed, that is the item to revisit; the two are in direct tension and the docs won here.
 
 ## Out of Scope
 
