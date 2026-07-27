@@ -129,12 +129,13 @@ async function constrainToDoidDiseaseBranch(page) {
   await page.locator('#search-scope-2').dispatchEvent('click');        // "search for an ontology"
   await page.waitForTimeout(500);
   await page.getByRole('textbox', { name: 'Search field' }).fill('Human Disease Ontology');
-  // The ontology list loads asynchronously (a ~600KB call filtered client-side), so the
-  // first search can run against an empty cache and show "No results". Re-run the search
-  // until DOID appears (or give up after ~60s).
+  // The ontology list loads on demand (a ~600KB BioPortal-backed call, filtered client-side), so
+  // the first search can run against an empty cache and show "No results". BioPortal is slow and
+  // flaky, and the load is slowest right after a stack restart, so re-run the search generously
+  // (~4 min) before giving up.
   const doidRow = page.getByText(rowText, { exact: false }).first();
   let found = false;
-  for (let i = 0; i < 12 && !found; i++) {
+  for (let i = 0; i < 30 && !found; i++) {
     await page.locator('i.fa-search').last().click();                   // run the search
     try { await doidRow.waitFor({ timeout: 5000 }); found = true; }
     catch { await page.waitForTimeout(2000); }
