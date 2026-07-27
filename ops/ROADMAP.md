@@ -19,20 +19,34 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
   back to the type default. The enum cannot simply be remapped, because the same `AUTHORIZATION`
   type also carries genuine authentication failures, including the missing-header case
   (`AuthorizationNotFoundException`), which must stay 401. The fix is to distinguish the two: add a
-  permission error type that maps to `FORBIDDEN` and use it at the validator denial sites
-  (`ResourcePermissionRequestValidator`, `CategoryPermissionRequestValidator`), or set the status
-  explicitly there. Roughly 41 usages of `AUTHORIZATION` need review. The anomaly is pinned in
-  `FoldersAuthorizationMatrixTest`, which will fail and prompt an update once this changes. A 401
-  conventionally tells a client to re-authenticate, so today the frontend can bounce a user to the
-  login screen when they merely lack rights on someone else's folder.
+  permission error type that maps to `FORBIDDEN` and use it at the resource permission denial sites,
+  or set the status explicitly there. Roughly 41 usages of `AUTHORIZATION` need review.
 
-- **Extend the authorization matrix to artifacts and categories.** `PermissionMatrix` (in
-  `cedar-test-support-library`) states, as a table, which status each actor must receive for each
-  operation. It covers the group server and a user's home folder. Templates, elements, instances and
-  categories are the remaining places real metadata lives, and their grids are unwritten. The folder
-  matrix is the model to follow: assert the denial cells, assert the owner's reads so the denials are
-  shown to discriminate by identity, and re-read the fixture afterwards to prove a refusal changed
-  nothing.
+  The scope is narrower than it first appeared, and categories show what the fix should look like.
+  `PUT /categories/{id}/permissions` already answers 403, because it gates on
+  `userMustHaveWriteAccessToCategory`, which raises an exception carrying an explicit status and so
+  never reaches the call-result path. Only the resource path — folders and artifacts, both via
+  `ResourcePermissionRequestValidator` — is affected. So the category validator is the reference
+  rather than a second instance to fix.
+
+  Both affected cases are pinned, in `FoldersAuthorizationMatrixTest` and
+  `ArtifactsAndCategoriesAuthorizationMatrixTest`, which will fail and prompt an update once this
+  changes. A 401 conventionally tells a client to re-authenticate, so today the frontend can bounce a
+  user to the login screen when they merely lack rights on someone else's folder.
+
+- **Finish the authorization matrix: elements, instances, and the artifact content routes.**
+  `PermissionMatrix` now covers the group server, a user's home folder, a template and a category
+  (`ArtifactsAndCategoriesAuthorizationMatrixTest`). Two gaps remain.
+
+  Elements and instances have no grid. They share the artifact resource superclass with templates, so
+  the same table should largely transfer; whether it does is exactly what a test would establish.
+
+  The artifact **content** routes are uncovered: `GET /templates/{id}` and the write paths proxy to
+  the artifact server, which the resource-server suite does not run, so a row for them would assert
+  the proxy failing rather than the authorization decision. The security contract itself is covered,
+  because the permission check precedes the proxy in every case; what is missing is the owner's happy
+  path on those routes. That needs the cross-service contract tests described below, not another
+  table here.
 
 - **Add degradation tests.** Nothing asserts how a service behaves when a dependency it needs is
   unavailable. The cost of that gap is known: reading any folder whose creator could not be resolved
