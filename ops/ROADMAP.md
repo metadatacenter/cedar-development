@@ -50,13 +50,14 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
   enum declaration and tests, `CHANGEPERMISSIONS` and `CHANGEOWNER` appear nowhere in the codebase —
   nothing ever consults them. Only read and write are enforced.
 
-  The visible consequence is that **a WRITE grant confers re-sharing**. Updating a folder's ACL is
-  gated by `ResourcePermissionRequestValidator.validateWritePermission`, which asks only
-  `userHasWriteAccessToResource`, so anyone granted write on a folder may rewrite who else can see
-  it — adding people, and revoking the grants of others. "Share so they can edit" is in practice
-  "share so they can re-share". `FolderPermissionLevelMatrixTest` pins this, and demonstrates it
-  rather than inferring it from a status: a user holding only WRITE rewrites the ACL and removes
-  their own grant.
+  The visible consequence is that **a WRITE grant confers re-sharing**, on folders and on all four
+  artifact types alike. Updating an ACL is gated by
+  `ResourcePermissionRequestValidator.validateWritePermission`, which asks only
+  `userHasWriteAccessToResource`, so anyone granted write on a folder or artifact may rewrite who else
+  can see it — adding people, and revoking the grants of others. "Share so they can edit" is in
+  practice "share so they can re-share". `FolderPermissionLevelMatrixTest` and
+  `ArtifactPermissionLevelMatrixTest` pin this, and demonstrate it rather than inferring it from a
+  status: a user holding only WRITE rewrites the ACL and their own grant disappears.
 
   This may well be the intended model, and it is at least consistent and enforced. The problem is
   that a six-level enum advertises granularity the system does not have, and a client can send
