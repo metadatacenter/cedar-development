@@ -32,6 +32,7 @@ import * as versioning from './rest/suites/versioning.mjs';
 import * as sharing from './rest/suites/sharing.mjs';
 import * as search from './rest/suites/search.mjs';
 import * as negotiation from './rest/suites/negotiation.mjs';
+import * as download from './rest/suites/download.mjs';
 import * as categories from './rest/suites/categories.mjs';
 import * as validation from './rest/suites/validation.mjs';
 import * as groups from './rest/suites/groups.mjs';
@@ -41,7 +42,7 @@ import * as finding from './rest/suites/finding.mjs';
 import * as authentication from './rest/suites/authentication.mjs';
 import * as pagination from './rest/suites/pagination.mjs';
 
-const ALL = [folders, artifacts, versioning, groups, sharing, groupSharing, openness, categories, validation, search, finding, authentication, pagination, negotiation];
+const ALL = [folders, artifacts, versioning, groups, sharing, groupSharing, openness, categories, validation, search, finding, authentication, pagination, negotiation, download];
 
 const requested = argv.slice(2).filter(a => !a.startsWith('-'));
 const selected = requested.length

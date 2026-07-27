@@ -333,7 +333,8 @@ whether the graph and the artifact server agree, and the things a real running s
 embedded one cannot. It authenticates through Keycloak's password grant using the credentials already
 in the profile, so there are no API keys to keep. Run one suite with `npm run smoke:rest -- <name>`;
 the suites are `folders`, `artifacts`, `versioning`, `groups`, `sharing`, `group-sharing`, `openness`,
-`categories`, `validation`, `search`, `finding`, `authentication`, `pagination` and `negotiation`.
+`categories`, `validation`, `search`, `finding`, `authentication`, `pagination`, `negotiation` and
+`download` (JSON / YAML / compact-YAML export and read-negotiation across all four artifact kinds).
 
 Four of them are where the running stack earns its keep, because each pins a defect an embedded suite
 could not see:
