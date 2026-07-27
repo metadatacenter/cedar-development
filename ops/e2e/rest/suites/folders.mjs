@@ -134,24 +134,16 @@ export async function run({ user1, homeFolderId }) {
 
   suite('folders: a malformed command body');
 
-  // All three answer 500 to a body missing the identifier, where 400 is the answer. move and copy
-  // call jsonBody.get(...).asText() directly, so a missing field is a null dereference;
-  // rename-resource reads through CedarParameter but still fails on the empty id. A malformed
-  // request from a client should never look like a server fault. On the roadmap.
-  const badRename = await call(auth, 'POST', '/command/rename-resource', { 'schema:name': 'no id supplied' });
-  check(badRename.status === 500,
-      'KNOWN DEFECT pinned: rename-resource answers 500 to a body with no identifier',
-      `expected the current behaviour of 500, got ${badRename.status} — if 400, the defect is fixed`);
-
-  const badMove = await call(auth, 'POST', '/command/move-resource-to-folder', { targetFolderId: destId });
-  check(badMove.status === 500,
-      'KNOWN DEFECT pinned: move-resource-to-folder answers 500 to a body with no identifier',
-      `expected the current behaviour of 500, got ${badMove.status} — if 400, the defect is fixed`);
-
-  const badCopy = await call(auth, 'POST', '/command/copy-artifact-to-folder', { targetFolderId: destId });
-  check(badCopy.status === 500,
-      'KNOWN DEFECT pinned: copy-artifact-to-folder answers 500 to a body with no identifier',
-      `expected the current behaviour of 500, got ${badCopy.status} — if 400, the defect is fixed`);
+  // All three used to answer 500: move and copy read jsonBody.get(...).asText() unguarded, so a
+  // missing field was a null dereference, and rename read its identifier without checking it. They
+  // now read through CedarParameter with must(...).be(NonEmpty), matching the sibling
+  // CommandCategoriesResource, so a malformed request is a bad request rather than a server fault.
+  checkStatus(await call(auth, 'POST', '/command/rename-resource', { 'schema:name': 'no id supplied' }),
+      400, 'rename-resource answers 400 to a body with no identifier');
+  checkStatus(await call(auth, 'POST', '/command/move-resource-to-folder', { targetFolderId: destId }),
+      400, 'move-resource-to-folder answers 400 to a body with no identifier');
+  checkStatus(await call(auth, 'POST', '/command/copy-artifact-to-folder', { targetFolderId: destId }),
+      400, 'copy-artifact-to-folder answers 400 to a body with no identifier');
 
   return { parentId, destId };
 }
