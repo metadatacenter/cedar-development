@@ -23,17 +23,6 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
   the template cannot be found, so an instance cannot be validated against a template that does not yet
   exist. Reasonable, and worth stating.
 
-- **Cover the artifact content routes in the authorization matrix.** `PermissionMatrix` now covers
-  the group server, a user's home folder, all four artifact types and a category
-  (`ArtifactsAndCategoriesAuthorizationMatrixTest`). One gap remains, and it is blocked rather than
-  merely unwritten.
-
-  `GET /templates/{id}` and the write paths proxy to the artifact server, which the resource-server
-  suite does not run, so a row for them would assert the proxy failing rather than the authorization
-  decision. The security contract is already covered, because the permission check precedes the proxy
-  in every case; what is missing is the owner's happy path on those routes. That needs the
-  cross-service contract tests described below, not another table here.
-
 - **Separate authentication from authorization in `CedarErrorType`.** The enum maps
   `AUTHORIZATION` to `UNAUTHORIZED`, so a permission denial that travels as a `BackendCallResult`
   error answers 401 where it should answer 403. `PUT /folders/{id}/permissions` is the observed
@@ -263,6 +252,16 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
   the happy path, so a request or response drift between two services is invisible until runtime.
   Both inter-layer bugs found recently, the media-type status and the empty ontology picker, were
   found by chance rather than by a test.
+
+  Folded in here (was its own item): covering the artifact **content** routes in the JUnit
+  authorization matrix. `GET/PUT/DELETE /templates/{id}` and the other three kinds proxy to the
+  artifact server, which the resource-server suite does not boot, so a `PermissionMatrix` row for them
+  would assert the proxy failing rather than the authorization decision. What matters is already
+  covered across two tiers — the **denial** contract by the existing matrix (the permission check runs
+  before the proxy, so a non-owner is refused without the artifact server), and the **owner happy
+  path** by the REST smoke (`ops/e2e/rest/suites/artifacts.mjs`, full CRUD per kind over the live
+  stack). A JUnit matrix row adds value only once a harness runs the resource and artifact servers
+  together — which is exactly this item — so it rides along here rather than standing alone.
 
 - **Cache the CompTox substance registry locally.** On every start the bridge server rebuilds its
   registry by fetching roughly 14,700 substances from the external CompTox API in batches of a
