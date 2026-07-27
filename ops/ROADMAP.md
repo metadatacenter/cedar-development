@@ -10,12 +10,6 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
 
 ## Next
 
-- **Point the token-verification client at a truststore in production.** Token-signature verification
-  fetches the realm's signing keys over HTTPS; on the local stack that client trusts the self-signed
-  `.orgx` certificate (`disableTrustManager` in `KeycloakDeploymentProvider`, matching the admin
-  client). A real deployment should instead trust a truststore holding the realm CA. Small, and only
-  matters outside local dev.
-
 - **Make search-index mutations reliable (grants and deletes). One architectural cause, still open.**
   This is the remaining index work and the next focused effort. Documents are indexed with a
   server-generated random `_id` (`ElasticsearchIndexingWorker.addToIndex` uses `new IndexRequest(index)`
@@ -144,39 +138,6 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
   reader and to a client: a level that can be granted, is stored, and is never consulted reads as a
   restriction while being none. Either enforce the four unused levels or remove them and document the
   three tiers, including that write implies re-sharing and that versioning is owner-only.
-
-- **Put the authority checks in one layer.** The same class of operation is protected at different
-  layers depending on the subsystem, which is the kind of asymmetry that yields a bypass the first
-  time someone adds a caller.
-
-  For filesystem resources the check lives in the session layer:
-  `ResourcePermissionRequestValidator.validateWritePermission` refuses the ACL update, and
-  `AbstractResourceServerResource.updateResourcePermissions` carries no authority check of its own.
-  For groups it is inverted: `GroupUsersRequestValidator` validates only that the group exists and the
-  users are real, and the administrator check sits solely in the HTTP resource
-  (`GroupsResource.updateGroupMembers`, gating on `userAdministersGroup(gid) || <system permission>`).
-
-  So any non-HTTP caller of `GroupServiceSession.updateGroupUsers` changes a membership with no
-  administrator check at all. Nothing does today — the only caller is the endpoint, and the tests —
-  but membership is the widest lever in the sharing model, so a future in-process caller (a migration,
-  an admin tool, another service) would silently skip the boundary
-  `GroupMembershipAuthorizationMatrixTest` pins. Move the group check down into the validator, matching
-  resources, or state deliberately that session-layer callers are trusted.
-
-  This does not have to change any REST contract. The four group-write endpoints already enforce the
-  administrator check at the HTTP layer, so a non-admin already gets a 403 over REST today — the bypass
-  is reachable only by a non-HTTP in-process caller, which has no REST surface. Two ways to resolve it,
-  and the choice is a REST-contract decision:
-
-  - **Defense in depth (recommended):** add the check at the session layer *and keep* the HTTP guards.
-    Zero REST contract change; the session guard is a backstop for in-process callers.
-  - **Single source of truth:** move the check to the session layer and delete the HTTP guards. Cleaner
-    internally, but the session signals refusal differently from the resource's explicit
-    `otherwiseForbidden(...)` with its `groupCanBeModifiedOnlyByGroupAdmin` key — worse for
-    `updateGroupById`/`deleteGroupById`, which return `FolderServerGroup`/`boolean` and would refuse by
-    throwing through the generic mapper. Unless the current status and error key are reproduced at the
-    session layer, the denial's response body (and possibly status) shifts — a minor but real contract
-    change. Either way, no client that works today starts getting refused.
 
 - **Check that revocation reaches the search index.** Listings and search are served from OpenSearch,
   not from the graph, and permission changes reach it asynchronously through
@@ -408,6 +369,21 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
   contradicts the docs. Rather than delete the dead block outright, the comment now records the reason
   it is off and points at the open decision (see "A published artifact can be deleted" in Next). Resolve that item first; whichever way it goes, the block and its now-unreachable error key are
   cleaned up as part of it.
+
+- **Investigate the warnings in the Java builds.** `cedarcli build java` completes with `BUILD
+  SUCCESS` but emits a stream of warnings along the way — unused `dependency:analyze` findings,
+  shade "Discovered module-info.class ... strong encapsulation" notices, and assorted deprecation and
+  reflective-access notices across the modules. None fail the build, so they have accumulated
+  unexamined. Go through them once, decide which are actionable (a real unused or undeclared
+  dependency, a deprecation worth acting on) versus which are benign shade/JDK noise to suppress, and
+  either fix or silence each so the build output is meaningful again. Low urgency, but the longer it
+  waits the more a genuinely new warning hides in the crowd.
+
+- **Point the token-verification client at a truststore in production.** Token-signature verification
+  fetches the realm's signing keys over HTTPS; on the local stack that client trusts the self-signed
+  `.orgx` certificate (`disableTrustManager` in `KeycloakDeploymentProvider`, matching the admin
+  client). A real deployment should instead trust a truststore holding the realm CA. Small, and only
+  matters outside local dev.
 
 ## Out of Scope
 
