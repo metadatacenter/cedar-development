@@ -87,7 +87,7 @@ managed here — `cedarcli` doesn't start them by default either.
 cedar-services.sh start [name...]     # start all, or only the named services
 cedar-services.sh stop  [name...]
 cedar-services.sh restart [name...]
-cedar-services.sh status              # one-shot table: PID / port / health / error-count
+cedar-services.sh status              # one-shot table: PID / port / health / binary / error-count
 cedar-services.sh watch               # auto-refreshing status
 cedar-services.sh logs <name>         # tail -f a service log
 cedar-services.sh health              # exit 0 only if every service is healthy (for scripts)
@@ -96,6 +96,18 @@ cedar-services.sh health              # exit 0 only if every service is healthy 
 It **skips services already listening on their port** (so it won't collide with ones you started in
 tabs) and **reports any service whose jar isn't built**. Health uses the Dropwizard admin
 `/healthcheck` endpoint (200 = healthy, 500 = unhealthy).
+
+Two columns exist so a green table cannot hide a stale one. **BINARY** compares when a process started
+against when its jar was written: `STALE` means the service is serving a jar older than the build, so
+its health says nothing about your latest code. **PID** shows `~pid` (a leading tilde) for a process
+listening on the port that this script does not own — one started in a tab or left over from a previous
+session, with no pidfile. Both were added after a real miss: the group and messaging servers ran a
+two-day-old jar for a full session while `status` reported them healthy, because `stop` only ever
+consulted the pidfile and so skipped them, and `restart` therefore left them up. `stop` now **adopts**
+a tilde process — kills whoever actually holds the port — so a plain `restart` brings even a
+tab-started service onto the current build. When either warning prints, `restart` clears it. Always
+confirm `status` shows every service `current`, not merely `healthy`, before trusting a verification
+gate.
 
 ## Why the app tier is "tab-per-service" by design
 
@@ -311,17 +323,42 @@ from, because they answer very different questions:
 | Matrices | 7 | Authorization, permission levels and artifact lifecycle, as tables |
 | Sharing and ownership | 1 | The `PUT .../permissions` round trip, including ownership transfer |
 | Content negotiation | 2 | YAML and JSON transcode both ways |
-| REST smoke | 1 | The real stack, no browser: the proxy, versioning, sharing, indexing |
+| REST smoke | 1 | The real stack, no browser: 15 suites, ~350 checks |
 | End-to-end smoke | 1 | The real stack, through a browser |
 
 `ops/e2e` holds the two whole-stack tests, and they answer different questions. `npm run smoke:rest`
-drives the REST API directly, in about a second, and reaches what no unit suite can: the artifact write
-path (which proxies, so the per-service suites cannot follow it), publish and create-draft, whether the
-graph and the artifact server agree, sharing as two real users, and search-index propagation. It
-authenticates through Keycloak's password grant using the credentials already in the profile, so there
-are no API keys to keep. `npm run smoke` drives the same stack through a browser and is the only thing
-that covers the editor — but it is bound to AngularJS markup, so it is the more brittle of the two and
-the one that will not survive a frontend replacement. Prefer adding to the REST smoke.
+drives the REST API directly, in about twenty seconds, and reaches what no unit suite can: the artifact
+write path (which proxies, so the per-service suites cannot follow it), publish and create-draft,
+whether the graph and the artifact server agree, and the things a real running stack does that an
+embedded one cannot. It authenticates through Keycloak's password grant using the credentials already
+in the profile, so there are no API keys to keep. Run one suite with `npm run smoke:rest -- <name>`;
+the suites are `folders`, `artifacts`, `versioning`, `groups`, `sharing`, `group-sharing`, `openness`,
+`categories`, `validation`, `search`, `finding`, `authentication`, `pagination` and `negotiation`.
+
+Four of them are where the running stack earns its keep, because each pins a defect an embedded suite
+could not see:
+
+- **`group-sharing` and `openness`** hold apart the two things "public" can mean. Sharing with
+  *everybody* widens a grant to every account and still demands a login; making something *open* lets
+  an anonymous caller read it through the OpenView server, no login at all. The suites assert both, and
+  assert that neither leaks into the other.
+- **`finding`** is the search story, and it is careful because indexing is asynchronous: every negative
+  is asserted only after the matching positive has been observed. It is where the graph-versus-index
+  split shows — a grant reaches every graph-backed view at once but never reaches term search.
+- **`authentication`** is an audit of how credentials are treated, and it is the regression guard for
+  the token-signature fix: it forges tokens (from nothing but a public user id, and by altering one
+  character of a real token's signature) and asserts every one is refused while a genuine token still
+  works. It writes only to throwaway folders on purpose — that discipline dates from when forged writes
+  actually succeeded, and an earlier version aimed a permission change at a home folder and reassigned
+  it for real.
+
+Several suites carry `KNOWN DEFECT pinned:` assertions — they assert the *current, wrong* behaviour, so
+the suite stays green while the defect stands and turns red the day it is fixed, which is the signal to
+delete the pin and assert the right behaviour. Each corresponds to a roadmap item.
+
+`npm run smoke` drives the same stack through a browser and is the only thing that covers the editor —
+but it is bound to AngularJS markup, so it is the more brittle of the two and the one that will not
+survive a frontend replacement. Prefer adding to the REST smoke.
 
 Two reusable helpers live in `cedar-test-support-library` and are the right starting point for new
 work. `RouteSurface` reflects over a server's JAX-RS classes and asserts every route answers a given
@@ -338,8 +375,9 @@ Where the coverage is thin, stated plainly so nobody reads the class count as re
   the largest single coverage win available.
 - **The thin servers have three classes each** — config, boot, routes. That is a real net, and it is
   what caught the media-type 505, but it means "starts and refuses strangers", not "is correct".
-- **Nothing covers** dependency failure (see the degradation item on the roadmap), pagination across
-  the thirty-one endpoints that declare it, the proxy boundary between services, or concurrent edits.
+- **Nothing covers** dependency failure (see the degradation item on the roadmap), the proxy boundary
+  between services, or concurrent edits. Pagination is now covered on a folder's contents and search
+  (`pagination` suite); the other paged listings are not.
 
 One hard constraint when adding to the resource server: **eight test classes that boot a server is the
 ceiling** for that module. Each boots into the shared JVM and creates a Neo4j driver whose Netty

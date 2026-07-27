@@ -75,6 +75,29 @@ logfile()   { case "$1" in frontend) echo "$LOGDIR/cedar-frontend.log";; ui-*) e
 alive()     { local p; p=$(cat "$(pidfile "$1")" 2>/dev/null); [ -n "$p" ] && kill -0 "$p" 2>/dev/null; }
 port_open() { nc -z -G1 127.0.0.1 "$1" >/dev/null 2>&1; }
 
+# Whoever is actually listening, pidfile or not. Two services were once started outside this script;
+# stop skipped them because no pidfile named them, restart therefore left them up, and they went on
+# serving two-day-old jars while status called them healthy. Ownership is the port, not the pidfile.
+port_owner() { lsof -ti "tcp:$1" -sTCP:LISTEN 2>/dev/null | head -1; }
+owner_of()  { local p; p=$(cat "$(pidfile "$1")" 2>/dev/null); if [ -n "$p" ] && kill -0 "$p" 2>/dev/null; then echo "$p"; else port_owner "$(app_port "$1")"; fi; }
+
+jar_of() { echo "$CEDAR_HOME/cedar-$1-server/cedar-$1-server-application/target/cedar-$1-server-application-${CEDAR_VERSION}.jar"; }
+
+# A service can be healthy and still be serving code from before the last build, which makes a green
+# gate meaningless. Compare when the process started against when its jar was written.
+binary_of() {  # echoes current|STALE|- for a service and the pid serving it
+  local name=$1 pid=$2 jar started j_epoch p_epoch
+  case "$name" in frontend|ui-*) echo '-'; return;; esac
+  jar=$(jar_of "$name")
+  [ -n "$pid" ] && [ -f "$jar" ] || { echo '-'; return; }
+  started=$(ps -o lstart= -p "$pid" 2>/dev/null) || { echo '-'; return; }
+  [ -n "$started" ] || { echo '-'; return; }
+  p_epoch=$(date -j -f '%a %b %e %T %Y' "$started" +%s 2>/dev/null) || { echo '-'; return; }
+  j_epoch=$(stat -f %m "$jar" 2>/dev/null) || { echo '-'; return; }
+  [ -n "$p_epoch" ] && [ -n "$j_epoch" ] || { echo '-'; return; }
+  if [ "$j_epoch" -gt "$p_epoch" ]; then echo STALE; else echo current; fi
+}
+
 start_one() {
   local name=$1 app; app=$(app_port "$name"); local log; log=$(logfile "$name")
   if alive "$name"; then echo "  $name: already running (pid $(cat "$(pidfile "$name")"))"; return; fi
@@ -100,7 +123,15 @@ stop_one() {
   local name=$1 p; p=$(cat "$(pidfile "$name")" 2>/dev/null)
   if [ -n "$p" ] && kill -0 "$p" 2>/dev/null; then
     pkill -TERM -P "$p" 2>/dev/null; kill -TERM "$p" 2>/dev/null; echo "  stopped $name (pid $p)"
-  else echo "  $name: not running (per pidfile)"; fi
+  else
+    # No pidfile, but something may still hold the port. Stopping it is the whole point of stop:
+    # leaving it up is how a restart silently keeps serving the previous build.
+    local owner; owner=$(port_owner "$(app_port "$name")")
+    if [ -n "$owner" ]; then
+      pkill -TERM -P "$owner" 2>/dev/null; kill -TERM "$owner" 2>/dev/null
+      echo "  stopped $name (pid $owner, adopted — it had no pidfile, started outside this script)"
+    else echo "  $name: not running"; fi
+  fi
   rm -f "$(pidfile "$name")"
 }
 
@@ -114,21 +145,31 @@ health_of() {  # echoes healthy|UNHEALTHY|starting|down
 }
 
 status() {
-  printf "%-18s %-8s %-6s %-10s %s\n" SERVICE PID PORT HEALTH "ERRORS(log)"
-  printf "%-18s %-8s %-6s %-10s %s\n" "------" "---" "----" "------" "-----------"
-  local up=0 total=0
+  printf "%-18s %-8s %-6s %-10s %-8s %s\n" SERVICE PID PORT HEALTH BINARY "ERRORS(log)"
+  printf "%-18s %-8s %-6s %-10s %-8s %s\n" "------" "---" "----" "------" "------" "-----------"
+  local up=0 total=0 stale=0 unmanaged=0
   while read -r name; do
     total=$((total+1))
-    local p pid_disp port_disp h errs
-    p=$(cat "$(pidfile "$name")" 2>/dev/null); pid_disp="-"; kill -0 "$p" 2>/dev/null && pid_disp="$p"
+    local p own pid_disp port_disp h bin errs
+    p=$(cat "$(pidfile "$name")" 2>/dev/null)
+    if [ -n "$p" ] && kill -0 "$p" 2>/dev/null; then pid_disp="$p"; own="$p"
+    else
+      # A tilde marks a process this script does not own, so it can never again read as a clean "-".
+      own=$(port_owner "$(app_port "$name")")
+      [ -n "$own" ] && { pid_disp="~$own"; unmanaged=$((unmanaged+1)); } || pid_disp="-"
+    fi
     port_open "$(app_port "$name")" && port_disp="up" || port_disp="down"
     h=$(health_of "$name"); [ "$h" = healthy ] && up=$((up+1))
+    bin=$(binary_of "$name" "$own"); [ "$bin" = STALE ] && stale=$((stale+1))
     # Exclude logback's own configuration chatter, which mentions appenders named FILE-ERROR
     errs=$(grep -iE "ERROR|Exception" "$(logfile "$name")" 2>/dev/null | grep -cv "|-INFO in"); errs=${errs:-0}
-    printf "%-18s %-8s %-6s %-10s %s\n" "$name" "$pid_disp" "$port_disp" "$h" "$errs"
+    printf "%-18s %-8s %-6s %-10s %-8s %s\n" "$name" "$pid_disp" "$port_disp" "$h" "$bin" "$errs"
   done < <(names)
   echo "-------------------------------------------------------------"
   echo "healthy: $up / $total   (login at https://cedar.$CEDAR_HOST once frontend + resource/user are healthy)"
+  [ "$stale" -gt 0 ] && echo "WARNING: $stale service(s) marked STALE — running a jar older than the build. Run: $0 restart"
+  [ "$unmanaged" -gt 0 ] && echo "WARNING: $unmanaged service(s) marked ~pid — started outside this script. restart now adopts them."
+  return 0
 }
 
 cmd="${1:-status}"; shift 2>/dev/null

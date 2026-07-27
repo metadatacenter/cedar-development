@@ -13,6 +13,11 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 export const HOST = env.CEDAR_HOST ?? 'metadatacenter.orgx';
 export const RESOURCE = env.CEDAR_RESOURCE_BASE ?? `https://resource.${HOST}`;
 export const USER_SERVER = env.CEDAR_USER_BASE ?? `https://user.${HOST}`;
+export const GROUP_SERVER = env.CEDAR_GROUP_BASE ?? `https://group.${HOST}`;
+// The OpenView *server*, not the OpenView frontend. `openview.${HOST}` is the AngularJS app; the API
+// has no vhost of its own, so it is addressed directly on its port.
+export const OPENVIEW = env.CEDAR_OPENVIEW_BASE
+  ?? `http://${env.CEDAR_OPENVIEW_SERVER_HOST ?? 'localhost'}:${env.CEDAR_OPENVIEW_HTTP_PORT ?? '9013'}`;
 const KEYCLOAK = env.CEDAR_KEYCLOAK_BASE
   ?? `http://${env.CEDAR_KEYCLOAK_HOST ?? '127.0.0.1'}:${env.CEDAR_KEYCLOAK_HTTP_PORT ?? '8080'}`;
 const REALM = env.CEDAR_KEYCLOAK_REALM ?? 'CEDAR';
@@ -126,15 +131,24 @@ export async function actors() {
  * administrator's API key is not, and CEDAR's own scheme is `apiKey <key>`. Detected by shape so a
  * suite can pass either without caring which it has.
  */
-function authHeader(auth) {
+export function authHeader(auth) {
   return auth.split('.').length === 3 ? `Bearer ${auth}` : `apiKey ${auth}`;
 }
 
+/**
+ * One request. `auth` may be null for an anonymous call — which the OpenView server expects and
+ * every other service must refuse.
+ *
+ * opts.base sends it somewhere other than the resource server; opts.headers replaces the
+ * Authorization header outright, which is how the authentication audit sends malformed credentials.
+ */
 export async function call(auth, method, path, body, opts = {}) {
-  const headers = { Authorization: authHeader(auth) };
+  const headers = auth ? { Authorization: authHeader(auth) } : {};
   if (body !== undefined) headers['Content-Type'] = opts.contentType ?? 'application/json';
   if (opts.accept) headers['Accept'] = opts.accept;
-  const res = await fetch(`${RESOURCE}${path}`, {
+  Object.assign(headers, opts.headers ?? {});
+  for (const [k, v] of Object.entries(headers)) if (v === undefined) delete headers[k];
+  const res = await fetch(`${opts.base ?? RESOURCE}${path}`, {
     method,
     headers,
     body: body === undefined ? undefined
@@ -144,6 +158,40 @@ export async function call(auth, method, path, body, opts = {}) {
   let json;
   try { json = text ? JSON.parse(text) : undefined; } catch { /* not JSON — keep the text */ }
   return { status: res.status, body: json, text, headers: res.headers };
+}
+
+/** A request against the group server, which owns groups and their membership. */
+export function group(auth, method, path, body, opts = {}) {
+  return call(auth, method, path, body, { ...opts, base: GROUP_SERVER });
+}
+
+/**
+ * The group every user belongs to, which is how "share with everybody" is expressed: a grant to this
+ * group, denormalized onto the node as its everybody permission. Found by its special marker rather
+ * than by name, since the name is configurable.
+ */
+export async function everybodyGroup(auth) {
+  const res = await group(auth, 'GET', '/groups');
+  if (res.status !== 200) throw new Error(`could not list groups: ${res.status} ${res.text}`);
+  const found = (res.body?.groups ?? []).find(g => g.specialGroup === 'EVERYBODY');
+  if (!found) throw new Error('no group carries the EVERYBODY marker');
+  return found;
+}
+
+/**
+ * Waits for something the stack does asynchronously. Search indexing is queued through the worker,
+ * so a permission change is not visible the instant the API returns; polling is the only sound way
+ * to assert on it. Returns the last value whether or not it ever satisfied the predicate, so the
+ * caller reports the real outcome rather than a timeout.
+ */
+export async function poll(probe, { tries = 12, delayMs = 1500 } = {}) {
+  let last;
+  for (let attempt = 1; attempt <= tries; attempt++) {
+    last = await probe(attempt);
+    if (last?.done) return { ...last, attempts: attempt };
+    if (attempt < tries) await new Promise(r => setTimeout(r, delayMs));
+  }
+  return { ...last, attempts: tries, timedOut: true };
 }
 
 // ── fixtures ────────────────────────────────────────────────────────────────
@@ -189,10 +237,11 @@ const registry = [];
 /**
  * Registers something for deletion. Newest first, so teardown unwinds in dependency order. An
  * optional credential covers the things the first user cannot delete — a category belongs to the
- * administrator who created it.
+ * administrator who created it — and an optional base covers what lives on another service, such as
+ * a group.
  */
-export function cleanup(kind, path, name, auth) {
-  registry.unshift({ kind, path, name, auth });
+export function cleanup(kind, path, name, auth, base) {
+  registry.unshift({ kind, path, name, auth, base });
 }
 
 /**
@@ -203,12 +252,13 @@ export async function teardown(auth) {
   let removed = 0;
   for (const item of registry) {
     const as = item.auth ?? auth;
-    const del = await call(as, 'DELETE', item.path);
+    const where = { base: item.base };
+    const del = await call(as, 'DELETE', item.path, undefined, where);
     if (del.status !== 204 && del.status !== 200) {
       bad(`teardown: ${item.kind} "${item.name}" not deleted`, `${del.status}: ${(del.text ?? '').slice(0, 200)}`);
       continue;
     }
-    const after = await call(as, 'GET', item.path);
+    const after = await call(as, 'GET', item.path, undefined, where);
     if (after.status < 400) {
       bad(`teardown: ${item.kind} "${item.name}" still readable after deletion`, `GET returned ${after.status}`);
       continue;
