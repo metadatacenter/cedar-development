@@ -86,6 +86,18 @@ export async function run({ user1, folderId }) {
   check(junk.status === 400, 'a body that is not an artifact is refused with 400',
       `expected 400, got ${junk.status} — a 500 here would mean an unhandled path`);
 
+  // A versioned artifact created without pav:version is a client mistake — a 400, not a 500. Fields
+  // are the case that regressed: the artifact server accepts a field with no version where it rejects
+  // a template or element, so the field alone reached the resource server's own NonEmpty check, whose
+  // 400 was then swallowed by a broad catch and reported as a 500. A field body works here precisely
+  // because it is otherwise well-formed enough to be accepted that far.
+  const noVersion = artifactBody('field', `no-version ${RUN}`);
+  delete noVersion['pav:version'];
+  const nv = await call(auth, 'POST', `/template-fields?folder_id=${enc(folderId)}`, noVersion);
+  if (nv.status === 201) cleanup('field', `/template-fields/${enc(nv.body['@id'])}`, `no-version ${RUN}`);
+  check(nv.status === 400, 'a versioned artifact with no pav:version is refused with 400',
+      `expected 400, got ${nv.status} — a 500 here is the swallowed-status regression`);
+
   // An unknown identifier reads as absent rather than as an error.
   checkStatus(await call(auth, 'GET',
       `/templates/${enc('https://repo.metadatacenter.orgx/templates/00000000-0000-0000-0000-000000000000')}`),
