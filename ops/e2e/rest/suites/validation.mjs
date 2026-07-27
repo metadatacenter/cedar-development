@@ -97,21 +97,21 @@ export async function run({ user1, folderId }) {
 
   suite('validate: the resource_type parameter itself');
 
-  // Both answer 500 while classifying themselves correctly as invalidArgument in the body. The cause
-  // is one line: CedarErrorPack defaults its status to INTERNAL_SERVER_ERROR and errorType() does not
-  // derive it, so any hand-built pack that sets a type but no status answers 500 — even though
-  // CedarErrorType.INVALID_ARGUMENT already declares BAD_REQUEST. On the roadmap. When it is fixed
-  // these become plain 400 checks.
+  // These used to answer 500 while the body correctly described itself as invalidArgument. The cause
+  // was one line: CedarErrorPack defaulted its status to INTERNAL_SERVER_ERROR and errorType() did not
+  // derive it, though CedarErrorType.INVALID_ARGUMENT already declares BAD_REQUEST. errorType() now
+  // adopts the type's status unless one was chosen explicitly, so the status and the reported type
+  // agree. Asserting both together is the point: either alone would not show they had diverged.
   const unknownType = await call(auth, 'POST', '/command/validate?resource_type=banana',
       load('minimal-template.json'));
-  check(unknownType.status === 500 && /invalidArgument/.test(unknownType.text ?? ''),
-      'KNOWN DEFECT pinned: an unknown resource_type answers 500 while typed invalidArgument',
-      `got ${unknownType.status}: ${(unknownType.text ?? '').slice(0, 200)}`);
+  if (checkStatus(unknownType, 400, 'an unknown resource_type is refused with 400')) {
+    check(/invalidArgument/.test(unknownType.text ?? ''),
+        'and the body agrees, reporting invalidArgument',
+        `body was ${(unknownType.text ?? '').slice(0, 200)}`);
+  }
 
-  const missingType = await call(auth, 'POST', '/command/validate', load('minimal-template.json'));
-  check(missingType.status === 500 && /invalidArgument/.test(missingType.text ?? ''),
-      'KNOWN DEFECT pinned: a missing resource_type answers 500 while typed invalidArgument',
-      `got ${missingType.status}: ${(missingType.text ?? '').slice(0, 200)}`);
+  checkStatus(await call(auth, 'POST', '/command/validate', load('minimal-template.json')),
+      400, 'a missing resource_type is refused with 400');
 
   suite('validate: what a caller can and cannot validate before creating');
 
@@ -176,11 +176,13 @@ export async function run({ user1, folderId }) {
         'convert with no format is refused with 4xx', `got ${noFormat.status}`);
   }
 
-  // The same single cause as the resource_type cases above.
+  // Fixed by the same one-line change as the resource_type cases above.
   const badFormat = await call(auth, 'POST', '/command/convert?format=banana', instance);
-  check(badFormat.status === 500 && /invalidArgument/.test(badFormat.text ?? ''),
-      'KNOWN DEFECT pinned: an unknown format answers 500 while typed invalidArgument',
-      `got ${badFormat.status}: ${(badFormat.text ?? '').slice(0, 200)}`);
+  if (checkStatus(badFormat, 400, 'an unknown format is refused with 400')) {
+    check(/invalidArgument/.test(badFormat.text ?? ''),
+        'and the body agrees, reporting invalidArgument',
+        `body was ${(badFormat.text ?? '').slice(0, 200)}`);
+  }
 
   return {};
 }

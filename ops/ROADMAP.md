@@ -213,34 +213,32 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
   the count without failing on it, since failing a gate on a pre-existing stale index would only make
   the gate unusable.
 
-- **Derive the response status from the error type.** One line explains a family of 500s that look
-  like separate defects. `CedarErrorPack` initialises `status` to `INTERNAL_SERVER_ERROR`, and its
-  `errorType(...)` setter does not derive the status from the type — while `CedarErrorType` already
-  declares the right mapping (`INVALID_ARGUMENT` → `BAD_REQUEST`, `NOT_FOUND` → `NOT_FOUND`,
-  `VALIDATION_ERROR` → `BAD_REQUEST`). `CedarCedarExceptionMapper` faithfully returns
-  `errorPack.getStatus()`, so every hand-built pack that sets a type but no status answers 500.
+- **Classify the errors that still answer 500.** Two client mistakes remain reported as server faults,
+  and each has its own cause — neither is the error-pack default, which is now fixed (see below).
 
-  Only `BackendCallError` does the derivation, with `errorPack.status(errorType.getStatus())`. Every
-  other construction site would have to remember, and mostly does not. The observable result is a
-  client error reported as a server fault, with the body correctly self-describing as
-  `"errorType":"invalidArgument"` next to a 500 — so the classification is right and only the status
-  is wrong.
+  `POST /template-fields` with a body missing `pav:version` answers 500 with `"errorType": null` and
+  the message "You need to provide a non-null value for the parameter:version from InPlace". The pack
+  carries no error type at all, so nothing can derive a status from it: the throwing code needs to
+  classify the failure as invalid input. The other artifact kinds answer 400 for the same omission.
 
-  Confirmed on these routes, all pinned in `ops/e2e/rest/suites/`:
+  `GET /search?limit=100000` answers 500. `AbstractSearchResource` already calls
+  `pagedSearchQuery.validate()`, so a cap belongs there — but which behaviour is a decision worth
+  making once and applying to all thirty-one paged endpoints: refuse an excessive `limit` with 400, or
+  clamp it to a maximum and serve fewer rows than asked. Refusing is more honest; clamping is friendlier.
+  An unbounded page size is also the denial-of-service vector the pagination item mentions.
 
-  - `POST /command/validate` with an unknown or missing `resource_type`
-  - `POST /command/convert` with an unknown `format`
-  - `POST /command/move-resource-to-folder`, `/rename-resource` and `/copy-artifact-to-folder` with a
-    body missing the identifier
-  - `POST /template-fields` with a body missing `pav:version`, where the other artifact kinds answer 400
+  Both are pinned in `ops/e2e/rest/suites/` as current behaviour and will fail when fixed.
 
-  Defaulting the status from the type in `errorType(...)` — or resolving it at read time in
-  `getStatus()` when it was never set explicitly — fixes all of them at once. Worth checking the
-  `AUTHORIZATION` case at the same time, since the 401-versus-403 item above is the same shape of
-  problem one level up.
-
-  Separately, `GET /search?limit=100000` answers 500, and that one is not the error pack: an unbounded
-  page size wants clamping, which the pagination item covers.
+  **Fixed already, recorded for the reader:** `CedarErrorPack` initialised `status` to
+  `INTERNAL_SERVER_ERROR` and its `errorType(...)` setter did not derive it, though `CedarErrorType`
+  already declared the right mapping. `errorType(...)` now adopts the type's status unless one was
+  chosen explicitly — the flag matters, because `CedarAssertionResult` offers `forbidden()` and
+  `errorType()` as separate builder steps and deriving unconditionally would have turned a deliberate
+  403 into a 401. `CedarErrorType.NONE` maps to 200 and is the initial value, so it is deliberately not
+  derived from. That fixed the unknown and missing `resource_type` cases and the unknown convert
+  `format`. Separately, `move-resource-to-folder`, `copy-artifact-to-folder` and `rename-resource` read
+  their required fields unguarded off the `JsonNode`; they now use `must(...).be(NonEmpty)` like the
+  sibling `CommandCategoriesResource`, so a missing field is a 400.
 
 - **Decide whether a home folder may be renamed.** It can be, over REST: `PUT /folders/{home}` with a
   new `schema:name` succeeds and the folder stays flagged `isUserHome`. Deleting it is correctly
