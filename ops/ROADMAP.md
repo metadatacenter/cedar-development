@@ -196,11 +196,17 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
   uncovered: the other paged listings beyond contents and search (categories, and the several
   `*-extract` variants).
 
-- **Add cross-service contract tests.** The resource server proxies to the artifact, terminology and
-  value-recommender servers. Per-service suites stop at the hop and the end-to-end smoke covers only
-  the happy path, so a request or response drift between two services is invisible until runtime.
-  Both inter-layer bugs found recently, the media-type status and the empty ontology picker, were
-  found by chance rather than by a test.
+- **Add cross-service contract tests.** Started. The resource ↔ artifact hop — the one every core
+  operation crosses — is now covered by `ops/e2e/rest/suites/contract.mjs`, which reads both sides
+  directly and pins where they must agree (a create reaches both stores faithfully; a delete clears
+  both; a downstream rejection crosses as itself, not a 500) and where they diverge (an artifact
+  written straight to the artifact server has no graph node, so it is invisible to every resource-
+  server read). The resource server proxies nothing else live: terminology is called by the frontend
+  directly, and the value recommender is out of scope (retiring). So what remains is not more of the
+  resource server's hops but the *other* services' boundaries — chiefly the frontend ↔ terminology
+  path, where the empty-ontology-picker bug lived, which no REST-level suite reaches today because it
+  is a browser concern. Per-service suites still stop at their own hop, and the end-to-end smoke covers
+  only the happy path.
 
   Folded in here (was its own item): covering the artifact **content** routes in the JUnit
   authorization matrix. `GET/PUT/DELETE /templates/{id}` and the other three kinds proxy to the
@@ -313,6 +319,13 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
 ## Out of Scope
 
 These are deliberate decisions, recorded so they are not rediscovered as gaps.
+
+- **Deeper test coverage for the value-recommender, impex and submission servers.** Not a priority.
+  The value recommender is slated for retirement, so investment in it is wasted; impex and submission
+  are peripheral to the core workspace/artifact flows the suites concentrate on. Boot-smoke and route-
+  surface coverage stay, but they are not targets for the REST or contract suites. Cross-service
+  contract testing is therefore scoped to the resource ↔ artifact hop (see `ops/e2e/rest/suites/
+  contract.mjs`), which is the one every core operation crosses.
 
 - **A load or performance suite.** The end-to-end smoke plus real usage covers the shape, and the
   yield is low next to the items above.
