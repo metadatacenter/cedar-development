@@ -32,8 +32,9 @@ import * as versioning from './rest/suites/versioning.mjs';
 import * as sharing from './rest/suites/sharing.mjs';
 import * as search from './rest/suites/search.mjs';
 import * as negotiation from './rest/suites/negotiation.mjs';
+import * as categories from './rest/suites/categories.mjs';
 
-const ALL = [folders, artifacts, versioning, sharing, search, negotiation];
+const ALL = [folders, artifacts, versioning, sharing, categories, search, negotiation];
 
 const requested = argv.slice(2).filter(a => !a.startsWith('-'));
 const selected = requested.length
@@ -50,7 +51,7 @@ const started = Date.now();
 let auth1;
 
 try {
-  const { user1, user2 } = await actors();
+  const { user1, user2, admin } = await actors();
   auth1 = user1.auth;
   const homeFolderId = user1.profile.homeFolderId;
   if (!homeFolderId) throw new Error('the first user has no homeFolderId');
@@ -68,7 +69,7 @@ try {
   // have, since a non-empty folder cannot be deleted.
   cleanup('folder', `/folders/${enc(folderId)}`, workName);
 
-  const ctx = { user1, user2, homeFolderId, folderId };
+  const ctx = { user1, user2, admin, homeFolderId, folderId };
   for (const s of selected) {
     try {
       await s.run(ctx);
