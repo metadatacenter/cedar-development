@@ -120,16 +120,13 @@ export async function run({ user1, user2, folderId }) {
         'an anonymous caller cannot make it open');
   }
 
-  // The four open commands read "@id" from the body without asserting it is there, so a request that
-  // omits it becomes a lookup for the artifact whose identifier is null, and the caller is told the
-  // artifact does not exist. A malformed request is a bad request; 404 sends the client looking for
-  // the wrong problem. The filesystem commands were given proper guards; these were missed. Pinned
-  // here so the pins flip when they are fixed. On the roadmap.
+  // The four open commands guard the identifier: a body with no @id is a malformed request and is
+  // refused as one, rather than becoming a lookup for the null id that answered 404.
   for (const command of ['make-artifact-open', 'make-artifact-not-open', 'make-folder-open', 'make-folder-not-open']) {
     const res = await call(auth, 'POST', `/command/${command}`, { note: 'no @id here' });
-    check(res.status === 404,
-        `KNOWN DEFECT pinned: ${command} answers 404 rather than 400 when the body has no @id`,
-        `expected the current behaviour of 404, got ${res.status} — a 400 means it is fixed: ${(res.text ?? '').slice(0, 160)}`);
+    check(res.status === 400,
+        `${command} refuses a body with no @id as a bad request`,
+        `expected 400, got ${res.status}: ${(res.text ?? '').slice(0, 160)}`);
   }
 
   checkStatus(await anonymously(`/templates/${enc('https://repo.metadatacenter.orgx/templates/does-not-exist')}`),

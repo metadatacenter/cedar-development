@@ -60,14 +60,12 @@ export async function run({ user1, folderId }) {
         `it returned ${[...kinds].join(', ')}`);
   }
 
-  // An excessive limit answers 500. It should be refused with 400 or clamped: an unbounded page size
-  // is a denial-of-service vector, and a client asking for too much should be told so rather than
-  // shown a server fault. Pinned as the current behaviour; on the roadmap. When it is fixed this
-  // check fails and should expect 400, or 200 with a clamped row count.
+  // An excessive limit is refused with 400 rather than answering an unbounded page size (a
+  // denial-of-service vector) or a server fault. The paging validator caps at the configured maximum.
   const huge = await call(auth, 'GET', `/search?q=${encodeURIComponent(tag)}&limit=100000`);
-  check(huge.status === 500,
-      'KNOWN DEFECT pinned: an excessive limit answers 500 rather than being refused or clamped',
-      `expected the current behaviour of 500, got ${huge.status} — if 400 or a clamped 200, it is fixed`);
+  check(huge.status === 400,
+      'an excessive limit is refused with 400',
+      `expected 400, got ${huge.status}: ${(huge.text ?? '').slice(0, 120)}`);
 
   return { tag };
 }

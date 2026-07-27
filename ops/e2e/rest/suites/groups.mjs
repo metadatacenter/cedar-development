@@ -107,11 +107,20 @@ export async function run({ user1, user2 }) {
   }
 
   // Reading a group is open to any logged-in user by design: you cannot choose a group to share with
-  // unless you can see that it exists. Only writes are supposed to be restricted to administrators.
+  // unless you can see that it exists. Only writes are restricted to administrators.
   checkStatus(await group(user2.auth, 'GET', at), 200, 'a member can read the group');
 
+  // A member is not an administrator, so a member cannot change the group. Each of these would be a
+  // privilege escalation if it succeeded.
+  checkStatus(await group(user2.auth, 'PUT', at,
+      { 'schema:name': `${renamed} by a member`, 'schema:description': 'attempt' }), 403,
+      'a member cannot rename the group');
+  checkStatus(await group(user2.auth, 'PUT', `${at}/users`, members([u1, true, true], [u2, true, true])), 403,
+      'and cannot make themselves an administrator');
+  checkStatus(await group(user2.auth, 'DELETE', at), 403, 'and cannot delete it');
+
   // Promotion, then the same rename by the promoted user, which is what proves the group is writable
-  // by an administrator at all — without it the refusals below would pass on an unwritable group.
+  // by an administrator at all — without it the refusals above would pass on an unwritable group.
   const promote = await group(user1.auth, 'PUT', `${at}/users`, members([u1, true, true], [u2, true, true]));
   if (checkStatus(promote, 200, 'the administrator promotes the second user')) {
     checkStatus(await group(user2.auth, 'PUT', at,
@@ -125,44 +134,34 @@ export async function run({ user1, user2 }) {
         `${(shrink.body?.users ?? []).length} are left`);
   }
 
-  suite('groups: who may write a group they do not administer');
+  suite('groups: an outsider cannot write a group they do not administer');
 
   // A group nobody but its creator has anything to do with, so what the second user manages to do to
-  // it is unambiguous. It is expected not to survive, so it is not registered for teardown.
+  // it is unambiguous. The escalation this pins used to succeed: every user was given the
+  // groupAdministrator role, which carried UPDATE_NOT_ADMINISTERED_GROUP — the override that skips the
+  // "only administrators may change this group" check — so anyone could rename, re-staff or delete
+  // anyone's group. The override now lives in a separate privileged role held only by the built-in
+  // admin, so an ordinary outsider is refused.
   const targetName = `REST Group Outsider Target ${RUN}`;
   const target = await group(user1.auth, 'POST', '/groups',
       { 'schema:name': targetName, 'schema:description': 'The second user is not a member of this group' });
   if (checkStatus(target, 201, 'a group is created that the second user has no part in')) {
     const targetAt = `/groups/${enc(target.body['@id'])}`;
+    cleanup('group', targetAt, targetName, user1.auth, GROUP_SERVER);
     const roster = await group(user1.auth, 'GET', `${targetAt}/users`);
     check(!(roster.body?.users ?? []).some(u => u.user?.['@id'] === u2),
         'the second user is confirmed absent from it',
         `the roster was ${JSON.stringify((roster.body?.users ?? []).map(u => u.user?.email))}`);
 
-    // Every ordinary CEDAR user receives the groupAdministrator role, and that role carries
-    // UPDATE_NOT_ADMINISTERED_GROUP — the override that skips the "only administrators may change
-    // this group" check. So the check never applies to anyone. These three assertions pin what the
-    // server does today; each is expected to flip to 403 once the override is moved into a
-    // privileged role, as the category permissions already are. On the roadmap.
-    const hijackRename = await group(user2.auth, 'PUT', targetAt,
-        { 'schema:name': `${targetName} hijacked`, 'schema:description': 'renamed by an outsider' });
-    check(hijackRename.status === 200,
-        'KNOWN DEFECT pinned: an outsider can rename a group they do not administer',
-        `expected the current behaviour of 200, got ${hijackRename.status} — a 403 means it is fixed`);
-
-    const hijackJoin = await group(user2.auth, 'PUT', `${targetAt}/users`, members([u2, true, true]));
-    check(hijackJoin.status === 200,
-        'KNOWN DEFECT pinned: an outsider can make themselves administrator of it, gaining everything shared with it',
-        `expected the current behaviour of 200, got ${hijackJoin.status} — a 403 means it is fixed`);
-
-    const hijackDelete = await group(user2.auth, 'DELETE', targetAt);
-    check(hijackDelete.status === 204,
-        'KNOWN DEFECT pinned: an outsider can delete it, revoking everyone else\'s access with it',
-        `expected the current behaviour of 204, got ${hijackDelete.status} — a 403 means it is fixed`);
-
-    // Whoever won, the group must not be left behind. If the delete was refused because the defect is
-    // fixed, its creator removes it instead.
-    if (hijackDelete.status !== 204) cleanup('group', targetAt, targetName, user1.auth, GROUP_SERVER);
+    checkStatus(await group(user2.auth, 'PUT', targetAt,
+        { 'schema:name': `${targetName} hijacked`, 'schema:description': 'renamed by an outsider' }), 403,
+        'an outsider cannot rename a group they do not administer');
+    checkStatus(await group(user2.auth, 'PUT', `${targetAt}/users`, members([u2, true, true])), 403,
+        'and cannot make themselves an administrator of it');
+    checkStatus(await group(user2.auth, 'DELETE', targetAt), 403,
+        'and cannot delete it');
+    checkStatus(await group(user1.auth, 'GET', targetAt), 200,
+        'and it is untouched afterwards');
   }
 
   return { groupId: id, groupName: renamed, everybodyId: everybody['@id'] };
