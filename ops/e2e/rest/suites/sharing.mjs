@@ -79,5 +79,24 @@ export async function run({ user1, user2, homeFolderId }) {
     }), 400, 'listing the owner as a grantee is refused');
   }
 
+  suite('sharing: the user directory a share dialog picks from');
+
+  // GET /users is what the frontend reads to offer people to share with. It is open to any logged-in
+  // user by design — you cannot grant to someone you cannot name — and refused outright to an
+  // anonymous caller. Assert both, and that the list actually contains the two people the grants above
+  // were made between, each usable as a grant target (it carries the @id those requests key on).
+  const listed = await call(user1.auth, 'GET', '/users');
+  if (checkStatus(listed, 200, 'a logged-in user can list the user directory')) {
+    const ids = new Set((listed.body?.users ?? []).map(u => u['@id']));
+    check(ids.has(user1.profile['@id']) && ids.has(user2.profile['@id']),
+        'the directory holds both test users, keyed by the @id a grant targets',
+        `it held ${ids.size} user(s), not including both test users`);
+    const sample = (listed.body?.users ?? []).find(u => u['@id'] === user2.profile['@id']);
+    check(sample?.email !== undefined || sample?.['schema:name'] !== undefined,
+        'and each entry carries something to show a person by (email or name)',
+        `the entry was ${JSON.stringify(sample)}`);
+  }
+  checkStatus(await call(null, 'GET', '/users'), 401, 'an anonymous caller cannot list users');
+
   return results;
 }
