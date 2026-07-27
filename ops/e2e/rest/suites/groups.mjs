@@ -16,6 +16,11 @@ export async function run({ user1, user2 }) {
   const u1 = user1.profile['@id'];
   const u2 = user2.profile['@id'];
 
+  // PATCH /groups/{id} is a JSON merge patch — a partial update carried with its own media type. It is
+  // a distinct write path from PUT with the same administrator gate, so it gets the same checks.
+  const patch = (auth, path, body) =>
+      group(auth, 'PATCH', path, body, { contentType: 'application/merge-patch+json' });
+
   suite('groups: lifecycle');
 
   const groupName = `REST Group ${RUN}`;
@@ -51,6 +56,19 @@ export async function run({ user1, user2 }) {
     const after = await group(user1.auth, 'GET', at);
     check(after.body?.['schema:name'] === renamed, 'and the new name sticks',
         `it read back as ${after.body?.['schema:name']}`);
+  }
+
+  // A JSON merge patch by an administrator — touching only the description — must work (the patch path
+  // carries its own admin gate, added alongside PUT's) and must leave the name untouched, which is the
+  // point of a partial update. The name is deliberately not patched here: later cases depend on it.
+  const patchedDesc = `Patched by the REST suites ${RUN}`;
+  const patched = await patch(user1.auth, at, { 'schema:description': patchedDesc });
+  if (checkStatus(patched, 200, 'the administrator can update it by merge-patch')) {
+    const after = await group(user1.auth, 'GET', at);
+    check(after.body?.['schema:description'] === patchedDesc, 'and the patched description sticks',
+        `description read back as ${after.body?.['schema:description']}`);
+    check(after.body?.['schema:name'] === renamed, 'while the untouched name is left as it was',
+        `name read back as ${after.body?.['schema:name']}`);
   }
 
   suite('groups: the requests the validator must refuse');
@@ -115,6 +133,8 @@ export async function run({ user1, user2 }) {
   checkStatus(await group(user2.auth, 'PUT', at,
       { 'schema:name': `${renamed} by a member`, 'schema:description': 'attempt' }), 403,
       'a member cannot rename the group');
+  checkStatus(await patch(user2.auth, at, { 'schema:name': `${renamed} by a member via patch` }), 403,
+      'and cannot rename it by merge-patch either');
   checkStatus(await group(user2.auth, 'PUT', `${at}/users`, members([u1, true, true], [u2, true, true])), 403,
       'and cannot make themselves an administrator');
   checkStatus(await group(user2.auth, 'DELETE', at), 403, 'and cannot delete it');
@@ -156,6 +176,8 @@ export async function run({ user1, user2 }) {
     checkStatus(await group(user2.auth, 'PUT', targetAt,
         { 'schema:name': `${targetName} hijacked`, 'schema:description': 'renamed by an outsider' }), 403,
         'an outsider cannot rename a group they do not administer');
+    checkStatus(await patch(user2.auth, targetAt, { 'schema:name': `${targetName} hijacked via patch` }), 403,
+        'and cannot rename it by merge-patch either');
     checkStatus(await group(user2.auth, 'PUT', `${targetAt}/users`, members([u2, true, true])), 403,
         'and cannot make themselves an administrator of it');
     checkStatus(await group(user2.auth, 'DELETE', targetAt), 403,
