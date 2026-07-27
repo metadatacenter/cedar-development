@@ -61,5 +61,58 @@ export async function run({ user1, folderId }) {
         `expected 4xx, got ${again.status}: ${(again.text ?? '').slice(0, 120)}`);
   }
 
+  suite('versioning: check-update-template');
+
+  // check-update reports the changes between a stored template and a supplied definition, and how many
+  // instances a destructive change would affect. With no instances there is nothing to migrate, so it
+  // can always be updated; with an instance, the unchanged definition yields no changes.
+  const cuName = `Check Update ${RUN}`;
+  const cu = await call(auth, 'POST', `/templates?folder_id=${enc(folderId)}`, artifactBody('template', cuName));
+  if (checkStatus(cu, 201, 'a template is created to check for update')) {
+    const cuId = cu.body['@id'];
+    cleanup('template', `/templates/${enc(cuId)}`, cuName);
+    const body = (await call(auth, 'GET', `/templates/${enc(cuId)}`)).body;
+
+    const zero = await call(auth, 'POST', `/command/check-update-template/${enc(cuId)}`, body);
+    if (checkStatus(zero, 200, 'check-update answers for a template with no instances')) {
+      check(zero.body?.canBeUpdated === true, 'a template with no instances can always be updated',
+          `canBeUpdated was ${zero.body?.canBeUpdated}`);
+    }
+
+    const instName = `Check Update Instance ${RUN}`;
+    const inst = await call(auth, 'POST', `/template-instances?folder_id=${enc(folderId)}`,
+        artifactBody('instance', instName, { 'schema:isBasedOn': cuId }));
+    if (checkStatus(inst, 201, 'an instance is created on it')) {
+      cleanup('instance', `/template-instances/${enc(inst.body['@id'])}`, instName);
+      const same = await call(auth, 'POST', `/command/check-update-template/${enc(cuId)}`, body);
+      if (checkStatus(same, 200, 'check-update answers with an instance present')) {
+        check(same.body?.numberOfInstances === 1 && same.body?.destructiveChanges === 0
+            && same.body?.nonDestructiveChanges === 0 && same.body?.canBeUpdated === true,
+            'the unchanged definition reports one instance and no changes',
+            `report was ${JSON.stringify(same.body).slice(0, 200)}`);
+      }
+    }
+  }
+
+  suite('versioning: publish-create-draft-template');
+
+  // Publish a template and, in one call, create a fresh draft from it with the supplied definition.
+  const pcdName = `Publish-Create-Draft ${RUN}`;
+  const pcd = await call(auth, 'POST', `/templates?folder_id=${enc(folderId)}`, artifactBody('template', pcdName));
+  if (checkStatus(pcd, 201, 'a template is created to publish-and-draft')) {
+    const pcdId = pcd.body['@id'];
+    cleanup('template', `/templates/${enc(pcdId)}`, pcdName);  // the source, which becomes published
+    const body = (await call(auth, 'GET', `/templates/${enc(pcdId)}`)).body;
+    const res = await call(auth, 'POST', `/command/publish-create-draft-template/${enc(pcdId)}`, body);
+    if (checkStatus(res, [200, 201], 'publish-create-draft-template returns')) {
+      const draftId = res.body?.['@id'];
+      if (draftId && draftId !== pcdId) cleanup('template', `/templates/${enc(draftId)}`, `${pcdName} draft`);
+      check((await call(auth, 'GET', `/templates/${enc(pcdId)}`)).body?.['bibo:status'] === 'bibo:published',
+          'the source template is now published', 'the source was not published');
+      check(res.body?.['bibo:status'] === 'bibo:draft', 'and the returned artifact is a new draft',
+          `the returned status was ${res.body?.['bibo:status']}`);
+    }
+  }
+
   return {};
 }
