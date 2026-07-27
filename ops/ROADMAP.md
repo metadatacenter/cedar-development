@@ -173,6 +173,46 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
   Until then, new REST-level tests should merge into an existing class, as sharing and ownership
   transfer share one.
 
+- **Stop a published artifact being re-published.** `POST /command/publish-artifact` succeeds on an
+  artifact that is already published, bumping it to the new version and overwriting content the model
+  treats as immutable and citable. Reproducible on demand and not a timing window: it behaves the same
+  immediately after the first publish and six seconds later.
+
+  The rule exists and is tested — `resourceCanBePublished` refuses a non-draft with
+  `PUBLISH_ONLY_DRAFT`, which `ArtifactLifecycleMatrixTest` pins — but it is unreachable from the REST
+  layer, because the status check sits inside a type test:
+
+  ```java
+  if (resource instanceof FilesystemResourceWithCurrentUserPermissionsAndPublicationStatus res) {
+    if (res.getPublicationStatus() != BiboStatus.DRAFT) return negative(PUBLISH_ONLY_DRAFT);
+  }
+  ```
+
+  The endpoint passes a `FolderServerSchemaArtifactCurrentUserReport`, which implements
+  `ResourceWithVersionData`, `ResourceWithPreviousVersionData` and `ResourceWithOpenFlag` — not the
+  publication-status interface. So the `instanceof` never matches, the check is skipped silently, the
+  method falls through to the superseded test, a freshly published artifact has no successor, and
+  `canPublish` comes back true. The unit test passes because it constructs a type that does implement
+  the interface; production constructs one that does not.
+
+  Decide first whether re-publishing should be allowed at all — it may be wanted, in which case the
+  graph predicate and the lifecycle test are what should change. If it should not be, the fix is to
+  make the check unconditional rather than dependent on the caller's choice of type, since a guard
+  that silently does not run is worse than no guard. Pinned in `ops/e2e/rest-smoke.mjs`, which will
+  fail when this changes.
+
+- **Remove deleted resources from the search index.** Deletion never reaches the index. After a run of
+  `ops/e2e/rest-smoke.mjs`, `GET /search` returned 28 hits of which all 28 answered 404 on a direct
+  read, with entries persisting well beyond ten minutes and accumulating across runs. A user who
+  deletes a folder or template keeps finding it in search.
+
+  This is the concrete form of the question above about revocation reaching the index, and the answer
+  is worse than lag: nothing is removed at all. The dashboard listing does clear, so the defect is in
+  the search projection specifically, not in the graph. It is also what the UI smoke's delete-retry
+  loop was quietly absorbing, and why that loop was long misread as index lag. `rest-smoke.mjs` reports
+  the count without failing on it, since failing a gate on a pre-existing stale index would only make
+  the gate unusable.
+
 - **Add degradation tests.** Nothing asserts how a service behaves when a dependency it needs is
   unavailable. The cost of that gap is known: reading any folder whose creator could not be resolved
   returned 500 for as long as the defect existed, because `UserSummaryCache` let Guava's
