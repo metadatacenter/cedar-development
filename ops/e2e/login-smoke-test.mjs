@@ -54,6 +54,20 @@ async function openRowMenu(page, title) {
   await page.waitForTimeout(800); // let the Angular dropdown bind its handlers
 }
 
+// Click the delete confirmation, once it can actually do something.
+//
+// The dialog binds its click handler as it animates in. Playwright clicks as soon
+// as the button is visible, stable and enabled, none of which implies a handler is
+// attached yet, so the click can be swallowed and the delete never issued — the
+// same race openRowMenu settles for the dropdown above, and the cause of the
+// "sent no DELETE request" retries.
+async function confirmDelete(page) {
+  const yes = page.getByRole('button', { name: 'Yes, delete it!' });
+  await yes.waitFor({ state: 'visible', timeout: 10_000 });
+  await page.waitForTimeout(600);
+  await yes.click({ timeout: 10_000 });
+}
+
 // Navigate to a listing (the dashboard root, or a folder when folderId given)
 // and wait until it is interactive.
 async function gotoListing(page, folderId) {
@@ -63,35 +77,65 @@ async function gotoListing(page, folderId) {
   await page.waitForTimeout(500);
 }
 
-// Delete a row by name, retrying the whole gesture: the row menu is an Angular
-// dropdown that binds its handlers asynchronously, and a click that lands too
-// early fires the anchor's href instead of the action — silently, with no
-// request ever sent.
+// Delete a row by name, retrying the whole gesture.
+//
+// The gesture can no-op in silence. The row menu is an Angular dropdown that
+// binds its handlers asynchronously, and a click that lands too early fires the
+// anchor's href instead of the action, so no request is ever sent; the confirm
+// dialog can also be clicked without the delete being issued. Watching the
+// listing cannot tell any of that apart from a delete that did happen while the
+// search index behind the listing still lags it, which is why this waits for the
+// DELETE response itself and treats the three outcomes differently:
+//
+//   no response      the gesture never reached the server, so retry it — the one
+//                    case where another attempt is worth anything
+//   non-2xx          the server refused, so fail now and report the status,
+//                    because repeating the gesture cannot change the answer
+//   2xx              the delete happened; only then poll the listing, and if it
+//                    stays stale, say so rather than calling the delete a failure
+//
+// Diagnosed from an access log showing 285 requests and not one folder DELETE
+// across five attempts, while the run reported "still listed after deletion" —
+// which reads like a backend fault for something the backend never saw.
 async function deleteRow(page, name, folderId) {
-  // Retry budget is generous on purpose: right after a full stack restart the
-  // search index that backs the listing lags the delete by tens of seconds, so
-  // the row can stay visible well after the backend has removed it. 5 gesture
-  // attempts x 8 polls x 1.5s ~= 60s of tolerance before we call it a failure.
   for (let attempt = 1; attempt <= 5; attempt++) {
     await gotoListing(page, folderId);
     if (!(await row(page, name).count())) return;
+
+    let response;
     try {
       await openRowMenu(page, name);
       await menuItem(page, 'Delete');
-      await page.getByRole('button', { name: 'Yes, delete it!' })
-          .click({ timeout: 10_000 });
+      // Armed before the click: a fast response would otherwise be missed.
+      const pending = page
+          .waitForResponse(r => r.request().method() === 'DELETE', { timeout: 8_000 })
+          .catch(() => null);
+      await confirmDelete(page);
+      response = await pending;
     } catch {
       console.warn(`  delete gesture attempt ${attempt} for "${name}" did not reach the confirm dialog — retrying`);
       continue;
     }
+
+    if (!response) {
+      console.warn(`  delete gesture attempt ${attempt} for "${name}" sent no DELETE request — retrying`);
+      continue;
+    }
+    if (!response.ok()) {
+      throw new Error(`DELETE for "${name}" answered ${response.status()}: ${response.url()}`);
+    }
+
+    // The server has deleted it. The listing is served from the search index,
+    // which can lag by tens of seconds just after a restart.
     for (let poll = 1; poll <= 8; poll++) {
       await gotoListing(page, folderId);
       if (!(await row(page, name).count())) return;
       await page.waitForTimeout(1500);
     }
-    console.warn(`  "${name}" still listed after delete attempt ${attempt} — retrying`);
+    console.warn(`  "${name}" deleted (HTTP ${response.status()}) but still listed 12s later — the search index is lagging`);
+    return;
   }
-  throw new Error(`"${name}" still listed after deletion`);
+  throw new Error(`"${name}" was never deleted: 5 gestures, none of which sent a DELETE request`);
 }
 
 // ── controlled-term helpers (selectors verified by the tutorial runner:
