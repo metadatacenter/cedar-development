@@ -10,6 +10,54 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
 
 ## Next
 
+- **Reconcile validate with create.** Validation requires `@id`; a create refuses it. So the exact
+  body a client is about to POST does not validate, and anyone wanting to check first has to invent a
+  placeholder identifier. Both halves are pinned in `ops/e2e/rest/suites/validation.mjs`, including the
+  error naming `@id` so the cause is at least discoverable.
+
+  Either let validation accept an artifact with no identifier, or document that a pre-create check
+  needs a placeholder. As it stands the natural client workflow — validate, then create — cannot be
+  followed literally.
+
+  Instance validation is also not purely syntactic: it resolves `schema:isBasedOn` and answers 400 when
+  the template cannot be found, so an instance cannot be validated against a template that does not yet
+  exist. Reasonable, and worth stating.
+
+- **Cover the artifact content routes in the authorization matrix.** `PermissionMatrix` now covers
+  the group server, a user's home folder, all four artifact types and a category
+  (`ArtifactsAndCategoriesAuthorizationMatrixTest`). One gap remains, and it is blocked rather than
+  merely unwritten.
+
+  `GET /templates/{id}` and the write paths proxy to the artifact server, which the resource-server
+  suite does not run, so a row for them would assert the proxy failing rather than the authorization
+  decision. The security contract is already covered, because the permission check precedes the proxy
+  in every case; what is missing is the owner's happy path on those routes. That needs the
+  cross-service contract tests described below, not another table here.
+
+- **Separate authentication from authorization in `CedarErrorType`.** The enum maps
+  `AUTHORIZATION` to `UNAUTHORIZED`, so a permission denial that travels as a `BackendCallResult`
+  error answers 401 where it should answer 403. `PUT /folders/{id}/permissions` is the observed
+  case: an authenticated user with no grant on the folder is refused with 401, while every other
+  folder endpoint refuses the same user with 403. The exception-based denials are correct because
+  `CedarAccessException` subclasses set their status explicitly; only the call-result path falls
+  back to the type default. The enum cannot simply be remapped, because the same `AUTHORIZATION`
+  type also carries genuine authentication failures, including the missing-header case
+  (`AuthorizationNotFoundException`), which must stay 401. The fix is to distinguish the two: add a
+  permission error type that maps to `FORBIDDEN` and use it at the resource permission denial sites,
+  or set the status explicitly there. Roughly 41 usages of `AUTHORIZATION` need review.
+
+  The scope is narrower than it first appeared, and categories show what the fix should look like.
+  `PUT /categories/{id}/permissions` already answers 403, because it gates on
+  `userMustHaveWriteAccessToCategory`, which raises an exception carrying an explicit status and so
+  never reaches the call-result path. Only the resource path — folders and artifacts, both via
+  `ResourcePermissionRequestValidator` — is affected. So the category validator is the reference
+  rather than a second instance to fix.
+
+  Both affected cases are pinned, in `FoldersAuthorizationMatrixTest` and
+  `ArtifactsAndCategoriesAuthorizationMatrixTest`, which will fail and prompt an update once this
+  changes. A 401 conventionally tells a client to re-authenticate, so today the frontend can bounce a
+  user to the login screen when they merely lack rights on someone else's folder.
+
 - **Make search-index mutations reliable (grants and deletes). One architectural cause, still open.**
   This is the remaining index work and the next focused effort. Documents are indexed with a
   server-generated random `_id` (`ElasticsearchIndexingWorker.addToIndex` uses `new IndexRequest(index)`
@@ -75,41 +123,6 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
   `SharingRoundTripTest`, `ArtifactsAndCategoriesAuthorizationMatrixTest`,
   `GroupMembershipAuthorizationMatrixTest`, `GroupSharingRevocationIntegrationTest` and
   `ArtifactLifecycleMatrixTest`.
-
-- **Separate authentication from authorization in `CedarErrorType`.** The enum maps
-  `AUTHORIZATION` to `UNAUTHORIZED`, so a permission denial that travels as a `BackendCallResult`
-  error answers 401 where it should answer 403. `PUT /folders/{id}/permissions` is the observed
-  case: an authenticated user with no grant on the folder is refused with 401, while every other
-  folder endpoint refuses the same user with 403. The exception-based denials are correct because
-  `CedarAccessException` subclasses set their status explicitly; only the call-result path falls
-  back to the type default. The enum cannot simply be remapped, because the same `AUTHORIZATION`
-  type also carries genuine authentication failures, including the missing-header case
-  (`AuthorizationNotFoundException`), which must stay 401. The fix is to distinguish the two: add a
-  permission error type that maps to `FORBIDDEN` and use it at the resource permission denial sites,
-  or set the status explicitly there. Roughly 41 usages of `AUTHORIZATION` need review.
-
-  The scope is narrower than it first appeared, and categories show what the fix should look like.
-  `PUT /categories/{id}/permissions` already answers 403, because it gates on
-  `userMustHaveWriteAccessToCategory`, which raises an exception carrying an explicit status and so
-  never reaches the call-result path. Only the resource path — folders and artifacts, both via
-  `ResourcePermissionRequestValidator` — is affected. So the category validator is the reference
-  rather than a second instance to fix.
-
-  Both affected cases are pinned, in `FoldersAuthorizationMatrixTest` and
-  `ArtifactsAndCategoriesAuthorizationMatrixTest`, which will fail and prompt an update once this
-  changes. A 401 conventionally tells a client to re-authenticate, so today the frontend can bounce a
-  user to the login screen when they merely lack rights on someone else's folder.
-
-- **Cover the artifact content routes in the authorization matrix.** `PermissionMatrix` now covers
-  the group server, a user's home folder, all four artifact types and a category
-  (`ArtifactsAndCategoriesAuthorizationMatrixTest`). One gap remains, and it is blocked rather than
-  merely unwritten.
-
-  `GET /templates/{id}` and the write paths proxy to the artifact server, which the resource-server
-  suite does not run, so a row for them would assert the proxy failing rather than the authorization
-  decision. The security contract is already covered, because the permission check precedes the proxy
-  in every case; what is missing is the owner's happy path on those routes. That needs the
-  cross-service contract tests described below, not another table here.
 
 - **Decide what the unenforced permission levels are for.** `FilesystemResourcePermission` declares
   six: `READ`, `WRITE`, `CHANGEOWNER`, `CHANGEPERMISSIONS`, `PUBLISH`, `CREATE_DRAFT`. Outside the
@@ -223,19 +236,6 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
   `ATTACH` on each category, and nothing in the product surfaces that. Either grant `ATTACH` broadly
   when a category is created, or make the requirement visible. `ops/e2e/rest/suites/categories.mjs`
   pins the whole sequence: refused without the grant, allowed with it.
-
-- **Reconcile validate with create.** Validation requires `@id`; a create refuses it. So the exact
-  body a client is about to POST does not validate, and anyone wanting to check first has to invent a
-  placeholder identifier. Both halves are pinned in `ops/e2e/rest/suites/validation.mjs`, including the
-  error naming `@id` so the cause is at least discoverable.
-
-  Either let validation accept an artifact with no identifier, or document that a pre-create check
-  needs a placeholder. As it stands the natural client workflow — validate, then create — cannot be
-  followed literally.
-
-  Instance validation is also not purely syntactic: it resolves `schema:isBasedOn` and answers 400 when
-  the template cannot be found, so an instance cannot be validated against a template that does not yet
-  exist. Reasonable, and worth stating.
 
 - **Add degradation tests.** Nothing asserts how a service behaves when a dependency it needs is
   unavailable. The cost of that gap is known: reading any folder whose creator could not be resolved
