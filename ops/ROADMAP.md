@@ -163,6 +163,21 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
   `GroupMembershipAuthorizationMatrixTest` pins. Move the group check down into the validator, matching
   resources, or state deliberately that session-layer callers are trusted.
 
+  This does not have to change any REST contract. The four group-write endpoints already enforce the
+  administrator check at the HTTP layer, so a non-admin already gets a 403 over REST today — the bypass
+  is reachable only by a non-HTTP in-process caller, which has no REST surface. Two ways to resolve it,
+  and the choice is a REST-contract decision:
+
+  - **Defense in depth (recommended):** add the check at the session layer *and keep* the HTTP guards.
+    Zero REST contract change; the session guard is a backstop for in-process callers.
+  - **Single source of truth:** move the check to the session layer and delete the HTTP guards. Cleaner
+    internally, but the session signals refusal differently from the resource's explicit
+    `otherwiseForbidden(...)` with its `groupCanBeModifiedOnlyByGroupAdmin` key — worse for
+    `updateGroupById`/`deleteGroupById`, which return `FolderServerGroup`/`boolean` and would refuse by
+    throwing through the generic mapper. Unless the current status and error key are reproduced at the
+    session layer, the denial's response body (and possibly status) shifts — a minor but real contract
+    change. Either way, no client that works today starts getting refused.
+
 - **Check that revocation reaches the search index.** Listings and search are served from OpenSearch,
   not from the graph, and permission changes reach it asynchronously through
   `SearchPermissionEnqueueService`. Revocation is the fail-dangerous direction: if the index lags or
@@ -328,11 +343,6 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
   themes will need re-porting, the `keycloak-admin-client-jakarta` coordinate it uses was
   discontinued after 21.1.2, and `cedar-keycloak-event-listener` is compiled against the current SPI.
   Rehearse each on a copy of production data and gate on the end-to-end smoke.
-
-- **Regenerate the tutorial screenshots against production.** The controlled-term tutorial runner in
-  `cedar-mkdocs` is hardened for the current picker and for BioPortal latency, but the published
-  images are still older. Regeneration needs an interactive login to production
-  (`node auth.mjs`, then `node term-run.mjs`), and it creates and deletes a scratch folder there.
 
 - **Move `commons-fileupload2` off the milestone build.** The parent pins `2.0.0-M5` because no
   stable release existed when the jakarta migration needed it. Move to the stable line once it is
