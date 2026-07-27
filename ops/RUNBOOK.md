@@ -289,11 +289,54 @@ started in a static `@BeforeAll` and stopped in `@AfterAll`. Do not use the JUni
 current JUnit platform.
 
 Rough suite sizes: artifact 1279 (parameterized CRUD over four artifact types on embedded Mongo),
-artifact-library 687, model-validation 210, terminology ~130 (13 need live BioPortal), resource 52,
-microservice-libraries 16 (the workspace-graph permission and Cypher tests), and a two-to-three-test
-boot-and-config tier on the thin servers. Known exceptions: the submission server's suite hangs at
-teardown (its NCBI queue enqueues a stop message to Redis on shutdown), so package it with
-`-DskipTests`.
+artifact-library 687, model-validation 210, terminology ~130 (13 need live BioPortal), resource 49,
+microservice-libraries 19 (the workspace-graph and lifecycle tests), group 10, and a
+two-to-three-test boot-and-config tier on the thin servers. Known exceptions: the submission server's
+suite hangs at teardown (its NCBI queue enqueues a stop message to Redis on shutdown), so package it
+with `-DskipTests`.
+
+### What the suites actually cover
+
+Roughly 113 test classes. They fall into layers, and it is worth knowing which layer a failure comes
+from, because they answer very different questions:
+
+| Layer | Classes | What a pass means |
+|---|---|---|
+| Config load | 16 | The server's YAML parses and env substitution resolves |
+| Boot smoke | 11 | The application starts |
+| Route surface | 7 | Every declared route answers, and answers 401 unauthenticated |
+| Model validation | 7 | Template, element, field and instance schema rules hold |
+| Artifact CRUD | 21 | Create, read, update, delete per artifact type, on embedded Mongo |
+| Workspace graph | 5 | Permissions, inheritance, moves, categories and revocation, in Neo4j |
+| Matrices | 7 | Authorization, permission levels and artifact lifecycle, as tables |
+| Sharing and ownership | 1 | The `PUT .../permissions` round trip, including ownership transfer |
+| Content negotiation | 2 | YAML and JSON transcode both ways |
+| End-to-end smoke | 1 | The real stack, through a browser |
+
+Two reusable helpers live in `cedar-test-support-library` and are the right starting point for new
+work. `RouteSurface` reflects over a server's JAX-RS classes and asserts every route answers a given
+status, honouring `@Consumes` so a probe reaches the auth check instead of being rejected during
+content negotiation; it refuses to pass vacuously on an empty route list. `PermissionMatrix` states,
+as a table, the status each actor must receive for each operation, collects every failing cell rather
+than stopping at the first, and fails on an empty table.
+
+Where the coverage is thin, stated plainly so nobody reads the class count as reassurance:
+
+- **Terminology's REST surface is largely untested.** Of its 27 classes, six are `@Tag("bioportal")`
+  and 26 methods are `@Disabled`, so a normal run exercises little of it. Serving ontologies from the
+  local SQLite store is what would let those tests run offline and deterministically, which makes it
+  the largest single coverage win available.
+- **The thin servers have three classes each** — config, boot, routes. That is a real net, and it is
+  what caught the media-type 505, but it means "starts and refuses strangers", not "is correct".
+- **Nothing covers** dependency failure (see the degradation item on the roadmap), pagination across
+  the thirty-one endpoints that declare it, the proxy boundary between services, or concurrent edits.
+
+One hard constraint when adding to the resource server: **eight test classes that boot a server is the
+ceiling** for that module. Each boots into the shared JVM and creates a Neo4j driver whose Netty
+event-loop threads are never reclaimed, and the ninth fails with "failed to create a child event
+loop". The failure appears only in a full run, never when the class runs alone, and it names whichever
+class happened to boot last rather than the one that exhausted the JVM — so it reads as a flaky new
+test. Merge into an existing class, or take up the roadmap item that fixes it properly.
 
 The verification discipline that matters: **the suites verify logic; a redeploy plus the `ops/e2e`
 smoke test verifies reality.** The suites cannot see the live inter-service proxy round-trip or the
