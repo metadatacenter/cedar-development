@@ -174,17 +174,21 @@ async function constrainToDoidDiseaseBranch(page) {
   await page.waitForTimeout(500);
   await page.getByRole('textbox', { name: 'Search field' }).fill('Human Disease Ontology');
   // The ontology list loads on demand (a ~600KB BioPortal-backed call, filtered client-side), so
-  // the first search can run against an empty cache and show "No results". BioPortal is slow and
-  // flaky, and the load is slowest right after a stack restart, so re-run the search generously
-  // (~4 min) before giving up.
+  // a search that runs while the load is still in flight shows "No results". Re-searching covers
+  // that window, which is widest right after a stack restart.
+  //
+  // It covers nothing else, though. If the load has already failed, the cache is empty and stays
+  // empty for this page, so every re-search reads the same empty cache. This loop is deliberately
+  // short for that reason: failing out of it hands the decision to the caller, which reloads the
+  // page and gets the service to load the list afresh. A long loop here only delays that.
   const doidRow = page.getByText(rowText, { exact: false }).first();
   let found = false;
-  for (let i = 0; i < 30 && !found; i++) {
+  for (let i = 0; i < 6 && !found; i++) {
     await page.locator('i.fa-search').last().click();                   // run the search
     try { await doidRow.waitFor({ timeout: 5000 }); found = true; }
     catch { await page.waitForTimeout(2000); }
   }
-  if (!found) throw new Error('DOID did not appear in the ontology picker — the ontology list may be empty');
+  if (!found) throw new Error('DOID did not appear in the ontology picker — the ontology list is empty');
   await doidRow.click({ timeout: 8000 }).catch(() => {});
   await page.waitForTimeout(2500);                                      // DOID class tree loads
   const node = page.locator('[ng-click*="getClassDetailsCallback"]')
@@ -286,18 +290,36 @@ try {
   const folderId = decodeURIComponent(new URL(page.url()).searchParams.get('folderId'));
   console.log(`✓ folder created: ${FOLDER_NAME}`);
 
-  // 3. Create a template inside the folder via the designer deep link, name
-  //    it, and save (the toast confirms server-side creation).
-  step = 'create-template';
-  await page.goto(`${BASE}/templates/create?folderId=${enc(folderId)}`);
-  await page.getByRole('textbox', { name: 'Name' }).fill(TEMPLATE_NAME);
-  await page.waitForTimeout(1100); // flush the debounced name edit
+  // 3. Create a template inside the folder via the designer deep link, name it, add
+  //    a Disease field and constrain it to the DOID "disease" branch through the
+  //    live BioPortal picker (which exercises the terminology server end to end).
+  //
+  //    The block retries as a unit, and it has to be the whole block. The editor
+  //    loads BioPortal's ontology list once per page load, and a load that fails
+  //    can leave the picker's cache empty for the life of that page, so retrying
+  //    the ontology search inside the picker re-reads the same empty cache and
+  //    cannot ever succeed. Only a fresh page load gives the service another
+  //    attempt, which means starting again from the deep link.
+  //
+  //    Nothing is saved server-side until the save step below, so an attempt that
+  //    fails here leaves no template behind.
+  const CONSTRAIN_ATTEMPTS = 3;
+  for (let attempt = 1; attempt <= CONSTRAIN_ATTEMPTS; attempt++) {
+    try {
+      step = 'create-template';
+      await page.goto(`${BASE}/templates/create?folderId=${enc(folderId)}`);
+      await page.getByRole('textbox', { name: 'Name' }).fill(TEMPLATE_NAME);
+      await page.waitForTimeout(1100); // flush the debounced name edit
 
-  // 3a. Add a Disease field and constrain it to the DOID "disease" branch through
-  //     the live BioPortal picker (exercises the terminology server end to end).
-  step = 'constrain-disease-field';
-  await addTextField(page, 'Disease', 'The disease studied, from the Human Disease Ontology');
-  await constrainToDoidDiseaseBranch(page);
+      step = 'constrain-disease-field';
+      await addTextField(page, 'Disease', 'The disease studied, from the Human Disease Ontology');
+      await constrainToDoidDiseaseBranch(page);
+      break;
+    } catch (e) {
+      if (attempt === CONSTRAIN_ATTEMPTS) throw e;
+      console.warn(`  constrain attempt ${attempt} failed (${e.message.split('\n')[0]}) — reloading the editor for a fresh ontology load`);
+    }
+  }
   console.log('✓ Disease field constrained to the DOID "disease" branch (live BioPortal)');
 
   step = 'save-template';
