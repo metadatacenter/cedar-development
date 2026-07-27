@@ -117,42 +117,6 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
   restriction while being none. Either enforce the four unused levels or remove them and document the
   three tiers, including that write implies re-sharing and that versioning is owner-only.
 
-- **Check that revocation reaches the search index.** Listings and search are served from OpenSearch,
-  not from the graph, and permission changes reach it asynchronously through
-  `SearchPermissionEnqueueService`. Revocation is the fail-dangerous direction: if the index lags or
-  the message is lost, a user whose access was withdrawn keeps seeing the resource in their listings
-  and search results, and may still be able to open it from there depending on which reads are
-  index-backed.
-
-  `GroupSharingRevocationIntegrationTest` establishes that the graph stops granting access
-  immediately, on both membership removal and group deletion, so the model is right. What is unverified
-  is the projection of it. This cannot be tested in the current suites: they run
-  `NoOpNodeIndexingService` precisely so they need no OpenSearch, so the enqueue path is a no-op there.
-  It needs either a test with a real index, or an assertion at the smoke level that a revoked user's
-  listing no longer shows the resource. The REST smoke now reaches the real index and has found the
-  companion bug on the *grant* side — a grant never reaches term search at all (see "Make a permission
-  change reach the search index" above) — so the projection is demonstrably broken in both directions
-  and the two are almost certainly one fix. Related to the cross-service contract tests below, and to the
-  folder-listing staleness already documented in `deleteRow` in the smoke.
-
-- **Give the shared test JVM room, or stop sharing it.** The resource server's suite runs every test
-  class in one JVM, and each class that boots a server creates a Neo4j driver whose Netty event-loop
-  threads are never reclaimed. Nine such classes exhaust it: the ninth fails to start with Netty's
-  "failed to create a child event loop". Eight currently pass, so the module is at its limit, and the
-  next class added will hit this.
-
-  The failure is nastier than it sounds. It appears only in the full run, never when the class is run
-  alone, and it names whichever class happened to boot last rather than the one responsible — so it
-  reads as a flaky new test rather than as exhaustion. Capping Jetty's pools was tried and does not
-  help; the threads are the driver's, not the server's.
-
-  Either close the drivers when a class finishes, or give each class its own fork
-  (`reuseForks=false`), which also removes the `CedarConfig` singleton contamination that made the
-  environment-override machinery necessary in the first place. Forking costs JVM and embedded-Neo4j
-  startup per class, which is why the JVM is shared today, so this is a trade to make deliberately.
-  Until then, new REST-level tests should merge into an existing class, as sharing and ownership
-  transfer share one.
-
 - **A published artifact can be deleted, contradicting the docs.** The docs say a published
   artifact is permanent, but `DELETE` on one succeeds. The guard in
   `AbstractResourceServerResource.executeArtifactDelete` was briefly re-enabled and then **reverted by
@@ -175,48 +139,10 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
   when a category is created, or make the requirement visible. `ops/e2e/rest/suites/categories.mjs`
   pins the whole sequence: refused without the grant, allowed with it.
 
-- **Add degradation tests.** Nothing asserts how a service behaves when a dependency it needs is
-  unavailable. The cost of that gap is known: reading any folder whose creator could not be resolved
-  returned 500 for as long as the defect existed, because `UserSummaryCache` let Guava's
-  "loader returned null" signal escape instead of degrading to the no-display-name path the callers
-  already handled. A cheap form is one test per server that points a dependency at a dead port and
-  asserts the API degrades rather than 500s. Bear in mind that queue writes are already best-effort
-  by design (`AppLoggerQueueService`, the worker and NCBI queues), so those are the pattern to match.
-
 - **Decide on concurrency control.** There is no `ETag`, `If-Match` or `@Version` anywhere in the
   stack, so two users editing one template is a silent lost update: the second save wins and the
   first user is never told. This is a design item rather than a coverage item, since no test can be
   written until the API offers the conditional-request machinery.
-
-- **Cover pagination.** Largely done. `ops/e2e/rest/suites/pagination.mjs` now walks both a folder's
-  contents and search two rows at a time and reassembles each listing exactly once, asserts a stable
-  `totalCount` and a page past the end, and checks the first/last paging links. An invalid or excessive
-  `limit`/`offset` is now refused with 400 rather than answering 500 — `PagedQuery.validateLimit()`
-  throws `badRequest()` above the configured maximum, and every paged endpoint shares it. Still
-  uncovered: the other paged listings beyond contents and search (categories, and the several
-  `*-extract` variants).
-
-- **Add cross-service contract tests.** Started. The resource ↔ artifact hop — the one every core
-  operation crosses — is now covered by `ops/e2e/rest/suites/contract.mjs`, which reads both sides
-  directly and pins where they must agree (a create reaches both stores faithfully; a delete clears
-  both; a downstream rejection crosses as itself, not a 500) and where they diverge (an artifact
-  written straight to the artifact server has no graph node, so it is invisible to every resource-
-  server read). The resource server proxies nothing else live: terminology is called by the frontend
-  directly, and the value recommender is out of scope (retiring). So what remains is not more of the
-  resource server's hops but the *other* services' boundaries — chiefly the frontend ↔ terminology
-  path, where the empty-ontology-picker bug lived, which no REST-level suite reaches today because it
-  is a browser concern. Per-service suites still stop at their own hop, and the end-to-end smoke covers
-  only the happy path.
-
-  Folded in here (was its own item): covering the artifact **content** routes in the JUnit
-  authorization matrix. `GET/PUT/DELETE /templates/{id}` and the other three kinds proxy to the
-  artifact server, which the resource-server suite does not boot, so a `PermissionMatrix` row for them
-  would assert the proxy failing rather than the authorization decision. What matters is already
-  covered across two tiers — the **denial** contract by the existing matrix (the permission check runs
-  before the proxy, so a non-owner is refused without the artifact server), and the **owner happy
-  path** by the REST smoke (`ops/e2e/rest/suites/artifacts.mjs`, full CRUD per kind over the live
-  stack). A JUnit matrix row adds value only once a harness runs the resource and artifact servers
-  together — which is exactly this item — so it rides along here rather than standing alone.
 
 - **Cache the CompTox substance registry locally.** On every start the bridge server rebuilds its
   registry by fetching roughly 14,700 substances from the external CompTox API in batches of a
@@ -316,16 +242,123 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
   client). A real deployment should instead trust a truststore holding the realm CA. Small, and only
   matters outside local dev.
 
-## Out of Scope
+## Testing
 
-These are deliberate decisions, recorded so they are not rediscovered as gaps.
+Coverage and test-infrastructure work, and the testing decisions taken deliberately. The active
+REST integration suites live in `ops/e2e/rest/suites/`; the JUnit matrices and boot-smoke live in the
+per-server modules.
+
+- **Check that revocation reaches the search index.** Listings and search are served from OpenSearch,
+  not from the graph, and permission changes reach it asynchronously through
+  `SearchPermissionEnqueueService`. Revocation is the fail-dangerous direction: if the index lags or
+  the message is lost, a user whose access was withdrawn keeps seeing the resource in their listings
+  and search results, and may still be able to open it from there depending on which reads are
+  index-backed.
+
+  `GroupSharingRevocationIntegrationTest` establishes that the graph stops granting access
+  immediately, on both membership removal and group deletion, so the model is right. What is unverified
+  is the projection of it. This cannot be tested in the current suites: they run
+  `NoOpNodeIndexingService` precisely so they need no OpenSearch, so the enqueue path is a no-op there.
+  It needs either a test with a real index, or an assertion at the smoke level that a revoked user's
+  listing no longer shows the resource. The REST smoke now reaches the real index and has found the
+  companion bug on the *grant* side — a grant never reaches term search at all (see "Make a permission
+  change reach the search index" above) — so the projection is demonstrably broken in both directions
+  and the two are almost certainly one fix. Related to the cross-service contract tests below, and to the
+  folder-listing staleness already documented in `deleteRow` in the smoke.
+
+- **Give the shared test JVM room, or stop sharing it.** The resource server's suite runs every test
+  class in one JVM, and each class that boots a server creates a Neo4j driver whose Netty event-loop
+  threads are never reclaimed. Nine such classes exhaust it: the ninth fails to start with Netty's
+  "failed to create a child event loop". Eight currently pass, so the module is at its limit, and the
+  next class added will hit this.
+
+  The failure is nastier than it sounds. It appears only in the full run, never when the class is run
+  alone, and it names whichever class happened to boot last rather than the one responsible — so it
+  reads as a flaky new test rather than as exhaustion. Capping Jetty's pools was tried and does not
+  help; the threads are the driver's, not the server's.
+
+  Either close the drivers when a class finishes, or give each class its own fork
+  (`reuseForks=false`), which also removes the `CedarConfig` singleton contamination that made the
+  environment-override machinery necessary in the first place. Forking costs JVM and embedded-Neo4j
+  startup per class, which is why the JVM is shared today, so this is a trade to make deliberately.
+  Until then, new REST-level tests should merge into an existing class, as sharing and ownership
+  transfer share one.
+
+- **Add degradation tests.** Nothing asserts how a service behaves when a dependency it needs is
+  unavailable. The cost of that gap is known: reading any folder whose creator could not be resolved
+  returned 500 for as long as the defect existed, because `UserSummaryCache` let Guava's
+  "loader returned null" signal escape instead of degrading to the no-display-name path the callers
+  already handled. A cheap form is one test per server that points a dependency at a dead port and
+  asserts the API degrades rather than 500s. Bear in mind that queue writes are already best-effort
+  by design (`AppLoggerQueueService`, the worker and NCBI queues), so those are the pattern to match.
+
+- **Cover pagination.** Largely done. `ops/e2e/rest/suites/pagination.mjs` now walks both a folder's
+  contents and search two rows at a time and reassembles each listing exactly once, asserts a stable
+  `totalCount` and a page past the end, and checks the first/last paging links. An invalid or excessive
+  `limit`/`offset` is now refused with 400 rather than answering 500 — `PagedQuery.validateLimit()`
+  throws `badRequest()` above the configured maximum, and every paged endpoint shares it. Still
+  uncovered: the other paged listings beyond contents and search (categories, and the several
+  `*-extract` variants).
+
+- **Add cross-service contract tests.** Started. The resource ↔ artifact hop — the one every core
+  operation crosses — is now covered by `ops/e2e/rest/suites/contract.mjs`, which reads both sides
+  directly and pins where they must agree (a create reaches both stores faithfully; a delete clears
+  both; a downstream rejection crosses as itself, not a 500) and where they diverge (an artifact
+  written straight to the artifact server has no graph node, so it is invisible to every resource-
+  server read). The resource server proxies nothing else live: terminology is called by the frontend
+  directly, and the value recommender is out of scope (retiring). So what remains is not more of the
+  resource server's hops but the *other* services' boundaries — chiefly the frontend ↔ terminology
+  path, where the empty-ontology-picker bug lived, which no REST-level suite reaches today because it
+  is a browser concern. Per-service suites still stop at their own hop, and the end-to-end smoke covers
+  only the happy path.
+
+  Folded in here (was its own item): covering the artifact **content** routes in the JUnit
+  authorization matrix. `GET/PUT/DELETE /templates/{id}` and the other three kinds proxy to the
+  artifact server, which the resource-server suite does not boot, so a `PermissionMatrix` row for them
+  would assert the proxy failing rather than the authorization decision. What matters is already
+  covered across two tiers — the **denial** contract by the existing matrix (the permission check runs
+  before the proxy, so a non-owner is refused without the artifact server), and the **owner happy
+  path** by the REST smoke (`ops/e2e/rest/suites/artifacts.mjs`, full CRUD per kind over the live
+  stack). A JUnit matrix row adds value only once a harness runs the resource and artifact servers
+  together — which is exactly this item — so it rides along here rather than standing alone.
+
+- **Close the last few REST coverage holes.** An audit of the resource server's declared route surface
+  against `ops/e2e/rest/suites/` found the artifact/folder/category/group/search/version/sharing
+  surface covered, and three user-facing endpoints still untested. `GET /users` is now covered (the
+  share-dialog directory, in `sharing.mjs`). Two remain, both confirmed live-testable:
+
+  - `GET /search-deep` — the search variant that pages beyond 10,000 results. Same response shape as
+    `/search` and it shares the paging validator (an excessive `limit` already answers 400), so a
+    small suite mirroring the `/search` happy path and paging would pin it.
+  - `POST /command/annotations/doi` — sets an artifact's DOI. It is write-gated and set-once: the
+    owner's `{'@id', doi}` succeeds, altering an existing DOI is refused with `doiCanNotBeAltered`, and
+    a stranger should be refused. A short contract worth pinning.
+
+  Lower priority, more fixture: `POST /command/inclusions-subgraph-preview` and
+  `-update` — the element-inclusion propagation that computes the tree of artifacts affected by a
+  change. Preview is non-destructive and the natural thing to test first, but it needs a template that
+  actually embeds an element to exercise, so it is a larger fixture than the two above.
+
+### Out of scope for testing
+
+Deliberate exclusions, recorded so they are not rediscovered as gaps.
 
 - **Deeper test coverage for the value-recommender, impex and submission servers.** Not a priority.
   The value recommender is slated for retirement, so investment in it is wasted; impex and submission
   are peripheral to the core workspace/artifact flows the suites concentrate on. Boot-smoke and route-
   surface coverage stay, but they are not targets for the REST or contract suites. Cross-service
   contract testing is therefore scoped to the resource ↔ artifact hop (see `ops/e2e/rest/suites/
-  contract.mjs`), which is the one every core operation crosses.
+  contract.mjs`), which is the one every core operation crosses. `POST /templates/recommend`
+  (RecommendResource) is on the resource server but belongs to the value recommender, so it stays
+  untested for the same reason.
+
+- **REST-testing the admin and internal resource-server commands.** Left untested on purpose, not by
+  oversight. The index-management commands — `regenerate-search-index`, `regenerate-rules-index`,
+  `generate-empty-search-index`, `generate-empty-rules-index` — rebuild or wipe the whole search index,
+  so running them inside the smoke would sabotage every other suite's search assertions; they are
+  exercised by hand when the index needs rebuilding, not on every run. `load-valuesets-ontology` and
+  its `-status` poll do a slow bulk load against external terminology, wrong for a fast smoke.
+  `auth-user-callback` is an internal Keycloak sign-in callback, not a client-facing operation.
 
 - **A load or performance suite.** The end-to-end smoke plus real usage covers the shape, and the
   yield is low next to the items above.
@@ -333,12 +366,16 @@ These are deliberate decisions, recorded so they are not rediscovered as gaps.
 - **Fuzzing and injection suites.** Jersey and Jackson absorb most malformed input, and no endpoint
   builds queries by string concatenation.
 
+- **Annotation-gating the bridge server's live tests.** They currently pass, so marking them
+  `@Disabled` in the name of consistency with the terminology suite would remove real coverage.
+
+## Out of Scope
+
+These are deliberate decisions, recorded so they are not rediscovered as gaps.
+
 - **Modernizing `cedar-keycloak-event-listener`.** It stays on Java 8 and HttpClient 4 on purpose: it
   is an SPI plugin loaded inside the Keycloak runtime, whose version is locked, so it must match what
   Keycloak provides rather than what the rest of the stack uses.
-
-- **Annotation-gating the bridge server's live tests.** They currently pass, so marking them
-  `@Disabled` in the name of consistency with the terminology suite would remove real coverage.
 
 - **Aligning the Jackson pins in the `mcp/*` subprojects.** Those poms deliberately pair
   `jackson-annotations` 3.0-rc5 with 2.x `jackson-databind` to work around a missing constant, and
