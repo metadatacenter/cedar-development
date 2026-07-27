@@ -34,19 +34,16 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
   changes. A 401 conventionally tells a client to re-authenticate, so today the frontend can bounce a
   user to the login screen when they merely lack rights on someone else's folder.
 
-- **Finish the authorization matrix: elements, instances, and the artifact content routes.**
-  `PermissionMatrix` now covers the group server, a user's home folder, a template and a category
-  (`ArtifactsAndCategoriesAuthorizationMatrixTest`). Two gaps remain.
+- **Cover the artifact content routes in the authorization matrix.** `PermissionMatrix` now covers
+  the group server, a user's home folder, all four artifact types and a category
+  (`ArtifactsAndCategoriesAuthorizationMatrixTest`). One gap remains, and it is blocked rather than
+  merely unwritten.
 
-  Elements and instances have no grid. They share the artifact resource superclass with templates, so
-  the same table should largely transfer; whether it does is exactly what a test would establish.
-
-  The artifact **content** routes are uncovered: `GET /templates/{id}` and the write paths proxy to
-  the artifact server, which the resource-server suite does not run, so a row for them would assert
-  the proxy failing rather than the authorization decision. The security contract itself is covered,
-  because the permission check precedes the proxy in every case; what is missing is the owner's happy
-  path on those routes. That needs the cross-service contract tests described below, not another
-  table here.
+  `GET /templates/{id}` and the write paths proxy to the artifact server, which the resource-server
+  suite does not run, so a row for them would assert the proxy failing rather than the authorization
+  decision. The security contract is already covered, because the permission check precedes the proxy
+  in every case; what is missing is the owner's happy path on those routes. That needs the
+  cross-service contract tests described below, not another table here.
 
 - **Add degradation tests.** Nothing asserts how a service behaves when a dependency it needs is
   unavailable. The cost of that gap is known: reading any folder whose creator could not be resolved
