@@ -147,6 +147,42 @@ def collect_refs(node, out):
             collect_refs(v, out)
 
 
+# The keys of _valueConstraints that the terminology server's /bioportal/integrated-search consumes.
+# Its ValueConstraints model ignores unknown keys, but the enclosing request body binds strictly, so
+# the emitted block is trimmed to exactly these — a guaranteed-valid `valueConstraints`.
+TERM_KEYS = ("ontologies", "branches", "valueSets", "classes", "actions")
+# The four that actually point at a terminology lookup; a constraint with none of them is a plain
+# value field (a literal list, or nothing) and is not a terminology case.
+LOOKUP_KEYS = ("ontologies", "branches", "valueSets", "classes")
+
+
+def trim_constraints(vc):
+    """The terminology-relevant subset of a field's _valueConstraints, shaped as integrated-search
+    requires: all four lookup lists present (empty when absent) — the endpoint's validator rejects a
+    null branches/classes/valueSets/ontologies — plus `actions` only when the field carries it."""
+    out = {k: (vc.get(k) or []) for k in LOOKUP_KEYS}
+    if vc.get("actions"):
+        out["actions"] = vc["actions"]
+    return out
+
+
+def collect_constraints(node, records, source, path="$"):
+    """Walk an artifact and append one record per controlled-term field: its provenance plus the
+    trimmed _valueConstraints, ready to drop into an integrated-search parameterObject."""
+    if isinstance(node, dict):
+        vc = node.get("_valueConstraints")
+        if isinstance(vc, dict) and any(vc.get(k) for k in LOOKUP_KEYS):
+            records.append({
+                "source": {**source, "field": node.get("schema:name"), "fieldPath": path},
+                "valueConstraints": trim_constraints(vc),
+            })
+        for k, v in node.items():
+            collect_constraints(v, records, source, f"{path}.{k}")
+    elif isinstance(node, list):
+        for i, v in enumerate(node):
+            collect_constraints(v, records, source, f"{path}[{i}]")
+
+
 def print_report(scanned, per_type_counts, any_ref, usage, status):
     """Emit the ranked aggregate. Always called (even on partial runs) via finally."""
     header = ", ".join(f"{c} {t}" for t, c in per_type_counts.items()) or "none"
@@ -181,6 +217,11 @@ def main():
     ap.add_argument("--limit", type=int, help="Stop after this many artifacts (quick sample).")
     ap.add_argument("--out", help="Write per-artifact detail as CSV (streamed+flushed, so a partial run "
                                   "still leaves a usable file).")
+    ap.add_argument("--emit-constraints", metavar="PATH",
+                    help="Also write every controlled-term field's _valueConstraints to PATH as JSONL, "
+                         "one record per field (provenance + a trimmed, integrated-search-ready block). "
+                         "This is the raw corpus for terminology differential testing; curate it with "
+                         "cedar_termcorpus_select.py.")
     args = ap.parse_args()
 
     if not args.api_key:
@@ -203,6 +244,11 @@ def main():
         csv_writer.writeheader()
         csv_file.flush()
 
+    vc_file = None
+    vc_count = 0
+    if args.emit_constraints:
+        vc_file = open(args.emit_constraints, "w")
+
     status = "COMPLETE"
     try:
         for rtype in types:
@@ -218,6 +264,15 @@ def main():
                 except Exception as e:  # one bad artifact must not abort the whole run
                     print(f"  ! skip {rtype} {aid}: {e}", file=sys.stderr)
                     continue
+                if vc_file is not None:
+                    recs = []
+                    collect_constraints(artifact, recs,
+                                        {"type": rtype, "id": aid, "name": name})
+                    for rec in recs:
+                        vc_file.write(json.dumps(rec) + "\n")
+                        vc_count += 1
+                    vc_file.flush()  # stream+flush, so a partial run still leaves a usable corpus
+
                 refs = {k: set() for k in usage}
                 collect_refs(artifact, refs)
                 for kind, acronyms in refs.items():
@@ -251,9 +306,14 @@ def main():
     finally:
         if csv_file:
             csv_file.close()
+        if vc_file:
+            vc_file.close()
         print_report(scanned, per_type_counts, any_ref, usage, status)
         if args.out and scanned:
             print(f"\nPer-artifact detail (streamed) in {args.out}", file=sys.stderr)
+        if args.emit_constraints:
+            print(f"Controlled-term constraints (streamed): {vc_count} records in {args.emit_constraints}",
+                  file=sys.stderr)
 
 
 if __name__ == "__main__":
