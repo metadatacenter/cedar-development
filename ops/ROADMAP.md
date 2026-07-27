@@ -59,13 +59,19 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
   `ArtifactPermissionLevelMatrixTest` pin this, and demonstrate it rather than inferring it from a
   status: a user holding only WRITE rewrites the ACL and their own grant disappears.
 
-  This may well be the intended model, and it is at least consistent and enforced. The problem is
-  that a six-level enum advertises granularity the system does not have, and a client can send
-  `CHANGEPERMISSIONS` in a grant, have it stored, and have it never consulted — which is worse than
-  the level not existing, because it reads as a restriction. Either enforce the two unused levels or
-  remove them and document that write implies re-sharing. `PUBLISH` and `CREATE_DRAFT` want the same
-  question asked of them; the artifact lifecycle enforces publication state, but whether it does so
-  via these levels is unverified.
+  `PUBLISH` and `CREATE_DRAFT` are inert in a sharper way, and it is now checked rather than assumed.
+  Publishing and drafting are **owner-only**: `userCanPerformVersioning` asks
+  `userIsOwnerOfFilesystemResource` and nothing else. So granting `PUBLISH` cannot let the grantee
+  publish, and granting `CREATE_DRAFT` cannot let them draft — the levels name operations they do not
+  confer. Worse, the grant is *accepted and stored*: `ArtifactLifecycleMatrixTest` grants each level
+  successfully and then gets the same `VERSIONING_ONLY_BY_OWNER` refusal that a user with no grant
+  receives.
+
+  So the model as built has three tiers — read, write, owner — wearing a six-level enum. That may be
+  the intended design, and it is consistent and enforced. The problem is what the extra levels do to a
+  reader and to a client: a level that can be granted, is stored, and is never consulted reads as a
+  restriction while being none. Either enforce the four unused levels or remove them and document the
+  three tiers, including that write implies re-sharing and that versioning is owner-only.
 
 - **Add degradation tests.** Nothing asserts how a service behaves when a dependency it needs is
   unavailable. The cost of that gap is known: reading any folder whose creator could not be resolved
