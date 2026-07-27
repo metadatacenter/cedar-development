@@ -61,7 +61,7 @@ bash $CEDAR_HOME/cedar-development/ops/cedar-services.sh status
 # 3. log in
 open https://cedar.metadatacenter.orgx    # test1@test.com / test1   (also test2@test.com / test2)
 
-# 4. optional: prove the stack end to end (login, folder + template round-trip; ~45 s)
+# 4. optional: prove the stack end to end (login, folder + template round-trip; ~30 s)
 (cd ops/e2e && npm run smoke)
 ```
 
@@ -302,6 +302,23 @@ and the JSON Schema validator swap) passed every suite yet had real runtime defe
 redeploy and smoke run caught. After any change touching inter-service HTTP, validation, or startup
 wiring: rebuild, redeploy, and run `ops/e2e` before trusting green suites.
 
+The full gate, in order:
+
+```bash
+cedarcli build java                                                # authoritative full build
+bash $CEDAR_HOME/cedar-development/ops/cedar-services.sh restart    # ALL 21 — pass no names
+bash $CEDAR_HOME/cedar-development/ops/cedar-services.sh health     # exit 0 only if all healthy
+cd $CEDAR_HOME/cedar-development/ops/e2e && npm run smoke
+```
+
+Pass `restart` no service names. With no arguments it restarts everything the script manages,
+which includes the gulp frontend and the five `ui-*` frontends, not only the 15 Dropwizard
+services. Naming services explicitly narrows that and is easy to get wrong: a list of the Java
+services alone leaves the frontend running whatever it started with, so the gate cannot catch a
+frontend regression at all. Gate on `health` rather than reading the status table, and expect it to
+take a couple of minutes — the bridge server reports unhealthy until its CompTox registry finishes
+loading, which is normal and not a fault.
+
 ## Dependency and Framework State
 
 Two things are locked and must not move: **Java 17**, and the **persistence and infrastructure
@@ -355,15 +372,35 @@ a failure leaves a screenshot in `ops/e2e/failures/`.
 ```bash
 cd ops/e2e
 npm install            # once per machine
-npm run smoke          # headless, ~45 s
+npm run smoke          # headless, ~30 s
 npm run smoke:headed   # watch it in a real browser
 ```
 
 Needs the app tier up (frontend, resource, user, group, artifact at least — `cedar-services.sh
 status`). Credentials and base URL come from the profile environment, with the local-dev values
-as fallbacks. The UI gestures reuse the selectors verified by the tutorial runner
-(`cedar-tutorial/runner`); the create and delete gestures retry, because the dashboard's row menu
-binds its handlers asynchronously and an early click fires silently.
+as fallbacks. The UI gestures reuse the selectors verified by the tutorial runner, which now lives
+in `cedar-mkdocs/runner` (`cedar-tutorial` is abandoned and its copy is stale).
+
+Two gestures retry, and it is worth knowing what each retry is actually for, because both were
+misdiagnosed for a long time and the wrong explanations cost hours.
+
+**Deleting a row.** The sweetalert confirmation binds its click handler as the dialog animates in,
+and Playwright clicks as soon as the button is visible, stable and enabled — none of which implies
+a handler is attached. The click was being swallowed and the delete never issued. `confirmDelete`
+settles before clicking, which fixed it. `deleteRow` also waits for the `DELETE` response rather
+than watching the listing, so the three outcomes stay distinct: no request means the gesture never
+reached the server and is worth retrying, a non-2xx fails immediately, and a 2xx means the delete
+happened so a listing that stays stale is index lag rather than a failed delete. This step used to
+fail about a third of runs and was long blamed on the search index lagging the delete; the request
+simply was not being sent. If it starts burning retries again, check the Dropwizard access log for a
+`DELETE` before suspecting the backend.
+
+**Constraining a field to a DOID branch.** The whole create-template-and-constrain block retries as
+a unit, each attempt starting from the designer deep link, because only a page load helps: the
+editor loads BioPortal's ontology list once per page and latches an empty cache when that load
+fails, so re-running the ontology *search* re-reads the same empty cache and can never succeed. The
+underlying frontend defect is unfixed and on the [roadmap](./ROADMAP.md); the retry tolerates it
+rather than curing it.
 
 ## Login
 
