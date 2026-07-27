@@ -10,6 +10,45 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
 
 ## Next
 
+- **Settle the sharing and permission model, then write it down.** This is the umbrella item: the
+  pieces below are each small, and separately each looks like a quirk, but together they say the model
+  was never specified in one place, so every surface decided for itself. Controlled sharing is what
+  CEDAR is for, which makes this the part most worth being deliberate about. All of it is now pinned by
+  tests, so the behaviour cannot drift further while the decisions are made — and each test named here
+  will fail and demand attention when a decision lands.
+
+  What was found, in the order it bites a reader:
+
+  - **Six declared permission levels, two enforced.** `READ` and `WRITE` are checked;
+    `CHANGEPERMISSIONS`, `CHANGEOWNER`, `PUBLISH` and `CREATE_DRAFT` are consulted nowhere, yet can be
+    granted and stored. Detailed in its own item below.
+  - **`WRITE` confers re-sharing, but not versioning.** The ACL update asks only for write access, so
+    editing implies re-sharing; versioning asks for ownership, so it does not. Two different answers to
+    "what does write let me do", and neither is written down.
+  - **Reading an ACL costs a different permission per resource kind.** A folder's permissions need read
+    access; a category's need *write*. Same operation, different bar.
+  - **Categories are world-readable, folders are not.** A category is readable by any authenticated
+    user holding the role, with no per-category check, because it is a shared vocabulary. Defensible,
+    and the opposite of every other resource, and undocumented.
+  - **Group membership confers no read.** A member cannot fetch the group or its member list, so a user
+    can reach resources through a group they cannot see and cannot discover who else can reach them.
+  - **Denials answer 401 or 403 depending on which code path refuses.** Detailed in its own item below.
+  - **Authority checks live in different layers per subsystem**, so one of them is bypassable by a
+    non-HTTP caller. Detailed in its own item below.
+  - **The ACL response is only half round-trippable.** `CedarNodePermissionsWithExtract` cannot be
+    deserialized once it contains a group grant: `CedarGroupExtract` declares only a two-argument
+    constructor with no default one, while `CedarUserExtract` has both. Any Java client parsing a
+    permissions response with the shared model fails on group grants — `SharingRoundTripTest` has to
+    read a tree for that case. A one-line constructor fixes it; the reason it is here rather than done
+    is that it is a shared-library change that wants an owner's eye.
+
+  The deliverable is a short written statement of the model — what the tiers are, what each confers,
+  and which of the above are intentional — followed by making the code and the enum agree with it.
+  Pinned by `FolderPermissionLevelMatrixTest`, `ArtifactPermissionLevelMatrixTest`,
+  `SharingRoundTripTest`, `ArtifactsAndCategoriesAuthorizationMatrixTest`,
+  `GroupMembershipAuthorizationMatrixTest`, `GroupSharingRevocationIntegrationTest` and
+  `ArtifactLifecycleMatrixTest`.
+
 - **Separate authentication from authorization in `CedarErrorType`.** The enum maps
   `AUTHORIZATION` to `UNAUTHORIZED`, so a permission denial that travels as a `BackendCallResult`
   error answers 401 where it should answer 403. `PUT /folders/{id}/permissions` is the observed
