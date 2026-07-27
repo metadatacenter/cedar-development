@@ -410,6 +410,14 @@ frontend regression at all. Gate on `health` rather than reading the status tabl
 take a couple of minutes — the bridge server reports unhealthy until its CompTox registry finishes
 loading, which is normal and not a fault.
 
+A full `restart` is slow (it stops and starts 21 processes) and can be cut short — a shell timeout,
+an interrupt — partway through, leaving some services on the previous build. So after it, run
+`status` and confirm the **BINARY** column reads `current` for every service (see the BINARY/`~pid`
+explanation above); a `STALE` warning means that service kept its old jar. Restart just the
+stragglers by name — `cedar-services.sh restart <name...>` — and re-check. A `health` gate alone
+will not catch this: a stale service is still healthy. This bit more than once during a fix-and-
+redeploy pass, where a truncated `restart` left the group and messaging servers a build behind.
+
 ## Dependency and Framework State
 
 Two things are locked and must not move: **Java 17**, and the **persistence and infrastructure
