@@ -13,11 +13,11 @@ import { suite, check, checkStatus, call, cleanup, artifactBody, KINDS, enc, RUN
 
 export const name = 'download';
 
-// The two YAML media types in play. The CRUD routes' @Produces advertises both, but /download
-// advertises only x-yaml (it is missing the application/yaml alias the GET/PUT methods carry), so a
-// download must be requested as x-yaml or it 406s — pinned below. The GET section uses the alias to
-// extend negotiation.mjs's template-only coverage of it to the other three kinds.
-const DL_YAML = 'application/x-yaml';
+// The two YAML media types the API accepts. Both /download and the CRUD routes advertise both in
+// their @Produces, so either works; the download matrix requests the common, IANA-registered
+// application/yaml, and a separate check confirms the x-yaml alias is honored too.
+const DL_YAML = 'application/yaml';
+const XYAML = 'application/x-yaml';
 const GET_YAML = 'application/yaml';
 // The provenance/version keys that a full serialization carries and a compact one omits. Anchored to
 // a line start (with the YAML two-space indent tolerated) so a substring inside a value never matches.
@@ -55,7 +55,7 @@ export async function run({ user1, folderId }) {
           `@id was ${j.body?.['@id']}`);
     }
 
-    // YAML — full form. Requested as x-yaml because that is all download advertises (see the pin below).
+    // YAML — full form.
     const yf = await call(auth, 'POST', dl, undefined, { accept: DL_YAML });
     let fullYaml = null;
     if (checkStatus(yf, 200, `${kind}: downloads as YAML`)) {
@@ -87,18 +87,17 @@ export async function run({ user1, folderId }) {
     }
   }
 
-  suite('download: KNOWN DEFECT — download refuses the application/yaml alias');
+  suite('download: both YAML media types are accepted');
 
-  // The CRUD routes' @Produces advertises both application/x-yaml and application/yaml; /download
-  // advertises only x-yaml, so the common, IANA-registered application/yaml — which works on GET — is
-  // refused with 406 by download. An inconsistency, not a deep bug: adding the alias to download's
-  // @Produces on all four kinds fixes it. Pinned so it flips when that lands.
+  // The download matrix above uses application/yaml; confirm the x-yaml alias is honored too, so
+  // download matches the CRUD routes, which advertise both. (A regression here would be download's
+  // @Produces losing one of the two YAML media types.)
   if (baseTemplateId) {
-    const alias = await call(auth, 'POST', `/templates/${enc(baseTemplateId)}/download`, undefined,
-        { accept: GET_YAML });
-    check(alias.status === 406,
-        'KNOWN DEFECT pinned: download of application/yaml is 406 though GET accepts that media type',
-        `expected the current 406, got ${alias.status} — a 200 means download gained the alias (fixed)`);
+    const xy = await call(auth, 'POST', `/templates/${enc(baseTemplateId)}/download`, undefined,
+        { accept: XYAML });
+    check(xy.status === 200 && (xy.headers.get('content-type') || '').includes('yaml'),
+        'download also accepts application/x-yaml',
+        `expected 200 + yaml, got ${xy.status} / ${xy.headers.get('content-type')}`);
   }
 
   suite('download: the compact form is export-only, not writable back');
