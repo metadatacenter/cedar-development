@@ -15,13 +15,14 @@
 // local-dev values as fallbacks. Exit code 0 = pass; on failure a screenshot is
 // written to failures/.
 //
-// The dashboard gestures (row lookup, menus, delete confirmation, template
-// save) mirror the selectors verified by the tutorial runner
-// (cedar-tutorial/runner/lib.mjs and steps.mjs).
+// Selectors live in ./selectors.mjs, which is the one place to edit when the
+// template editor's markup moves. They were originally established by the tutorial
+// runner, now in cedar-mkdocs/runner, which still keeps its own copies.
 import { chromium } from 'playwright';
 import { mkdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
+import * as S from './selectors.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const FAIL_DIR = resolve(__dirname, 'failures');
@@ -36,10 +37,10 @@ const RUN_ID = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
 const FOLDER_NAME = `E2E Smoke ${RUN_ID}`;
 const TEMPLATE_NAME = `E2E Smoke Template ${RUN_ID}`;
 
-// ── dashboard helpers (selectors verified by the tutorial runner) ───────────
+// ── dashboard helpers ──────────────────────────────────────────────────────
 const enc = iri => encodeURIComponent(iri);
 
-const row = (page, title) => page.locator('div.resource-instance', {
+const row = (page, title) => page.locator(S.ROW, {
   has: page.getByText(title, { exact: true }),
 }).first();
 
@@ -50,7 +51,7 @@ async function menuItem(page, label) {
 async function openRowMenu(page, title) {
   const r = row(page, title);
   await r.scrollIntoViewIfNeeded();
-  await r.locator('button.more-button').click();
+  await r.locator(S.ROW_MENU_BUTTON).click();
   await page.waitForTimeout(800); // let the Angular dropdown bind its handlers
 }
 
@@ -62,7 +63,7 @@ async function openRowMenu(page, title) {
 // same race openRowMenu settles for the dropdown above, and the cause of the
 // "sent no DELETE request" retries.
 async function confirmDelete(page) {
-  const yes = page.getByRole('button', { name: 'Yes, delete it!' });
+  const yes = page.getByRole('button', { name: S.DELETE_CONFIRM_NAME });
   await yes.waitFor({ state: 'visible', timeout: 10_000 });
   await page.waitForTimeout(600);
   await yes.click({ timeout: 10_000 });
@@ -138,8 +139,7 @@ async function deleteRow(page, name, folderId) {
   throw new Error(`"${name}" was never deleted: 5 gestures, none of which sent a DELETE request`);
 }
 
-// ── controlled-term helpers (selectors verified by the tutorial runner:
-//    cedar-tutorial/runner/steps.mjs + term-steps.mjs) ───────────────────────
+// ── controlled-term helpers ────────────────────────────────────────────────
 
 // Field-editor inputs bind ng-model-options debounce ~1s; set atomically then wait.
 async function setText(loc, value) {
@@ -150,7 +150,7 @@ async function setText(loc, value) {
 
 // Add a plain text field on the open template designer and name it.
 async function addTextField(page, name, help) {
-  await page.locator('a:has(i.fa-font)').click(); // text field palette icon
+  await page.locator(S.PALETTE_TEXT_FIELD).click(); // text field palette icon
   await setText(page.getByRole('textbox', { name: 'Enter Field Name' }).last(), name);
   if (help) await setText(page.getByRole('textbox', { name: 'Enter Field Help Text' }).last(), help);
 }
@@ -161,16 +161,16 @@ async function addTextField(page, name, help) {
 // the terminology server's live ontology search and class-tree browse end to end.
 async function constrainToDoidDiseaseBranch(page) {
   const rowText = 'Human Disease Ontology (DOID)';
-  await page.locator("[ng-click*=\"setTab('values')\"]").filter({ visible: true }).first().click();
+  await page.locator(S.FIELD_VALUES_TAB).filter({ visible: true }).first().click();
   await page.waitForTimeout(400);
   await page.getByRole('button', { name: 'Add', exact: true }).click(); // open the picker
   await page.waitForTimeout(800);
-  await page.locator('i.fa-cog').first().click();                       // advanced options
+  await page.locator(S.PICKER_ADVANCED_GEAR).first().click();                       // advanced options
   // The mode radio is a hidden/styled input whose AngularJS ng-change only fires on a
   // real DOM click; check({force}) and coordinate clicks don't trigger it, leaving the
   // picker in term mode. Dispatch a DOM click straight at the element (verified to switch
   // tsc.searchScope to 'ontologies').
-  await page.locator('#search-scope-2').dispatchEvent('click');        // "search for an ontology"
+  await page.locator(S.SEARCH_SCOPE_ONTOLOGIES).dispatchEvent('click');        // "search for an ontology"
   await page.waitForTimeout(500);
   await page.getByRole('textbox', { name: 'Search field' }).fill('Human Disease Ontology');
   // The ontology list loads on demand (a ~600KB BioPortal-backed call, filtered client-side), so
@@ -184,22 +184,22 @@ async function constrainToDoidDiseaseBranch(page) {
   const doidRow = page.getByText(rowText, { exact: false }).first();
   let found = false;
   for (let i = 0; i < 6 && !found; i++) {
-    await page.locator('i.fa-search').last().click();                   // run the search
+    await page.locator(S.PICKER_SEARCH).last().click();                   // run the search
     try { await doidRow.waitFor({ timeout: 5000 }); found = true; }
     catch { await page.waitForTimeout(2000); }
   }
   if (!found) throw new Error('DOID did not appear in the ontology picker — the ontology list is empty');
   await doidRow.click({ timeout: 8000 }).catch(() => {});
   await page.waitForTimeout(2500);                                      // DOID class tree loads
-  const node = page.locator('[ng-click*="getClassDetailsCallback"]')
+  const node = page.locator(S.CLASS_TREE_NODE)
     .filter({ hasText: /^\s*disease\s*$/i }).first();                   // the DOID:4 root branch
   await node.waitFor({ timeout: 20_000 });
   await node.click();
   await page.waitForTimeout(1500);
-  await page.locator('[ng-click*="stageBranchValueConstraint"]').first().click(); // stage Branch
+  await page.locator(S.STAGE_BRANCH).first().click(); // stage Branch
   await page.waitForTimeout(400);
-  await page.locator("[ng-click*='addValueConstraint']").first().click({ force: true }); // commit
-  await page.locator('[ng-click*="stageBranchValueConstraint"]')
+  await page.locator(S.ADD_VALUE_CONSTRAINT).first().click({ force: true }); // commit
+  await page.locator(S.STAGE_BRANCH)
     .waitFor({ state: 'detached', timeout: 8000 }).catch(() => {});     // picker closed
   await page.waitForTimeout(800);
 }
@@ -224,10 +224,10 @@ async function openPopulate(page, folderId, templateName) {
 // the terminology server suggests a matching DOID term (then pick it to fill). This
 // is the end-to-end check that the value constraint resolves to live suggestions.
 async function verifyDiseaseSuggestion(page, query) {
-  const box = page.locator('input[placeholder="Start typing to filter"]').first();
+  const box = page.locator(S.CONTROLLED_TERM_INPUT).first();
   await box.waitFor({ timeout: 20_000 });
   const opt = page.getByRole('option', { name: new RegExp(query, 'i') })
-    .or(page.locator('mat-option', { hasText: new RegExp(query, 'i') }));
+    .or(page.locator(S.SUGGESTION_OPTION, { hasText: new RegExp(query, 'i') }));
   for (let attempt = 1; attempt <= 3; attempt++) {
     await box.click();
     await box.fill('');
@@ -257,9 +257,9 @@ try {
   //    the Keycloak form; the "New" button only exists once authenticated.
   step = 'login';
   await page.goto(`${BASE}/dashboard`);
-  await page.locator('#username, input[name="username"]').first().fill(USER);
-  await page.locator('#password, input[name="password"]').first().fill(PASSWORD);
-  await page.locator('#kc-login, button[type="submit"], input[type="submit"]').first().click();
+  await page.locator(S.KC_USERNAME).first().fill(USER);
+  await page.locator(S.KC_PASSWORD).first().fill(PASSWORD);
+  await page.locator(S.KC_SUBMIT).first().click();
   await page.getByRole('button', { name: 'New' }).waitFor({ timeout: 60_000 });
   console.log(`✓ logged in as ${USER}`);
 
@@ -272,7 +272,7 @@ try {
     await gotoListing(page);
     await page.getByRole('button', { name: 'New' }).click();
     await menuItem(page, 'Folder');
-    const dialog = page.getByRole('dialog').or(page.locator('.modal'));
+    const dialog = page.getByRole('dialog').or(page.locator(S.MODAL));
     await dialog.getByRole('textbox').fill(FOLDER_NAME);
     await dialog.getByRole('button', { name: 'Save' }).click();
     for (let poll = 1; poll <= 6; poll++) {
