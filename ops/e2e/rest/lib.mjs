@@ -102,10 +102,17 @@ export async function actors() {
       env.CEDAR_FRONTEND_local_USER1_PASSWORD ?? 'test1');
   const u2 = await token(env.CEDAR_FRONTEND_local_USER2_LOGIN ?? 'test2@test.com',
       env.CEDAR_FRONTEND_local_USER2_PASSWORD ?? 'test2');
-  return {
+  const out = {
     user1: { auth: u1, profile: await profile(u1) },
     user2: { auth: u2, profile: await profile(u2) },
   };
+  // The administrator, by API key rather than password: the CEDAR admin user is not a Keycloak login
+  // with a password in the profile, but its key is. Some surfaces are admin-only — the category tree
+  // is writable only by someone with write on the root — so without this they cannot be exercised
+  // at all. Absent means the suites that need it skip rather than fail.
+  const adminKey = env.CEDAR_ADMIN_USER_API_KEY;
+  if (adminKey) out.admin = { auth: adminKey };
+  return out;
 }
 
 // ── requests ────────────────────────────────────────────────────────────────
@@ -114,8 +121,17 @@ export async function actors() {
  * One request against the resource server. Returns the status, the parsed body when it is JSON,
  * and always the raw text, because an error body is often the only useful thing in a failure.
  */
+/**
+ * The Authorization header for a credential. A JWT from the password grant is a Bearer token; an
+ * administrator's API key is not, and CEDAR's own scheme is `apiKey <key>`. Detected by shape so a
+ * suite can pass either without caring which it has.
+ */
+function authHeader(auth) {
+  return auth.split('.').length === 3 ? `Bearer ${auth}` : `apiKey ${auth}`;
+}
+
 export async function call(auth, method, path, body, opts = {}) {
-  const headers = { Authorization: `Bearer ${auth}` };
+  const headers = { Authorization: authHeader(auth) };
   if (body !== undefined) headers['Content-Type'] = opts.contentType ?? 'application/json';
   if (opts.accept) headers['Accept'] = opts.accept;
   const res = await fetch(`${RESOURCE}${path}`, {
@@ -170,9 +186,13 @@ export const KINDS = [
 
 const registry = [];
 
-/** Registers something for deletion. Newest first, so teardown unwinds in dependency order. */
-export function cleanup(kind, path, name) {
-  registry.unshift({ kind, path, name });
+/**
+ * Registers something for deletion. Newest first, so teardown unwinds in dependency order. An
+ * optional credential covers the things the first user cannot delete — a category belongs to the
+ * administrator who created it.
+ */
+export function cleanup(kind, path, name, auth) {
+  registry.unshift({ kind, path, name, auth });
 }
 
 /**
@@ -182,12 +202,13 @@ export function cleanup(kind, path, name) {
 export async function teardown(auth) {
   let removed = 0;
   for (const item of registry) {
-    const del = await call(auth, 'DELETE', item.path);
+    const as = item.auth ?? auth;
+    const del = await call(as, 'DELETE', item.path);
     if (del.status !== 204 && del.status !== 200) {
       bad(`teardown: ${item.kind} "${item.name}" not deleted`, `${del.status}: ${(del.text ?? '').slice(0, 200)}`);
       continue;
     }
-    const after = await call(auth, 'GET', item.path);
+    const after = await call(as, 'GET', item.path);
     if (after.status < 400) {
       bad(`teardown: ${item.kind} "${item.name}" still readable after deletion`, `GET returned ${after.status}`);
       continue;

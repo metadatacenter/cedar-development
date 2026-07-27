@@ -239,6 +239,18 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
   live stack should not mutate the one folder a user cannot recreate. If rename should be refused, the
   check belongs beside the delete-refusal assertion already there.
 
+- **Decide whether users can classify their own artifacts.** Attaching a category to an artifact
+  requires a grant on the *category*, not merely on the artifact: `ATTACH` (or `WRITE`, which implies
+  it) must be held on the category being attached. The category tree is writable only by someone with
+  write on the root, which is an administrator, so out of the box a normal user can read the vocabulary
+  and attach nothing to anything — including to templates they own.
+
+  This is the design working as built, and `ATTACH` is one of the few permission levels that *is*
+  enforced. But it means the category picker is inert for ordinary users until an administrator grants
+  `ATTACH` on each category, and nothing in the product surfaces that. Either grant `ATTACH` broadly
+  when a category is created, or make the requirement visible. `ops/e2e/rest/suites/categories.mjs`
+  pins the whole sequence: refused without the grant, allowed with it.
+
 - **Add degradation tests.** Nothing asserts how a service behaves when a dependency it needs is
   unavailable. The cost of that gap is known: reading any folder whose creator could not be resolved
   returned 500 for as long as the defect existed, because `UserSummaryCache` let Guava's
