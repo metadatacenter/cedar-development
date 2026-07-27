@@ -355,6 +355,14 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
   either fix or silence each so the build output is meaningful again. Low urgency, but the longer it
   waits the more a genuinely new warning hides in the crowd.
 
+- **Let `/download` accept the `application/yaml` alias.** The four `POST /{kind}/{id}/download`
+  endpoints advertise only `application/x-yaml` in their `@Produces`, so a client sending the common,
+  IANA-registered `Accept: application/yaml` — which the GET/PUT routes accept, because their
+  `@Produces` lists both — gets a 406 from download. A one-line fix per resource: add `"application/yaml"`
+  to each download method's `@Produces`, matching the CRUD routes. Pinned in
+  `ops/e2e/rest/suites/download.mjs`, which otherwise covers the JSON / YAML / compact-YAML download
+  matrix and read-negotiation across all four kinds.
+
 - **Point the token-verification client at a truststore in production.** Token-signature verification
   fetches the realm's signing keys over HTTPS; on the local stack that client trusts the self-signed
   `.orgx` certificate (`disableTrustManager` in `KeycloakDeploymentProvider`, matching the admin
