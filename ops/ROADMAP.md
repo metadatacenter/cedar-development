@@ -185,21 +185,6 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
   re-enabling the guard together with a supported cleanup path (e.g. an admin-only delete, or cascading
   through folder deletion). The re-publish immutability above is unaffected — that is enforced.
 
-- **Remove deleted resources from the search index.** Deletion never reaches the index. After a run of
-  `ops/e2e/rest-smoke.mjs`, `GET /search` returned 28 hits of which all 28 answered 404 on a direct
-  read, with entries persisting well beyond ten minutes and accumulating across runs. A user who
-  deletes a folder or template keeps finding it in search.
-
-  This is the same architectural cause as the grant-not-reaching-the-index item above, and is folded
-  into that one focused change ("Make search-index mutations reliable"): the delete calls the non-retry
-  `removeDocumentFromIndex`, which is a `deleteByQuery` on `cid` against an unrefreshed snapshot, so it
-  matches nothing and the document survives. A deterministic `_id = cid` makes it a reliable
-  delete-by-id. The dashboard listing does clear, so the defect is in the search projection
-  specifically, not in the graph. It is also what the UI smoke's delete-retry loop was quietly
-  absorbing, and why that loop was long misread as index lag. `rest-smoke.mjs` reports the count
-  without failing on it, since failing a gate on a pre-existing stale index would only make the gate
-  unusable.
-
 - **Classify the errors that still answer 500.** Two client mistakes remain reported as server faults,
   and each has its own cause — neither is the error-pack default, which is now fixed (see below).
 
@@ -361,14 +346,6 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
   been readable by anyone for years. BioPortal rate-limits per key, and a burnt quota surfaces to
   users as controlled terms silently not existing, because the picker latches its empty cache for the
   life of the page: the same defect described in the term-picker item above.
-
-- **The vestigial published-delete guard stays commented out.** `AbstractResourceServerResource.executeArtifactDelete`
-  still carries the `PUBLISHED_ARTIFACT_CAN_NOT_BE_DELETED` check as a commented-out block, disabled by
-  commit `3f26ee7` (2021, "Allow users to delete published resources"). It was briefly re-enabled during
-  the recent fix pass and then reverted by decision: published artifacts remain deletable, which
-  contradicts the docs. Rather than delete the dead block outright, the comment now records the reason
-  it is off and points at the open decision (see "A published artifact can be deleted" in Next). Resolve that item first; whichever way it goes, the block and its now-unreachable error key are
-  cleaned up as part of it.
 
 - **Investigate the warnings in the Java builds.** `cedarcli build java` completes with `BUILD
   SUCCESS` but emits a stream of warnings along the way — unused `dependency:analyze` findings,
