@@ -3,7 +3,7 @@
 // Groups live on the group server rather than the resource server, and they are the vehicle for two
 // distinct things — sharing with a named set of people, and sharing with everybody. This suite covers
 // the groups themselves; group-sharing covers what a grant to one confers.
-import { suite, check, checkStatus, group, cleanup, everybodyGroup, note, enc, RUN, GROUP_SERVER } from '../lib.mjs';
+import { suite, check, checkStatus, group, cleanup, everybodyGroup, enc, RUN, GROUP_SERVER } from '../lib.mjs';
 
 export const name = 'groups';
 
@@ -97,20 +97,19 @@ export async function run({ user1, user2 }) {
       'the everybody group cannot be deleted');
   checkStatus(await group(user1.auth, 'GET', everybodyAt), 200, 'and it is still there afterwards');
 
-  // Renaming it is attempted rather than assumed, and undone at once if it succeeds: the everybody
-  // group is part of the installation, and a test that leaves it renamed has damaged the instance.
+  // Renaming it is refused for the same structural reason as deletion: the update path rejects any
+  // special group before it ever reaches an administrator check, so no one — administrator or not —
+  // can rename it. The rename is still undone at once should it ever succeed, since the everybody
+  // group is part of the installation and a test that left it renamed would have damaged the instance.
   const originalName = everybody['schema:name'];
   const touch = await group(user1.auth, 'PUT', everybodyAt,
       { 'schema:name': `${originalName} touched by the REST suites`, 'schema:description': everybody['schema:description'] });
   if (touch.status === 200) {
     await group(user1.auth, 'PUT', everybodyAt,
         { 'schema:name': originalName, 'schema:description': everybody['schema:description'] });
-    const restored = await group(user1.auth, 'GET', everybodyAt);
-    note('the everybody group can be renamed, which the delete guard suggests was not intended',
-        `renamed and restored to "${restored.body?.['schema:name']}" — a special group should be as protected from renaming as from deletion`);
-  } else {
-    check(touch.status >= 400, 'and it cannot be renamed either', `expected 4xx, got ${touch.status}`);
   }
+  check(touch.status >= 400, 'and it cannot be renamed either',
+      `expected 4xx, got ${touch.status} — if 200, the everybody group was just renamed and restored`);
 
   suite('groups: membership, and who may change it');
 
