@@ -8,6 +8,9 @@ Scope: the **native-develop** setup (infrastructure as local binaries, microserv
 Dropwizard JVMs, frontends via `gulp`). The all-Docker deployment is a separate path and is not
 covered here.
 
+Known backend work items, and the decisions about what is deliberately not being done, are tracked
+in [ROADMAP.md](./ROADMAP.md).
+
 ## Architecture
 
 Three tiers:
