@@ -474,16 +474,19 @@ corpus for comparing two terminology servers (e.g. the current one against a SQL
 export CEDAR_API_KEY=…                                                  # production key, read-only
 python3 ops/cedar_ontology_usage.py --server https://resource.metadatacenter.org \
     --emit-constraints raw.jsonl                                        # harvest real constraints
-python3 ops/cedar_termcorpus_select.py --in raw.jsonl --out corpus.jsonl --count 100
+python3 ops/cedar_usage_matrix.py --in raw.jsonl --out matrix.jsonl --tsv matrix.tsv
 ```
 
-`cedar_termcorpus_select.py` dedupes, classifies each constraint by shape (which lookup kinds,
-multi-ontology, branch `maxDepth`, long class lists, `actions`), selects up to `--count` maximizing
-shape and source diversity, and expands each across a few `inputText` seeds (`""`, `a`, `e` by
-default — browse and prefix-search paths differ). Each output line is a case whose `request` field is
-POSTed verbatim to `/bioportal/integrated-search` (auth is disabled there) on each server; the two
-responses should be identical. The diff harness that does the comparison is not built yet — the two
-scripts produce the corpus it will consume.
+`cedar_usage_matrix.py` reduces the raw per-field harvest to the **atomic-target usage matrix**: one
+row per distinct `(kind, acronym, target)` terminology lookup, where `kind` is `ontology` (whole),
+`branch` (a class + its descendants), `class` (a picked class), or `valueSet`. It keeps EVERY distinct
+target — no sampling — so the matrix covers the full breadth of real usage; each row records how widely
+it is used (`seenIn` fields, `nArtifacts` artifacts), branch `maxDepth`s, one example provenance, and a
+minimal single-target `valueConstraints` block that POSTs verbatim to `/bioportal/integrated-search`
+(auth is disabled there) — so a row doubles as a runnable case. Display-name sources ending in a
+parenthesised acronym (`BioAssay Ontology (BAO)`) are normalized to the acronym so an ontology does not
+split into two rows. The diff harness that replays rows on two servers and compares responses is not
+built yet — the matrix is the corpus it will consume.
 
 ## End-to-End Smoke Test: `ops/e2e`
 
