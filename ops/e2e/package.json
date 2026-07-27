@@ -6,7 +6,8 @@
   "description": "End-to-end smoke test: log in to CEDAR through Keycloak, create a folder and a template inside it, then delete both",
   "scripts": {
     "smoke": "node login-smoke-test.mjs",
-    "smoke:headed": "HEADED=1 node login-smoke-test.mjs"
+    "smoke:headed": "HEADED=1 node login-smoke-test.mjs",
+    "smoke:rest": "node rest-smoke.mjs"
   },
   "dependencies": {
     "playwright": "^1.48.0"

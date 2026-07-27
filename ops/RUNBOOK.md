@@ -311,7 +311,17 @@ from, because they answer very different questions:
 | Matrices | 7 | Authorization, permission levels and artifact lifecycle, as tables |
 | Sharing and ownership | 1 | The `PUT .../permissions` round trip, including ownership transfer |
 | Content negotiation | 2 | YAML and JSON transcode both ways |
+| REST smoke | 1 | The real stack, no browser: the proxy, versioning, sharing, indexing |
 | End-to-end smoke | 1 | The real stack, through a browser |
+
+`ops/e2e` holds the two whole-stack tests, and they answer different questions. `npm run smoke:rest`
+drives the REST API directly, in about a second, and reaches what no unit suite can: the artifact write
+path (which proxies, so the per-service suites cannot follow it), publish and create-draft, whether the
+graph and the artifact server agree, sharing as two real users, and search-index propagation. It
+authenticates through Keycloak's password grant using the credentials already in the profile, so there
+are no API keys to keep. `npm run smoke` drives the same stack through a browser and is the only thing
+that covers the editor — but it is bound to AngularJS markup, so it is the more brittle of the two and
+the one that will not survive a frontend replacement. Prefer adding to the REST smoke.
 
 Two reusable helpers live in `cedar-test-support-library` and are the right starting point for new
 work. `RouteSurface` reflects over a server's JAX-RS classes and asserts every route answers a given
