@@ -73,6 +73,39 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
   restriction while being none. Either enforce the four unused levels or remove them and document the
   three tiers, including that write implies re-sharing and that versioning is owner-only.
 
+- **Put the authority checks in one layer.** The same class of operation is protected at different
+  layers depending on the subsystem, which is the kind of asymmetry that yields a bypass the first
+  time someone adds a caller.
+
+  For filesystem resources the check lives in the session layer:
+  `ResourcePermissionRequestValidator.validateWritePermission` refuses the ACL update, and
+  `AbstractResourceServerResource.updateResourcePermissions` carries no authority check of its own.
+  For groups it is inverted: `GroupUsersRequestValidator` validates only that the group exists and the
+  users are real, and the administrator check sits solely in the HTTP resource
+  (`GroupsResource.updateGroupMembers`, gating on `userAdministersGroup(gid) || <system permission>`).
+
+  So any non-HTTP caller of `GroupServiceSession.updateGroupUsers` changes a membership with no
+  administrator check at all. Nothing does today — the only caller is the endpoint, and the tests —
+  but membership is the widest lever in the sharing model, so a future in-process caller (a migration,
+  an admin tool, another service) would silently skip the boundary
+  `GroupMembershipAuthorizationMatrixTest` pins. Move the group check down into the validator, matching
+  resources, or state deliberately that session-layer callers are trusted.
+
+- **Check that revocation reaches the search index.** Listings and search are served from OpenSearch,
+  not from the graph, and permission changes reach it asynchronously through
+  `SearchPermissionEnqueueService`. Revocation is the fail-dangerous direction: if the index lags or
+  the message is lost, a user whose access was withdrawn keeps seeing the resource in their listings
+  and search results, and may still be able to open it from there depending on which reads are
+  index-backed.
+
+  `GroupSharingRevocationIntegrationTest` establishes that the graph stops granting access
+  immediately, on both membership removal and group deletion, so the model is right. What is unverified
+  is the projection of it. This cannot be tested in the current suites: they run
+  `NoOpNodeIndexingService` precisely so they need no OpenSearch, so the enqueue path is a no-op there.
+  It needs either a test with a real index, or an assertion at the smoke level that a revoked user's
+  listing no longer shows the resource. Related to the cross-service contract tests below, and to the
+  folder-listing staleness already documented in `deleteRow` in the smoke.
+
 - **Add degradation tests.** Nothing asserts how a service behaves when a dependency it needs is
   unavailable. The cost of that gap is known: reading any folder whose creator could not be resolved
   returned 500 for as long as the defect existed, because `UserSummaryCache` let Guava's
