@@ -213,6 +213,32 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
   the count without failing on it, since failing a gate on a pre-existing stale index would only make
   the gate unusable.
 
+- **Answer 400, not 500, to a malformed request.** Four routes turn a client's bad request into a
+  server fault, which misdirects whoever reads the log and tells the caller nothing:
+
+  - `POST /command/move-resource-to-folder` and `POST /command/copy-artifact-to-folder` read
+    `jsonBody.get("@id").asText()` with no guard, so a body missing the identifier is a null
+    dereference. `POST /command/rename-resource` reads through `CedarParameter` but still fails on the
+    empty id. All three answer 500.
+  - `GET /search?limit=100000` answers 500. An unbounded page size is also the denial-of-service
+    vector the pagination item mentions, so this wants clamping rather than only an error.
+  - `POST /template-fields` answers 500 when the body omits `pav:version` ("You need to provide a
+    non-null value for the parameter:version"), where the other artifact kinds answer 400.
+
+  All are pinned in `ops/e2e/rest/suites/` as current behaviour, so each will fail and prompt an
+  update when fixed. Guarding the reads is small; deciding whether an excessive `limit` is refused or
+  clamped is a judgement call worth making once and applying to all thirty-one paged endpoints.
+
+- **Decide whether a home folder may be renamed.** It can be, over REST: `PUT /folders/{home}` with a
+  new `schema:name` succeeds and the folder stays flagged `isUserHome`. Deleting it is correctly
+  refused. The Java folder matrix's comment assumes rename is refused too, so either the comment is
+  wrong or the endpoint is.
+
+  Discovered by a test that renamed a real home folder and had to be corrected by hand, which is why
+  `ops/e2e/rest/suites/folders.mjs` deliberately no longer attempts it: a suite that runs against a
+  live stack should not mutate the one folder a user cannot recreate. If rename should be refused, the
+  check belongs beside the delete-refusal assertion already there.
+
 - **Add degradation tests.** Nothing asserts how a service behaves when a dependency it needs is
   unavailable. The cost of that gap is known: reading any folder whose creator could not be resolved
   returned 500 for as long as the defect existed, because `UserSummaryCache` let Guava's

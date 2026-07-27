@@ -1,0 +1,199 @@
+// Shared harness for the REST-level end-to-end suites.
+//
+// The suites drive the real stack over HTTP with no browser. Everything they need is here:
+// authentication, a request helper, assertions that collect rather than abort, and a teardown
+// registry that verifies each deletion instead of trusting a status code.
+import { env } from 'node:process';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+
+export const HOST = env.CEDAR_HOST ?? 'metadatacenter.orgx';
+export const RESOURCE = env.CEDAR_RESOURCE_BASE ?? `https://resource.${HOST}`;
+export const USER_SERVER = env.CEDAR_USER_BASE ?? `https://user.${HOST}`;
+const KEYCLOAK = env.CEDAR_KEYCLOAK_BASE
+  ?? `http://${env.CEDAR_KEYCLOAK_HOST ?? '127.0.0.1'}:${env.CEDAR_KEYCLOAK_HTTP_PORT ?? '8080'}`;
+const REALM = env.CEDAR_KEYCLOAK_REALM ?? 'CEDAR';
+const CLIENT = env.CEDAR_KEYCLOAK_CLIENT ?? 'cedar-angular-app';
+
+// The local stack serves self-signed leaves from the CEDAR CA.
+env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+
+export const RUN = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+export const enc = iri => encodeURIComponent(iri);
+
+// ── results ─────────────────────────────────────────────────────────────────
+
+const results = { passed: 0, failed: 0, notes: 0 };
+let currentSuite = '';
+
+export function suite(name) {
+  currentSuite = name;
+  console.log(`\n── ${name} ${'─'.repeat(Math.max(0, 60 - name.length))}`);
+}
+
+export function ok(what) {
+  results.passed++;
+  console.log(`  ✓ ${what}`);
+}
+
+/** A failure. Recorded and reported; the suite keeps going so one run shows everything. */
+export function bad(what, detail) {
+  results.failed++;
+  console.error(`  ✗ ${what}\n      ${detail}`);
+}
+
+/**
+ * Something worth knowing that must not fail the gate — a defect these tests neither caused
+ * nor can fix, where failing would only make the gate unusable.
+ */
+export function note(what, detail) {
+  results.notes++;
+  console.warn(`  ! ${what}\n      ${detail}`);
+}
+
+export function check(condition, what, detail) {
+  if (condition) ok(what); else bad(what, detail);
+  return !!condition;
+}
+
+/** Asserts a status, reporting the body when it differs — the body is where the reason is. */
+export function checkStatus(res, expected, what) {
+  const list = Array.isArray(expected) ? expected : [expected];
+  return check(list.includes(res.status), what,
+      `expected ${list.join(' or ')}, got ${res.status}: ${(res.text ?? '').slice(0, 300)}`);
+}
+
+export function summary() {
+  return results;
+}
+
+// ── authentication ──────────────────────────────────────────────────────────
+
+async function token(login, password) {
+  const res = await fetch(`${KEYCLOAK}/realms/${REALM}/protocol/openid-connect/token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ grant_type: 'password', client_id: CLIENT, username: login, password }),
+  });
+  if (!res.ok) throw new Error(`Keycloak refused ${login}: ${res.status} ${await res.text()}`);
+  return (await res.json()).access_token;
+}
+
+/**
+ * The caller's own profile, which is where homeFolderId lives. There is no /users/me: the
+ * resource server exposes none, and the user server keys on the id, so the id comes from the
+ * token's `sub` claim.
+ */
+async function profile(auth) {
+  const claims = JSON.parse(Buffer.from(auth.split('.')[1], 'base64url').toString());
+  const res = await fetch(`${USER_SERVER}/users/${claims.sub}`, {
+    headers: { Authorization: `Bearer ${auth}` },
+  });
+  if (!res.ok) throw new Error(`could not read the profile for ${claims.sub}: ${res.status}`);
+  return res.json();
+}
+
+/** Both test users, authenticated, with their profiles. */
+export async function actors() {
+  const u1 = await token(env.CEDAR_FRONTEND_local_USER1_LOGIN ?? 'test1@test.com',
+      env.CEDAR_FRONTEND_local_USER1_PASSWORD ?? 'test1');
+  const u2 = await token(env.CEDAR_FRONTEND_local_USER2_LOGIN ?? 'test2@test.com',
+      env.CEDAR_FRONTEND_local_USER2_PASSWORD ?? 'test2');
+  return {
+    user1: { auth: u1, profile: await profile(u1) },
+    user2: { auth: u2, profile: await profile(u2) },
+  };
+}
+
+// ── requests ────────────────────────────────────────────────────────────────
+
+/**
+ * One request against the resource server. Returns the status, the parsed body when it is JSON,
+ * and always the raw text, because an error body is often the only useful thing in a failure.
+ */
+export async function call(auth, method, path, body, opts = {}) {
+  const headers = { Authorization: `Bearer ${auth}` };
+  if (body !== undefined) headers['Content-Type'] = opts.contentType ?? 'application/json';
+  if (opts.accept) headers['Accept'] = opts.accept;
+  const res = await fetch(`${RESOURCE}${path}`, {
+    method,
+    headers,
+    body: body === undefined ? undefined
+        : (typeof body === 'string' ? body : JSON.stringify(body)),
+  });
+  const text = await res.text();
+  let json;
+  try { json = text ? JSON.parse(text) : undefined; } catch { /* not JSON — keep the text */ }
+  return { status: res.status, body: json, text, headers: res.headers };
+}
+
+// ── fixtures ────────────────────────────────────────────────────────────────
+
+function fixture(name) {
+  return JSON.parse(readFileSync(resolve(HERE, '..', 'fixtures', name), 'utf8'));
+}
+
+/**
+ * A valid artifact of the given kind, named for the run.
+ *
+ * Loaded from fixtures rather than written inline: the meta-schema requires a `properties` block
+ * naming `@context`, `@id`, `oslc:modifiedBy` and more, which is knowledge that belongs with the
+ * schema. See fixtures/README.md. The identifier is stripped because a create carrying one is
+ * refused — and must be restored for an update, which requires it.
+ */
+export function artifactBody(kind, name, extra = {}) {
+  const files = {
+    template: 'minimal-template.json',
+    element: 'minimal-element.json',
+    field: 'minimal-field.json',
+    instance: 'minimal-instance.json',
+  };
+  const body = fixture(files[kind]);
+  delete body['@id'];
+  body['schema:name'] = name;
+  body['schema:description'] = `Created by the REST suites (${RUN})`;
+  return Object.assign(body, extra);
+}
+
+/** Where each artifact kind lives, and whether it carries a version chain. */
+export const KINDS = [
+  { kind: 'template', path: '/templates', versioned: true },
+  { kind: 'element', path: '/template-elements', versioned: true },
+  { kind: 'field', path: '/template-fields', versioned: true },
+  { kind: 'instance', path: '/template-instances', versioned: false },
+];
+
+// ── teardown ────────────────────────────────────────────────────────────────
+
+const registry = [];
+
+/** Registers something for deletion. Newest first, so teardown unwinds in dependency order. */
+export function cleanup(kind, path, name) {
+  registry.unshift({ kind, path, name });
+}
+
+/**
+ * Deletes everything registered and verifies each one is gone by reading it back. An earlier UI
+ * smoke left four scratch folders behind because it believed a status code.
+ */
+export async function teardown(auth) {
+  let removed = 0;
+  for (const item of registry) {
+    const del = await call(auth, 'DELETE', item.path);
+    if (del.status !== 204 && del.status !== 200) {
+      bad(`teardown: ${item.kind} "${item.name}" not deleted`, `${del.status}: ${(del.text ?? '').slice(0, 200)}`);
+      continue;
+    }
+    const after = await call(auth, 'GET', item.path);
+    if (after.status < 400) {
+      bad(`teardown: ${item.kind} "${item.name}" still readable after deletion`, `GET returned ${after.status}`);
+      continue;
+    }
+    removed++;
+  }
+  if (removed) console.log(`\n  cleaned up ${removed} resource(s)`);
+  registry.length = 0;
+}
