@@ -108,6 +108,22 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
   then a smoke run straight after a redeploy may fail at the DOID step and pass on a warm re-run,
   which is the pattern currently observed.
 
+- **Stop using the hardcoded BioPortal key, and rotate it.** `Constants.BP_PUBLIC_API_KEY` in
+  `cedar-terminology-server` holds a literal BioPortal key, and `Cache` sends it on the four calls
+  that populate the ontology and value-set caches (`findOntology` twice, `findAllOntologies`,
+  `findAllValueSets`). Those are the server's own calls rather than calls made for a signed-in user,
+  so production runs on that key at every start and every cache refresh. The configured path already
+  exists and is used elsewhere: `CEDAR_BIOPORTAL_API_KEY` reaches `BioPortal.getApiKey()` through
+  `cedar-main.yml`. Read the key from there and delete the constant. `Cache` is static, so the
+  configuration has to be threaded in, which is why this belongs to the terminology rewrite rather
+  than ahead of it.
+
+  Rotating the key at BioPortal is separate, needs no code change, and should not wait. The
+  repository is public and the constant dates from its earliest configuration commits, so the key has
+  been readable by anyone for years. BioPortal rate-limits per key, and a burnt quota surfaces to
+  users as controlled terms silently not existing, because the picker latches its empty cache for the
+  life of the page: the same defect described in the term-picker item above.
+
 - **Remove the vestigial published-delete guard.** `AbstractResourceServerResource.executeArtifactDelete`
   carries the `PUBLISHED_ARTIFACT_CAN_NOT_BE_DELETED` check as a commented-out block, disabled
   deliberately by commit `3f26ee7` (2021-02-08, "Allow users to delete published resources"). The
