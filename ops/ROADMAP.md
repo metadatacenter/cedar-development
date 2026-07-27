@@ -45,6 +45,27 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
   in every case; what is missing is the owner's happy path on those routes. That needs the
   cross-service contract tests described below, not another table here.
 
+- **Decide what the unenforced permission levels are for.** `FilesystemResourcePermission` declares
+  six: `READ`, `WRITE`, `CHANGEOWNER`, `CHANGEPERMISSIONS`, `PUBLISH`, `CREATE_DRAFT`. Outside the
+  enum declaration and tests, `CHANGEPERMISSIONS` and `CHANGEOWNER` appear nowhere in the codebase —
+  nothing ever consults them. Only read and write are enforced.
+
+  The visible consequence is that **a WRITE grant confers re-sharing**. Updating a folder's ACL is
+  gated by `ResourcePermissionRequestValidator.validateWritePermission`, which asks only
+  `userHasWriteAccessToResource`, so anyone granted write on a folder may rewrite who else can see
+  it — adding people, and revoking the grants of others. "Share so they can edit" is in practice
+  "share so they can re-share". `FolderPermissionLevelMatrixTest` pins this, and demonstrates it
+  rather than inferring it from a status: a user holding only WRITE rewrites the ACL and removes
+  their own grant.
+
+  This may well be the intended model, and it is at least consistent and enforced. The problem is
+  that a six-level enum advertises granularity the system does not have, and a client can send
+  `CHANGEPERMISSIONS` in a grant, have it stored, and have it never consulted — which is worse than
+  the level not existing, because it reads as a restriction. Either enforce the two unused levels or
+  remove them and document that write implies re-sharing. `PUBLISH` and `CREATE_DRAFT` want the same
+  question asked of them; the artifact lifecycle enforces publication state, but whether it does so
+  via these levels is unverified.
+
 - **Add degradation tests.** Nothing asserts how a service behaves when a dependency it needs is
   unavailable. The cost of that gap is known: reading any folder whose creator could not be resolved
   returned 500 for as long as the defect existed, because `UserSummaryCache` let Guava's
