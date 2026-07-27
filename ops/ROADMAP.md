@@ -122,14 +122,12 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
   A patch along these lines was written and verified live against the local stack, but is deliberately
   not committed: pushing frontend code needs an owner who is comfortable with it.
 
-- **Done, for reference: the smoke no longer depends on that bug being absent.** The ontology search
-  retried by re-clicking search, which re-reads the same permanently-empty cache and therefore could
-  never succeed however long it ran; the budget was 30 attempts over ~3.5 minutes. The
-  create-template-and-constrain block now retries as a unit, three times, each attempt starting from
-  the designer deep link, because that page load is what gives the service a fresh attempt. The inner
-  search loop is down to 6 iterations so a real failure escalates to a reload in ~40s instead of
-  stalling the run. Nothing is saved server-side until after the block, so a failed attempt leaves no
-  orphan template.
+  The end-to-end smoke no longer depends on this being fixed, which is what makes it a roadmap item
+  rather than a blocker. Its create-template-and-constrain block retries as a unit, each attempt
+  starting from the designer deep link, because that page load is the only thing that gives the
+  service a fresh attempt; re-running the ontology search inside the picker reads the same empty cache
+  and never could succeed. Nothing is saved server-side until after the block, so a failed attempt
+  leaves no orphan template.
 
 - **Stop using the hardcoded BioPortal key, and rotate it.** `Constants.BP_PUBLIC_API_KEY` in
   `cedar-terminology-server` holds a literal BioPortal key, and `Cache` sends it on the four calls
