@@ -461,6 +461,29 @@ python3 ops/cedar_ontology_usage.py --limit 50          # quick sample
 Caveat: `/search` is permission-scoped, so it inventories what the key can see. For a complete,
 instance-wide picture a MongoDB aggregate over the template collection's `_valueConstraints` is faster.
 
+### Terminology differential-testing corpus
+
+`--emit-constraints PATH` makes the same walk also write, as JSONL, every controlled-term field's
+`_valueConstraints` — trimmed to the shape the terminology server's `POST /bioportal/integrated-search`
+accepts (all four lookup lists `ontologies`/`branches`/`classes`/`valueSets` present, empty when
+absent, since that endpoint's validator rejects a null list) — with provenance. This is the raw
+corpus for comparing two terminology servers (e.g. the current one against a SQLite-backed one):
+
+```bash
+export CEDAR_API_KEY=…                                                  # production key, read-only
+python3 ops/cedar_ontology_usage.py --server https://resource.metadatacenter.org \
+    --emit-constraints raw.jsonl                                        # harvest real constraints
+python3 ops/cedar_termcorpus_select.py --in raw.jsonl --out corpus.jsonl --count 100
+```
+
+`cedar_termcorpus_select.py` dedupes, classifies each constraint by shape (which lookup kinds,
+multi-ontology, branch `maxDepth`, long class lists, `actions`), selects up to `--count` maximizing
+shape and source diversity, and expands each across a few `inputText` seeds (`""`, `a`, `e` by
+default — browse and prefix-search paths differ). Each output line is a case whose `request` field is
+POSTed verbatim to `/bioportal/integrated-search` (auth is disabled there) on each server; the two
+responses should be identical. The diff harness that does the comparison is not built yet — the two
+scripts produce the corpus it will consume.
+
 ## End-to-End Smoke Test: `ops/e2e`
 
 One command that proves the whole stack works from the outside, the way a user would exercise it:
