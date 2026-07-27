@@ -33,8 +33,9 @@ import * as sharing from './rest/suites/sharing.mjs';
 import * as search from './rest/suites/search.mjs';
 import * as negotiation from './rest/suites/negotiation.mjs';
 import * as categories from './rest/suites/categories.mjs';
+import * as validation from './rest/suites/validation.mjs';
 
-const ALL = [folders, artifacts, versioning, sharing, categories, search, negotiation];
+const ALL = [folders, artifacts, versioning, sharing, categories, validation, search, negotiation];
 
 const requested = argv.slice(2).filter(a => !a.startsWith('-'));
 const selected = requested.length
