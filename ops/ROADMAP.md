@@ -57,10 +57,23 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
   Both inter-layer bugs found recently, the media-type status and the empty ontology picker, were
   found by chance rather than by a test.
 
-- **Split readiness from liveness on the bridge server.** The bridge loads a 14,735-substance CompTox
-  registry at startup and its `/healthcheck` returns 500 for roughly ninety seconds while that runs.
-  Nothing is wrong, but every redeploy shows the service as UNHEALTHY, which is alarming to watch and
-  can exhaust a health-wait loop in tooling.
+- **Cache the CompTox substance registry locally.** On every start the bridge server rebuilds its
+  registry by fetching roughly 14,700 substances from the external CompTox API in batches of a
+  thousand, holding the result in a `ConcurrentHashMap` that dies with the process
+  (`SubstanceRegistry`, driven by the `Managed` `SubstanceRegistryLoader`). Three costs follow: the
+  load takes around ninety seconds, during which `/healthcheck` returns 500 and every redeploy shows
+  the service as UNHEALTHY; startup depends on a third party being reachable and on the API key being
+  valid at that moment; and each restart re-fetches a slowly-changing reference dataset that has not
+  meaningfully changed since the last one.
+
+  Persist it instead, and refresh on a schedule or when the local copy is stale rather than on every
+  boot, so the server serves from the cache immediately. SQLite fits and is already in the stack:
+  `org.xerial:sqlite-jdbc` is pinned in `cedar-parent` for the terminology local store, so there is
+  both precedent and an existing dependency to follow.
+
+  Splitting readiness from liveness in the health check is worth doing alongside, so that a server
+  which is up but still warming reports as such rather than as failed. On its own it only relabels
+  the ninety seconds; caching removes them.
 
 - **Upgrade the persistence and infrastructure servers.** These versions are currently pinned (see
   the runbook's version locks) while the client libraries have moved on. Order them by risk, lowest
@@ -78,6 +91,31 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
 - **Move `commons-fileupload2` off the milestone build.** The parent pins `2.0.0-M5` because no
   stable release existed when the jakarta migration needed it. Move to the stable line once it is
   published.
+
+- **Retry the ontology-list load in the term picker, and reload the page in the smoke.** The template
+  editor loads BioPortal's ontology list once per page load: `controlledTermDataService.init()` fires
+  the fetch and sets `initialized = true` synchronously, whether or not the fetch succeeded. If that
+  one attempt fails, which is likely just after a redeploy when the terminology server is cold and
+  BioPortal adds seconds, the cache stays empty for the life of the page and nothing retries it. A
+  user sees an empty "Add ontologies" box, with no error, until they reload. This is the same defect
+  class as the `UserSummaryCache` 500: a failed lookup latching permanently instead of retrying or
+  degrading. Set `initialized` only on success, or retry with backoff.
+
+  The end-to-end smoke has the matching gap. Its ontology search retries by re-clicking search, which
+  re-reads the same permanently-empty cache, so widening that retry budget cannot help; only a page
+  reload gives the service a fresh load attempt. The fix is an outer retry around the whole
+  create-template-with-constrained-field section rather than an inner retry around the search. Until
+  then a smoke run straight after a redeploy may fail at the DOID step and pass on a warm re-run,
+  which is the pattern currently observed.
+
+- **Remove the vestigial published-delete guard.** `AbstractResourceServerResource.executeArtifactDelete`
+  carries the `PUBLISHED_ARTIFACT_CAN_NOT_BE_DELETED` check as a commented-out block, disabled
+  deliberately by commit `3f26ee7` (2021-02-08, "Allow users to delete published resources"). The
+  block left `isSchemaArtifact` and `schemaArtifact` computed but unused, and the error key is now
+  unreachable. Delete the block, the dead locals and the key. The commented code reads as an
+  accidental omission rather than a decision, which costs a reader time and invites someone to
+  "restore" behaviour that was removed on purpose. `PUBLISHED_ARTIFACT_CAN_NOT_BE_CHANGED` stays: it
+  is still enforced, and `ArtifactLifecycleMatrixTest` records the asymmetry.
 
 ## Out of Scope
 
