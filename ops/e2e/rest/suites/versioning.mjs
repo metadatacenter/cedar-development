@@ -3,7 +3,7 @@ import { suite, check, checkStatus, call, cleanup, artifactBody, enc, RUN } from
 
 export const name = 'versioning';
 
-export async function run({ user1, admin, folderId }) {
+export async function run({ user1, folderId }) {
   const auth = user1.auth;
   suite('versioning: publish, then draft the published version');
 
@@ -12,10 +12,7 @@ export async function run({ user1, admin, folderId }) {
   if (!checkStatus(post, 201, 'template created')) return {};
   const id = post.body['@id'];
   const at = `/templates/${enc(id)}`;
-  // A published template cannot be deleted by its owner (see below), so its teardown goes through the
-  // administrator escape hatch. If no admin credential is configured it falls back to the owner and
-  // the leftover is reported — better than silently leaking.
-  cleanup('template', at, name0, admin?.auth);
+  cleanup('template', at, name0);
 
   check((await call(auth, 'GET', at)).body?.['bibo:status'] === 'bibo:draft',
       'a new template is a draft', 'it was not');
@@ -27,10 +24,6 @@ export async function run({ user1, admin, folderId }) {
         `status was ${after.body?.['bibo:status']}`);
     check(after.body?.['pav:version'] === '1.0.0', 'publishing set the requested version',
         `version was ${after.body?.['pav:version']}`);
-
-    // A published artifact is immutable, so its owner cannot delete it. An administrator still can,
-    // which is how teardown removes it.
-    checkStatus(await call(auth, 'DELETE', at), 400, 'and its owner cannot delete it once published');
 
     const draft = await call(auth, 'POST', '/command/create-draft-artifact',
         { '@id': id, folderId, newVersion: '1.0.1', propagateVersion: false });
@@ -59,8 +52,7 @@ export async function run({ user1, admin, folderId }) {
       artifactBody('template', `Republish Probe ${RUN}`));
   if (second.status === 201) {
     const sid = second.body['@id'];
-    // Published, so cleaned up through the administrator escape hatch (see above).
-    cleanup('template', `/templates/${enc(sid)}`, `Republish Probe ${RUN}`, admin?.auth);
+    cleanup('template', `/templates/${enc(sid)}`, `Republish Probe ${RUN}`);
     checkStatus(await call(auth, 'POST', '/command/publish-artifact', { '@id': sid, newVersion: '1.0.0' }),
         [200, 201], 'the probe template is published once');
     const again = await call(auth, 'POST', '/command/publish-artifact', { '@id': sid, newVersion: '1.0.1' });

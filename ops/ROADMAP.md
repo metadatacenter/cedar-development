@@ -10,35 +10,11 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
 
 ## Next
 
-- **Done: the token signature is now verified.** This was the most serious finding in the estate.
-  `KeycloakUtils` used to base64-decode the JWT payload and check only expiry and that the subject
-  resolved to a real user; the signature was never checked, so a token with any signature — or one
-  hand-built with no key material — authenticated as whoever its payload named. Fixed by building a
-  real `KeycloakDeployment` through `KeycloakDeploymentBuilder` (which installs a rotating
-  `JWKPublicKeyLocator` and the client that fetches the realm's signing keys) and routing token
-  resolution through `AdapterTokenVerifier.verifyToken`, which checks the signature, the issuer, and
-  that the token is active. An expired token still reports `TOKEN_EXPIRED`/`REFRESH_TOKEN` so the
-  frontend refreshes rather than logging out; every other failure is a 401. This also closed the
-  malformed-Bearer-500: an unparseable token is now rejected cleanly rather than faulting. Verified end
-  to end — every forgery in `ops/e2e/rest/suites/authentication.mjs` is refused, genuine tokens still
-  work across the whole REST smoke and the browser login. The one loose end left for production: the
-  key-fetching client currently trusts the local self-signed `.orgx` certificate
-  (`disableTrustManager`), matching the admin client; a real deployment should point it at a truststore
-  holding the realm CA (see the comment in `KeycloakDeploymentProvider`).
-
-- **Done: only administrators may change a group.** Every user was given the `groupAdministrator`
-  role, which carried `UPDATE_NOT_ADMINISTERED_GROUP` — the override that skips the "only
-  administrators may change this group" check — so any logged-in user could rename, re-staff, or delete
-  anyone's group, and could make themselves administrator to inherit everything shared with it.
-  `UPDATE_NOT_ADMINISTERED_GROUP` now lives in a new `groupPrivilegedAdministrator` role granted only to
-  the built-in admin, mirroring `categoryPrivilegedAdministrator`. Two of the four group-write handlers
-  (`updateGroup`, `patchGroup`) had no administrator check at all — only `GROUP_UPDATE`, which everyone
-  holds — so the same `userAdministersGroup(...) || has(UPDATE_NOT_ADMINISTERED_GROUP)` gate that
-  `deleteGroup`/`updateGroupMembers` already used was added there too. **Operational note:** a user's
-  permissions are expanded from roles and stored per user, so existing users keep the old override until
-  re-expanded — run the `userProfile-updateAll-updatePermissions` admin task after deploying (done on
-  the local stack). Verified by `ops/e2e/rest/suites/groups.mjs`, which now asserts an outsider and a
-  non-admin member are refused (403) while an administrator still succeeds.
+- **Point the token-verification client at a truststore in production.** Token-signature verification
+  fetches the realm's signing keys over HTTPS; on the local stack that client trusts the self-signed
+  `.orgx` certificate (`disableTrustManager` in `KeycloakDeploymentProvider`, matching the admin
+  client). A real deployment should instead trust a truststore holding the realm CA. Small, and only
+  matters outside local dev.
 
 - **Make search-index mutations reliable (grants and deletes). One architectural cause, still open.**
   This is the remaining index work and the next focused effort. Documents are indexed with a
@@ -56,21 +32,6 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
   only by the category paths). This needs an index regeneration for existing random-`_id` documents and
   live verification, so it is deliberately its own change. Pinned by `ops/e2e/rest/suites/finding.mjs`,
   and it is the same subsystem as the revocation-reaching-the-index item below.
-
-- **Done: an invalid `limit` or `offset` is refused with 400.** `/folders/{id}/contents` and `/search`
-  share `PagedQuery`, whose `validateLimit`/`validateOffset` threw a `CedarAssertionException` without
-  marking it a bad request, so a limit of zero, a negative limit or offset, and an excessive limit
-  (already capped at the configured max of 500) all answered 500. They now chain `.badRequest()` → 400.
-  A non-numeric limit (`limit=abc`) is rejected earlier, by Jersey's parameter conversion, and surfaces
-  as the framework's 404 rather than a 400; `CedarExceptionMapper` now honors a `WebApplicationException`'s
-  own status instead of forcing 500, so it is a clean client error either way. Verified by
-  `ops/e2e/rest/suites/pagination.mjs` and the excessive-limit check in `search.mjs`.
-
-- **Done: the four open commands guard the `@id`.** `CommandOpenResource`'s `make-artifact-open`,
-  `make-artifact-not-open`, `make-folder-open` and `make-folder-not-open` read `@id` through a
-  `CedarParameter` and assert `NonEmpty`, so a body with no identifier is a 400 rather than a lookup for
-  the null id that answered 404 — matching the guards in `CommandFileSystemResource`. Verified by
-  `ops/e2e/rest/suites/openness.mjs`.
 
 - **Settle the sharing and permission model, then write it down.** This is the umbrella item: the
   pieces below are each small, and separately each looks like a quirk, but together they say the model
@@ -238,20 +199,15 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
   Until then, new REST-level tests should merge into an existing class, as sharing and ownership
   transfer share one.
 
-- **Done: a published artifact cannot be published again, or deleted.** Re-publishing used to succeed
-  because the publish endpoint trusted a precomputed `canPublish` flag whose status guard
-  (`resourceCanBePublished` → `PUBLISH_ONLY_DRAFT`) sat inside an `instanceof
-  FilesystemResourceWithCurrentUserPermissionsAndPublicationStatus` test that the production report type
-  does not satisfy, so the guard was skipped silently. `CommandVersionResource.publishArtifact` now
-  reads the artifact's real `bibo:status` back from the artifact server — the source of truth — and
-  refuses a non-draft. Separately, the published-**delete** guard in
-  `AbstractResourceServerResource.executeArtifactDelete` was commented out entirely, so deletion went
-  straight through; it is now active (mirroring the update path's `PUBLISHED_ARTIFACT_CAN_NOT_BE_CHANGED`).
-  A published artifact is thus immutable to its owner. So that a published artifact — and the folder
-  holding it — is not left un-removable, the filesystem administrator's existing `WRITE_NOT_WRITABLE_NODE`
-  override also lets it be deleted (a moderation/cleanup path, the same override that already lets the
-  admin write any node). Verified by `ops/e2e/rest/suites/versioning.mjs`: re-publish is refused, the
-  owner cannot delete a published artifact, and teardown removes it via the admin escape hatch.
+- **A published artifact can be deleted, contradicting the docs.** The docs say a published
+  artifact is permanent, but `DELETE` on one succeeds. The guard in
+  `AbstractResourceServerResource.executeArtifactDelete` was briefly re-enabled and then **reverted by
+  deliberate decision**: blocking deletion strands published artifacts and the folders holding them with
+  no ordinary cleanup path, and commit `3f26ee7` (2021, "Allow users to delete published resources") had
+  disabled the guard on purpose. So deletability stays for now; the discrepancy with the documentation
+  is the open question. Deciding it means choosing between amending the docs (published is deletable) or
+  re-enabling the guard together with a supported cleanup path (e.g. an admin-only delete, or cascading
+  through folder deletion). The re-publish immutability above is unaffected — that is enforced.
 
 - **Remove deleted resources from the search index.** Deletion never reaches the index. After a run of
   `ops/e2e/rest-smoke.mjs`, `GET /search` returned 28 hits of which all 28 answered 404 on a direct
@@ -294,14 +250,6 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
   `format`. Separately, `move-resource-to-folder`, `copy-artifact-to-folder` and `rename-resource` read
   their required fields unguarded off the `JsonNode`; they now use `must(...).be(NonEmpty)` like the
   sibling `CommandCategoriesResource`, so a missing field is a 400.
-
-- **Done: a home or system folder cannot be renamed.** `PUT /folders/{home}` with a new `schema:name`
-  used to succeed (delete was already refused, but rename was unguarded). `updateFolderNameAndDescriptionInGraphDb`
-  now refuses a name change on a folder that `isUserHome()` or `isSystem()` with a new
-  `FOLDER_CAN_NOT_BE_CHANGED` error keyed by the same `USER_HOME_FOLDER`/`SYSTEM_FOLDER` reasons the
-  delete guard uses; a description-only change is still allowed. Verified by
-  `ops/e2e/rest/suites/folders.mjs`, which now asserts the rename is refused (the assertion an earlier
-  version could not safely make, after it renamed a real home folder).
 
 - **Decide whether users can classify their own artifacts.** Attaching a category to an artifact
   requires a grant on the *category*, not merely on the artifact: `ATTACH` (or `WRITE`, which implies
@@ -443,13 +391,13 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
   users as controlled terms silently not existing, because the picker latches its empty cache for the
   life of the page: the same defect described in the term-picker item above.
 
-- **Resolved by re-enabling, not removing, the published-delete guard.** This item previously proposed
-  *deleting* the commented-out `PUBLISHED_ARTIFACT_CAN_NOT_BE_DELETED` block, on the basis that commit
-  `3f26ee7` (2021-02-08, "Allow users to delete published resources") had disabled it on purpose. That
-  reading was overtaken by a deliberate decision to make published artifacts match the documentation
-  (immutable), so the guard was re-enabled instead — with a filesystem-admin escape hatch for cleanup.
-  See "Done: a published artifact cannot be published again, or deleted" above. If the 2021 intent is
-  ever reaffirmed, that is the item to revisit; the two are in direct tension and the docs won here.
+- **The vestigial published-delete guard stays commented out.** `AbstractResourceServerResource.executeArtifactDelete`
+  still carries the `PUBLISHED_ARTIFACT_CAN_NOT_BE_DELETED` check as a commented-out block, disabled by
+  commit `3f26ee7` (2021, "Allow users to delete published resources"). It was briefly re-enabled during
+  the recent fix pass and then reverted by decision: published artifacts remain deletable, which
+  contradicts the docs. Rather than delete the dead block outright, the comment now records the reason
+  it is off and points at the open decision (see "A published artifact can be deleted" in Next). Resolve that item first; whichever way it goes, the block and its now-unreachable error key are
+  cleaned up as part of it.
 
 ## Out of Scope
 
