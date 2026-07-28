@@ -312,28 +312,6 @@ per-server modules.
   uncovered: the other paged listings beyond contents and search (categories, and the several
   `*-extract` variants).
 
-- **Add cross-service contract tests.** Started. The resource ↔ artifact hop — the one every core
-  operation crosses — is now covered by `ops/e2e/rest/suites/contract.mjs`, which reads both sides
-  directly and pins where they must agree (a create reaches both stores faithfully; a delete clears
-  both; a downstream rejection crosses as itself, not a 500) and where they diverge (an artifact
-  written straight to the artifact server has no graph node, so it is invisible to every resource-
-  server read). The resource server proxies nothing else live: terminology is called by the frontend
-  directly, and the value recommender is out of scope (retiring). So what remains is not more of the
-  resource server's hops but the *other* services' boundaries — chiefly the frontend ↔ terminology
-  path, where the empty-ontology-picker bug lived, which no REST-level suite reaches today because it
-  is a browser concern. Per-service suites still stop at their own hop, and the end-to-end smoke covers
-  only the happy path.
-
-  Folded in here (was its own item): covering the artifact **content** routes in the JUnit
-  authorization matrix. `GET/PUT/DELETE /templates/{id}` and the other three kinds proxy to the
-  artifact server, which the resource-server suite does not boot, so a `PermissionMatrix` row for them
-  would assert the proxy failing rather than the authorization decision. What matters is already
-  covered across two tiers — the **denial** contract by the existing matrix (the permission check runs
-  before the proxy, so a non-owner is refused without the artifact server), and the **owner happy
-  path** by the REST smoke (`ops/e2e/rest/suites/artifacts.mjs`, full CRUD per kind over the live
-  stack). A JUnit matrix row adds value only once a harness runs the resource and artifact servers
-  together — which is exactly this item — so it rides along here rather than standing alone.
-
 - **Close the last few REST coverage holes.** An audit of the resource server's declared route surface
   against `ops/e2e/rest/suites/` found the artifact/folder/category/group/search/version/sharing
   surface covered, and three user-facing endpoints still untested. `GET /users` is now covered (the
