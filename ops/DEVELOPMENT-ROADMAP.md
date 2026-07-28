@@ -284,8 +284,12 @@ per-server modules.
   call. A working shape needs an in-flight guard so concurrent getters share one load, plus a floor
   on how often a failed load may be retried.
 
-  A patch along these lines was written and verified live against the local stack, but is deliberately
-  not committed: pushing frontend code needs an owner who is comfortable with it.
+  An implementation along these lines was validated live against the local stack in an earlier
+  session, but the working tree was reverted afterwards and the diff was not retained — so this is a
+  re-implement-from-this-description item, not an apply-a-saved-patch one. `init()` in
+  `controlled-term-data.service.js` is still the original latch. Whoever picks it up should rebuild
+  the change from the design above and have a frontend owner review and push it, since committing to
+  `cedar-template-editor` needs an owner comfortable with the frontend.
 
   The end-to-end smoke no longer depends on this being fixed, which is what makes it a roadmap item
   rather than a blocker. Its create-template-and-constrain block retries as a unit, each attempt
