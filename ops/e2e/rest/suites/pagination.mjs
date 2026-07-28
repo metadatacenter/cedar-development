@@ -6,14 +6,14 @@
 // which the search suite reaches for propagation but not for the shape of a page. The invalid-argument
 // behaviour is crossed over both, because they share the validator that is supposed to reject a bad
 // limit and today does not.
-import { suite, check, checkStatus, call, cleanup, artifactBody, enc, RUN } from '../lib.mjs';
+import { suite, check, checkStatus, call, cleanup, note, artifactBody, enc, RUN } from '../lib.mjs';
 
 export const name = 'pagination';
 
 const PAGE_TAG = `Paging${RUN.replace(/[^0-9]/g, '')}`;
 const N = 5;
 
-export async function run({ user1, folderId }) {
+export async function run({ user1, admin, folderId }) {
   const auth = user1.auth;
 
   suite('pagination: a folder\'s contents page correctly');
@@ -83,6 +83,29 @@ export async function run({ user1, folderId }) {
   check(typeof paging.last === 'string' && paging.last.includes('limit=2'),
       'and a last-page link', `paging was ${JSON.stringify(paging).slice(0, 200)}`);
 
+  suite('pagination: the contents-extract projection pages the same way');
+
+  // contents-extract is the same listing in a lighter projection, through the same validator and
+  // paging block. Walk the same box and confirm it, too, reassembles every row exactly once.
+  const extract = `/folders/${enc(boxId)}/contents-extract`;
+  const fullExtract = await call(auth, 'GET', `${extract}?limit=100`);
+  if (checkStatus(fullExtract, 200, 'the folder lists its contents-extract')) {
+    check(fullExtract.body?.totalCount === N, `contents-extract reports totalCount ${N}`,
+        `it was ${fullExtract.body?.totalCount}`);
+  }
+  const seenX = [];
+  let overlapX = false;
+  for (let offset = 0; offset < N + 2; offset += 2) {
+    const page = await call(auth, 'GET', `${extract}?limit=2&offset=${offset}`);
+    if (page.status !== 200) { check(false, `contents-extract page at offset ${offset} returns`, `got ${page.status}`); break; }
+    const ids = (page.body?.resources ?? []).map(r => r['@id']);
+    if (ids.some(id => seenX.includes(id))) overlapX = true;
+    seenX.push(...ids);
+  }
+  check(!overlapX && new Set(seenX).size === N,
+      'walking contents-extract two at a time reassembles every row exactly once',
+      `saw ${seenX.length}, ${new Set(seenX).size} distinct, overlap=${overlapX}`);
+
   suite('pagination: search pages the same way');
 
   // Indexing is asynchronous, so wait for the five to arrive before asserting on how they page.
@@ -106,6 +129,49 @@ export async function run({ user1, folderId }) {
         `saw ${walk.length}, ${new Set(walk).size} distinct, overlap=${dup}`);
   }
 
+  suite('pagination: the category listing pages the same way');
+
+  // The category listing is flat and paged like the rest. Populating it deterministically needs an
+  // administrator — only they may write the tree — so without the admin key this is skipped rather than
+  // asserted against whatever categories happen to exist. The listing is graph-backed, so no wait.
+  if (!admin) {
+    note('category paging was not exercised',
+        'CEDAR_ADMIN_USER_API_KEY is unset; only an administrator may add the categories to page over');
+  } else {
+    const adm = admin.auth;
+    const rootId = (await call(adm, 'GET', '/categories/root')).body?.['@id'];
+    const catIds = [];
+    for (let i = 1; i <= N; i++) {
+      const label = `${PAGE_TAG} cat ${String(i).padStart(2, '0')}`;
+      const made = await call(adm, 'POST', '/categories',
+          { 'schema:name': label, 'schema:description': 'Created by the REST suites', parentCategoryId: rootId });
+      if (made.status === 201) { catIds.push(made.body['@id']); cleanup('category', `/categories/${enc(made.body['@id'])}`, label, adm); }
+    }
+    if (check(catIds.length === N, `${N} categories are created to page over`, `only ${catIds.length} were created`)) {
+      // Read the total from a page, not a large-limit fetch: the shared validator caps limit at the
+      // configured maximum, so an oversized limit is a 400 rather than one big page.
+      const total = (await call(adm, 'GET', '/categories?limit=2&offset=0')).body?.totalCount ?? 0;
+      // Only an assertion about the categories this suite created — the tree also holds whatever else
+      // exists, so the walk is checked for no overlap and for each of the new rows appearing once,
+      // rather than against a fixed total.
+      const seenC = [];
+      let overlapC = false;
+      for (let offset = 0; offset < total + 2; offset += 2) {
+        const page = await call(adm, 'GET', `/categories?limit=2&offset=${offset}`);
+        if (page.status !== 200) { check(false, `category page at offset ${offset} returns`, `got ${page.status}`); break; }
+        const ids = (page.body?.categories ?? []).map(c => c['@id']);
+        if (ids.some(id => seenC.includes(id))) overlapC = true;
+        seenC.push(...ids);
+        check(page.body?.totalCount === total, `category page at offset ${offset} reports the stable total`,
+            `it reported ${page.body?.totalCount} vs ${total}`);
+      }
+      const mineOnce = catIds.every(id => seenC.filter(x => x === id).length === 1);
+      check(!overlapC && mineOnce,
+          'walking the category listing reassembles every row once, the new ones included',
+          `overlap=${overlapC}, each new category present exactly once=${mineOnce}`);
+    }
+  }
+
   suite('pagination: an invalid limit or offset is refused with 400');
 
   // Both listings share one paging validator. It used to throw without marking the error a bad
@@ -121,7 +187,9 @@ export async function run({ user1, folderId }) {
   ];
   const endpoints = [
     { name: 'folder contents', path: contents },
+    { name: 'folder contents-extract', path: extract },
     { name: 'search', path: `/search?q=${enc(PAGE_TAG)}` },
+    { name: 'the category listing', path: '/categories' },
   ];
   for (const endpoint of endpoints) {
     const sep = endpoint.path.includes('?') ? '&' : '?';
