@@ -55,8 +55,20 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
   true upsert and delete a delete-by-id — eliminating the refresh race — and to stop swallowing the
   reindex exception (a retrying `removeDocumentFromIndex(id, true)` overload already exists and is used
   only by the category paths). This needs an index regeneration for existing random-`_id` documents and
-  live verification, so it is deliberately its own change. Pinned by `ops/e2e/rest/suites/finding.mjs`,
-  and it is the same subsystem as the revocation-reaching-the-index item below.
+  live verification, so it is deliberately its own change. Pinned by `ops/e2e/rest/suites/finding.mjs`.
+
+  The fix must be verified in **both directions**, because the same architectural cause breaks
+  revocation as well as granting, and revocation is the fail-dangerous one: if the projection lags or
+  loses the message, a user whose access was withdrawn keeps seeing the resource in their listings and
+  search results, and may still open it from there depending on which reads are index-backed.
+  `GroupSharingRevocationIntegrationTest` already establishes that the *graph* stops granting access
+  immediately, on both membership removal and group deletion, so the model is right; what is unverified
+  is the projection of that into the index. It cannot be checked in the current JUnit suites — they run
+  `NoOpNodeIndexingService` precisely so they need no OpenSearch, so the enqueue path is a no-op there.
+  So the deliverable includes a projection test against a real index, or a smoke-level assertion that a
+  revoked user's listing no longer shows the resource — the revocation counterpart to the grant-side
+  check `finding.mjs` already makes. This is the same folder-listing staleness documented in `deleteRow`
+  in the smoke.
 
 - **Settle the sharing and permission model, then write it down.** This is the umbrella item: the
   pieces below are each small, and separately each looks like a quirk, but together they say the model
@@ -234,24 +246,6 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
 Coverage and test-infrastructure work, and the testing decisions taken deliberately. The active
 REST integration suites live in `ops/e2e/rest/suites/`; the JUnit matrices and boot-smoke live in the
 per-server modules.
-
-- **Check that revocation reaches the search index.** Listings and search are served from OpenSearch,
-  not from the graph, and permission changes reach it asynchronously through
-  `SearchPermissionEnqueueService`. Revocation is the fail-dangerous direction: if the index lags or
-  the message is lost, a user whose access was withdrawn keeps seeing the resource in their listings
-  and search results, and may still be able to open it from there depending on which reads are
-  index-backed.
-
-  `GroupSharingRevocationIntegrationTest` establishes that the graph stops granting access
-  immediately, on both membership removal and group deletion, so the model is right. What is unverified
-  is the projection of it. This cannot be tested in the current suites: they run
-  `NoOpNodeIndexingService` precisely so they need no OpenSearch, so the enqueue path is a no-op there.
-  It needs either a test with a real index, or an assertion at the smoke level that a revoked user's
-  listing no longer shows the resource. The REST smoke now reaches the real index and has found the
-  companion bug on the *grant* side — a grant never reaches term search at all (see "Make a permission
-  change reach the search index" above) — so the projection is demonstrably broken in both directions
-  and the two are almost certainly one fix. Related to the cross-service contract tests below, and to the
-  folder-listing staleness already documented in `deleteRow` in the smoke.
 
 - **Add degradation tests.** Nothing asserts how a service behaves when a dependency it needs is
   unavailable. The cost of that gap is known: reading any folder whose creator could not be resolved
