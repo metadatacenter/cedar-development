@@ -145,18 +145,6 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
   re-enabling the guard together with a supported cleanup path (e.g. an admin-only delete, or cascading
   through folder deletion). The re-publish immutability above is unaffected — that is enforced.
 
-- **Decide whether users can classify their own artifacts.** Attaching a category to an artifact
-  requires a grant on the *category*, not merely on the artifact: `ATTACH` (or `WRITE`, which implies
-  it) must be held on the category being attached. The category tree is writable only by someone with
-  write on the root, which is an administrator, so out of the box a normal user can read the vocabulary
-  and attach nothing to anything — including to templates they own.
-
-  This is the design working as built, and `ATTACH` is one of the few permission levels that *is*
-  enforced. But it means the category picker is inert for ordinary users until an administrator grants
-  `ATTACH` on each category, and nothing in the product surfaces that. Either grant `ATTACH` broadly
-  when a category is created, or make the requirement visible. `ops/e2e/rest/suites/categories.mjs`
-  pins the whole sequence: refused without the grant, allowed with it.
-
 - **Decide on concurrency control.** There is no `ETag`, `If-Match` or `@Version` anywhere in the
   stack, so two users editing one template is a silent lost update: the second save wins and the
   first user is never told. This is a design item rather than a coverage item, since no test can be
@@ -180,7 +168,40 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
   which is up but still warming reports as such rather than as failed. On its own it only relabels
   the ninety seconds; caching removes them.
 
+- **Decide whether users can classify their own artifacts.** Attaching a category to an artifact
+  requires a grant on the *category*, not merely on the artifact: `ATTACH` (or `WRITE`, which implies
+  it) must be held on the category being attached. The category tree is writable only by someone with
+  write on the root, which is an administrator, so out of the box a normal user can read the vocabulary
+  and attach nothing to anything — including to templates they own.
+
+  This is the design working as built, and `ATTACH` is one of the few permission levels that *is*
+  enforced. But it means the category picker is inert for ordinary users until an administrator grants
+  `ATTACH` on each category, and nothing in the product surfaces that. Either grant `ATTACH` broadly
+  when a category is created, or make the requirement visible. `ops/e2e/rest/suites/categories.mjs`
+  pins the whole sequence: refused without the grant, allowed with it.
+
 ### Infrastructure
+
+- **Upgrade the persistence and infrastructure servers.** These versions are currently pinned (see the
+  runbook's version locks) while the client libraries have moved on. Order them by risk, lowest first:
+  Redis, then MySQL, then OpenSearch, then MongoDB, then Neo4j. Take **Keycloak separately and last**:
+  it runs a forward-only Liquibase schema migration on the existing user store, the custom themes will
+  need re-porting, the `keycloak-admin-client-jakarta` coordinate it uses was discontinued after
+  21.1.2, and `cedar-keycloak-event-listener` is compiled against the current SPI. Rehearse each on a
+  copy of production data and gate on the end-to-end smoke. Locked for now, so parked at the end.
+
+- **Move the build and runtime to Java 21.** The stack is locked to Java 17 — the zsh profile pins it
+  and the build enforces it. 21 is the next LTS and the natural target, but the lock exists for a
+  reason: newer JDKs (23/25) crash Keycloak (`getSubject … security manager`) and OpenSearch will not
+  start under them. So this is not a blind bump — verify Keycloak and OpenSearch run on 21 first, then
+  move the toolchain, the profile pins, and the build enforcement together, gated on the end-to-end
+  smoke. Low urgency while 17 is supported; parked at the end of the list for that reason.
+
+- **Point the token-verification client at a truststore in production.** Token-signature verification
+  fetches the realm's signing keys over HTTPS; on the local stack that client trusts the self-signed
+  `.orgx` certificate (`disableTrustManager` in `KeycloakDeploymentProvider`, matching the admin
+  client). A real deployment should instead trust a truststore holding the realm CA. Small, and only
+  matters outside local dev.
 
 - **Stop using the hardcoded BioPortal key, and rotate it.** `Constants.BP_PUBLIC_API_KEY` in
   `cedar-terminology-server` holds a literal BioPortal key, and `Cache` sends it on the four calls
@@ -207,27 +228,6 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
   ("DOID (DOID)" instead of "Human Disease Ontology (DOID)") behind a green health check. What remains
   here is the *cause*: read `CEDAR_BIOPORTAL_API_KEY` from config, delete the constant, and rotate the
   exposed key so the partial loads stop happening in the first place.
-
-- **Point the token-verification client at a truststore in production.** Token-signature verification
-  fetches the realm's signing keys over HTTPS; on the local stack that client trusts the self-signed
-  `.orgx` certificate (`disableTrustManager` in `KeycloakDeploymentProvider`, matching the admin
-  client). A real deployment should instead trust a truststore holding the realm CA. Small, and only
-  matters outside local dev.
-
-- **Move the build and runtime to Java 21.** The stack is locked to Java 17 — the zsh profile pins it
-  and the build enforces it. 21 is the next LTS and the natural target, but the lock exists for a
-  reason: newer JDKs (23/25) crash Keycloak (`getSubject … security manager`) and OpenSearch will not
-  start under them. So this is not a blind bump — verify Keycloak and OpenSearch run on 21 first, then
-  move the toolchain, the profile pins, and the build enforcement together, gated on the end-to-end
-  smoke. Low urgency while 17 is supported; parked at the end of the list for that reason.
-
-- **Upgrade the persistence and infrastructure servers.** These versions are currently pinned (see the
-  runbook's version locks) while the client libraries have moved on. Order them by risk, lowest first:
-  Redis, then MySQL, then OpenSearch, then MongoDB, then Neo4j. Take **Keycloak separately and last**:
-  it runs a forward-only Liquibase schema migration on the existing user store, the custom themes will
-  need re-porting, the `keycloak-admin-client-jakarta` coordinate it uses was discontinued after
-  21.1.2, and `cedar-keycloak-event-listener` is compiled against the current SPI. Rehearse each on a
-  copy of production data and gate on the end-to-end smoke. Locked for now, so parked at the end.
 
 ## Testing
 
@@ -261,9 +261,11 @@ per-server modules.
   asserts the API degrades rather than 500s. Bear in mind that queue writes are already best-effort
   by design (`AppLoggerQueueService`, the worker and NCBI queues), so those are the pattern to match.
 
-- **Retry the ontology-list load in the term picker.** Frontend work, in
-  `cedar-template-editor`, and the last piece of this defect still outstanding: the smoke half is
-  done, so the symptom is now worked around rather than fixed.
+- **Retry the ontology-list load in the term picker (frontend, `cedar-template-editor`).** This is a
+  change to the Angular frontend, not to any microservice or test suite — it lands in
+  `cedar-template-editor`, and so needs a frontend owner to review and push it (see the note below).
+  It is the last piece of this defect still outstanding: the smoke half is done, so the symptom is
+  currently worked around rather than fixed.
 
   The template editor loads BioPortal's ontology list once per page load.
   `controlledTermDataService.init()` starts three cache loads and sets `initialized = true` on the
