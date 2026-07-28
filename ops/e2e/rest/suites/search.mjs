@@ -112,5 +112,36 @@ export async function run({ user1, folderId }) {
     }
   }
 
+  suite('search-deep: the deep variant answers and pages like search');
+
+  // search-deep serves the same index as search — its point is paging past the 10,000-row window — so
+  // the three tagged templates are already there. Assert the same shape, that it finds them, that a
+  // page reassembles without overlap, and that it shares the paging validator.
+  const deep = await call(auth, 'GET', `/search-deep?q=${enc(tag)}&limit=10`);
+  if (checkStatus(deep, 200, 'search-deep returns')) {
+    check(Array.isArray(deep.body?.resources) && deep.body?.totalCount !== undefined && !!deep.body?.paging,
+        'it answers the same resources/totalCount/paging shape as search',
+        `body keys were ${Object.keys(deep.body ?? {}).join(', ')}`);
+    check((deep.body?.totalCount ?? 0) >= 3, 'it finds the three tagged templates',
+        `totalCount was ${deep.body?.totalCount}`);
+  }
+
+  const deep1 = await call(auth, 'GET', `/search-deep?q=${enc(tag)}&limit=2&offset=0`);
+  const deep2 = await call(auth, 'GET', `/search-deep?q=${enc(tag)}&limit=2&offset=2`);
+  if (checkStatus(deep1, 200, 'search-deep first page returns') && checkStatus(deep2, 200, 'search-deep second page returns')) {
+    const first = (deep1.body?.resources ?? []).map(r => r['@id']);
+    const second = (deep2.body?.resources ?? []).map(r => r['@id']);
+    check(first.length === 2, 'a limit of 2 returns 2 rows', `got ${first.length}`);
+    check(!first.some(id => second.includes(id)), 'the pages do not overlap',
+        `both held ${first.filter(id => second.includes(id)).join(', ')}`);
+    check(deep1.body?.totalCount === deep2.body?.totalCount, 'totalCount is stable across pages',
+        `${deep1.body?.totalCount} then ${deep2.body?.totalCount}`);
+  }
+
+  check((await call(auth, 'GET', `/search-deep?q=${enc(tag)}&limit=100000`)).status === 400,
+      'search-deep refuses an excessive limit with 400', 'it did not');
+  check((await call(auth, 'GET', `/search-deep?q=${enc(tag)}&limit=0`)).status === 400,
+      'and refuses a non-positive limit with 400', 'it did not');
+
   return { tag };
 }
