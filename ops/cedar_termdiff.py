@@ -36,9 +36,11 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections import defaultdict
 from datetime import datetime, timezone
@@ -108,6 +110,69 @@ def fetch_all(server, value_constraints, input_text, probe_size, max_results, ap
     return ids, labels, total, truncated
 
 
+def fetch_roots(server, acronym, api_key, timeout, retries):
+    """GET an ontology's root classes — the tree entry point the template-editor picker opens after
+    an ontology is selected. Returns the same (ids, {id: prefLabel}, total, truncated) shape as
+    {@link fetch_all} so the same set-equality/label bar applies. Unlike integrated-search, this
+    endpoint requires CEDAR auth, so api_key must be a CEDAR key (e.g. CEDAR_ADMIN_USER_API_KEY),
+    not a bare BioPortal key."""
+    url = server.rstrip("/") + "/bioportal/ontologies/" + urllib.parse.quote(acronym, safe="") + "/classes/roots"
+    headers = {"Accept": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"apiKey {api_key}"
+    data = None
+    for attempt in range(retries):
+        try:
+            with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=timeout) as resp:
+                data = json.load(resp)
+            break
+        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, OSError):
+            if attempt == retries - 1:
+                raise
+            time.sleep(min(20, 2 ** attempt))
+    coll = data.get("collection") if isinstance(data, dict) else data
+    coll = coll or []
+    ids, labels, seen = [], {}, set()
+    for r in coll:
+        rid = r.get("@id") or r.get("id")
+        if rid and rid not in seen:
+            seen.add(rid)
+            ids.append(rid)
+            if r.get("prefLabel") is not None:
+                labels[rid] = r["prefLabel"]
+    return ids, labels, len(ids), False
+
+
+def fetch_for(server, atom, args):
+    """Dispatch an atom to its endpoint: a synthetic roots atom to GET .../classes/roots, every other
+    atom to the integrated-search enumerate path."""
+    if atom.get("kind") == "roots":
+        return fetch_roots(server, atom["acronym"], args.api_key, args.timeout, args.retries)
+    return fetch_all(server, atom["valueConstraints"], args.input_text,
+                     args.probe_size, args.max_results, args.api_key, args.timeout, args.retries)
+
+
+def synth_roots_atoms(matrix_path, ontologies):
+    """One synthetic {@code roots} atom per distinct ontology in the matrix (honoring --ontology). The
+    picker's roots endpoint is per-ontology and is not itself a value-constraint target, so it is not
+    in the matrix; this manufactures the atoms to gate it with the same record/verify machinery."""
+    onto = set(ontologies) if ontologies else None
+    seen, acrs = set(), []
+    with open(matrix_path) as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            acr = json.loads(line)["acronym"]
+            if onto and acr not in onto:
+                continue
+            if acr not in seen:
+                seen.add(acr)
+                acrs.append(acr)
+    return [{"kind": "roots", "acronym": a, "target": None, "name": None, "valueConstraints": None}
+            for a in sorted(acrs)]
+
+
 def load_atoms(matrix_path, ontologies, kinds, limit):
     onto = set(ontologies) if ontologies else None
     kset = set(kinds) if kinds else None
@@ -133,7 +198,8 @@ def golden_path(goldens, atom, aid):
 
 
 def cmd_record(args):
-    atoms = load_atoms(args.matrix, args.ontology, args.kinds, args.limit)
+    atoms = synth_roots_atoms(args.matrix, args.ontology) if args.roots \
+        else load_atoms(args.matrix, args.ontology, args.kinds, args.limit)
     print(f"record: {len(atoms)} atoms from {args.matrix} -> {args.goldens} (server {args.server})")
     recorded = skipped = failed = 0
     for i, atom in enumerate(atoms, 1):
@@ -143,9 +209,7 @@ def cmd_record(args):
             skipped += 1
             continue
         try:
-            ids, labels, total, trunc = fetch_all(
-                args.server, atom["valueConstraints"], args.input_text,
-                args.probe_size, args.max_results, args.api_key, args.timeout, args.retries)
+            ids, labels, total, trunc = fetch_for(args.server, atom, args)
         except Exception as e:
             failed += 1
             print(f"  ! [{i}/{len(atoms)}] {atom['acronym']:14} {atom['kind']:8} FAILED: {type(e).__name__}: {e}",
@@ -168,28 +232,52 @@ def cmd_record(args):
     print(f"record done: {recorded} recorded, {skipped} skipped (already present), {failed} failed")
 
 
+_WS = re.compile(r"\s+")
+
+
+def norm_label(s):
+    """Normalize a label for agreement testing: trim, collapse internal whitespace, casefold. This
+    makes cosmetic differences (case, spacing) agree, so a residual mismatch is substantive — most
+    often a different language (BioPortal serves the English prefLabel; a snapshot that captured the
+    ontology's Japanese or French prefLabel will diverge here)."""
+    if s is None:
+        return None
+    return _WS.sub(" ", s.strip()).casefold()
+
+
 def compare(golden_ids, golden_labels, local_ids, local_labels):
-    """The equivalence bar: set-equality on IRIs + prefLabel agreement on the intersection."""
+    """The equivalence bar: set-equality on IRIs, plus prefLabel agreement on the shared IRIs. Label
+    agreement is judged after {@link norm_label} normalization, and reported as a ratio the caller
+    gates on; the returned {@code labelMismatch} list holds the substantive (post-normalization)
+    disagreements only."""
     g, l = set(golden_ids), set(local_ids)
     missing = sorted(g - l)      # in BioPortal golden, absent locally
     extra = sorted(l - g)        # present locally, not in golden
     shared = g & l
-    label_mismatch = [
-        {"id": rid, "golden": golden_labels.get(rid), "local": local_labels.get(rid)}
-        for rid in sorted(shared)
-        if rid in golden_labels and rid in local_labels and golden_labels[rid] != local_labels[rid]
-    ]
+    label_shared = 0
+    label_mismatch = []
+    for rid in sorted(shared):
+        gl, ll = golden_labels.get(rid), local_labels.get(rid)
+        if gl is None or ll is None:
+            continue
+        label_shared += 1
+        if norm_label(gl) != norm_label(ll):
+            label_mismatch.append({"id": rid, "golden": gl, "local": ll})
     return {
         "goldenCount": len(g), "localCount": len(l),
         "missing": missing, "extra": extra,
+        "labelShared": label_shared,
         "labelMismatch": label_mismatch,
         "setEqual": not missing and not extra,
     }
 
 
 def cmd_verify(args):
-    atoms = {atom_id(a, args.input_text): a for a in load_atoms(args.matrix, args.ontology, args.kinds, None)}
+    source = synth_roots_atoms(args.matrix, args.ontology) if args.roots \
+        else load_atoms(args.matrix, args.ontology, args.kinds, None)
+    atoms = {atom_id(a, args.input_text): a for a in source}
     per_onto = defaultdict(lambda: {"total": 0, "setEqual": 0, "labelClean": 0,
+                                    "labelShared": 0, "labelAgree": 0,
                                     "truncated": 0, "mismatch": [], "errors": []})
     checked = 0
     for aid, atom in atoms.items():
@@ -207,14 +295,14 @@ def cmd_verify(args):
             stats["truncated"] += 1
             continue
         try:
-            ids, labels, _total, _trunc = fetch_all(
-                args.server, atom["valueConstraints"], args.input_text,
-                args.probe_size, args.max_results, args.api_key, args.timeout, args.retries)
+            ids, labels, _total, _trunc = fetch_for(args.server, atom, args)
         except Exception as e:
             stats["errors"].append({"atom": atom["target"] or "(whole)", "error": f"{type(e).__name__}: {e}"})
             continue
         c = compare(golden["resultIds"], golden.get("labels", {}), ids, labels)
         checked += 1
+        stats["labelShared"] += c["labelShared"]
+        stats["labelAgree"] += c["labelShared"] - len(c["labelMismatch"])
         if c["setEqual"]:
             stats["setEqual"] += 1
             if not c["labelMismatch"]:
@@ -228,25 +316,41 @@ def cmd_verify(args):
                 "sampleMissing": c["missing"][:5], "sampleExtra": c["extra"][:5],
             })
 
-    print(f"\n=== readiness report ({checked} atoms verified against goldens; server {args.server}) ===\n")
-    print(f"  {'ontology':20} {'atoms':>6} {'gated':>6} {'setEqual':>9} {'labelOK':>8} "
+    print(f"\n=== readiness report ({checked} atoms verified against goldens; server {args.server}; "
+          f"label bar {args.label_threshold:.0%}) ===\n")
+    print(f"  {'ontology':20} {'atoms':>6} {'gated':>6} {'setEqual':>9} {'label%':>7} "
           f"{'trunc':>6} {'errors':>7}   {'ready?':>6}")
     ready = []
+    label_fails = []
     for acr in sorted(per_onto, key=lambda a: -per_onto[a]["total"]):
         s = per_onto[acr]
         gated = s["total"] - s["truncated"]        # atoms the set-equality bar actually judges
-        ok = gated > 0 and s["setEqual"] == gated and not s["errors"]
+        s["labelAgreement"] = (s["labelAgree"] / s["labelShared"]) if s["labelShared"] else 1.0
+        set_ok = gated > 0 and s["setEqual"] == gated and not s["errors"]
+        label_ok = s["labelAgreement"] >= args.label_threshold
+        ok = set_ok and label_ok
         if ok:
             ready.append(acr)
-        print(f"  {acr:20} {s['total']:>6} {gated:>6} {s['setEqual']:>9} {s['labelClean']:>8} "
+        elif set_ok and not label_ok:
+            # Set-equal, so the hierarchy is right; only the labels diverge (usually a language
+            # mismatch). Called out separately: it is a snapshot-fidelity fix, not a coverage gap.
+            label_fails.append((acr, s["labelAgreement"]))
+        print(f"  {acr:20} {s['total']:>6} {gated:>6} {s['setEqual']:>9} {s['labelAgreement']:>6.0%} "
               f"{s['truncated']:>6} {len(s['errors']):>7}   {'YES' if ok else 'no':>6}")
-    print(f"\nready to allowlist (every gated atom set-equal, no errors): "
+    print(f"\nready to allowlist (set-equal, labels agree >= {args.label_threshold:.0%}, no errors): "
           f"{', '.join(ready) if ready else '(none)'}")
+    if label_fails:
+        print(f"\nset-equal but below the label bar (hierarchy correct, labels diverge — likely a "
+              f"language/prefLabel fidelity fix, not a coverage gap):")
+        for acr, la in sorted(label_fails, key=lambda x: x[1]):
+            print(f"  {acr:20} labels agree {la:.0%}")
 
     if args.report:
         with open(args.report, "w") as f:
             json.dump({"server": args.server, "inputText": args.input_text,
-                       "ontologies": per_onto, "ready": ready}, f, indent=1)
+                       "labelThreshold": args.label_threshold,
+                       "ontologies": per_onto, "ready": ready,
+                       "labelBarFailures": [a for a, _ in label_fails]}, f, indent=1)
         print(f"\nfull report: {args.report}", file=sys.stderr)
 
 
@@ -271,11 +375,19 @@ def main():
         p.add_argument("--timeout", type=float, default=120, help="Per-request timeout seconds (BioPortal is slow).")
         p.add_argument("--retries", type=int, default=3)
         p.add_argument("--api-key", default=os.environ.get("CEDAR_API_KEY"), help="Optional apikey header.")
+        p.add_argument("--roots", action="store_true",
+                       help="Gate the per-ontology roots endpoint (GET .../classes/roots) instead of the "
+                            "matrix's integrated-search atoms — one synthetic roots atom per ontology. "
+                            "Requires --api-key to be a CEDAR key (roots needs CEDAR auth).")
         if name == "record":
             p.add_argument("--limit", type=int)
             p.add_argument("--force", action="store_true", help="Re-record atoms that already have a golden.")
         if name == "verify":
             p.add_argument("--report", help="Write the full per-ontology report as JSON.")
+            p.add_argument("--label-threshold", type=float, default=0.98,
+                           help="Fraction of shared-IRI labels that must agree (after whitespace/case "
+                                "normalization) for an ontology to pass. Below this it is reported as a "
+                                "label-bar failure, not allowlist-ready. Default 0.98.")
     args = ap.parse_args()
     (cmd_record if args.cmd == "record" else cmd_verify)(args)
 
