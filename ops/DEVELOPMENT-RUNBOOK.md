@@ -211,6 +211,16 @@ default): `demo.cee` 4260, `docs.cee` 4280, `cee-dev` 4400.
   and can die mid-reactor while the shell still reports a clean exit. Never pipe `mvn` through a
   reader that can exit early. Redirect the full output to a file and grep the file afterward.
 
+- **A build seems to "take forever" for a task that should finish in seconds** → suspect the monitor,
+  not the build. First estimate the real cost — a single-module or few-module `install -DskipTests`
+  is seconds; only the full ~70-module reactor is minutes — then check the actual state directly (the
+  target jar's mtime, `pgrep` for the real `mvn`/`java`) rather than waiting on a loop. Two traps that
+  make a finished build look stuck forever: `mvn -q` suppresses the `BUILD SUCCESS`/reactor-summary
+  line, so any `until grep "BUILD SUCCESS"` wait can never fire (don't use `-q`; redirect full output
+  to a file); and a `pgrep -f` for the build often matches your own wait-loop's command line, so the
+  loop sees "still running" and waits on itself. When a wait outlives the estimate by an order of
+  magnitude, verify the underlying artifact — do not keep waiting.
+
 - **A test fails with `Failed to bind to 0.0.0.0:90xx` while the dev stack is up** → that test boots
   its server on a real dev port instead of the alternate `19xxx` test range. Every booted test must
   redirect its ports through `CedarEnvironmentSource.setOverride(...)` to the `19xxx` range (test
