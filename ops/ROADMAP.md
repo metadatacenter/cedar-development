@@ -214,6 +214,16 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
   users as controlled terms silently not existing, because the picker latches its empty cache for the
   life of the page: the same defect described in the term-picker item above.
 
+  The *safety* half of this is now done, on both `develop` and the `versioned-terminology-server`
+  branch: a cold or rate-limited fetch that returns a handful of ontologies instead of the full ~1300
+  is caught rather than served. `Cache.getOntologies()` treats a list below `MIN_EXPECTED_ONTOLOGIES`
+  as a failed load and throws, and `TerminologyServerHealthCheck` now probes the list and reports the
+  server unhealthy until it loads fully (it was a `2*2==5` placeholder that always passed). So a
+  degraded key no longer silently serves a partial catalogue with names collapsed to acronyms
+  ("DOID (DOID)" instead of "Human Disease Ontology (DOID)") behind a green health check. What remains
+  here is the *cause*: read `CEDAR_BIOPORTAL_API_KEY` from config, delete the constant, and rotate the
+  exposed key so the partial loads stop happening in the first place.
+
 - **Investigate the warnings in the Java builds.** `cedarcli build java` completes with `BUILD
   SUCCESS` but emits a stream of warnings along the way — unused `dependency:analyze` findings,
   shade "Discovered module-info.class ... strong encapsulation" notices, and assorted deprecation and
