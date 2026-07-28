@@ -10,31 +10,6 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
 
 ## Next
 
-- **Decide whether create should require `@id: null` rather than accept an omitted `@id`.** The
-  meta-schema types `@id` as `{"type": ["string", "null"]}` and marks it required — deliberately: a
-  stored artifact carries its IRI, one not yet created carries `@id: null`, and both are the model's
-  idea of a valid artifact. Validation honours this exactly: the key must be present, its value may be
-  null. So the body a client is about to POST validates clean as long as it carries `@id: null`, and
-  the `validate` then `create` workflow composes with no placeholder IRI at all. This corrects an
-  earlier reading of this item, which had validation as too strict; it is faithful to the model.
-
-  The looser of the two is create. It accepts an omitted `@id` as well as a null one — both create a
-  201 — and rejects only a real client-supplied IRI. So the one body shape that creates but does not
-  validate is the one that leaves `@id` out entirely, which is the natural thing a client does. The
-  mismatch is create's leniency, not validation's strictness: if create required the `@id` key the way
-  the meta-schema and validation do, every createable body would also validate.
-
-  The question is which way to close it, and it is small. Either make create reject a body that omits
-  `@id`, pointing the client at `@id: null` — aligning the two contracts at the cost of refusing a body
-  that works today; or leave create lenient and document `@id: null` as the canonical pre-create shape,
-  so a client never omits the key and never meets validation's "missing required property `@id`". The
-  three shapes are pinned in `ops/e2e/rest/suites/validation.mjs`: `@id: null` validates and creates,
-  an omitted `@id` creates but does not validate, and a real IRI validates but is refused by create.
-
-  Instance validation is also not purely syntactic: it resolves `schema:isBasedOn` and answers 400 when
-  the template cannot be found, so an instance cannot be validated against a template that does not yet
-  exist. Reasonable, and worth stating.
-
 - **Make search-index mutations reliable (grants and deletes). One architectural cause, still open.**
   This is the remaining index work and the next focused effort. Documents are indexed with a
   server-generated random `_id` (`ElasticsearchIndexingWorker.addToIndex` uses `new IndexRequest(index)`
@@ -254,6 +229,35 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
   client). A real deployment should instead trust a truststore holding the realm CA. Small, and only
   matters outside local dev.
 
+- **Decide whether create should require `@id: null` rather than accept an omitted `@id`.** The
+  meta-schema types `@id` as `{"type": ["string", "null"]}` and marks it required — deliberately: a
+  stored artifact carries its IRI, one not yet created carries `@id: null`, and both are the model's
+  idea of a valid artifact. Validation honours this exactly: the key must be present, its value may be
+  null. So the body a client is about to POST validates clean as long as it carries `@id: null`, and
+  the `validate` then `create` workflow composes with no placeholder IRI at all. This corrects an
+  earlier reading of this item, which had validation as too strict; it is faithful to the model.
+
+  The looser of the two is create. It accepts an omitted `@id` as well as a null one — both create a
+  201 — and rejects only a real client-supplied IRI. So the one body shape that creates but does not
+  validate is the one that leaves `@id` out entirely, which is the natural thing a client does. The
+  mismatch is create's leniency, not validation's strictness: if create required the `@id` key the way
+  the meta-schema and validation do, every createable body would also validate.
+
+  The question is which way to close it, and it is small. Either make create reject a body that omits
+  `@id`, pointing the client at `@id: null` — aligning the two contracts at the cost of refusing a body
+  that works today; or leave create lenient and document `@id: null` as the canonical pre-create shape,
+  so a client never omits the key and never meets validation's "missing required property `@id`". The
+  three shapes are pinned in `ops/e2e/rest/suites/validation.mjs`: `@id: null` validates and creates,
+  an omitted `@id` creates but does not validate, and a real IRI validates but is refused by create.
+
+  Checked over JSON only. The validate, create and update paths also negotiate YAML, so the same @id
+  behaviour needs confirming there: a body that validates as YAML should create as YAML, and the
+  null / omitted / IRI distinction should hold across both media types rather than only over JSON.
+
+  Instance validation is also not purely syntactic: it resolves `schema:isBasedOn` and answers 400 when
+  the template cannot be found, so an instance cannot be validated against a template that does not yet
+  exist. Reasonable, and worth stating.
+
 ## Testing
 
 Coverage and test-infrastructure work, and the testing decisions taken deliberately. The active
@@ -303,14 +307,6 @@ per-server modules.
   already handled. A cheap form is one test per server that points a dependency at a dead port and
   asserts the API degrades rather than 500s. Bear in mind that queue writes are already best-effort
   by design (`AppLoggerQueueService`, the worker and NCBI queues), so those are the pattern to match.
-
-- **Cover pagination.** Largely done. `ops/e2e/rest/suites/pagination.mjs` now walks both a folder's
-  contents and search two rows at a time and reassembles each listing exactly once, asserts a stable
-  `totalCount` and a page past the end, and checks the first/last paging links. An invalid or excessive
-  `limit`/`offset` is now refused with 400 rather than answering 500 — `PagedQuery.validateLimit()`
-  throws `badRequest()` above the configured maximum, and every paged endpoint shares it. Still
-  uncovered: the other paged listings beyond contents and search (categories, and the several
-  `*-extract` variants).
 
 - **Close the last few REST coverage holes.** An audit of the resource server's declared route surface
   against `ops/e2e/rest/suites/` found the artifact/folder/category/group/search/version/sharing
