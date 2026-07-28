@@ -9,7 +9,7 @@
 //
 // The OpenView server answers with an empty body — it is an access decision, not a copy of the
 // artifact — so these checks are about status codes only.
-import { suite, check, checkStatus, call, cleanup, artifactBody, note, enc, RUN, KINDS, OPENVIEW } from '../lib.mjs';
+import { suite, check, checkStatus, call, cleanup, artifactBody, enc, RUN, KINDS, OPENVIEW } from '../lib.mjs';
 
 export const name = 'openness';
 

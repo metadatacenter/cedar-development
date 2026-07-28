@@ -34,7 +34,7 @@ export const enc = iri => encodeURIComponent(iri);
 
 // ── results ─────────────────────────────────────────────────────────────────
 
-const results = { passed: 0, failed: 0, notes: 0 };
+const results = { passed: 0, failed: 0 };
 let currentSuite = '';
 
 export function suite(name) {
@@ -51,15 +51,6 @@ export function ok(what) {
 export function bad(what, detail) {
   results.failed++;
   console.error(`  ✗ ${what}\n      ${detail}`);
-}
-
-/**
- * Something worth knowing that must not fail the gate — a defect these tests neither caused
- * nor can fix, where failing would only make the gate unusable.
- */
-export function note(what, detail) {
-  results.notes++;
-  console.warn(`  ! ${what}\n      ${detail}`);
 }
 
 export function check(condition, what, detail) {
