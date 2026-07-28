@@ -212,37 +212,6 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
   here is the *cause*: read `CEDAR_BIOPORTAL_API_KEY` from config, delete the constant, and rotate the
   exposed key so the partial loads stop happening in the first place.
 
-- **Investigate the warnings in the Java builds.** Started; the cheap part is done, the structural
-  part remains. `cedarcli build java` completes with `BUILD SUCCESS` but emits a wall of warnings —
-  about 18,000 lines, nearly half the build output — almost all from the maven-shade-plugin as it
-  builds the server uber-jars.
-
-  Done: the shared shade filter in `cedar-parent` now drops each dependency's `module-info.class` and
-  `META-INF/maven/**` descriptors, which are meaningless on the classpath. That removed ~800 of the
-  "Discovered module-info.class ... will break its strong encapsulation" warnings (down to ~75
-  multi-release stragglers) and a slice of the overlapping-resource noise — roughly 19,500 -> 18,250
-  lines — and is safe because nothing at runtime loads those files.
-
-  What remains is the bulk: shade's "overlapping classes" warnings, the same Dropwizard-stack class
-  names (jersey, jakarta APIs, logback, jackson modules) present in more than one input jar, re-logged
-  once for each of the ~16 server jars. This is not simple noise. The overlaps are real: distinct
-  Central artifacts shipping the same fully-qualified class names — usually because some jars embed or
-  relocate other libraries (OSGi bundles, `-all` variants), sometimes at a *different* version. Shade
-  keeps whichever copy it sees first. maven-shade has no flag to suppress these, so the only true fix
-  is per-overlap dependency surgery: for each pair, confirm the losing artifact is genuinely redundant
-  (byte-identical, or a strict subset provided elsewhere at the right version) and exclude it. Done
-  wrong it drops a class only that jar provided, or pins the older copy, and a server fails at runtime
-  with `NoSuchMethodError`/`NoClassDefFoundError` — the exact HttpClient-4-in-an-OSGi-bundle trap the
-  `cedar-parent` exclusions already guard against. So it slims the jars and quiets the build, but it is
-  careful case-by-case work, not a config toggle.
-
-  Remaining options, in order of appetite: (a) leave it — the build is honest, just loud; (b) work the
-  biggest overlap pairs (jakarta.validation-api ~145, logback-throttling ~136, jersey-container ~52)
-  one at a time, re-smoking each; (c) filter the shade WARN blocks in `cedarcli`'s own build summary so
-  the console is readable while Maven still emits them — cosmetic, and it hides warnings rather than
-  resolving them. Low urgency either way, but the longer it waits the more a genuinely new warning
-  hides in the crowd.
-
 - **Point the token-verification client at a truststore in production.** Token-signature verification
   fetches the realm's signing keys over HTTPS; on the local stack that client trusts the self-signed
   `.orgx` certificate (`disableTrustManager` in `KeycloakDeploymentProvider`, matching the admin
