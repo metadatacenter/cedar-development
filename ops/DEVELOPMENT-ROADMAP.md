@@ -119,6 +119,29 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
   `GroupMembershipAuthorizationMatrixTest`, `GroupSharingRevocationIntegrationTest` and
   `ArtifactLifecycleMatrixTest`.
 
+- **Decide on concurrency control.** There is no `ETag`, `If-Match` or `@Version` anywhere in the
+  stack, so two users editing one template is a silent lost update: the second save wins and the
+  first user is never told. This is a design item rather than a coverage item, since no test can be
+  written until the API offers the conditional-request machinery.
+
+- **Cache the CompTox substance registry locally.** On every start the bridge server rebuilds its
+  registry by fetching roughly 14,700 substances from the external CompTox API in batches of a
+  thousand, holding the result in a `ConcurrentHashMap` that dies with the process
+  (`SubstanceRegistry`, driven by the `Managed` `SubstanceRegistryLoader`). Three costs follow: the
+  load takes around ninety seconds, during which `/healthcheck` returns 500 and every redeploy shows
+  the service as UNHEALTHY; startup depends on a third party being reachable and on the API key being
+  valid at that moment; and each restart re-fetches a slowly-changing reference dataset that has not
+  meaningfully changed since the last one.
+
+  Persist it instead, and refresh on a schedule or when the local copy is stale rather than on every
+  boot, so the server serves from the cache immediately. SQLite fits and is already in the stack:
+  `org.xerial:sqlite-jdbc` is pinned in `cedar-parent` for the terminology local store, so there is
+  both precedent and an existing dependency to follow.
+
+  Splitting readiness from liveness in the health check is worth doing alongside, so that a server
+  which is up but still warming reports as such rather than as failed. On its own it only relabels
+  the ninety seconds; caching removes them.
+
 - **Decide what the unenforced permission levels are for.** `FilesystemResourcePermission` declares
   six: `READ`, `WRITE`, `CHANGEOWNER`, `CHANGEPERMISSIONS`, `PUBLISH`, `CREATE_DRAFT`. Outside the
   enum declaration and tests, `CHANGEPERMISSIONS` and `CHANGEOWNER` appear nowhere in the codebase —
@@ -156,29 +179,6 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
   is the open question. Deciding it means choosing between amending the docs (published is deletable) or
   re-enabling the guard together with a supported cleanup path (e.g. an admin-only delete, or cascading
   through folder deletion). The re-publish immutability above is unaffected — that is enforced.
-
-- **Decide on concurrency control.** There is no `ETag`, `If-Match` or `@Version` anywhere in the
-  stack, so two users editing one template is a silent lost update: the second save wins and the
-  first user is never told. This is a design item rather than a coverage item, since no test can be
-  written until the API offers the conditional-request machinery.
-
-- **Cache the CompTox substance registry locally.** On every start the bridge server rebuilds its
-  registry by fetching roughly 14,700 substances from the external CompTox API in batches of a
-  thousand, holding the result in a `ConcurrentHashMap` that dies with the process
-  (`SubstanceRegistry`, driven by the `Managed` `SubstanceRegistryLoader`). Three costs follow: the
-  load takes around ninety seconds, during which `/healthcheck` returns 500 and every redeploy shows
-  the service as UNHEALTHY; startup depends on a third party being reachable and on the API key being
-  valid at that moment; and each restart re-fetches a slowly-changing reference dataset that has not
-  meaningfully changed since the last one.
-
-  Persist it instead, and refresh on a schedule or when the local copy is stale rather than on every
-  boot, so the server serves from the cache immediately. SQLite fits and is already in the stack:
-  `org.xerial:sqlite-jdbc` is pinned in `cedar-parent` for the terminology local store, so there is
-  both precedent and an existing dependency to follow.
-
-  Splitting readiness from liveness in the health check is worth doing alongside, so that a server
-  which is up but still warming reports as such rather than as failed. On its own it only relabels
-  the ninety seconds; caching removes them.
 
 - **Decide whether users can classify their own artifacts.** Attaching a category to an artifact
   requires a grant on the *category*, not merely on the artifact: `ATTACH` (or `WRITE`, which implies
