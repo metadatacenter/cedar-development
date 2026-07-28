@@ -4,7 +4,7 @@ Cross-cutting work items for the CEDAR backend: the microservices, the shared li
 test and ops tooling. Items live here when they span repositories or when the fix belongs to a
 shared library rather than to one server.
 
-For how to run and build the system see [RUNBOOK.md](./RUNBOOK.md), whose "Dependency and Framework
+For how to run and build the system see [DEVELOPMENT-RUNBOOK.md](./DEVELOPMENT-RUNBOOK.md), whose "Dependency and Framework
 State" section records what the stack currently sits on. Library-internal items belong in that
 library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact-library/ROADMAP.md).
 

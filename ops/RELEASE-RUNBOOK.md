@@ -3,7 +3,7 @@
 How to cut a CEDAR release with `cedarcli release all-in-one` — connect, verify, dry-run the
 versions, run it, watch it, and recover if it stalls. Written to be followed by a human with no
 tooling beyond a terminal, or read by an LLM agent. This is the **release** counterpart to
-[RUNBOOK.md](./RUNBOOK.md) (which covers running CEDAR locally).
+[DEVELOPMENT-RUNBOOK.md](./DEVELOPMENT-RUNBOOK.md) (which covers running CEDAR locally).
 
 A companion visual — a live phase timeline + this same command sequence in tabs — is
 [cedar-release-monitor.html](./cedar-release-monitor.html) (open in a browser; no build step).
