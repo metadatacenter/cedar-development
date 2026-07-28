@@ -22,7 +22,7 @@
 #   ./cedar-services.sh logs <name>         # tail -f a service log
 #   ./cedar-services.sh health              # exit 0 only if every service is healthy
 # ------------------------------------------------------------------------------
-export CEDAR_HOME="${CEDAR_HOME:-/Users/martin/CEDAR}"
+export CEDAR_HOME="${CEDAR_HOME:-$HOME/CEDAR}"
 source "$CEDAR_HOME/cedar-profile-native-develop.sh" >/dev/null 2>&1
 export JAVA_HOME="$(/usr/libexec/java_home -v 17 2>/dev/null)"   # CEDAR + Keycloak need JDK 17
 PATH="$JAVA_HOME/bin:/opt/homebrew/bin:$PATH"                    # /opt/homebrew/bin for node + ng (aux frontends)

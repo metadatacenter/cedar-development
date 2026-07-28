@@ -1,0 +1,384 @@
+<title>CEDAR Release Monitor</title>
+<!--
+  CEDAR Release Monitor — a self-contained page for running & watching `cedarcli release all-in-one`.
+  Two tabs: a live phase timeline (fill the CONFIG block below per release) and a standalone
+  Runbook with the full command sequence — usable by a human with no LLM in the loop.
+  No build step, no dependencies: open the file in a browser. All state is in the CONFIG block near
+  the bottom of the <script>.
+-->
+<style>
+  :root{
+    --bg:#f3efe8; --surface:#fbf9f5; --surface-2:#ece6db; --inset:#efe9df;
+    --ink:#221f19; --ink-soft:#6d6659; --ink-faint:#948c7c; --line:#ddd5c7;
+    --accent:#a75f2b; --accent-tint:#ecd8c2;
+    --now:#0d7883; --now-tint:#bfe0e2;
+    --done:#2c8a57; --active:#bd7a26; --pending:#bdb6a7; --fail:#bb372c;
+    --shadow:0 1px 2px rgba(40,32,20,.06),0 8px 24px -12px rgba(40,32,20,.18);
+    --font-head:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --font-mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --bg:#13171b; --surface:#1a2026; --surface-2:#222a31; --inset:#161c22;
+      --ink:#e9e3d7; --ink-soft:#9aa1a8; --ink-faint:#6b727a; --line:#2a333b;
+      --accent:#d98a45; --accent-tint:#3a2b1c; --now:#39b3bf; --now-tint:#123236;
+      --done:#45b877; --active:#e0994a; --pending:#454f58; --fail:#e5544b;
+      --shadow:0 1px 2px rgba(0,0,0,.4),0 12px 32px -16px rgba(0,0,0,.6);
+    }
+  }
+  :root[data-theme="light"]{
+    --bg:#f3efe8; --surface:#fbf9f5; --surface-2:#ece6db; --inset:#efe9df;
+    --ink:#221f19; --ink-soft:#6d6659; --ink-faint:#948c7c; --line:#ddd5c7;
+    --accent:#a75f2b; --accent-tint:#ecd8c2; --now:#0d7883; --now-tint:#bfe0e2;
+    --done:#2c8a57; --active:#bd7a26; --pending:#bdb6a7; --fail:#bb372c;
+    --shadow:0 1px 2px rgba(40,32,20,.06),0 8px 24px -12px rgba(40,32,20,.18);
+  }
+  :root[data-theme="dark"]{
+    --bg:#13171b; --surface:#1a2026; --surface-2:#222a31; --inset:#161c22;
+    --ink:#e9e3d7; --ink-soft:#9aa1a8; --ink-faint:#6b727a; --line:#2a333b;
+    --accent:#d98a45; --accent-tint:#3a2b1c; --now:#39b3bf; --now-tint:#123236;
+    --done:#45b877; --active:#e0994a; --pending:#454f58; --fail:#e5544b;
+    --shadow:0 1px 2px rgba(0,0,0,.4),0 12px 32px -16px rgba(0,0,0,.6);
+  }
+  *{box-sizing:border-box}
+  body{background:var(--bg);color:var(--ink);font-family:var(--font-head);line-height:1.5;-webkit-font-smoothing:antialiased;margin:0}
+  .wrap{max-width:1060px;margin:0 auto;padding:28px 20px 64px}
+  .mono{font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+  .eyebrow{font-family:var(--font-mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-faint)}
+  header.mast{display:flex;flex-wrap:wrap;align-items:flex-end;gap:16px 24px;justify-content:space-between;margin-bottom:20px}
+  .title h1{font-size:26px;font-weight:650;letter-spacing:-.01em;margin:2px 0 0;text-wrap:balance}
+  .title h1 b{color:var(--accent);font-weight:650}
+  .statuspill{display:inline-flex;align-items:center;gap:8px;font-family:var(--font-mono);font-size:12px;font-weight:600;letter-spacing:.04em;padding:7px 13px;border-radius:999px;background:var(--accent-tint);color:var(--accent);border:1px solid color-mix(in srgb,var(--accent) 30%,transparent)}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--active)}
+  @media (prefers-reduced-motion:no-preference){.dot{animation:pulse 1.8s ease-out infinite}}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--active) 60%,transparent)}70%{box-shadow:0 0 0 7px transparent}100%{box-shadow:0 0 0 0 transparent}}
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:14px;overflow:hidden;box-shadow:var(--shadow);margin-bottom:26px}
+  @media (max-width:640px){.stats{grid-template-columns:repeat(2,1fr)}}
+  .stat{background:var(--surface);padding:14px 16px}
+  .stat .k{font-family:var(--font-mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-faint)}
+  .stat .v{font-family:var(--font-mono);font-size:22px;font-weight:600;margin-top:3px;letter-spacing:-.01em}
+  .stat .v.accent{color:var(--accent)} .stat .v.now{color:var(--now)}
+  .stat .sub{font-family:var(--font-mono);font-size:11px;color:var(--ink-soft);margin-top:1px}
+  .tabs{display:inline-flex;gap:2px;padding:3px;background:var(--surface-2);border:1px solid var(--line);border-radius:11px;margin-bottom:22px}
+  .tab{font-family:var(--font-mono);font-size:12.5px;font-weight:600;letter-spacing:.02em;color:var(--ink-soft);background:transparent;border:0;padding:8px 16px;border-radius:8px;cursor:pointer}
+  .tab[aria-selected="true"]{background:var(--surface);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.08)}
+  .tab:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  .panel[hidden]{display:none}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);padding:22px 22px 18px}
+  .card h2{font-size:13px;font-family:var(--font-mono);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-soft);margin:0 0 4px;font-weight:600}
+  .card .lede{font-size:13.5px;color:var(--ink-soft);margin:0 0 20px;max-width:64ch}
+  .track-wrap{position:relative;padding-top:24px}
+  .checkmarks{position:absolute;top:0;left:0;right:0;height:22px}
+  .cmark{position:absolute;transform:translateX(-50%);font-family:var(--font-mono);font-size:10px;color:var(--now);white-space:nowrap;text-align:center;font-weight:600}
+  .cmark::after{content:"";display:block;width:1px;height:6px;background:var(--now);margin:2px auto 0;opacity:.6}
+  .track{position:relative;display:flex;height:46px;border-radius:9px;overflow:hidden;border:1px solid var(--line);background:var(--inset)}
+  .seg{position:relative;display:flex;align-items:center;justify-content:center;border-right:1px solid color-mix(in srgb,var(--bg) 55%,transparent);overflow:hidden;transition:background .4s ease}
+  .seg:last-child{border-right:0}
+  .seg .lab{font-family:var(--font-mono);font-size:10px;font-weight:600;padding:0 5px;text-align:center;line-height:1.1;color:#fff;text-shadow:0 1px 1px rgba(0,0,0,.3)}
+  .seg.done{background:var(--done)} .seg.active{background:var(--active)}
+  .seg.pending{background:var(--pending)} .seg.fail{background:var(--fail)}
+  .seg.pending .lab{color:var(--ink);text-shadow:none;opacity:.75}
+  @media (prefers-reduced-motion:no-preference){.seg.active{background:linear-gradient(100deg,var(--active),color-mix(in srgb,var(--active) 72%,#fff) 50%,var(--active));background-size:200% 100%;animation:sheen 2.6s linear infinite}}
+  @keyframes sheen{to{background-position:-200% 0}}
+  .nowline{position:absolute;top:-6px;bottom:-6px;width:2px;background:var(--now);z-index:5;box-shadow:0 0 0 3px var(--now-tint);transition:left 1s linear}
+  .nowline::before{content:"NOW";position:absolute;top:-16px;left:50%;transform:translateX(-50%);font-family:var(--font-mono);font-size:9px;font-weight:700;letter-spacing:.1em;color:var(--now)}
+  .nowline::after{content:"";position:absolute;bottom:-6px;left:50%;transform:translateX(-50%) rotate(45deg);width:7px;height:7px;background:var(--now)}
+  .axis{position:relative;height:20px;margin-top:8px}
+  .atick{position:absolute;transform:translateX(-50%);font-family:var(--font-mono);font-size:10px;color:var(--ink-faint);top:6px;white-space:nowrap}
+  .atick::before{content:"";position:absolute;top:-8px;left:50%;width:1px;height:5px;background:var(--line)}
+  .legend{display:flex;flex-wrap:wrap;gap:14px;margin-top:18px;font-family:var(--font-mono);font-size:11px;color:var(--ink-soft)}
+  .legend span{display:inline-flex;align-items:center;gap:6px}
+  .sw{width:11px;height:11px;border-radius:3px;display:inline-block}
+  .plist{margin-top:24px;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  details.prow{border-bottom:1px solid var(--line);background:var(--surface)}
+  details.prow:last-child{border-bottom:0}
+  details.prow>summary{list-style:none;cursor:pointer;display:grid;grid-template-columns:22px 18px 1fr auto auto;gap:12px;align-items:center;padding:11px 14px}
+  details.prow>summary::-webkit-details-marker{display:none}
+  .caret{width:10px;height:10px;border-right:2px solid var(--ink-faint);border-bottom:2px solid var(--ink-faint);transform:rotate(-45deg);transition:transform .18s ease;margin-left:2px}
+  details[open]>summary .caret{transform:rotate(45deg)}
+  .prow .idx{font-family:var(--font-mono);font-size:11px;color:var(--ink-faint)}
+  .prow .nm{font-weight:550;font-size:13.5px}
+  .prow .nm small{display:block;color:var(--ink-soft);font-weight:400;font-size:12px}
+  .prow .dur{font-family:var(--font-mono);font-size:12px;color:var(--ink-soft);text-align:right}
+  .chip{font-family:var(--font-mono);font-size:10px;font-weight:600;letter-spacing:.03em;padding:3px 9px;border-radius:999px;white-space:nowrap}
+  .chip.done{background:color-mix(in srgb,var(--done) 16%,transparent);color:var(--done)}
+  .chip.active{background:color-mix(in srgb,var(--active) 18%,transparent);color:var(--active)}
+  .chip.pending{background:var(--surface-2);color:var(--ink-faint)}
+  summary:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+  .subs{padding:2px 14px 14px 52px;background:var(--inset)}
+  .sub-item{display:flex;gap:10px;align-items:baseline;padding:5px 0;font-size:12.5px;border-bottom:1px dashed var(--line)}
+  .sub-item:last-child{border-bottom:0}
+  .sub-item .cnt{font-family:var(--font-mono);font-size:11px;color:var(--accent);min-width:44px;font-weight:600}
+  .sub-item .lbl{color:var(--ink)} .sub-item .lbl b{font-weight:600}
+  .sub-item .lbl em{color:var(--ink-soft);font-style:normal}
+  .note{font-size:12px;color:var(--ink-faint);margin-top:18px;font-family:var(--font-mono);line-height:1.6}
+  .step{border:1px solid var(--line);border-radius:14px;background:var(--surface);box-shadow:var(--shadow);padding:18px 20px;margin-bottom:16px}
+  .step h3{margin:0 0 3px;font-size:15px;font-weight:640;display:flex;align-items:baseline;gap:10px}
+  .step h3 .n{font-family:var(--font-mono);font-size:12px;color:var(--accent);font-weight:700;min-width:20px}
+  .step p{margin:6px 0 0;font-size:13.5px;color:var(--ink-soft);max-width:70ch}
+  pre{background:var(--inset);border:1px solid var(--line);border-radius:9px;padding:12px 14px;overflow-x:auto;margin:12px 0 2px}
+  code{font-family:var(--font-mono);font-size:12.5px;color:var(--ink)}
+  .why{font-size:12.5px;color:var(--ink-soft);border-left:2px solid var(--accent);padding:2px 0 2px 12px;margin-top:12px}
+  .why b{color:var(--ink)}
+  .gotcha{background:color-mix(in srgb,var(--fail) 8%,var(--surface));border:1px solid color-mix(in srgb,var(--fail) 30%,var(--line))}
+  .cfg{font-family:var(--font-mono);font-size:11px;color:var(--ink-faint);text-align:center;margin-top:10px}
+  .foot{margin-top:14px;font-family:var(--font-mono);font-size:11px;color:var(--ink-faint);text-align:center;line-height:1.7}
+</style>
+
+<div class="wrap">
+  <header class="mast">
+    <div class="title">
+      <div class="eyebrow">your-build-server · cedarcli release all-in-one</div>
+      <h1>CEDAR <b>{{VER}}</b> Release Monitor</h1>
+    </div>
+    <div class="statuspill"><span class="dot"></span><span id="pillText">TEMPLATE</span></div>
+  </header>
+
+  <div class="stats">
+    <div class="stat"><div class="k">Started</div><div class="v mono">{{START}}</div><div class="sub">{{DATE}}</div></div>
+    <div class="stat"><div class="k">Elapsed</div><div class="v mono now" id="elapsed">—</div><div class="sub" id="pctSub">—</div></div>
+    <div class="stat"><div class="k">Est. finish</div><div class="v mono accent" id="eta">—</div><div class="sub" id="remain">—</div></div>
+    <div class="stat"><div class="k">Current phase</div><div class="v mono" id="curPhase" style="font-size:14px;line-height:1.25;padding-top:4px">—</div><div class="sub" id="curSub">of 8</div></div>
+  </div>
+
+  <div class="tabs" role="tablist" aria-label="Views">
+    <button class="tab" role="tab" id="t-timeline" aria-controls="p-timeline" aria-selected="true">Timeline</button>
+    <button class="tab" role="tab" id="t-runbook" aria-controls="p-runbook" aria-selected="false">Runbook</button>
+  </div>
+
+  <section class="panel card" id="p-timeline" role="tabpanel" aria-labelledby="t-timeline">
+    <h2>Execution map · phase vs. time</h2>
+    <p class="lede">Eight sequential phases of <code>release all-in-one</code>. The bar colors, NOW marker, and finish estimate are computed <b>live in the browser</b> off the start time in <code>CONFIG</code>; teal ticks are checkpoints you record as it runs. Phase durations are estimates from prior clean runs (typically ~1h50m–2h30m end to end); open any row for its real sub-steps and exact task counts.</p>
+    <div class="track-wrap">
+      <div class="checkmarks" id="checkmarks"></div>
+      <div class="track" id="track"></div>
+      <div class="nowline" id="nowline" style="left:0"></div>
+    </div>
+    <div class="axis" id="axis"></div>
+    <div class="legend">
+      <span><i class="sw" style="background:var(--done)"></i>done</span>
+      <span><i class="sw" style="background:var(--active)"></i>running</span>
+      <span><i class="sw" style="background:var(--pending)"></i>pending</span>
+      <span><i class="sw" style="background:var(--now);border-radius:1px;width:3px"></i>live NOW</span>
+      <span style="color:var(--now)">▏ = recorded checkpoint</span>
+    </div>
+    <div class="plist" id="plist"></div>
+    <p class="note" id="phaseNote"></p>
+  </section>
+
+  <section class="panel card" id="p-runbook" role="tabpanel" aria-labelledby="t-runbook" hidden style="padding:22px">
+    <h2 style="margin-bottom:6px">The full sequence — run top to bottom</h2>
+    <p class="lede" style="margin-bottom:18px">Everything to cut a release by hand: connect, verify auth, pre-flight build, dry-run the versions, run it, watch it, and recover if it stalls. Commands use the versions from <code>CONFIG</code> (change those for your release). <code>cedarcli</code> is a shell alias — run it in an interactive <code>cedar</code> shell, not a plain script.</p>
+
+    <div class="step"><h3><span class="n">A</span>Connect</h3><p>Log in, become the build user, start a tmux so the ~2h run survives a disconnect.</p>
+      <pre><code>ssh youruser@your-build-server
+sudo su - cedar
+tmux
+gocedar</code></pre></div>
+
+    <div class="step"><h3><span class="n">0</span>Auth probe</h3><p>Confirm the GitHub token is valid before a long run, and make every git op fail fast instead of hang.</p>
+      <pre><code>export GIT_TERMINAL_PROMPT=0
+git ls-remote https://github.com/&lt;org&gt;/&lt;a-private-repo&gt;.git HEAD \
+  &gt;/dev/null 2&gt;&amp;1 &amp;&amp; echo AUTH_OK || echo AUTH_FAIL</code></pre>
+      <div class="why"><b>Why:</b> an expired PAT makes a private-repo <code>git pull</code> hang forever at a silent <code>Username:</code> prompt. <code>GIT_TERMINAL_PROMPT=0</code> turns that hang into an instant error. On AUTH_FAIL: refresh the PAT (SSO-authorize if the org needs it), then <code>cd $CEDAR_HOME/&lt;a-private-repo&gt; &amp;&amp; git pull</code> once to re-cache it. Keep the export set for the whole run.</div></div>
+
+    <div class="step"><h3><span class="n">1</span>Refresh + pre-flight build</h3><p>Pull the merged branches, <b>re-source the shell</b>, then compile everything — so a bad merge surfaces in ~20 min, not 2 hours.</p>
+      <pre><code>cedarcli git checkout develop &amp;&amp; cedarcli git pull &amp;&amp; cedarcli clean maven all
+exec bash -l                 # re-read the freshly-pulled env / aliases / cedarcli
+export GIT_TERMINAL_PROMPT=0
+cedarcli build all           # ~20 min; ends with "Execution succeeded"</code></pre>
+      <div class="why"><b>Why re-source:</b> a pull can update the CEDAR profile, aliases, or <code>cedarcli</code> itself; the current shell holds the pre-pull versions until a fresh login shell.</div></div>
+
+    <div class="step"><h3><span class="n">2</span>Dry run — the version guardrail</h3><p>Generate the whole plan without executing anything, then verify only the intended versions appear.</p>
+      <pre><code>export CEDAR_RELEASE_VERSION={{VER}}
+export CEDAR_NEXT_DEVELOPMENT_VERSION={{NEXT}}
+cedarcli env release                        # confirm the two versions
+cedarcli release all-in-one --dump-plan     # builds the plan, runs nothing
+
+# verify the plan (only your two versions should appear):
+grep -oE '[0-9]+\.[0-9]+\.[0-9]+(-SNAPSHOT)?' ~/.cedar/last_plan_content.sh | sort | uniq -c</code></pre>
+      <div class="why"><b>Expect:</b> tag <code>{{TAG}}</code>, branches <code>release/pre-{{VER}}/…</code> + <code>release/post-{{NEXT}}/…</code>, and <b>only</b> <code>{{VER}}</code> / <code>{{NEXT}}</code> — no stray older versions, no <code>{{VER}}-SNAPSHOT</code>. Nothing irreversible has happened yet.</div></div>
+
+    <div class="step"><h3><span class="n">3</span>Run the release</h3><p>The real thing — merges to main/develop, pushes, tags, then deploys to Nexus + npm. Tee to a log so it's watchable.</p>
+      <pre><code>{ cedarcli release all-in-one; echo "CEDARCLI_EXIT=$?"; } 2>&amp;1 | tee /tmp/cedar-release.log</code></pre>
+      <div class="why">~1h50m–2h30m. Leave it in tmux; detach with <code>Ctrl-b d</code> and it keeps running.</div></div>
+
+    <div class="step"><h3><span class="n">4</span>Watch it</h3><p>From any shell on the box:</p>
+      <pre><code>tail -f /tmp/cedar-release.log
+# landmarks only:
+tail -f /tmp/cedar-release.log | grep -E "Updating|Execution|BUILD (SUCCESS|FAILURE)|-> (main|develop)|npm notice"</code></pre></div>
+
+    <div class="step gotcha"><h3><span class="n">!</span>The exit code lies</h3><p>On a mid-run failure cedarcli prints <code>Execution halted</code> but still exits <code>0</code>. Never trust <code>$?</code> — grep the log.</p>
+      <pre><code>grep "Execution succeeded" /tmp/cedar-release.log      # the real success signal
+grep -E "Execution halted|remote rejected|Return code: [1-9]|BUILD FAILURE|npm ERR!" /tmp/cedar-release.log</code></pre></div>
+
+    <div class="step"><h3><span class="n">5</span>Verify</h3><p>Confirm the release landed on every repo.</p>
+      <pre><code>cedarcli check versions
+cedarcli git list tag | grep {{TAG}}         # tag pushed everywhere
+# each release repo should show main at {{VER}}, develop at {{NEXT}}</code></pre></div>
+
+    <div class="step"><h3><span class="n">R</span>If it halts mid-commit — resume, don't roll back</h3><p>A halt in the commit phase leaves some repos pushed and some not. The commit pushes are the historical soft spot (transient GitHub push errors such as <code>fatal error in commit_refs</code>). Finish forward.</p>
+      <pre><code>cedarcli release commit        # no args → prints the exact resume command; then run it
+cedarcli release cleanup       # no args → prints its command too</code></pre>
+      <div class="why"><b>Why not rollback:</b> <code>release rollback</code> only deletes the branch + tag — it does <b>not</b> un-push merges already landed on main/develop, so rollback + rerun collides. <code>release commit</code> is idempotent: already-done repos no-op ("Everything up-to-date"), the rest complete and retry the failed push. If a transient GitHub push is rejected, re-running the same push usually just works.</div></div>
+
+    <div class="step"><h3><span class="n">N</span>Notes</h3>
+      <p><b>Branch layout for the deploy:</b> the ~48 release repos deploy from <code>main</code>; the 5 <code>skip_from_release</code> frontends (artifact-viewer, embeddable-editor, model-typescript-library ×3) build from <code>develop</code>. <code>release all-in-one</code> sets this up itself — do <em>not</em> force a blanket <code>cedarcli git checkout main</code>, which sweeps those onto their stale main.</p>
+      <p><b>Counts are tasks, not repos:</b> ~48 release repos (53 total). The plan shows 96 checkouts (48 × develop + 48 × main), 48 commits, 48 cleanups, ~14 npm publishes.</p></div>
+  </section>
+
+  <p class="cfg" id="cfgline"></p>
+  <p class="foot" id="foot"></p>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  /* ════════════════ CONFIG — set these per release, then open the file ════════════════
+     versions + start time drive the whole page (title, phase labels, runbook commands, ETA).
+     - New release:  set releaseVersion / nextDevVersion / prevSnapshot / startISO,
+                     set finishedISO:null, and (optionally) add checkpoints as it runs.
+     - Finished run: set finishedISO to the wrap time to freeze the board at COMPLETE.
+     The block below is the last run kept as a worked example.                              */
+  var CONFIG = {
+    releaseVersion: "2.9.0",                     // version 1 — the release
+    nextDevVersion: "2.9.1-SNAPSHOT",            // version 2 — next development
+    prevSnapshot:   "2.8.5-SNAPSHOT",            // the develop version before this release
+    startISO:       "2026-07-27T15:15:12-07:00", // when `release all-in-one` started
+    finishedISO:    "2026-07-27T17:03:38-07:00", // wrap time, or null while running
+    totalEstMin:    108,                         // full-run estimate (this run: 1:48:26)
+    // checkpoints you note from the log: elapsed minutes → short label
+    checkpoints: [
+      {t:0,txt:"start"},{t:21,txt:"tag"},{t:54,txt:"commit"},{t:102,txt:"npm"},{t:108,txt:"done"}
+    ]
+  };
+  /* ═════════════════════════════════════════════════════════════════════════════════════ */
+
+  var V=CONFIG.releaseVersion, N=CONFIG.nextDevVersion, CUR=CONFIG.prevSnapshot, TAG="release-"+V;
+  var START=Date.parse(CONFIG.startISO);
+  var FINISH=CONFIG.finishedISO?Date.parse(CONFIG.finishedISO):null;
+  var pad=function(x){return String(x).padStart(2,"0")};
+  var d0=new Date(START);
+  var startClock=pad(d0.getHours())+":"+pad(d0.getMinutes())+":"+pad(d0.getSeconds());
+  var startDate=d0.getFullYear()+"-"+pad(d0.getMonth()+1)+"-"+pad(d0.getDate());
+
+  document.title="CEDAR "+V+" — Release Monitor";
+  var wrapEl=document.querySelector(".wrap");
+  wrapEl.innerHTML=wrapEl.innerHTML
+    .split("{{VER}}").join(V).split("{{NEXT}}").join(N)
+    .split("{{TAG}}").join(TAG).split("{{START}}").join(startClock).split("{{DATE}}").join(startDate);
+
+  var PHASES = [
+    {n:"Checkout develop", sub:"put release repos on develop", dur:1, est:false,
+     subs:[["48×","<b>Check out branch on repo</b> — the 48 release repos onto <b>develop</b> <em>(96 checkouts total = these 48 + the 48 onto main in phase 6)</em>"]]},
+    {n:"Deploy snapshot", sub:"build + deploy current "+CUR, dur:14, est:false,
+     subs:[["4×","<b>Maven deploy</b> — parent · libraries · project · clients → Nexus <em>snapshots</em>"],
+           ["~7×","<b>NPM install + NG build</b> — the Angular frontends"],
+           ["copy","<b>Assemble dist</b> — copy built bundles into distribution repos"],
+           ["~7×","<b>NPM publish</b> — frontend packages (SNAPSHOT)"]]},
+    {n:"Prepare → "+V, sub:"set release version, branch, tag", dur:26, est:false,
+     subs:[["branch","<b>Create</b> release/pre-"+V+" + release/post-"+N],
+           ["~48×","<b>versions:set "+V+"</b> — stamp the release version into every POM/package"],
+           ["~137","<b>'prepare for next dev'</b> — set "+N+" on the post branch, per repo/type"],
+           ["tag","<b>Commit + tag</b> "+TAG+" <em>(writes the rollback handles to ~/.cedar/last_release_*)</em>"]]},
+    {n:"Commit", sub:"merge + push into main & develop", dur:12, est:true,
+     subs:[["48×","<b>Committing generic repo</b> — per repo: checkout main → merge tag → <b>push</b>; checkout develop → merge post-branch → <b>push</b>"],
+           ["⚠","<em>The push-heavy phase — the historical soft spot for transient GitHub push errors. If it halts here, resume with <code>cedarcli release commit</code>, never rollback.</em>"]]},
+    {n:"Cleanup", sub:"delete temp branches", dur:1, est:true,
+     subs:[["48×","<b>Cleanup of generic repo</b> — delete local release/pre + release/post branches"]]},
+    {n:"Checkout main", sub:"onto the release branch", dur:1, est:true,
+     subs:[["48×","<b>Check out main</b> — release repos onto main <em>(skip_from_release frontends stay on develop)</em>"]]},
+    {n:"Deploy develop", sub:"publish "+N+" snapshots", dur:35, est:true,
+     subs:[["4×","<b>Maven deploy</b> — java → Nexus <em>snapshots</em> ("+N+")"],
+           ["~7×","<b>NPM install + NG build</b> — rebuild Angular frontends"],
+           ["~7×","<b>NPM publish</b> — snapshot packages"]]},
+    {n:"Deploy main", sub:"publish "+V+" release → Nexus + npm", dur:57, est:true,
+     subs:[["4×","<b>Maven deploy</b> — java → Nexus <em>releases</em> ("+V+") — the actual release"],
+           ["~7×","<b>NPM install + NG build</b> — rebuild frontends at release version"],
+           ["~14","<b>NPM publish</b> — release packages <em>(irreversible)</em>"]]}
+  ];
+  var CHECKPOINTS = CONFIG.checkpoints;
+
+  var rawTotal=PHASES.reduce(function(s,p){return s+p.dur},0);
+  var k=CONFIG.totalEstMin/rawTotal;
+  var acc=0;PHASES.forEach(function(p){p.dur=p.dur*k;p.start=acc;acc+=p.dur;p.end=acc});
+  var TOTAL=CONFIG.totalEstMin;
+
+  function pctP(m){return Math.max(0,Math.min(1,m/TOTAL))*100}
+  function fmtDur(m){m=Math.round(m);var h=Math.floor(m/60),mm=m%60;return h?h+"h"+pad(mm):mm+"m"}
+  function clock(ms){var d=new Date(ms);return pad(d.getHours())+":"+pad(d.getMinutes())}
+
+  var track=document.getElementById("track");
+  PHASES.forEach(function(p,i){
+    var s=document.createElement("div");s.className="seg pending";
+    s.style.flex=p.dur+" 0 0";s.title=(i+1)+". "+p.n;
+    var lab=document.createElement("div");lab.className="lab";
+    lab.textContent=(p.dur/TOTAL>0.055)?p.n:(i+1);s.appendChild(lab);track.appendChild(s);
+  });
+  var cm=document.getElementById("checkmarks");
+  CHECKPOINTS.forEach(function(c){var e=document.createElement("div");e.className="cmark";e.style.left=pctP(c.t)+"%";e.textContent=c.txt;cm.appendChild(e);});
+  var axis=document.getElementById("axis");
+  for(var t=0;t<=TOTAL;t+=30){var a=document.createElement("div");a.className="atick";a.style.left=pctP(t)+"%";a.innerHTML="+"+t+"m<br>"+clock(START+t*60000);axis.appendChild(a);}
+  (function(){var a=document.createElement("div");a.className="atick";a.style.left="100%";a.style.transform="translateX(-100%)";a.innerHTML="+"+TOTAL+"m<br>"+clock(START+TOTAL*60000);axis.appendChild(a);})();
+
+  var pl=document.getElementById("plist");
+  PHASES.forEach(function(p,i){
+    var d=document.createElement("details");d.className="prow";
+    var subhtml=p.subs.map(function(s){return '<div class="sub-item"><span class="cnt">'+s[0]+'</span><span class="lbl">'+s[1]+'</span></div>';}).join("");
+    d.innerHTML='<summary><span class="caret"></span><span class="idx">'+(i+1)+'</span>'+
+      '<span class="nm">'+p.n+'<small>'+p.sub+'</small></span>'+
+      '<span class="dur">~'+fmtDur(p.dur)+(p.est?' · est':'')+'</span>'+
+      '<span class="st"><span class="chip pending">PENDING</span></span></summary>'+
+      '<div class="subs">'+subhtml+'</div>';
+    pl.appendChild(d);
+  });
+  document.getElementById("phaseNote").innerHTML=
+    "Task counts are exact (from the generated plan); phase <b>durations</b> are estimates — the two tail deploys (7,8) dominate because each re-runs the Angular <code>ng build</code>s + <code>mvn deploy</code> + <code>npm publish</code>, where phase 2 did that once. Recorded checkpoint ticks are ground truth.";
+
+  var segs=track.querySelectorAll(".seg");
+  var chips=pl.querySelectorAll(".st");
+  var nowline=document.getElementById("nowline");
+  var elEl=document.getElementById("elapsed"),remEl=document.getElementById("remain"),
+      cpEl=document.getElementById("curPhase"),csEl=document.getElementById("curSub"),
+      pctEl=document.getElementById("pctSub"),etaEl=document.getElementById("eta"),pill=document.getElementById("pillText");
+
+  function tick(){
+    var nowMs=FINISH||Date.now();
+    var elapsed=(nowMs-START)/60000;
+    nowline.style.left=pctP(elapsed)+"%";
+    PHASES.forEach(function(p,i){
+      var st=elapsed>=p.end?"done":(elapsed>=p.start?"active":"pending");
+      segs[i].className="seg "+st;
+      chips[i].innerHTML='<span class="chip '+st+'">'+st.toUpperCase()+'</span>';
+    });
+    var secs=Math.max(0,Math.floor((nowMs-START)/1000));
+    elEl.textContent=Math.floor(secs/3600)+"h"+pad(Math.floor(secs%3600/60))+"m";
+    if(FINISH){
+      etaEl.textContent=clock(FINISH); remEl.textContent="complete";
+      pctEl.textContent="released ✓"; cpEl.textContent="Released ✓"; csEl.textContent="all 8 phases done";
+      pill.textContent="COMPLETE ✓";
+      var sp=pill.parentNode;
+      sp.style.background="color-mix(in srgb,var(--done) 16%,transparent)";
+      sp.style.color="var(--done)"; sp.style.borderColor="color-mix(in srgb,var(--done) 35%,transparent)";
+      var dt=sp.querySelector(".dot"); if(dt){dt.style.background="var(--done)";dt.style.animation="none";}
+    } else {
+      etaEl.textContent=clock(START+TOTAL*60000);
+      remEl.textContent="~"+fmtDur(Math.max(0,TOTAL-elapsed))+" left";
+      pctEl.textContent=Math.min(100,Math.round(elapsed/TOTAL*100))+"% of plan";
+      pill.textContent="RUNNING";
+      var idx=PHASES.findIndex(function(p){return elapsed<p.end});
+      if(elapsed>=TOTAL||idx<0){cpEl.textContent="Finishing…";csEl.textContent="past estimate";pill.textContent="FINISHING";}
+      else{cpEl.textContent=(idx+1)+". "+PHASES[idx].n;csEl.textContent="phase "+(idx+1)+" of 8"+(PHASES[idx].est?" · est":"");}
+    }
+  }
+  tick();if(!FINISH){setInterval(tick,1000);}
+
+  document.getElementById("cfgline").textContent="config ▸ release "+V+" → next-dev "+N+"  ·  started "+startClock+" "+startDate;
+  document.getElementById("foot").innerHTML="clock, NOW marker &amp; phase colors are live in-browser · versions/start/checkpoints come from the CONFIG block near the bottom of the source";
+
+  var tabs=[document.getElementById("t-timeline"),document.getElementById("t-runbook")];
+  var panels={"t-timeline":document.getElementById("p-timeline"),"t-runbook":document.getElementById("p-runbook")};
+  tabs.forEach(function(tb){tb.addEventListener("click",function(){tabs.forEach(function(x){x.setAttribute("aria-selected",x===tb?"true":"false");panels[x.id].hidden=x!==tb;});});});
+})();
+</script>
