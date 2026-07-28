@@ -47,5 +47,19 @@ export async function run() {
         `path ${emptyPath?.[0]} had no operations`);
   }
 
+  // A valid spec is only useful if a human can read it. /api/ is the Swagger UI, served statically
+  // (nginx aliases it to the cedar-swagger-ui directory, the same bundle for every server). The spec
+  // is OpenAPI 3, so the UI must be Swagger UI 3+; the 2.x line boots `new SwaggerUi(...)`, cannot
+  // parse an OpenAPI 3 document, and hangs forever at "fetching resource list". The spec checks above
+  // all pass against a 2.x UI, so nothing here caught that the page never rendered — this closes it.
+  suite('apidocs: the Swagger UI can render the OpenAPI 3 spec');
+  const ui = await call(null, 'GET', '/api/', undefined, { base: RESOURCE });
+  if (checkStatus(ui, 200, 'the Swagger UI is served at /api/')) {
+    const html = ui.text ?? '';
+    check(/SwaggerUIBundle/.test(html) && !/new\s+SwaggerUi\b/.test(html),
+        'the UI is Swagger UI 3+ (SwaggerUIBundle), able to render an OpenAPI 3 document',
+        'the page still boots the 2.x "new SwaggerUi(...)", which cannot parse OpenAPI 3 — /api/ hangs at "fetching resource list"');
+  }
+
   return {};
 }
