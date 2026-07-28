@@ -325,19 +325,6 @@ per-server modules.
   asserts the API degrades rather than 500s. Bear in mind that queue writes are already best-effort
   by design (`AppLoggerQueueService`, the worker and NCBI queues), so those are the pattern to match.
 
-- **Close the last few REST coverage holes.** Nearly done. An audit of the resource server's declared
-  route surface against `ops/e2e/rest/suites/` found the artifact/folder/category/group/search/version/
-  sharing surface covered, and a few user-facing endpoints untested. `GET /users` (the share-dialog
-  directory, in `sharing.mjs`), `GET /search-deep` (in `search.mjs` — same shape and paging validator
-  as `/search`), and `POST /command/annotations/doi` (in `artifacts.mjs` — the write-once DOI contract:
-  owner sets it, the same value is idempotent, a different value is refused with `doiCanNotBeAltered`,
-  and a user with no write access is refused) are now all covered.
-
-  One remains, lower priority and a larger fixture: `POST /command/inclusions-subgraph-preview` and
-  `-update` — the element-inclusion propagation that computes the tree of artifacts affected by a
-  change. Preview is non-destructive and the natural thing to test first, but it needs a template that
-  actually embeds an element to exercise, so it is a bigger setup than the endpoints above.
-
 ### Out of scope for testing
 
 Deliberate exclusions, recorded so they are not rediscovered as gaps.
