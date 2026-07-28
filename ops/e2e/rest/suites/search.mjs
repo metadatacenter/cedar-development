@@ -1,6 +1,6 @@
 // Search and its variants, including the paging parameters that thirty-one endpoints declare and
 // almost nothing exercises.
-import { suite, check, checkStatus, call, cleanup, artifactBody, note, enc, RUN } from '../lib.mjs';
+import { suite, check, checkStatus, call, cleanup, artifactBody, enc, RUN } from '../lib.mjs';
 
 export const name = 'search';
 

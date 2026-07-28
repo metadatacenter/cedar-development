@@ -3,7 +3,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
-import { suite, check, checkStatus, call, cleanup, note, enc, RUN } from '../lib.mjs';
+import { suite, check, checkStatus, call, cleanup, enc, RUN } from '../lib.mjs';
 
 const FIXTURES = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', 'fixtures');
 const load = name => JSON.parse(readFileSync(resolve(FIXTURES, name), 'utf8'));
@@ -19,12 +19,9 @@ export async function run({ user1, folderId }) {
   const host = await call(auth, 'POST', `/templates?folder_id=${folderId ? encodeURIComponent(folderId) : ''}`,
       Object.assign(load('minimal-template.json'), { '@id': undefined, 'schema:name': `Validation Host ${RUN}` }));
   let hostId;
-  if (host.status === 201) {
+  if (checkStatus(host, 201, 'a host template is created for instance validation')) {
     hostId = host.body['@id'];
     cleanup('template', `/templates/${encodeURIComponent(hostId)}`, `Validation Host ${RUN}`);
-  } else {
-    note('instance validation could not be exercised against a real template',
-        `the host template was not created: ${host.status}`);
   }
 
   suite('validate: a well-formed artifact of each kind');
@@ -142,14 +139,10 @@ export async function run({ user1, folderId }) {
 
   suite('convert: the format parameter itself');
 
-  // No format at all: whatever the default is, it must be a deliberate one rather than an error.
+  // No format at all: the endpoint applies a deliberate default (OutputFormatTypeDetector picks one),
+  // so it is accepted rather than an error.
   const noFormat = await call(auth, 'POST', '/command/convert', instance);
-  if (noFormat.status === 200) {
-    note('convert with no format is accepted', 'a default applies; OutputFormatTypeDetector chooses it');
-  } else {
-    check(noFormat.status >= 400 && noFormat.status < 500,
-        'convert with no format is refused with 4xx', `got ${noFormat.status}`);
-  }
+  checkStatus(noFormat, 200, 'convert with no format applies a default and is accepted');
 
   // Fixed by the same one-line change as the resource_type cases above.
   const badFormat = await call(auth, 'POST', '/command/convert?format=banana', instance);

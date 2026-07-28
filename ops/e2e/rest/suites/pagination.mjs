@@ -6,7 +6,7 @@
 // which the search suite reaches for propagation but not for the shape of a page. The invalid-argument
 // behaviour is crossed over both, because they share the validator that is supposed to reject a bad
 // limit and today does not.
-import { suite, check, checkStatus, call, cleanup, note, artifactBody, enc, RUN } from '../lib.mjs';
+import { suite, check, checkStatus, call, cleanup, artifactBody, enc, RUN } from '../lib.mjs';
 
 export const name = 'pagination';
 
@@ -132,12 +132,10 @@ export async function run({ user1, admin, folderId }) {
   suite('pagination: the category listing pages the same way');
 
   // The category listing is flat and paged like the rest. Populating it deterministically needs an
-  // administrator — only they may write the tree — so without the admin key this is skipped rather than
-  // asserted against whatever categories happen to exist. The listing is graph-backed, so no wait.
-  if (!admin) {
-    note('category paging was not exercised',
-        'CEDAR_ADMIN_USER_API_KEY is unset; only an administrator may add the categories to page over');
-  } else {
+  // administrator — only they may write the tree — so this needs the admin key, whose absence is a
+  // failure rather than a silent skip. The listing is graph-backed, so no indexing wait.
+  if (check(!!admin, 'the administrator key is configured, so the category listing can be paged',
+      'CEDAR_ADMIN_USER_API_KEY is unset; the admin-gated category paging cannot run')) {
     const adm = admin.auth;
     const rootId = (await call(adm, 'GET', '/categories/root')).body?.['@id'];
     const catIds = [];

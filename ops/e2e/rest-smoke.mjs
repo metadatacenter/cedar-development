@@ -95,7 +95,7 @@ try {
   if (auth1) await teardown(auth1);
 }
 
-const { passed, failed, notes } = summary();
+const { passed, failed } = summary();
 const seconds = ((Date.now() - started) / 1000).toFixed(1);
-console.log(`\n${failed ? 'FAIL' : 'PASS'}: ${passed} passed, ${failed} failed, ${notes} note(s), ${seconds}s`);
+console.log(`\n${failed ? 'FAIL' : 'PASS'}: ${passed} passed, ${failed} failed, ${seconds}s`);
 process.exit(failed ? 1 : 0);
