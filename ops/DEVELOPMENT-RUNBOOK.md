@@ -9,7 +9,7 @@ Dropwizard JVMs, frontends via `gulp`). The all-Docker deployment is a separate 
 covered here.
 
 Known backend work items, and the decisions about what is deliberately not being done, are tracked
-in [ROADMAP.md](./ROADMAP.md).
+in [DEVELOPMENT-ROADMAP.md](./DEVELOPMENT-ROADMAP.md).
 
 ## Architecture
 
@@ -549,7 +549,7 @@ simply was not being sent. If it starts burning retries again, check the Dropwiz
 a unit, each attempt starting from the designer deep link, because only a page load helps: the
 editor loads BioPortal's ontology list once per page and latches an empty cache when that load
 fails, so re-running the ontology *search* re-reads the same empty cache and can never succeed. The
-underlying frontend defect is unfixed and on the [roadmap](./ROADMAP.md); the retry tolerates it
+underlying frontend defect is unfixed and on the [roadmap](./DEVELOPMENT-ROADMAP.md); the retry tolerates it
 rather than curing it.
 
 ## Login
