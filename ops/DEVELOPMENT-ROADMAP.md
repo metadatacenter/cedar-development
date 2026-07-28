@@ -182,10 +182,6 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
 
 ### Infrastructure
 
-- **Move `commons-fileupload2` off the milestone build.** The parent pins `2.0.0-M5` because no
-  stable release existed when the jakarta migration needed it. Move to the stable line once it is
-  published.
-
 - **Stop using the hardcoded BioPortal key, and rotate it.** `Constants.BP_PUBLIC_API_KEY` in
   `cedar-terminology-server` holds a literal BioPortal key, and `Cache` sends it on the four calls
   that populate the ontology and value-set caches (`findOntology` twice, `findAllOntologies`,
@@ -256,24 +252,6 @@ per-server modules.
   change reach the search index" above) — so the projection is demonstrably broken in both directions
   and the two are almost certainly one fix. Related to the cross-service contract tests below, and to the
   folder-listing staleness already documented in `deleteRow` in the smoke.
-
-- **Give the shared test JVM room, or stop sharing it.** The resource server's suite runs every test
-  class in one JVM, and each class that boots a server creates a Neo4j driver whose Netty event-loop
-  threads are never reclaimed. Nine such classes exhaust it: the ninth fails to start with Netty's
-  "failed to create a child event loop". Eight currently pass, so the module is at its limit, and the
-  next class added will hit this.
-
-  The failure is nastier than it sounds. It appears only in the full run, never when the class is run
-  alone, and it names whichever class happened to boot last rather than the one responsible — so it
-  reads as a flaky new test rather than as exhaustion. Capping Jetty's pools was tried and does not
-  help; the threads are the driver's, not the server's.
-
-  Either close the drivers when a class finishes, or give each class its own fork
-  (`reuseForks=false`), which also removes the `CedarConfig` singleton contamination that made the
-  environment-override machinery necessary in the first place. Forking costs JVM and embedded-Neo4j
-  startup per class, which is why the JVM is shared today, so this is a trade to make deliberately.
-  Until then, new REST-level tests should merge into an existing class, as sharing and ownership
-  transfer share one.
 
 - **Add degradation tests.** Nothing asserts how a service behaves when a dependency it needs is
   unavailable. The cost of that gap is known: reading any folder whose creator could not be resolved
