@@ -30,7 +30,7 @@ Three tiers:
 is unset when you source, key variables come out empty.
 
 ```bash
-export CEDAR_HOME=/Users/martin/CEDAR
+export CEDAR_HOME=$HOME/CEDAR
 source $CEDAR_HOME/cedar-profile-native-develop.sh    # ~191 CEDAR_* vars, CEDAR_HOST=metadatacenter.orgx
 ```
 
@@ -140,7 +140,7 @@ default): `demo.cee` 4260, `docs.cee` 4280, `cee-dev` 4400.
 
 - **Browser blocks login with a cert error, but `curl` works** → the local TLS **leaf certs
   expired**. The `*.metadatacenter.orgx` sites are served by nginx with self-signed leaves issued by
-  the CEDAR CA. The CA lives in `$CEDAR_CA_HOME` (`/Users/martin/CEDAR/CEDAR_CA`), is valid ~10 years,
+  the CEDAR CA. The CA lives in `$CEDAR_CA_HOME` (`$HOME/CEDAR/CEDAR_CA`), is valid ~10 years,
   and is already trusted in your login keychain — but the **leaves last only ~824 days** and Chrome
   hard-blocks an expired cert (won't even offer "proceed"). `curl -sk https://cedar.metadatacenter.orgx/`
   still returns 200 because `-k` ignores expiry, which is the tell. Diagnose:
@@ -153,7 +153,7 @@ default): `demo.cee` 4260, `docs.cee` 4280, `cee-dev` 4400.
   CA itself: `cert ca` would force re-adding it to the keychain; only the leaves expire):
 
   ```bash
-  export CEDAR_HOME=/Users/martin/CEDAR
+  export CEDAR_HOME=$HOME/CEDAR
   source $CEDAR_HOME/cedar-profile-native-develop.sh          # sets CEDAR_CA_HOME, CEDAR_CA_PASSWORD, CEDAR_CA_*
   SSL=/opt/homebrew/etc/nginx/cedar/ssl
   cp -r "$SSL" /tmp/cedar-ssl-backup                          # optional but wise (reversible)
@@ -237,7 +237,7 @@ default): `demo.cee` 4260, `docs.cee` 4280, `cee-dev` 4400.
 `cedar.py`. To drive it non-interactively (no alias):
 
 ```bash
-export CEDAR_HOME=/Users/martin/CEDAR
+export CEDAR_HOME=$HOME/CEDAR
 source $CEDAR_HOME/cedar-profile-native-develop.sh >/dev/null 2>&1
 export JAVA_HOME=$(/usr/libexec/java_home -v 17)
 $CEDAR_HOME/cedar-cli/.venv/bin/python $CEDAR_HOME/cedar-cli/cedar.py <command>
