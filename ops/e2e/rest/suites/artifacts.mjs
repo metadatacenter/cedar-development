@@ -7,7 +7,7 @@ import { suite, check, checkStatus, call, cleanup, artifactBody, KINDS, enc, RUN
 
 export const name = 'artifacts';
 
-export async function run({ user1, folderId }) {
+export async function run({ user1, user2, folderId }) {
   suite('artifacts: create, read, update, delete per kind');
   const auth = user1.auth;
   const made = {};
@@ -102,6 +102,34 @@ export async function run({ user1, folderId }) {
   checkStatus(await call(auth, 'GET',
       `/templates/${enc('https://repo.metadatacenter.orgx/templates/00000000-0000-0000-0000-000000000000')}`),
       404, 'an unknown artifact answers 404');
+
+  suite('artifacts: a DOI is set once, and only by someone with write access');
+
+  // POST /command/annotations/doi sets an artifact's DOI. It needs write access, and a DOI is
+  // write-once: setting the same value again is idempotent, changing it to a different value is
+  // refused (doiCanNotBeAltered), and a user with no access to the artifact cannot set one at all.
+  const doiName = `DOI Probe ${RUN}`;
+  const forDoi = await call(auth, 'POST', `/templates?folder_id=${enc(folderId)}`, artifactBody('template', doiName));
+  if (checkStatus(forDoi, 201, 'a template is created to give a DOI')) {
+    const did = forDoi.body['@id'];
+    cleanup('template', `/templates/${enc(did)}`, doiName);
+    const doi = '10.1234/cedar-rest-suite';
+
+    checkStatus(await call(auth, 'POST', '/command/annotations/doi', { '@id': did, doi }),
+        200, 'the owner sets the DOI');
+    checkStatus(await call(auth, 'POST', '/command/annotations/doi', { '@id': did, doi }),
+        200, 'and setting the same DOI again is idempotent');
+
+    const altered = await call(auth, 'POST', '/command/annotations/doi', { '@id': did, doi: '10.9999/changed' });
+    if (checkStatus(altered, 400, 'but changing it to a different DOI is refused')) {
+      check((altered.text ?? '').includes('doiCanNotBeAltered'),
+          'and the body says the DOI cannot be altered',
+          `body was ${(altered.text ?? '').slice(0, 200)}`);
+    }
+
+    checkStatus(await call(user2.auth, 'POST', '/command/annotations/doi', { '@id': did, doi: '10.5555/outsider' }),
+        403, 'and a user with no write access to the artifact cannot set a DOI');
+  }
 
   return made;
 }
