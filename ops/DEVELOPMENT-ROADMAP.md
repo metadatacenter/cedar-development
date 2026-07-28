@@ -149,14 +149,6 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
   which is up but still warming reports as such rather than as failed. On its own it only relabels
   the ninety seconds; caching removes them.
 
-- **Upgrade the persistence and infrastructure servers.** These versions are currently pinned (see
-  the runbook's version locks) while the client libraries have moved on. Order them by risk, lowest
-  first: Redis, then MySQL, then OpenSearch, then MongoDB, then Neo4j. Take **Keycloak separately and
-  last**: it runs a forward-only Liquibase schema migration on the existing user store, the custom
-  themes will need re-porting, the `keycloak-admin-client-jakarta` coordinate it uses was
-  discontinued after 21.1.2, and `cedar-keycloak-event-listener` is compiled against the current SPI.
-  Rehearse each on a copy of production data and gate on the end-to-end smoke.
-
 - **Move `commons-fileupload2` off the milestone build.** The parent pins `2.0.0-M5` because no
   stable release existed when the jakarta migration needed it. Move to the stable line once it is
   published.
@@ -267,6 +259,21 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
   Instance validation is also not purely syntactic: it resolves `schema:isBasedOn` and answers 400 when
   the template cannot be found, so an instance cannot be validated against a template that does not yet
   exist. Reasonable, and worth stating.
+
+- **Move the build and runtime to Java 21.** The stack is locked to Java 17 — the zsh profile pins it
+  and the build enforces it. 21 is the next LTS and the natural target, but the lock exists for a
+  reason: newer JDKs (23/25) crash Keycloak (`getSubject … security manager`) and OpenSearch will not
+  start under them. So this is not a blind bump — verify Keycloak and OpenSearch run on 21 first, then
+  move the toolchain, the profile pins, and the build enforcement together, gated on the end-to-end
+  smoke. Low urgency while 17 is supported; parked at the end of the list for that reason.
+
+- **Upgrade the persistence and infrastructure servers.** These versions are currently pinned (see the
+  runbook's version locks) while the client libraries have moved on. Order them by risk, lowest first:
+  Redis, then MySQL, then OpenSearch, then MongoDB, then Neo4j. Take **Keycloak separately and last**:
+  it runs a forward-only Liquibase schema migration on the existing user store, the custom themes will
+  need re-porting, the `keycloak-admin-client-jakarta` coordinate it uses was discontinued after
+  21.1.2, and `cedar-keycloak-event-listener` is compiled against the current SPI. Rehearse each on a
+  copy of production data and gate on the end-to-end smoke. Locked for now, so parked at the end.
 
 ## Testing
 
