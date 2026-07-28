@@ -17,6 +17,7 @@ export const GROUP_SERVER = env.CEDAR_GROUP_BASE ?? `https://group.${HOST}`;
 // The artifact server, addressed directly. The resource server proxies every artifact write and read
 // to it, so the contract suite compares the two sides of that hop.
 export const ARTIFACT_SERVER = env.CEDAR_ARTIFACT_BASE ?? `https://artifact.${HOST}`;
+export const TERMINOLOGY = env.CEDAR_TERMINOLOGY_BASE ?? `https://terminology.${HOST}`;
 // The OpenView *server*, not the OpenView frontend. `openview.${HOST}` is the AngularJS app; the API
 // has no vhost of its own, so it is addressed directly on its port.
 export const OPENVIEW = env.CEDAR_OPENVIEW_BASE
