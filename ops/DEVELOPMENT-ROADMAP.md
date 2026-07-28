@@ -151,43 +151,6 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
   which is up but still warming reports as such rather than as failed. On its own it only relabels
   the ninety seconds; caching removes them.
 
-- **Retry the ontology-list load in the term picker.** Frontend work, in
-  `cedar-template-editor`, and the last piece of this defect still outstanding: the smoke half is
-  done, so the symptom is now worked around rather than fixed.
-
-  The template editor loads BioPortal's ontology list once per page load.
-  `controlledTermDataService.init()` starts three cache loads and sets `initialized = true` on the
-  next line, before any of them has returned, so the flag records that loading *began* rather than
-  that it produced anything. When the ontology load fails, which is likeliest just after a redeploy
-  while the terminology server is cold and BioPortal adds seconds, the empty cache is latched for the
-  life of the page: every later `init()` sees the flag and returns. The user gets a transient warning
-  toast from `handleServerError`, after which the "Add ontologies" box simply sits there empty,
-  reading as BioPortal having no ontologies. Only a page reload recovers. Same defect class as the
-  `UserSummaryCache` 500: a failed lookup latching its failure instead of retrying or degrading.
-
-  Two things make the fix less trivial than "set the flag later", and both need respecting:
-
-  Success cannot be read from the promises. `AuthorizedBackendService.doCall` sends failures to its
-  error callback and returns that callback's value, and `handleServerError` returns the error rather
-  than rethrowing, so the promise resolves either way and `$q.all` resolves on a total failure. The
-  usable signal is whether `ontologiesCache` ended up with entries, which is also the condition that
-  produces the visible symptom.
-
-  Un-latching naively would be a request storm. `init()` is called from all ten getters, which is why
-  the latch exists at all: leaving the flag `false` after a failure fires three requests per getter
-  call. A working shape needs an in-flight guard so concurrent getters share one load, plus a floor
-  on how often a failed load may be retried.
-
-  A patch along these lines was written and verified live against the local stack, but is deliberately
-  not committed: pushing frontend code needs an owner who is comfortable with it.
-
-  The end-to-end smoke no longer depends on this being fixed, which is what makes it a roadmap item
-  rather than a blocker. Its create-template-and-constrain block retries as a unit, each attempt
-  starting from the designer deep link, because that page load is the only thing that gives the
-  service a fresh attempt; re-running the ontology search inside the picker reads the same empty cache
-  and never could succeed. Nothing is saved server-side until after the block, so a failed attempt
-  leaves no orphan template.
-
 - **Decide whether create should require `@id: null` rather than accept an omitted `@id`.** The
   meta-schema types `@id` as `{"type": ["string", "null"]}` and marks it required — deliberately: a
   stored artifact carries its IRI, one not yet created carries `@id: null`, and both are the model's
@@ -216,14 +179,6 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
   Instance validation is also not purely syntactic: it resolves `schema:isBasedOn` and answers 400 when
   the template cannot be found, so an instance cannot be validated against a template that does not yet
   exist. Reasonable, and worth stating.
-
-- **Upgrade the persistence and infrastructure servers.** These versions are currently pinned (see the
-  runbook's version locks) while the client libraries have moved on. Order them by risk, lowest first:
-  Redis, then MySQL, then OpenSearch, then MongoDB, then Neo4j. Take **Keycloak separately and last**:
-  it runs a forward-only Liquibase schema migration on the existing user store, the custom themes will
-  need re-porting, the `keycloak-admin-client-jakarta` coordinate it uses was discontinued after
-  21.1.2, and `cedar-keycloak-event-listener` is compiled against the current SPI. Rehearse each on a
-  copy of production data and gate on the end-to-end smoke. Locked for now, so parked at the end.
 
 ### Infrastructure
 
@@ -279,6 +234,14 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
   move the toolchain, the profile pins, and the build enforcement together, gated on the end-to-end
   smoke. Low urgency while 17 is supported; parked at the end of the list for that reason.
 
+- **Upgrade the persistence and infrastructure servers.** These versions are currently pinned (see the
+  runbook's version locks) while the client libraries have moved on. Order them by risk, lowest first:
+  Redis, then MySQL, then OpenSearch, then MongoDB, then Neo4j. Take **Keycloak separately and last**:
+  it runs a forward-only Liquibase schema migration on the existing user store, the custom themes will
+  need re-porting, the `keycloak-admin-client-jakarta` coordinate it uses was discontinued after
+  21.1.2, and `cedar-keycloak-event-listener` is compiled against the current SPI. Rehearse each on a
+  copy of production data and gate on the end-to-end smoke. Locked for now, so parked at the end.
+
 ## Testing
 
 Coverage and test-infrastructure work, and the testing decisions taken deliberately. The active
@@ -328,6 +291,43 @@ per-server modules.
   already handled. A cheap form is one test per server that points a dependency at a dead port and
   asserts the API degrades rather than 500s. Bear in mind that queue writes are already best-effort
   by design (`AppLoggerQueueService`, the worker and NCBI queues), so those are the pattern to match.
+
+- **Retry the ontology-list load in the term picker.** Frontend work, in
+  `cedar-template-editor`, and the last piece of this defect still outstanding: the smoke half is
+  done, so the symptom is now worked around rather than fixed.
+
+  The template editor loads BioPortal's ontology list once per page load.
+  `controlledTermDataService.init()` starts three cache loads and sets `initialized = true` on the
+  next line, before any of them has returned, so the flag records that loading *began* rather than
+  that it produced anything. When the ontology load fails, which is likeliest just after a redeploy
+  while the terminology server is cold and BioPortal adds seconds, the empty cache is latched for the
+  life of the page: every later `init()` sees the flag and returns. The user gets a transient warning
+  toast from `handleServerError`, after which the "Add ontologies" box simply sits there empty,
+  reading as BioPortal having no ontologies. Only a page reload recovers. Same defect class as the
+  `UserSummaryCache` 500: a failed lookup latching its failure instead of retrying or degrading.
+
+  Two things make the fix less trivial than "set the flag later", and both need respecting:
+
+  Success cannot be read from the promises. `AuthorizedBackendService.doCall` sends failures to its
+  error callback and returns that callback's value, and `handleServerError` returns the error rather
+  than rethrowing, so the promise resolves either way and `$q.all` resolves on a total failure. The
+  usable signal is whether `ontologiesCache` ended up with entries, which is also the condition that
+  produces the visible symptom.
+
+  Un-latching naively would be a request storm. `init()` is called from all ten getters, which is why
+  the latch exists at all: leaving the flag `false` after a failure fires three requests per getter
+  call. A working shape needs an in-flight guard so concurrent getters share one load, plus a floor
+  on how often a failed load may be retried.
+
+  A patch along these lines was written and verified live against the local stack, but is deliberately
+  not committed: pushing frontend code needs an owner who is comfortable with it.
+
+  The end-to-end smoke no longer depends on this being fixed, which is what makes it a roadmap item
+  rather than a blocker. Its create-template-and-constrain block retries as a unit, each attempt
+  starting from the designer deep link, because that page load is the only thing that gives the
+  service a fresh attempt; re-running the ontology search inside the picker reads the same empty cache
+  and never could succeed. Nothing is saved server-side until after the block, so a failed attempt
+  leaves no orphan template.
 
 ### Out of scope for testing
 
