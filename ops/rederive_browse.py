@@ -49,7 +49,12 @@ for a in per:
     if not L:
         empty.append(a); continue
     genuine_bp = {i for i in bp if idspace(i) in own and norm(bplab.get(i))}  # own-namespace + labeled
-    real_gap = genuine_bp - L
+    # A real gap is a genuine BioPortal root ABSENT from our snapshot — content we lack. A genuine
+    # BP root we hold but don't root (because we captured a subClassOf parent BioPortal missed) is
+    # NOT a gap: the class is present and reachable under its parent, and our tree is more correct.
+    # Triage (2026-07-29) verified this against source for JFO/BCO/ICF/COSTART/O3.
+    concept_iris = set(iris)
+    real_gap = {i for i in genuine_bp if i not in concept_iris}
     shared = L & bp
     agree = sum(1 for i in shared if norm(bplab.get(i)) == norm(local.get(i)))
     label_ok = (not shared) or agree/len(shared) >= THR

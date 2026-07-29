@@ -101,7 +101,29 @@ because BioPortal roots unlabeled-foreign classes where it *didn't* resolve the 
 - **Verdict.** Matching BioPortal exactly would require downloading each import closure (heavy,
   offline-fragile, snapshot-ballooning). Rejected in favor of issue #1's cleaner-tree approach.
 
-## 5. Genuine own-content root gaps: BTO-EMMO, NDDO  — EXTERNAL
+## 5. Genuine own-content root gaps  — EXTERNAL (only 2 across the corpus)
+
+Triage (2026-07-29) of the 26 ontologies the re-derivation excluded for "missing a genuine
+own-namespace labeled BioPortal root". Their 490 missing roots break down as **480 "we captured a
+`subClassOf`/genus parent BioPortal missed"** (BP over-roots; we correctly file the class under its
+parent — the class is present and reachable, just not a root, so our tree is *more* correct),
+7 foreign/artifact IRIs the own-namespace heuristic misread as own, 1 obsolete locally, and
+**4 genuinely-absent own-content classes** across 4 ontologies: BTO-EMMO, NDDO (`NDDO_20000841`
+"unclassified"), NIFDYS, and OCRE (`.../OCRe/statistics.owl#OCRE200072` "Statistical concept").
+Each looks like a source-module/provenance quirk; BTO-EMMO/NDDO are covered by `task_9ea65cb1`,
+NIFDYS and OCRE are newly identified.
+
+The "we're more correct" classification was spot-verified against the raw source for
+JFO (`allergen subClassOf food_allergy`), BCO, ICF, COSTART, and O3 — in every case the source
+asserts the edge BioPortal dropped.
+
+**Consequence for the browse allowlist (applied).** The gap test was refined to count only
+own-content roots **absent** locally, not ones present-with-a-parent. That returned the 22
+"more-correct" ontologies (HL7, MESH, JFO, GDMT, …) to browse-ready: **browse-served 1,164 → 1,186**,
+verified serving trees more correct than BioPortal. Only BTO-EMMO, NDDO, NIFDYS, OCRE stay excluded
+as genuine gaps.
+
+### Earlier note (superseded by the triage above): BTO-EMMO, NDDO  — EXTERNAL
 
 Two ontologies genuinely miss a few of their *own* top classes: BTO-EMMO (4 EMMO classes:
 Temporally/Spatially Fundamental/Redundant) and NDDO (1: "unclassified"). Only real own-content
