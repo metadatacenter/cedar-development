@@ -24,6 +24,21 @@ def snap(a):
     r = cc.execute("SELECT s.file_path FROM version_tag t JOIN snapshot s ON s.version_id=t.version_id AND s.acronym=t.acronym WHERE t.tag='latest' AND s.acronym=?",(a,)).fetchone()
     return os.path.join(BASE, r[0]) if r else None
 def norm(x): return re.sub(r'\s+',' ',(x or '').strip()).casefold()
+# Common imported / upper-reference ontologies and meta vocabularies. Only consulted in the
+# frequency fallback below (when the acronym matches no namespace), to avoid mistaking imported
+# content for the ontology's own — an import-heavy ontology can be mostly imported classes
+# (NIF-Dysfunction is 34% GO / 31% PATO / 18% UBERON; its own nifstd namespace only 4%).
+IMPORT_OBO = {"BFO","RO","IAO","BSPO","GO","CHEBI","PATO","NCBITAXON","PR","UBERON","CL","SO",
+              "ENVO","GAZ","OGMS","COB","OMIM","CARO","OBA","UO","NBO","MOP","CHMO"}
+IMPORT_HOST = ("w3.org","xmlns.com/foaf","purl.org/dc","skos/core","/2006/time","w3.org/ns/prov",
+               "schema.org","ontology/bibo")
+def _is_import_space(sp):
+    m = re.match(r'.*/obo/([A-Za-z][A-Za-z0-9]*)_$', sp)
+    if m and m.group(1).upper() in IMPORT_OBO:
+        return True
+    up = sp.upper()
+    return any(h.upper() in up for h in IMPORT_HOST)
+
 def own_spaces(acr, iris):
     toks = {t.upper() for t in re.split(r'[^A-Za-z0-9]+', acr) if t}
     sp = collections.Counter(idspace(i) for i in iris); own = set()
@@ -32,7 +47,12 @@ def own_spaces(acr, iris):
         if m:
             if m.group(1).upper() in toks: own.add(s)
         elif any(t in s.upper() for t in toks if len(t) >= 3): own.add(s)
-    if not own and sp: own.add(sp.most_common(1)[0][0])
+    if not own and sp:
+        # Acronym matched nothing: fall back to the dominant namespace AMONG NON-IMPORTS, so a
+        # mostly-imported ontology's own (minority) namespace is not overridden by an import.
+        non_import = [s for s in sp if not _is_import_space(s)]
+        pool = non_import if non_import else list(sp)
+        own.add(max(pool, key=lambda s: sp[s]))
     return own
 
 ready, real_gap_out, label_fail, empty = [], [], [], []

@@ -113,13 +113,16 @@ parent — the class is present and reachable, just not a root, so our tree is *
 multi-module and the statistics.owl module classes are not all ingested). Each looks like a
 source-module/provenance quirk; all three are now in `task_9ea65cb1` (OCRE folded in 2026-07-29).
 
-NIFDYS was flagged a fourth time but is a **false positive** of the own-namespace heuristic, not a
-gap: NIF-Dysfunction is 34% imported GO / 31% PATO / 18% UBERON, its own `uri.neuinfo.org/nif/nifstd/`
-only 4%, so `own_spaces`' dominant-namespace fallback wrongly called `obo/GO_` "own" and its 3
-"absent" GO roots (imported, correctly not fully rooted) looked like own-content gaps. Consequence:
-NIFDYS — and any other import-dominated ontology whose acronym matches no own ID-space — is wrongly
-*excluded* from browse. Residual refinement: `own_spaces` should prefer an acronym/base-IRI-derived
-own namespace over the frequency fallback so imported content is never mistaken for own.
+NIFDYS was flagged a fourth time but was a **false positive** of the own-namespace heuristic, now
+fixed. NIF-Dysfunction is 34% imported GO / 31% PATO / 18% UBERON, its own `uri.neuinfo.org/nif/nifstd/`
+only 4%, so the old dominant-namespace fallback wrongly called `obo/GO_` "own" and its 3 "absent" GO
+roots looked like own-content gaps — and it wrongly *excluded* NIFDYS from browse (and mis-pruned its
+snapshot). **Fixed (2026-07-29):** `own_spaces` (in `rederive_browse.py`) and `SnapshotStore.ownIdspaces`
+(Java) now fall back to the dominant namespace **among non-imports** (a curated upper/reference-ontology
+denylist), so imported content is never mistaken for own. The 22 ontologies whose own-namespace changed
+were re-backfilled (re-materialize + re-prune) to correct their snapshots. NIFDYS now serves its own
+nifstd tree locally (10 roots). Genuine gaps stand at **3** (BTO-EMMO, NDDO, OCRE); **browse-served
+1,187**.
 
 The "we're more correct" classification was spot-verified against the raw source for
 JFO (`allergen subClassOf food_allergy`), BCO, ICF, COSTART, and O3 — in every case the source
