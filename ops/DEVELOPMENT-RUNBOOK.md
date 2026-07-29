@@ -522,6 +522,52 @@ enumeration is not a browse test). `verify` emits a per-ontology readiness repor
 100% set-equal with no errors is safe to add to `localOntologies`. The migration plan this feeds is
 `cedar-terminology-server/ROADMAP.md`.
 
+### Running the gate, and the current cutover state
+
+`ops/cedar_term_gate.sh verify` is the one-command gate: it stands up a throwaway local-store instance
+(all ingested ontologies, strict `localOnly`) on the 19xxx test ports, verifies it against the goldens
+on both gates (integrated-search and `--roots`), prints the ready sets, and tears the instance down.
+`cedar_term_gate.sh record` re-records the BioPortal goldens (drift refresh) from a BioPortal-proxy
+instance — run it on a cadence (BioPortal content drifts; ours is pinned), monthly is ample given the
+measured ~0.03%/day, additive pace of change. Paths default to `~/tmp/{catalog.sqlite,goldens,
+goldens_roots,matrix.jsonl}`; override with `TERM_*` env vars.
+
+Cutover is **per-endpoint**, set from the profile and injected by `cedar-services.sh` (unset the vars
+to revert to a pure BioPortal proxy):
+
+- `CEDAR_TERMINOLOGY_STORE_CATALOG` — the catalog path (host-specific).
+- `CEDAR_TERMINOLOGY_LOCAL_ONTOLOGIES` — served locally for **search/integrated-search** (the
+  gate-proven, high-value path); eligibility is integrated-search equivalence alone.
+- `CEDAR_TERMINOLOGY_LOCAL_ROOTS_ONTOLOGIES` — the subset that *also* serves the tree-browse endpoints
+  (root classes, class tree) locally, i.e. whose roots are proven equivalent too. An ontology on the
+  first list but not the second is local for search but browses from BioPortal — no browse regression
+  while its local roots still diverge (roots divergence is dominated by BioPortal-endpoint quirks:
+  import orphans we drop, Protégé/upper-ontology artifacts BioPortal lists that we drop — not our bug).
+
+### Re-ingesting an ontology
+
+Ingest is `IngestJob <catalogPath> <snapshotDir> <ACRONYM>…`, `BIOPORTAL_API_KEY` in the env. OWLAPI
+4.5.9 resolves http imports via Apache HttpClient and parses with JAXB, neither of which it declares
+and JAXB is not in JDK 17 — both are now declared in the ingest module's pom, so a classpath from the
+build is complete (a hand-assembled one that omits them makes an import-heavy ontology fail with
+`NoClassDefFoundError` and, before the guard, produced an empty snapshot):
+
+```bash
+cd $CEDAR_HOME/cedar-terminology-server
+mvn -q -pl cedar-terminology-server-ingest -am install -DskipTests
+mvn -q -pl cedar-terminology-server-ingest dependency:build-classpath \
+    -Dmdep.outputFile=/tmp/ingest-cp.txt -DincludeScope=runtime
+CP="cedar-terminology-server-ingest/target/classes:$(cat /tmp/ingest-cp.txt)"
+BIOPORTAL_API_KEY=$CEDAR_BIOPORTAL_API_KEY java -cp "$CP" \
+    org.metadatacenter.terms.ingest.IngestJob ~/tmp/cedar-term/prod/catalog.sqlite \
+    ~/tmp/cedar-term/prod/snapshots DOID
+```
+
+Ingest is idempotent on the content hash (same download overwrites in place, atomically, only on a
+non-empty extraction) and won't overwrite a good snapshot with a failed/empty one. `version_id`
+changing means BioPortal's content changed; the old snapshot is then orphaned — delete rows/files not
+referenced by any `version_tag`.
+
 ## End-to-End Smoke Test: `ops/e2e`
 
 One command that proves the whole stack works from the outside, the way a user would exercise it:
