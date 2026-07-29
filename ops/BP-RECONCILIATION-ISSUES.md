@@ -108,10 +108,18 @@ own-namespace labeled BioPortal root". Their 490 missing roots break down as **4
 `subClassOf`/genus parent BioPortal missed"** (BP over-roots; we correctly file the class under its
 parent — the class is present and reachable, just not a root, so our tree is *more* correct),
 7 foreign/artifact IRIs the own-namespace heuristic misread as own, 1 obsolete locally, and
-**4 genuinely-absent own-content classes** across 4 ontologies: BTO-EMMO, NDDO (`NDDO_20000841`
-"unclassified"), NIFDYS, and OCRE (`.../OCRe/statistics.owl#OCRE200072` "Statistical concept").
-Each looks like a source-module/provenance quirk; BTO-EMMO/NDDO are covered by `task_9ea65cb1`,
-NIFDYS and OCRE are newly identified.
+**3 genuinely-absent own-content classes** across 3 ontologies: BTO-EMMO, NDDO (`NDDO_20000841`
+"unclassified"), and OCRE (`.../OCRe/statistics.owl#OCRE200072` "Statistical concept"; OCRe is
+multi-module and the statistics.owl module classes are not all ingested). Each looks like a
+source-module/provenance quirk; all three are now in `task_9ea65cb1` (OCRE folded in 2026-07-29).
+
+NIFDYS was flagged a fourth time but is a **false positive** of the own-namespace heuristic, not a
+gap: NIF-Dysfunction is 34% imported GO / 31% PATO / 18% UBERON, its own `uri.neuinfo.org/nif/nifstd/`
+only 4%, so `own_spaces`' dominant-namespace fallback wrongly called `obo/GO_` "own" and its 3
+"absent" GO roots (imported, correctly not fully rooted) looked like own-content gaps. Consequence:
+NIFDYS — and any other import-dominated ontology whose acronym matches no own ID-space — is wrongly
+*excluded* from browse. Residual refinement: `own_spaces` should prefer an acronym/base-IRI-derived
+own namespace over the frequency fallback so imported content is never mistaken for own.
 
 The "we're more correct" classification was spot-verified against the raw source for
 JFO (`allergen subClassOf food_allergy`), BCO, ICF, COSTART, and O3 — in every case the source
