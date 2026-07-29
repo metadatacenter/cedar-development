@@ -119,6 +119,7 @@ start_one() {
       local opts=""
       if [ "$name" = "terminology" ] && [ -n "$CEDAR_TERMINOLOGY_STORE_CATALOG" ]; then
         opts="-DterminologyStore.catalogPath=$CEDAR_TERMINOLOGY_STORE_CATALOG -DterminologyStore.localOntologies=$CEDAR_TERMINOLOGY_LOCAL_ONTOLOGIES"
+        [ -n "$CEDAR_TERMINOLOGY_LOCAL_ROOTS_ONTOLOGIES" ] && opts="$opts -DterminologyStore.localRootsOntologies=$CEDAR_TERMINOLOGY_LOCAL_ROOTS_ONTOLOGIES"
         [ -n "$CEDAR_TERMINOLOGY_LOCAL_ONLY" ] && opts="$opts -DterminologyStore.localOnly=$CEDAR_TERMINOLOGY_LOCAL_ONLY"
       fi
       nohup java $opts -jar "$jar" server "$cfg" >"$log" 2>&1 & ;;
