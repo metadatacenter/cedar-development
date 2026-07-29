@@ -252,6 +252,26 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
   the `CedarConfig`-injectable work already done, so dependencies are explicit and tests independent.
   Large and cross-cutting; stage it one service at a time rather than in a single change.
 
+- **Identify API keys by a non-secret id, not the secret in the URL.** The API-key management routes
+  carry the full secret in the path — `POST /{id}/api-keys/{key}/regenerate` and
+  `DELETE /{id}/api-keys/{key}` — so the key lands in nginx access logs, request traces, monitoring and
+  browser history. The cheap leaks are already closed (the not-found error no longer echoes the key and
+  the valuerecommender reindex logs no longer print the admin key), but the URL itself still carries the
+  secret. Give each `CedarUserApiKey` a stable non-secret identifier and address keys by that id
+  (`/api-keys/{keyId}`), keeping the secret out of the path. Breaking change: cedar-cli and the profile
+  UI call these routes, so it needs a coordinated client update.
+
+- **Centralize administrative-route authorization and cover it with a permission matrix.** The
+  index/ontology admin commands each carry their own inline `c.must(...).have(...)` check, which is how
+  one shipped with the check commented out (`load-valuesets-ontology`, open to any logged-in user) and
+  another used the wrong permission (`generate-empty-rules-index` checked `SEARCH_INDEX_REINDEX` instead
+  of `RULES_INDEX_REINDEX`). Both are fixed, but the per-route inline pattern invites the next
+  copy/paste slip. Move admin-route authorization to one policy (a filter or a shared assertion keyed by
+  route) and add an authorization-matrix test that asserts each admin command answers 403 for a
+  non-permitted user and 401 for anonymous — asserting the gate, not the effect, so the destructive
+  command never runs. This complements the folder/artifact/group matrices already in place, and fits the
+  existing decision to leave the admin commands out of the functional REST suites.
+
 ## Testing
 
 Coverage and test-infrastructure work, and the testing decisions taken deliberately. The active
