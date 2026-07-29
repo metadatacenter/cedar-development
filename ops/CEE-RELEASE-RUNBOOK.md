@@ -26,13 +26,24 @@ npm login
 #   OTP:      TOTP delivered to the metadatacenter@gmail.com inbox
 ```
 
-> **Gotcha (hit on the 1.5.1 release):** `npm publish` can still 401 after an interactive
-> `npm login`. Fix: create an **automation/publish token** in the npmjs account
-> (npmjs.com → Access Tokens → Generate → *Automation*), add it to `~/.npmrc`, then re-run publish:
-> ```
-> //registry.npmjs.org/:_authToken=<TOKEN>
-> ```
-> The token is a credential — keep it in `~/.npmrc` only, never in a repo or these notes.
+> **Auth gotcha — 2FA is now required to publish** (hit on the 1.5.2 release). `npm publish` returns
+> **403** — *"Two-factor authentication or granular access token with bypass 2fa enabled is
+> required"* — because classic automation tokens (and a plain login without OTP) no longer satisfy
+> npm's publish 2FA. Two ways through:
+> - **One-off:** pass the current TOTP inline — `npm publish --otp=<6-digit code>` (code from the
+>   metadatacenter authenticator / metadatacenter@gmail.com). If an old classic `_authToken` in
+>   `~/.npmrc` intercepts and it still 403s, comment that line out so the 2FA path is used.
+> - **Durable (repeat/automated publishes):** npmjs.com → Access Tokens → **Generate New Token →
+>   Granular Access Token** → Packages: *Read and write* (scope to `cedar-embeddable-editor`) →
+>   **enable "Bypass 2FA"** → put `//registry.npmjs.org/:_authToken=<TOKEN>` in `~/.npmrc`; then
+>   `npm publish` needs no `--otp`.
+>
+> **`E404 Not Found` on publish = auth in disguise.** npm returns 404 (not 401/403) when you're
+> *not authenticated* to write the package — it doesn't mean the package is missing (it exists). If
+> you see 404, you lost your credential (e.g. the `~/.npmrc` token was removed): `npm whoami` to
+> confirm, then `npm login` (or set a token) and retry with `--otp`.
+>
+> A token is a credential — keep it in `~/.npmrc` only, never in a repo or these notes.
 
 ## 1 · Bump the version everywhere
 
@@ -53,7 +64,11 @@ Set `X.Y.Z` in:
 | `CHANGELOG.md` | new `## [X.Y.Z] - <date>` section with the notes |
 
 Then:
-- **Copy** `README.md` over `dist-npm/cedar-embeddable-editor/README.md` (keep the published readme current).
+- **Copy** `README.md` **and** `CHANGELOG.md` over their `dist-npm/cedar-embeddable-editor/` copies
+  (the published package ships its own README + CHANGELOG — keep both current):
+  ```
+  cp README.md CHANGELOG.md dist-npm/cedar-embeddable-editor/
+  ```
 - **Bump the build stamp** in
   `src/app/modules/shared/components/cedar-embeddable-metadata-editor/cedar-embeddable-metadata-editor.component.ts`
   → `private static INNER_VERSION = '<YYYY-MM-DD HH:MM>';` (a freeform trace stamp logged at load —
@@ -93,10 +108,17 @@ git checkout develop
 
 ## 4 · Publish to npm
 
+> **Publish ONLY from `dist-npm/cedar-embeddable-editor/`.** That folder's `package.json` has no
+> `publishConfig` → it targets **public npmjs** and packs the ~5-file web-component package. Running
+> `npm publish` from the **repo root** instead uses the root `package.json`, whose
+> `publishConfig.registry` points at **Nexus** (`nexus.bmir.stanford.edu/.../npm-cedar`) → it packs
+> the entire 300+ file source tree and fails with `ENEEDAUTH` for Nexus. Check your prompt is in
+> `dist-npm/…` before publishing.
+
 ```
 gocedar
 cd cedar-embeddable-editor/dist-npm/cedar-embeddable-editor
-npm publish
+npm publish --otp=<6-digit code>       # --otp required (see the 2FA gotcha in Prerequisites)
 ```
 Verify it went live: `npm view cedar-embeddable-editor version` → should print `X.Y.Z`.
 

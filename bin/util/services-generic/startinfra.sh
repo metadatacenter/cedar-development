@@ -17,8 +17,13 @@ fi
 
 startmongo
 startmysql
-startsearch
 startneo
 startredis
 startkk
 startnginx
+# OpenSearch last: its start script may poll brew for up to 30s before falling
+# back to the libexec launcher (see services-osx/startopensearch.sh). Running it
+# last lets the fast, well-behaved services come up during that wait instead of
+# blocking behind it. Nothing else in infra depends on OpenSearch — only the
+# microservices do, and they start later (startmicros).
+startsearch
