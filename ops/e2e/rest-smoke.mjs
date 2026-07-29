@@ -41,8 +41,11 @@ import * as openness from './rest/suites/openness.mjs';
 import * as finding from './rest/suites/finding.mjs';
 import * as authentication from './rest/suites/authentication.mjs';
 import * as pagination from './rest/suites/pagination.mjs';
+import * as contract from './rest/suites/contract.mjs';
+import * as inclusion from './rest/suites/inclusion.mjs';
+import * as apidocs from './rest/suites/apidocs.mjs';
 
-const ALL = [folders, artifacts, versioning, groups, sharing, groupSharing, openness, categories, validation, search, finding, authentication, pagination, negotiation, download];
+const ALL = [folders, artifacts, versioning, groups, sharing, groupSharing, openness, categories, validation, search, finding, authentication, pagination, negotiation, download, contract, inclusion, apidocs];
 
 const requested = argv.slice(2).filter(a => !a.startsWith('-'));
 const selected = requested.length
@@ -94,7 +97,7 @@ try {
   if (auth1) await teardown(auth1);
 }
 
-const { passed, failed, notes } = summary();
+const { passed, failed } = summary();
 const seconds = ((Date.now() - started) / 1000).toFixed(1);
-console.log(`\n${failed ? 'FAIL' : 'PASS'}: ${passed} passed, ${failed} failed, ${notes} note(s), ${seconds}s`);
+console.log(`\n${failed ? 'FAIL' : 'PASS'}: ${passed} passed, ${failed} failed, ${seconds}s`);
 process.exit(failed ? 1 : 0);

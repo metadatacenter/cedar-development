@@ -1,6 +1,6 @@
 // Categories: the classification tree, and attaching artifacts to it. Twelve routes, none of which
 // had REST coverage.
-import { suite, check, checkStatus, call, cleanup, artifactBody, note, ok, enc, RUN } from '../lib.mjs';
+import { suite, check, checkStatus, call, cleanup, artifactBody, ok, enc, RUN } from '../lib.mjs';
 
 export const name = 'categories';
 
@@ -43,9 +43,10 @@ export async function run({ user1, user2, admin, folderId }) {
         `expected 403, got ${asUser.status}`);
   }
 
-  if (!admin) {
-    note('the category write surface was not exercised',
-        'CEDAR_ADMIN_USER_API_KEY is unset, and only an administrator may write the tree');
+  // The category tree is writable only by an administrator, so the rest of this suite needs the admin
+  // key. Its absence is a setup failure, not a silent skip: without it the write surface goes unverified.
+  if (!check(!!admin, 'the administrator key is configured, so the category write surface can be exercised',
+      'CEDAR_ADMIN_USER_API_KEY is unset; the admin-gated category tests cannot run')) {
     return { rootId };
   }
   const adm = admin.auth;

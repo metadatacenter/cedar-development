@@ -3,7 +3,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
-import { suite, check, checkStatus, call, cleanup, note, RUN } from '../lib.mjs';
+import { suite, check, checkStatus, call, cleanup, enc, RUN } from '../lib.mjs';
 
 const FIXTURES = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', 'fixtures');
 const load = name => JSON.parse(readFileSync(resolve(FIXTURES, name), 'utf8'));
@@ -19,12 +19,9 @@ export async function run({ user1, folderId }) {
   const host = await call(auth, 'POST', `/templates?folder_id=${folderId ? encodeURIComponent(folderId) : ''}`,
       Object.assign(load('minimal-template.json'), { '@id': undefined, 'schema:name': `Validation Host ${RUN}` }));
   let hostId;
-  if (host.status === 201) {
+  if (checkStatus(host, 201, 'a host template is created for instance validation')) {
     hostId = host.body['@id'];
     cleanup('template', `/templates/${encodeURIComponent(hostId)}`, `Validation Host ${RUN}`);
-  } else {
-    note('instance validation could not be exercised against a real template',
-        `the host template was not created: ${host.status}`);
   }
 
   suite('validate: a well-formed artifact of each kind');
@@ -113,31 +110,6 @@ export async function run({ user1, folderId }) {
   checkStatus(await call(auth, 'POST', '/command/validate', load('minimal-template.json')),
       400, 'a missing resource_type is refused with 400');
 
-  suite('validate: what a caller can and cannot validate before creating');
-
-  // Validation requires @id; a create refuses it. So the exact body a client is about to POST does
-  // not validate, and a client that wants to check first has to add a placeholder identifier. That is
-  // a real trap for anyone building against this API, and it is invisible unless both halves are
-  // asserted together.
-  const forCreate = load('minimal-template.json');
-  delete forCreate['@id'];
-  const withoutId = await call(auth, 'POST', '/command/validate?resource_type=template', forCreate);
-  if (checkStatus(withoutId, 200, 'a create-shaped body (no identifier) can be validated')) {
-    check(withoutId.body?.validates === 'false',
-        'but it does not validate, because the meta-schema requires @id while a create forbids it',
-        `validates=${withoutId.body?.validates}`);
-    check(JSON.stringify(withoutId.body?.errors ?? []).includes('@id'),
-        'and the error names @id, so the cause is discoverable',
-        `errors were ${JSON.stringify(withoutId.body?.errors ?? []).slice(0, 200)}`);
-  }
-
-  const withPlaceholder = Object.assign(load('minimal-template.json'),
-      { '@id': 'https://repo.metadatacenter.orgx/templates/11111111-1111-1111-1111-111111111111' });
-  const placeheld = await call(auth, 'POST', '/command/validate?resource_type=template', withPlaceholder);
-  check(placeheld.status === 200 && placeheld.body?.validates === 'true',
-      'the same body validates once any identifier is supplied',
-      `validates=${placeheld.body?.validates}, errors=${JSON.stringify(placeheld.body?.errors ?? []).slice(0, 150)}`);
-
   suite('convert: each declared output format');
 
   // OutputFormatType declares exactly three. Asserting the shape of each, not just a 200, because a
@@ -167,14 +139,10 @@ export async function run({ user1, folderId }) {
 
   suite('convert: the format parameter itself');
 
-  // No format at all: whatever the default is, it must be a deliberate one rather than an error.
+  // No format at all: the endpoint applies a deliberate default (OutputFormatTypeDetector picks one),
+  // so it is accepted rather than an error.
   const noFormat = await call(auth, 'POST', '/command/convert', instance);
-  if (noFormat.status === 200) {
-    note('convert with no format is accepted', 'a default applies; OutputFormatTypeDetector chooses it');
-  } else {
-    check(noFormat.status >= 400 && noFormat.status < 500,
-        'convert with no format is refused with 4xx', `got ${noFormat.status}`);
-  }
+  checkStatus(noFormat, 200, 'convert with no format applies a default and is accepted');
 
   // Fixed by the same one-line change as the resource_type cases above.
   const badFormat = await call(auth, 'POST', '/command/convert?format=banana', instance);
@@ -183,6 +151,39 @@ export async function run({ user1, folderId }) {
         'and the body agrees, reporting invalidArgument',
         `body was ${(badFormat.text ?? '').slice(0, 200)}`);
   }
+
+  suite('validate/create: the @id shapes a pre-create body can take');
+
+  // The meta-schema types @id as ["string","null"] and requires the key, so an artifact that has not
+  // been created yet carries @id: null — and that one shape both validates and creates, so the
+  // validate-then-create workflow needs no placeholder. The other two shapes reveal the asymmetry the
+  // roadmap weighs: omitting @id creates but does not validate (validation wants the key present),
+  // while a real IRI validates but create refuses it (create mints the id). It is create's acceptance
+  // of the omitted key, not validation's strictness, that lets a createable body fail validation.
+  const base = () => Object.assign(load('minimal-template.json'), { 'schema:name': `Id Shape ${RUN}` });
+  const validate = body => call(auth, 'POST', '/command/validate?resource_type=template', body);
+  const create = async (body, label) => {
+    const r = await call(auth, 'POST', `/templates?folder_id=${enc(folderId)}`, body);
+    if (r.status === 201 && r.body?.['@id']) cleanup('template', `/templates/${enc(r.body['@id'])}`, label);
+    return r;
+  };
+
+  const withNull = base(); withNull['@id'] = null;
+  check((await validate(withNull)).body?.validates === 'true', 'an @id of null validates', 'it did not');
+  checkStatus(await create(withNull, 'Id Shape null'), 201, 'and an @id of null creates — one body for both');
+
+  const omitted = base(); delete omitted['@id'];
+  check((await validate(omitted)).body?.validates === 'false',
+      'an omitted @id does not validate — the meta-schema requires the key be present',
+      'it validated, so the required-key rule is not being applied');
+  checkStatus(await create(omitted, 'Id Shape omitted'), 201,
+      'yet an omitted @id creates — the leniency the roadmap questions');
+
+  const realId = base();
+  realId['@id'] = 'https://repo.metadatacenter.orgx/templates/11111111-1111-1111-1111-111111111111';
+  check((await validate(realId)).body?.validates === 'true', 'a real IRI validates', 'it did not');
+  check((await create(realId, 'Id Shape iri')).status === 400,
+      'but create refuses a client-supplied IRI — it mints the id itself', 'create did not refuse it');
 
   return {};
 }

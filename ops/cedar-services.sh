@@ -22,7 +22,7 @@
 #   ./cedar-services.sh logs <name>         # tail -f a service log
 #   ./cedar-services.sh health              # exit 0 only if every service is healthy
 # ------------------------------------------------------------------------------
-export CEDAR_HOME="${CEDAR_HOME:-/Users/martin/CEDAR}"
+export CEDAR_HOME="${CEDAR_HOME:-$HOME/CEDAR}"
 source "$CEDAR_HOME/cedar-profile-native-develop.sh" >/dev/null 2>&1
 export JAVA_HOME="$(/usr/libexec/java_home -v 17 2>/dev/null)"   # CEDAR + Keycloak need JDK 17
 PATH="$JAVA_HOME/bin:/opt/homebrew/bin:$PATH"                    # /opt/homebrew/bin for node + ng (aux frontends)
@@ -113,7 +113,16 @@ start_one() {
       local jar="$CEDAR_HOME/cedar-$name-server/cedar-$name-server-application/target/cedar-$name-server-application-${CEDAR_VERSION}.jar"
       local cfg="$CEDAR_HOME/cedar-$name-server/cedar-$name-server-application/src/main/resources/config.yml"
       [ -f "$jar" ] || { echo "  $name: JAR MISSING ($jar) — build it first"; return; }
-      nohup java -jar "$jar" server "$cfg" >"$log" 2>&1 & ;;
+      # Terminology local-store cutover: when CEDAR_TERMINOLOGY_STORE_CATALOG is set (in the profile),
+      # serve the allowlisted ontologies from the local SQLite store, BioPortal for the rest. Scoped to
+      # this service so the -D overrides do not touch other JVMs. Unset the env var to revert to proxy.
+      local opts=""
+      if [ "$name" = "terminology" ] && [ -n "$CEDAR_TERMINOLOGY_STORE_CATALOG" ]; then
+        opts="-DterminologyStore.catalogPath=$CEDAR_TERMINOLOGY_STORE_CATALOG -DterminologyStore.localOntologies=$CEDAR_TERMINOLOGY_LOCAL_ONTOLOGIES"
+        [ -n "$CEDAR_TERMINOLOGY_LOCAL_ROOTS_ONTOLOGIES" ] && opts="$opts -DterminologyStore.localRootsOntologies=$CEDAR_TERMINOLOGY_LOCAL_ROOTS_ONTOLOGIES"
+        [ -n "$CEDAR_TERMINOLOGY_LOCAL_ONLY" ] && opts="$opts -DterminologyStore.localOnly=$CEDAR_TERMINOLOGY_LOCAL_ONLY"
+      fi
+      nohup java $opts -jar "$jar" server "$cfg" >"$log" 2>&1 & ;;
   esac
   echo $! > "$(pidfile "$name")"
   echo "  started $name (pid $!) -> port $app, log $log"

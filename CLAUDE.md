@@ -10,7 +10,7 @@ for a session rooted in any repo under the container.
 
 Full operational knowledge (architecture, bring-up sequence, gotchas, port map) lives in:
 
-**`cedar-development/ops/RUNBOOK.md`**
+**`cedar-development/ops/DEVELOPMENT-RUNBOOK.md`**
 
 Helper scripts are in `cedar-development/ops/`:
 - `cedar-services.sh` — start / stop / **status** / watch / logs for the microservices + frontends,
@@ -37,7 +37,7 @@ Helper scripts are in `cedar-development/ops/`:
    `launchctl setenv OPENSEARCH_JAVA_HOME "$(/usr/libexec/java_home -v 17)"; brew services restart opensearch`.
 4. **Login shows a browser cert error but `curl -sk` works** → the local `.orgx` TLS **leaves expired**
    (~824-day life; the CEDAR CA is fine). Re-issue them from the CA and `sudo nginx -s reload` — full
-   sequence in `cedar-development/ops/RUNBOOK.md` ("Browser blocks login with a cert error"). Check with:
+   sequence in `cedar-development/ops/DEVELOPMENT-RUNBOOK.md` ("Browser blocks login with a cert error"). Check with:
    `echo | openssl s_client -connect cedar.metadatacenter.orgx:443 -servername cedar.metadatacenter.orgx 2>/dev/null | openssl x509 -noout -dates`.
 
 ## Bring it up
@@ -67,14 +67,14 @@ suggestion, ~30 s): `cd cedar-development/ops/e2e && npm run smoke` — details 
   smoke after changes to inter-service HTTP, validation, or startup wiring: real runtime bugs have
   passed green suites.
 - Full operational, build, test, and dependency-state detail lives in the runbook
-  (`cedar-development/ops/RUNBOOK.md`).
+  (`cedar-development/ops/DEVELOPMENT-RUNBOOK.md`).
 
 ## Version locks and framework state
 
 - **Locked: Java 17, and the persistence/infra server versions** (Mongo, MySQL, Neo4j, Redis,
   OpenSearch, Keycloak). Client libraries may move; those servers may not.
 - Current framework baseline (Dropwizard version, namespace, what's migrated) lives in the runbook —
-  `cedar-development/ops/RUNBOOK.md`, "Version locks and framework state". Don't restate it here.
+  `cedar-development/ops/DEVELOPMENT-RUNBOOK.md`, "Version locks and framework state". Don't restate it here.
 
 ## Conventions
 

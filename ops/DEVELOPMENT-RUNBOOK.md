@@ -9,7 +9,7 @@ Dropwizard JVMs, frontends via `gulp`). The all-Docker deployment is a separate 
 covered here.
 
 Known backend work items, and the decisions about what is deliberately not being done, are tracked
-in [ROADMAP.md](./ROADMAP.md).
+in [DEVELOPMENT-ROADMAP.md](./DEVELOPMENT-ROADMAP.md).
 
 ## Architecture
 
@@ -30,7 +30,7 @@ Three tiers:
 is unset when you source, key variables come out empty.
 
 ```bash
-export CEDAR_HOME=/Users/martin/CEDAR
+export CEDAR_HOME=$HOME/CEDAR
 source $CEDAR_HOME/cedar-profile-native-develop.sh    # ~191 CEDAR_* vars, CEDAR_HOST=metadatacenter.orgx
 ```
 
@@ -140,7 +140,7 @@ default): `demo.cee` 4260, `docs.cee` 4280, `cee-dev` 4400.
 
 - **Browser blocks login with a cert error, but `curl` works** → the local TLS **leaf certs
   expired**. The `*.metadatacenter.orgx` sites are served by nginx with self-signed leaves issued by
-  the CEDAR CA. The CA lives in `$CEDAR_CA_HOME` (`/Users/martin/CEDAR/CEDAR_CA`), is valid ~10 years,
+  the CEDAR CA. The CA lives in `$CEDAR_CA_HOME` (`$HOME/CEDAR/CEDAR_CA`), is valid ~10 years,
   and is already trusted in your login keychain — but the **leaves last only ~824 days** and Chrome
   hard-blocks an expired cert (won't even offer "proceed"). `curl -sk https://cedar.metadatacenter.orgx/`
   still returns 200 because `-k` ignores expiry, which is the tell. Diagnose:
@@ -153,7 +153,7 @@ default): `demo.cee` 4260, `docs.cee` 4280, `cee-dev` 4400.
   CA itself: `cert ca` would force re-adding it to the keychain; only the leaves expire):
 
   ```bash
-  export CEDAR_HOME=/Users/martin/CEDAR
+  export CEDAR_HOME=$HOME/CEDAR
   source $CEDAR_HOME/cedar-profile-native-develop.sh          # sets CEDAR_CA_HOME, CEDAR_CA_PASSWORD, CEDAR_CA_*
   SSL=/opt/homebrew/etc/nginx/cedar/ssl
   cp -r "$SSL" /tmp/cedar-ssl-backup                          # optional but wise (reversible)
@@ -211,6 +211,16 @@ default): `demo.cee` 4260, `docs.cee` 4280, `cee-dev` 4400.
   and can die mid-reactor while the shell still reports a clean exit. Never pipe `mvn` through a
   reader that can exit early. Redirect the full output to a file and grep the file afterward.
 
+- **A build seems to "take forever" for a task that should finish in seconds** → suspect the monitor,
+  not the build. First estimate the real cost — a single-module or few-module `install -DskipTests`
+  is seconds; only the full ~70-module reactor is minutes — then check the actual state directly (the
+  target jar's mtime, `pgrep` for the real `mvn`/`java`) rather than waiting on a loop. Two traps that
+  make a finished build look stuck forever: `mvn -q` suppresses the `BUILD SUCCESS`/reactor-summary
+  line, so any `until grep "BUILD SUCCESS"` wait can never fire (don't use `-q`; redirect full output
+  to a file); and a `pgrep -f` for the build often matches your own wait-loop's command line, so the
+  loop sees "still running" and waits on itself. When a wait outlives the estimate by an order of
+  magnitude, verify the underlying artifact — do not keep waiting.
+
 - **A test fails with `Failed to bind to 0.0.0.0:90xx` while the dev stack is up** → that test boots
   its server on a real dev port instead of the alternate `19xxx` test range. Every booted test must
   redirect its ports through `CedarEnvironmentSource.setOverride(...)` to the `19xxx` range (test
@@ -237,7 +247,7 @@ default): `demo.cee` 4260, `docs.cee` 4280, `cee-dev` 4400.
 `cedar.py`. To drive it non-interactively (no alias):
 
 ```bash
-export CEDAR_HOME=/Users/martin/CEDAR
+export CEDAR_HOME=$HOME/CEDAR
 source $CEDAR_HOME/cedar-profile-native-develop.sh >/dev/null 2>&1
 export JAVA_HOME=$(/usr/libexec/java_home -v 17)
 $CEDAR_HOME/cedar-cli/.venv/bin/python $CEDAR_HOME/cedar-cli/cedar.py <command>
@@ -485,8 +495,78 @@ it is used (`seenIn` fields, `nArtifacts` artifacts), branch `maxDepth`s, one ex
 minimal single-target `valueConstraints` block that POSTs verbatim to `/bioportal/integrated-search`
 (auth is disabled there) — so a row doubles as a runnable case. Display-name sources ending in a
 parenthesised acronym (`BioAssay Ontology (BAO)`) are normalized to the acronym so an ontology does not
-split into two rows. The diff harness that replays rows on two servers and compares responses is not
-built yet — the matrix is the corpus it will consume.
+split into two rows.
+
+`cedar_termdiff.py` replays that matrix against `POST /bioportal/integrated-search` and compares a
+local, SQLite-backed answer to a BioPortal answer — both obtained through the same endpoint on two
+differently-configured instances, so the shapes match. BioPortal is slow and drifts, so it is
+record-then-replay:
+
+```bash
+# 1) record BioPortal goldens (the slow, standalone run) from a BioPortal-backed instance
+python3 ops/cedar_termdiff.py record --matrix matrix.jsonl --goldens goldens \
+    --server https://terminology.metadatacenter.org --ontology DOID GO HP --kinds branch class
+
+# 2) verify a local-store instance (localOntologies set, terminologyStore.localOnly=true) vs the goldens
+python3 ops/cedar_termdiff.py verify --matrix matrix.jsonl --goldens goldens \
+    --server http://localhost:9004 --ontology DOID GO HP --kinds branch class --report readiness.json
+```
+
+`record` is resumable (one file per atom; already-recorded atoms are skipped, failures left
+unrecorded to retry). Equivalence bar for the enumerate path (`inputText=""`): set-equality on result
+IRIs plus preferred-label agreement — ordering and BioPortal-only metadata are ignored, since the
+snapshot holds hierarchy plus preferred labels. The endpoint caps `pageSize` (~5000) and its
+`page`/`nextPage` are inert, so the harness fetches each set in one request sized to `totalCount`;
+sets larger than `--max-results` are marked truncated and excluded from the gate (whole-ontology
+enumeration is not a browse test). `verify` emits a per-ontology readiness report; an ontology that is
+100% set-equal with no errors is safe to add to `localOntologies`. The migration plan this feeds is
+`cedar-terminology-server/ROADMAP.md`.
+
+### Running the gate, and the current cutover state
+
+`ops/cedar_term_gate.sh verify` is the one-command gate: it stands up a throwaway local-store instance
+(all ingested ontologies, strict `localOnly`) on the 19xxx test ports, verifies it against the goldens
+on both gates (integrated-search and `--roots`), prints the ready sets, and tears the instance down.
+`cedar_term_gate.sh record` re-records the BioPortal goldens (drift refresh) from a BioPortal-proxy
+instance — run it on a cadence (BioPortal content drifts; ours is pinned), monthly is ample given the
+measured ~0.03%/day, additive pace of change. Paths default to `~/tmp/{catalog.sqlite,goldens,
+goldens_roots,matrix.jsonl}`; override with `TERM_*` env vars.
+
+Cutover is **per-endpoint**, set from the profile and injected by `cedar-services.sh` (unset the vars
+to revert to a pure BioPortal proxy):
+
+- `CEDAR_TERMINOLOGY_STORE_CATALOG` — the catalog path (host-specific).
+- `CEDAR_TERMINOLOGY_LOCAL_ONTOLOGIES` — served locally for **search/integrated-search** (the
+  gate-proven, high-value path); eligibility is integrated-search equivalence alone.
+- `CEDAR_TERMINOLOGY_LOCAL_ROOTS_ONTOLOGIES` — the subset that *also* serves the tree-browse endpoints
+  (root classes, class tree) locally, i.e. whose roots are proven equivalent too. An ontology on the
+  first list but not the second is local for search but browses from BioPortal — no browse regression
+  while its local roots still diverge (roots divergence is dominated by BioPortal-endpoint quirks:
+  import orphans we drop, Protégé/upper-ontology artifacts BioPortal lists that we drop — not our bug).
+
+### Re-ingesting an ontology
+
+Ingest is `IngestJob <catalogPath> <snapshotDir> <ACRONYM>…`, `BIOPORTAL_API_KEY` in the env. OWLAPI
+4.5.9 resolves http imports via Apache HttpClient and parses with JAXB, neither of which it declares
+and JAXB is not in JDK 17 — both are now declared in the ingest module's pom, so a classpath from the
+build is complete (a hand-assembled one that omits them makes an import-heavy ontology fail with
+`NoClassDefFoundError` and, before the guard, produced an empty snapshot):
+
+```bash
+cd $CEDAR_HOME/cedar-terminology-server
+mvn -q -pl cedar-terminology-server-ingest -am install -DskipTests
+mvn -q -pl cedar-terminology-server-ingest dependency:build-classpath \
+    -Dmdep.outputFile=/tmp/ingest-cp.txt -DincludeScope=runtime
+CP="cedar-terminology-server-ingest/target/classes:$(cat /tmp/ingest-cp.txt)"
+BIOPORTAL_API_KEY=$CEDAR_BIOPORTAL_API_KEY java -cp "$CP" \
+    org.metadatacenter.terms.ingest.IngestJob ~/tmp/cedar-term/prod/catalog.sqlite \
+    ~/tmp/cedar-term/prod/snapshots DOID
+```
+
+Ingest is idempotent on the content hash (same download overwrites in place, atomically, only on a
+non-empty extraction) and won't overwrite a good snapshot with a failed/empty one. `version_id`
+changing means BioPortal's content changed; the old snapshot is then orphaned — delete rows/files not
+referenced by any `version_tag`.
 
 ## End-to-End Smoke Test: `ops/e2e`
 
@@ -525,7 +605,7 @@ simply was not being sent. If it starts burning retries again, check the Dropwiz
 a unit, each attempt starting from the designer deep link, because only a page load helps: the
 editor loads BioPortal's ontology list once per page and latches an empty cache when that load
 fails, so re-running the ontology *search* re-reads the same empty cache and can never succeed. The
-underlying frontend defect is unfixed and on the [roadmap](./ROADMAP.md); the retry tolerates it
+underlying frontend defect is unfixed and on the [roadmap](./DEVELOPMENT-ROADMAP.md); the retry tolerates it
 rather than curing it.
 
 ## Login

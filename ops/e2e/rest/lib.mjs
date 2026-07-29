@@ -14,6 +14,10 @@ export const HOST = env.CEDAR_HOST ?? 'metadatacenter.orgx';
 export const RESOURCE = env.CEDAR_RESOURCE_BASE ?? `https://resource.${HOST}`;
 export const USER_SERVER = env.CEDAR_USER_BASE ?? `https://user.${HOST}`;
 export const GROUP_SERVER = env.CEDAR_GROUP_BASE ?? `https://group.${HOST}`;
+// The artifact server, addressed directly. The resource server proxies every artifact write and read
+// to it, so the contract suite compares the two sides of that hop.
+export const ARTIFACT_SERVER = env.CEDAR_ARTIFACT_BASE ?? `https://artifact.${HOST}`;
+export const TERMINOLOGY = env.CEDAR_TERMINOLOGY_BASE ?? `https://terminology.${HOST}`;
 // The OpenView *server*, not the OpenView frontend. `openview.${HOST}` is the AngularJS app; the API
 // has no vhost of its own, so it is addressed directly on its port.
 export const OPENVIEW = env.CEDAR_OPENVIEW_BASE
@@ -31,7 +35,7 @@ export const enc = iri => encodeURIComponent(iri);
 
 // ── results ─────────────────────────────────────────────────────────────────
 
-const results = { passed: 0, failed: 0, notes: 0 };
+const results = { passed: 0, failed: 0 };
 let currentSuite = '';
 
 export function suite(name) {
@@ -48,15 +52,6 @@ export function ok(what) {
 export function bad(what, detail) {
   results.failed++;
   console.error(`  ✗ ${what}\n      ${detail}`);
-}
-
-/**
- * Something worth knowing that must not fail the gate — a defect these tests neither caused
- * nor can fix, where failing would only make the gate unusable.
- */
-export function note(what, detail) {
-  results.notes++;
-  console.warn(`  ! ${what}\n      ${detail}`);
 }
 
 export function check(condition, what, detail) {
@@ -165,6 +160,11 @@ export function group(auth, method, path, body, opts = {}) {
   return call(auth, method, path, body, { ...opts, base: GROUP_SERVER });
 }
 
+/** A request straight to the artifact server, bypassing the resource server's graph and proxy. */
+export function artifact(auth, method, path, body, opts = {}) {
+  return call(auth, method, path, body, { ...opts, base: ARTIFACT_SERVER });
+}
+
 /**
  * The group every user belongs to, which is how "share with everybody" is expressed: a grant to this
  * group, denormalized onto the node as its everybody permission. Found by its special marker rather
@@ -254,6 +254,10 @@ export async function teardown(auth) {
     const as = item.auth ?? auth;
     const where = { base: item.base };
     const del = await call(as, 'DELETE', item.path, undefined, where);
+    // 404 means it is already gone, which is exactly the end state teardown is verifying — a suite
+    // that deletes what it created (the contract suite deletes an artifact to prove the delete reaches
+    // both stores) registered cleanup as a safety net that is simply not needed this run.
+    if (del.status === 404) { removed++; continue; }
     if (del.status !== 204 && del.status !== 200) {
       bad(`teardown: ${item.kind} "${item.name}" not deleted`, `${del.status}: ${(del.text ?? '').slice(0, 200)}`);
       continue;
