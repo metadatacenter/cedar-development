@@ -261,17 +261,6 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
   (`/api-keys/{keyId}`), keeping the secret out of the path. Breaking change: cedar-cli and the profile
   UI call these routes, so it needs a coordinated client update.
 
-- **Extend the centralized admin-command gate to the worker and value-recommender servers.** The
-  resource server's index/ontology commands no longer carry an inline `c.must(...).have(...)` check each
-  — the pattern that once shipped a commented-out gate (`load-valuesets-ontology`) and a wrong permission
-  (`generate-empty-rules-index`). They now authorize through one policy: an `AdminCommand` enum that binds
-  each command to its permission in a single table and runs the assertion from one `enforce` method,
-  pinned by `AdminCommandAuthorizationMatrixTest` (401 anonymous / 403 authenticated non-admin, with the
-  ungated status poll as the control) and verified live. Two admin routes still carry their own inline
-  check: the worker server's `regenerate-inclusion-subgraph` and the value recommender's reindex command.
-  Apply the same `AdminCommand`-style policy there so no admin route is left with a hand-rolled gate. Low
-  priority and hygiene rather than a fix: both checks are currently correct.
-
 ## Testing
 
 Coverage and test-infrastructure work, and the testing decisions taken deliberately. The active
