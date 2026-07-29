@@ -241,6 +241,17 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
   here is the *cause*: read `CEDAR_BIOPORTAL_API_KEY` from config, delete the constant, and rotate the
   exposed key so the partial loads stop happening in the first place.
 
+- **Retire the `CedarDataServices` static service locator.** `CedarDataServices` is a global singleton
+  reached through ~21 static accessors from ~230 call sites across the servers. Because each consumer
+  pulls its dependencies from it statically rather than receiving them, a class's real requirements are
+  invisible at its constructor, and tests become order-dependent: whichever test first triggers global
+  initialization fixes the state for the rest of the shared JVM — the same coupling that forced the
+  `CedarConfig` environment-override machinery. The hard hazard is already gone (the accessors now throw
+  `IllegalStateException` instead of calling `System.exit()`, so a mis-init fails one request rather than
+  the process), but the locator pattern remains. Move these services to constructor injection, following
+  the `CedarConfig`-injectable work already done, so dependencies are explicit and tests independent.
+  Large and cross-cutting; stage it one service at a time rather than in a single change.
+
 ## Testing
 
 Coverage and test-infrastructure work, and the testing decisions taken deliberately. The active
