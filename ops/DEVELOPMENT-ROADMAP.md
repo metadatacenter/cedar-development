@@ -241,22 +241,6 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
   here is the *cause*: read `CEDAR_BIOPORTAL_API_KEY` from config, delete the constant, and rotate the
   exposed key so the partial loads stop happening in the first place.
 
-- **Document the YAML media types in the OpenAPI spec.** The four artifact resources on the resource
-  server negotiate `application/yaml` (and `application/x-yaml`) on GET, POST and PUT, but their
-  swagger-core annotations declare only JSON. So the generated `swagger.json` — and the Swagger UI at
-  `/api/` that renders it — shows the JSON contract alone; a client reading the published docs would
-  not know YAML is accepted. Add the YAML media types to the `@Consumes`/`@Produces` (or the swagger
-  annotations) on `TemplatesResource`, `TemplateElementsResource`, `TemplateFieldsResource` and
-  `TemplateInstancesResource` so the forms appear in the interactive reference. Small; the negotiation
-  itself already works and is pinned by `ops/e2e/rest/suites/negotiation.mjs`. Until this lands, the
-  release text should document YAML via the readthedocs spec, not the Swagger UI.
-
-- **Prune the superseded Swagger UI 2.x assets from `cedar-swagger-ui`.** The 5.x upgrade that fixed
-  the `/api/` "fetching resource list" hang replaced `index.html` and added the 5.x dist, but left the
-  old 2.x files in the repo (`swagger-ui.js`/`.min.js`, `lib/`, `css/`, `o2c.html`, `lang/`, and the
-  2.x images and fonts). Nothing references them now, but they are dead weight and confuse which
-  bundle is live. Remove them, keeping only `index.html`, `swagger-ui-bundle.js` and `swagger-ui.css`.
-
 ## Testing
 
 Coverage and test-infrastructure work, and the testing decisions taken deliberately. The active
