@@ -272,16 +272,6 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
   command never runs. This complements the folder/artifact/group matrices already in place, and fits the
   existing decision to leave the admin commands out of the functional REST suites.
 
-- **Unify the two chunked-upload implementations into one shared component.** The impex server and the
-  submission server each carry their own copy of `FlowUploadUtil`. The chunked-upload vulnerability had
-  to be fixed twice — client-controlled filename/id concatenated into paths without a containment check,
-  an unchecked (and overflow-prone) chunk offset, no size cap, no try-with-resources — and the second
-  copy sat exploitable through the NCBI/CAIRR/ImmPort endpoints after the first was patched. Both are
-  now hardened identically, but the duplication guarantees the next fix must be made twice. Extract the
-  hardened logic (basename sanitization, `startsWith(uploadRoot)` containment, overflow-safe offset/size
-  caps via `multiplyExact`, try-with-resources) into one shared upload module used by both servers and
-  delete the copies, so the next change lands once.
-
 ## Testing
 
 Coverage and test-infrastructure work, and the testing decisions taken deliberately. The active
