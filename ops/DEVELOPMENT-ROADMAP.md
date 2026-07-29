@@ -70,6 +70,39 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
   check `finding.mjs` already makes. This is the same folder-listing staleness documented in `deleteRow`
   in the smoke.
 
+- **Decide on concurrency control.** There is no `ETag`, `If-Match` or `@Version` anywhere in the
+  stack, so two users editing one template is a silent lost update: the second save wins and the
+  first user is never told. This is a design item rather than a coverage item, since no test can be
+  written until the API offers the conditional-request machinery.
+
+- **Cache the CompTox substance registry locally.** On every start the bridge server rebuilds its
+  registry by fetching roughly 14,700 substances from the external CompTox API in batches of a
+  thousand, holding the result in a `ConcurrentHashMap` that dies with the process
+  (`SubstanceRegistry`, driven by the `Managed` `SubstanceRegistryLoader`). Three costs follow: the
+  load takes around ninety seconds, during which `/healthcheck` returns 500 and every redeploy shows
+  the service as UNHEALTHY; startup depends on a third party being reachable and on the API key being
+  valid at that moment; and each restart re-fetches a slowly-changing reference dataset that has not
+  meaningfully changed since the last one.
+
+  Persist it instead, and refresh on a schedule or when the local copy is stale rather than on every
+  boot, so the server serves from the cache immediately. SQLite fits and is already in the stack:
+  `org.xerial:sqlite-jdbc` is pinned in `cedar-parent` for the terminology local store, so there is
+  both precedent and an existing dependency to follow.
+
+  Splitting readiness from liveness in the health check is worth doing alongside, so that a server
+  which is up but still warming reports as such rather than as failed. On its own it only relabels
+  the ninety seconds; caching removes them.
+
+- **A published artifact can be deleted, contradicting the docs.** The docs say a published
+  artifact is permanent, but `DELETE` on one succeeds. The guard in
+  `AbstractResourceServerResource.executeArtifactDelete` was briefly re-enabled and then **reverted by
+  deliberate decision**: blocking deletion strands published artifacts and the folders holding them with
+  no ordinary cleanup path, and commit `3f26ee7` (2021, "Allow users to delete published resources") had
+  disabled the guard on purpose. So deletability stays for now; the discrepancy with the documentation
+  is the open question. Deciding it means choosing between amending the docs (published is deletable) or
+  re-enabling the guard together with a supported cleanup path (e.g. an admin-only delete, or cascading
+  through folder deletion). The re-publish immutability above is unaffected — that is enforced.
+
 - **Settle the sharing and permission model, then write it down.** This is the umbrella item: the
   pieces below are each small, and separately each looks like a quirk, but together they say the model
   was never specified in one place, so every surface decided for itself. Controlled sharing is what
@@ -119,29 +152,6 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
   `GroupMembershipAuthorizationMatrixTest`, `GroupSharingRevocationIntegrationTest` and
   `ArtifactLifecycleMatrixTest`.
 
-- **Decide on concurrency control.** There is no `ETag`, `If-Match` or `@Version` anywhere in the
-  stack, so two users editing one template is a silent lost update: the second save wins and the
-  first user is never told. This is a design item rather than a coverage item, since no test can be
-  written until the API offers the conditional-request machinery.
-
-- **Cache the CompTox substance registry locally.** On every start the bridge server rebuilds its
-  registry by fetching roughly 14,700 substances from the external CompTox API in batches of a
-  thousand, holding the result in a `ConcurrentHashMap` that dies with the process
-  (`SubstanceRegistry`, driven by the `Managed` `SubstanceRegistryLoader`). Three costs follow: the
-  load takes around ninety seconds, during which `/healthcheck` returns 500 and every redeploy shows
-  the service as UNHEALTHY; startup depends on a third party being reachable and on the API key being
-  valid at that moment; and each restart re-fetches a slowly-changing reference dataset that has not
-  meaningfully changed since the last one.
-
-  Persist it instead, and refresh on a schedule or when the local copy is stale rather than on every
-  boot, so the server serves from the cache immediately. SQLite fits and is already in the stack:
-  `org.xerial:sqlite-jdbc` is pinned in `cedar-parent` for the terminology local store, so there is
-  both precedent and an existing dependency to follow.
-
-  Splitting readiness from liveness in the health check is worth doing alongside, so that a server
-  which is up but still warming reports as such rather than as failed. On its own it only relabels
-  the ninety seconds; caching removes them.
-
 - **Decide what the unenforced permission levels are for.** `FilesystemResourcePermission` declares
   six: `READ`, `WRITE`, `CHANGEOWNER`, `CHANGEPERMISSIONS`, `PUBLISH`, `CREATE_DRAFT`. Outside the
   enum declaration and tests, `CHANGEPERMISSIONS` and `CHANGEOWNER` appear nowhere in the codebase —
@@ -169,16 +179,6 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
   reader and to a client: a level that can be granted, is stored, and is never consulted reads as a
   restriction while being none. Either enforce the four unused levels or remove them and document the
   three tiers, including that write implies re-sharing and that versioning is owner-only.
-
-- **A published artifact can be deleted, contradicting the docs.** The docs say a published
-  artifact is permanent, but `DELETE` on one succeeds. The guard in
-  `AbstractResourceServerResource.executeArtifactDelete` was briefly re-enabled and then **reverted by
-  deliberate decision**: blocking deletion strands published artifacts and the folders holding them with
-  no ordinary cleanup path, and commit `3f26ee7` (2021, "Allow users to delete published resources") had
-  disabled the guard on purpose. So deletability stays for now; the discrepancy with the documentation
-  is the open question. Deciding it means choosing between amending the docs (published is deletable) or
-  re-enabling the guard together with a supported cleanup path (e.g. an admin-only delete, or cascading
-  through folder deletion). The re-publish immutability above is unaffected — that is enforced.
 
 - **Decide whether users can classify their own artifacts.** Attaching a category to an artifact
   requires a grant on the *category*, not merely on the artifact: `ATTACH` (or `WRITE`, which implies
