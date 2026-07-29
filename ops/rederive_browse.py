@@ -14,7 +14,8 @@ import json, glob, sqlite3, os, re, collections, sys
 CAT = os.environ["CEDAR_TERMINOLOGY_STORE_CATALOG"]; BASE = os.path.dirname(CAT)
 G = "/Users/martin/tmp/cedar-term/gate-all"
 rep = json.load(open(f"{G}/gate_roots_all.json")); per = rep["ontologies"]; THR = rep["labelThreshold"]
-cur806 = set(open(f"{G}/browse-serve-clean.txt").read().strip().split(","))
+import os as _os
+cur_live = set(filter(None, _os.environ.get("CEDAR_TERMINOLOGY_LOCAL_ROOTS_ONTOLOGIES","").split(",")))
 cc = sqlite3.connect(CAT).cursor()
 
 def idspace(iri):
@@ -91,13 +92,13 @@ for a in per:
 ready = sorted(ready)
 open(f"{G}/browse-allowlist-rederived.txt", "w").write(",".join(ready))
 newset = set(ready)
-print(f"gated with pruned snapshot : {len(ready)+len(real_gap_out)+len(label_fail)+len(empty)}")
+print(f"gated with pruned snapshot : {len(ready)+len(real_gap_out)+len(empty)}")
 print(f"BROWSE-READY (re-derived)  : {len(ready)}")
-print(f"  vs current live allowlist: {len(cur806)}   (added {len(newset-cur806)}, dropped {len(cur806-newset)})")
+print(f"  vs current live allowlist: {len(cur_live)}   (added {len(newset-cur_live)}, dropped {len(cur_live-newset)})")
 print(f"excluded — real own-content gap : {len(real_gap_out)}  e.g. {[a for a,_ in real_gap_out[:8]]}")
 print(f"excluded — empty root set        : {len(empty)}  e.g. {empty[:8]}")
 print(f"included but labels diverge (issue #7, informational): {len(label_fail)}")
-print(f"dropped from current 806         : {sorted(cur806-newset)[:12]}")
+print(f"dropped from current live         : {sorted(cur_live-newset)[:12]}")
 print()
 print("SANITY:")
 for a in ["CL","UBERON","DOID","OBI","ABD","BTO-EMMO","NDDO","G-PROV"]:
