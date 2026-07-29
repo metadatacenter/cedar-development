@@ -261,21 +261,16 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
   (`/api-keys/{keyId}`), keeping the secret out of the path. Breaking change: cedar-cli and the profile
   UI call these routes, so it needs a coordinated client update.
 
-- **Centralize administrative-route authorization.** The index/ontology admin commands each carry their
-  own inline `c.must(...).have(...)` check, which is how one shipped with the check commented out
-  (`load-valuesets-ontology`, open to any logged-in user) and another used the wrong permission
-  (`generate-empty-rules-index` checked `SEARCH_INDEX_REINDEX` instead of `RULES_INDEX_REINDEX`). Both
-  slips are fixed, and the gate is now pinned: `AdminCommandAuthorizationMatrixTest` asserts 401 for
-  anonymous and 403 for an authenticated non-admin on every mutating command, with the deliberately
-  ungated status poll as the control, so a dropped or wrong-permission gate fails a test rather than
-  shipping. It asserts the gate and never the effect — ADMIN is never probed — so no command that
-  rebuilds or wipes the index ever runs, which is what lets it sit alongside the decision to keep the
-  admin commands out of the functional REST suites.
-
-  What remains is the cause, not the symptom: the per-route inline pattern still invites the next
-  copy/paste slip. Move admin-route authorization to one policy — a filter or a shared assertion keyed by
-  route — so the check is declared once instead of copied per endpoint. The matrix above then guards the
-  refactor, and complements the folder/artifact/group matrices already in place.
+- **Extend the centralized admin-command gate to the worker and value-recommender servers.** The
+  resource server's index/ontology commands no longer carry an inline `c.must(...).have(...)` check each
+  — the pattern that once shipped a commented-out gate (`load-valuesets-ontology`) and a wrong permission
+  (`generate-empty-rules-index`). They now authorize through one policy: an `AdminCommand` enum that binds
+  each command to its permission in a single table and runs the assertion from one `enforce` method,
+  pinned by `AdminCommandAuthorizationMatrixTest` (401 anonymous / 403 authenticated non-admin, with the
+  ungated status poll as the control) and verified live. Two admin routes still carry their own inline
+  check: the worker server's `regenerate-inclusion-subgraph` and the value recommender's reindex command.
+  Apply the same `AdminCommand`-style policy there so no admin route is left with a hand-rolled gate. Low
+  priority and hygiene rather than a fix: both checks are currently correct.
 
 ## Testing
 
