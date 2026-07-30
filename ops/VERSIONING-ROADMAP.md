@@ -87,8 +87,13 @@ The pieces that need no other repo and no shared-spec change. Prototype the mode
   snapshot. Provider suite +4 (19 total). **Verified live** on the redeployed stack: INCENTIVE →
   `{e1dc041e…, 2023-11-23, 0.1.3}` (its newest of 6 submissions), MODSCI → `{29460bcd…, 2019-12-01,
   1.0}`, EHDAA (BioPortal-deferred) → 404, and `versions/diff` still routes (no path collision).
-- **[next] A3 — `/versions` returns the full triple** (add `effectiveDate`; keep `released`/`version`
-  as aliases for compatibility). Additive to `OntologyVersion`.
+- **[done] A3 — `/versions` returns the full triple.** `OntologyVersion` gains `effectiveDate` (the
+  release day, or ingest day when the source records no release), derived by the same shared helper
+  as A2's triple so a listing and a resolve-current never disagree. `released` (full timestamp) and
+  `version` (declared label) are retained as compatibility aliases — purely additive, no reader
+  breaks. Endpoint doc + swagger regenerated. Tested: provider suite +1 (20), app
+  `LocalStoreResourceTest` +1 (6, real JAX-RS serialization). **Verified live**: INCENTIVE's six
+  submissions each carry `effectiveDate`, including the offset case `…T18:07:50-07:00` → `2022-06-26`.
 - **[next] A4 — Additive provenance columns.** `ALTER TABLE snapshot ADD COLUMN` for
   `source`/`backend` (default `bioportal`), `submission_id`, `source_date`. Backfill from BP
   submission metadata (no content fetch) and raw-header greps. Display/audit only.
@@ -161,8 +166,8 @@ Two tracks, both self-contained in this repo:
   polish: **A6** (derive/store `ontology.iri`); the DDSS big-heap re-ingest and the EHDAA/BSAO/EO1
   0-edge extraction investigation (issue #12 follow-ups) to reclaim the last 4. Prod still off by
   default.
-- **Versioning mechanics** — A1 (date/declaredVersion resolver) and A2 (resolve-current → triple)
-  **done**. Next: **A3** (`/versions` returns the full triple — add `effectiveDate`, keep
-  `released`/`version` aliases; additive) and **A6** (derive/store `ontology.iri`). The publish walk
-  (Phase C) can now call `resolveCurrentVersion` to freeze an entry. Settle decision 1 (hash basis)
-  in parallel — the only item that touches identity bytes.
+- **Versioning mechanics** — A1 (date/declaredVersion resolver), A2 (resolve-current → triple), and
+  A3 (`/versions` full triple) **done**. The resolver, the publish-time triple, and the version
+  listing all now speak the same `{id, effectiveDate, declaredVersion}` model. Next: **A6**
+  (derive/store `ontology.iri`) and **A4** (additive provenance columns). Settle decision 1 (hash
+  basis) in parallel — the only item that touches identity bytes.
