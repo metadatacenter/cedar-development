@@ -177,6 +177,42 @@ CamelCase) and store it in `pref_label`. Backfillable by UPDATE over existing co
 re-download); add to the extractor for new ingests. Unlocks the 179 for both search and browse
 (→ ceiling ~1,213) and fixes their unlabeled browse trees.
 
+## 12. QA pass of the locally-served corpus  — MOSTLY CLEAN; ~6 genuinely broken
+
+After widening search+browse to ~1,213 (issues #1, #11), a quality pass checked whether the
+newly-served ontologies serve *worse* than BioPortal. Method: local structural flags (opaque/code
+labels; 0-edge "flat" hierarchies) then classification against the recorded BioPortal **goldens**
+(roots + labels) to separate genuine extraction failures from legitimately flat/code ontologies —
+no new BioPortal calls.
+
+**Result: the corpus is mostly clean.** ~1,005 ontologies clearly good; ~34 flagged for opaque
+labels and ~31 for 0 edges, but the golden comparison shows **most of those are fine**:
+- Many 0-edge ontologies are *legitimately flat* — SKOS code lists (ISO639-1, MARC-LANGUAGES, …)
+  where BioPortal also returns 0 roots. Keep serving.
+- Many opaque-label ontologies are genuinely code-based; BioPortal is no better. Keep serving.
+
+**Genuinely worse than BioPortal (golden-confirmed): ~6**, mixed causes/formats —
+- no hierarchy where BioPortal has one: **EHDAA** (OBO, 2314/0 vs BP 1 root), **BSAO** (OBO, 104/0
+  vs BP 8), **EO1** (SKOS, 25/0 vs BP 3);
+- code labels where BioPortal has words: **FAST-GENREFORM** (SKOS), **DDSS** (OWL, 807k), **PECO**
+  (OBO — hierarchy is fine, labels opaque).
+
+**Root-cause probe (OBO `import:`):** a raw OBO with `import:` stanzas makes OWLAPI's obo2owl
+converter fetch each import with a hardcoded loader config, so `MissingImportHandlingStrategy.SILENT`
+is ignored and a server-error response (PECO's envo import → HTTP 520) throws
+`UnloadableImportException`, aborting the parse. `IngestJob.stripOboImports` fixes this — verified:
+stripped `peco.obo` → 3,163 classes, 3,356 subClassOf, 9,921 label annotations (vs 0/opaque stored).
+But only **2 of 105 OBO** are 0-edge, so this is not widespread in the current corpus; the broken
+snapshots are **stale** (ingested before the strip was effective), not a current-code bug.
+
+**Caveat surfaced:** the A9 IRI-fragment fallback (#11) can *mask* a real label-extraction failure by
+filling codes — so "has labels" ≠ "good labels." The golden comparison is the check.
+
+**Action:** re-ingesting the ~6 confirmed-broken with current code (proper fix; verified for PECO).
+Any that remain genuinely worse after re-ingest get deferred to BioPortal. Everything else serves
+locally. The differential-as-quality-flag approach (serve local by default, gate flags offenders)
+is validated.
+
 ## Gate outcome snapshot (2026-07-29, roots)
 
 - Gated: 1,191 (23 un-gatable, issue #6).
