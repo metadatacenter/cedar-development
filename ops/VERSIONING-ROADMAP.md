@@ -21,10 +21,11 @@ which the reconciliation work showed is frequently the wrong reference — so Bi
 no longer the admission test. In particular, the 23 "un-gatable" ontologies (BioPortal's own roots
 404/500) must be served locally: deferring there returns the user an error.
 
-**Coverage target.** Ceiling ≈ 1,213 local (the 1,214 ingested minus 1 empty), for both endpoints.
-Mandatory-defer set: the 77 not held (12 licensed + 65 un-ingestable). Now: **search 1,034 / browse
-1,187** (A8 widened search from 186). The remaining search gap to the ceiling is the 179 zero-label
-ontologies, closed by A9 (IRI-fragment label fallback).
+**Coverage target — REACHED.** Ceiling ≈ 1,213 local (the 1,214 ingested minus 1 empty), for both
+endpoints. Now: **search 1,213 / browse 1,213** — BioPortal is out of the lookup path for every
+ontology we hold, on both endpoints. Deferring only where we must: the 77 not held (12 licensed + 65
+un-ingestable) and the 1 empty (LC-CARRIERS). Got here via A8 (search 186→1,034), A9 (IRI-fragment
+labels → +179), A7 (browse 1,187→1,213, incl. the 23 un-gatable that BioPortal itself 404s).
 
 ## Where we are
 
@@ -76,10 +77,10 @@ The pieces that need no other repo and no shared-spec change. Prototype the mode
   others strip trailing separator). Store as a column on `ontology`; keep declared IRI + raw
   namespace as provenance. Backfill from headers + concepts already on disk — no re-ingest. This is
   the multi-source ontology key (decision 2's enabler) and is derivable for 100% of ontologies.
-- **[next] A7 — Widen browse-serving to the ceiling (1,187 → ~1,213).** Add the 23 un-gatable
-  (BioPortal's roots fail them, so local is strictly better) and the 3 genuine-gap ontologies
-  (BTO-EMMO, NDDO, OCRE — still serve a near-complete tree). Only the empty LC-CARRIERS defers.
-  Allowlist change; no build.
+- **[done] A7 — Widen browse-serving (1,187 → 1,213).** Serve every ingested ontology with roots;
+  the 23 un-gatable (BioPortal 404s their roots — local is the only working answer) and the 3
+  genuine-gap ontologies (BTO-EMMO, NDDO, OCRE — near-complete tree) now serve locally. Only the
+  empty LC-CARRIERS defers. Validated: all serve roots locally with zero BioPortal calls.
 - **[done] A8 — Widen search-serving (186 → 1,034).** Allowlisted every ingested ontology that has
   extracted labels; validated newly-served ontologies (MESH, HP, PR, GO, NCIT, EFO) serve search
   locally with zero BioPortal calls. BioPortal is now out of the lookup path for 1,034 ontologies.
@@ -131,10 +132,10 @@ The reproducibility guarantee is earned here (DESIGN §7).
 
 Two tracks, both self-contained in this repo:
 
-- **Replace BioPortal for lookup** — A8 done (search 186 → 1,034). Next lever is **A9 (IRI-fragment
-  label fallback)** to unlock the remaining 179 zero-label ontologies for both endpoints (→ ceiling
-  ~1,213), then **A7** (browse stragglers) and **A6** (derive `iri`). Run the differential as a
-  quality flag, not a gate.
+- **Replace BioPortal for lookup — DONE** (A8, A9, A7). Search 1,213 / browse 1,213; BioPortal out
+  of the lookup path for everything we hold. Remaining polish: **A6** (derive/store `ontology.iri`),
+  and running the differential as a quality flag over the newly-served set to flag ranking/label
+  offenders. Prod still off by default.
 - **Versioning mechanics** — **A1 (date/declaredVersion resolver)**: self-contained, no schema
   change, testable on real history; the building block A2 and the publish walk depend on. Settle
   decision 1 (hash basis) in parallel — the only item that touches identity bytes.
