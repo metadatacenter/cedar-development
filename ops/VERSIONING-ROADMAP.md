@@ -65,10 +65,17 @@ The pieces that need no other repo and no shared-spec change. Prototype the mode
   snapshot for integrated-search.
 - **[done]** Resolver for `version_id` / tag / `latest`; `released_at` + `declared_version` persisted
   and indexed `(acronym, released_at)`.
-- **[next] A1 — Resolver: date and declaredVersion.** Extend resolution to a date
-  (`released_at ≤ D`, newest — uses the existing index) and a declaredVersion string (newest match;
-  ambiguity → newest + surfaced warning). Precedence `hash → tag → date → declaredVersion → latest`.
-  Tests on real INCENTIVE/MODSCI history. No schema change.
+- **[done] A1 — Resolver: date and declaredVersion.** `CatalogStore.resolveAsOfDate` (newest
+  snapshot with release date ≤ D — day-granular, offset-independent via `substr(released_at,1,10)`,
+  so BioPortal's varying UTC offsets don't skew it; deterministic same-day tie-break) and
+  `resolveByDeclaredVersion` (every match, newest first — the label is not unique). The provider's
+  `resolveInfo` now applies the full precedence `hash → tag → date → declaredVersion`, with
+  null/blank/`latest` → current; a date-shaped request with nothing on/before it falls through to a
+  same-string declared-version label. An unmatched request resolves to empty (→ remote fallback),
+  never silently to latest. Ambiguous declared version serves the newest and logs a WARN advising a
+  hash pin (surfacing the warning in the HTTP response is deferred — needs a response-shape change).
+  No schema change. Tested on INCENTIVE's real history (three `0.1.1`s, same-day `0.1.2`/`0.1.3`,
+  a 17-month-later `0.1.3` re-release): store suite 20 tests, provider suite 15 tests, all green.
 - **[next] A2 — Resolve-current → triple.** One endpoint/service call returning
   `{id, effectiveDate, declaredVersion}` for the newest snapshot of an (ontology/branch/valueSet)
   entry. This is what the publish pipeline (Phase C) will call.
@@ -146,6 +153,8 @@ Two tracks, both self-contained in this repo:
   polish: **A6** (derive/store `ontology.iri`); the DDSS big-heap re-ingest and the EHDAA/BSAO/EO1
   0-edge extraction investigation (issue #12 follow-ups) to reclaim the last 4. Prod still off by
   default.
-- **Versioning mechanics** — **A1 (date/declaredVersion resolver)**: self-contained, no schema
-  change, testable on real history; the building block A2 and the publish walk depend on. Settle
-  decision 1 (hash basis) in parallel — the only item that touches identity bytes.
+- **Versioning mechanics** — A1 (date/declaredVersion resolver) **done**. Next: **A2 (resolve-current
+  → triple)**, the single call the publish walk (Phase C) makes — it builds directly on A1's
+  resolution and `resolveLatest`. Then **A3** (`/versions` returns the full triple) and **A6**
+  (derive/store `ontology.iri`). Settle decision 1 (hash basis) in parallel — the only item that
+  touches identity bytes.
