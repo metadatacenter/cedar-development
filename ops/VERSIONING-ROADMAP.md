@@ -76,9 +76,17 @@ The pieces that need no other repo and no shared-spec change. Prototype the mode
   hash pin (surfacing the warning in the HTTP response is deferred — needs a response-shape change).
   No schema change. Tested on INCENTIVE's real history (three `0.1.1`s, same-day `0.1.2`/`0.1.3`,
   a 17-month-later `0.1.3` re-release): store suite 20 tests, provider suite 15 tests, all green.
-- **[next] A2 — Resolve-current → triple.** One endpoint/service call returning
-  `{id, effectiveDate, declaredVersion}` for the newest snapshot of an (ontology/branch/valueSet)
-  entry. This is what the publish pipeline (Phase C) will call.
+- **[done] A2 — Resolve-current → triple.** `VersionTriple {id, effectiveDate, declaredVersion}`
+  domain record; `ITerminologyService.resolveCurrentVersion(ontology)` returns the triple of the
+  ontology's `latest` snapshot, or `null` when not served locally (the "cannot freeze here" signal —
+  BioPortal has no content-hash triple). `effectiveDate` is `released_at`'s calendar day, falling
+  back to the ingest date when the source records no release. Wired through the provider
+  (`currentVersion`), `SqliteTerminologyService`, the router (dispatch, mirroring `getVersions`), and
+  the BioPortal backend (null). Exposed as `GET ontologies/{id}/versions/current` (404 when not
+  local). A branch/class/value-set entry passes its ontology's acronym — the triple pins the ontology
+  snapshot. Provider suite +4 (19 total). **Verified live** on the redeployed stack: INCENTIVE →
+  `{e1dc041e…, 2023-11-23, 0.1.3}` (its newest of 6 submissions), MODSCI → `{29460bcd…, 2019-12-01,
+  1.0}`, EHDAA (BioPortal-deferred) → 404, and `versions/diff` still routes (no path collision).
 - **[next] A3 — `/versions` returns the full triple** (add `effectiveDate`; keep `released`/`version`
   as aliases for compatibility). Additive to `OntologyVersion`.
 - **[next] A4 — Additive provenance columns.** `ALTER TABLE snapshot ADD COLUMN` for
@@ -153,8 +161,8 @@ Two tracks, both self-contained in this repo:
   polish: **A6** (derive/store `ontology.iri`); the DDSS big-heap re-ingest and the EHDAA/BSAO/EO1
   0-edge extraction investigation (issue #12 follow-ups) to reclaim the last 4. Prod still off by
   default.
-- **Versioning mechanics** — A1 (date/declaredVersion resolver) **done**. Next: **A2 (resolve-current
-  → triple)**, the single call the publish walk (Phase C) makes — it builds directly on A1's
-  resolution and `resolveLatest`. Then **A3** (`/versions` returns the full triple) and **A6**
-  (derive/store `ontology.iri`). Settle decision 1 (hash basis) in parallel — the only item that
-  touches identity bytes.
+- **Versioning mechanics** — A1 (date/declaredVersion resolver) and A2 (resolve-current → triple)
+  **done**. Next: **A3** (`/versions` returns the full triple — add `effectiveDate`, keep
+  `released`/`version` aliases; additive) and **A6** (derive/store `ontology.iri`). The publish walk
+  (Phase C) can now call `resolveCurrentVersion` to freeze an entry. Settle decision 1 (hash basis)
+  in parallel — the only item that touches identity bytes.
