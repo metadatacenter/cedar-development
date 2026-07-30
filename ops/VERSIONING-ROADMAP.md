@@ -51,8 +51,8 @@ cross-repo spec + publish work that makes versioning visible to authors.
    normalized. Gates Phase A5. The *only* item that recomputes `version_id`s (from on-disk
    snapshots; no re-download).
 2. **Ontology key — when to promote `iri` to the cross-source key** (demoting `acronym` to a label).
-   Independent of the version model; gates true multi-source (Phase D). Can be backfilled early
-   (`iri` is derivable from branch/class target URIs and from ontology headers).
+   Independent of the version model; gates true multi-source (Phase D). The `iri` itself is now
+   **derived and stored** for the whole corpus (A6); what remains open is *when* to make it the key.
 
 ## Phase A — Terminology server (self-contained, in our control)
 
@@ -100,12 +100,20 @@ The pieces that need no other repo and no shared-spec change. Prototype the mode
 - **[blocked on decision 1] A5 — Hash basis.** If normalized: define the canonical form (IRIs +
   edges + obsolete; decide whether labels/language are in-scope), compute a `content_hash` alongside
   the existing raw hash, and cut identity over to it. Recompute from on-disk snapshots.
-- **[next] A6 — Derive & store `ontology.iri` (mandatory).** Precedence declared `owl:Ontology` IRI
-  → acronym-keyed own-namespace (reuse `SnapshotStore.ownIdspaces`) → adapter de facto (open
-  authorities), then normalize to the canonical form (DESIGN §6.4: OBO `obo/DOID_` → `obo/doid`;
-  others strip trailing separator). Store as a column on `ontology`; keep declared IRI + raw
-  namespace as provenance. Backfill from headers + concepts already on disk — no re-ingest. This is
-  the multi-source ontology key (decision 2's enabler) and is derivable for 100% of ontologies.
+- **[done] A6 — Derive & store `ontology.iri` (mandatory).** `OntologyIri.canonical` normalizes a raw
+  term-ID namespace to the canonical form (DESIGN §6.4: OBO `obo/DOID_` → `obo/doid`; others strip
+  the trailing separator, case preserved). `SnapshotStore.dominantOwnIdspace` picks the acronym-keyed
+  own namespace (reusing the roots-prune logic, so import-heavy ontologies resolve their own space,
+  not a bulk import). `CatalogStore` gains additive `iri` + `raw_namespace` columns (idempotent
+  `ensureColumn` migration on the existing catalog), a `setOntologyIri` writer, and an `ontologyIri`
+  reader; the raw namespace is kept as provenance. `DeriveOntologyIriBackfill` derives from concepts
+  already on disk — no re-ingest. **Ran on the prod catalog: 1,213 derived, 1 empty (LC-CARRIERS) —
+  the design's predicted 100%.** Spot-checks match §6.4 exactly (DOID/OBI/MESH/EFO/NIFDYS) and every
+  import-heavy case resolves correctly (CL→`obo/cl`, OBI→`obo/obi`, not their dominant import).
+  Store suites +10 (OntologyIri 4, dominantOwnIdspace 3, catalog iri 3). The declared `owl:Ontology`
+  IRI as an extra provenance source (header parse; not captured at ingest today) is a follow-up — it
+  does not change the canonical value, which the own-namespace already yields for the whole corpus.
+  This is the multi-source ontology key: decision 2's enabler.
 - **[done] A7 — Widen browse-serving (1,187 → 1,213).** Serve every ingested ontology with roots;
   the 23 un-gatable (BioPortal 404s their roots — local is the only working answer) and the 3
   genuine-gap ontologies (BTO-EMMO, NDDO, OCRE — near-complete tree) now serve locally. Only the
@@ -166,8 +174,10 @@ Two tracks, both self-contained in this repo:
   polish: **A6** (derive/store `ontology.iri`); the DDSS big-heap re-ingest and the EHDAA/BSAO/EO1
   0-edge extraction investigation (issue #12 follow-ups) to reclaim the last 4. Prod still off by
   default.
-- **Versioning mechanics** — A1 (date/declaredVersion resolver), A2 (resolve-current → triple), and
-  A3 (`/versions` full triple) **done**. The resolver, the publish-time triple, and the version
-  listing all now speak the same `{id, effectiveDate, declaredVersion}` model. Next: **A6**
-  (derive/store `ontology.iri`) and **A4** (additive provenance columns). Settle decision 1 (hash
-  basis) in parallel — the only item that touches identity bytes.
+- **Versioning mechanics** — A1 (date/declaredVersion resolver), A2 (resolve-current → triple), A3
+  (`/versions` full triple), and A6 (canonical `ontology.iri`, derived + stored corpus-wide) **done**.
+  The resolver, the publish-time triple, and the version listing speak the same `{id, effectiveDate,
+  declaredVersion}` model, and every ontology now has a canonical cross-source identity. Next: **A4**
+  (additive provenance columns: source/submission_id/self-date) and surfacing `iri` on the ontology
+  API (Phase B). Settle decision 1 (hash basis) in parallel — the only item that touches identity
+  bytes.
