@@ -6,13 +6,33 @@ Implementation status and sequencing for the model in
 Status keys: **[done]** shipped · **[wip]** in progress · **[next]** ready to start · **[blocked]**
 waiting on a decision or another repo · **[later]** deferred.
 
+## Goal (2026-07-29)
+
+**Replace BioPortal for lookup wherever we conceivably can.** Serve locally — for both search and
+browse — every ontology we hold; defer to BioPortal *only* where we genuinely cannot: **licensed**
+content (never ingested, by policy) and **un-ingestable** ontologies (missing / fetch-or-parse
+errors / unparsable). Proxy-to-BioPortal is the gap to close, not the baseline. This is inseparable
+from versioning: a version pin can only be honored on the local path, so version-pinnable dynamic
+lookup *requires* local serving.
+
+Consequence for the differential gate: it becomes a **quality/confidence signal** (flag divergences,
+prioritize fixes), **not** a serve/no-serve gate that defers to BioPortal. We are replacing BioPortal,
+which the reconciliation work showed is frequently the wrong reference — so BioPortal-equivalence is
+no longer the admission test. In particular, the 23 "un-gatable" ontologies (BioPortal's own roots
+404/500) must be served locally: deferring there returns the user an error.
+
+**Coverage target.** Ceiling ≈ 1,213 local (the 1,214 ingested minus 1 empty), for both endpoints.
+Mandatory-defer set: the 77 not held (12 licensed + 65 un-ingestable). Today: **search 186 / browse
+1,187** — search is the large shortfall.
+
 ## Where we are
 
 The terminology server already implements the *foundation* of the model — content-hash identity,
 per-submission snapshots, discover/diff/serve-at-version over real history — with the local store
-off by default in production. Browse-served is 1,187 of 1,214 ingested. What remains is (a) a few
-self-contained terminology-server extensions, (b) one design decision that could recompute ids, and
-(c) the cross-repo spec + publish work that makes versioning visible to authors.
+off by default in production. Browse-served is 1,187 of 1,214 ingested; search-served 186. What
+remains is (a) widening local serving toward the ceiling (below), (b) a few self-contained
+terminology-server extensions, (c) one design decision that could recompute ids, and (d) the
+cross-repo spec + publish work that makes versioning visible to authors.
 
 ## Open decisions (settle before the phases they gate)
 
@@ -55,6 +75,15 @@ The pieces that need no other repo and no shared-spec change. Prototype the mode
   others strip trailing separator). Store as a column on `ontology`; keep declared IRI + raw
   namespace as provenance. Backfill from headers + concepts already on disk — no re-ingest. This is
   the multi-source ontology key (decision 2's enabler) and is derivable for 100% of ontologies.
+- **[next] A7 — Widen browse-serving to the ceiling (1,187 → ~1,213).** Add the 23 un-gatable
+  (BioPortal's roots fail them, so local is strictly better) and the 3 genuine-gap ontologies
+  (BTO-EMMO, NDDO, OCRE — still serve a near-complete tree). Only the empty LC-CARRIERS defers.
+  Allowlist change; no build.
+- **[next] A8 — Widen search-serving toward the ceiling (186 → ~1,213).** The replica already serves
+  search over any snapshot; this is an allowlist widening, not a build. Serve locally by default;
+  run the differential as a *quality flag* (label ranking, Solr-divergence, degenerate ontologies)
+  and fix-or-defer only specific offenders. This is the load-bearing step for taking BioPortal out of
+  the lookup path and the prerequisite for version-pinned dynamic lookup.
 
 ## Phase B — Value-constraint spec (cross-repo, backward-compatible)
 
@@ -90,9 +119,14 @@ The reproducibility guarantee is earned here (DESIGN §7).
 - **[later] D3** — Open authorities (ORCID/DOI/RRID): `sourceSystem` set, `version` omitted, value
   captured in the instance. No snapshotting.
 
-## Suggested next step
+## Suggested next steps
 
-**A1 (date/declaredVersion resolver)** — highest-value, fully self-contained, no schema change, no
-re-ingest, testable on real history. It makes date-pinning real and is the building block A2 and the
-publish walk depend on. Settle decision 1 (hash basis) in parallel, since it is the only item that
-touches identity bytes.
+Two tracks, both self-contained in this repo:
+
+- **Replace BioPortal for lookup** — **A8 (widen search-serving)** is now the headline goal. Biggest
+  reduction in BioPortal dependence, and the prerequisite for version-pinned dynamic lookup. Pair
+  with **A7** (browse stragglers) and **A6** (derive `iri`); run the differential as a quality flag,
+  not a gate.
+- **Versioning mechanics** — **A1 (date/declaredVersion resolver)**: self-contained, no schema
+  change, testable on real history; the building block A2 and the publish walk depend on. Settle
+  decision 1 (hash basis) in parallel — the only item that touches identity bytes.
