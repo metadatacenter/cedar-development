@@ -208,10 +208,22 @@ snapshots are **stale** (ingested before the strip was effective), not a current
 **Caveat surfaced:** the A9 IRI-fragment fallback (#11) can *mask* a real label-extraction failure by
 filling codes — so "has labels" ≠ "good labels." The golden comparison is the check.
 
-**Action:** re-ingesting the ~6 confirmed-broken with current code (proper fix; verified for PECO).
-Any that remain genuinely worse after re-ingest get deferred to BioPortal. Everything else serves
-locally. The differential-as-quality-flag approach (serve local by default, gate flags offenders)
-is validated.
+**Action taken (re-ingest of the 6 with current code):**
+- **Fixed → kept local:** PECO (own-class labels recovered — "plant exposure" etc. — + 3,356 edges)
+  and FAST-GENREFORM (edges + real labels; some leaf LCSH `sh…` codes remain).
+- **Still worse than BioPortal → deferred to BioPortal** (dropped from both allowlists, now
+  **1,209 / 1,209**): EHDAA, BSAO, EO1 (still 0 edges after a fresh re-ingest — BioPortal has real
+  labels + a tree we don't extract, likely a different/flattened source submission), and DDSS
+  (807k — re-ingest **timed out** at the 600s cap; unresolved).
+
+**Follow-ups:**
+- DDSS: re-ingest with the big-heap/long-timeout retry harness (32g / 45min).
+- EHDAA / BSAO / EO1: extractor investigation — why 0 edges from their OBO/SKOS source when
+  BioPortal has a hierarchy (submission/serialization mismatch or an is_a/broader extraction gap).
+
+The differential-as-quality-flag approach (serve local by default; goldens flag the few genuine
+offenders; re-ingest or defer them) is validated: of ~1,214 held, only ~4 end up deferred for
+quality, and BioPortal stays the fallback exactly where it is genuinely better.
 
 ## Gate outcome snapshot (2026-07-29, roots)
 

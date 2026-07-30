@@ -22,10 +22,19 @@ no longer the admission test. In particular, the 23 "un-gatable" ontologies (Bio
 404/500) must be served locally: deferring there returns the user an error.
 
 **Coverage target — REACHED.** Ceiling ≈ 1,213 local (the 1,214 ingested minus 1 empty), for both
-endpoints. Now: **search 1,213 / browse 1,213** — BioPortal is out of the lookup path for every
-ontology we hold, on both endpoints. Deferring only where we must: the 77 not held (12 licensed + 65
-un-ingestable) and the 1 empty (LC-CARRIERS). Got here via A8 (search 186→1,034), A9 (IRI-fragment
-labels → +179), A7 (browse 1,187→1,213, incl. the 23 un-gatable that BioPortal itself 404s).
+endpoints. Now: **search 1,209 / browse 1,209** — BioPortal is out of the lookup path for every
+ontology we hold, on both endpoints, except the 4 the quality pass deferred (below). Deferring only
+where we must: the 77 not held (12 licensed + 65 un-ingestable), the 1 empty (LC-CARRIERS), and the
+4 quality-deferred. Got here via A8 (search 186→1,034), A9 (IRI-fragment labels → +179), A7 (browse
+1,187→1,213, incl. the 23 un-gatable that BioPortal itself 404s), then the quality pass (−4).
+
+**Quality pass (2026-07-30) — done.** Ran the differential as a quality flag over the served set.
+It confirmed ~6 ontologies where local was genuinely worse than BioPortal (stale 0-edge snapshots or
+code-only labels). Re-ingesting the 6 with current code **fixed PECO and FAST-GENREFORM** (kept
+local — real own-class labels + edges). Four stayed worse and were **deferred to BioPortal**: EHDAA,
+BSAO, EO1 (still 0 edges after a fresh re-ingest) and DDSS (807k — re-ingest timed out at the 600s
+cap). Search/browse 1,213 → **1,209**. Detail + follow-ups in
+[BP-RECONCILIATION-ISSUES.md](BP-RECONCILIATION-ISSUES.md) issue #12.
 
 ## Where we are
 
@@ -132,10 +141,11 @@ The reproducibility guarantee is earned here (DESIGN §7).
 
 Two tracks, both self-contained in this repo:
 
-- **Replace BioPortal for lookup — DONE** (A8, A9, A7). Search 1,213 / browse 1,213; BioPortal out
-  of the lookup path for everything we hold. Remaining polish: **A6** (derive/store `ontology.iri`),
-  and running the differential as a quality flag over the newly-served set to flag ranking/label
-  offenders. Prod still off by default.
+- **Replace BioPortal for lookup — DONE** (A8, A9, A7, + quality pass). Search 1,209 / browse 1,209;
+  BioPortal out of the lookup path for everything we hold except the 4 quality-deferred. Remaining
+  polish: **A6** (derive/store `ontology.iri`); the DDSS big-heap re-ingest and the EHDAA/BSAO/EO1
+  0-edge extraction investigation (issue #12 follow-ups) to reclaim the last 4. Prod still off by
+  default.
 - **Versioning mechanics** — **A1 (date/declaredVersion resolver)**: self-contained, no schema
   change, testable on real history; the building block A2 and the publish walk depend on. Settle
   decision 1 (hash basis) in parallel — the only item that touches identity bytes.
