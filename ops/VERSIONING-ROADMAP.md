@@ -36,6 +36,16 @@ BSAO, EO1 (still 0 edges after a fresh re-ingest) and DDSS (807k — re-ingest t
 cap). Search/browse 1,213 → **1,209**. Detail + follow-ups in
 [BP-RECONCILIATION-ISSUES.md](BP-RECONCILIATION-ISSUES.md) issue #12.
 
+**Multi-version test beds (2026-07-30).** Most ingested ontologies hold a single snapshot; the
+resolver (A1) and diff need real history to exercise. Backfilled a per-year historical spread from
+BioPortal (via `IngestJob --submission`, latest tag untouched, then latest refreshed with current
+extraction) for the flagship ontologies. Dev catalog now carries **7 multi-version ontologies**:
+OBI ×19 (2008–2026), HP ×18 (2009–2026), DOID ×15 (2008–2026), MONDO ×8, GO ×7, INCENTIVE ×6,
+MODSCI ×3 — 1,283 snapshots total. These are live-BioPortal ingests into the untracked dev catalog
+(not reproducible from the repo). Real drift is dramatic and pinnable: DOID 2008→2026 +11,823/−7,145
+concepts; OBI near-total IRI turnover; MONDO −34k as early import-bloat was trimmed. New ingests also
+capture `submission_id` + `source_date` (A4).
+
 ## Where we are
 
 The terminology server already implements the *foundation* of the model — content-hash identity,
