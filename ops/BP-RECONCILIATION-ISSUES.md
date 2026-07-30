@@ -164,6 +164,19 @@ CEDAR-used ontologies with real usage atoms.
 
 ---
 
+## 11. Label-less ontologies: name is the IRI fragment  — FIXABLE (A9)
+
+179 of the 1,214 ingested ontologies carry no `rdfs:label`/`skos:prefLabel`; the human-readable name
+is the IRI fragment (ACGT-MO `#3DRadiotherapyPlanning`, APADISORDERS `#AIDS_(Attitudes_Toward)`,
+BIOPAX `#BindingFeature`). BioPortal falls back to displaying the fragment, so its search/browse work;
+we store `null` and return empty local search — so these correctly defer to BioPortal for now (found
+while widening search-serving, roadmap A8: search local 186 → 1,034, these 179 excluded).
+
+**Fix (A9):** when no label exists, derive one from the fragment (URL-decode, `_`→space, split
+CamelCase) and store it in `pref_label`. Backfillable by UPDATE over existing concept IRIs (no
+re-download); add to the extractor for new ingests. Unlocks the 179 for both search and browse
+(→ ceiling ~1,213) and fixes their unlabeled browse trees.
+
 ## Gate outcome snapshot (2026-07-29, roots)
 
 - Gated: 1,191 (23 un-gatable, issue #6).

@@ -22,8 +22,9 @@ no longer the admission test. In particular, the 23 "un-gatable" ontologies (Bio
 404/500) must be served locally: deferring there returns the user an error.
 
 **Coverage target.** Ceiling ≈ 1,213 local (the 1,214 ingested minus 1 empty), for both endpoints.
-Mandatory-defer set: the 77 not held (12 licensed + 65 un-ingestable). Today: **search 186 / browse
-1,187** — search is the large shortfall.
+Mandatory-defer set: the 77 not held (12 licensed + 65 un-ingestable). Now: **search 1,034 / browse
+1,187** (A8 widened search from 186). The remaining search gap to the ceiling is the 179 zero-label
+ontologies, closed by A9 (IRI-fragment label fallback).
 
 ## Where we are
 
@@ -79,11 +80,18 @@ The pieces that need no other repo and no shared-spec change. Prototype the mode
   (BioPortal's roots fail them, so local is strictly better) and the 3 genuine-gap ontologies
   (BTO-EMMO, NDDO, OCRE — still serve a near-complete tree). Only the empty LC-CARRIERS defers.
   Allowlist change; no build.
-- **[next] A8 — Widen search-serving toward the ceiling (186 → ~1,213).** The replica already serves
-  search over any snapshot; this is an allowlist widening, not a build. Serve locally by default;
-  run the differential as a *quality flag* (label ranking, Solr-divergence, degenerate ontologies)
-  and fix-or-defer only specific offenders. This is the load-bearing step for taking BioPortal out of
-  the lookup path and the prerequisite for version-pinned dynamic lookup.
+- **[done] A8 — Widen search-serving (186 → 1,034).** Allowlisted every ingested ontology that has
+  extracted labels; validated newly-served ontologies (MESH, HP, PR, GO, NCIT, EFO) serve search
+  locally with zero BioPortal calls. BioPortal is now out of the lookup path for 1,034 ontologies.
+  Held back: 179 zero-label ontologies (see A9) + 1 empty; those still proxy.
+- **[next] A9 — IRI-fragment label fallback (unlocks the remaining 179 → ceiling ~1,213).** 179
+  ingested ontologies carry no `rdfs:label`/`skos:prefLabel`; their human name is the IRI fragment
+  (`#3DRadiotherapyPlanning`, `#AIDS_(Attitudes_Toward)`). BioPortal falls back to displaying the
+  fragment; we store null and return empty search — so they currently (correctly) defer. Fix: when no
+  label exists, derive one from the fragment (URL-decode, `_`→space, split CamelCase) and store it in
+  `pref_label`, so search matches and browse displays. Backfill by UPDATE over existing concept IRIs
+  (no re-download); add to the extractor for new ingests. Improves browse (unlabeled trees) too, then
+  widen search + browse to include the 179.
 
 ## Phase B — Value-constraint spec (cross-repo, backward-compatible)
 
@@ -123,10 +131,10 @@ The reproducibility guarantee is earned here (DESIGN §7).
 
 Two tracks, both self-contained in this repo:
 
-- **Replace BioPortal for lookup** — **A8 (widen search-serving)** is now the headline goal. Biggest
-  reduction in BioPortal dependence, and the prerequisite for version-pinned dynamic lookup. Pair
-  with **A7** (browse stragglers) and **A6** (derive `iri`); run the differential as a quality flag,
-  not a gate.
+- **Replace BioPortal for lookup** — A8 done (search 186 → 1,034). Next lever is **A9 (IRI-fragment
+  label fallback)** to unlock the remaining 179 zero-label ontologies for both endpoints (→ ceiling
+  ~1,213), then **A7** (browse stragglers) and **A6** (derive `iri`). Run the differential as a
+  quality flag, not a gate.
 - **Versioning mechanics** — **A1 (date/declaredVersion resolver)**: self-contained, no schema
   change, testable on real history; the building block A2 and the publish walk depend on. Settle
   decision 1 (hash basis) in parallel — the only item that touches identity bytes.
