@@ -49,6 +49,12 @@ The pieces that need no other repo and no shared-spec change. Prototype the mode
 - **[blocked on decision 1] A5 — Hash basis.** If normalized: define the canonical form (IRIs +
   edges + obsolete; decide whether labels/language are in-scope), compute a `content_hash` alongside
   the existing raw hash, and cut identity over to it. Recompute from on-disk snapshots.
+- **[next] A6 — Derive & store `ontology.iri` (mandatory).** Precedence declared `owl:Ontology` IRI
+  → acronym-keyed own-namespace (reuse `SnapshotStore.ownIdspaces`) → adapter de facto (open
+  authorities), then normalize to the canonical form (DESIGN §6.4: OBO `obo/DOID_` → `obo/doid`;
+  others strip trailing separator). Store as a column on `ontology`; keep declared IRI + raw
+  namespace as provenance. Backfill from headers + concepts already on disk — no re-ingest. This is
+  the multi-source ontology key (decision 2's enabler) and is derivable for 100% of ontologies.
 
 ## Phase B — Value-constraint spec (cross-repo, backward-compatible)
 

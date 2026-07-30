@@ -16,8 +16,9 @@ Grounded in a survey of the 1,214 ingested BioPortal ontologies (2026-07-29).
 | Stored pin = the triple `{id, effectiveDate, declaredVersion}`, `id` authoritative | **settled** |
 | Open authorities (ORCID/DOI/RRID) are not versioned; value captured in the instance | **settled** |
 | Constraint shape is source-explicit and additive; `sourceSystem`, not `source` | **settled** |
-| `ontology.iri` = identity, `acronym` = presentation label | **settled** |
+| `ontology.iri` = identity (mandatory, precedence-derived), `acronym` = presentation label | **settled** |
 | Published templates freeze `latest` → the triple | **settled** |
+| Canonical `iri` form — normalized namespace (OBO → `obo/doid`; others → namespace, trailing separator stripped) | **settled** (§6.4) |
 | **Hash over raw bytes vs normalized extracted model** | **OPEN** (§4.3; recommend normalized) |
 | When to promote `iri` to the ontology key across sources | OPEN (roadmap) |
 
@@ -129,6 +130,10 @@ Naming the source explicitly unifies every case; the source discriminates what a
 live). Nothing to snapshot; reproducibility comes from recording the chosen value (iD + label) in the
 instance, which CEDAR already does. PFAS lands in row 3 (enumerable release) or row 4 (live lookup).
 
+Every row has a base `iri`, including the open authorities: ORCID → `https://orcid.org/`, EPA
+CompTox (PFAS) → the DTXSID namespace. For sources with content these are derived (§6.1); for open
+authorities the backend adapter declares them as a constant.
+
 ## 6. The value-constraint shape
 
 Purely additive: the outer `_valueConstraints` object is unchanged; each entry gains optional fields.
@@ -178,6 +183,40 @@ there `iri` is derivable for free from the target `uri` (`DOID_4` → `obo/DOID_
 **Naming landmine:** `branches`/`classes` already carry a `source` field — a free-text display string
 (`"Human Disease Ontology (DOID)"`, `"undefined (ADO)"`), not a backend. Do **not** reuse `source`;
 the backend field is `sourceSystem`.
+
+### 6.4 Deriving `ontology.iri` — mandatory, always populatable
+
+`iri` is not optional. Survey of the corpus: a declared `owl:Ontology` IRI is extractable for only
+~57–64% of ontologies, but a base IRI is **derivable for 100%** (1,213 of 1,214; the sole exception
+is the empty LC-CARRIERS). So `iri` is a mandatory identity field, filled by precedence:
+
+1. **Declared `owl:Ontology` IRI** from the header, where present and clean (~57–64%).
+2. **Acronym-keyed own-namespace** — reuse `SnapshotStore.ownIdspaces` (the roots-prune logic).
+   This is the 100% workhorse. The naive "dominant concept namespace" is **wrong** for import-heavy
+   ontologies (OBI and DOID both resolve to `obo/CHEBI_`, CL to `ensembl/`); the acronym-keyed
+   own-namespace correctly yields `obo/OBI_`, `obo/DOID_`, `obo/CL_`, `nif/nifstd/`, etc.
+3. **Adapter-declared de facto base** for open authorities with no concepts to sample: ORCID →
+   `https://orcid.org/`, EPA CompTox → the DTXSID namespace. A constant the backend supplies.
+
+**Canonical form.** The derived value is a term-ID namespace (`http://purl.obolibrary.org/obo/DOID_`,
+trailing `_`), not a polished ontology IRI. Normalize `iri` to a clean namespace base, uniformly:
+
+- **OBO** term-prefix → drop the trailing `_` and lowercase the id:
+  `http://purl.obolibrary.org/obo/DOID_` → `http://purl.obolibrary.org/obo/doid` (the OBO Foundry
+  ontology IRI).
+- **Other** namespace → strip the trailing separator (`/` or `#`), preserve case:
+  `http://purl.bioontology.org/ontology/MESH/` → `…/MESH`; `http://www.ebi.ac.uk/efo/` → `…/efo`.
+
+The declared `owl:Ontology` IRI (where present) and the raw term-namespace are kept as recorded
+provenance — useful, but not the identity.
+
+| acronym | canonical `iri` | provenance (declared) |
+|---|---|---|
+| DOID | `http://purl.obolibrary.org/obo/doid` | `…/obo/doid.owl` |
+| OBI | `http://purl.obolibrary.org/obo/obi` | `…/obo/obi.owl` |
+| MESH | `http://purl.bioontology.org/ontology/MESH` | (same) |
+| EFO | `http://www.ebi.ac.uk/efo` | `…/efo/efo.owl` |
+| NIFDYS | `http://uri.neuinfo.org/nif/nifstd` | `…/NIF-Dysfunction.ttl` (file URL) |
 
 ## 7. Lifecycle — latest and freeze-on-publish
 
