@@ -94,9 +94,18 @@ The pieces that need no other repo and no shared-spec change. Prototype the mode
   breaks. Endpoint doc + swagger regenerated. Tested: provider suite +1 (20), app
   `LocalStoreResourceTest` +1 (6, real JAX-RS serialization). **Verified live**: INCENTIVE's six
   submissions each carry `effectiveDate`, including the offset case `…T18:07:50-07:00` → `2022-06-26`.
-- **[next] A4 — Additive provenance columns.** `ALTER TABLE snapshot ADD COLUMN` for
-  `source`/`backend` (default `bioportal`), `submission_id`, `source_date`. Backfill from BP
-  submission metadata (no content fetch) and raw-header greps. Display/audit only.
+- **[done] A4 — Additive provenance columns.** `snapshot` gains `backend` (constant `DEFAULT
+  'bioportal'`, so every existing row reads it with no backfill), `submission_id`, and `source_date`
+  (idempotent `ensureColumn` migration). `SnapshotProvenance` record + `setSnapshotProvenance` /
+  `snapshotProvenance` (acronym-scoped, like the snapshot itself). Ingest now captures BioPortal's
+  reliable per-upload `submissionId` (in hand at ingest, unreconstructable offline) and the version
+  string's self-claimed `source_date`. `ProvenanceBackfill` fills `source_date` for existing snapshots
+  from their declared-version string — offline, no BioPortal calls. **Ran on the prod catalog: 1,221
+  snapshots, backend `bioportal` 100%, source_date on 203 (~17%, matching §2's ~18% date-like).** The
+  divergence is the audit payoff — e.g. UBERON `source_date 2023-07-25` (the design's cited
+  forever-stale self-date) vs `released_at 2026-06-23`. `submission_id` stays null for
+  pre-capture snapshots (recoverable only from live BP metadata; A4 declines that dependency).
+  Display/audit only — not yet surfaced on any API (Phase B). Store suites +5.
 - **[blocked on decision 1] A5 — Hash basis.** If normalized: define the canonical form (IRIs +
   edges + obsolete; decide whether labels/language are in-scope), compute a `content_hash` alongside
   the existing raw hash, and cut identity over to it. Recompute from on-disk snapshots.
@@ -175,9 +184,9 @@ Two tracks, both self-contained in this repo:
   0-edge extraction investigation (issue #12 follow-ups) to reclaim the last 4. Prod still off by
   default.
 - **Versioning mechanics** — A1 (date/declaredVersion resolver), A2 (resolve-current → triple), A3
-  (`/versions` full triple), and A6 (canonical `ontology.iri`, derived + stored corpus-wide) **done**.
-  The resolver, the publish-time triple, and the version listing speak the same `{id, effectiveDate,
-  declaredVersion}` model, and every ontology now has a canonical cross-source identity. Next: **A4**
-  (additive provenance columns: source/submission_id/self-date) and surfacing `iri` on the ontology
-  API (Phase B). Settle decision 1 (hash basis) in parallel — the only item that touches identity
-  bytes.
+  (`/versions` full triple), A6 (canonical `ontology.iri`, corpus-wide), and A4 (provenance columns)
+  **done**. The whole Phase-A terminology-server foundation — resolution, the publish-time triple,
+  the version listing, cross-source identity, and audit provenance — is in place. What remains in
+  Phase A is only the open **hash-basis decision** (§4.3) that gates A5. The next real move is
+  cross-repo: surfacing `iri`/`sourceSystem`/`version` on the value-constraint spec (Phase B) and the
+  freeze-on-publish walk (Phase C), which now has everything it needs from the terminology server.
