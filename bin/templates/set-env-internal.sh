@@ -42,6 +42,13 @@ export CEDAR_LOG_MYSQL_DB="cedar_log"
 export CEDAR_LOG_MYSQL_USER="cedarMySQLLogUser"
 export CEDAR_LOG_MYSQL_PASSWORD="changeme"
 
+# CEDAR log-aggregation jobs (cedar-worker-server). Opt-in; all off by default. Tuning vars
+# (CEDAR_LOG_*_BATCH / _PAUSE_MS / _WINDOW_UTC / _POLL_MS / _MARGIN_HOURS / _RETENTION_DAYS / _IDLE_MS)
+# have in-code defaults and only need setting to override.
+export CEDAR_LOG_BACKFILL_ENABLED="false"
+export CEDAR_LOG_LIVE_AGG_ENABLED="false"
+export CEDAR_LOG_PRUNE_ENABLED="false"
+
 # Neo4j user data
 export CEDAR_NEO4J_USER_NAME="neo4j"
 export CEDAR_NEO4J_USER_PASSWORD="changeme"
