@@ -337,7 +337,18 @@ Run by hand on 2026-07-31 against local `cedar_log` — none of these are expres
      GROUP BY) rather than being rejected — that is what the KPI-tile boards are.
    - Still to do here: URL serialization of board + filter state (deep links), and KPI tiles rendered
      as tiles rather than a one-row table.
-4. **Cross-table** — `/logs/trace/{id}`, trace waterfall, DB-time share, N+1 detector (boards 12–14).
+4. **Cross-table** — ✅ **done 2026-07-31** (visual pass pending). `GET /logs/trace/{globalRequestId}`
+   resolves one id into every component that handled it plus every Cypher query underneath, with
+   `handlerMs` / `dbMs` / `dbSharePct` / `spanMs`; the UI renders it as an overlay with six summary
+   tiles and a waterfall (request spans teal, Cypher violet). Capped at 500 spans/table (2,000 max).
+   The N+1 board (14) shipped in phase 3.
+   - This is the only question that is *not* a `LogQuerySpec` — it spans both tables and computes
+     cross-table totals — so it gets a dedicated method rather than bending the spec into a join.
+   - Verified on the heaviest local request: 12 request rows / 2 components / 112 queries / 457 ms
+     wall / **40.4% of time in Neo4j**, resolved in 10 ms, with the repeated `5e6d523af3` shape
+     visible in the timeline.
+   - Still open here: DB-time-share as a *board* (per-handler ranking, needs the join generalised),
+     and jumping from a trace span back into a filtered row view.
 5. **Same grammar over `agg_*`** — source switch + precision badge, so every board gets a >30d
    version. Needs the backfill actually run (`log_aggregation_state` is still empty).
 
