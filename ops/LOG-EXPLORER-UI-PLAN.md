@@ -375,6 +375,29 @@ that.
 
 ---
 
+## 13a. REQUIRED migration before the rollups are usable anywhere else
+
+`agg_cypher_query_catalog.runnableSample` / `interpolatedSample` were created as **TINYTEXT** (255
+bytes): they are `@Lob` Strings with no length, and Hibernate 6 sizes a LOB from the column length,
+defaulting to 255. Every catalog insert for a query over 255 chars threw a `DataException`, and
+because the upsert sits inside the batch flush it killed the whole Cypher batch. Result on the dev
+box: **6 of 224,529 rows aggregated**, `agg_cypher_hourly` frozen at 3 rows from February 2025 —
+while the request side looked perfectly healthy.
+
+The entity now carries `@Column(length = 65535)`, but `hbm2ddl.auto=update` **never changes the type
+of an existing column**, so every environment that already created these tables needs:
+
+```sql
+ALTER TABLE agg_cypher_query_catalog
+  MODIFY runnableSample TEXT, MODIFY interpolatedSample TEXT;
+```
+
+Watch for the same trap in any new entity: the identical `@Lob` on `ApplicationCypherLog` produced
+LONGTEXT because those tables were created under Hibernate 5, which ignored length for LOBs.
+
+**Symptom to recognise:** `LiveAggregatorJob batch failed; retrying after the poll interval` repeating
+in `dropwizard.log` while one source advances normally and the other never moves.
+
 ## 13. Build gotcha (cost a wrong "verified" once)
 
 `mvn install` **without `clean`** on a server module silently keeps the OLD library classes. Changing
