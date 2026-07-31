@@ -262,11 +262,11 @@ The reproducibility guarantee is earned here (DESIGN §7).
      unrelated reasons (DataCite's `relatedItem`/`skos:altLabel` model drift; the CEDAR MCP tools
      write to a different server). **A UI-created template (guaranteed current-model-valid) would
      close this in one shot** — the honest last mile of Phase C verification.
-  2. **Value-set constraints don't freeze yet.** The terminology `vs-collections/version-current`
-     endpoint is now live and verified (CEDARVS → `{e02f2332…, 2015-08-24, 0.2.2}`), but
-     `TerminologyVersionResolver.currentVersionByValueSetCollection` in resource-server still returns
-     empty (it was written before the endpoint existed). Wire it to the endpoint — a ~2-line change,
-     mirroring the class-IRI path — and value-set entries freeze too.
+  2. **Value-set constraints freeze — DONE (2026-07-31).**
+     `TerminologyVersionResolver.currentVersionByValueSetCollection` now calls
+     `vs-collections/version-current` (was a stub returning empty), mirroring the class-IRI path, so
+     all four constraint kinds freeze on publish. Deployed; REST smoke 606/0. (resource-server develop
+     `8682ced`.)
   3. **Operational lesson:** the value-set endpoint appeared broken (404) until a *full* rebuild —
      the background session committed the code but the deployed app jar was stale (resource present,
      wired service method old). Always redeploy from a fresh `mvn install`, not just a source commit.
