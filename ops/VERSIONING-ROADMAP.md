@@ -296,7 +296,10 @@ redeployed it, then ran the full smoke: unit 695 (incl. 269 roundtrip, byte-iden
 templates) · UI e2e (login → DOID-constrained template → populate → delete) · REST suite **606 passed,
 0 failed**. Existing templates round-trip unchanged through the new model.
 
-## Phase D — Multi-backend & open authorities
+## Phase D — Multi-backend (identity across sources)
+
+Open authorities (ORCID/ROR/RRID, and possibly CompTox/PFAS) were formerly slated here as "D3"; they
+are not a version-model phase and have moved to Open Questions.
 
 - **[done] D1 — iri is the ontology key (2026-07-31).** Two halves shipped. **Read side:** the
   canonical `iri` is derived and stored **at ingest** (`IngestJob`, from the snapshot's
@@ -335,31 +338,92 @@ templates) · UI e2e (login → DOID-constrained template → populate → delet
   BioPortal-shaped (synthetic submission id, no license API) — generalizing it is D1. Tests:
   `OboFoundrySubmissionSourceTest` (6, no-network URL/shape), `IngestJobTest` +1 (backend recorded),
   store +0/ingest suites green; the live cross-source run is `CrossSourceIdentityCheck`.
-- **[later] D3** — Open authorities (ORCID/DOI/RRID): `sourceSystem` set, `version` omitted, value
-  captured in the instance. No snapshotting. Independent of D1/D2 (no ingest, no version model).
+- **[next] D3 — Multi-source ingest, wired for real.** D2 proved identity is source-independent and
+  D1 re-keyed the catalog on iri, but the cross-source proof ingests into *throwaway* catalogs only.
+  What remains: ingest a non-BioPortal authority (OBO Foundry) into the **served** catalog and
+  serve/resolve it end to end, and — only if it scales past a one-off — generalize the still
+  BioPortal-shaped `SubmissionSource` (synthetic submission id, no license API). This is what makes
+  multi-source real rather than demonstrated. Tracked as **R4** below.
 
-## Suggested next steps
+## Where the core versioning approach stands
 
-Two tracks, both self-contained in this repo:
+Content-hash identity (A5), per-submission snapshots, resolve-current / as-of-date / declared-version
+resolution (A1–A3), audit provenance (A4), the canonical-iri identity re-key (A6, D1),
+source-independence against a second authority (D2), the additive value-constraint spec + schema
+validation (Phase B foundation), and freeze-on-publish for all four constraint kinds (Phase C) are
+**done and verified live**, with REST-level regression coverage on the publish and resolution sides.
 
-- **Replace BioPortal for lookup — DONE** (A8, A9, A7, + quality pass). Search 1,209 / browse 1,209;
-  BioPortal out of the lookup path for everything we hold except the 4 quality-deferred. Remaining
-  polish: **A6** (derive/store `ontology.iri`); the DDSS big-heap re-ingest and the EHDAA/BSAO/EO1
-  0-edge extraction investigation (issue #12 follow-ups) to reclaim the last 4. Prod still off by
-  default.
-- **Versioning mechanics — Phases A, B, C COMPLETE.** A1 (date/declaredVersion resolver), A2
-  (resolve-current → triple), A3 (`/versions` full triple), A6 (canonical `ontology.iri`,
-  corpus-wide), A4 (provenance columns), and A5 (normalized content-hash identity, cut over) all
-  **done**. The value-constraint spec (Phase B model + schema validation) is additive and
-  backward-compatible; freeze-on-publish (Phase C) pins all four constraint kinds, is merged to
-  develop, verified live, and now carries REST-level regression coverage on both the publish and
-  resolution sides. Resolution, the publish-time triple, the version listing, cross-source identity,
-  audit provenance, and content-addressed identity are all in place and verified.
-- **Phase D — multi-backend & open authorities.** **D1 and D2 done.** D2: source-independence of
-  identity proven against OBO Foundry (3/3 — DOID/PATO/CL — identical content-hash ids from both
-  authorities). D1: the catalog is re-keyed on the canonical `iri` (identity) with `acronym` demoted
-  to a per-source addressing label, settling decision 2; verified on the real catalog (1214 acronyms →
-  1050 iri identities) with a redeploy + smoke. Remaining: **D3** (open authorities ORCID/DOI/RRID:
-  `sourceSystem` set, `version` omitted, value captured in the instance, no snapshotting; independent
-  of D1/D2), plus a **data-quality follow-up** on the canonical-iri derivation for generic-base
-  ontologies (some acronyms collide on an iri-derivation artifact rather than a true shared identity).
+The gap: freeze *writes* version pins, but the app does not yet let authors **see or choose** versions,
+nor does it **read pins back** to serve terms at the pinned snapshot. Closing that — the reproducibility
+payoff — is the largest remaining core work.
+
+## Remaining Work
+
+Renumbered, roughly in priority order. R-numbers are stable handles; the old phase labels are noted
+where the work already had one.
+
+1. **R1 — Author-facing versioning (Phase B tail).** Make the spec live in the app. **B1** tolerant
+   readers everywhere (`sourceSystem` absent ⇒ BioPortal, `version` absent ⇒ latest, `iri` absent ⇒
+   acronym; JSON reader + schema done, YAML reader + other consumers remain); YAML serialization of the
+   version spec; **B2** terminology routes on `sourceSystem`; **B3** the template editor emits the
+   richer shape and shows a version picker (declaredVersion · effectiveDate · short hash; `latest`
+   default); **B4** backfill `iri`/`sourceSystem` on existing constraints where derivable.
+
+2. **R2 — End-to-end frozen read (the reproducibility payoff).** Wire a published template's pinned
+   `version` through the editor / CEE / validation so populating an instance resolves terms **at the
+   pinned snapshot**, not latest. The terminology side already honours a pinned version over HTTP
+   (tested); the app side does not yet send it. Depends on R1's readers. Today freeze writes pins that
+   nothing reads back in the app flow — the guarantee is only half-closed.
+
+3. **R3 — Canonical-iri derivation data quality.** The re-key found 1214 source-acronyms / 1213 with an
+   iri collapsing to 1050 identities. Some are **true duplicates** (one ontology under two acronyms —
+   the identity model handles these correctly); some are **generic-base artifacts** (unrelated
+   ontologies sharing a webprotege/host base, e.g. `…/HIVO0004` claimed by three, wrongly merged into
+   one identity). Fix: teach `OntologyIri.canonical` / `dominantOwnIdspace` to decline a shared generic
+   base as identity and leave those ontologies acronym-only (as the empty ones already are). Affects
+   `resolveLatestByIri` correctness. Separate the two populations first (a one-off report over the
+   catalog), then fix the derivation.
+
+4. **R4 — Multi-source ingest, wired for real (Phase D3).** Ingest a non-BioPortal authority (OBO
+   Foundry) into the **served** catalog and serve/resolve it end to end, not just into a throwaway
+   proof catalog; generalize `SubmissionSource` if it scales past a one-off. This turns the D2 proof
+   into a running capability.
+
+5. **R5 — Instance-level version capture.** Record which vocabulary version was in effect when a value
+   was selected, in the instance itself — the mechanism that lets an authority whose *constraint* is
+   unversioned still carry provenance, and that pins the actual term even when the constraint said
+   `latest`.
+
+6. **R6 — Resolution-quality surfacing.** Return the ambiguous-declared-version WARN in the HTTP
+   response (A1 deferred; needs a response-shape change), so a caller pinning a non-unique label learns
+   it resolved to the newest match. Optionally surface `/versions`, `/versions/diff`, and the
+   provenance columns in a UI.
+
+7. **R7 — Element / field freeze coverage.** Confirm and, if needed, extend freeze-on-publish to
+   **element** and **field** artifacts — they carry value constraints and publish independently, but
+   only templates have been exercised end to end.
+
+8. **R8 — Lookup-coverage tail (replace-BioPortal track).** **A9** IRI-fragment label fallback for the
+   179 zero-label ontologies; reclaim the 4 quality-deferred (DDSS big-heap re-ingest, EHDAA/BSAO/EO1
+   0-edge extraction — issue #12). Orthogonal to the version model but on the same replace-BioPortal
+   goal.
+
+## Open Questions (to think about, not scheduled)
+
+The "authorities" that do not fit the ontology version model cleanly. Each is a question to settle
+before committing work, not a phase.
+
+- **Open-authority identifiers — ORCID, ROR, RRID (and DOI): not versionable per se.** A constraint
+  here names the *authority*, and the **value is a stable identifier captured in the instance** (an
+  ORCID iD, a ROR ID). There is no snapshot and no current-version to pin — "resolve-current" has no
+  meaning for "an ORCID." The spec already covers this shape (`sourceSystem` set, `version` omitted).
+  The open question is how the editor and instance model should represent *authority-typed,
+  value-captured, unversioned* fields distinctly from a versioned controlled term — not whether to
+  version them (they cannot be).
+
+- **CompTox / PFAS (and similar release-based databases): possibly versionable.** Unlike identifier
+  authorities, EPA CompTox and PFAS lists are **content with releases**, so in principle they could fit
+  the content-hash snapshot model — ingest a release, hash the extracted model, snapshot, resolve/pin —
+  if they expose retrievable content and release identifiers. Open questions: do they expose those, and
+  is a content hash of a **flat set** (a chemical list is not a subsumption hierarchy) meaningful and
+  stable across a release's serializations? Worth a spike before assuming either way.
