@@ -57,9 +57,16 @@ cross-repo spec + publish work that makes versioning visible to authors.
 
 ## Open decisions (settle before the phases they gate)
 
-1. **Hash basis — raw bytes vs normalized extracted model** (DESIGN §4.3). Recommendation:
-   normalized. Gates Phase A5. The *only* item that recomputes `version_id`s (from on-disk
-   snapshots; no re-download).
+1. **Hash basis — raw bytes vs normalized extracted model** (DESIGN §4.3). **Direction settled:
+   normalized, including labels** — endorsed and now backed by measurement (2026-07-30). Gates Phase
+   A5. The *only* item that recomputes `version_id`s (from on-disk snapshots; no re-download). The
+   `SnapshotStore.normalizedContentHash` method + `ContentHashReport` (measure-only, no cutover) are
+   landed. Report over the 7 multi-version ontologies (76 snapshots): raw hashing **over-splits 2**
+   (INCENTIVE, MODSCI — byte-different re-uploads of identical content that normalized identity
+   merges), and **structure-only vs +labels never diverge** (no version pair differs only in labels),
+   so including labels adds fidelity at zero observed cost. Remaining: the cutover (store
+   `content_hash`, recompute `version_id`, rewrite snapshot filenames/`file_path`, merge the 2
+   duplicates) — awaiting go-ahead.
 2. **Ontology key — when to promote `iri` to the cross-source key** (demoting `acronym` to a label).
    Independent of the version model; gates true multi-source (Phase D). The `iri` itself is now
    **derived and stored** for the whole corpus (A6); what remains open is *when* to make it the key.
@@ -116,9 +123,16 @@ The pieces that need no other repo and no shared-spec change. Prototype the mode
   forever-stale self-date) vs `released_at 2026-06-23`. `submission_id` stays null for
   pre-capture snapshots (recoverable only from live BP metadata; A4 declines that dependency).
   Display/audit only — not yet surfaced on any API (Phase B). Store suites +5.
-- **[blocked on decision 1] A5 — Hash basis.** If normalized: define the canonical form (IRIs +
-  edges + obsolete; decide whether labels/language are in-scope), compute a `content_hash` alongside
-  the existing raw hash, and cut identity over to it. Recompute from on-disk snapshots.
+- **[wip] A5 — Hash basis.** Direction settled (decision 1): normalized, **including labels**.
+  Canonical form (`SnapshotStore.normalizedContentHash`): every concept `C\t<iri>\t<obsolete>` (+
+  `<prefLabel>\t<replacedBy>` when labels are in), every edge `E\t<child>\t<parent>\t<pred>`, every
+  typed relation `R\t<subj>\t<pred>\t<obj>`, sorted over IRIs (never row ids) and sha256'd — section
+  tags prevent cross-section collisions; SQLite binary collation makes ordering deterministic.
+  **Landed (measure-only):** the hash method (3 tests) + `ContentHashReport`; the report resolved the
+  labels knob (see decision 1). **Remaining (the cutover):** compute `content_hash` alongside the raw
+  hash, cut `version_id` over to it, rewrite `<version_id>.sqlite` filenames + `file_path`, and merge
+  the 2 duplicate re-uploads. Awaiting go-ahead — identity-level and best done now while prod is off
+  and nothing pins these ids.
 - **[done] A6 — Derive & store `ontology.iri` (mandatory).** `OntologyIri.canonical` normalizes a raw
   term-ID namespace to the canonical form (DESIGN §6.4: OBO `obo/DOID_` → `obo/doid`; others strip
   the trailing separator, case preserved). `SnapshotStore.dominantOwnIdspace` picks the acronym-keyed
