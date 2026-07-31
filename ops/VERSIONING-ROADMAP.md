@@ -166,11 +166,24 @@ The pieces that need no other repo and no shared-spec change. Prototype the mode
 
 The source-explicit, additive shape (DESIGN §6). Touches the template model, editor, and
 artifact/resource servers; must stay default-compatible so existing templates and instances are
-valid untouched.
+valid untouched. Cross-repo work runs on a shared `versioned-terminology-server` branch across
+cedar-artifact-library, cedar-model-library, cedar-model-validation-library,
+cedar-model-typescript-library, cedar-template-editor, cedar-resource-server, cedar-artifact-server.
 
-- **[blocked on Phase A]** Define the additive fields: `iri`, `sourceSystem`, `version` (triple).
-- **[later] B1** — Tolerant readers everywhere: `sourceSystem` absent ⇒ BioPortal, `version` absent
+- **[done] Model foundation (cedar-artifact-library + cedar-model-library).** The additive
+  `iri` / `sourceSystem` / `version` fields on all four value-constraint entries
+  (ontology/branch/class/valueSet) + a `VersionSpec` triple record
+  (`id`/`effectiveDate`/`declaredVersion`), all optional. Backward-compatible by construction: each
+  record keeps a delegating old-signature constructor (existing callers untouched, new fields default
+  absent), and the `Jdk8Module`/`NON_ABSENT` mapper omits empty Optionals, so a legacy constraint
+  renders byte-identically. `ModelNodeNames` gains the constants. The JSON reader reads the fields
+  tolerantly (absent, or `version:"latest"`, → latest); the renderer needs no change. Tests: legacy →
+  empty, pinned → triple, `"latest"` → latest, render→read roundtrip; full artifact-library suite
+  green (691). **Follow-up: YAML serialization of the version spec** — the YAML reader/renderer do not
+  yet carry the new fields (JSON is the primary wire format); legacy YAML roundtrips unchanged.
+- **[wip] B1** — Tolerant readers everywhere: `sourceSystem` absent ⇒ BioPortal, `version` absent
   ⇒ latest, `iri` absent ⇒ acronym fallback. Do **not** reuse the legacy `source` display string.
+  (JSON reader done in the model foundation; YAML reader + other consumers remain.)
 - **[later] B2** — Terminology server routes on `sourceSystem` (natural extension of the existing
   per-ontology routing).
 - **[later] B3** — Template editor emits the richer shape for new/edited fields, and shows the
