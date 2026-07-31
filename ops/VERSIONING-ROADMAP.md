@@ -1,7 +1,7 @@
 # CEDAR Terminology Versioning — Roadmap
 
 Implementation status and sequencing for the model in
-[VERSIONING-DESIGN.md](VERSIONING-DESIGN.md). Living document; update as phases land.
+[VERSIONING-DESIGN.md](VERSIONING-DESIGN.md). Living document; update as work lands.
 
 Status keys: **[done]** shipped · **[wip]** in progress · **[next]** ready to start · **[blocked]**
 waiting on a decision or another repo · **[later]** deferred.
@@ -25,8 +25,9 @@ no longer the admission test. In particular, the 23 "un-gatable" ontologies (Bio
 endpoints. Now: **search 1,209 / browse 1,209** — BioPortal is out of the lookup path for every
 ontology we hold, on both endpoints, except the 4 the quality pass deferred (below). Deferring only
 where we must: the 77 not held (12 licensed + 65 un-ingestable), the 1 empty (LC-CARRIERS), and the
-4 quality-deferred. Got here via A8 (search 186→1,034), A9 (IRI-fragment labels → +179), A7 (browse
-1,187→1,213, incl. the 23 un-gatable that BioPortal itself 404s), then the quality pass (−4).
+4 quality-deferred. Got here by widening search-serving (186→1,034), the IRI-fragment label fallback
+(+179), and widening browse-serving (1,187→1,213, incl. the 23 un-gatable that BioPortal itself
+404s), then the quality pass (−4).
 
 **Quality pass (2026-07-30) — done.** Ran the differential as a quality flag over the served set.
 It confirmed ~6 ontologies where local was genuinely worse than BioPortal (stale 0-edge snapshots or
@@ -37,43 +38,43 @@ cap). Search/browse 1,213 → **1,209**. Detail + follow-ups in
 [BP-RECONCILIATION-ISSUES.md](BP-RECONCILIATION-ISSUES.md) issue #12.
 
 **Multi-version test beds (2026-07-30).** Most ingested ontologies hold a single snapshot; the
-resolver (A1) and diff need real history to exercise. Backfilled a per-year historical spread from
+resolver and diff need real history to exercise. Backfilled a per-year historical spread from
 BioPortal (via `IngestJob --submission`, latest tag untouched, then latest refreshed with current
 extraction) for the flagship ontologies. Dev catalog now carries **7 multi-version ontologies**:
 OBI ×19 (2008–2026), HP ×18 (2009–2026), DOID ×15 (2008–2026), MONDO ×8, GO ×7, INCENTIVE ×6,
 MODSCI ×3 — 1,283 snapshots total. These are live-BioPortal ingests into the untracked dev catalog
 (not reproducible from the repo). Real drift is dramatic and pinnable: DOID 2008→2026 +11,823/−7,145
 concepts; OBI near-total IRI turnover; MONDO −34k as early import-bloat was trimmed. New ingests also
-capture `submission_id` + `source_date` (A4).
+capture `submission_id` + `source_date`.
 
 ## Where we are
 
-The terminology server already implements the *foundation* of the model — content-hash identity,
+The terminology server implements the *foundation* of the model — content-hash identity,
 per-submission snapshots, discover/diff/serve-at-version over real history — with the local store
-off by default in production. Browse-served is 1,187 of 1,214 ingested; search-served 186. What
-remains is (a) widening local serving toward the ceiling (below), (b) a few self-contained
-terminology-server extensions, (c) one design decision that could recompute ids, and (d) the
-cross-repo spec + publish work that makes versioning visible to authors.
+off by default in production. Both design decisions are now settled, the identity is re-keyed on the
+canonical iri, and freeze-on-publish is live. What remains is the cross-repo spec + publish work that
+makes versioning visible to authors and reads pins back at serve time, plus a few data-quality and
+coverage tails — all captured in Remaining Work below.
 
-## Open decisions (settle before the phases they gate)
+## Design decisions (both settled)
 
 1. **Hash basis — raw bytes vs normalized extracted model** (DESIGN §4.3). **SETTLED and SHIPPED
    (2026-07-30): normalized, including labels.** Measurement over the 7 multi-version ontologies (76
    snapshots) decided it — raw hashing over-split 2 (INCENTIVE, MODSCI), structure-only vs +labels
    never diverged. The cutover recomputed every `version_id` from on-disk snapshots (no re-download),
    kept the raw hash as `file_hash`, and merged the 2 duplicates (1,283→1,281 snapshots). Serving,
-   resolution, and diff verified live. No longer an open decision.
+   resolution, and diff verified live.
 2. **Ontology key — promote `iri` to the cross-source key** (demoting `acronym` to a label). **SETTLED
-   and SHIPPED (2026-07-31, D1).** The catalog is re-keyed on the canonical `iri`: `ontology(iri PK,
+   and SHIPPED (2026-07-31).** The catalog is re-keyed on the canonical `iri`: `ontology(iri PK,
    name)` is the identity, `ontology_source(acronym PK, iri, …)` the per-source addressing label.
    `acronym` stays the public handle (REST paths, freeze pins, template constraints) but is no longer
    the identity. `snapshot`/`version_tag` stay acronym-scoped, so resolution and the serving path are
    unchanged; iri-native reads (`resolveLatestByIri`, `listOntologyIdentities`) span an ontology's
-   sources. Migration is automatic on open (server startup + ingest). No longer an open decision.
+   sources. Migration is automatic on open (server startup + ingest).
 
-## Phase A — Terminology server (self-contained, in our control)
+## Done — terminology server (self-contained, in our control)
 
-The pieces that need no other repo and no shared-spec change. Prototype the model end-to-end here.
+The pieces that need no other repo and no shared-spec change; the model prototyped end-to-end here.
 
 - **[done]** Content-hash `version_id`; `(version_id, acronym)`-keyed snapshots.
 - **[done]** `IngestJob --all` multi-submission ingest; `SnapshotDiff`.
@@ -82,7 +83,7 @@ The pieces that need no other repo and no shared-spec change. Prototype the mode
   snapshot for integrated-search.
 - **[done]** Resolver for `version_id` / tag / `latest`; `released_at` + `declared_version` persisted
   and indexed `(acronym, released_at)`.
-- **[done] A1 — Resolver: date and declaredVersion.** `CatalogStore.resolveAsOfDate` (newest
+- **[done] Resolver: date and declaredVersion.** `CatalogStore.resolveAsOfDate` (newest
   snapshot with release date ≤ D — day-granular, offset-independent via `substr(released_at,1,10)`,
   so BioPortal's varying UTC offsets don't skew it; deterministic same-day tie-break) and
   `resolveByDeclaredVersion` (every match, newest first — the label is not unique). The provider's
@@ -93,7 +94,7 @@ The pieces that need no other repo and no shared-spec change. Prototype the mode
   hash pin (surfacing the warning in the HTTP response is deferred — needs a response-shape change).
   No schema change. Tested on INCENTIVE's real history (three `0.1.1`s, same-day `0.1.2`/`0.1.3`,
   a 17-month-later `0.1.3` re-release): store suite 20 tests, provider suite 15 tests, all green.
-- **[done] A2 — Resolve-current → triple.** `VersionTriple {id, effectiveDate, declaredVersion}`
+- **[done] Resolve-current → triple.** `VersionTriple {id, effectiveDate, declaredVersion}`
   domain record; `ITerminologyService.resolveCurrentVersion(ontology)` returns the triple of the
   ontology's `latest` snapshot, or `null` when not served locally (the "cannot freeze here" signal —
   BioPortal has no content-hash triple). `effectiveDate` is `released_at`'s calendar day, falling
@@ -104,14 +105,14 @@ The pieces that need no other repo and no shared-spec change. Prototype the mode
   snapshot. Provider suite +4 (19 total). **Verified live** on the redeployed stack: INCENTIVE →
   `{e1dc041e…, 2023-11-23, 0.1.3}` (its newest of 6 submissions), MODSCI → `{29460bcd…, 2019-12-01,
   1.0}`, EHDAA (BioPortal-deferred) → 404, and `versions/diff` still routes (no path collision).
-- **[done] A3 — `/versions` returns the full triple.** `OntologyVersion` gains `effectiveDate` (the
+- **[done] `/versions` returns the full triple.** `OntologyVersion` gains `effectiveDate` (the
   release day, or ingest day when the source records no release), derived by the same shared helper
-  as A2's triple so a listing and a resolve-current never disagree. `released` (full timestamp) and
-  `version` (declared label) are retained as compatibility aliases — purely additive, no reader
-  breaks. Endpoint doc + swagger regenerated. Tested: provider suite +1 (20), app
+  as the resolve-current triple so a listing and a resolve-current never disagree. `released` (full
+  timestamp) and `version` (declared label) are retained as compatibility aliases — purely additive,
+  no reader breaks. Endpoint doc + swagger regenerated. Tested: provider suite +1 (20), app
   `LocalStoreResourceTest` +1 (6, real JAX-RS serialization). **Verified live**: INCENTIVE's six
   submissions each carry `effectiveDate`, including the offset case `…T18:07:50-07:00` → `2022-06-26`.
-- **[done] A4 — Additive provenance columns.** `snapshot` gains `backend` (constant `DEFAULT
+- **[done] Additive provenance columns.** `snapshot` gains `backend` (constant `DEFAULT
   'bioportal'`, so every existing row reads it with no backfill), `submission_id`, and `source_date`
   (idempotent `ensureColumn` migration). `SnapshotProvenance` record + `setSnapshotProvenance` /
   `snapshotProvenance` (acronym-scoped, like the snapshot itself). Ingest now captures BioPortal's
@@ -121,9 +122,9 @@ The pieces that need no other repo and no shared-spec change. Prototype the mode
   snapshots, backend `bioportal` 100%, source_date on 203 (~17%, matching §2's ~18% date-like).** The
   divergence is the audit payoff — e.g. UBERON `source_date 2023-07-25` (the design's cited
   forever-stale self-date) vs `released_at 2026-06-23`. `submission_id` stays null for
-  pre-capture snapshots (recoverable only from live BP metadata; A4 declines that dependency).
-  Display/audit only — not yet surfaced on any API (Phase B). Store suites +5.
-- **[done] A5 — Hash basis.** Normalized content hash, **including labels**. Canonical form
+  pre-capture snapshots (recoverable only from live BP metadata; the ingest declines that dependency).
+  Display/audit only — not yet surfaced on any API. Store suites +5.
+- **[done] Hash basis.** Normalized content hash, **including labels**. Canonical form
   (`SnapshotStore.normalizedContentHash`): every concept `C\t<iri>\t<obsolete>` (+
   `<prefLabel>\t<replacedBy>`), every edge `E\t<child>\t<parent>\t<pred>`, every typed relation
   `R\t<subj>\t<pred>\t<obj>`, sorted over IRIs (never row ids) and sha256'd. `IngestJob` now computes
@@ -135,7 +136,7 @@ The pieces that need no other repo and no shared-spec change. Prototype the mode
   hashes distinct from `file_hash`, 0 dangling tags.** Verified live: DOID resolve-current returns a
   content-hash id, /versions (15) and diff unchanged, INCENTIVE serves 5. Store suites +2, ingest +1,
   IngestJobTest updated. Catalog backed up to `catalog.sqlite.bak-precutover` before apply.
-- **[done] A6 — Derive & store `ontology.iri` (mandatory).** `OntologyIri.canonical` normalizes a raw
+- **[done] Derive & store `ontology.iri` (mandatory).** `OntologyIri.canonical` normalizes a raw
   term-ID namespace to the canonical form (DESIGN §6.4: OBO `obo/DOID_` → `obo/doid`; others strip
   the trailing separator, case preserved). `SnapshotStore.dominantOwnIdspace` picks the acronym-keyed
   own namespace (reusing the roots-prune logic, so import-heavy ontologies resolve their own space,
@@ -148,25 +149,18 @@ The pieces that need no other repo and no shared-spec change. Prototype the mode
   Store suites +10 (OntologyIri 4, dominantOwnIdspace 3, catalog iri 3). The declared `owl:Ontology`
   IRI as an extra provenance source (header parse; not captured at ingest today) is a follow-up — it
   does not change the canonical value, which the own-namespace already yields for the whole corpus.
-  This is the multi-source ontology key: decision 2's enabler.
-- **[done] A7 — Widen browse-serving (1,187 → 1,213).** Serve every ingested ontology with roots;
+  This is the multi-source ontology key — the enabler for the iri re-key (decision 2).
+- **[done] Widen browse-serving (1,187 → 1,213).** Serve every ingested ontology with roots;
   the 23 un-gatable (BioPortal 404s their roots — local is the only working answer) and the 3
   genuine-gap ontologies (BTO-EMMO, NDDO, OCRE — near-complete tree) now serve locally. Only the
   empty LC-CARRIERS defers. Validated: all serve roots locally with zero BioPortal calls.
-- **[done] A8 — Widen search-serving (186 → 1,034).** Allowlisted every ingested ontology that has
+- **[done] Widen search-serving (186 → 1,034).** Allowlisted every ingested ontology that has
   extracted labels; validated newly-served ontologies (MESH, HP, PR, GO, NCIT, EFO) serve search
   locally with zero BioPortal calls. BioPortal is now out of the lookup path for 1,034 ontologies.
-  Held back: 179 zero-label ontologies (see A9) + 1 empty; those still proxy.
-- **[next] A9 — IRI-fragment label fallback (unlocks the remaining 179 → ceiling ~1,213).** 179
-  ingested ontologies carry no `rdfs:label`/`skos:prefLabel`; their human name is the IRI fragment
-  (`#3DRadiotherapyPlanning`, `#AIDS_(Attitudes_Toward)`). BioPortal falls back to displaying the
-  fragment; we store null and return empty search — so they currently (correctly) defer. Fix: when no
-  label exists, derive one from the fragment (URL-decode, `_`→space, split CamelCase) and store it in
-  `pref_label`, so search matches and browse displays. Backfill by UPDATE over existing concept IRIs
-  (no re-download); add to the extractor for new ingests. Improves browse (unlabeled trees) too, then
-  widen search + browse to include the 179.
+  Held back: 179 zero-label ontologies (see the label-fallback item below) + 1 empty; those still
+  proxy.
 
-## Phase B — Value-constraint spec (cross-repo, backward-compatible)
+## Value-constraint spec (cross-repo, backward-compatible)
 
 The source-explicit, additive shape (DESIGN §6). Touches the template model, editor, and
 artifact/resource servers; must stay default-compatible so existing templates and instances are
@@ -194,17 +188,11 @@ cedar-model-typescript-library, cedar-template-editor, cedar-resource-server, ce
   via `scripts/generate-meta-schemas.sh` (**source of truth is `schema/`, not the generated
   `src/main/resources`**). Tests: pinned triple passes, `"latest"` passes, unknown field fails,
   version-without-id fails; suite 214 green.
-- **[wip] B1** — Tolerant readers everywhere: `sourceSystem` absent ⇒ BioPortal, `version` absent
-  ⇒ latest, `iri` absent ⇒ acronym fallback. Do **not** reuse the legacy `source` display string.
-  (JSON reader + schema validation done; YAML reader + other consumers remain.)
-- **[later] B2** — Terminology server routes on `sourceSystem` (natural extension of the existing
-  per-ontology routing).
-- **[later] B3** — Template editor emits the richer shape for new/edited fields, and shows the
-  version picker (declaredVersion · effectiveDate · short hash; `latest` default).
-- **[later] B4** — Migration/backfill: populate `iri` (from target URIs / headers) and `sourceSystem`
-  on existing constraints where derivable; leave the rest to defaults.
 
-## Phase C — Freeze-on-publish (cross-repo)
+The remaining spec work — tolerant readers everywhere, `sourceSystem` routing, the editor version
+picker, and constraint backfill — is tracked as **R1** in Remaining Work.
+
+## Freeze-on-publish (cross-repo)
 
 The reproducibility guarantee is earned here (DESIGN §7).
 
@@ -216,17 +204,17 @@ The reproducibility guarantee is earned here (DESIGN §7).
   resolver takes the identifier natural to each kind: acronym (ontology/branch), class IRI (class),
   value-set collection (value set) — mapping an identifier to a version stays the resolver's job.
   Idempotent (already-pinned entries untouched); an entry the resolver cannot resolve is left
-  unpinned rather than guessed. On the feature branch (not develop). 6 tests; full suite 697.
-- **[done] Class-IRI version resolution (terminology server, feature branch).** A class-valued
+  unpinned rather than guessed. 6 tests; full suite 697.
+- **[done] Class-IRI version resolution (terminology server).** A class-valued
   constraint names a term but not its ontology; `resolveCurrentVersionForClass(classIri)` maps the
-  IRI's namespace to its ontology via A6's `raw_namespace` reverse lookup
+  IRI's namespace to its ontology via the `raw_namespace` reverse lookup
   (`CatalogStore.acronymForNamespace`, **unambiguous-only** — a namespace shared by several ontologies
   declines rather than guessing), then returns that ontology's current triple. Wired provider → Sqlite
   → router → BioPortal(null); `GET /bioportal/classes/version-current?uri={classIri}` (404 when
   unresolvable). Verified live: `DOID_9351` → DOID's triple (matches ontology resolve-current), a MESH
-  class → MESH's triple, unknown namespace → 404. So class entries are lockable end-to-end today; the
-  freezer's `currentVersionByClassUri` is now backed by a real capability.
-- **[done] Value-set-collection version resolution (terminology server, feature branch).** A value-set
+  class → MESH's triple, unknown namespace → 404. So class entries are lockable end-to-end; the
+  freezer's `currentVersionByClassUri` is backed by a real capability.
+- **[done] Value-set-collection version resolution (terminology server).** A value-set
   collection is a distinct BioPortal artifact type (its members are value sets, not ontology classes),
   but it is ingested and versioned through the **same content-hash mechanism** as an ontology —
   `IngestJob` downloads a submission, hashes the extracted model, and snapshots it, the collection
@@ -238,13 +226,13 @@ The reproducibility guarantee is earned here (DESIGN §7).
   is not served for lookup), returning the collection's current triple. Wired provider
   (`currentVersionForValueSetCollection`) → Sqlite → router (delegates to local) → BioPortal(null);
   `GET /bioportal/vs-collections/version-current?collection={acronym}` (404 when not served locally). So
-  the freezer's `currentVersionByValueSetCollection` is now backed end-to-end — value-set entries are
+  the freezer's `currentVersionByValueSetCollection` is backed end-to-end — value-set entries are
   lockable on publish. **Verified live**: the real BioPortal CEDARVS collection ingested through
   `IngestJob --all --valuesets` (4 content-hash versions, latest 0.2.2), then resolved through the real
   service stack to its latest triple; an unknown collection and CEDARVS-as-an-ontology both resolve to
   null/404. Store +3, provider +1, ingest +1, app HTTP integration +2. Prod off by default (dev catalog,
-  untracked). On the feature branch.
-- **[done] Publish-pipeline integration (cedar-resource-server, feature branch).** The freeze is
+  untracked).
+- **[done] Publish-pipeline integration (cedar-resource-server).** The freeze is
   wired into `CommandVersionResource.publishArtifact`: after an artifact is flipped to published,
   `TemplateVersionFreezer.freeze` (a surgical JSON walk in cedar-artifact-library — inject `version`
   where absent+resolvable, touch nothing else) pins every unpinned controlled-term constraint via
@@ -254,9 +242,8 @@ The reproducibility guarantee is earned here (DESIGN §7).
   blocks publish. `TemplateVersionFreezer` 5 tests; `TerminologyVersionResolver` fail-safe.
   **Verified live**: publishing a real template resolved every constraint correctly (DATACITE-VOCAB,
   ISO639-1 → triples; unserved namespaces → 404) and the injected `version` fields passed validation.
-  Full REST smoke **606/0** — normal publish (no served constraints) is a freeze no-op, unaffected.
 
-  **Now on develop** (merged 2026-07-31), along with all the terminology-side and library work.
+  **Merged to develop 2026-07-31**, along with all the terminology-side and library work.
 
   **Follow-ups (2026-07-31 review):**
   1. **End-to-end freeze demo — DONE.** Published a DOID-constrained `SimpleTemplate`; the stored
@@ -290,20 +277,20 @@ The reproducibility guarantee is earned here (DESIGN §7).
        label, and a pin by as-of date — all through the real stack. **8 → 12**, all green. (Needed a
        `raw_namespace` row on the fixture ontology; nothing else exercised the reverse lookup.)
 
-**Backward-compatibility of the Phase B/C library changes — verified end-to-end (2026-07-30).** Built
+**Backward-compatibility of the spec + freeze library changes — verified end-to-end (2026-07-30).** Built
 `cedar-resource-server` (the `cedar-artifact-library` consumer) against the new libraries and
 redeployed it, then ran the full smoke: unit 695 (incl. 269 roundtrip, byte-identical on existing
 templates) · UI e2e (login → DOID-constrained template → populate → delete) · REST suite **606 passed,
 0 failed**. Existing templates round-trip unchanged through the new model.
 
-## Phase D — Multi-backend (identity across sources)
+## Multi-backend (identity across sources)
 
-Open authorities (ORCID/ROR/RRID, and possibly CompTox/PFAS) were formerly slated here as "D3"; they
-are not a version-model phase and have moved to Open Questions.
+Open authorities (ORCID/ROR/RRID, and possibly CompTox/PFAS) were formerly slated as a multi-backend
+phase; they are not a version-model phase and have moved to Open Questions.
 
-- **[done] D1 — iri is the ontology key (2026-07-31).** Two halves shipped. **Read side:** the
+- **[done] iri is the ontology key (2026-07-31).** Two halves shipped. **Read side:** the
   canonical `iri` is derived and stored **at ingest** (`IngestJob`, from the snapshot's
-  `dominantOwnIdspace` through `OntologyIri.canonical`), not only by the A6 backfill, and
+  `dominantOwnIdspace` through `OntologyIri.canonical`), not only by the later backfill, and
   `CatalogStore.acronymsForIri(iri)` returns every ontology sharing a canonical iri. **Key promotion:**
   the catalog is re-keyed on `iri` — `ontology(iri PK, name)` identity + `ontology_source(acronym PK,
   iri, name, source_iri, default_format, raw_namespace, kind)` addressing. `snapshot`/`version_tag`
@@ -319,9 +306,9 @@ are not a version-model phase and have moved to Open Questions.
   + smoke: REST 613/0, UI PASS (live DOID-constrained field → populate), freeze 7/0. Tests:
   `CatalogStoreTest` +4 (join, iri-native resolution across sources, migration split), `IngestJobTest`
   +1; store 82/0, core 68/0, ingest 41/0, application `LocalStoreResourceTest` 12/0. The
-  `SubmissionSource` adapter proved adequate in D2, so generalizing it is deferred until a third
-  backend demands it.
-- **[done] D2 — Source-independence of identity, proven against OBO Foundry (2026-07-31).**
+  `SubmissionSource` adapter proved adequate in the source-independence proof, so generalizing it is
+  deferred until a third backend demands it.
+- **[done] Source-independence of identity, proven against OBO Foundry (2026-07-31).**
   `OboFoundrySubmissionSource` is a second `SubmissionSource` that fetches from OBO Foundry PURLs —
   the current release (`obo/<lc>.owl`) or an exact dated release (`obo/<lc>/releases/<date>/<lc>.owl`),
   so the *same* logical version BioPortal holds can be pulled from a different authority in a
@@ -335,23 +322,23 @@ are not a version-model phase and have moved to Open Questions.
   ontology that stresses the extractor's own-namespace logic. Identity is content-derived, not
   source-derived: the design's §4.3 claim is demonstrated against a real second authority, not merely
   asserted. (DOID's `63ef56df…` is the very id freeze-on-publish pins.) The interface stayed
-  BioPortal-shaped (synthetic submission id, no license API) — generalizing it is D1. Tests:
-  `OboFoundrySubmissionSourceTest` (6, no-network URL/shape), `IngestJobTest` +1 (backend recorded),
-  store +0/ingest suites green; the live cross-source run is `CrossSourceIdentityCheck`.
-- **[next] D3 — Multi-source ingest, wired for real.** D2 proved identity is source-independent and
-  D1 re-keyed the catalog on iri, but the cross-source proof ingests into *throwaway* catalogs only.
-  What remains: ingest a non-BioPortal authority (OBO Foundry) into the **served** catalog and
-  serve/resolve it end to end, and — only if it scales past a one-off — generalize the still
-  BioPortal-shaped `SubmissionSource` (synthetic submission id, no license API). This is what makes
-  multi-source real rather than demonstrated. Tracked as **R4** below.
+  BioPortal-shaped (synthetic submission id, no license API) — generalizing it is the deferred adapter
+  work. Tests: `OboFoundrySubmissionSourceTest` (6, no-network URL/shape), `IngestJobTest` +1 (backend
+  recorded), store/ingest suites green; the live cross-source run is `CrossSourceIdentityCheck`.
+- **[next] Multi-source ingest, wired for real.** The source-independence proof and the iri re-key
+  established this, but the cross-source proof ingests into *throwaway* catalogs only. What remains:
+  ingest a non-BioPortal authority (OBO Foundry) into the **served** catalog and serve/resolve it end
+  to end, and — only if it scales past a one-off — generalize the still BioPortal-shaped
+  `SubmissionSource` (synthetic submission id, no license API). This is what makes multi-source real
+  rather than demonstrated. Tracked as **R4** below.
 
 ## Where the core versioning approach stands
 
-Content-hash identity (A5), per-submission snapshots, resolve-current / as-of-date / declared-version
-resolution (A1–A3), audit provenance (A4), the canonical-iri identity re-key (A6, D1),
-source-independence against a second authority (D2), the additive value-constraint spec + schema
-validation (Phase B foundation), and freeze-on-publish for all four constraint kinds (Phase C) are
-**done and verified live**, with REST-level regression coverage on the publish and resolution sides.
+Content-hash identity, per-submission snapshots, resolve-current / as-of-date / declared-version
+resolution, audit provenance, the canonical-iri identity re-key, source-independence against a second
+authority, the additive value-constraint spec + schema validation, and freeze-on-publish for all four
+constraint kinds are **done and verified live**, with REST-level regression coverage on the publish
+and resolution sides.
 
 The gap: freeze *writes* version pins, but the app does not yet let authors **see or choose** versions,
 nor does it **read pins back** to serve terms at the pinned snapshot. Closing that — the reproducibility
@@ -359,15 +346,14 @@ payoff — is the largest remaining core work.
 
 ## Remaining Work
 
-Renumbered, roughly in priority order. R-numbers are stable handles; the old phase labels are noted
-where the work already had one.
+In rough priority order. R-numbers are stable handles.
 
-1. **R1 — Author-facing versioning (Phase B tail).** Make the spec live in the app. **B1** tolerant
-   readers everywhere (`sourceSystem` absent ⇒ BioPortal, `version` absent ⇒ latest, `iri` absent ⇒
-   acronym; JSON reader + schema done, YAML reader + other consumers remain); YAML serialization of the
-   version spec; **B2** terminology routes on `sourceSystem`; **B3** the template editor emits the
-   richer shape and shows a version picker (declaredVersion · effectiveDate · short hash; `latest`
-   default); **B4** backfill `iri`/`sourceSystem` on existing constraints where derivable.
+1. **R1 — Author-facing versioning.** Make the spec live in the app. Tolerant readers everywhere
+   (`sourceSystem` absent ⇒ BioPortal, `version` absent ⇒ latest, `iri` absent ⇒ acronym; the JSON
+   reader + schema validation are done, the YAML reader + other consumers remain); YAML serialization
+   of the version spec; the terminology server routing on `sourceSystem`; the template editor emitting
+   the richer shape and showing a version picker (declaredVersion · effectiveDate · short hash;
+   `latest` default); and a backfill of `iri`/`sourceSystem` on existing constraints where derivable.
 
 2. **R2 — End-to-end frozen read (the reproducibility payoff).** Wire a published template's pinned
    `version` through the editor / CEE / validation so populating an instance resolves terms **at the
@@ -384,10 +370,10 @@ where the work already had one.
    `resolveLatestByIri` correctness. Separate the two populations first (a one-off report over the
    catalog), then fix the derivation.
 
-4. **R4 — Multi-source ingest, wired for real (Phase D3).** Ingest a non-BioPortal authority (OBO
+4. **R4 — Multi-source ingest, wired for real.** Ingest a non-BioPortal authority (OBO
    Foundry) into the **served** catalog and serve/resolve it end to end, not just into a throwaway
-   proof catalog; generalize `SubmissionSource` if it scales past a one-off. This turns the D2 proof
-   into a running capability.
+   proof catalog; generalize `SubmissionSource` if it scales past a one-off. This turns the
+   source-independence proof into a running capability.
 
 5. **R5 — Instance-level version capture.** Record which vocabulary version was in effect when a value
    was selected, in the instance itself — the mechanism that lets an authority whose *constraint* is
@@ -395,7 +381,7 @@ where the work already had one.
    `latest`.
 
 6. **R6 — Resolution-quality surfacing.** Return the ambiguous-declared-version WARN in the HTTP
-   response (A1 deferred; needs a response-shape change), so a caller pinning a non-unique label learns
+   response (deferred; needs a response-shape change), so a caller pinning a non-unique label learns
    it resolved to the newest match. Optionally surface `/versions`, `/versions/diff`, and the
    provenance columns in a UI.
 
@@ -403,15 +389,17 @@ where the work already had one.
    **element** and **field** artifacts — they carry value constraints and publish independently, but
    only templates have been exercised end to end.
 
-8. **R8 — Lookup-coverage tail (replace-BioPortal track).** **A9** IRI-fragment label fallback for the
-   179 zero-label ontologies; reclaim the 4 quality-deferred (DDSS big-heap re-ingest, EHDAA/BSAO/EO1
-   0-edge extraction — issue #12). Orthogonal to the version model but on the same replace-BioPortal
-   goal.
+8. **R8 — Lookup-coverage tail (replace-BioPortal track).** IRI-fragment label fallback for the
+   179 zero-label ontologies (their human name is the IRI fragment — derive one by URL-decoding,
+   `_`→space, CamelCase split — so search matches and browse displays; backfill by UPDATE over
+   existing concept IRIs, no re-download, and add to the extractor for new ingests); reclaim the 4
+   quality-deferred (DDSS big-heap re-ingest, EHDAA/BSAO/EO1 0-edge extraction — issue #12). Orthogonal
+   to the version model but on the same replace-BioPortal goal.
 
 ## Open Questions (to think about, not scheduled)
 
 The "authorities" that do not fit the ontology version model cleanly. Each is a question to settle
-before committing work, not a phase.
+before committing work, not a scheduled item.
 
 - **Open-authority identifiers — ORCID, ROR, RRID (and DOI): not versionable per se.** A constraint
   here names the *authority*, and the **value is a stable identifier captured in the instance** (an
