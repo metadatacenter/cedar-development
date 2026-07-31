@@ -181,9 +181,18 @@ cedar-model-typescript-library, cedar-template-editor, cedar-resource-server, ce
   empty, pinned → triple, `"latest"` → latest, render→read roundtrip; full artifact-library suite
   green (691). **Follow-up: YAML serialization of the version spec** — the YAML reader/renderer do not
   yet carry the new fields (JSON is the primary wire format); legacy YAML roundtrips unchanged.
+- **[done] Schema validation (cedar-model-validation-library).** A template/element/field carrying
+  the additive `iri`/`sourceSystem`/`version` fields on a value-constraint entry now **passes
+  validation**, while `additionalProperties:false` still rejects genuinely unknown fields. Added the
+  source fragment `valueConstraintsVersionFieldContent.json` (the string `"latest"` or a
+  `{id, effectiveDate, declaredVersion}` triple, `id` required) + the three fields on the four entry
+  fragments, registered the version fragment in the five manifests, and regenerated the meta-schemas
+  via `scripts/generate-meta-schemas.sh` (**source of truth is `schema/`, not the generated
+  `src/main/resources`**). Tests: pinned triple passes, `"latest"` passes, unknown field fails,
+  version-without-id fails; suite 214 green.
 - **[wip] B1** — Tolerant readers everywhere: `sourceSystem` absent ⇒ BioPortal, `version` absent
   ⇒ latest, `iri` absent ⇒ acronym fallback. Do **not** reuse the legacy `source` display string.
-  (JSON reader done in the model foundation; YAML reader + other consumers remain.)
+  (JSON reader + schema validation done; YAML reader + other consumers remain.)
 - **[later] B2** — Terminology server routes on `sourceSystem` (natural extension of the existing
   per-ontology routing).
 - **[later] B3** — Template editor emits the richer shape for new/edited fields, and shows the
