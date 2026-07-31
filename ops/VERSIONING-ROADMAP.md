@@ -63,9 +63,13 @@ cross-repo spec + publish work that makes versioning visible to authors.
    never diverged. The cutover recomputed every `version_id` from on-disk snapshots (no re-download),
    kept the raw hash as `file_hash`, and merged the 2 duplicates (1,283→1,281 snapshots). Serving,
    resolution, and diff verified live. No longer an open decision.
-2. **Ontology key — when to promote `iri` to the cross-source key** (demoting `acronym` to a label).
-   Independent of the version model; gates true multi-source (Phase D). The `iri` itself is now
-   **derived and stored** for the whole corpus (A6); what remains open is *when* to make it the key.
+2. **Ontology key — promote `iri` to the cross-source key** (demoting `acronym` to a label). **SETTLED
+   and SHIPPED (2026-07-31, D1).** The catalog is re-keyed on the canonical `iri`: `ontology(iri PK,
+   name)` is the identity, `ontology_source(acronym PK, iri, …)` the per-source addressing label.
+   `acronym` stays the public handle (REST paths, freeze pins, template constraints) but is no longer
+   the identity. `snapshot`/`version_tag` stay acronym-scoped, so resolution and the serving path are
+   unchanged; iri-native reads (`resolveLatestByIri`, `listOntologyIdentities`) span an ontology's
+   sources. Migration is automatic on open (server startup + ingest). No longer an open decision.
 
 ## Phase A — Terminology server (self-contained, in our control)
 
@@ -294,22 +298,26 @@ templates) · UI e2e (login → DOID-constrained template → populate → delet
 
 ## Phase D — Multi-backend & open authorities
 
-- **[wip] D1 — iri as first-class cross-source identity (read side done 2026-07-31); key promotion
-  deferred.** Two halves, of very different risk. **Done:** the canonical `iri` is now derived and
-  stored **at ingest** (`IngestJob`, from the snapshot's `dominantOwnIdspace` folded through
-  `OntologyIri.canonical`), not only by the A6 backfill — so a fresh ingest is iri-identified
-  immediately. `CatalogStore.acronymsForIri(iri)` returns every ontology sharing a canonical iri: the
-  cross-source join `acronym` alone cannot make, so the same ontology ingested from two authorities
-  under two acronyms is recognized as one. This is the non-destructive read side of decision 2.
-  Tests: `CatalogStoreTest` +1 (join across sources, ascending, unknown/null empty), `IngestJobTest`
-  +1 (iri derived at ingest; two acronyms of one ontology join by iri); store 80/0, ingest 41/0.
-  **Deferred (the invasive half):** promoting `iri` to the ontology **primary key** and demoting
-  `acronym` to a label. `acronym` is the `ontology` PK with foreign keys from `snapshot` and
-  `version_tag`, and every resolver/serve path is acronym-scoped — the demotion re-keys the whole
-  catalog and touches store + core + application + the on-disk data. It stays gated on decision 2's
-  *when*, now with the read side in place to build on. The `SubmissionSource` adapter proved
-  adequate in D2 (OBO Foundry implemented it cleanly, one synthetic submission id), so generalizing
-  it is low priority until a third backend demands it.
+- **[done] D1 — iri is the ontology key (2026-07-31).** Two halves shipped. **Read side:** the
+  canonical `iri` is derived and stored **at ingest** (`IngestJob`, from the snapshot's
+  `dominantOwnIdspace` through `OntologyIri.canonical`), not only by the A6 backfill, and
+  `CatalogStore.acronymsForIri(iri)` returns every ontology sharing a canonical iri. **Key promotion:**
+  the catalog is re-keyed on `iri` — `ontology(iri PK, name)` identity + `ontology_source(acronym PK,
+  iri, name, source_iri, default_format, raw_namespace, kind)` addressing. `snapshot`/`version_tag`
+  stay acronym-scoped (a snapshot is a specific source's version), so every acronym-keyed resolver —
+  and thus core, application, REST, and freeze — is unchanged; the 8 ontology-table methods now read
+  `ontology_source`, same signatures. iri-native reads added: `resolveLatestByIri` (spans an
+  ontology's sources, newest wins) and `listOntologyIdentities`. An acronym-keyed catalog migrates
+  automatically on open (server startup calls `initSchema` too now); FKs are declarative-only, so the
+  re-target is safe. **Verified on the real dev catalog:** 1214 source-acronyms / 1213 with iri
+  collapse to **1050 distinct identities** — acronym was never a clean identity (some true duplicates,
+  some generic-base iri-derivation artifacts: a data-quality follow-up on the canonical-iri
+  derivation, not the re-key). 0 orphan source iris; DOID/CL/PATO map to their expected iris. Redeploy
+  + smoke: REST 613/0, UI PASS (live DOID-constrained field → populate), freeze 7/0. Tests:
+  `CatalogStoreTest` +4 (join, iri-native resolution across sources, migration split), `IngestJobTest`
+  +1; store 82/0, core 68/0, ingest 41/0, application `LocalStoreResourceTest` 12/0. The
+  `SubmissionSource` adapter proved adequate in D2, so generalizing it is deferred until a third
+  backend demands it.
 - **[done] D2 — Source-independence of identity, proven against OBO Foundry (2026-07-31).**
   `OboFoundrySubmissionSource` is a second `SubmissionSource` that fetches from OBO Foundry PURLs —
   the current release (`obo/<lc>.owl`) or an exact dated release (`obo/<lc>/releases/<date>/<lc>.owl`),
@@ -347,10 +355,11 @@ Two tracks, both self-contained in this repo:
   develop, verified live, and now carries REST-level regression coverage on both the publish and
   resolution sides. Resolution, the publish-time triple, the version listing, cross-source identity,
   audit provenance, and content-addressed identity are all in place and verified.
-- **Phase D — multi-backend & open authorities.** **D2 done**: source-independence of identity proven
-  against OBO Foundry (3/3 — DOID/PATO/CL — identical content-hash ids from both authorities). **D1
-  read side done**: canonical `iri` derived at ingest + `acronymsForIri` cross-source join, so the
-  same ontology from two sources under two acronyms is recognized as one. Remaining: **D1 key
-  promotion** (make `iri` the ontology PK, demote `acronym` — invasive re-keying, gated on decision 2)
-  and **D3** (open authorities ORCID/DOI/RRID: `sourceSystem` set, `version` omitted, value captured
-  in the instance, no snapshotting; independent of D1/D2).
+- **Phase D — multi-backend & open authorities.** **D1 and D2 done.** D2: source-independence of
+  identity proven against OBO Foundry (3/3 — DOID/PATO/CL — identical content-hash ids from both
+  authorities). D1: the catalog is re-keyed on the canonical `iri` (identity) with `acronym` demoted
+  to a per-source addressing label, settling decision 2; verified on the real catalog (1214 acronyms →
+  1050 iri identities) with a redeploy + smoke. Remaining: **D3** (open authorities ORCID/DOI/RRID:
+  `sourceSystem` set, `version` omitted, value captured in the instance, no snapshotting; independent
+  of D1/D2), plus a **data-quality follow-up** on the canonical-iri derivation for generic-base
+  ontologies (some acronyms collide on an iri-derivation artifact rather than a true shared identity).
