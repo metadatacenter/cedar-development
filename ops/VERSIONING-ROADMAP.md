@@ -273,6 +273,18 @@ The reproducibility guarantee is earned here (DESIGN §7).
   3. **Operational lesson:** the value-set endpoint appeared broken (404) until a *full* rebuild —
      the background session committed the code but the deployed app jar was stale (resource present,
      wired service method old). Always redeploy from a fresh `mvn install`, not just a source commit.
+  4. **REST-level test coverage for the freeze path — DONE (2026-07-31).** The behavior was live and
+     verified by hand, but nothing exercised it as a regression test. Two suites close that:
+     - **Publish side (cedar-development `ops/e2e`, `rest/suites/freeze.mjs`, develop `ac22684`).**
+       Publishing a template pins every served controlled-term constraint — ontology, branch, class,
+       and value-set collection — each to its current triple, read back from the artifact server; plus
+       a negative (an unserved collection is left unpinned). Probes resolve-current and skips when the
+       local store is off, so it is honest wherever it runs. REST smoke **606 → 613/0**.
+     - **Resolution side (cedar-terminology-server `LocalStoreResourceTest`, develop `bc1c60b`).** The
+       three resolution modes on the critical path that had no HTTP coverage: `classes/version-current`
+       (term IRI → owning ontology → triple, + 404 for an unserved namespace), a pin by declared-version
+       label, and a pin by as-of date — all through the real stack. **8 → 12**, all green. (Needed a
+       `raw_namespace` row on the fixture ontology; nothing else exercised the reverse lookup.)
 
 **Backward-compatibility of the Phase B/C library changes — verified end-to-end (2026-07-30).** Built
 `cedar-resource-server` (the `cedar-artifact-library` consumer) against the new libraries and
@@ -282,12 +294,21 @@ templates) · UI e2e (login → DOID-constrained template → populate → delet
 
 ## Phase D — Multi-backend & open authorities
 
-- **[later] D1** — Promote `iri` to the ontology key (decision 2); adapter interface a backend
-  supplies: `{content → hash, effectiveDate, optional declaredVersion/labels, iri}`.
+- **[next] D1** — Adapter interface a backend supplies: `{content → hash, effectiveDate, optional
+  declaredVersion/labels, iri}`, plus promoting `iri` to the ontology key (decision 2). The ingest
+  seam already exists: `SubmissionSource` (implemented by `BioPortalDownloader`, stubbed in tests)
+  abstracts submission listing + raw-file download, and `Submission` already carries
+  `version`/`released`/`format` — most of the adapter tuple. What D1 adds: a backend identity threaded
+  through ingest (the `snapshot.backend` column exists but is the constant `'bioportal'`) and the key
+  promotion. The interface is BioPortal-shaped today (int `submissionId`, license `accessInfo`) and
+  needs generalizing for a non-BioPortal source. The key promotion (demoting `acronym` to a label) is
+  the invasive part — it re-keys catalog lookups — and is gated on decision 2's *when*.
 - **[later] D2** — A second backend beyond BioPortal (OLS or a direct OBO-PURL fetch) to prove
-  source-independence of identity.
+  source-independence of identity: ingest the *same* ontology from a second source and show the
+  normalized content hash (A5) matches, or characterize why it differs. This is the concrete
+  validation of the content-hash-identity thesis; it implements the D1 adapter interface.
 - **[later] D3** — Open authorities (ORCID/DOI/RRID): `sourceSystem` set, `version` omitted, value
-  captured in the instance. No snapshotting.
+  captured in the instance. No snapshotting. Independent of D1/D2 (no ingest, no version model).
 
 ## Suggested next steps
 
@@ -298,10 +319,18 @@ Two tracks, both self-contained in this repo:
   polish: **A6** (derive/store `ontology.iri`); the DDSS big-heap re-ingest and the EHDAA/BSAO/EO1
   0-edge extraction investigation (issue #12 follow-ups) to reclaim the last 4. Prod still off by
   default.
-- **Versioning mechanics — Phase A COMPLETE.** A1 (date/declaredVersion resolver), A2
+- **Versioning mechanics — Phases A, B, C COMPLETE.** A1 (date/declaredVersion resolver), A2
   (resolve-current → triple), A3 (`/versions` full triple), A6 (canonical `ontology.iri`,
   corpus-wide), A4 (provenance columns), and A5 (normalized content-hash identity, cut over) all
-  **done**. Resolution, the publish-time triple, the version listing, cross-source identity, audit
-  provenance, and content-addressed identity are all in place and verified live. The next real move
-  is cross-repo: surfacing `iri`/`sourceSystem`/`version` on the value-constraint spec (Phase B) and
-  the freeze-on-publish walk (Phase C), which now has everything it needs from the terminology server.
+  **done**. The value-constraint spec (Phase B model + schema validation) is additive and
+  backward-compatible; freeze-on-publish (Phase C) pins all four constraint kinds, is merged to
+  develop, verified live, and now carries REST-level regression coverage on both the publish and
+  resolution sides. Resolution, the publish-time triple, the version listing, cross-source identity,
+  audit provenance, and content-addressed identity are all in place and verified.
+- **Next: Phase D — multi-backend & open authorities.** The one remaining forward track. It starts
+  with **D1** (promote the derived `iri` to the ontology key and define the backend-adapter interface
+  `{content → hash, effectiveDate, optional declaredVersion/labels, iri}`), which gates **D2** (a
+  second backend beyond BioPortal — OLS or a direct OBO-PURL fetch — to prove identity is
+  source-independent) and **D3** (open authorities ORCID/DOI/RRID: `sourceSystem` set, `version`
+  omitted, value captured in the instance, no snapshotting). Settles open decision 2 (*when* to make
+  `iri` the key), whose enabler (A6, `iri` derived + stored corpus-wide) is already done.
