@@ -240,12 +240,20 @@ The reproducibility guarantee is earned here (DESIGN §7).
   service stack to its latest triple; an unknown collection and CEDARVS-as-an-ontology both resolve to
   null/404. Store +3, provider +1, ingest +1, app HTTP integration +2. Prod off by default (dev catalog,
   untracked). On the feature branch.
-- **[next] Publish-pipeline integration.** Wire the freeze into the actual publish/version endpoint in
-  `cedar-resource-server`: a resolver backed by the terminology server's resolve-current +
-  classes/version-current + vs-collections/version-current endpoints, the template-walk over all
-  fields, and marking published. The freeze core (all four entry kinds), ontology resolve-current,
-  class-IRI resolution, and value-set-collection resolution are all in place; this is the cross-repo
-  glue. Coordinate on `cedar-resource-server`.
+- **[done] Publish-pipeline integration (cedar-resource-server, feature branch).** The freeze is
+  wired into `CommandVersionResource.publishArtifact`: after an artifact is flipped to published,
+  `TemplateVersionFreezer.freeze` (a surgical JSON walk in cedar-artifact-library — inject `version`
+  where absent+resolvable, touch nothing else) pins every unpinned controlled-term constraint via
+  `TerminologyVersionResolver`, a **fail-safe** client of the terminology server's resolve-current
+  (`ontologies/{acr}/versions/current`) and class-IRI (`classes/version-current`) endpoints. Any
+  resolver error, or an unreachable/off terminology store, leaves the artifact unchanged and never
+  blocks publish. `TemplateVersionFreezer` 5 tests; `TerminologyVersionResolver` fail-safe.
+  **Verified live**: publishing a real template resolved every constraint correctly (DATACITE-VOCAB,
+  ISO639-1 → triples; unserved namespaces → 404) and the injected `version` fields passed validation.
+  Full REST smoke **606/0** — normal publish (no served constraints) is a freeze no-op, unaffected.
+  Remaining polish: `currentVersionByValueSetCollection` returns empty until the value-set-collection
+  ingest lands (tracked task); a clean single-shot "stored pinned template" demo was blocked only by
+  fixture/model-version validation mismatches in the available test templates, not by the freeze.
 
 **Backward-compatibility of the Phase B/C library changes — verified end-to-end (2026-07-30).** Built
 `cedar-resource-server` (the `cedar-artifact-library` consumer) against the new libraries and
