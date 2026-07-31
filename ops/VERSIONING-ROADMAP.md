@@ -40,10 +40,28 @@ Priority order; the kind of work is tagged per item.
    and shows a version picker (declaredVersion · effectiveDate · short hash; `latest` default), plus
    tolerant readers in the remaining frontend consumers.
 
-3. **[next: backend] YAML serialization of the version spec.** The JSON reader + schema validation
-   carry `iri`/`sourceSystem`/`version`; the YAML reader/renderer do not yet (legacy YAML round-trips
-   unchanged). The one bounded backend task still open on the versioning path — peripheral, since JSON
-   is the primary wire format.
+3. **[next: backend] YAML serialization of the version spec + a value-constraint key overhaul.** The
+   JSON reader + schema validation carry `iri`/`sourceSystem`/`version`; the YAML reader/renderer do
+   not. Adding them was the trigger for cleaning up the YAML dialect's value-constraint keys, which
+   were misnamed (the target `uri` was rendered under the key `iri`). Finalized shape, per entry under
+   `values:`:
+   - **source group** — `sourceSystem` (backend; absent ⇒ bioportal), `sourceAcronym` (was `acronym`;
+     the resolution handle), `sourceName` (was `ontologyName`/`valueSetName`; absent on class),
+     `sourceIri` (was the additive `iri`; canonical cross-source identity = the *source vocabulary's*
+     iri, incl. for class/branch), and — **ontology only** — `sourceUri` (was the mis-keyed `iri`; the
+     ontology's backend URL).
+   - **term group** — `termIri` (class; the specific term) / `termBaseIri` (branch, valueSet; the base
+     of a term set), `termType` (class), `termLabel`, `termMaxDepth` (was `maxDepth`), `termCount` (was
+     `numTerms`; ontology, valueSet).
+   - **`version`** — the pinned triple `{id, effectiveDate, declaredVersion}`, or the string `latest`.
+
+   Notes: legacy/unpinned entries omit `sourceSystem`/`sourceIri`/`version` (⇒ bioportal / acronym-
+   derived / latest). The ontology `uri` is **kept** (as `sourceUri`), not dropped-and-reconstructed —
+   it is a required, non-derivable field (MESH uses `bioportal.bioontology.org`, DOID uses
+   `data.bioontology.org`), so reconstruction would corrupt round-trips. Implement: renderer + reader
+   key renames, add `sourceSystem`/`sourceIri`/`version` on all four kinds, update YAML test fixtures,
+   round-trip tests. Peripheral to reproducibility (JSON is the primary wire format) but the naming
+   overhaul touches the shared dialect.
 
 4. **[next: backend] Terminology routing on `sourceSystem`.** Route a constraint to its named source
    rather than assuming BioPortal — a natural extension of the existing per-ontology routing.
@@ -61,21 +79,35 @@ Priority order; the kind of work is tagged per item.
    unversioned-constraint authority, and pins the actual term even when the constraint said `latest`.
    Needs a decision on the instance representation before implementation.
 
-8. **[later: backend] `owl:Ontology`-header IRI derivation.** Parse the ontology header at ingest as
+8. **[later] Retire the ontology-constraint `uri` (`sourceUri`).** It is **functionally unused on the
+   backend** and we'd like to remove it. Verified: the terminology server's integrated-search
+   `OntologyValueConstraint` DTO has no `uri` at all (resolution is acronym-addressed — `GET
+   /ontologies/{acronym}/classes/…` off a fixed API base — so the ontology URL is never a resolution
+   key, not even for ontology constraints); in cedar-artifact-library `ontology.uri()` is read only by
+   the YAML renderer (to serialize it) and the freezer at line 76 (which just copies it through when
+   adding `version`). Nothing decides anything from it. It survives only because the model marks it
+   **required** and it is **non-derivable** (MESH's host ≠ DOID's), so it must round-trip. Retiring it
+   is a cross-cutting change: make the model field optional, stop the editor writing it (it's whatever
+   BioPortal's picker returns as the ontology `@id` — check for a "view in BioPortal" display use
+   first), then drop it from the serializers and backfill. Until then it stays as `sourceUri`, named
+   honestly as the legacy locator rather than dignified as identity. `sourceIri` is the identity we
+   build on; `sourceAcronym` does the addressing.
+
+9. **[later: backend] `owl:Ontology`-header IRI derivation.** Parse the ontology header at ingest as
    an extra iri source, to restore a clean identity for import-leaked non-OBO ontologies (NCIT on
    `Thesaurus.owl`) that de-confliction currently leaves acronym-only.
 
-9. **[later: backend] Relax the value-set collection cap.** Integrated-search restricts a value-set
+10. **[later: backend] Relax the value-set collection cap.** Integrated-search restricts a value-set
    constraint to three collections (CEDARVS / NLMVS / CADSR-VS) via `BP_VS_COLLECTIONS_READ_REGEX`; a
    frozen value-set constraint on any other collection 422s at populate. Relax to any served
    collection if needed.
 
-10. **[later: backend] Surface ambiguous-declared-version resolution.** Off the reproducibility path —
+11. **[later: backend] Surface ambiguous-declared-version resolution.** Off the reproducibility path —
     freeze pins by content-hash `id`, not the declared-version label. Return the ambiguous-declared-
     version WARN in the response so a caller pinning a non-unique label learns it resolved to the
     newest match; optionally expose `/versions`, `/versions/diff`, and provenance.
 
-11. **[later: backend, orthogonal] Lookup-coverage tail.** IRI-fragment label fallback for the 179
+12. **[later: backend, orthogonal] Lookup-coverage tail.** IRI-fragment label fallback for the 179
     zero-label ontologies; reclaim the 4 quality-deferred (DDSS big-heap re-ingest, EHDAA/BSAO/EO1
     0-edge extraction — issue #12). On the replace-BioPortal track, not the version model.
 
