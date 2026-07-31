@@ -361,14 +361,20 @@ In rough priority order. R-numbers are stable handles.
    (tested); the app side does not yet send it. Depends on R1's readers. Today freeze writes pins that
    nothing reads back in the app flow — the guarantee is only half-closed.
 
-3. **R3 — Canonical-iri derivation data quality.** The re-key found 1214 source-acronyms / 1213 with an
-   iri collapsing to 1050 identities. Some are **true duplicates** (one ontology under two acronyms —
-   the identity model handles these correctly); some are **generic-base artifacts** (unrelated
-   ontologies sharing a webprotege/host base, e.g. `…/HIVO0004` claimed by three, wrongly merged into
-   one identity). Fix: teach `OntologyIri.canonical` / `dominantOwnIdspace` to decline a shared generic
-   base as identity and leave those ontologies acronym-only (as the empty ones already are). Affects
-   `resolveLatestByIri` correctness. Separate the two populations first (a one-off report over the
-   catalog), then fix the derivation.
+3. **R3 — Canonical-iri derivation data quality. [done 2026-08-01]** The re-key found 1213 iri-bearing
+   acronyms collapsing to 1050 identities; 72 of 83 shared iris were **false merges** — unrelated
+   ontologies sharing a placeholder/host base (webprotege, a Protégé `ont.owl`, `w3.org/ns/prov`) or
+   an OBO namespace an ontology only imports (GRO-CPGA's terms are mostly `obo/PO_`). Enforced the
+   invariant *a canonical iri identifies at most one content-distinct ontology* (`IriDeconfliction`):
+   keep a shared iri when all sharers have identical content (a true duplicate, INCENTIVE /
+   INCENTIVE-VARS), else keep it only for its single **OBO owner** (`OntologyIri.isOboOwner` — PO owns
+   `obo/po`, GO-PLUS and GRO-CPGA do not) and decline the rest to acronym-only; no owner ⇒ all decline.
+   Conservative — never merges, declines when ownership is ambiguous. Runs corpus-wide in the
+   derivation backfill and per-iri at ingest. Applied to the real catalog (backed up): 11 duplicates
+   kept, 14 owner-resolved, 58 ownerless declined; 203 acronyms now acronym-only; **content-distinct
+   false merges 72 → 0**; serving intact (freeze 7/0). A non-OBO ontology whose real IRI is
+   import-leaked (NCIT on `Thesaurus.owl`) is acronym-only for now — restoring it cleanly is the
+   `owl:Ontology`-header-IRI follow-up, not a size-contest heuristic. Tests: store 84/0, ingest 46/0.
 
 4. **R4 — Multi-source ingest, wired for real.** Ingest a non-BioPortal authority (OBO
    Foundry) into the **served** catalog and serve/resolve it end to end, not just into a throwaway
