@@ -44,10 +44,10 @@ Priority order; the kind of work is tagged per item.
    overhaul** (cedar-artifact-library develop `9e057c2`). Renderer + reader reworked to the shape below;
    golden YAML fixtures regenerated via `GoldenYamlGenerator` (51 changed, a balanced key-rename diff);
    a new round-trip proves a frozen constraint's `sourceIri`/`sourceSystem`/`version` survive YAML;
-   suite 705 → 706 green; resource-server compiles unchanged. **Two doc follow-ups remain:** the
-   scattered javadoc example blocks in `YamlArtifactRenderer` still show old keys (cosmetic), and the
-   external YAML spec doc (https://metadatacenter.readthedocs.io/en/latest/yaml-spec/) needs the new
-   keys. The shape, per entry under `values:`:
+   suite 705 → 706 green; resource-server compiles unchanged. Docs updated too: the renderer/reader
+   javadoc examples (artifact-library `f25fd3a`) and the external YAML spec — source in **cedar-mkdocs**
+   (`3925a44`): the controlled-term-field key tables + examples, a new "Pinned Versions" section, the
+   key index, and the MCP tutorial. The shape, per entry under `values:`:
    - **source group** — `sourceSystem` (backend; absent ⇒ bioportal), `sourceAcronym` (was `acronym`;
      the resolution handle), `sourceName` (was `ontologyName`/`valueSetName`; absent on class),
      `sourceIri` (was the additive `iri`; canonical cross-source identity = the *source vocabulary's*
