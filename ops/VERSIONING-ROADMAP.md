@@ -40,11 +40,14 @@ Priority order; the kind of work is tagged per item.
    and shows a version picker (declaredVersion · effectiveDate · short hash; `latest` default), plus
    tolerant readers in the remaining frontend consumers.
 
-3. **[next: backend] YAML serialization of the version spec + a value-constraint key overhaul.** The
-   JSON reader + schema validation carry `iri`/`sourceSystem`/`version`; the YAML reader/renderer do
-   not. Adding them was the trigger for cleaning up the YAML dialect's value-constraint keys, which
-   were misnamed (the target `uri` was rendered under the key `iri`). Finalized shape, per entry under
-   `values:`:
+3. **[done 2026-08-01: backend] YAML serialization of the version spec + a value-constraint key
+   overhaul** (cedar-artifact-library develop `9e057c2`). Renderer + reader reworked to the shape below;
+   golden YAML fixtures regenerated via `GoldenYamlGenerator` (51 changed, a balanced key-rename diff);
+   a new round-trip proves a frozen constraint's `sourceIri`/`sourceSystem`/`version` survive YAML;
+   suite 705 → 706 green; resource-server compiles unchanged. **Two doc follow-ups remain:** the
+   scattered javadoc example blocks in `YamlArtifactRenderer` still show old keys (cosmetic), and the
+   external YAML spec doc (https://metadatacenter.readthedocs.io/en/latest/yaml-spec/) needs the new
+   keys. The shape, per entry under `values:`:
    - **source group** — `sourceSystem` (backend; absent ⇒ bioportal), `sourceAcronym` (was `acronym`;
      the resolution handle), `sourceName` (was `ontologyName`/`valueSetName`; absent on class),
      `sourceIri` (was the additive `iri`; canonical cross-source identity = the *source vocabulary's*
@@ -61,7 +64,8 @@ Priority order; the kind of work is tagged per item.
    `data.bioontology.org`), so reconstruction would corrupt round-trips. Implement: renderer + reader
    key renames, add `sourceSystem`/`sourceIri`/`version` on all four kinds, update YAML test fixtures,
    round-trip tests. Peripheral to reproducibility (JSON is the primary wire format) but the naming
-   overhaul touches the shared dialect.
+   overhaul touches the shared dialect. **Also update the external YAML spec doc**
+   (https://metadatacenter.readthedocs.io/en/latest/yaml-spec/) to match the new value-constraint keys.
 
 4. **[next: backend] Terminology routing on `sourceSystem`.** Route a constraint to its named source
    rather than assuming BioPortal — a natural extension of the existing per-ontology routing.
