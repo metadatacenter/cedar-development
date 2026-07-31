@@ -327,7 +327,14 @@ Run by hand on 2026-07-31 against local `cedar_log` — none of these are expres
    Note: this needed `anyComponentStyle` in `angular.json` raised from 2kb/4kb to 6kb/10kb — the
    explorer's SCSS was already at 3,942 bytes of a 4,096-byte hard error budget before this work, so
    any addition would have failed the production build.
-3. **Boards 1–5, 9–11** — the presets, plus the board rail and URL serialization.
+3. **Boards** — ✅ **done 2026-07-31** (visual pass pending). `LogBoards` holds all 14 as saved
+   specs, `GET /logs/boards` serves them, and the explorer shows them as a rail grouped by table.
+   All 14 execute against the local DB in 2–47 ms. No new rendering code was needed: grouped results
+   render through the same ColumnMeta-driven table as raw rows.
+   - Needed one engine change: metrics with **no** groupBy now produce the totals shape (one row, no
+     GROUP BY) rather than being rejected — that is what the KPI-tile boards are.
+   - Still to do here: URL serialization of board + filter state (deep links), and KPI tiles rendered
+     as tiles rather than a one-row table.
 4. **Cross-table** — `/logs/trace/{id}`, trace waterfall, DB-time share, N+1 detector (boards 12–14).
 5. **Same grammar over `agg_*`** — source switch + precision badge, so every board gets a >30d
    version. Needs the backfill actually run (`log_aggregation_state` is still empty).
@@ -346,3 +353,11 @@ Run by hand on 2026-07-31 against local `cedar_log` — none of these are expres
   small; trace/N+1 boards must stay per-request or range-bounded, never "join everything".
 - **`status`/`apiKeyHash` coverage will look like a data bug** to anyone who doesn't read §9. Surface
   it in the UI, not just here.
+- **Handler attribution is only as good as the capture.**
+  `CedarMicroserviceResource.buildRequestContext()` logs `getStackTrace()[2]` — its *immediate
+  caller* — so any resource that calls it from a shared private helper logs every one of its
+  endpoints under that helper's name. `LogQueryResource` was fixed (context built per endpoint);
+  **`LogUsageResource` and `LogExplorerResource` still mis-attribute**, and any resource written that
+  way in future will too. Every board grouping by `handler` silently loses resolution for them.
+  A central fix (walk to the first JAX-RS-annotated frame) means touching
+  `cedar-server-utils-dropwizard-library` and rebuilding every service — worth doing, not done.
