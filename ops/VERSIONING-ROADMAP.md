@@ -294,15 +294,22 @@ templates) · UI e2e (login → DOID-constrained template → populate → delet
 
 ## Phase D — Multi-backend & open authorities
 
-- **[next] D1** — Adapter interface a backend supplies: `{content → hash, effectiveDate, optional
-  declaredVersion/labels, iri}`, plus promoting `iri` to the ontology key (decision 2). The ingest
-  seam already exists: `SubmissionSource` (implemented by `BioPortalDownloader`, stubbed in tests)
-  abstracts submission listing + raw-file download, and `Submission` already carries
-  `version`/`released`/`format` — most of the adapter tuple. What D1 adds: a backend identity threaded
-  through ingest (the `snapshot.backend` column exists but is the constant `'bioportal'`) and the key
-  promotion. The interface is BioPortal-shaped today (int `submissionId`, license `accessInfo`) and
-  needs generalizing for a non-BioPortal source. The key promotion (demoting `acronym` to a label) is
-  the invasive part — it re-keys catalog lookups — and is gated on decision 2's *when*.
+- **[wip] D1 — iri as first-class cross-source identity (read side done 2026-07-31); key promotion
+  deferred.** Two halves, of very different risk. **Done:** the canonical `iri` is now derived and
+  stored **at ingest** (`IngestJob`, from the snapshot's `dominantOwnIdspace` folded through
+  `OntologyIri.canonical`), not only by the A6 backfill — so a fresh ingest is iri-identified
+  immediately. `CatalogStore.acronymsForIri(iri)` returns every ontology sharing a canonical iri: the
+  cross-source join `acronym` alone cannot make, so the same ontology ingested from two authorities
+  under two acronyms is recognized as one. This is the non-destructive read side of decision 2.
+  Tests: `CatalogStoreTest` +1 (join across sources, ascending, unknown/null empty), `IngestJobTest`
+  +1 (iri derived at ingest; two acronyms of one ontology join by iri); store 80/0, ingest 41/0.
+  **Deferred (the invasive half):** promoting `iri` to the ontology **primary key** and demoting
+  `acronym` to a label. `acronym` is the `ontology` PK with foreign keys from `snapshot` and
+  `version_tag`, and every resolver/serve path is acronym-scoped — the demotion re-keys the whole
+  catalog and touches store + core + application + the on-disk data. It stays gated on decision 2's
+  *when*, now with the read side in place to build on. The `SubmissionSource` adapter proved
+  adequate in D2 (OBO Foundry implemented it cleanly, one synthetic submission id), so generalizing
+  it is low priority until a third backend demands it.
 - **[done] D2 — Source-independence of identity, proven against OBO Foundry (2026-07-31).**
   `OboFoundrySubmissionSource` is a second `SubmissionSource` that fetches from OBO Foundry PURLs —
   the current release (`obo/<lc>.owl`) or an exact dated release (`obo/<lc>/releases/<date>/<lc>.owl`),
@@ -340,9 +347,10 @@ Two tracks, both self-contained in this repo:
   develop, verified live, and now carries REST-level regression coverage on both the publish and
   resolution sides. Resolution, the publish-time triple, the version listing, cross-source identity,
   audit provenance, and content-addressed identity are all in place and verified.
-- **Phase D — multi-backend & open authorities.** **D2 is done**: source-independence of identity is
-  proven against OBO Foundry (3/3 ontologies produced identical content-hash ids from both
-  authorities; DOID/PATO/CL). Remaining: **D1** (generalize the BioPortal-shaped `SubmissionSource`
-  into a backend-neutral adapter and promote the derived `iri` to the ontology key — settling open
-  decision 2, whose enabler A6 is done) and **D3** (open authorities ORCID/DOI/RRID: `sourceSystem`
-  set, `version` omitted, value captured in the instance, no snapshotting; independent of D1/D2).
+- **Phase D — multi-backend & open authorities.** **D2 done**: source-independence of identity proven
+  against OBO Foundry (3/3 — DOID/PATO/CL — identical content-hash ids from both authorities). **D1
+  read side done**: canonical `iri` derived at ingest + `acronymsForIri` cross-source join, so the
+  same ontology from two sources under two acronyms is recognized as one. Remaining: **D1 key
+  promotion** (make `iri` the ontology PK, demote `acronym` — invasive re-keying, gated on decision 2)
+  and **D3** (open authorities ORCID/DOI/RRID: `sourceSystem` set, `version` omitted, value captured
+  in the instance, no snapshotting; independent of D1/D2).
