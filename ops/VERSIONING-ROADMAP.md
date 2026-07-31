@@ -254,14 +254,17 @@ The reproducibility guarantee is earned here (DESIGN §7).
 
   **Now on develop** (merged 2026-07-31), along with all the terminology-side and library work.
 
-  **Open follow-ups (from the 2026-07-31 review):**
-  1. **No single-shot end-to-end freeze demo captured yet.** The freeze is proven by the resolver
-     logs (every constraint resolved to its correct triple) + unit tests + the injected `version`
-     fields passing validation — but I never got a valid constrained template to publish cleanly and
-     read the stored pin back, because every *old* test template failed the *current* meta-schema for
-     unrelated reasons (DataCite's `relatedItem`/`skos:altLabel` model drift; the CEDAR MCP tools
-     write to a different server). **A UI-created template (guaranteed current-model-valid) would
-     close this in one shot** — the honest last mile of Phase C verification.
+  **Follow-ups (2026-07-31 review):**
+  1. **End-to-end freeze demo — DONE.** Published a DOID-constrained `SimpleTemplate`; the stored
+     template's constraint came back frozen: `version: {id: 63ef56df…, effectiveDate: 2026-07-01,
+     declaredVersion: 2026-06-30}` (DOID's current triple). **Root cause of the earlier failures: a
+     SNAPSHOT version skew, not the freeze.** `.m2` held 12 versions of the validation-library and
+     `artifact-server` was running a stale one *without* the `version` schema, so it rejected the
+     injected `version` field on the publish PUT (500). Fixed by wiping the CEDAR `org.metadatacenter`
+     artifacts from `.m2` and doing a full dependency-ordered `cedarcli build java` (everything at
+     `2.9.2-SNAPSHOT`), then redeploying. Verified: **freeze end-to-end works, REST smoke 606/0, UI
+     smoke PASS.** (The old test fixtures still fail current-meta-schema validation for unrelated
+     model-drift reasons — that's a fixture-staleness issue, orthogonal to versioning.)
   2. **Value-set constraints freeze — DONE (2026-07-31).**
      `TerminologyVersionResolver.currentVersionByValueSetCollection` now calls
      `vs-collections/version-current` (was a stub returning empty), mirroring the class-IRI path, so
