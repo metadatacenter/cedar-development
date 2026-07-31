@@ -324,9 +324,11 @@ Run by hand on 2026-07-31 against local `cedar_log` — none of these are expres
    - copy row as JSON, copy TSV, download CSV;
    - engine `notes` and `/logs/coverage` caveats rendered, so the page states its own limits.
 
-   Note: this needed `anyComponentStyle` in `angular.json` raised from 2kb/4kb to 6kb/10kb — the
-   explorer's SCSS was already at 3,942 bytes of a 4,096-byte hard error budget before this work, so
-   any addition would have failed the production build.
+   Note: this needed `anyComponentStyle` in `angular.json` raised from 2kb/4kb to 6kb/10kb. The
+   budget measures **compiled** CSS, not SCSS source: with the original limit the build fails with
+   `log-explorer.component.scss exceeded maximum budget … total of 5.39 kB` (verified by putting the
+   old value back). `log-usage.component.scss` was already over the 2kb *warning* before any of this
+   work, so the budget was effectively maxed out already.
 3. **Boards** — ✅ **done 2026-07-31** (visual pass pending). `LogBoards` holds all 14 as saved
    specs, `GET /logs/boards` serves them, and the explorer shows them as a rail grouped by table.
    All 14 execute against the local DB in 2–47 ms. No new rendering code was needed: grouped results
