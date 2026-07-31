@@ -222,16 +222,30 @@ The reproducibility guarantee is earned here (DESIGN §7).
   unresolvable). Verified live: `DOID_9351` → DOID's triple (matches ontology resolve-current), a MESH
   class → MESH's triple, unknown namespace → 404. So class entries are lockable end-to-end today; the
   freezer's `currentVersionByClassUri` is now backed by a real capability.
-- **[later] Value-set-collection version resolution.** Value sets live in value-set *collections*,
-  which are a different BioPortal artifact type not yet in the catalog. Resolving a value-set entry's
-  version means ingesting/versioning those collections with the **same content-hash mechanism** — an
-  ingest-scope task, not a model gap. Until then, `currentVersionByValueSetCollection` returns empty
-  and value-set entries are left unpinned (graceful). Tracked as its own task.
+- **[done] Value-set-collection version resolution (terminology server, feature branch).** A value-set
+  collection is a distinct BioPortal artifact type (its members are value sets, not ontology classes),
+  but it is ingested and versioned through the **same content-hash mechanism** as an ontology —
+  `IngestJob` downloads a submission, hashes the extracted model, and snapshots it, the collection
+  reached with a `--valuesets` flag that marks the catalog row `kind=value_set_collection` (an additive,
+  idempotent `ensureColumn` migration; every existing row reads the `ontology` default). The kind
+  discriminator keeps the two resolution paths separate — a collection never answers an ontology lookup,
+  nor an ontology a collection lookup. `resolveCurrentVersionForValueSetCollection(vsCollection)` mirrors
+  `resolveCurrentVersion`, gated on the kind marker (not the search/browse allowlist, since a collection
+  is not served for lookup), returning the collection's current triple. Wired provider
+  (`currentVersionForValueSetCollection`) → Sqlite → router (delegates to local) → BioPortal(null);
+  `GET /bioportal/vs-collections/version-current?collection={acronym}` (404 when not served locally). So
+  the freezer's `currentVersionByValueSetCollection` is now backed end-to-end — value-set entries are
+  lockable on publish. **Verified live**: the real BioPortal CEDARVS collection ingested through
+  `IngestJob --all --valuesets` (4 content-hash versions, latest 0.2.2), then resolved through the real
+  service stack to its latest triple; an unknown collection and CEDARVS-as-an-ontology both resolve to
+  null/404. Store +3, provider +1, ingest +1, app HTTP integration +2. Prod off by default (dev catalog,
+  untracked). On the feature branch.
 - **[next] Publish-pipeline integration.** Wire the freeze into the actual publish/version endpoint in
   `cedar-resource-server`: a resolver backed by the terminology server's resolve-current +
-  classes/version-current endpoints, the template-walk over all fields, and marking published. The
-  freeze core (all four entry kinds), ontology resolve-current, and class-IRI resolution are all in
-  place; this is the cross-repo glue. Coordinate on `cedar-resource-server`.
+  classes/version-current + vs-collections/version-current endpoints, the template-walk over all
+  fields, and marking published. The freeze core (all four entry kinds), ontology resolve-current,
+  class-IRI resolution, and value-set-collection resolution are all in place; this is the cross-repo
+  glue. Coordinate on `cedar-resource-server`.
 
 **Backward-compatibility of the Phase B/C library changes — verified end-to-end (2026-07-30).** Built
 `cedar-resource-server` (the `cedar-artifact-library` consumer) against the new libraries and
