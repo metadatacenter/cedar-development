@@ -325,12 +325,12 @@ phase; they are not a version-model phase and have moved to Open Questions.
   BioPortal-shaped (synthetic submission id, no license API) — generalizing it is the deferred adapter
   work. Tests: `OboFoundrySubmissionSourceTest` (6, no-network URL/shape), `IngestJobTest` +1 (backend
   recorded), store/ingest suites green; the live cross-source run is `CrossSourceIdentityCheck`.
-- **[next] Multi-source ingest, wired for real.** The source-independence proof and the iri re-key
-  established this, but the cross-source proof ingests into *throwaway* catalogs only. What remains:
-  ingest a non-BioPortal authority (OBO Foundry) into the **served** catalog and serve/resolve it end
-  to end, and — only if it scales past a one-off — generalize the still BioPortal-shaped
-  `SubmissionSource` (synthetic submission id, no license API). This is what makes multi-source real
-  rather than demonstrated. Tracked as **R4** below.
+- **[wip] Multi-source ingest, wired for real.** The standard ingest CLI now draws from OBO Foundry
+  (`IngestJob --source obofoundry [--release <date>]`), through the same identity / backend-recording /
+  de-confliction path as BioPortal; verified live (PATO → the same content-hash id as its BioPortal
+  ingest, `backend=obofoundry`). What remains is the operator step of ingesting into the **served**
+  catalog and allowlisting the acronym so the running server serves a non-BioPortal snapshot. Tracked
+  as **R4**.
 
 ## Where the core versioning approach stands
 
@@ -384,10 +384,15 @@ In rough priority order. R-numbers are stable handles.
    import-leaked (NCIT on `Thesaurus.owl`) is acronym-only for now — restoring it cleanly is the
    `owl:Ontology`-header-IRI follow-up, not a size-contest heuristic. Tests: store 84/0, ingest 46/0.
 
-4. **R4 — Multi-source ingest, wired for real.** Ingest a non-BioPortal authority (OBO
-   Foundry) into the **served** catalog and serve/resolve it end to end, not just into a throwaway
-   proof catalog; generalize `SubmissionSource` if it scales past a one-off. This turns the
-   source-independence proof into a running capability.
+4. **R4 — Multi-source ingest, wired into the standard CLI. [tooling done 2026-08-01]** The production
+   ingest tool now draws from a second authority: `IngestJob --source bioportal|obofoundry [--release
+   <date>]`. OBO Foundry needs no API key and flows through the same path as BioPortal — content-hash
+   identity, backend recording, and iri de-confliction all apply. Verified live: `IngestJob --source
+   obofoundry PATO` produced version_id `3f1a6fd9…` (identical to the BioPortal ingest, so the same
+   release merges), `backend=obofoundry`, canonical iri `obo/pato`. **Remaining (operator step):**
+   run it against the *served* dev catalog and allowlist the acronym so a non-BioPortal snapshot is
+   actually served/resolved in the running server. `SubmissionSource` stayed adequate; generalizing it
+   is deferred until a third backend demands it.
 
 5. **R5 — Instance-level version capture.** Record which vocabulary version was in effect when a value
    was selected, in the instance itself — the mechanism that lets an authority whose *constraint* is
@@ -399,9 +404,12 @@ In rough priority order. R-numbers are stable handles.
    it resolved to the newest match. Optionally surface `/versions`, `/versions/diff`, and the
    provenance columns in a UI.
 
-7. **R7 — Element / field freeze coverage.** Confirm and, if needed, extend freeze-on-publish to
-   **element** and **field** artifacts — they carry value constraints and publish independently, but
-   only templates have been exercised end to end.
+7. **R7 — Element / field freeze coverage. [done 2026-08-01]** Already wired: the publish hook runs
+   freeze for any versionable artifact type (template/element/field), and `TemplateVersionFreezer`
+   walks arbitrary JSON, pinning every `_valueConstraints` at any nesting. Was untested beyond
+   templates; added cases for an element's nested field, a constraint two elements deep, and a
+   standalone field artifact. No production change — the walk was already generic. Tests:
+   `TemplateVersionFreezerTest` 5 → 8.
 
 8. **R8 — Lookup-coverage tail (replace-BioPortal track).** IRI-fragment label fallback for the
    179 zero-label ontologies (their human name is the IRI fragment — derive one by URL-decoding,
