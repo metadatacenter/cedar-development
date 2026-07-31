@@ -19,7 +19,7 @@ Grounded in a survey of the 1,214 ingested BioPortal ontologies (2026-07-29).
 | `ontology.iri` = identity (mandatory, precedence-derived), `acronym` = presentation label | **settled** |
 | Published templates freeze `latest` → the triple | **settled** |
 | Canonical `iri` form — normalized namespace (OBO → `obo/doid`; others → namespace, trailing separator stripped) | **settled** (§6.4) |
-| **Hash over raw bytes vs normalized extracted model** | **OPEN** (§4.3; recommend normalized) |
+| Hash over raw bytes vs normalized extracted model | **settled** — normalized, incl. labels (§4.3); shipped |
 | When to promote `iri` to the ontology key across sources | OPEN (roadmap) |
 
 ## 1. The problem
@@ -102,7 +102,7 @@ for backfilled history**: ingesting INCENTIVE's six historical submissions today
 date and `0.1.3` on three of them — only the source publication date (2022/2023/2024) recovers the
 true order. The self-claimed date is sparse and provably stale; kept as a display label only.
 
-### 4.3 Identity: raw bytes vs normalized content — OPEN
+### 4.3 Identity: raw bytes vs normalized content — SETTLED (normalized, incl. labels; shipped)
 
 Today `version_id` is `sha256` of the raw downloaded file, tying identity to the *serialization*: the
 same release from BioPortal vs an OBO PURL, or OWL vs OBO form, gives different bytes and different
@@ -111,9 +111,16 @@ ids for content served identically — source and format leak into identity.
 The alternative hashes the **normalized extracted model** (sorted concept IRIs, edges, labels,
 obsolete flags). Same served hierarchy → same id regardless of source or serialization; genuinely
 different content (e.g. an `obo2owl` transform changing the tree) → different id, which is correct.
-For a hierarchy service this matches what "version" means to a consumer. **Recommendation:
-normalized-content hash.** This is the one decision that would require recomputing ids (from
-snapshots already on disk — no re-download).
+For a hierarchy service this matches what "version" means to a consumer. **Settled and shipped:
+normalized-content hash, including labels.** The canonical form is over IRIs (never row ids): every
+concept (`iri`, `obsolete`, `prefLabel`, `replacedBy`), every subsumption edge, every typed relation,
+sorted and sha256'd. Measurement over the 7 multi-version ontologies (76 snapshots) decided the
+labels knob: raw hashing over-split 2 snapshots (byte-different re-uploads of identical content), and
+structure-only vs +labels never diverged, so labels are in at zero observed cost. The cutover
+recomputed every `version_id` from the on-disk snapshots (no re-download), kept the raw hash as
+`file_hash` provenance, and merged the 2 duplicates (INCENTIVE 6→5, MODSCI 3→2). Existing snapshot
+files keep their raw-hash names (`file_path` is authoritative); new ingests name files by the content
+hash and compute identity from the extracted model.
 
 ## 5. Source taxonomy
 

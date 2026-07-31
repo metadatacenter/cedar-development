@@ -57,16 +57,12 @@ cross-repo spec + publish work that makes versioning visible to authors.
 
 ## Open decisions (settle before the phases they gate)
 
-1. **Hash basis — raw bytes vs normalized extracted model** (DESIGN §4.3). **Direction settled:
-   normalized, including labels** — endorsed and now backed by measurement (2026-07-30). Gates Phase
-   A5. The *only* item that recomputes `version_id`s (from on-disk snapshots; no re-download). The
-   `SnapshotStore.normalizedContentHash` method + `ContentHashReport` (measure-only, no cutover) are
-   landed. Report over the 7 multi-version ontologies (76 snapshots): raw hashing **over-splits 2**
-   (INCENTIVE, MODSCI — byte-different re-uploads of identical content that normalized identity
-   merges), and **structure-only vs +labels never diverge** (no version pair differs only in labels),
-   so including labels adds fidelity at zero observed cost. Remaining: the cutover (store
-   `content_hash`, recompute `version_id`, rewrite snapshot filenames/`file_path`, merge the 2
-   duplicates) — awaiting go-ahead.
+1. **Hash basis — raw bytes vs normalized extracted model** (DESIGN §4.3). **SETTLED and SHIPPED
+   (2026-07-30): normalized, including labels.** Measurement over the 7 multi-version ontologies (76
+   snapshots) decided it — raw hashing over-split 2 (INCENTIVE, MODSCI), structure-only vs +labels
+   never diverged. The cutover recomputed every `version_id` from on-disk snapshots (no re-download),
+   kept the raw hash as `file_hash`, and merged the 2 duplicates (1,283→1,281 snapshots). Serving,
+   resolution, and diff verified live. No longer an open decision.
 2. **Ontology key — when to promote `iri` to the cross-source key** (demoting `acronym` to a label).
    Independent of the version model; gates true multi-source (Phase D). The `iri` itself is now
    **derived and stored** for the whole corpus (A6); what remains open is *when* to make it the key.
@@ -123,16 +119,18 @@ The pieces that need no other repo and no shared-spec change. Prototype the mode
   forever-stale self-date) vs `released_at 2026-06-23`. `submission_id` stays null for
   pre-capture snapshots (recoverable only from live BP metadata; A4 declines that dependency).
   Display/audit only — not yet surfaced on any API (Phase B). Store suites +5.
-- **[wip] A5 — Hash basis.** Direction settled (decision 1): normalized, **including labels**.
-  Canonical form (`SnapshotStore.normalizedContentHash`): every concept `C\t<iri>\t<obsolete>` (+
-  `<prefLabel>\t<replacedBy>` when labels are in), every edge `E\t<child>\t<parent>\t<pred>`, every
-  typed relation `R\t<subj>\t<pred>\t<obj>`, sorted over IRIs (never row ids) and sha256'd — section
-  tags prevent cross-section collisions; SQLite binary collation makes ordering deterministic.
-  **Landed (measure-only):** the hash method (3 tests) + `ContentHashReport`; the report resolved the
-  labels knob (see decision 1). **Remaining (the cutover):** compute `content_hash` alongside the raw
-  hash, cut `version_id` over to it, rewrite `<version_id>.sqlite` filenames + `file_path`, and merge
-  the 2 duplicate re-uploads. Awaiting go-ahead — identity-level and best done now while prod is off
-  and nothing pins these ids.
+- **[done] A5 — Hash basis.** Normalized content hash, **including labels**. Canonical form
+  (`SnapshotStore.normalizedContentHash`): every concept `C\t<iri>\t<obsolete>` (+
+  `<prefLabel>\t<replacedBy>`), every edge `E\t<child>\t<parent>\t<pred>`, every typed relation
+  `R\t<subj>\t<pred>\t<obj>`, sorted over IRIs (never row ids) and sha256'd. `IngestJob` now computes
+  `version_id` from the extracted model post-extraction (raw hash → `file_hash`), so identical content
+  merges at ingest. `CatalogStore.cutoverToContentHash` + `ContentHashCutover` (dry-run default,
+  `--apply`) recomputed identity for the on-disk corpus in one transaction — tags repointed, 2
+  duplicates merged, files kept their raw-hash names (`file_path` authoritative), 2 orphaned files
+  deleted. **Applied to the prod catalog: 1,283→1,281 snapshots, all `version_id`s now 64-hex content
+  hashes distinct from `file_hash`, 0 dangling tags.** Verified live: DOID resolve-current returns a
+  content-hash id, /versions (15) and diff unchanged, INCENTIVE serves 5. Store suites +2, ingest +1,
+  IngestJobTest updated. Catalog backed up to `catalog.sqlite.bak-precutover` before apply.
 - **[done] A6 — Derive & store `ontology.iri` (mandatory).** `OntologyIri.canonical` normalizes a raw
   term-ID namespace to the canonical form (DESIGN §6.4: OBO `obo/DOID_` → `obo/doid`; others strip
   the trailing separator, case preserved). `SnapshotStore.dominantOwnIdspace` picks the acronym-keyed
@@ -207,10 +205,10 @@ Two tracks, both self-contained in this repo:
   polish: **A6** (derive/store `ontology.iri`); the DDSS big-heap re-ingest and the EHDAA/BSAO/EO1
   0-edge extraction investigation (issue #12 follow-ups) to reclaim the last 4. Prod still off by
   default.
-- **Versioning mechanics** — A1 (date/declaredVersion resolver), A2 (resolve-current → triple), A3
-  (`/versions` full triple), A6 (canonical `ontology.iri`, corpus-wide), and A4 (provenance columns)
-  **done**. The whole Phase-A terminology-server foundation — resolution, the publish-time triple,
-  the version listing, cross-source identity, and audit provenance — is in place. What remains in
-  Phase A is only the open **hash-basis decision** (§4.3) that gates A5. The next real move is
-  cross-repo: surfacing `iri`/`sourceSystem`/`version` on the value-constraint spec (Phase B) and the
-  freeze-on-publish walk (Phase C), which now has everything it needs from the terminology server.
+- **Versioning mechanics — Phase A COMPLETE.** A1 (date/declaredVersion resolver), A2
+  (resolve-current → triple), A3 (`/versions` full triple), A6 (canonical `ontology.iri`,
+  corpus-wide), A4 (provenance columns), and A5 (normalized content-hash identity, cut over) all
+  **done**. Resolution, the publish-time triple, the version listing, cross-source identity, audit
+  provenance, and content-addressed identity are all in place and verified live. The next real move
+  is cross-repo: surfacing `iri`/`sourceSystem`/`version` on the value-constraint spec (Phase B) and
+  the freeze-on-publish walk (Phase C), which now has everything it needs from the terminology server.
