@@ -347,10 +347,52 @@ Run by hand on 2026-07-31 against local `cedar_log` — none of these are expres
    - Verified on the heaviest local request: 12 request rows / 2 components / 112 queries / 457 ms
      wall / **40.4% of time in Neo4j**, resolved in 10 ms, with the repeated `5e6d523af3` shape
      visible in the timeline.
-   - Still open here: DB-time-share as a *board* (per-handler ranking, needs the join generalised),
-     and jumping from a trace span back into a filtered row view.
+   - **DB-time-share board — ✅ done.** `GET /logs/db-share` ranks handlers by total time with the
+     Cypher time underneath, joined on `(globalRequestId, component)`. Returns a `QueryResult`, so the
+     existing table renders it; `Board` gained an optional `endpoint` for the cross-table questions
+     that cannot be a spec. **The share is not clamped to 100%** — a share above 100 means one
+     component logged several request rows under one `globalRequestId`, so that request's DB time is
+     counted against each; clamping disguised over-attribution as "entirely database-bound".
+   - **URL state — ✅ done.** board / table / range / rows / search / min-duration / filters
+     serialize into the route and restore on load, per principle 2.
+   - Still open here: jumping from a trace span back into a filtered row view.
+
+### What db-share found immediately
+
+| handler | total | database | share |
+|---|---|---|---|
+| `updateInclusionSubgraph` | 273.9 s | 0.10 s | **0.0%** |
+| `SearchResource.search` | 45.9 s | 0.21 s | **0.5%** |
+| `getSummary` | 36.5 s | 44.72 s | 122.6% (over-attributed) |
+| `getTemplateReport` | 13.4 s | 11.90 s | 88.6% |
+
+The two slowest things in the log are **not** Neo4j-bound — no single-table query could establish
+that.
 5. **Same grammar over `agg_*`** — source switch + precision badge, so every board gets a >30d
-   version. Needs the backfill actually run (`log_aggregation_state` is still empty).
+   version. **Blocked on data, not code:** the rollups still hold only ~12 hours from Feb–Mar 2025
+   and `log_aggregation_state` is empty, so the aggregator/backfill has to run before this is worth
+   building. Run that first, then add `source: raw|rollup` to the spec.
+
+---
+
+## 13. Build gotcha (cost a wrong "verified" once)
+
+`mvn install` **without `clean`** on a server module silently keeps the OLD library classes. Changing
+`LogQueryDAO`, reinstalling the library (new code confirmed in the `~/.m2` jar), rebuilding
+monitor-server and restarting still served the previous behaviour — and `cedar-services.sh status`
+reported `current`, because it compares timestamps, not contents. The shade log names the cause:
+
+```
+cedar-logging-operations-library-…jar, cedar-monitor-server-application-…jar define 74 overlapping classes
+```
+
+The already-shaded fat jar in `target/` is an input to the next shade run, and the application's own
+stale copies win. **Use `mvn -o clean install -DskipTests` on the server module**, and verify by
+contents rather than timestamps:
+
+```bash
+unzip -p <app>.jar org/…/LogQueryDAO.class | strings | grep '<a string you just added>'
+```
 
 ---
 
