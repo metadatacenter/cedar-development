@@ -195,10 +195,22 @@ cedar-model-typescript-library, cedar-template-editor, cedar-resource-server, ce
 
 The reproducibility guarantee is earned here (DESIGN §7).
 
-- **[blocked on A2, B]** The publish pipeline (template editor + artifact/resource servers) walks a
-  template's value constraints, calls the terminology server's resolve-current → triple for each
-  unpinned entry, rewrites it with the frozen triple, and marks published. Coordinate with the active
-  sessions on `cedar-resource-server` / `cedar-artifact-library`.
+- **[done] Freeze transformation core (cedar-artifact-library).**
+  `ControlledTermVersionFreezer.freeze(constraints, resolver)` returns a copy with every unpinned
+  ontology/branch entry stamped with its current version triple — pure and resolver-injected, so it is
+  unit-testable without a live server (§7: freezing is not a terminology-server op; the server only
+  resolves current→triple, a resolver adapts that call). Idempotent (already-pinned and unresolvable
+  entries pass through); class/value-set entries are a documented refinement. 4 tests; full suite 695.
+- **[next] Publish-pipeline integration.** Wire the freeze into the actual publish/version endpoint in
+  `cedar-resource-server`: a resolver backed by the terminology server's resolve-current endpoint, the
+  template-walk over all fields, and marking published. The freeze core and resolve-current are both
+  in place; this is the cross-repo glue. Coordinate on `cedar-resource-server`.
+
+**Backward-compatibility of the Phase B/C library changes — verified end-to-end (2026-07-30).** Built
+`cedar-resource-server` (the `cedar-artifact-library` consumer) against the new libraries and
+redeployed it, then ran the full smoke: unit 695 (incl. 269 roundtrip, byte-identical on existing
+templates) · UI e2e (login → DOID-constrained template → populate → delete) · REST suite **606 passed,
+0 failed**. Existing templates round-trip unchanged through the new model.
 
 ## Phase D — Multi-backend & open authorities
 
