@@ -251,9 +251,25 @@ The reproducibility guarantee is earned here (DESIGN §7).
   **Verified live**: publishing a real template resolved every constraint correctly (DATACITE-VOCAB,
   ISO639-1 → triples; unserved namespaces → 404) and the injected `version` fields passed validation.
   Full REST smoke **606/0** — normal publish (no served constraints) is a freeze no-op, unaffected.
-  Remaining polish: `currentVersionByValueSetCollection` returns empty until the value-set-collection
-  ingest lands (tracked task); a clean single-shot "stored pinned template" demo was blocked only by
-  fixture/model-version validation mismatches in the available test templates, not by the freeze.
+
+  **Now on develop** (merged 2026-07-31), along with all the terminology-side and library work.
+
+  **Open follow-ups (from the 2026-07-31 review):**
+  1. **No single-shot end-to-end freeze demo captured yet.** The freeze is proven by the resolver
+     logs (every constraint resolved to its correct triple) + unit tests + the injected `version`
+     fields passing validation — but I never got a valid constrained template to publish cleanly and
+     read the stored pin back, because every *old* test template failed the *current* meta-schema for
+     unrelated reasons (DataCite's `relatedItem`/`skos:altLabel` model drift; the CEDAR MCP tools
+     write to a different server). **A UI-created template (guaranteed current-model-valid) would
+     close this in one shot** — the honest last mile of Phase C verification.
+  2. **Value-set constraints don't freeze yet.** The terminology `vs-collections/version-current`
+     endpoint is now live and verified (CEDARVS → `{e02f2332…, 2015-08-24, 0.2.2}`), but
+     `TerminologyVersionResolver.currentVersionByValueSetCollection` in resource-server still returns
+     empty (it was written before the endpoint existed). Wire it to the endpoint — a ~2-line change,
+     mirroring the class-IRI path — and value-set entries freeze too.
+  3. **Operational lesson:** the value-set endpoint appeared broken (404) until a *full* rebuild —
+     the background session committed the code but the deployed app jar was stale (resource present,
+     wired service method old). Always redeploy from a fresh `mvn install`, not just a source commit.
 
 **Backward-compatibility of the Phase B/C library changes — verified end-to-end (2026-07-30).** Built
 `cedar-resource-server` (the `cedar-artifact-library` consumer) against the new libraries and
