@@ -340,83 +340,62 @@ authority, the additive value-constraint spec + schema validation, and freeze-on
 constraint kinds are **done and verified live**, with REST-level regression coverage on the publish
 and resolution sides.
 
-The gap: freeze *writes* version pins, but the app does not yet let authors **see or choose** versions,
-nor does it **read pins back** to serve terms at the pinned snapshot. Closing that — the reproducibility
-payoff — is the largest remaining core work.
+The gap is now entirely in the frontend. Freeze *writes* version pins and the terminology server
+*honours* them at populate for all four constraint kinds — but the editor does not yet **send** a
+published template's pinned version when populating (so it still requests latest), nor let authors
+**see or choose** versions. Closing that last mile — the reproducibility payoff — is the largest
+remaining work, and it is editor/CEE work.
 
 ## Remaining Work
 
-In rough priority order. R-numbers are stable handles.
+R-numbers are stable handles. **Done this round (2026-08-01)** — full detail in the sections above and
+in git:
 
-1. **R1 — Author-facing versioning.** Make the spec live in the app. Tolerant readers everywhere
-   (`sourceSystem` absent ⇒ BioPortal, `version` absent ⇒ latest, `iri` absent ⇒ acronym; the JSON
-   reader + schema validation are done, the YAML reader + other consumers remain); YAML serialization
-   of the version spec; the terminology server routing on `sourceSystem`; the template editor emitting
-   the richer shape and showing a version picker (declaredVersion · effectiveDate · short hash;
-   `latest` default); and a backfill of `iri`/`sourceSystem` on existing constraints where derivable.
+- **R3 — canonical-iri de-confliction (done).** A canonical iri now identifies at most one
+  content-distinct ontology; applied to the real catalog, content-distinct false merges 72 → 0.
+- **R7 — element/field freeze coverage (done).** Freeze was already generic across artifact types;
+  added the missing element/field/nested-element test coverage.
+- **R2 — frozen read, backend half (done).** The terminology server honours a pinned version for all
+  four constraint kinds at populate; class DTO tolerates the frozen spec fields. The frontend half
+  (editor sends the pin) remains — below.
+- **R4 — multi-source ingest CLI (done).** `IngestJob --source obofoundry [--release <date>]`, same
+  identity/backend/de-confliction path; verified live. The served-catalog step remains — below.
 
-2. **R2 — End-to-end frozen read (the reproducibility payoff). [backend done 2026-08-01]** When an
-   integrated-search request carries a pinned `version`, the terminology server now resolves terms at
-   that snapshot for **all four** constraint kinds — ontology, branch, value set (each via
-   `store(acronym, version)`), and class (self-describing, its embedded uri+prefLabel used as-is). The
-   plumbing existed for three kinds but only the ontology case was tested; branch + value-set pins are
-   now covered, and `ClassValueConstraint` tolerates the frozen `iri`/`sourceSystem`/`version` fields
-   (`@JsonIgnoreProperties`). Verified no backend proxy reshapes the request — the frontend posts
-   integrated-search straight to the terminology server, so a version in the body survives transport.
-   **Remaining (frontend, deferred):** the editor / CEE must put the published template constraint's
-   `version` into the integrated-search request; today it sends latest, so freeze writes pins that the
-   app does not yet read back. Findings: the value-set integrated-search path is hardcoded to three
-   collections (CEDARVS / NLMVS / CADSR-VS) via `BP_VS_COLLECTIONS_READ_REGEX`. Tests: application
-   `LocalStoreResourceTest` 12 → 15.
+**Still to do**, grouped by the kind of work each needs:
 
-3. **R3 — Canonical-iri derivation data quality. [done 2026-08-01]** The re-key found 1213 iri-bearing
-   acronyms collapsing to 1050 identities; 72 of 83 shared iris were **false merges** — unrelated
-   ontologies sharing a placeholder/host base (webprotege, a Protégé `ont.owl`, `w3.org/ns/prov`) or
-   an OBO namespace an ontology only imports (GRO-CPGA's terms are mostly `obo/PO_`). Enforced the
-   invariant *a canonical iri identifies at most one content-distinct ontology* (`IriDeconfliction`):
-   keep a shared iri when all sharers have identical content (a true duplicate, INCENTIVE /
-   INCENTIVE-VARS), else keep it only for its single **OBO owner** (`OntologyIri.isOboOwner` — PO owns
-   `obo/po`, GO-PLUS and GRO-CPGA do not) and decline the rest to acronym-only; no owner ⇒ all decline.
-   Conservative — never merges, declines when ownership is ambiguous. Runs corpus-wide in the
-   derivation backfill and per-iri at ingest. Applied to the real catalog (backed up): 11 duplicates
-   kept, 14 owner-resolved, 58 ownerless declined; 203 acronyms now acronym-only; **content-distinct
-   false merges 72 → 0**; serving intact (freeze 7/0). A non-OBO ontology whose real IRI is
-   import-leaked (NCIT on `Thesaurus.owl`) is acronym-only for now — restoring it cleanly is the
-   `owl:Ontology`-header-IRI follow-up, not a size-contest heuristic. Tests: store 84/0, ingest 46/0.
+*Frontend (held by request):*
+- **R1 — Author-facing versioning.** The editor emits the richer constraint shape and shows a version
+  picker (declaredVersion · effectiveDate · short hash; `latest` default); tolerant readers in the
+  remaining consumers. Backend sub-parts that can proceed independently of the editor: YAML
+  serialization of the version spec; terminology routing on `sourceSystem`; a backfill of
+  `iri`/`sourceSystem` on existing constraints where derivable.
+- **R2 (last mile) — the editor/CEE sends the pin.** Put a published template constraint's `version`
+  into the integrated-search request so populate resolves at the pinned snapshot (the terminology side
+  already honours it). This closes the reproducibility loop; today the app still requests latest.
 
-4. **R4 — Multi-source ingest, wired into the standard CLI. [tooling done 2026-08-01]** The production
-   ingest tool now draws from a second authority: `IngestJob --source bioportal|obofoundry [--release
-   <date>]`. OBO Foundry needs no API key and flows through the same path as BioPortal — content-hash
-   identity, backend recording, and iri de-confliction all apply. Verified live: `IngestJob --source
-   obofoundry PATO` produced version_id `3f1a6fd9…` (identical to the BioPortal ingest, so the same
-   release merges), `backend=obofoundry`, canonical iri `obo/pato`. **Remaining (operator step):**
-   run it against the *served* dev catalog and allowlist the acronym so a non-BioPortal snapshot is
-   actually served/resolved in the running server. `SubmissionSource` stayed adequate; generalizing it
-   is deferred until a third backend demands it.
+*Operator action (mutates the running system):*
+- **R4 (serving) — serve a non-BioPortal snapshot.** Ingest into the *served* dev catalog with
+  `--source obofoundry` and add the acronym to `CEDAR_TERMINOLOGY_LOCAL_ONTOLOGIES`, then restart.
 
-5. **R5 — Instance-level version capture.** Record which vocabulary version was in effect when a value
-   was selected, in the instance itself — the mechanism that lets an authority whose *constraint* is
-   unversioned still carry provenance, and that pins the actual term even when the constraint said
-   `latest`.
+*Design decision needed:*
+- **R5 — Instance-level version capture.** Record which vocabulary version was in effect when a value
+  was selected, in the instance itself — carries provenance for an unversioned-constraint authority,
+  and pins the actual term even when the constraint said `latest`. Needs a decision on the instance
+  representation before implementation.
 
-6. **R6 — Resolution-quality surfacing.** Return the ambiguous-declared-version WARN in the HTTP
-   response (deferred; needs a response-shape change), so a caller pinning a non-unique label learns
-   it resolved to the newest match. Optionally surface `/versions`, `/versions/diff`, and the
-   provenance columns in a UI.
-
-7. **R7 — Element / field freeze coverage. [done 2026-08-01]** Already wired: the publish hook runs
-   freeze for any versionable artifact type (template/element/field), and `TemplateVersionFreezer`
-   walks arbitrary JSON, pinning every `_valueConstraints` at any nesting. Was untested beyond
-   templates; added cases for an element's nested field, a constraint two elements deep, and a
-   standalone field artifact. No production change — the walk was already generic. Tests:
-   `TemplateVersionFreezerTest` 5 → 8.
-
-8. **R8 — Lookup-coverage tail (replace-BioPortal track).** IRI-fragment label fallback for the
-   179 zero-label ontologies (their human name is the IRI fragment — derive one by URL-decoding,
-   `_`→space, CamelCase split — so search matches and browse displays; backfill by UPDATE over
-   existing concept IRIs, no re-download, and add to the extractor for new ingests); reclaim the 4
-   quality-deferred (DDSS big-heap re-ingest, EHDAA/BSAO/EO1 0-edge extraction — issue #12). Orthogonal
-   to the version model but on the same replace-BioPortal goal.
+*Backend, lower priority:*
+- **owl:Ontology-header IRI (R3 follow-up).** Parse the ontology header at ingest as an extra iri
+  source, to restore a clean identity for import-leaked non-OBO ontologies (NCIT on `Thesaurus.owl`),
+  which de-confliction currently leaves acronym-only.
+- **Value-set collection cap (R2 finding).** Integrated-search restricts a value-set constraint to
+  three collections (CEDARVS / NLMVS / CADSR-VS) via `BP_VS_COLLECTIONS_READ_REGEX`; a frozen value-set
+  constraint on any other collection 422s at populate. Relax to any served collection if needed.
+- **R6 — Resolution-quality surfacing.** Off the reproducibility path (freeze pins by content-hash
+  `id`, not the declared-version label). Surface the ambiguous-declared-version WARN in the response;
+  optionally expose `/versions`, `/versions/diff`, and provenance.
+- **R8 — Lookup-coverage tail (replace-BioPortal track, orthogonal to the version model).**
+  IRI-fragment label fallback for the 179 zero-label ontologies; reclaim the 4 quality-deferred (DDSS
+  big-heap re-ingest, EHDAA/BSAO/EO1 0-edge extraction — issue #12).
 
 ## Open Questions (to think about, not scheduled)
 
