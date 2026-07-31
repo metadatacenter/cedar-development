@@ -355,11 +355,19 @@ In rough priority order. R-numbers are stable handles.
    the richer shape and showing a version picker (declaredVersion · effectiveDate · short hash;
    `latest` default); and a backfill of `iri`/`sourceSystem` on existing constraints where derivable.
 
-2. **R2 — End-to-end frozen read (the reproducibility payoff).** Wire a published template's pinned
-   `version` through the editor / CEE / validation so populating an instance resolves terms **at the
-   pinned snapshot**, not latest. The terminology side already honours a pinned version over HTTP
-   (tested); the app side does not yet send it. Depends on R1's readers. Today freeze writes pins that
-   nothing reads back in the app flow — the guarantee is only half-closed.
+2. **R2 — End-to-end frozen read (the reproducibility payoff). [backend done 2026-08-01]** When an
+   integrated-search request carries a pinned `version`, the terminology server now resolves terms at
+   that snapshot for **all four** constraint kinds — ontology, branch, value set (each via
+   `store(acronym, version)`), and class (self-describing, its embedded uri+prefLabel used as-is). The
+   plumbing existed for three kinds but only the ontology case was tested; branch + value-set pins are
+   now covered, and `ClassValueConstraint` tolerates the frozen `iri`/`sourceSystem`/`version` fields
+   (`@JsonIgnoreProperties`). Verified no backend proxy reshapes the request — the frontend posts
+   integrated-search straight to the terminology server, so a version in the body survives transport.
+   **Remaining (frontend, deferred):** the editor / CEE must put the published template constraint's
+   `version` into the integrated-search request; today it sends latest, so freeze writes pins that the
+   app does not yet read back. Findings: the value-set integrated-search path is hardcoded to three
+   collections (CEDARVS / NLMVS / CADSR-VS) via `BP_VS_COLLECTIONS_READ_REGEX`. Tests: application
+   `LocalStoreResourceTest` 12 → 15.
 
 3. **R3 — Canonical-iri derivation data quality. [done 2026-08-01]** The re-key found 1213 iri-bearing
    acronyms collapsing to 1050 identities; 72 of 83 shared iris were **false merges** — unrelated
