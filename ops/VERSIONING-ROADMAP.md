@@ -364,11 +364,10 @@ in git:
 **Still to do**, grouped by the kind of work each needs:
 
 *Frontend (held by request):*
-- **R1 — Author-facing versioning.** The editor emits the richer constraint shape and shows a version
-  picker (declaredVersion · effectiveDate · short hash; `latest` default); tolerant readers in the
-  remaining consumers. Backend sub-parts that can proceed independently of the editor: YAML
-  serialization of the version spec; terminology routing on `sourceSystem`; a backfill of
-  `iri`/`sourceSystem` on existing constraints where derivable.
+- **R1 — Author-facing versioning (editor).** The editor emits the richer constraint shape and shows a
+  version picker (declaredVersion · effectiveDate · short hash; `latest` default), and tolerant readers
+  in the remaining frontend consumers. The backend enablers of R1 are broken out below (they need no
+  editor work).
 - **R2 (last mile) — the editor/CEE sends the pin.** Put a published template constraint's `version`
   into the integrated-search request so populate resolves at the pinned snapshot (the terminology side
   already honours it). This closes the reproducibility loop; today the app still requests latest.
@@ -382,6 +381,16 @@ in git:
   was selected, in the instance itself — carries provenance for an unversioned-constraint authority,
   and pins the actual term even when the constraint said `latest`. Needs a decision on the instance
   representation before implementation.
+
+*Backend, ready now (R1 enablers — no editor work):*
+- **YAML serialization of the version spec.** The JSON reader + schema validation carry
+  `iri`/`sourceSystem`/`version`, but the YAML reader/renderer do not yet; legacy YAML round-trips
+  unchanged. The one bounded backend task still open on the versioning path (JSON is the primary wire
+  format, so it is peripheral).
+- **Terminology routing on `sourceSystem`.** Route a constraint to its named source (a natural
+  extension of the existing per-ontology routing) rather than assuming BioPortal.
+- **Backfill `iri`/`sourceSystem` on existing constraints** where derivable; leave the rest to
+  defaults.
 
 *Backend, lower priority:*
 - **owl:Ontology-header IRI (R3 follow-up).** Parse the ontology header at ingest as an extra iri
