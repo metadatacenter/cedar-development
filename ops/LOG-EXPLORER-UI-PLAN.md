@@ -312,7 +312,21 @@ Run by hand on 2026-07-31 against local `cedar_log` — none of these are expres
      `query/LogQuerySpec`, `query/LogQueryResults`, `query/LogQueryBuilder` (pure spec→SQL),
      `dao/query/LogQueryDAO` (execute + facets + coverage).
    - `cedar-monitor-server`: `resources/LogQueryResource`, wired in `MonitorServerApplication`.
-2. **Explorer polish** on the new engine — keyset paging, filter chips, delegated copy, TSV/CSV export.
+2. **Explorer polish** on the new engine — ✅ **done 2026-07-31** (visual pass pending a logged-in
+   session). `/logs-explorer` now posts to `/logs/query` instead of `/logs/explorer/*`:
+   - columns are driven by the response `ColumnMeta`, so one template renders both tables (and later
+     the pivot mode) instead of two hardcoded tables;
+   - keyset paging (`older →` / `← newer`) with a cursor stack, page sizes 100/500/2000;
+   - time range 15m/1h/24h/7d/30d, facet dropdowns fed by `/logs/facets/{column}` with value counts,
+     removable filter chips, contains-search and min-duration;
+   - **one delegated `(click)` on `<tbody>`** resolving both copy-cell and expand-row, `data-copy`
+     carrying the untruncated value, hover icon via CSS `::after`;
+   - copy row as JSON, copy TSV, download CSV;
+   - engine `notes` and `/logs/coverage` caveats rendered, so the page states its own limits.
+
+   Note: this needed `anyComponentStyle` in `angular.json` raised from 2kb/4kb to 6kb/10kb — the
+   explorer's SCSS was already at 3,942 bytes of a 4,096-byte hard error budget before this work, so
+   any addition would have failed the production build.
 3. **Boards 1–5, 9–11** — the presets, plus the board rail and URL serialization.
 4. **Cross-table** — `/logs/trace/{id}`, trace waterfall, DB-time share, N+1 detector (boards 12–14).
 5. **Same grammar over `agg_*`** — source switch + precision badge, so every board gets a >30d
