@@ -206,10 +206,13 @@ The reproducibility guarantee is earned here (DESIGN §7).
 
 - **[done] Freeze transformation core (cedar-artifact-library).**
   `ControlledTermVersionFreezer.freeze(constraints, resolver)` returns a copy with every unpinned
-  ontology/branch entry stamped with its current version triple — pure and resolver-injected, so it is
-  unit-testable without a live server (§7: freezing is not a terminology-server op; the server only
-  resolves current→triple, a resolver adapts that call). Idempotent (already-pinned and unresolvable
-  entries pass through); class/value-set entries are a documented refinement. 4 tests; full suite 695.
+  entry — **ontology, branch, class, and value set** — stamped with its current version triple. Pure
+  and resolver-injected, so it is unit-testable without a live server (§7: freezing is not a
+  terminology-server op; the server only resolves current→triple, a resolver adapts that call). The
+  resolver takes the identifier natural to each kind: acronym (ontology/branch), class IRI (class),
+  value-set collection (value set) — mapping an identifier to a version stays the resolver's job.
+  Idempotent (already-pinned entries untouched); an entry the resolver cannot resolve is left
+  unpinned rather than guessed. On the feature branch (not develop). 6 tests; full suite 697.
 - **[next] Publish-pipeline integration.** Wire the freeze into the actual publish/version endpoint in
   `cedar-resource-server`: a resolver backed by the terminology server's resolve-current endpoint, the
   template-walk over all fields, and marking published. The freeze core and resolve-current are both
