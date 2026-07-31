@@ -6,7 +6,8 @@ identity re-key with de-confliction, source-independence against OBO Foundry, mu
 value-constraint spec (JSON + YAML) with schema validation, and freeze-on-publish pinning all four
 constraint kinds on every artifact type — lives in git and the design doc. This tracks only what
 remains, in three buckets: **Pending** (to build), **Testing** (built, needs live verification), and
-**Future** (deferred / needs a decision / speculative).
+**Future** (deferred / needs a decision / speculative). Items are numbered continuously as stable
+handles.
 
 ## Goal
 
@@ -17,32 +18,32 @@ capture.
 
 ## Pending
 
-- **Editor/CEE sends the pinned version at populate (frontend).** Put a published template constraint's
-  `version` into the integrated-search request so terms resolve at the pinned snapshot. The terminology
-  server already honours the pin end to end; today the app sends latest, so freeze writes pins the app
-  never reads back. The single highest-value piece — it closes the reproducibility loop.
-- **Author-facing version picker (frontend).** The editor emits the richer constraint shape (the
-  `source*`/`term*`/`version` keys) and shows a version picker (declaredVersion · effectiveDate · short
-  hash; `latest` default).
-- **Terminology routing on `sourceSystem` (backend, ready now).** Route a constraint to its named source
-  rather than assuming BioPortal — a natural extension of the existing per-ontology routing.
-- **Backfill `iri`/`sourceSystem` on existing constraints (backend, ready now)** where derivable; leave
-  the rest to defaults.
+1. **Editor/CEE sends the pinned version at populate (frontend).** Put a published template constraint's
+   `version` into the integrated-search request so terms resolve at the pinned snapshot. The terminology
+   server already honours the pin end to end; today the app sends latest, so freeze writes pins the app
+   never reads back. The single highest-value piece — it closes the reproducibility loop.
+2. **Author-facing version picker (frontend).** The editor emits the richer constraint shape (the
+   `source*`/`term*`/`version` keys) and shows a version picker (declaredVersion · effectiveDate · short
+   hash; `latest` default).
+3. **Terminology routing on `sourceSystem` (backend, ready now).** Route a constraint to its named source
+   rather than assuming BioPortal — a natural extension of the existing per-ontology routing.
+4. **Backfill `iri`/`sourceSystem` on existing constraints (backend, ready now)** where derivable; leave
+   the rest to defaults.
 
 ## Testing
 
-- **Serve a non-BioPortal snapshot end to end.** The CLI (`IngestJob --source obofoundry`) and
-  content-hash identity are done and unit-verified; the live step remains — ingest into the *served* dev
-  catalog, add the acronym to `CEDAR_TERMINOLOGY_LOCAL_ONTOLOGIES`, restart, and confirm the running
-  server serves/resolves an OBO-Foundry-sourced snapshot. Mutates the running serving config.
-- **End-to-end frozen read (after the editor sends the pin).** Verify the full loop on the live stack:
-  publish a frozen template → populate an instance → confirm terms resolve against the pinned snapshot,
-  not latest. The terminology and publish sides are tested; this cross-service e2e becomes runnable once
-  the Pending frontend work lands.
+5. **Serve a non-BioPortal snapshot end to end.** The CLI (`IngestJob --source obofoundry`) and
+   content-hash identity are done and unit-verified; the live step remains — ingest into the *served* dev
+   catalog, add the acronym to `CEDAR_TERMINOLOGY_LOCAL_ONTOLOGIES`, restart, and confirm the running
+   server serves/resolves an OBO-Foundry-sourced snapshot. Mutates the running serving config.
+6. **End-to-end frozen read (after the editor sends the pin).** Verify the full loop on the live stack:
+   publish a frozen template → populate an instance → confirm terms resolve against the pinned snapshot,
+   not latest. The terminology and publish sides are tested; this cross-service e2e becomes runnable once
+   the Pending frontend work lands.
 
 ## Future
 
-### Instance-level version capture (design decision documented)
+### 7. Instance-level version capture (design decision documented)
 
 Freeze pins the *constraint* to a vocabulary version; this pins the *filled value*. When a user picks a
 term, the instance should record which term **and which version it came from**, so a filled instance is
@@ -95,31 +96,31 @@ response.
 
 ### Other deferred backend work
 
-- **Retire the ontology-constraint `sourceUri`.** Functionally unused on the backend (the terminology
-  DTO omits it; artifact-library only serializes/passes it through), kept only because the model marks it
-  required and it is non-derivable. Retiring needs the model field made optional and the editor to stop
-  writing it.
-- **`owl:Ontology`-header IRI derivation.** Parse the ontology header at ingest as an extra iri source,
-  to restore a clean identity for import-leaked non-OBO ontologies (NCIT on `Thesaurus.owl`) that
-  de-confliction leaves acronym-only.
-- **Relax the value-set collection cap.** Integrated-search restricts a value-set constraint to three
-  collections (CEDARVS/NLMVS/CADSR-VS) via `BP_VS_COLLECTIONS_READ_REGEX`; a frozen value-set constraint
-  on any other collection 422s at populate.
-- **Surface ambiguous-declared-version resolution.** Off the reproducibility path (freeze pins by
-  content-hash `id`, not the declared-version label). Return the ambiguous-declared-version WARN in the
-  response; optionally expose `/versions`, `/versions/diff`, and provenance.
-- **Lookup-coverage tail (replace-BioPortal track, orthogonal to versioning).** IRI-fragment label
-  fallback for the 179 zero-label ontologies; reclaim the 4 quality-deferred (DDSS re-ingest,
-  EHDAA/BSAO/EO1 0-edge extraction — issue #12).
+8. **Retire the ontology-constraint `sourceUri`.** Functionally unused on the backend (the terminology
+   DTO omits it; artifact-library only serializes/passes it through), kept only because the model marks it
+   required and it is non-derivable. Retiring needs the model field made optional and the editor to stop
+   writing it.
+9. **`owl:Ontology`-header IRI derivation.** Parse the ontology header at ingest as an extra iri source,
+   to restore a clean identity for import-leaked non-OBO ontologies (NCIT on `Thesaurus.owl`) that
+   de-confliction leaves acronym-only.
+10. **Relax the value-set collection cap.** Integrated-search restricts a value-set constraint to three
+    collections (CEDARVS/NLMVS/CADSR-VS) via `BP_VS_COLLECTIONS_READ_REGEX`; a frozen value-set constraint
+    on any other collection 422s at populate.
+11. **Surface ambiguous-declared-version resolution.** Off the reproducibility path (freeze pins by
+    content-hash `id`, not the declared-version label). Return the ambiguous-declared-version WARN in the
+    response; optionally expose `/versions`, `/versions/diff`, and provenance.
+12. **Lookup-coverage tail (replace-BioPortal track, orthogonal to versioning).** IRI-fragment label
+    fallback for the 179 zero-label ontologies; reclaim the 4 quality-deferred (DDSS re-ingest,
+    EHDAA/BSAO/EO1 0-edge extraction — issue #12).
 
 ### Open questions (authorities that don't fit the version model)
 
-- **ORCID / ROR / RRID (and DOI): not versionable per se.** A constraint names the *authority*; the value
-  is a stable identifier captured in the instance — no snapshot, no current-version. The spec already
-  covers the shape (`sourceSystem` set, `version` omitted). Open question: how the editor and instance
-  model represent authority-typed, value-captured, unversioned fields distinctly from a versioned
-  controlled term. (The instance is where these land — see Instance-level version capture.)
-- **CompTox / PFAS (release-based databases): possibly versionable.** Content with releases, so they
-  could fit the content-hash snapshot model *if* they expose retrievable content and release identifiers,
-  and *if* a content hash of a flat set (a chemical list, not a hierarchy) is meaningful across
-  serializations. Worth a spike.
+13. **ORCID / ROR / RRID (and DOI): not versionable per se.** A constraint names the *authority*; the
+    value is a stable identifier captured in the instance — no snapshot, no current-version. The spec
+    already covers the shape (`sourceSystem` set, `version` omitted). Open question: how the editor and
+    instance model represent authority-typed, value-captured, unversioned fields distinctly from a
+    versioned controlled term. (The instance is where these land — see item 7.)
+14. **CompTox / PFAS (release-based databases): possibly versionable.** Content with releases, so they
+    could fit the content-hash snapshot model *if* they expose retrievable content and release
+    identifiers, and *if* a content hash of a flat set (a chemical list, not a hierarchy) is meaningful
+    across serializations. Worth a spike.
