@@ -213,10 +213,25 @@ The reproducibility guarantee is earned here (DESIGN §7).
   value-set collection (value set) — mapping an identifier to a version stays the resolver's job.
   Idempotent (already-pinned entries untouched); an entry the resolver cannot resolve is left
   unpinned rather than guessed. On the feature branch (not develop). 6 tests; full suite 697.
+- **[done] Class-IRI version resolution (terminology server, feature branch).** A class-valued
+  constraint names a term but not its ontology; `resolveCurrentVersionForClass(classIri)` maps the
+  IRI's namespace to its ontology via A6's `raw_namespace` reverse lookup
+  (`CatalogStore.acronymForNamespace`, **unambiguous-only** — a namespace shared by several ontologies
+  declines rather than guessing), then returns that ontology's current triple. Wired provider → Sqlite
+  → router → BioPortal(null); `GET /bioportal/classes/version-current?uri={classIri}` (404 when
+  unresolvable). Verified live: `DOID_9351` → DOID's triple (matches ontology resolve-current), a MESH
+  class → MESH's triple, unknown namespace → 404. So class entries are lockable end-to-end today; the
+  freezer's `currentVersionByClassUri` is now backed by a real capability.
+- **[later] Value-set-collection version resolution.** Value sets live in value-set *collections*,
+  which are a different BioPortal artifact type not yet in the catalog. Resolving a value-set entry's
+  version means ingesting/versioning those collections with the **same content-hash mechanism** — an
+  ingest-scope task, not a model gap. Until then, `currentVersionByValueSetCollection` returns empty
+  and value-set entries are left unpinned (graceful). Tracked as its own task.
 - **[next] Publish-pipeline integration.** Wire the freeze into the actual publish/version endpoint in
-  `cedar-resource-server`: a resolver backed by the terminology server's resolve-current endpoint, the
-  template-walk over all fields, and marking published. The freeze core and resolve-current are both
-  in place; this is the cross-repo glue. Coordinate on `cedar-resource-server`.
+  `cedar-resource-server`: a resolver backed by the terminology server's resolve-current +
+  classes/version-current endpoints, the template-walk over all fields, and marking published. The
+  freeze core (all four entry kinds), ontology resolve-current, and class-IRI resolution are all in
+  place; this is the cross-repo glue. Coordinate on `cedar-resource-server`.
 
 **Backward-compatibility of the Phase B/C library changes — verified end-to-end (2026-07-30).** Built
 `cedar-resource-server` (the `cedar-artifact-library` consumer) against the new libraries and
