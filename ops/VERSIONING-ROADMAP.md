@@ -303,10 +303,23 @@ templates) · UI e2e (login → DOID-constrained template → populate → delet
   promotion. The interface is BioPortal-shaped today (int `submissionId`, license `accessInfo`) and
   needs generalizing for a non-BioPortal source. The key promotion (demoting `acronym` to a label) is
   the invasive part — it re-keys catalog lookups — and is gated on decision 2's *when*.
-- **[later] D2** — A second backend beyond BioPortal (OLS or a direct OBO-PURL fetch) to prove
-  source-independence of identity: ingest the *same* ontology from a second source and show the
-  normalized content hash (A5) matches, or characterize why it differs. This is the concrete
-  validation of the content-hash-identity thesis; it implements the D1 adapter interface.
+- **[done] D2 — Source-independence of identity, proven against OBO Foundry (2026-07-31).**
+  `OboFoundrySubmissionSource` is a second `SubmissionSource` that fetches from OBO Foundry PURLs —
+  the current release (`obo/<lc>.owl`) or an exact dated release (`obo/<lc>/releases/<date>/<lc>.owl`),
+  so the *same* logical version BioPortal holds can be pulled from a different authority in a
+  different serialization. `SubmissionSource.backendId()` (default `bioportal`, `obofoundry` here) is
+  threaded through `IngestJob` and recorded on the snapshot via `CatalogStore.setSnapshotBackend`
+  (audit only — identity does not depend on it). `CrossSourceIdentityCheck` ingests one ontology from
+  both sources and compares the content-hash `version_id`, diffing to characterize any mismatch.
+  **Result: 3/3 identical.** DOID 2026-06-30 → `63ef56df…` (19578 classes / 23775 edges), PATO
+  2025-05-14 → `3f1a6fd9…` (8625 / 15815), and CL 2026-06-08 → `b7f8737b…` (19167 / 41955) each
+  produced the *same* `version_id` from BioPortal and OBO Foundry — including CL, an import-heavy
+  ontology that stresses the extractor's own-namespace logic. Identity is content-derived, not
+  source-derived: the design's §4.3 claim is demonstrated against a real second authority, not merely
+  asserted. (DOID's `63ef56df…` is the very id freeze-on-publish pins.) The interface stayed
+  BioPortal-shaped (synthetic submission id, no license API) — generalizing it is D1. Tests:
+  `OboFoundrySubmissionSourceTest` (6, no-network URL/shape), `IngestJobTest` +1 (backend recorded),
+  store +0/ingest suites green; the live cross-source run is `CrossSourceIdentityCheck`.
 - **[later] D3** — Open authorities (ORCID/DOI/RRID): `sourceSystem` set, `version` omitted, value
   captured in the instance. No snapshotting. Independent of D1/D2 (no ingest, no version model).
 
@@ -327,10 +340,9 @@ Two tracks, both self-contained in this repo:
   develop, verified live, and now carries REST-level regression coverage on both the publish and
   resolution sides. Resolution, the publish-time triple, the version listing, cross-source identity,
   audit provenance, and content-addressed identity are all in place and verified.
-- **Next: Phase D — multi-backend & open authorities.** The one remaining forward track. It starts
-  with **D1** (promote the derived `iri` to the ontology key and define the backend-adapter interface
-  `{content → hash, effectiveDate, optional declaredVersion/labels, iri}`), which gates **D2** (a
-  second backend beyond BioPortal — OLS or a direct OBO-PURL fetch — to prove identity is
-  source-independent) and **D3** (open authorities ORCID/DOI/RRID: `sourceSystem` set, `version`
-  omitted, value captured in the instance, no snapshotting). Settles open decision 2 (*when* to make
-  `iri` the key), whose enabler (A6, `iri` derived + stored corpus-wide) is already done.
+- **Phase D — multi-backend & open authorities.** **D2 is done**: source-independence of identity is
+  proven against OBO Foundry (3/3 ontologies produced identical content-hash ids from both
+  authorities; DOID/PATO/CL). Remaining: **D1** (generalize the BioPortal-shaped `SubmissionSource`
+  into a backend-neutral adapter and promote the derived `iri` to the ontology key — settling open
+  decision 2, whose enabler A6 is done) and **D3** (open authorities ORCID/DOI/RRID: `sourceSystem`
+  set, `version` omitted, value captured in the instance, no snapshotting; independent of D1/D2).
