@@ -267,6 +267,26 @@ Coverage and test-infrastructure work, and the testing decisions taken deliberat
 REST integration suites live in `ops/e2e/rest/suites/`; the JUnit matrices and boot-smoke live in the
 per-server modules.
 
+- **Get the full JUnit suite green, then let the build run it.** No CLI workflow runs the tests today:
+  `cedarcli build`, `deploy` and the `release`-prepare flow all hardcode `mvn ... -DskipTests`, so the
+  ~617 `@Test` methods only guard whoever remembers to run Maven by hand. Turning tests on in a plain
+  reactor build shows why the default is what it is. The libraries pass cleanly — 1453 tests, 0
+  failures across 9 modules (`cedar-artifact-library` alone runs 779). But `cedar-artifact-server`'s
+  legacy REST-CRUD integration tests error en masse: ~192 errors, each dying at `response.readEntity()`
+  with `ZipException: Not in GZIP format` — a gzip content-encoding mismatch in that older test harness,
+  not a product bug (the same server passes the `ops/e2e` REST suite and every smoke). Because the
+  reactor is fail-fast it halts there, so the state of the tests past artifact-server (resource, worker,
+  group, submission …) is unknown.
+
+  The deliverable is a reactor `mvn install` that runs every module's tests and passes, plus a CLI that
+  actually invokes it — drop `-DskipTests` from the build default, or add a `cedar.py test` command / a
+  `--with-tests` flag, so CI runs the suite rather than only compiling it. Concretely: run once with
+  `-fae` to inventory every failing module instead of only the first; fix or, more likely, retire the
+  artifact-server CRUD tests, since the `ops/e2e` REST suites already cover those paths reliably; and
+  honour the one-JVM-per-test-class fork the server suites need — the `CedarConfig` / `CedarDataServices`
+  singleton coupling noted above — so the reactor runs them the way per-module runs do. Until this
+  lands, "the build passes" means "it compiles", not "the tests pass".
+
 - **Deepen the core-workflow tests instead of growing the headline count.** The JUnit matrices and the
   19 REST suites now give the system respectable horizontal coverage: routes boot, authentication and
   permission boundaries are pinned, and create/read/update/delete, sharing, search, versioning and the
