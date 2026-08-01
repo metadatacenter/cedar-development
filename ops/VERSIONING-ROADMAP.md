@@ -27,9 +27,11 @@ version picker), integrated-search honouring the pin beyond locally-served singl
    VersionSpec `{id,…}` to the request's plain `version` string (send `version.id`). One call site, no
    fan-out. The single highest-value piece — it closes the reproducibility loop.
    *Backend caveat (not CEE's job):* integrated-search honours the pin only for locally-served,
-   single-source constraints; the BioPortal fallback and multi-source/mixed constraints silently drop it
-   (serve latest), and enumerated `classes` cannot be pinned (no snapshot, by design). Hardening those
-   folds into item 3.
+   single-source constraints. For a non-local source, a multi-source/mixed shape, or a missing snapshot,
+   a pinned request now **fails loud** (`PinnedVersionUnavailableException`) rather than silently serving
+   latest from BioPortal (fixed 2026-07-31 — see the note under Revisit). Enumerated `classes` cannot be
+   pinned (no snapshot, by design). Actually *serving* those pinned cases (rather than failing) folds
+   into item 3.
 - **2. Author-facing version picker in the Workbench (frontend-only).** The picker lives in the old
    AngularJS Workbench (`cedar-template-editor/app/scripts/controlled-term/`), where constraints are
    authored. **No backend work:** `GET /ontologies/{acronym}/versions` (and `/versions/current`, `/diff`)
@@ -139,15 +141,20 @@ response.
     one place and mirrors the CEDAR JSON `_valueConstraints.actions` array; per-entry ties each
     refinement to the source it applies to but scatters actions across entries. Decide before the
     version-aware YAML ships.
+- **14. IngestJob crash atomicity.** A snapshot ingest (`IngestJob`) performs several independent,
+   non-transactional steps — move the snapshot into place, register it in the catalog, attach provenance,
+   advance `latest`, reconcile canonical identity. The steps are rerunnable but not atomic: a crash
+   between them can leave a partially-registered snapshot. Document the recovery/idempotency guarantees
+   and add a test that interrupts between steps and verifies a clean re-run. (Flagged by external review.)
 
 ### Open questions (authorities that don't fit the version model)
 
-- **14. ORCID / ROR / RRID (and DOI): not versionable per se.** A constraint names the *authority*; the
+- **15. ORCID / ROR / RRID (and DOI): not versionable per se.** A constraint names the *authority*; the
     value is a stable identifier captured in the instance — no snapshot, no current-version. The spec
     already covers the shape (`sourceSystem` set, `version` omitted). Open question: how the editor and
     instance model represent authority-typed, value-captured, unversioned fields distinctly from a
     versioned controlled term. (The instance is where these land — see item 7.)
-- **15. CompTox / PFAS (release-based databases): possibly versionable.** Content with releases, so they
+- **16. CompTox / PFAS (release-based databases): possibly versionable.** Content with releases, so they
     could fit the content-hash snapshot model *if* they expose retrievable content and release
     identifiers, and *if* a content hash of a flat set (a chemical list, not a hierarchy) is meaningful
     across serializations. Worth a spike.
@@ -174,6 +181,19 @@ rule, which folds into item 4 (`sourceSystem` routing).
 Shipped in cedar-artifact-library (develop): YAML reader/renderer/constants + fixtures + the preview spec.
 This supersedes the YAML half of item 8; retiring `sourceUri` from the model/JSON side stays deferred
 there.
+
+### Pinned reads fail loud instead of silently serving latest (2026-07-31)
+
+External review found a boundary bug: `SqliteTerminologyService.store(ontology, version)` threw
+`UnsupportedOperationException` for an unresolvable explicit pin, which `RoutingTerminologyService`
+caught as "not implemented locally" and answered from BioPortal — serving *latest* and silently breaking
+the frozen read. Fixed by a distinct `PinnedVersionUnavailableException` (not an
+`UnsupportedOperationException`, so the router never catches it): an explicit-pin miss, a pinned
+non-local source, and a pinned unsupported shape all fail loud rather than routing to remote-latest. An
+*unpinned* (latest) miss still routes to remote, as before. Tests added to `RoutingTerminologyServiceTest`
+(unresolvable pin and pinned-non-local both fail loud; a resolvable pin still serves local). The
+`CatalogSnapshotProvider.resolveInfo` doc — which had *claimed* fail-loud while the code fell back — was
+corrected to match.
 
 ### Class display `label` dropped from the compact YAML (2026-07-31)
 
