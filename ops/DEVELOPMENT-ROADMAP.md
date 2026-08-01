@@ -103,6 +103,26 @@ library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact
   re-enabling the guard together with a supported cleanup path (e.g. an admin-only delete, or cascading
   through folder deletion). The re-publish immutability above is unaffected — that is enforced.
 
+- **Clean up the DataCite DOI minting workflow.** Treat minting as one explicit, auditable lifecycle
+  rather than a preparatory GET followed by a loosely coupled POST. The mutation endpoint must itself
+  enforce write access and the source artifact's open/published requirements — today those checks are
+  made only by the GET, so a caller can bypass them by invoking the POST directly. It also computes the
+  CEDAR-instance validation result but never refuses an invalid instance.
+
+  Make the external operation idempotent and recovery-safe. A successful DataCite publish is currently
+  followed by a local DOI-annotation update whose response is ignored; if that update fails, DataCite
+  has minted the DOI while CEDAR still appears to have none. Define durable states for draft/reserved,
+  published and locally attached; retain the DataCite identifier before any fallible follow-up; and
+  make retries resume or reconcile the same DOI rather than create an orphan or duplicate. Tighten how
+  an existing draft is associated with its source artifact, and report DataCite and local persistence
+  failures distinctly.
+
+  Extract the HTTP client and orchestration from `DataCiteResource`, centralize configuration and error
+  mapping, and pin the lifecycle with unit tests using a fake DataCite boundary: unauthorized direct
+  POST, invalid metadata, create-versus-update, retry after timeout, DataCite success/local update
+  failure, and repeated publish. Keep normal tests offline; add only an opt-in DataCite sandbox smoke
+  test for the final wire contract and credential/configuration check.
+
 - **Settle the sharing and permission model, then write it down.** This is the umbrella item: the
   pieces below are each small, and separately each looks like a quirk, but together they say the model
   was never specified in one place, so every surface decided for itself. Controlled sharing is what
