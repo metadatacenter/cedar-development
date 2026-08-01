@@ -141,11 +141,15 @@ response.
     one place and mirrors the CEDAR JSON `_valueConstraints.actions` array; per-entry ties each
     refinement to the source it applies to but scatters actions across entries. Decide before the
     version-aware YAML ships.
-- **14. Ingest ontologies from more sources.** BioPortal and OBO Foundry ingest adapters exist
-    (`IngestJob --source …`); add adapters for further sources — e.g. EBI OLS, a direct file/URL upload,
-    other registries — each producing content-hash snapshots that merge by identity with existing ones
-    (the same release from a different authority resolves to the same `version_id`). Pairs with item 3
-    (`sourceSystem` routing) so a constraint can name and resolve against a non-BioPortal source.
+- **14. Ingest ontologies from more sources.** *Shipped:* `--source url` (`DirectUrlSubmissionSource` —
+    any URL) and `--source bioportal --base-url` (any OntoPortal instance: AgroPortal, EcoPortal, …).
+    Proven across five serializations (RDF/XML, OBO, Turtle, gzipped OWL, SKOS) and nine authorities, with
+    source-, serialization-, and host-independent content-hash identity confirmed on real data (BFO
+    identical from OBO PURL `.owl`/`.obo` and AgroPortal REST; UNESCO identical from `.ttl`/`.rdf`). Survey
+    and results in [ONTOLOGY-INGEST-SOURCES.md](ONTOLOGY-INGEST-SOURCES.md). *Remaining:* bulk-harvest OLS
+    `fileLocation`s; label the OntoPortal authority on the snapshot (backend records `bioportal`
+    regardless of instance). Pairs with item 3 (`sourceSystem` routing) so a constraint can resolve
+    against a named non-BioPortal source.
 
 ### Open questions (authorities that don't fit the version model)
 
