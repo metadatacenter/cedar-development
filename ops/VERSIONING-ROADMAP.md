@@ -15,8 +15,7 @@ Replace BioPortal for lookup wherever we can, and make every published template 
 reproducible against pinned vocabulary versions. The versioning **backend (freeze-on-publish, catalog,
 resolution) and the compact-YAML dialect are code-complete** — the version-aware YAML is published as a
 preview only, pending production. The remaining gaps: the frontend (CEE sending the pin, the Workbench
-version picker), integrated-search honouring the pin beyond locally-served single-source constraints
-(item 3), and instance-level capture (item 7).
+version picker) and instance-level capture (item 7).
 
 ## Pending
 
@@ -30,7 +29,8 @@ version picker), integrated-search honouring the pin beyond locally-served singl
    single-source constraints. For a non-local source, a multi-source/mixed shape, or a missing snapshot,
    a pinned request now **fails loud** (`PinnedVersionUnavailableException`; mapped to HTTP 422) rather
    than silently serving latest from BioPortal. Enumerated `classes` cannot be pinned (no snapshot, by
-   design). Actually *serving* those pinned cases (rather than failing) folds into item 3.
+   design). A non-BioPortal source that is not served locally is reported unavailable, not proxied to
+   BioPortal (item 3, done).
 - **2. Author-facing version picker in the Workbench (frontend-only).** The picker lives in the old
    AngularJS Workbench (`cedar-template-editor/app/scripts/controlled-term/`), where constraints are
    authored. **No backend work:** `GET /ontologies/{acronym}/versions` (and `/versions/current`, `/diff`)
@@ -41,8 +41,12 @@ version picker), integrated-search honouring the pin beyond locally-served singl
    constraint object (the write path is permissive, so the key sticks). Offer version for
    ontology/branch/valueSet only — not individual classes. Moderate-to-nasty by breadth (four parallel
    paths, ~5 duplicated modal hosts), not depth.
-- **3. Terminology routing on `sourceSystem` (backend, ready now).** Route a constraint to its named source
-   rather than assuming BioPortal — a natural extension of the existing per-ontology routing.
+- **3. Terminology routing on `sourceSystem`. ✅ Done (2026-08-01).** Decision: a constraint naming a
+   non-BioPortal source is served from the local store or reported **unavailable** — never proxied to
+   BioPortal (content-hash identity is source-independent, so a locally-served snapshot answers
+   regardless of source; proxying BioPortal for a different source would be wrong). The integrated-search
+   DTOs now read `sourceSystem`; the router returns empty results for a non-BioPortal source not served
+   locally. *Deploy:* rebuild + restart terminology to activate on the running server.
 - **4. Backfill `iri`/`sourceSystem` on existing constraints (backend, ready now)** where derivable; leave
    the rest to defaults.
 
