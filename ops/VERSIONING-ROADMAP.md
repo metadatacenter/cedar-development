@@ -19,13 +19,26 @@ instance-level capture.
 
 ## Pending
 
-- **1. Editor/CEE sends the pinned version at populate (frontend).** Put a published template constraint's
-   `version` into the integrated-search request so terms resolve at the pinned snapshot. The terminology
-   server already honours the pin end to end; today the app sends latest, so freeze writes pins the app
-   never reads back. The single highest-value piece — it closes the reproducibility loop.
-- **2. Author-facing version picker (frontend).** The editor emits the richer constraint shape (the
-   `source*`/`term*`/`version` keys) and shows a version picker (declaredVersion · effectiveDate · short
-   hash; `latest` default).
+- **1. CEE sends the pinned version at populate (frontend, small).** CEE is the relevant fill/presentation
+   surface (the Workbench instance-fill path is not in scope). CEE already forwards the constraint objects
+   by reference into `POST /bioportal/integrated-search`, so the change is small: carry `version` on the
+   two CEE model POJOs, preserve it through `template-representation.factory.ts`, and map the template's
+   VersionSpec `{id,…}` to the request's plain `version` string (send `version.id`). One call site, no
+   fan-out. The single highest-value piece — it closes the reproducibility loop.
+   *Backend caveat (not CEE's job):* integrated-search honours the pin only for locally-served,
+   single-source constraints; the BioPortal fallback and multi-source/mixed constraints silently drop it
+   (serve latest), and enumerated `classes` cannot be pinned (no snapshot, by design). Hardening those
+   folds into item 3.
+- **2. Author-facing version picker in the Workbench (frontend-only).** The picker lives in the old
+   AngularJS Workbench (`cedar-template-editor/app/scripts/controlled-term/`), where constraints are
+   authored. **No backend work:** `GET /ontologies/{acronym}/versions` (and `/versions/current`, `/diff`)
+   already exist and hit the version-aware store. Frontend work: add a `controlledTermDataService` method
+   to fetch the version list, drop a version `<select>` into the picker across the four parallel staging
+   builders (ontology/branch/class/valueSet) plus the staging and summary tables, plumb the selected
+   ontology's version list across the search/controller directive boundary, and persist `version` on each
+   constraint object (the write path is permissive, so the key sticks). Offer version for
+   ontology/branch/valueSet only — not individual classes. Moderate-to-nasty by breadth (four parallel
+   paths, ~5 duplicated modal hosts), not depth.
 - **3. Terminology routing on `sourceSystem` (backend, ready now).** Route a constraint to its named source
    rather than assuming BioPortal — a natural extension of the existing per-ontology routing.
 - **4. Backfill `iri`/`sourceSystem` on existing constraints (backend, ready now)** where derivable; leave
@@ -37,10 +50,11 @@ instance-level capture.
    content-hash identity are done and unit-verified; the live step remains — ingest into the *served* dev
    catalog, add the acronym to `CEDAR_TERMINOLOGY_LOCAL_ONTOLOGIES`, restart, and confirm the running
    server serves/resolves an OBO-Foundry-sourced snapshot. Mutates the running serving config.
-- **6. End-to-end frozen read (after the editor sends the pin).** Verify the full loop on the live stack:
-   publish a frozen template → populate an instance → confirm terms resolve against the pinned snapshot,
-   not latest. The terminology and publish sides are tested; this cross-service e2e becomes runnable once
-   the Pending frontend work lands.
+- **6. End-to-end frozen read (after CEE sends the pin, item 1).** Verify the full loop on the live stack:
+   publish a frozen template → fill an instance via CEE → confirm terms resolve against the pinned
+   snapshot, not latest. The terminology and publish sides are tested; this cross-service e2e becomes
+   runnable once item 1 lands. Use a locally-served single-source constraint (the path where the backend
+   honours the pin).
 
 ## Future
 
