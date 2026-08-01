@@ -42,12 +42,23 @@ export CEDAR_LOG_MYSQL_DB="cedar_log"
 export CEDAR_LOG_MYSQL_USER="cedarMySQLLogUser"
 export CEDAR_LOG_MYSQL_PASSWORD="changeme"
 
-# CEDAR log-aggregation jobs (cedar-worker-server). Opt-in; all off by default. Tuning vars
-# (CEDAR_LOG_*_BATCH / _PAUSE_MS / _WINDOW_UTC / _POLL_MS / _MARGIN_HOURS / _RETENTION_DAYS / _IDLE_MS)
-# have in-code defaults and only need setting to override.
+# CEDAR log-aggregation jobs (cedar-worker-server). Opt-in; all off by default.
 export CEDAR_LOG_BACKFILL_ENABLED="false"
 export CEDAR_LOG_LIVE_AGG_ENABLED="false"
 export CEDAR_LOG_PRUNE_ENABLED="false"
+# Tuning (in-code defaults shown). Uncomment/override to be gentler on a big prod log DB — this is
+# where "conservative" lives: smaller batches, longer pauses, a narrow off-peak UTC window.
+#export CEDAR_LOG_BACKFILL_BATCH="5000"        # prod-conservative: 1000
+#export CEDAR_LOG_BACKFILL_PAUSE_MS="500"      # prod-conservative: 2000
+#export CEDAR_LOG_BACKFILL_WINDOW_UTC="2-6"    # prod: set to prod's real low-traffic UTC hours
+#export CEDAR_LOG_LIVE_AGG_BATCH="2000"
+#export CEDAR_LOG_LIVE_AGG_PAUSE_MS="200"
+#export CEDAR_LOG_LIVE_AGG_POLL_MS="900000"
+#export CEDAR_LOG_LIVE_AGG_MARGIN_HOURS="3"
+#export CEDAR_LOG_PRUNE_RETENTION_DAYS="30"
+#export CEDAR_LOG_PRUNE_BATCH="2000"           # prod-conservative: 1000
+#export CEDAR_LOG_PRUNE_PAUSE_MS="500"         # prod-conservative: 2000
+#export CEDAR_LOG_PRUNE_IDLE_MS="3600000"
 
 # Neo4j user data
 export CEDAR_NEO4J_USER_NAME="neo4j"
