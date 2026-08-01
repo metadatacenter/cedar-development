@@ -48,10 +48,11 @@ version picker), integrated-search honouring the pin beyond locally-served singl
 
 ## Testing
 
-- **5. Serve a non-BioPortal snapshot end to end.** The CLI (`IngestJob --source obofoundry`) and
-   content-hash identity are done and unit-verified; the live step remains — ingest into the *served* dev
-   catalog, add the acronym to `CEDAR_TERMINOLOGY_LOCAL_ONTOLOGIES`, restart, and confirm the running
-   server serves/resolves an OBO-Foundry-sourced snapshot. Mutates the running serving config.
+- **5. Serve a non-BioPortal snapshot end to end. ✅ Verified 2026-08-01.** EMI (ingested from
+   `w3id.org` via `--source url`, `backend=url`) was added to the served dev catalog + allowlist; after a
+   terminology restart the running server serves it locally — unpinned (200, 113 classes, 25 ms) and
+   pinned at its content hash (200, 5 ms). Before allowlisting, a pinned request returned 422
+   (`PinnedVersionUnavailableException`) — the fail-loud fix confirmed in production.
 - **6. End-to-end frozen read (after CEE sends the pin, item 1).** Verify the full loop on the live stack:
    publish a frozen template → fill an instance via CEE → confirm terms resolve against the pinned
    snapshot, not latest. The terminology and publish sides are tested; this cross-service e2e becomes
@@ -192,6 +193,9 @@ ontology, distinct content hashes): GO-basic (2024-01-17 vs 2025-06-01), PATO (2
 - 2026-08-01 — +46 (40 small OLS ontologies via their fileLocations; FOAF/SSN/SOSA/HP; GO-basic ×2 for a
   version pair). 3 external failures: GEMET (SSL cert-chain), FOAF-from-LOV (502), schema.org v20 (404) —
   source-side, not the ingester.
+
+- 2026-08-01 — served-store proof (item 5): EMI (backend=url) ingested into the live dev catalog +
+  allowlist; the running server serves it locally, unpinned and pinned (frozen read), verified over REST.
 
 **Next iterations** are one command — `ops/harvest-ols-ingest.sh <catalog> <snapshotDir> [--max N]`
 (idempotent, skips already-ingested acronyms, logs and skips failures). Remaining: bulk-harvest the rest of
