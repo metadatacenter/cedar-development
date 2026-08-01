@@ -193,7 +193,8 @@ non-local source, and a pinned unsupported shape all fail loud rather than routi
 *unpinned* (latest) miss still routes to remote, as before. Tests added to `RoutingTerminologyServiceTest`
 (unresolvable pin and pinned-non-local both fail loud; a resolvable pin still serves local). The
 `CatalogSnapshotProvider.resolveInfo` doc — which had *claimed* fail-loud while the code fell back — was
-corrected to match.
+corrected to match. The `/bioportal/integrated-search` resource maps the exception to **422 Unprocessable
+Entity** with the pin detail, rather than surfacing a generic 500.
 
 ### Class display `label` dropped from the compact YAML (2026-07-31)
 
