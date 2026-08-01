@@ -16,11 +16,8 @@
 //   * regenerate-search-index, generate-empty-search-index and the rules equivalents — destructive
 //     admin operations that would wipe the local index out from under the rest of the run.
 //   * load-valuesets-ontology and its status — long-running, and dependent on live BioPortal.
-//   * command/annotations/doi — DataCite, external and stateful.
 //   * auth-user-callback — Keycloak's own callback, not a user-facing route.
 //   * templates/recommend and /recommend — need a built rules index, which is its own fixture problem.
-//   * search-deep — expensive by design.
-//   * inclusions-subgraph-preview/update — niche, and destructive on real data.
 //
 // Requires the stack up: cedar-services.sh health.
 import { argv } from 'node:process';

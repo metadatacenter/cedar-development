@@ -1,17 +1,18 @@
 // An audit of how the services treat a credential, rather than of any one route's logic.
 //
-// The headline finding lives here and is pinned, not fixed: the services do not verify a token's
-// signature. A token is unpacked, its expiry and its subject are checked, and the user is loaded from
-// the subject — but the signature is never validated against Keycloak's key. So a token with any
-// signature at all, including none, authenticates as whoever its payload claims to be. This is pinned
-// as a KNOWN DEFECT with the reads that prove it; the pins turn into failures the day it is fixed.
+// The headline property this suite guards: the services verify a bearer token's signature against
+// Keycloak's key. A token is unpacked and its issuer, expiry and subject are checked, and — the part
+// that once went unchecked — its signature is validated, so a token with a forged or altered signature
+// no longer authenticates as whoever its payload names. This was a critical defect (the subject uuid is
+// not a secret — it is stamped into pav:createdBy on every artifact — so any reader could mint a token
+// for anyone); it is now fixed, and the reads below pin it: each turns into a failure the day
+// verification regresses.
 //
-// Because that is true, this suite is deliberately careful about writes. A forged-token write is not
-// hypothetical here — it succeeds — so the suite writes only to folders it creates and is prepared to
-// lose, and never sends a permission change or a delete at anything it does not own outright. An
-// earlier version of this file aimed a permission change at the first user's home folder to prove it
-// would be refused; the signature bug meant it was accepted instead, and the home folder's ownership
-// had to be repaired by hand.
+// The suite is still deliberately careful about writes, as defense in depth. A forged-token write is
+// aimed only at a throwaway subtree the suite creates and is prepared to lose, never at anything it does
+// not own outright, so a regression that reopened the hole could not damage real data mid-run. An
+// earlier version aimed a permission change at the first user's home folder; back when forged writes
+// were honoured it was accepted, and the home folder's ownership had to be repaired by hand.
 import { suite, check, call, cleanup, authHeader, enc, RUN, GROUP_SERVER, OPENVIEW } from '../lib.mjs';
 
 export const name = 'authentication';
