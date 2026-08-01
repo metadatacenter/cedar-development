@@ -368,10 +368,30 @@ Run by hand on 2026-07-31 against local `cedar_log` — none of these are expres
 
 The two slowest things in the log are **not** Neo4j-bound — no single-table query could establish
 that.
-5. **Same grammar over `agg_*`** — source switch + precision badge, so every board gets a >30d
-   version. **Blocked on data, not code:** the rollups still hold only ~12 hours from Feb–Mar 2025
-   and `log_aggregation_state` is empty, so the aggregator/backfill has to run before this is worth
-   building. Run that first, then add `source: raw|rollup` to the spec.
+5. **Same grammar over `agg_*`** — ✅ **done 2026-07-31.** `source: raw | rollup` on the spec; every
+   other field is unchanged, so a board answers the same question against either store.
+   - **Metric mapping:** a rollup row already holds the fold, so `count` → `SUM(reqCount)`,
+     `sum:handlerDuration` → `SUM(sumHandlerNanos)`, `max` → `MAX(maxHandlerNanos)`, `avg` → stored
+     total ÷ stored count (exact). `MeasureDef` holds this per table.
+   - **Percentiles** cannot be a window function over rows that no longer exist: the query trails 15
+     merged histogram buckets and the ceilings are interpolated in Java, so those columns have no SQL
+     cell (`sqlValueCount` / `percentileFractions` on `BuiltQuery`) and the result carries
+     `exact: false`.
+   - **Refuses rather than misleads:** raw-row mode on a rollup, a percentile on a measure with no
+     histogram, a `min` the rollup never kept, `distinct` on folded-away rows, `tsMinute` against
+     hourly grain, and dimensions the fold dropped all fail with the reason and the alternative.
+   - **Measured, identical spec, both sources:**
+
+     | source | time | exact | `updateUser` |
+     |---|---|---|---|
+     | raw | 43 ms | true | n=314, total 7.95 s, p95 34.8 ms |
+     | rollup | **3 ms** | false | n=313, total 7.73 s, p95~46.1 ms |
+
+     14× faster; the deltas are honest — the last unsettled hours are not folded yet, and p95 lands in
+     a bucket rather than on a row. A 10-month grouped query, impossible against raw inside the span
+     cap, answers in 8 ms.
+   - UI: an `exact | rollup ~` segmented control (only once a board is open), plus the approximation
+     marked both on the result bar and per percentile cell.
 
 ---
 
