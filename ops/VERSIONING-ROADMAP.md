@@ -2,8 +2,8 @@
 
 Forward-looking plan for the model in [VERSIONING-DESIGN.md](VERSIONING-DESIGN.md). What is already
 built — content-hash identity, per-submission snapshots, all resolution modes, the canonical-iri
-identity re-key with de-confliction, source-independence against OBO Foundry, multi-source ingest, the
-value-constraint spec (JSON + YAML) with schema validation, and freeze-on-publish pinning all four
+identity re-key with de-confliction, source-independence against OBO Foundry, multi-source ingest (BioPortal, OBO Foundry, any URL, any OntoPortal — verified serving a
+non-BioPortal snapshot live), the value-constraint spec (JSON + YAML) with schema validation, and freeze-on-publish pinning all four
 constraint kinds on every artifact type — lives in git and the design doc. This tracks only what
 remains, in three buckets: **Pending** (to build), **Testing** (built, needs live verification), and
 **Future** (deferred / needs a decision / speculative). Items are numbered continuously as stable
@@ -48,11 +48,9 @@ version picker), integrated-search honouring the pin beyond locally-served singl
 
 ## Testing
 
-- **5. Serve a non-BioPortal snapshot end to end. ✅ Verified 2026-08-01.** EMI (ingested from
-   `w3id.org` via `--source url`, `backend=url`) was added to the served dev catalog + allowlist; after a
-   terminology restart the running server serves it locally — unpinned (200, 113 classes, 25 ms) and
-   pinned at its content hash (200, 5 ms). Before allowlisting, a pinned request returned 422
-   (`PinnedVersionUnavailableException`) — the fail-loud fix confirmed in production.
+- **5. Serve a non-BioPortal snapshot end to end. ✅ Done (2026-08-01).** The running dev server serves
+   EMI (non-BioPortal — `--source url`, `backend=url`) from the local store, unpinned and pinned (frozen
+   read), verified over REST. Details in the Ingestion tracker.
 - **6. End-to-end frozen read (after CEE sends the pin, item 1).** Verify the full loop on the live stack:
    publish a frozen template → fill an instance via CEE → confirm terms resolve against the pinned
    snapshot, not latest. The terminology and publish sides are tested; this cross-service e2e becomes
