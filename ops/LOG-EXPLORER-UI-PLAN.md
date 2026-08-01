@@ -1,6 +1,6 @@
 # CEDAR Log Explorer & Insight Boards — UI / Query Plan
 
-Status: **phase 1 delivered and verified live; phases 2–5 designed** · drafted 2026-07-31 · extends and supersedes
+Status: **all five phases delivered and verified against live data (visual pass pending)** · drafted 2026-07-31 · extends and supersedes
 `LOG-AGGREGATION-PLAN.md` §8 ("Query pages + pattern detection") and §9 (mocks) with the concrete
 query contract, board catalog and UI grammar. Everything below is measured against the local
 `cedar_log` DB on 2026-07-31 (156,863 `log_request` rows spanning 2025-02-14 → now; 224,368
@@ -143,8 +143,9 @@ MySQL 8 has no `PERCENTILE_CONT`. Two implementations, chosen by source:
 | `POST /logs/query` | the engine above (raw rows, aggregates, both tables) | **built** |
 | `GET /logs/facets/{column}?table&from&to` | distinct values + counts for a dimension → dropdowns | **built** |
 | `GET /logs/coverage` | queryable column surface + row counts + real time span + the §9 caveats | **built** |
-| `GET /logs/trace/{globalRequestId}` | full trace: all component request rows + all cypher rows, ordered, with a computed waterfall | phase 4 |
-| `GET /logs/boards` | board catalog (id, title, description, spec) — so the UI's board list is server-owned | phase 3 |
+| `GET /logs/trace/{globalRequestId}` | full trace: all component request rows + all cypher rows, ordered, with a computed waterfall | **built** |
+| `GET /logs/boards` | board catalog (id, title, question, spec) — so the UI's board list is server-owned | **built** |
+| `GET /logs/db-share` | per handler: handler time vs the Cypher time underneath (joins both tables) | **built** |
 
 All `MONITOR_READ`-gated and `@UnitOfWork`, matching `LogExplorerResource`/`LogUsageResource`.
 `POST` for the query (spec exceeds sane URL length); the UI keeps the shareable state in its own
