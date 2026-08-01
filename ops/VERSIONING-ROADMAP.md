@@ -141,15 +141,20 @@ response.
     one place and mirrors the CEDAR JSON `_valueConstraints.actions` array; per-entry ties each
     refinement to the source it applies to but scatters actions across entries. Decide before the
     version-aware YAML ships.
+- **14. Ingest ontologies from more sources.** BioPortal and OBO Foundry ingest adapters exist
+    (`IngestJob --source …`); add adapters for further sources — e.g. EBI OLS, a direct file/URL upload,
+    other registries — each producing content-hash snapshots that merge by identity with existing ones
+    (the same release from a different authority resolves to the same `version_id`). Pairs with item 3
+    (`sourceSystem` routing) so a constraint can name and resolve against a non-BioPortal source.
 
 ### Open questions (authorities that don't fit the version model)
 
-- **14. ORCID / ROR / RRID (and DOI): not versionable per se.** A constraint names the *authority*; the
+- **15. ORCID / ROR / RRID (and DOI): not versionable per se.** A constraint names the *authority*; the
     value is a stable identifier captured in the instance — no snapshot, no current-version. The spec
     already covers the shape (`sourceSystem` set, `version` omitted). Open question: how the editor and
     instance model represent authority-typed, value-captured, unversioned fields distinctly from a
     versioned controlled term. (The instance is where these land — see item 7.)
-- **15. CompTox / PFAS (release-based databases): possibly versionable.** Content with releases, so they
+- **16. CompTox / PFAS (release-based databases): possibly versionable.** Content with releases, so they
     could fit the content-hash snapshot model *if* they expose retrievable content and release
     identifiers, and *if* a content hash of a flat set (a chemical list, not a hierarchy) is meaningful
     across serializations. Worth a spike.
