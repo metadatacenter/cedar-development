@@ -141,20 +141,15 @@ response.
     one place and mirrors the CEDAR JSON `_valueConstraints.actions` array; per-entry ties each
     refinement to the source it applies to but scatters actions across entries. Decide before the
     version-aware YAML ships.
-- **14. IngestJob crash atomicity.** A snapshot ingest (`IngestJob`) performs several independent,
-   non-transactional steps — move the snapshot into place, register it in the catalog, attach provenance,
-   advance `latest`, reconcile canonical identity. The steps are rerunnable but not atomic: a crash
-   between them can leave a partially-registered snapshot. Document the recovery/idempotency guarantees
-   and add a test that interrupts between steps and verifies a clean re-run. (Flagged by external review.)
 
 ### Open questions (authorities that don't fit the version model)
 
-- **15. ORCID / ROR / RRID (and DOI): not versionable per se.** A constraint names the *authority*; the
+- **14. ORCID / ROR / RRID (and DOI): not versionable per se.** A constraint names the *authority*; the
     value is a stable identifier captured in the instance — no snapshot, no current-version. The spec
     already covers the shape (`sourceSystem` set, `version` omitted). Open question: how the editor and
     instance model represent authority-typed, value-captured, unversioned fields distinctly from a
     versioned controlled term. (The instance is where these land — see item 7.)
-- **16. CompTox / PFAS (release-based databases): possibly versionable.** Content with releases, so they
+- **15. CompTox / PFAS (release-based databases): possibly versionable.** Content with releases, so they
     could fit the content-hash snapshot model *if* they expose retrievable content and release
     identifiers, and *if* a content hash of a flat set (a chemical list, not a hierarchy) is meaningful
     across serializations. Worth a spike.
@@ -162,6 +157,32 @@ response.
 ## Revisit
 
 Decisions recorded so the reasoning is not relitigated.
+
+### Second external-review round — four fixes (2026-08-01)
+
+A follow-up review of the frozen-read work found four issues; all fixed and tested.
+
+1. **Structured version pins are now consumable.** The terminology DTOs typed the constraint `version`
+   as a plain String, but publish-time freezing writes a `{id, effectiveDate, declaredVersion}` object —
+   so a frozen ontology/branch/value-set constraint could not be resolved at populate. A new
+   `ConstraintVersionDeserializer` accepts both the legacy string pin and the structured object
+   (resolving to its `id`), wired onto all three DTOs; `LocalStoreResourceTest` gained HTTP tests for
+   frozen ontology, branch, and value-set JSON.
+2. **`"latest"`/null constraints are frozen on publish.** `TemplateVersionFreezer` froze only entries
+   with no `version` at all, so `"version": "latest"` (or null) kept a moving reference forever. Freeze
+   eligibility now covers absent, null, and the textual `latest` sentinel — matching the reader's
+   definition of unpinned. (cedar-artifact-library.)
+3. **The version diff is content-complete.** The content hash covers labels, replacement IRIs, and
+   hierarchy source predicates, but `/versions/diff` compared only concept IRIs, subsumption edges, and
+   obsoletions — so a label-only / replacement / un-obsoletion / predicate change could mint a new
+   content version while the diff reported "no changes". `SnapshotDiff` now also reports changed concepts
+   (full `ConceptState`), edge predicates, and typed relations. (Strengthens item 11's `/versions/diff`.)
+4. **Ingest is crash-safe (closes the former item 14).** Snapshot registration + canonical-identity
+   reconciliation now run in one `CatalogStore.inTransaction`, so a crash mid-registration never exposes
+   a half-registered snapshot. The snapshot file is moved into place first (content-addressed by version
+   id), so a rollback leaves only an unreferenced orphan the next ingest overwrites; every step is an
+   idempotent upsert, so a re-run heals any partial state. Tested (rollback/commit atomicity + idempotent
+   re-run).
 
 ### sourceUri is derivable — dropped from YAML, reconstructed for JSON Schema (2026-07-31)
 
