@@ -117,8 +117,9 @@ response.
 ### Other deferred backend work
 
 - **8. Retire the ontology-constraint `sourceUri` from the model/JSON.** The YAML half is done — it is no
-   longer authored and is reconstructed from the acronym (see [Revisit](#revisit); its "non-derivable"
-   premise was overturned). What remains: the model still marks `uri` required and the JSON Schema still
+   longer authored and is reconstructed from the acronym (its "non-derivable" premise was overturned:
+   every ontology URL is BioPortal with the acronym as its path). What remains: the model still marks
+   `uri` required and the JSON Schema still
    carries it. Fully retiring it needs the model field made optional (or the JSON side to derive it too)
    and the editor to stop writing it.
 - **9. `owl:Ontology`-header IRI derivation.** Parse the ontology header at ingest as an extra iri source,
