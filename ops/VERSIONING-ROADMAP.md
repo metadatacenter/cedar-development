@@ -28,10 +28,9 @@ version picker), integrated-search honouring the pin beyond locally-served singl
    fan-out. The single highest-value piece — it closes the reproducibility loop.
    *Backend caveat (not CEE's job):* integrated-search honours the pin only for locally-served,
    single-source constraints. For a non-local source, a multi-source/mixed shape, or a missing snapshot,
-   a pinned request now **fails loud** (`PinnedVersionUnavailableException`) rather than silently serving
-   latest from BioPortal (fixed 2026-07-31 — see the note under Revisit). Enumerated `classes` cannot be
-   pinned (no snapshot, by design). Actually *serving* those pinned cases (rather than failing) folds
-   into item 3.
+   a pinned request now **fails loud** (`PinnedVersionUnavailableException`; mapped to HTTP 422) rather
+   than silently serving latest from BioPortal. Enumerated `classes` cannot be pinned (no snapshot, by
+   design). Actually *serving* those pinned cases (rather than failing) folds into item 3.
 - **2. Author-facing version picker in the Workbench (frontend-only).** The picker lives in the old
    AngularJS Workbench (`cedar-template-editor/app/scripts/controlled-term/`), where constraints are
    authored. **No backend work:** `GET /ontologies/{acronym}/versions` (and `/versions/current`, `/diff`)
