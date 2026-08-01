@@ -66,19 +66,22 @@ plus the captured identifier live; (3) audit — verify a value was resolved aga
 }
 ```
 
-**What actually pins the value:** `@id` (the term) + `version.id` (the content hash of the exact ontology
-snapshot; within it `@id` resolves to one concept state — label, parents, obsolete flag). The rest is
-provenance/display: `rdfs:label` is a display cache and consistency check, `effectiveDate` /
-`declaredVersion` are human labels, `sourceSystem` says where to fetch it.
+**What actually pins the value:** `@id` (the term) + `sourceIri` (its ontology's canonical identity) +
+`version.id` (the content hash of that ontology's exact snapshot; within it `@id` resolves to one concept
+state — label, parents, obsolete flag). The rest is provenance/display: `rdfs:label` is a display cache
+and consistency check, `effectiveDate` / `declaredVersion` are human labels, `sourceSystem` says where to
+fetch it.
 
-**Why `sourceIri` is needed, not just `@id` + `version.id`:** the catalog keys snapshots on
-`(version_id, acronym)`, not `version_id` alone — two ontologies can share a content hash (byte-identical
-downloads). So `version.id` is not globally unique; today you would infer the owning ontology from
-`@id`'s namespace, which breaks for generic-base ontologies (the de-confliction case). Carrying
-`sourceIri` (the canonical, source-independent ontology identity) ties `version.id` to its ontology
-unambiguously, using the same `source*` vocabulary as the constraint side.
+**Why `sourceIri` is needed, not just `@id` + `version.id`:** `version.id` is unique only *within* an
+ontology — snapshots are partitioned by ontology identity, and two ontologies can share a content hash
+(byte-identical downloads). So `version.id` is not globally unique; today you would infer the owning
+ontology from `@id`'s namespace, which breaks for generic-base ontologies (the de-confliction case).
+`sourceIri` (the canonical, source-independent ontology identity) *is* that partition: `sourceIri` +
+`version.id` names one exact snapshot, using the same `source*` vocabulary as the constraint side. (The
+physical catalog keys snapshots on `(version_id, acronym)` because BioPortal is acronym-addressed;
+`acronym` is the addressing handle that stands in for the `sourceIri` identity.)
 
-**The hard limit — uniqueness ≠ resolvability:** `version.id` uniquely *names* the snapshot, but the
+**The hard limit — uniqueness ≠ resolvability:** `sourceIri` + `version.id` *names* one snapshot, but the
 term's actual state is retrievable only while that snapshot is *archived* (the local store, or a
 reproducible re-ingest). The pin is reproducible for as long as the snapshot is retained.
 
