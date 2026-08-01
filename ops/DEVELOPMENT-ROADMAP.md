@@ -267,6 +267,45 @@ Coverage and test-infrastructure work, and the testing decisions taken deliberat
 REST integration suites live in `ops/e2e/rest/suites/`; the JUnit matrices and boot-smoke live in the
 per-server modules.
 
+- **Deepen the core-workflow tests instead of growing the headline count.** The JUnit matrices and the
+  19 REST suites now give the system respectable horizontal coverage: routes boot, authentication and
+  permission boundaries are pinned, and create/read/update/delete, sharing, search, versioning and the
+  cross-service hop all execute against the real stack. Much of that is deliberately
+  characterization-level, though — a representative payload walks the happy path while many assertions
+  check only a status or a field or two. The next pass should go vertical: failure semantics and state
+  invariants on the resource ↔ artifact path, the one hop every core operation crosses (`contract.mjs`).
+
+  In priority order:
+
+  1. **Partial multi-store failure.** Inject a failure between the artifact-store write and the Neo4j
+     graph update, for create, rename, publish, draft and delete. Assert the operation either rolls back
+     or leaves a detectable, recoverable state — never a silently orphaned artifact, a stale graph node
+     or a half-published version. This is the write-path counterpart to the read-path degradation-tests
+     item below, which asks only that a service not 500 when a dependency is down.
+  2. **Retry and idempotency.** Repeat a write after a timeout or an ambiguous response. Publish, draft,
+     move, delete, permission change and DOI-set must not produce a duplicate version, a duplicate graph
+     node or divergent state.
+  3. **Illegal state transitions.** Republish, draft-from-draft, invalid version progressions, mutating
+     published content, deleting a published artifact, ownership transfer then versioning, and
+     freeze-on-publish when some terminology versions cannot be resolved.
+  4. **Payload boundaries.** For template, element, field and instance: malformed and minimally-valid
+     bodies around required properties, nested composition, cardinality, identifiers, controlled terms
+     and YAML/JSON round-trips. Assert the error body and the persisted post-state, not only the status.
+  5. **Revocation and asynchronous projections.** Complete the grant-side tests (`finding.mjs`) with
+     revocation, deletion and rename propagation through OpenSearch, including when the queue or index is
+     briefly unavailable. This is the test deliverable the "Make search-index mutations reliable" feature
+     item already calls for — the two are one effort seen from either end.
+  6. **Repeatability and reporting.** Run the REST estate twice against the same clean stack and fail on
+     leaked fixtures; record an expected-check inventory; emit machine-readable results for CI. A change
+     that quietly drops a loop, a suite or a conditional assertion should stay visible even when every
+     remaining check passes — today the total shifts run-to-run as data-dependent suites (freeze) run or
+     skip, which an inventory would render legible rather than noise.
+
+  Not a request for exhaustive combinatorics, load testing or indiscriminate fuzzing. The target is
+  depth at the few boundaries where CEDAR can accept a request yet leave its stores, permissions,
+  versions or search projection disagreeing. The present suite protects the behavioural skeleton; this
+  item protects the integrity of state when operations fail or are repeated.
+
 - **Add degradation tests.** Nothing asserts how a service behaves when a dependency it needs is
   unavailable. The cost of that gap is known: reading any folder whose creator could not be resolved
   returned 500 for as long as the defect existed, because `UserSummaryCache` let Guava's
