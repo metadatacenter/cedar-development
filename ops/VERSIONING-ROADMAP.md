@@ -12,10 +12,11 @@ handles.
 ## Goal
 
 Replace BioPortal for lookup wherever we can, and make every published template and filled instance
-reproducible against pinned vocabulary versions. The versioning **backend and the compact-YAML dialect
-are code-complete** — the version-aware YAML is published as a preview only, pending production. The
-remaining reproducibility gap is in the frontend (the editor sending and choosing versions) and in
-instance-level capture.
+reproducible against pinned vocabulary versions. The versioning **backend (freeze-on-publish, catalog,
+resolution) and the compact-YAML dialect are code-complete** — the version-aware YAML is published as a
+preview only, pending production. The remaining gaps: the frontend (CEE sending the pin, the Workbench
+version picker), integrated-search honouring the pin beyond locally-served single-source constraints
+(item 3), and instance-level capture (item 7).
 
 ## Pending
 
