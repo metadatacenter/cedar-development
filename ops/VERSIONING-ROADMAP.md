@@ -19,25 +19,25 @@ instance-level capture.
 
 ## Pending
 
-1. **Editor/CEE sends the pinned version at populate (frontend).** Put a published template constraint's
+- **1. Editor/CEE sends the pinned version at populate (frontend).** Put a published template constraint's
    `version` into the integrated-search request so terms resolve at the pinned snapshot. The terminology
    server already honours the pin end to end; today the app sends latest, so freeze writes pins the app
    never reads back. The single highest-value piece — it closes the reproducibility loop.
-2. **Author-facing version picker (frontend).** The editor emits the richer constraint shape (the
+- **2. Author-facing version picker (frontend).** The editor emits the richer constraint shape (the
    `source*`/`term*`/`version` keys) and shows a version picker (declaredVersion · effectiveDate · short
    hash; `latest` default).
-3. **Terminology routing on `sourceSystem` (backend, ready now).** Route a constraint to its named source
+- **3. Terminology routing on `sourceSystem` (backend, ready now).** Route a constraint to its named source
    rather than assuming BioPortal — a natural extension of the existing per-ontology routing.
-4. **Backfill `iri`/`sourceSystem` on existing constraints (backend, ready now)** where derivable; leave
+- **4. Backfill `iri`/`sourceSystem` on existing constraints (backend, ready now)** where derivable; leave
    the rest to defaults.
 
 ## Testing
 
-5. **Serve a non-BioPortal snapshot end to end.** The CLI (`IngestJob --source obofoundry`) and
+- **5. Serve a non-BioPortal snapshot end to end.** The CLI (`IngestJob --source obofoundry`) and
    content-hash identity are done and unit-verified; the live step remains — ingest into the *served* dev
    catalog, add the acronym to `CEDAR_TERMINOLOGY_LOCAL_ONTOLOGIES`, restart, and confirm the running
    server serves/resolves an OBO-Foundry-sourced snapshot. Mutates the running serving config.
-6. **End-to-end frozen read (after the editor sends the pin).** Verify the full loop on the live stack:
+- **6. End-to-end frozen read (after the editor sends the pin).** Verify the full loop on the live stack:
    publish a frozen template → populate an instance → confirm terms resolve against the pinned snapshot,
    not latest. The terminology and publish sides are tested; this cross-service e2e becomes runnable once
    the Pending frontend work lands.
@@ -100,24 +100,24 @@ response.
 
 ### Other deferred backend work
 
-8. **Retire the ontology-constraint `sourceUri` from the model/JSON.** The YAML half is done — it is no
+- **8. Retire the ontology-constraint `sourceUri` from the model/JSON.** The YAML half is done — it is no
    longer authored and is reconstructed from the acronym (see [Revisit](#revisit); its "non-derivable"
    premise was overturned). What remains: the model still marks `uri` required and the JSON Schema still
    carries it. Fully retiring it needs the model field made optional (or the JSON side to derive it too)
    and the editor to stop writing it.
-9. **`owl:Ontology`-header IRI derivation.** Parse the ontology header at ingest as an extra iri source,
+- **9. `owl:Ontology`-header IRI derivation.** Parse the ontology header at ingest as an extra iri source,
    to restore a clean identity for import-leaked non-OBO ontologies (NCIT on `Thesaurus.owl`) that
    de-confliction leaves acronym-only.
-10. **Relax the value-set collection cap.** Integrated-search restricts a value-set constraint to three
+- **10. Relax the value-set collection cap.** Integrated-search restricts a value-set constraint to three
     collections (CEDARVS/NLMVS/CADSR-VS) via `BP_VS_COLLECTIONS_READ_REGEX`; a frozen value-set constraint
     on any other collection 422s at populate.
-11. **Surface ambiguous-declared-version resolution.** Off the reproducibility path (freeze pins by
+- **11. Surface ambiguous-declared-version resolution.** Off the reproducibility path (freeze pins by
     content-hash `id`, not the declared-version label). Return the ambiguous-declared-version WARN in the
     response; optionally expose `/versions`, `/versions/diff`, and provenance.
-12. **Lookup-coverage tail (replace-BioPortal track, orthogonal to versioning).** IRI-fragment label
+- **12. Lookup-coverage tail (replace-BioPortal track, orthogonal to versioning).** IRI-fragment label
     fallback for the 179 zero-label ontologies; reclaim the 4 quality-deferred (DDSS re-ingest,
     EHDAA/BSAO/EO1 0-edge extraction — issue #12).
-13. **Where `actions` belongs in the YAML.** `actions` (delete/move refinements on the term set)
+- **13. Where `actions` belongs in the YAML.** `actions` (delete/move refinements on the term set)
     currently render as a field-level key, a sibling of `values`, naming each affected term by `termIri`
     + `sourceAcronym`. Open question: is that the right home, or should each action nest inside the
     `values` entry it refines, so a refinement travels with its source? Field-level keeps all actions in
@@ -127,12 +127,12 @@ response.
 
 ### Open questions (authorities that don't fit the version model)
 
-14. **ORCID / ROR / RRID (and DOI): not versionable per se.** A constraint names the *authority*; the
+- **14. ORCID / ROR / RRID (and DOI): not versionable per se.** A constraint names the *authority*; the
     value is a stable identifier captured in the instance — no snapshot, no current-version. The spec
     already covers the shape (`sourceSystem` set, `version` omitted). Open question: how the editor and
     instance model represent authority-typed, value-captured, unversioned fields distinctly from a
     versioned controlled term. (The instance is where these land — see item 7.)
-15. **CompTox / PFAS (release-based databases): possibly versionable.** Content with releases, so they
+- **15. CompTox / PFAS (release-based databases): possibly versionable.** Content with releases, so they
     could fit the content-hash snapshot model *if* they expose retrievable content and release
     identifiers, and *if* a content hash of a flat set (a chemical list, not a hierarchy) is meaningful
     across serializations. Worth a spike.
