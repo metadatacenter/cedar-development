@@ -17,7 +17,7 @@ Replace BioPortal for lookup wherever we can, and make every published template 
 reproducible against pinned vocabulary versions. The versioning **backend (freeze-on-publish, catalog,
 resolution) and the compact-YAML dialect are code-complete** — the version-aware YAML is published as a
 preview only, pending production. The remaining gaps: the frontend (CEE sending the pin, the Workbench
-version picker) and instance-level capture (item 5).
+version picker) and instance-level capture (item 4).
 
 ## Pending
 
@@ -42,12 +42,10 @@ version picker) and instance-level capture (item 5).
    constraint object (the write path is permissive, so the key sticks). Offer version for
    ontology/branch/valueSet only — not individual classes. Moderate-to-nasty by breadth (four parallel
    paths, ~5 duplicated modal hosts), not depth.
-- **3. Backfill `iri`/`sourceSystem` on existing constraints (backend, ready now)** where derivable; leave
-   the rest to defaults.
 
 ## Testing
 
-- **4. End-to-end frozen read (after CEE sends the pin, item 1).** Verify the full loop on the live stack:
+- **3. End-to-end frozen read (after CEE sends the pin, item 1).** Verify the full loop on the live stack:
    publish a frozen template → fill an instance via CEE → confirm terms resolve against the pinned
    snapshot, not latest. The terminology and publish sides are tested; this cross-service e2e becomes
    runnable once item 1 lands. Use a locally-served single-source constraint (the path where the backend
@@ -55,7 +53,7 @@ version picker) and instance-level capture (item 5).
 
 ## Future
 
-### 5. Instance-level version capture (design decision documented)
+### 4. Instance-level version capture (design decision documented)
 
 Freeze pins the *constraint* to a vocabulary version; this pins the *filled value*. When a user picks a
 term, the instance should record which term **and which version it came from**, so a filled instance is
@@ -111,30 +109,30 @@ response.
 
 ### Other deferred backend work
 
-- **6. Retire the ontology-constraint `sourceUri` from the model/JSON.** The YAML half is done — it is no
+- **5. Retire the ontology-constraint `sourceUri` from the model/JSON.** The YAML half is done — it is no
    longer authored and is reconstructed from the acronym (its "non-derivable" premise was overturned:
    every ontology URL is BioPortal with the acronym as its path). What remains: the model still marks
    `uri` required and the JSON Schema still carries it. Fully retiring it needs the model field made
    optional (or the JSON side to derive it too) and the editor to stop writing it.
-- **7. `owl:Ontology`-header IRI derivation.** Parse the ontology header at ingest as an extra iri source,
+- **6. `owl:Ontology`-header IRI derivation.** Parse the ontology header at ingest as an extra iri source,
    to restore a clean identity for import-leaked non-OBO ontologies (NCIT on `Thesaurus.owl`) that
    de-confliction leaves acronym-only.
-- **8. Relax the value-set collection cap.** Integrated-search restricts a value-set constraint to three
+- **7. Relax the value-set collection cap.** Integrated-search restricts a value-set constraint to three
    collections (CEDARVS/NLMVS/CADSR-VS) via `BP_VS_COLLECTIONS_READ_REGEX`; a frozen value-set constraint
    on any other collection 422s at populate.
-- **9. Surface ambiguous-declared-version resolution.** Off the reproducibility path (freeze pins by
+- **8. Surface ambiguous-declared-version resolution.** Off the reproducibility path (freeze pins by
    content-hash `id`, not the declared-version label). Return the ambiguous-declared-version WARN in the
    response; optionally expose `/versions`, `/versions/diff`, and provenance.
-- **10. Lookup-coverage tail (replace-BioPortal track, orthogonal to versioning).** IRI-fragment label
+- **9. Lookup-coverage tail (replace-BioPortal track, orthogonal to versioning).** IRI-fragment label
    fallback for the 179 zero-label ontologies; reclaim the 4 quality-deferred (DDSS re-ingest,
    EHDAA/BSAO/EO1 0-edge extraction — issue #12).
-- **11. Where `actions` belongs in the YAML.** `actions` (delete/move refinements on the term set)
+- **10. Where `actions` belongs in the YAML.** `actions` (delete/move refinements on the term set)
    currently render as a field-level key, a sibling of `values`, naming each affected term by `termIri` +
    `sourceAcronym`. Open question: is that the right home, or should each action nest inside the `values`
    entry it refines, so a refinement travels with its source? Field-level keeps all actions in one place
    and mirrors the CEDAR JSON `_valueConstraints.actions` array; per-entry ties each refinement to the
    source it applies to but scatters actions across entries. Decide before the version-aware YAML ships.
-- **12. Ingest ontologies from more sources.** *Shipped:* `--source url` (`DirectUrlSubmissionSource` —
+- **11. Ingest ontologies from more sources.** *Shipped:* `--source url` (`DirectUrlSubmissionSource` —
    any URL) and `--source bioportal --base-url` (any OntoPortal instance: AgroPortal, EcoPortal, …).
    Proven across five serializations (RDF/XML, OBO, Turtle, gzipped OWL, SKOS) and nine authorities, with
    source-, serialization-, and host-independent content-hash identity confirmed on real data (BFO
@@ -144,6 +142,17 @@ response.
    already resolves correctly (serve locally or report unavailable). *Remaining:* bulk-harvest OLS
    `fileLocation`s; label the OntoPortal authority on the snapshot (backend records `bioportal` regardless
    of instance).
+- **12. Backfill `iri`/`sourceSystem` onto existing stored constraints.** A data migration over published
+   CEDAR templates, not a code change — and not required for function, since tolerant readers already
+   default a constraint with no `sourceSystem`/`iri` to BioPortal + acronym-derived resolution. Two halves:
+   `sourceSystem` is a no-op (absent already means BioPortal everywhere it is read, including the router);
+   `iri` (the canonical `sourceIri`) is the substantive part — it needs a new tool that walks each stored
+   template's controlled-term constraints, looks up the acronym's canonical IRI from the terminology
+   catalog (`ontologyIri(acronym)` — the only place that mapping lives), and rewrites the constraint where
+   derivable, leaving the rest to defaults. Value is robustness/self-description (constraints carry their
+   canonical identity explicitly, immune to acronym ambiguity and future cross-source resolution), not a
+   functional gap. Do a zero-mutation dry-run first (report coverage and non-derivable acronyms) before any
+   run against the live template store.
 
 ### Open questions (authorities that don't fit the version model)
 
@@ -151,7 +160,7 @@ response.
    value is a stable identifier captured in the instance — no snapshot, no current-version. The spec
    already covers the shape (`sourceSystem` set, `version` omitted). Open question: how the editor and
    instance model represent authority-typed, value-captured, unversioned fields distinctly from a
-   versioned controlled term. (The instance is where these land — see item 5.)
+   versioned controlled term. (The instance is where these land — see item 4.)
 - **14. CompTox / PFAS (release-based databases): possibly versionable.** Content with releases, so they
    could fit the content-hash snapshot model *if* they expose retrievable content and release identifiers,
    and *if* a content hash of a flat set (a chemical list, not a hierarchy) is meaningful across
@@ -159,7 +168,7 @@ response.
 
 ## Ingestion tracker (ongoing)
 
-An **iterative** task: updated each time more ontologies are ingested from other repositories (item 12).
+An **iterative** task: updated each time more ontologies are ingested from other repositories (item 11).
 Identity is the content hash, so the same release from multiple sources/serializations collapses to one
 snapshot — the distinct-hash count is the true store size. Method/findings in
 [ONTOLOGY-INGEST-SOURCES.md](ONTOLOGY-INGEST-SOURCES.md).
