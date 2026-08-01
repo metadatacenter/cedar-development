@@ -12,9 +12,10 @@ handles.
 ## Goal
 
 Replace BioPortal for lookup wherever we can, and make every published template and filled instance
-reproducible against pinned vocabulary versions. The versioning **backend is complete**; the remaining
-reproducibility gap is in the frontend (the editor sending and choosing versions) and in instance-level
-capture.
+reproducible against pinned vocabulary versions. The versioning **backend and the compact-YAML dialect
+are code-complete** — the version-aware YAML is published as a preview only, pending production. The
+remaining reproducibility gap is in the frontend (the editor sending and choosing versions) and in
+instance-level capture.
 
 ## Pending
 
@@ -138,7 +139,7 @@ response.
 
 ## Revisit
 
-Decisions that overturned an earlier assumption, recorded so the reasoning is not relitigated.
+Decisions recorded so the reasoning is not relitigated.
 
 ### sourceUri is derivable — dropped from YAML, reconstructed for JSON Schema (2026-07-31)
 
@@ -158,3 +159,12 @@ rule, which folds into item 4 (`sourceSystem` routing).
 Shipped in cedar-artifact-library (develop): YAML reader/renderer/constants + fixtures + the preview spec.
 This supersedes the YAML half of item 8; retiring `sourceUri` from the model/JSON side stays deferred
 there.
+
+### Class display `label` dropped from the compact YAML (2026-07-31)
+
+A class entry's author-facing display label — distinct from `termLabel`, the ontology's preferred label —
+was a feature too far for the compact YAML. The renderer no longer emits it; the reader defaults it to
+`termLabel`, so the model and JSON Schema keep both. Lossless across the corpus: `label` equals the
+preferred label in every class entry (57 templates, 0 mismatches). A custom display label is simply not
+expressible in the compact form. Shipped in cedar-artifact-library (develop): reader/renderer + fixtures +
+the preview spec.
