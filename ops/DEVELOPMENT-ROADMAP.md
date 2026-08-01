@@ -317,8 +317,10 @@ per-server modules.
 - **Retry the ontology-list load in the term picker (frontend, `cedar-template-editor`).** This is a
   change to the Angular frontend, not to any microservice or test suite — it lands in
   `cedar-template-editor`, and so needs a frontend owner to review and push it (see the note below).
-  It is the last piece of this defect still outstanding: the smoke half is done, so the symptom is
-  currently worked around rather than fixed.
+  It is the last piece of this defect still outstanding, and the fix is already written: it is open as
+  PR #1014 (`fix/term-picker-ontology-retry`) on `cedar-template-editor`, awaiting a frontend owner's
+  review and merge. The smoke half is done too, so until the PR lands the symptom is worked around
+  rather than fixed.
 
   The template editor loads BioPortal's ontology list once per page load.
   `controlledTermDataService.init()` starts three cache loads and sets `initialized = true` on the
@@ -343,11 +345,11 @@ per-server modules.
   call. A working shape needs an in-flight guard so concurrent getters share one load, plus a floor
   on how often a failed load may be retried.
 
-  An implementation along these lines was validated live against the local stack in an earlier
-  session, but the working tree was reverted afterwards and the diff was not retained — so this is a
-  re-implement-from-this-description item, not an apply-a-saved-patch one. `init()` in
-  `controlled-term-data.service.js` is still the original latch. Whoever picks it up should rebuild
-  the change from the design above and have a frontend owner review and push it, since committing to
+  This design is implemented in PR #1014 (`fix/term-picker-ontology-retry`): it replaces the single
+  `initialized` boolean in `controlled-term-data.service.js` with a small state machine that retries
+  instead of latching, and honours both constraints above — success is read from `ontologiesCache`,
+  and an in-flight guard keeps concurrent getters sharing one load. What remains is not writing the fix
+  but landing it: a frontend owner needs to review and merge the PR, since committing to
   `cedar-template-editor` needs an owner comfortable with the frontend.
 
   The end-to-end smoke no longer depends on this being fixed, which is what makes it a roadmap item
