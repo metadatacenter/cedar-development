@@ -98,25 +98,34 @@ Already captured (survives pruning, kept forever):
   `apiKeyHash` per hour).
 - **Slow endpoints, error hotspots, traffic anomalies** — `agg_request_hourly` + the `/logs/usage/insights` endpoint.
 
-**Gap → proposed addition (`agg_outlier_samples`):** the rollups keep *distributions and shapes*, not the
-specific *instances*. To investigate "this exact query with these params took 45s at 03:00 by user X"
-**after** the raw row is pruned, add a small permanent table the aggregator fills while folding each day:
-the top-N slowest Cypher executions and slowest/error requests above a threshold, with full text /
-params / user / timestamp, retained forever. This is the forensic keep for outliers. (Designed, not yet
-built — ~1 table + a bounded top-N pass in the fold. Say the word.)
+**BUILT (outlier retention):** `agg_request_outlier` + `agg_cypher_outlier` — permanent tables holding
+the top-N slowest + error request instances and top-N slowest Cypher instances (full text / params /
+user / timestamp), so "this exact query took 45s at 03:00 by user X" is answerable **after** the raw row
+is pruned. Filled server-side (`INSERT ... SELECT ... ORDER BY duration DESC LIMIT N`, so only the N
+chosen rows' LOBs move): the live aggregator captures top-50 slow + top-50 error **per settled day**; the
+backfill captures top-500 over all history once, before `*_pre284` is dropped. Read via
+`/logs/explorer/outliers/{requests,cypher}`. Never pruned. (Config for N is currently in-code constants.)
 
-## 9. Emailed HTML report (your ask) — design + the catch
-Want: a periodic HTML report emailed to a **dynamic** recipient list (add a person without a rebuild/restart).
-- **The catch: CEDAR has no email/SMTP today** (the messaging server is in-app DB messages, not email).
-  So this needs a **net-new SMTP integration** — `jakarta.mail` + SMTP config as env vars
-  (`CEDAR_SMTP_HOST/PORT/USER/PASSWORD/FROM`; Stanford relay). That is the main build cost.
-- **Recipients (dynamic, no rebuild) — recommended: Keycloak role.** Give recipients a realm role (a new
-  `logReportRecipient`, or reuse `monitorManager`); the report job looks their emails up from Keycloak at
-  send time. Add/remove a person = assign/unassign the role in the admin console — no restart, no rebuild.
-  (Alternative: an admin-editable recipient table + a small internals page; also dynamic. A
-  cedar-property/config list is rejected — it needs a restart to change.)
-- **Where it runs:** a scheduled job in cedar-worker-server (weekly), rendering HTML from the rollups +
-  insights (the mock is the template) and sending via SMTP to the role-holders. (Designed, not yet built.)
+## 9. The report — decouple GENERATE from DELIVER (Stanford email may be blocked)
+Want: a periodic HTML report to a **dynamic** recipient list (add a person without a rebuild/restart).
+Concern: on Stanford infra, app-sent email may be **disallowed** or need a from-address allowlisted.
+CEDAR also has **no email/SMTP today** (the messaging server is in-app DB messages). So don't hard-depend
+on email. Recommended, in order:
+1. **Generate + expose in-app (no SMTP, works today).** A scheduled worker job renders the weekly HTML
+   report from the rollups/insights (the mock is the template) and stores it; a monitor endpoint /
+   internals "Reports" page serves the latest, MONITOR_READ-gated. Pull model — role-gated, zero email
+   risk. **This is the safe default.**
+2. **Push notice via the EXISTING in-app messaging** (`cedar-messaging-server`, `PersistentMessage`):
+   post "weekly log report ready → <link>" to recipients. No external email; reuses infra.
+3. **Email — only if Stanford SMTP is confirmed.** Keycloak already sends mail on this infra, so a relay
+   exists; app-sending from a new from-address likely needs Stanford IT approval. Add it later as a thin
+   optional layer (`jakarta.mail` + `CEDAR_SMTP_*` env, reusing Keycloak's relay). Don't block on it.
+
+**Recipients (dynamic, no rebuild) — Keycloak role.** A realm role (`logReportRecipient`, or reuse
+`monitorManager`); the job resolves role-holders' emails from Keycloak at send time. Add/remove = toggle
+the role in admin — no restart, no rebuild. (Alt: an admin-editable recipient table + internals page. A
+cedar-property list is rejected — needs a restart.)
+Decision needed: build (1) now (safe, no email), or wait to confirm Stanford SMTP for (3)?
 
 ## 10. Prerequisites & open decisions
 1. Merge + release the branch (8 repos) — prod deploys from `main`.
