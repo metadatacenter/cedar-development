@@ -96,10 +96,11 @@ response.
 
 ### Other deferred backend work
 
-8. **Retire the ontology-constraint `sourceUri`.** Functionally unused on the backend (the terminology
-   DTO omits it; artifact-library only serializes/passes it through), kept only because the model marks it
-   required and it is non-derivable. Retiring needs the model field made optional and the editor to stop
-   writing it.
+8. **Retire the ontology-constraint `sourceUri` from the model/JSON.** The YAML half is done — it is no
+   longer authored and is reconstructed from the acronym (see [Revisit](#revisit); its "non-derivable"
+   premise was overturned). What remains: the model still marks `uri` required and the JSON Schema still
+   carries it. Fully retiring it needs the model field made optional (or the JSON side to derive it too)
+   and the editor to stop writing it.
 9. **`owl:Ontology`-header IRI derivation.** Parse the ontology header at ingest as an extra iri source,
    to restore a clean identity for import-leaked non-OBO ontologies (NCIT on `Thesaurus.owl`) that
    de-confliction leaves acronym-only.
@@ -124,3 +125,26 @@ response.
     could fit the content-hash snapshot model *if* they expose retrievable content and release
     identifiers, and *if* a content hash of a flat set (a chemical list, not a hierarchy) is meaningful
     across serializations. Worth a spike.
+
+## Revisit
+
+Decisions that overturned an earlier assumption, recorded so the reasoning is not relitigated.
+
+### sourceUri is derivable — dropped from YAML, reconstructed for JSON Schema (2026-07-31)
+
+The ontology-constraint backend URL (`uri`; `sourceUri` in the preview YAML) had been kept as a stored
+key on the belief it was non-derivable — MESH is stored under `bioportal.bioontology.org` while others
+use `data.bioontology.org`. Re-examined against the real 57-template corpus: every ontology-constraint
+URL is BioPortal, and its path is exactly the acronym. MESH's `bioportal.bioontology.org` host is a
+data-quality artifact (the UI host, not the API host) pointing at the same ontology.
+
+**Decision:** `sourceUri` is not authored. The compact YAML omits it; `YamlArtifactReader` reconstructs
+the URL from the acronym (`https://data.bioontology.org/ontologies/{acronym}` for BioPortal) so the model
+and the JSON Schema it renders to still carry the required `uri`. This normalizes MESH to its canonical
+API URL — a deliberate, accepted loss of the non-canonical host (two RADx JSON fixtures were canonicalized
+to match). Only BioPortal is served today; a non-BioPortal `sourceSystem` will need its own derivation
+rule, which folds into item 4 (`sourceSystem` routing).
+
+Shipped in cedar-artifact-library (develop): YAML reader/renderer/constants + fixtures + the preview spec.
+This supersedes the YAML half of item 8; retiring `sourceUri` from the model/JSON side stays deferred
+there.
