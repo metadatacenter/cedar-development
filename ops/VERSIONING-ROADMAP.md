@@ -145,8 +145,8 @@ response.
     any URL) and `--source bioportal --base-url` (any OntoPortal instance: AgroPortal, EcoPortal, …).
     Proven across five serializations (RDF/XML, OBO, Turtle, gzipped OWL, SKOS) and nine authorities, with
     source-, serialization-, and host-independent content-hash identity confirmed on real data (BFO
-    identical from OBO PURL `.owl`/`.obo` and AgroPortal REST; UNESCO identical from `.ttl`/`.rdf`). Survey
-    and results in [ONTOLOGY-INGEST-SOURCES.md](ONTOLOGY-INGEST-SOURCES.md). *Remaining:* bulk-harvest OLS
+    identical from OBO PURL `.owl`/`.obo` and AgroPortal REST; UNESCO identical from `.ttl`/`.rdf`). Running tally in the **Ingestion tracker (ongoing)** below; survey and method in
+    [ONTOLOGY-INGEST-SOURCES.md](ONTOLOGY-INGEST-SOURCES.md). *Remaining:* bulk-harvest OLS
     `fileLocation`s; label the OntoPortal authority on the snapshot (backend records `bioportal`
     regardless of instance). Pairs with item 3 (`sourceSystem` routing) so a constraint can resolve
     against a named non-BioPortal source.
@@ -162,3 +162,37 @@ response.
     could fit the content-hash snapshot model *if* they expose retrievable content and release
     identifiers, and *if* a content hash of a flat set (a chemical list, not a hierarchy) is meaningful
     across serializations. Worth a spike.
+
+## Ingestion tracker (ongoing)
+
+An **iterative** task: updated each time more ontologies are ingested from other repositories (item 14).
+Identity is the content hash, so the same release from multiple sources/serializations collapses to one
+snapshot — the distinct-hash count is the true store size. Method/findings in
+[ONTOLOGY-INGEST-SOURCES.md](ONTOLOGY-INGEST-SOURCES.md).
+
+**As of 2026-08-01: 63 ontologies · 65 snapshots · 62 distinct content identities · 10 source systems**
+(plus AgroPortal via the REST path, ingested in a separate run).
+
+| Source system | Access | Ontologies | Snapshots |
+|---|---|---|---|
+| EBI OLS `fileLocation`s | `--source url` | 40 | 40 |
+| OBO PURL / GO release server | `--source url` | 8 | 10 |
+| W3C (`w3.org`) | `--source url` | 5 | 5 |
+| w3id.org | `--source url` | 3 | 3 |
+| UNESCO (SKOS) | `--source url` | 2 | 2 |
+| schema.org · id.loc.gov (LCSH, SKOS) · GitHub raw · FOAF · vendor | `--source url` | 5 | 5 |
+| AgroPortal | `--source bioportal --base-url` | 1 | 1 |
+
+Serializations exercised: RDF/XML, OBO, Turtle, gzipped OWL, SKOS, N-Triples input. Version pairs (same
+ontology, distinct content hashes): GO-basic (2024-01-17 vs 2025-06-01), PATO (2022-12-15 vs 2024-03-28).
+
+**Iterations**
+- 2026-08-01 — first batch: 18 ingested (format/host/version matrix + AgroPortal), source-independence
+  proven (BFO ×3 authorities, UNESCO ×2 serializations → one hash each).
+- 2026-08-01 — +46 (40 small OLS ontologies via their fileLocations; FOAF/SSN/SOSA/HP; GO-basic ×2 for a
+  version pair). 3 external failures: GEMET (SSL cert-chain), FOAF-from-LOV (502), schema.org v20 (404) —
+  source-side, not the ingester.
+
+**Next iterations:** bulk-harvest the remaining ~240 OLS fileLocations; add more OntoPortal instances
+(EcoPortal, IndustryPortal, each needs its own key); retry the transient failures; grow version pairs from
+dated OBO/GO releases.
