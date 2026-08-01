@@ -2,12 +2,14 @@
 
 Forward-looking plan for the model in [VERSIONING-DESIGN.md](VERSIONING-DESIGN.md). What is already
 built — content-hash identity, per-submission snapshots, all resolution modes, the canonical-iri
-identity re-key with de-confliction, source-independence against OBO Foundry, multi-source ingest (BioPortal, OBO Foundry, any URL, any OntoPortal — verified serving a
-non-BioPortal snapshot live), the value-constraint spec (JSON + YAML) with schema validation, and freeze-on-publish pinning all four
-constraint kinds on every artifact type — lives in git and the design doc. This tracks only what
-remains, in three buckets: **Pending** (to build), **Testing** (built, needs live verification), and
-**Future** (deferred / needs a decision / speculative). Items are numbered continuously as stable
-handles.
+identity re-key with de-confliction, source-independence against OBO Foundry, multi-source ingest
+(BioPortal, OBO Foundry, any URL, any OntoPortal — serving a non-BioPortal snapshot verified live on the
+running server), `sourceSystem` routing (serve locally or report unavailable, never proxy BioPortal for a
+non-BioPortal source), the value-constraint spec (JSON + YAML) with schema validation, and
+freeze-on-publish pinning all four constraint kinds on every artifact type — lives in git and the design
+doc. This tracks only what remains, in three buckets: **Pending** (to build), **Testing** (built, needs
+live verification), and **Future** (deferred / needs a decision / speculative). Items are numbered
+continuously as stable handles.
 
 ## Goal
 
@@ -15,7 +17,7 @@ Replace BioPortal for lookup wherever we can, and make every published template 
 reproducible against pinned vocabulary versions. The versioning **backend (freeze-on-publish, catalog,
 resolution) and the compact-YAML dialect are code-complete** — the version-aware YAML is published as a
 preview only, pending production. The remaining gaps: the frontend (CEE sending the pin, the Workbench
-version picker) and instance-level capture (item 7).
+version picker) and instance-level capture (item 5).
 
 ## Pending
 
@@ -27,10 +29,9 @@ version picker) and instance-level capture (item 7).
    fan-out. The single highest-value piece — it closes the reproducibility loop.
    *Backend caveat (not CEE's job):* integrated-search honours the pin only for locally-served,
    single-source constraints. For a non-local source, a multi-source/mixed shape, or a missing snapshot,
-   a pinned request now **fails loud** (`PinnedVersionUnavailableException`; mapped to HTTP 422) rather
-   than silently serving latest from BioPortal. Enumerated `classes` cannot be pinned (no snapshot, by
-   design). A non-BioPortal source that is not served locally is reported unavailable, not proxied to
-   BioPortal (item 3, done).
+   a pinned request **fails loud** (`PinnedVersionUnavailableException`; mapped to HTTP 422) rather than
+   silently serving latest from BioPortal. Enumerated `classes` cannot be pinned (no snapshot, by design).
+   A non-BioPortal source that is not served locally is reported unavailable, not proxied to BioPortal.
 - **2. Author-facing version picker in the Workbench (frontend-only).** The picker lives in the old
    AngularJS Workbench (`cedar-template-editor/app/scripts/controlled-term/`), where constraints are
    authored. **No backend work:** `GET /ontologies/{acronym}/versions` (and `/versions/current`, `/diff`)
@@ -41,21 +42,12 @@ version picker) and instance-level capture (item 7).
    constraint object (the write path is permissive, so the key sticks). Offer version for
    ontology/branch/valueSet only — not individual classes. Moderate-to-nasty by breadth (four parallel
    paths, ~5 duplicated modal hosts), not depth.
-- **3. Terminology routing on `sourceSystem`. ✅ Done (2026-08-01).** Decision: a constraint naming a
-   non-BioPortal source is served from the local store or reported **unavailable** — never proxied to
-   BioPortal (content-hash identity is source-independent, so a locally-served snapshot answers
-   regardless of source; proxying BioPortal for a different source would be wrong). The integrated-search
-   DTOs now read `sourceSystem`; the router returns empty results for a non-BioPortal source not served
-   locally. *Deploy:* rebuild + restart terminology to activate on the running server.
-- **4. Backfill `iri`/`sourceSystem` on existing constraints (backend, ready now)** where derivable; leave
+- **3. Backfill `iri`/`sourceSystem` on existing constraints (backend, ready now)** where derivable; leave
    the rest to defaults.
 
 ## Testing
 
-- **5. Serve a non-BioPortal snapshot end to end. ✅ Done (2026-08-01).** The running dev server serves
-   EMI (non-BioPortal — `--source url`, `backend=url`) from the local store, unpinned and pinned (frozen
-   read), verified over REST. Details in the Ingestion tracker.
-- **6. End-to-end frozen read (after CEE sends the pin, item 1).** Verify the full loop on the live stack:
+- **4. End-to-end frozen read (after CEE sends the pin, item 1).** Verify the full loop on the live stack:
    publish a frozen template → fill an instance via CEE → confirm terms resolve against the pinned
    snapshot, not latest. The terminology and publish sides are tested; this cross-service e2e becomes
    runnable once item 1 lands. Use a locally-served single-source constraint (the path where the backend
@@ -63,7 +55,7 @@ version picker) and instance-level capture (item 7).
 
 ## Future
 
-### 7. Instance-level version capture (design decision documented)
+### 5. Instance-level version capture (design decision documented)
 
 Freeze pins the *constraint* to a vocabulary version; this pins the *filled value*. When a user picks a
 term, the instance should record which term **and which version it came from**, so a filled instance is
@@ -119,62 +111,61 @@ response.
 
 ### Other deferred backend work
 
-- **8. Retire the ontology-constraint `sourceUri` from the model/JSON.** The YAML half is done — it is no
+- **6. Retire the ontology-constraint `sourceUri` from the model/JSON.** The YAML half is done — it is no
    longer authored and is reconstructed from the acronym (its "non-derivable" premise was overturned:
    every ontology URL is BioPortal with the acronym as its path). What remains: the model still marks
-   `uri` required and the JSON Schema still
-   carries it. Fully retiring it needs the model field made optional (or the JSON side to derive it too)
-   and the editor to stop writing it.
-- **9. `owl:Ontology`-header IRI derivation.** Parse the ontology header at ingest as an extra iri source,
+   `uri` required and the JSON Schema still carries it. Fully retiring it needs the model field made
+   optional (or the JSON side to derive it too) and the editor to stop writing it.
+- **7. `owl:Ontology`-header IRI derivation.** Parse the ontology header at ingest as an extra iri source,
    to restore a clean identity for import-leaked non-OBO ontologies (NCIT on `Thesaurus.owl`) that
    de-confliction leaves acronym-only.
-- **10. Relax the value-set collection cap.** Integrated-search restricts a value-set constraint to three
-    collections (CEDARVS/NLMVS/CADSR-VS) via `BP_VS_COLLECTIONS_READ_REGEX`; a frozen value-set constraint
-    on any other collection 422s at populate.
-- **11. Surface ambiguous-declared-version resolution.** Off the reproducibility path (freeze pins by
-    content-hash `id`, not the declared-version label). Return the ambiguous-declared-version WARN in the
-    response; optionally expose `/versions`, `/versions/diff`, and provenance.
-- **12. Lookup-coverage tail (replace-BioPortal track, orthogonal to versioning).** IRI-fragment label
-    fallback for the 179 zero-label ontologies; reclaim the 4 quality-deferred (DDSS re-ingest,
-    EHDAA/BSAO/EO1 0-edge extraction — issue #12).
-- **13. Where `actions` belongs in the YAML.** `actions` (delete/move refinements on the term set)
-    currently render as a field-level key, a sibling of `values`, naming each affected term by `termIri`
-    + `sourceAcronym`. Open question: is that the right home, or should each action nest inside the
-    `values` entry it refines, so a refinement travels with its source? Field-level keeps all actions in
-    one place and mirrors the CEDAR JSON `_valueConstraints.actions` array; per-entry ties each
-    refinement to the source it applies to but scatters actions across entries. Decide before the
-    version-aware YAML ships.
-- **14. Ingest ontologies from more sources.** *Shipped:* `--source url` (`DirectUrlSubmissionSource` —
-    any URL) and `--source bioportal --base-url` (any OntoPortal instance: AgroPortal, EcoPortal, …).
-    Proven across five serializations (RDF/XML, OBO, Turtle, gzipped OWL, SKOS) and nine authorities, with
-    source-, serialization-, and host-independent content-hash identity confirmed on real data (BFO
-    identical from OBO PURL `.owl`/`.obo` and AgroPortal REST; UNESCO identical from `.ttl`/`.rdf`). Running tally in the **Ingestion tracker (ongoing)** below; survey and method in
-    [ONTOLOGY-INGEST-SOURCES.md](ONTOLOGY-INGEST-SOURCES.md). *Remaining:* bulk-harvest OLS
-    `fileLocation`s; label the OntoPortal authority on the snapshot (backend records `bioportal`
-    regardless of instance). Pairs with item 3 (`sourceSystem` routing) so a constraint can resolve
-    against a named non-BioPortal source.
+- **8. Relax the value-set collection cap.** Integrated-search restricts a value-set constraint to three
+   collections (CEDARVS/NLMVS/CADSR-VS) via `BP_VS_COLLECTIONS_READ_REGEX`; a frozen value-set constraint
+   on any other collection 422s at populate.
+- **9. Surface ambiguous-declared-version resolution.** Off the reproducibility path (freeze pins by
+   content-hash `id`, not the declared-version label). Return the ambiguous-declared-version WARN in the
+   response; optionally expose `/versions`, `/versions/diff`, and provenance.
+- **10. Lookup-coverage tail (replace-BioPortal track, orthogonal to versioning).** IRI-fragment label
+   fallback for the 179 zero-label ontologies; reclaim the 4 quality-deferred (DDSS re-ingest,
+   EHDAA/BSAO/EO1 0-edge extraction — issue #12).
+- **11. Where `actions` belongs in the YAML.** `actions` (delete/move refinements on the term set)
+   currently render as a field-level key, a sibling of `values`, naming each affected term by `termIri` +
+   `sourceAcronym`. Open question: is that the right home, or should each action nest inside the `values`
+   entry it refines, so a refinement travels with its source? Field-level keeps all actions in one place
+   and mirrors the CEDAR JSON `_valueConstraints.actions` array; per-entry ties each refinement to the
+   source it applies to but scatters actions across entries. Decide before the version-aware YAML ships.
+- **12. Ingest ontologies from more sources.** *Shipped:* `--source url` (`DirectUrlSubmissionSource` —
+   any URL) and `--source bioportal --base-url` (any OntoPortal instance: AgroPortal, EcoPortal, …).
+   Proven across five serializations (RDF/XML, OBO, Turtle, gzipped OWL, SKOS) and nine authorities, with
+   source-, serialization-, and host-independent content-hash identity confirmed on real data (BFO
+   identical from OBO PURL `.owl`/`.obo` and AgroPortal REST; UNESCO identical from `.ttl`/`.rdf`). Running
+   tally in the **Ingestion tracker (ongoing)** below; survey and method in
+   [ONTOLOGY-INGEST-SOURCES.md](ONTOLOGY-INGEST-SOURCES.md). A constraint that names one of these sources
+   already resolves correctly (serve locally or report unavailable). *Remaining:* bulk-harvest OLS
+   `fileLocation`s; label the OntoPortal authority on the snapshot (backend records `bioportal` regardless
+   of instance).
 
 ### Open questions (authorities that don't fit the version model)
 
-- **15. ORCID / ROR / RRID (and DOI): not versionable per se.** A constraint names the *authority*; the
-    value is a stable identifier captured in the instance — no snapshot, no current-version. The spec
-    already covers the shape (`sourceSystem` set, `version` omitted). Open question: how the editor and
-    instance model represent authority-typed, value-captured, unversioned fields distinctly from a
-    versioned controlled term. (The instance is where these land — see item 7.)
-- **16. CompTox / PFAS (release-based databases): possibly versionable.** Content with releases, so they
-    could fit the content-hash snapshot model *if* they expose retrievable content and release
-    identifiers, and *if* a content hash of a flat set (a chemical list, not a hierarchy) is meaningful
-    across serializations. Worth a spike.
+- **13. ORCID / ROR / RRID (and DOI): not versionable per se.** A constraint names the *authority*; the
+   value is a stable identifier captured in the instance — no snapshot, no current-version. The spec
+   already covers the shape (`sourceSystem` set, `version` omitted). Open question: how the editor and
+   instance model represent authority-typed, value-captured, unversioned fields distinctly from a
+   versioned controlled term. (The instance is where these land — see item 5.)
+- **14. CompTox / PFAS (release-based databases): possibly versionable.** Content with releases, so they
+   could fit the content-hash snapshot model *if* they expose retrievable content and release identifiers,
+   and *if* a content hash of a flat set (a chemical list, not a hierarchy) is meaningful across
+   serializations. Worth a spike.
 
 ## Ingestion tracker (ongoing)
 
-An **iterative** task: updated each time more ontologies are ingested from other repositories (item 14).
+An **iterative** task: updated each time more ontologies are ingested from other repositories (item 12).
 Identity is the content hash, so the same release from multiple sources/serializations collapses to one
 snapshot — the distinct-hash count is the true store size. Method/findings in
 [ONTOLOGY-INGEST-SOURCES.md](ONTOLOGY-INGEST-SOURCES.md).
 
 **As of 2026-08-01: 63 ontologies · 65 snapshots · 62 distinct content identities · 10 source systems**
-(plus AgroPortal via the REST path, ingested in a separate run).
+(plus AgroPortal via the REST path, ingested in a separate run; plus EMI live in the served dev catalog).
 
 | Source system | Access | Ontologies | Snapshots |
 |---|---|---|---|
@@ -195,12 +186,10 @@ ontology, distinct content hashes): GO-basic (2024-01-17 vs 2025-06-01), PATO (2
 - 2026-08-01 — +46 (40 small OLS ontologies via their fileLocations; FOAF/SSN/SOSA/HP; GO-basic ×2 for a
   version pair). 3 external failures: GEMET (SSL cert-chain), FOAF-from-LOV (502), schema.org v20 (404) —
   source-side, not the ingester.
-
-- 2026-08-01 — served-store proof (item 5): EMI (backend=url) ingested into the live dev catalog +
-  allowlist; the running server serves it locally, unpinned and pinned (frozen read), verified over REST.
+- 2026-08-01 — served-store proof: EMI (backend=url) ingested into the live dev catalog + allowlist; the
+  running server serves it locally, unpinned and pinned (frozen read), verified over REST.
 
 **Next iterations** are one command — `ops/harvest-ols-ingest.sh <catalog> <snapshotDir> [--max N]`
-(idempotent, skips already-ingested acronyms, logs and skips failures). Remaining: bulk-harvest the rest of
-the OLS fileLocations; add more OntoPortal instances
-(EcoPortal, IndustryPortal, each needs its own key); retry the transient failures; grow version pairs from
-dated OBO/GO releases.
+(idempotent, skips already-ingested acronyms, logs and skips failures). Remaining: bulk-harvest the rest
+of the OLS fileLocations; add more OntoPortal instances (EcoPortal, IndustryPortal, each needs its own
+key); retry the transient failures; grow version pairs from dated OBO/GO releases.
