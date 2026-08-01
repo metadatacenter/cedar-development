@@ -193,6 +193,8 @@ ontology, distinct content hashes): GO-basic (2024-01-17 vs 2025-06-01), PATO (2
   version pair). 3 external failures: GEMET (SSL cert-chain), FOAF-from-LOV (502), schema.org v20 (404) —
   source-side, not the ingester.
 
-**Next iterations:** bulk-harvest the remaining ~240 OLS fileLocations; add more OntoPortal instances
+**Next iterations** are one command — `ops/harvest-ols-ingest.sh <catalog> <snapshotDir> [--max N]`
+(idempotent, skips already-ingested acronyms, logs and skips failures). Remaining: bulk-harvest the rest of
+the OLS fileLocations; add more OntoPortal instances
 (EcoPortal, IndustryPortal, each needs its own key); retry the transient failures; grow version pairs from
 dated OBO/GO releases.
