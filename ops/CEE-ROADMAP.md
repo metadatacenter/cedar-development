@@ -169,11 +169,11 @@ Phases 1–3, so nothing is removed while it might still be a signal.
 
 ## Open findings
 
-### Defects, characterized not fixed
+### Defects found and fixed
 
-Both are pinned in `harness/test/cardinality.spec.ts` under "known defects
-(characterized, not endorsed)". The tests assert current behaviour, so fixing
-either is a deliberate, visible change.
+All three were found by the test harness, characterized first so the behaviour
+was pinned before anyone changed it, then fixed with the characterization
+converted to a regression test. Each was mutation-tested.
 
 1. ~~**A filled required ORCID/ROR field never satisfies its requirement.**~~
    **Fixed.** `extractPlainValue` recognised a bare `@id` only for
@@ -224,6 +224,74 @@ them. All five were added upstream.
 `harness/test/coverage.spec.ts` pins the ratio at 1 and keeps its assertions,
 so a 25th input type without a matching builder fails the suite — which is how
 the original five surfaced.
+
+### Finish the data quality report
+
+The README says of the report's three fields: *"At the moment these three fields
+are available, with more to come."* The more never came. What exists is a
+required-fields-present check named "data quality report", and the name is
+writing a cheque the implementation does not honour.
+
+**It validates presence and nothing else.** Every one of these reports
+`isValid: true`, with the constraint declared in the template and parsed by CEE
+into `valueInfo` / `numberInfo`:
+
+| Field | Constraint | Value given |
+|---|---|---|
+| email | — | `not-an-email` |
+| text | `minLength: 8` | `abc` |
+| text | `maxLength: 3` | `abcdefgh` |
+| text | `regex: ^[A-Z]{3}$` | `zzz` |
+| numeric | `minValue: 0, maxValue: 10` | `999` |
+| numeric | `numberType: int` | `abc` |
+| link | — | `totally not a uri` |
+| phone | — | `!!!` |
+
+**The report and the widgets disagree.** Sixteen input components render
+`mat-error` — email, link, phone, numeric, text length, ORCID, ROR, DOI, PubMed,
+RRID, NIH Grant, controlled, select, multiple-choice, and the date picker. So
+for a malformed email the form shows a red error *and* the report says the
+instance is valid, at the same instant. A host page polling
+`cee.dataQualityReport.isValid` to gate submission will accept metadata the user
+can see is wrong.
+
+That is the same shape as two of the three defects closed above: a second place
+forming its own opinion instead of consulting the first. Here the two opinions
+are visible side by side on screen.
+
+**There are no diagnostics.** The contract is two integers and a boolean.
+`requiredFieldValueCount: 3, nonNullRequiredFieldValueCount: 2` says something is
+missing but not what, so an embedder cannot tell the user which field to fix.
+The `valueTree` is a data dump, not a problem list.
+
+**Nothing new needs parsing.** CEE already reads every constraint required —
+`minLength`, `maxLength`, `regex`, `numberType`, `minValue`, `maxValue`,
+`decimalPlace`, `temporalType`, `granularity`, choice literals, and
+`minItems`/`maxItems` — and the widgets already implement most of the checks as
+Angular validators. The work is not writing validation; it is putting the
+existing validation somewhere both consumers can reach.
+
+Suggested shape:
+
+- Extract the widgets' validators into pure functions keyed by input type, and
+  have both the `FormControl` setup and the report call them. One definition of
+  "valid email", not two.
+- Add `problems: Array<{ path, code, message }>` to `DataQualityReport`, so the
+  host can point at a field. Keep the counters for backwards compatibility.
+- Cover the constraints nothing checks today: numeric range and type, choice
+  membership, and `minItems`/`maxItems` cardinality.
+- Controlled-term membership needs the terminology server and should stay out
+  of a local, synchronous report — worth stating explicitly so its absence is a
+  decision rather than an oversight.
+
+Also unresolved, and now characterized in `harness/test/cardinality.spec.ts`
+rather than assumed: an element with **zero** instances contributes zero
+requirements, so a template whose only required field sits inside one reports
+vacuously valid.
+
+The harness makes this safe to take on — the report is already its most heavily
+covered surface, and `expectNoErrors` plus the round-trip oracle will catch
+collateral.
 
 ### Unify the external authority fields
 
