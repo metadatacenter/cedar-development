@@ -190,17 +190,18 @@ either is a deliberate, visible change.
    result `currentCount` times. An incomplete instance reports as valid —
    `data-quality-report-builder.handler.ts:65-80`.
 
-3. **Element visibility depends on the order of its element children.**
-   In read-only mode with `hideEmptyFields`, `hasNonEmptyChild`
-   (`template-representation.factory.ts`) loops a component's children and, for
-   element children, assigns the recursive result without breaking — so the
-   last element child wins and overwrites any earlier `true`. An element that
-   contains data is reported empty whenever a later sibling element happens to
-   be empty, and a populated section silently disappears from the viewer.
-   Identical data in the opposite sibling order renders correctly. The field
-   branch of the same loop does break, so this is an inconsistency within one
-   function rather than a design choice. One-line fix, but it changes what a
-   viewer displays. Characterized in `harness/test/read-only.spec.ts`.
+3. ~~**Element visibility depends on the order of its element children.**~~
+   **Fixed.** Under `hideEmptyFields`, `hasNonEmptyChild` assigned its
+   recursive result for element children without stopping, so the last element
+   child decided the outcome and overwrote any earlier `true`. An element
+   holding data was reported empty whenever a later sibling element happened to
+   be empty, and the section silently vanished from a read-only viewer. Both
+   branches now return on the first non-empty child — an inconsistency inside
+   one function, since the field branch already did. The change only adds an
+   early exit on `true`, so it is monotonic toward visible and cannot hide
+   anything that previously rendered. Regression tests in
+   `harness/test/read-only.spec.ts` cover both orderings and guard the opposite
+   direction.
 
 ### Coverage — closed
 
