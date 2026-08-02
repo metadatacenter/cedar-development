@@ -105,7 +105,7 @@ cd ../cedar-model-typescript-library && npm install && npm run build
 nvm use 20 && cd harness && npm install && npm test
 ```
 
-Expect **422 passing**. Watch mode is `npm run test:watch`.
+Expect **1,016 passing**. Watch mode is `npm run test:watch`.
 
 To run one file (note: paths are relative to the repo root, not `harness/`,
 because `vitest.config.ts` sets `root` to the repo):
@@ -113,6 +113,23 @@ because `vitest.config.ts` sets `root` to the repo):
 ```bash
 npx vitest run harness/test/controlled-terms.spec.ts
 ```
+
+### Running against the old template parser
+
+CEE builds its component tree with the CEDAR Model TypeScript Library. The
+hand-written JSON walk it used before is still in the tree, and the whole suite
+has to pass with either one underneath:
+
+```bash
+CEE_TEMPLATE_PARSER=json-walk npm test
+```
+
+Expect **1,016 passing** here too. Four rendered list fields across the corpus
+genuinely differ — `multipleChoice` normalised against the property's
+cardinality rather than copied verbatim — and `harness/test/corpus.spec.ts`
+names them one by one, so a difference that stops happening fails as loudly as a
+new one. Run this before and after anything that touches
+`factory/model-library-template-parser.ts`.
 
 ## Running the visual baseline
 
@@ -180,6 +197,15 @@ check the test count, not the exit code.
 Resolution from `../src` walks up to a repo root with no `node_modules`. The
 `ceeStubs` plugin in `vitest.config.ts` maps bare deps to the harness's copy;
 add any new one there.
+
+**A model library change reaches the harness but not the built app**
+The harness consumes `dist/` through node's CommonJS entry; the Angular build
+takes the ES module one. Both come out of `npm run build` in the library, but
+only the ESM bundle exports named symbols, and it does so only because
+`webpack.config.js` sets `output.library.type: 'module'` on that config. Without
+it the file exports nothing but `default`, every import resolves to `undefined`,
+and nothing fails until the widget runs in a browser — the domain harness stays
+green throughout. The visual baseline is what catches it.
 
 **Model library changes aren't visible to the harness**
 The harness consumes `dist/`. Re-run `npm run build` in
