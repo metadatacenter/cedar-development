@@ -5,9 +5,10 @@ built — content-hash identity, per-submission snapshots, all resolution modes,
 identity re-key with de-confliction, source-independence against OBO Foundry, multi-source ingest
 (BioPortal, OBO Foundry, any URL, any OntoPortal — serving a non-BioPortal snapshot verified live on the
 running server), `sourceSystem` routing (serve locally or report unavailable, never proxy BioPortal for a
-non-BioPortal source), the value-constraint spec (JSON + YAML) with schema validation, and
-freeze-on-publish pinning all four constraint kinds on every artifact type — lives in git and the design
-doc. This tracks only what remains, in three buckets: **Pending** (to build), **Testing** (built, needs
+non-BioPortal source), the value-constraint spec (JSON + YAML) with schema validation,
+freeze-on-publish pinning all four constraint kinds on every artifact type, and multilingual label +
+synonym capture (every language preserved outside content identity, backfilled across the served
+catalog) — lives in git and the design doc. This tracks only what remains, in three buckets: **Pending** (to build), **Testing** (built, needs
 live verification), and **Future** (deferred / needs a decision / speculative). Items are numbered
 continuously as stable handles.
 
@@ -160,15 +161,29 @@ response.
    class/tree/search endpoints (single string per language; `{lang: value}` hash for `all`; `none` bucket),
    multilingual search recall so a query in any language matches, and honoring the submission's
    `naturalLanguage` for the default instead of the hardcoded English preference.
+- **14. Is the content-identity label choice correct?** `version_id` is `normalizedContentHash` with
+   labels included, which folds in each concept's single `pref_label` — the English-preferred pick
+   (English > untagged > any other; `rdfs:label` over `skos:prefLabel`), plus the IRI-fragment fallback
+   for label-less classes. Now that every language variant and synonym is captured, that choice looks
+   narrow on two counts. *Blindness:* two releases that differ only in a French label, or only in a
+   synonym, hash identically and collapse to one snapshot — a real content change invisible to identity.
+   *Arbitrariness:* identity turns on an English-first tie-break and on synthetic IRI-fragment fallbacks,
+   not on the vocabulary's own naming. Three directions: keep the single-label hash (stable, but
+   label-blind beyond the English pick); hash the full captured label set (identity reflects all names in
+   all languages, but any translation or synonym edit mints a new version); or go structure-only
+   (`includeLabels=false`) and treat all labels as display (most stable, but a pure relabeling is then
+   not a new version). The question is what "same version" should mean for a multilingual, synonym-rich
+   vocabulary. Off the current reproducibility path — freeze pins by the content-hash id whatever it
+   folds in — but a foundational identity decision, and now newly relevant because the labels exist.
 
 ### Open questions (authorities that don't fit the version model)
 
-- **14. ORCID / ROR / RRID (and DOI): not versionable per se.** A constraint names the *authority*; the
+- **15. ORCID / ROR / RRID (and DOI): not versionable per se.** A constraint names the *authority*; the
    value is a stable identifier captured in the instance — no snapshot, no current-version. The spec
    already covers the shape (`sourceSystem` set, `version` omitted). Open question: how the editor and
    instance model represent authority-typed, value-captured, unversioned fields distinctly from a
    versioned controlled term. (The instance is where these land — see item 4.)
-- **15. CompTox / PFAS (release-based databases): possibly versionable.** Content with releases, so they
+- **16. CompTox / PFAS (release-based databases): possibly versionable.** Content with releases, so they
    could fit the content-hash snapshot model *if* they expose retrievable content and release identifiers,
    and *if* a content hash of a flat set (a chemical list, not a hierarchy) is meaningful across
    serializations. Worth a spike.
