@@ -105,7 +105,23 @@ cd ../cedar-model-typescript-library && npm install && npm run build
 nvm use 20 && cd harness && npm install && npm test
 ```
 
-Expect **1,016 passing**. Watch mode is `npm run test:watch`.
+Expect **1,033 passing** on `develop`. Watch mode is `npm run test:watch`.
+
+### Coverage
+
+```bash
+nvm use 20 && cd harness && npm run test:coverage
+```
+
+Over `shared/factory`, `shared/handler`, `shared/util` and `shared/validation` —
+the domain layer the harness actually targets — expect roughly **95%
+statements**. The rest of `shared/` is Angular services, REST response models
+and pipes, which the harness does not load and should not, so the headline
+number for all of `shared/` is meaningless.
+
+Read the *never-called-function* list rather than the percentage. That is what
+found the attribute-value hole in August 2026: three functions no test had ever
+entered, one of them the widget's delete button.
 
 To run one file (note: paths are relative to the repo root, not `harness/`,
 because `vitest.config.ts` sets `root` to the repo):
@@ -116,15 +132,16 @@ npx vitest run harness/test/controlled-terms.spec.ts
 
 ### Running against the old template parser
 
-CEE builds its component tree with the CEDAR Model TypeScript Library. The
-hand-written JSON walk it used before is still in the tree, and the whole suite
-has to pass with either one underneath:
+**Branch note.** This applies on `feature/model-library-template-reading`, not
+on `develop`. There CEE builds its component tree with the CEDAR Model
+TypeScript Library, the hand-written JSON walk it used before is still in the
+tree, and the whole suite has to pass with either one underneath:
 
 ```bash
 CEE_TEMPLATE_PARSER=json-walk npm test
 ```
 
-Expect **1,016 passing** here too. Four rendered list fields across the corpus
+Expect the same count either way. Four rendered list fields across the corpus
 genuinely differ — `multipleChoice` normalised against the property's
 cardinality rather than copied verbatim — and `harness/test/corpus.spec.ts`
 names them one by one, so a difference that stops happening fails as loudly as a
