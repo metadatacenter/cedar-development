@@ -225,6 +225,39 @@ them. All five were added upstream.
 so a 25th input type without a matching builder fails the suite — which is how
 the original five surfaced.
 
+### Defect: five external-authority fields have unreachable error messages
+
+`cedar-input-pfas`, `-pmid`, `-rrid`, `-nih-grant` and `-doi` each render a
+`mat-error` bound to a type-specific error key:
+
+```html
+<mat-error *ngIf="inputValueControl.getError('invalidPmid') && !readOnlyMode">
+```
+
+Nothing ever sets those keys. Comparing what each template expects against what
+its component sets:
+
+| Component | Template expects | Ever set |
+|---|---|---|
+| orcid | `invalidOrcid`, `required` | `invalidOrcid` ✅ |
+| ror | `invalidRor`, `required` | `invalidRor` ✅ |
+| pfas | `invalidPfas`, `required` | — |
+| pmid | `invalidPmid`, `required` | — |
+| rrid | `invalidRrid`, `required` | — |
+| nih-grant | `invalidNihGrant`, `required` | — |
+| doi | `invalidDoi`, `required` | — |
+
+ORCID and ROR call `setErrors({ invalidOrcid: true })`; the five newer types
+never call `setErrors` at all. So those fields accept any string silently while
+carrying markup that looks like they validate it — worse than having no
+validation, because the code reads as though the check exists.
+
+This is a direct consequence of the duplication recorded in *Unify the external
+authority fields*: the five were copied from the ORCID/ROR pair, the error
+markup came along, and the code that raises the error did not. It is the
+concrete cost of that item rather than a hypothetical one, and fixing the
+duplication would prevent the next instance of it.
+
 ### Defect: the add button ignores maxItems when minItems is absent
 
 `CedarMultiPagerComponent.isEnabledAdd()` guards on the wrong property:
@@ -293,51 +326,53 @@ parsed by CEE:
 
 ### Where each constraint is actually enforced
 
-Three layers, and they do not agree.
+Every cell below was checked against the source or measured against a running
+editor, not inferred. ✅ enforced, ⚠️ enforced but wrong or partial, ✗ not
+enforced.
 
 | Constraint | Widget | Report | Handlers |
 |---|---|---|---|
-| required | ✅ | ✅ | ✗ |
-| text min/maxLength, regex | ✅ | ✗ | ✗ |
-| email / link / phone format | ✅ | ✗ | ✗ |
-| numeric type pattern (int, long, float, double) | ✅ | ✗ | ✗ |
-| numeric implicit `INT`/`LONG` bounds | ✅ | ✗ | ✗ |
-| numeric explicit min/max, `decimalPlace` | ✅ | ✗ | ✗ |
-| **numeric `xsd:decimal`, `xsd:byte`, `xsd:short`** | ✗ | ✗ | ✗ |
-| **temporal — everything** | ✗ | ✗ | ✗ |
-| **choice membership in literals** | partial | ✗ | ✗ |
-| **`minItems` / `maxItems`** | partial | ✗ | ✗ |
-| controlled term membership | ✗ | ✗ | ✗ |
+| **Presence** | | | |
+| `requiredValue` | ⚠️ all value widgets **except** checkbox, attribute-value and datetime, which install no validators at all | ✅ | ✗ |
+| **Text** | | | |
+| `minLength` / `maxLength` | ✅ | ✗ | ✗ |
+| `regex` | ✗ — **never applied anywhere**, despite 150 occurrences in the HuBMAP corpus. `cedar-input-text` installs no `Validators.pattern`, and `ValueInfo` has no slot for it | ✗ | ✗ |
+| **Format** | | | |
+| email | ✅ `Validators.email` | ✗ | ✗ |
+| link | ✅ hardcoded pattern (not from the template) | ✗ | ✗ |
+| phone | ✅ hardcoded pattern | ✗ | ✗ |
+| ORCID, ROR | ⚠️ `setErrors({invalidOrcid/invalidRor})`, a prefix check only — no identifier or checksum validation | ✗ | ✗ |
+| PFAS, PubMed, RRID, NIH Grant, DOI | ✗ — **dead markup**, see the defect below | ✗ | ✗ |
+| **Numeric** | | | |
+| `xsd:int`, `xsd:long` pattern + implicit bounds | ✅ | ✗ | ✗ |
+| `xsd:float`, `xsd:double` pattern | ✅ | ✗ | ✗ |
+| `decimalPlace` | ⚠️ float and double only — woven into the pattern, so it does not apply to int or long | ✗ | ✗ |
+| `minValue` / `maxValue` | ✅ | ✗ | ✗ |
+| `xsd:decimal`, `xsd:byte`, `xsd:short` | ✗ — no `Xsd` constants, so they fall through every branch | ✗ | ✗ |
+| `unitOfMeasure` | ✗ display only | ✗ | ✗ |
+| **Temporal** | | | |
+| value shape vs `temporalType` | ✗ | ✗ | ✗ |
+| value shape vs `granularity` | ✗ | ✗ | ✗ |
+| timezone present vs `timezoneEnabled` | ✗ | ✗ | ✗ |
+| calendar validity (month 13, day 40) | ✗ | ✗ | ✗ |
+| **Choice** | | | |
+| value is one of the declared literals | ⚠️ the widget constrains selection, so a user cannot violate it — an injected instance can | ✗ | ✗ |
+| **Controlled term** | | | |
+| membership in ontologies / valueSets / classes / branches | ✗ — needs the terminology server; out of scope for a local synchronous report, and worth stating as a decision | ✗ | ✗ |
+| `@id` is a well-formed IRI | ✗ | ✗ | ✗ |
+| `@id` and `rdfs:label` present as a pair | ✗ | ⚠️ fails *incidentally* — the presence check reads `rdfs:label`, so a missing label reads as empty rather than as malformed | ✗ |
+| **Cardinality** | | | |
+| `minItems` | ✅ delete button disabled at the floor | ✗ | ✗ |
+| `maxItems` | ⚠️ **buggy** — see the defect below | ✗ | ✗ |
+| **Attribute-value** | | | |
+| duplicate or blank attribute name | ✗ | ✗ | ⚠️ **auto-corrected, not validated** — `changeAttributeValue` silently substitutes `Attribute Value Field<n>`. The user's chosen name is discarded without a message |
 
-The rows in bold are checked nowhere at all.
-
-**Numeric has three unknown types.** `cedar-input-numeric` branches on
-`Xsd.int`, `Xsd.long`, `Xsd.float`, `Xsd.double` as a sequence of `if`s with no
-`else`. The model also defines `xsd:decimal`, `xsd:byte` and `xsd:short`, and
-`xsd.model.ts` has no constants for them — so those fields fall through every
-branch and get no pattern and no implicit bounds. `byte` and `short` have
-natural ranges (−128…127, −32768…32767) that `numbers.model.ts` does not
-define, alongside the `INT`/`LONG` bounds it does.
-
-**Temporal is validated nowhere.** `cedar-input-datetime.component.ts` contains
-zero validators. The stored value is built by string concatenation in
-`toStorageRepresentation`, so a value entered *through the widget* is
-well-formed by construction — but an instance injected by a host page is never
-checked, and nothing verifies the value's shape against `temporalType`,
-`granularity`, or `timezoneEnabled`. This is the largest gap and the one with
-the most structure available to check against: the model pins the type
-(date / time / dateTime), seven granularities, timezone on/off, and a 12/24
-hour input format.
-
-**Controlled terms are shallow, and mostly cannot be otherwise.** Membership in
-the declared ontologies, value sets, classes or branches needs the terminology
-server, so it does not belong in a local synchronous report — worth stating so
-its absence is a decision. Two things *are* locally checkable and are not
-checked: whether `@id` is a well-formed IRI (`{'@id': 'banana', 'rdfs:label':
-'Banana'}` passes today), and whether `@id` and `rdfs:label` are present as a
-pair. Note that the cases which do fail today fail incidentally — the presence
-check reads `rdfs:label`, so a missing label reads as empty rather than as
-malformed.
+Three things the table makes plain. The **Handlers** column is empty but for one
+cell, so nothing is enforced below the widget layer — an embedder driving
+`HandlerContext` directly has no guardrails. The **Report** column is empty but
+for presence, which is the substance of this item. And **temporal is the only
+area with no ✅ anywhere**, while being the type with the most declared
+structure to check against.
 
 **The report and the widgets disagree.** Sixteen input components render
 `mat-error` — email, link, phone, numeric, text length, ORCID, ROR, DOI, PubMed,
