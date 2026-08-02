@@ -201,6 +201,27 @@ mechanical work in the model library, not here.
 
 `harness/test/coverage.spec.ts` fails if a sixth type appears unacknowledged.
 
+### Rebrand: BMIR → Center for Computational Medicine
+
+The group has been renamed. CEE's footer still credits the old name and links
+to the old site, in four places:
+
+| What | Where |
+|---|---|
+| Logo image | `src/assets/images/bmir-logo.png` |
+| Logo CSS class | `.bmir-logo`, `static-footer.component.scss` |
+| Link and aria-label | `static-footer.component.html:5` — `https://bmir.stanford.edu` |
+| Strings | `assets/i18n-cee/en.json` and `hu.json` — `Maintained` ("…Stanford Center for Biomedical Informatics Research.") and the `BMIR` label |
+
+Needs the new logo asset and the new URL before it can be done; the string and
+markup changes are trivial once those exist. Both language files must be
+updated together, or the Hungarian map silently keeps the old name.
+
+The footer is covered by the visual baseline's `chrome` preset
+(`preset-chrome.png`), so this change will show up as a screenshot diff and the
+baseline will need re-recording as part of the work — that is the mechanism
+working, not a problem.
+
 ### Design debt worth paying independently
 
 - **Circular import.** `data-object-util.ts:157` reads one static (`iriPrefix`)
