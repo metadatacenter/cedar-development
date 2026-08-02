@@ -153,15 +153,22 @@ response.
    canonical identity explicitly, immune to acronym ambiguity and future cross-source resolution), not a
    functional gap. Do a zero-mutation dry-run first (report coverage and non-derivable acronyms) before any
    run against the live template store.
+- **13. Serve captured multilingual labels (`lang=`).** Label *capture* is shipped: every snapshot now
+   preserves every language variant of every name (labels + synonyms) with its BCP-47 tag, outside content
+   identity, backfilled across the served catalog — see [MULTILINGUAL-LABELS.md](MULTILINGUAL-LABELS.md).
+   What remains is the read side, matching BioPortal's contract: an optional `lang=<code>|all` on the
+   class/tree/search endpoints (single string per language; `{lang: value}` hash for `all`; `none` bucket),
+   multilingual search recall so a query in any language matches, and honoring the submission's
+   `naturalLanguage` for the default instead of the hardcoded English preference.
 
 ### Open questions (authorities that don't fit the version model)
 
-- **13. ORCID / ROR / RRID (and DOI): not versionable per se.** A constraint names the *authority*; the
+- **14. ORCID / ROR / RRID (and DOI): not versionable per se.** A constraint names the *authority*; the
    value is a stable identifier captured in the instance — no snapshot, no current-version. The spec
    already covers the shape (`sourceSystem` set, `version` omitted). Open question: how the editor and
    instance model represent authority-typed, value-captured, unversioned fields distinctly from a
    versioned controlled term. (The instance is where these land — see item 4.)
-- **14. CompTox / PFAS (release-based databases): possibly versionable.** Content with releases, so they
+- **15. CompTox / PFAS (release-based databases): possibly versionable.** Content with releases, so they
    could fit the content-hash snapshot model *if* they expose retrievable content and release identifiers,
    and *if* a content hash of a flat set (a chemical list, not a hierarchy) is meaningful across
    serializations. Worth a spike.
