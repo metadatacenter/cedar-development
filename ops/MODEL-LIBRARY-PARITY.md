@@ -113,10 +113,10 @@ See the table below.
 
 ### ~~TypeScript loses data that Java preserves~~ — both fixed
 
-Fixed in `cedar-model-typescript-library` @ `09fb69a`. Verified across all 21
-corpus instances: zero source keys dropped, zero keys Java emits that TypeScript
-does not. Regenerating the corpus would change two files, +25/-1, entirely
-restored entries. Regression tests in
+Fixed in `cedar-model-typescript-library` @ `09fb69a`, corpus regenerated in
+`cedar-test-artifacts` @ `235c60c`. Verified across all 21 corpus instances:
+zero source keys dropped, zero keys Java emits that TypeScript does not.
+Regression tests in
 `test/.../template-instance/InstanceRoundTripFidelity.spec.ts`.
 
 **5. ~~Empty controlled-term objects are dropped from instances~~** (was 18
@@ -187,11 +187,9 @@ round trip, and TypeScript inventing a `""` description is its own small wart.
 3. **Fix Java's `_ui._size` drop.** Unambiguous data loss with the model already
    in place, so no design decision is needed.
 4. **Fix Java's `skos:prefLabel: null`.** Same character.
-5. **Regenerate the corpus** with the fixed TypeScript library — two instance
-   files are now stale.
-6. **Add corpus cases for the four uncovered field types**, so parity for them is
+5. **Add corpus cases for the four uncovered field types**, so parity for them is
    measured rather than assumed.
-7. **Expose `booleanFieldBuilder`** in the TypeScript facade, if item 1 resolves
+6. **Expose `booleanFieldBuilder`** in the TypeScript facade, if item 1 resolves
    in favour of keeping the type.
 
 Items 3 and 4 are one-directional bugs. Items 1 and 2 are model decisions that
