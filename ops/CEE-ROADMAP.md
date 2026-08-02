@@ -175,13 +175,14 @@ Both are pinned in `harness/test/cardinality.spec.ts` under "known defects
 (characterized, not endorsed)". The tests assert current behaviour, so fixing
 either is a deliberate, visible change.
 
-1. **A filled required ORCID/ROR field never satisfies its requirement.**
-   `extractPlainValue` recognises a bare `@id` only for `InputType.link`; every
-   other IRI-valued type falls through to the controlled-term branch and reads
-   an undefined `rdfs:label`. Affects **seven** input types on `develop`
-   (`ext-orcid`, `ext-ror`, `ext-pfas`, `ext-pubmed`, `ext-rrid`,
-   `ext-nih-grant-id`, `ext-doi`). Fix: test set membership instead of equality
-   with `link` — `data-quality-report-builder.handler.ts:155`.
+1. ~~**A filled required ORCID/ROR field never satisfies its requirement.**~~
+   **Fixed.** `extractPlainValue` recognised a bare `@id` only for
+   `InputType.link`, so the other seven IRI-valued types read an absent
+   `rdfs:label` and counted as empty — a form with a required ORCID could never
+   report valid. It now consults `EXTERNAL_AUTHORITY_INPUT_TYPES`, the set
+   `DataObjectUtil.getEmptyValueWrapper` already used for the same distinction,
+   so the quality report and the instance builder agree. Covered by per-type
+   regression tests in `harness/test/cardinality.spec.ts`.
 
 2. **Filling one page of a multi element marks every page satisfied.**
    `buildRecursively` evaluates a multi element's children once against the
