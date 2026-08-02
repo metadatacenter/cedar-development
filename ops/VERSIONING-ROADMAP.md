@@ -20,7 +20,7 @@ Replace BioPortal for lookup wherever we can, and make every published template 
 reproducible against pinned vocabulary versions. The versioning **backend (freeze-on-publish, catalog,
 resolution) and the compact-YAML dialect are code-complete** — the version-aware YAML is published as a
 preview only, pending production. The remaining gaps: the frontend (CEE sending the pin, the Workbench
-version picker) and instance-level capture (item 4).
+version picker) and instance-level capture (item 5).
 
 ## Pending
 
@@ -56,7 +56,24 @@ version picker) and instance-level capture (item 4).
 
 ## Future
 
-### 4. Instance-level version capture (design decision documented)
+### 4. Is the content-identity label choice correct?
+
+`version_id` is `normalizedContentHash` with labels included, which folds in each concept's single
+`pref_label` — the English-preferred pick (English > untagged > any other; `rdfs:label` over
+`skos:prefLabel`), plus the IRI-fragment fallback for label-less classes. Now that every language variant
+and synonym is captured, that choice looks narrow on two counts. *Blindness:* two releases that differ
+only in a French label, or only in a synonym, hash identically and collapse to one snapshot — a real
+content change invisible to identity. *Arbitrariness:* identity turns on an English-first tie-break and on
+synthetic IRI-fragment fallbacks, not on the vocabulary's own naming. Three directions: keep the
+single-label hash (stable, but label-blind beyond the English pick); hash the full captured label set
+(identity reflects all names in all languages, but any translation or synonym edit mints a new version);
+or go structure-only (`includeLabels=false`) and treat all labels as display (most stable, but a pure
+relabeling is then not a new version). The question is what "same version" should mean for a multilingual,
+synonym-rich vocabulary. Off the current reproducibility path — freeze pins by the content-hash id
+whatever it folds in — but a foundational identity decision, and now newly relevant because the labels
+exist.
+
+### 5. Instance-level version capture (design decision documented)
 
 Freeze pins the *constraint* to a vocabulary version; this pins the *filled value*. When a user picks a
 term, the instance should record which term **and which version it came from**, so a filled instance is
@@ -112,27 +129,27 @@ response.
 
 ### Other deferred backend work
 
-- **5. Retire the ontology-constraint `sourceUri` from the model/JSON.** The YAML half is done — it is no
+- **6. Retire the ontology-constraint `sourceUri` from the model/JSON.** The YAML half is done — it is no
    longer authored and is reconstructed from the acronym (its "non-derivable" premise was overturned:
    every ontology URL is BioPortal with the acronym as its path). What remains: the model still marks
    `uri` required and the JSON Schema still carries it. Fully retiring it needs the model field made
    optional (or the JSON side to derive it too) and the editor to stop writing it.
-- **6. Relax the value-set collection cap.** Integrated-search restricts a value-set constraint to three
+- **7. Relax the value-set collection cap.** Integrated-search restricts a value-set constraint to three
    collections (CEDARVS/NLMVS/CADSR-VS) via `BP_VS_COLLECTIONS_READ_REGEX`; a frozen value-set constraint
    on any other collection 422s at populate.
-- **7. Surface ambiguous-declared-version resolution.** Off the reproducibility path (freeze pins by
+- **8. Surface ambiguous-declared-version resolution.** Off the reproducibility path (freeze pins by
    content-hash `id`, not the declared-version label). Return the ambiguous-declared-version WARN in the
    response; optionally expose `/versions`, `/versions/diff`, and provenance.
-- **8. Lookup-coverage tail (replace-BioPortal track, orthogonal to versioning).** IRI-fragment label
+- **9. Lookup-coverage tail (replace-BioPortal track, orthogonal to versioning).** IRI-fragment label
    fallback for the 179 zero-label ontologies; reclaim the 4 quality-deferred (DDSS re-ingest,
    EHDAA/BSAO/EO1 0-edge extraction — issue #12).
-- **9. Where `actions` belongs in the YAML.** `actions` (delete/move refinements on the term set)
+- **10. Where `actions` belongs in the YAML.** `actions` (delete/move refinements on the term set)
    currently render as a field-level key, a sibling of `values`, naming each affected term by `termIri` +
    `sourceAcronym`. Open question: is that the right home, or should each action nest inside the `values`
    entry it refines, so a refinement travels with its source? Field-level keeps all actions in one place
    and mirrors the CEDAR JSON `_valueConstraints.actions` array; per-entry ties each refinement to the
    source it applies to but scatters actions across entries. Decide before the version-aware YAML ships.
-- **10. Ingest ontologies from more sources.** *Shipped:* `--source url` (`DirectUrlSubmissionSource` —
+- **11. Ingest ontologies from more sources.** *Shipped:* `--source url` (`DirectUrlSubmissionSource` —
    any URL) and `--source bioportal --base-url` (any OntoPortal instance: AgroPortal, EcoPortal, …).
    Proven across five serializations (RDF/XML, OBO, Turtle, gzipped OWL, SKOS) and nine authorities, with
    source-, serialization-, and host-independent content-hash identity confirmed on real data (BFO
@@ -142,7 +159,7 @@ response.
    already resolves correctly (serve locally or report unavailable). *Remaining:* bulk-harvest OLS
    `fileLocation`s; label the OntoPortal authority on the snapshot (backend records `bioportal` regardless
    of instance).
-- **11. Backfill `iri`/`sourceSystem` onto existing stored constraints.** A data migration over published
+- **12. Backfill `iri`/`sourceSystem` onto existing stored constraints.** A data migration over published
    CEDAR templates, not a code change — and not required for function, since tolerant readers already
    default a constraint with no `sourceSystem`/`iri` to BioPortal + acronym-derived resolution. Two halves:
    `sourceSystem` is a no-op (absent already means BioPortal everywhere it is read, including the router);
@@ -153,7 +170,7 @@ response.
    canonical identity explicitly, immune to acronym ambiguity and future cross-source resolution), not a
    functional gap. Do a zero-mutation dry-run first (report coverage and non-derivable acronyms) before any
    run against the live template store.
-- **12. Serve captured multilingual labels (`lang=`). *Mostly shipped.*** Capture was already done (every
+- **13. Serve captured multilingual labels (`lang=`). *Mostly shipped.*** Capture was already done (every
    snapshot preserves every language variant of every name, outside content identity, backfilled across the
    served catalog — see [MULTILINGUAL-LABELS.md](MULTILINGUAL-LABELS.md)). The read side is now live on the
    local serving path: multilingual + synonym **search recall** (a query in any language or against a
@@ -163,36 +180,29 @@ response.
    deferred:* `lang=all` (the `{lang:value}` hash), `lang=` on the public `search`/tree output, and honoring
    the submission's `naturalLanguage` for the default (the default stays English-preferred) — all by
    decision, not blockers.
-- **13. Is the content-identity label choice correct?** `version_id` is `normalizedContentHash` with
-   labels included, which folds in each concept's single `pref_label` — the English-preferred pick
-   (English > untagged > any other; `rdfs:label` over `skos:prefLabel`), plus the IRI-fragment fallback
-   for label-less classes. Now that every language variant and synonym is captured, that choice looks
-   narrow on two counts. *Blindness:* two releases that differ only in a French label, or only in a
-   synonym, hash identically and collapse to one snapshot — a real content change invisible to identity.
-   *Arbitrariness:* identity turns on an English-first tie-break and on synthetic IRI-fragment fallbacks,
-   not on the vocabulary's own naming. Three directions: keep the single-label hash (stable, but
-   label-blind beyond the English pick); hash the full captured label set (identity reflects all names in
-   all languages, but any translation or synonym edit mints a new version); or go structure-only
-   (`includeLabels=false`) and treat all labels as display (most stable, but a pure relabeling is then
-   not a new version). The question is what "same version" should mean for a multilingual, synonym-rich
-   vocabulary. Off the current reproducibility path — freeze pins by the content-hash id whatever it
-   folds in — but a foundational identity decision, and now newly relevant because the labels exist.
+- **14. Extend the value-constraint YAML to express a term's language.** A controlled-term constraint
+   currently says nothing about language; a field always renders (and searches) labels in the served
+   default. Add a key naming the language the field should present its terms in — `termLanguage`, or
+   `termDefaultLanguage` if a field may hold values in several languages and the key only sets the default
+   (name to be decided). On the read side it maps to the `lang=` the editor/CEE already sends to the
+   terminology server (item 13); mostly a spec + editor addition, orthogonal to the identity question
+   (item 4).
 
 ### Open questions (authorities that don't fit the version model)
 
-- **14. ORCID / ROR / RRID (and DOI): not versionable per se.** A constraint names the *authority*; the
+- **15. ORCID / ROR / RRID (and DOI): not versionable per se.** A constraint names the *authority*; the
    value is a stable identifier captured in the instance — no snapshot, no current-version. The spec
    already covers the shape (`sourceSystem` set, `version` omitted). Open question: how the editor and
    instance model represent authority-typed, value-captured, unversioned fields distinctly from a
-   versioned controlled term. (The instance is where these land — see item 4.)
-- **15. CompTox / PFAS (release-based databases): possibly versionable.** Content with releases, so they
+   versioned controlled term. (The instance is where these land — see item 5.)
+- **16. CompTox / PFAS (release-based databases): possibly versionable.** Content with releases, so they
    could fit the content-hash snapshot model *if* they expose retrievable content and release identifiers,
    and *if* a content hash of a flat set (a chemical list, not a hierarchy) is meaningful across
    serializations. Worth a spike.
 
 ## Ingestion tracker (ongoing)
 
-An **iterative** task: updated each time more ontologies are ingested from other repositories (item 10).
+An **iterative** task: updated each time more ontologies are ingested from other repositories (item 11).
 Identity is the content hash, so the same release from multiple sources/serializations collapses to one
 snapshot — the distinct-hash count is the true store size. Method/findings in
 [ONTOLOGY-INGEST-SOURCES.md](ONTOLOGY-INGEST-SOURCES.md).
