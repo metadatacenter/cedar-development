@@ -544,6 +544,34 @@ to revert to a pure BioPortal proxy):
   while its local roots still diverge (roots divergence is dominated by BioPortal-endpoint quirks:
   import orphans we drop, Protégé/upper-ontology artifacts BioPortal lists that we drop — not our bug).
 
+### Multilingual labels & synonyms (`lang=`)
+
+For locally-served ontologies the store keeps every language variant of every name and every synonym
+(captured at ingest, backfilled across the served catalog — see
+[MULTILINGUAL-LABELS.md](MULTILINGUAL-LABELS.md)). The read path serves them:
+
+- **Search recall** — a query matches a label in any language or a synonym, not just the served
+  `pref_label`; an empty-query browse is unchanged.
+- **Synonyms** — returned on class detail (`GET /bioportal/ontologies/{acronym}/classes/{id}`).
+- **`lang=<bcp47>`** — request a language on the class endpoint and on integrated-search:
+  - `GET /bioportal/ontologies/{acronym}/classes/{id}?lang=fr`
+  - `POST /bioportal/integrated-search?lang=fr`
+
+  Returns the label in that language, falling back to the default (English-preferred) when a concept has
+  none in it. Honored only on the local path; a BioPortal-proxied ontology returns BioPortal's own
+  default. Deferred by decision: `lang=all` (the `{lang:value}` hash), `lang=` on the public
+  `search`/tree output, and honoring the submission's `naturalLanguage` for the default.
+
+Quick check (integrated-search has auth disabled, so no token needed):
+
+```bash
+curl -s -X POST 'http://localhost:9004/bioportal/integrated-search?lang=fr' \
+  -H 'Content-Type: application/json' \
+  -d '{"parameterObject":{"valueConstraints":{"ontologies":[{"acronym":"ONTOPARON"}],"branches":[],"valueSets":[],"classes":[]},"inputText":"occupational"},"page":1,"pageSize":3}' \
+  | python3 -c 'import sys,json;[print(c["prefLabel"]) for c in json.load(sys.stdin)["collection"]]'
+# -> professionnel / accident du travail / ergothérapie  (English by default)
+```
+
 ### Re-ingesting an ontology
 
 Ingest is `IngestJob <catalogPath> <snapshotDir> <ACRONYM>…`, `BIOPORTAL_API_KEY` in the env. OWLAPI
