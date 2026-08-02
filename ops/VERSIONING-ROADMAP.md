@@ -6,9 +6,10 @@ identity re-key with de-confliction, source-independence against OBO Foundry, mu
 (BioPortal, OBO Foundry, any URL, any OntoPortal — serving a non-BioPortal snapshot verified live on the
 running server), `sourceSystem` routing (serve locally or report unavailable, never proxy BioPortal for a
 non-BioPortal source), the value-constraint spec (JSON + YAML) with schema validation,
-freeze-on-publish pinning all four constraint kinds on every artifact type, and multilingual label +
+freeze-on-publish pinning all four constraint kinds on every artifact type, multilingual label +
 synonym capture (every language preserved outside content identity, backfilled across the served
-catalog) — lives in git and the design doc. This tracks only what remains, in three buckets: **Pending** (to build), **Testing** (built, needs
+catalog), and `owl:Ontology`-header identity recovery for acronym-only ontologies — lives in git and the
+design doc. This tracks only what remains, in three buckets: **Pending** (to build), **Testing** (built, needs
 live verification), and **Future** (deferred / needs a decision / speculative). Items are numbered
 continuously as stable handles.
 
@@ -115,9 +116,16 @@ response.
    every ontology URL is BioPortal with the acronym as its path). What remains: the model still marks
    `uri` required and the JSON Schema still carries it. Fully retiring it needs the model field made
    optional (or the JSON side to derive it too) and the editor to stop writing it.
-- **6. `owl:Ontology`-header IRI derivation.** Parse the ontology header at ingest as an extra iri source,
-   to restore a clean identity for import-leaked non-OBO ontologies (NCIT on `Thesaurus.owl`) that
-   de-confliction leaves acronym-only.
+- **6. `owl:Ontology`-header IRI derivation. *Shipped.*** An ontology whose class IRIs sit under a
+   file/host base (NCIT on `Thesaurus.owl`) or a namespace it only imports has no clean own namespace, so
+   de-confliction left it acronym-only. Identity is now restored from the ontology's self-declared
+   `owl:Ontology` IRI, read by a fast file-head scan (`OntologyHeaderIri`: RDF/XML `rdf:about` incl.
+   `rdf:about=""`→`xml:base` and DOCTYPE-entity expansion, OWL/XML, Turtle/N-Triples), rejecting
+   editor-default placeholders (`unnamed.owl`, `ont.owl`). Used at ingest as the identity fallback and
+   backfilled over the served catalog (`--backfill-header-iri`): **acronym-only 204 → 114 (90 restored),
+   0 malformed, 0 false merges** — BAO/BAO-GPCR now hold distinct identities, the APA clusters each their
+   own. The residual 114 are genuinely header-less (SKOS/`rdf:Description`/anonymous), header collisions
+   de-confliction correctly declines, or unfetchable BioPortal acronyms.
 - **7. Relax the value-set collection cap.** Integrated-search restricts a value-set constraint to three
    collections (CEDARVS/NLMVS/CADSR-VS) via `BP_VS_COLLECTIONS_READ_REGEX`; a frozen value-set constraint
    on any other collection 422s at populate.
