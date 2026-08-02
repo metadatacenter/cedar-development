@@ -225,6 +225,40 @@ them. All five were added upstream.
 so a 25th input type without a matching builder fails the suite — which is how
 the original five surfaced.
 
+### Defect: the add button ignores maxItems when minItems is absent
+
+`CedarMultiPagerComponent.isEnabledAdd()` guards on the wrong property:
+
+```ts
+isEnabledAdd(): boolean {
+  if (this.component.multiInfo.minItems != null) {      // <- minItems
+    if (this.currentMultiInfo.currentCount >= this.component.multiInfo.maxItems) {
+      return false;
+    }
+  }
+  return true;
+}
+```
+
+The guard tests `minItems` and the comparison uses `maxItems`. A field
+declaring `maxItems` without `minItems` therefore never disables the add
+button, and the upper bound is unenforced. Where `minItems` *is* present the
+outcome is right by accident. `isEnabledDelete` two methods above is correct,
+so this is a copy-paste slip rather than a design.
+
+One-word fix — `maxItems != null`. Not done here because it changes which
+buttons are clickable, and UI changes are being held.
+
+Worth knowing alongside it: cardinality is enforced *only* by these two
+methods disabling buttons. Neither the handlers nor the quality report check
+bounds, so `addMultiInstance` called directly will happily exceed `maxItems`
+— demonstrated at 7 instances against `maxItems: 3`. Same shape as read-only:
+a constraint enforced by the widget layer alone.
+
+The domain harness cannot reach this one, since `isEnabledAdd` is component
+logic rather than domain logic. The visual suite could cover the disabled
+state.
+
 ### Finish the data quality report
 
 The README says of the report's three fields: *"At the moment these three fields
@@ -232,20 +266,78 @@ are available, with more to come."* The more never came. What exists is a
 required-fields-present check named "data quality report", and the name is
 writing a cheque the implementation does not honour.
 
-**It validates presence and nothing else.** Every one of these reports
-`isValid: true`, with the constraint declared in the template and parsed by CEE
-into `valueInfo` / `numberInfo`:
+**It validates presence and nothing else.** Every case below reports
+`isValid: true`, with the constraint declared in the template and already
+parsed by CEE:
 
-| Field | Constraint | Value given |
+| Area | Constraint | Value given |
 |---|---|---|
-| email | — | `not-an-email` |
-| text | `minLength: 8` | `abc` |
-| text | `maxLength: 3` | `abcdefgh` |
-| text | `regex: ^[A-Z]{3}$` | `zzz` |
+| numeric | `xsd:int` | `abc` |
+| numeric | `xsd:int` | `3.7` |
+| numeric | `xsd:int` | `2147483648` (over `INT_MAX`) |
 | numeric | `minValue: 0, maxValue: 10` | `999` |
-| numeric | `numberType: int` | `abc` |
-| link | — | `totally not a uri` |
-| phone | — | `!!!` |
+| numeric | `decimalPlaces: 2` | `1.23456` |
+| temporal | `granularity: year` | `2026-08-02T10:30:00` |
+| temporal | `xsd:date` | `10:30:00` (time only) |
+| temporal | `xsd:time` | `2026-08-02` (date only) |
+| temporal | any | `not a date at all` |
+| temporal | `timezoneEnabled: false` | `2026-08-02T10:30:00-08:00` |
+| temporal | `granularity: second` | `2026-08-02T10:30` (no seconds) |
+| temporal | `xsd:date` | `2026-13-40` (month 13, day 40) |
+| choice | literals `Alpha`, `Beta` | `Zeta` |
+| cardinality | `minItems: 2` | 0 instances |
+| cardinality | `maxItems: 3` | 7 instances |
+| cardinality | multi field `minItems: 3` | 1 entry |
+| text | `minLength`, `maxLength`, `regex` | violating values |
+| email / link / phone | format | `not-an-email`, `totally not a uri`, `!!!` |
+
+### Where each constraint is actually enforced
+
+Three layers, and they do not agree.
+
+| Constraint | Widget | Report | Handlers |
+|---|---|---|---|
+| required | ✅ | ✅ | ✗ |
+| text min/maxLength, regex | ✅ | ✗ | ✗ |
+| email / link / phone format | ✅ | ✗ | ✗ |
+| numeric type pattern (int, long, float, double) | ✅ | ✗ | ✗ |
+| numeric implicit `INT`/`LONG` bounds | ✅ | ✗ | ✗ |
+| numeric explicit min/max, `decimalPlace` | ✅ | ✗ | ✗ |
+| **numeric `xsd:decimal`, `xsd:byte`, `xsd:short`** | ✗ | ✗ | ✗ |
+| **temporal — everything** | ✗ | ✗ | ✗ |
+| **choice membership in literals** | partial | ✗ | ✗ |
+| **`minItems` / `maxItems`** | partial | ✗ | ✗ |
+| controlled term membership | ✗ | ✗ | ✗ |
+
+The rows in bold are checked nowhere at all.
+
+**Numeric has three unknown types.** `cedar-input-numeric` branches on
+`Xsd.int`, `Xsd.long`, `Xsd.float`, `Xsd.double` as a sequence of `if`s with no
+`else`. The model also defines `xsd:decimal`, `xsd:byte` and `xsd:short`, and
+`xsd.model.ts` has no constants for them — so those fields fall through every
+branch and get no pattern and no implicit bounds. `byte` and `short` have
+natural ranges (−128…127, −32768…32767) that `numbers.model.ts` does not
+define, alongside the `INT`/`LONG` bounds it does.
+
+**Temporal is validated nowhere.** `cedar-input-datetime.component.ts` contains
+zero validators. The stored value is built by string concatenation in
+`toStorageRepresentation`, so a value entered *through the widget* is
+well-formed by construction — but an instance injected by a host page is never
+checked, and nothing verifies the value's shape against `temporalType`,
+`granularity`, or `timezoneEnabled`. This is the largest gap and the one with
+the most structure available to check against: the model pins the type
+(date / time / dateTime), seven granularities, timezone on/off, and a 12/24
+hour input format.
+
+**Controlled terms are shallow, and mostly cannot be otherwise.** Membership in
+the declared ontologies, value sets, classes or branches needs the terminology
+server, so it does not belong in a local synchronous report — worth stating so
+its absence is a decision. Two things *are* locally checkable and are not
+checked: whether `@id` is a well-formed IRI (`{'@id': 'banana', 'rdfs:label':
+'Banana'}` passes today), and whether `@id` and `rdfs:label` are present as a
+pair. Note that the cases which do fail today fail incidentally — the presence
+check reads `rdfs:label`, so a missing label reads as empty rather than as
+malformed.
 
 **The report and the widgets disagree.** Sixteen input components render
 `mat-error` — email, link, phone, numeric, text length, ORCID, ROR, DOI, PubMed,
