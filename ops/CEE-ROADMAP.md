@@ -333,6 +333,28 @@ read-only plus `hideEmptyFields` is the viewer configuration, and read-only
 also suppresses the widgets' own errors. An injected instance therefore reached
 the screen with no validation at any layer. The report is now always built.
 
+### Adopt the model library instead of hand-reading JSON
+
+CEE parses template JSON and builds instance JSON by hand — 475 LOC and 77 raw
+key lookups for templates, 2,084 LOC and 112 lookups for instances — against its
+own copy of the model vocabulary, which the CEDAR Model TypeScript Library
+already owns. That duplication is how CEE came to know four numeric types where
+the model has seven.
+
+Scoped in [CEE-MODEL-LIBRARY-ADOPTION.md](./CEE-MODEL-LIBRARY-ADOPTION.md).
+Template reading is tractable and the library covers every key CEE reads;
+instance *writing* is not a refactor at all and should not be scoped as one.
+
+Two findings from the scoping worth acting on independently:
+
+- CEE **crashes on `template-003`** in the shared corpus. Its `_ui.order` names a
+  child with no entry in `properties`, and the factory dereferences it unguarded.
+  The model library reads the same template without complaint. 36 of the 37
+  corpus templates parse; this one hard-fails.
+- The harness generates every template it tests with, so CEE has never been run
+  against a human-authored one. Closing that gap took a single throwaway test
+  and found the crash above.
+
 ### Unify the external authority fields
 
 Seven field types — ORCID, ROR, PFAS, PubMed, RRID, NIH Grant, DOI — are
