@@ -292,12 +292,12 @@ and the report can no longer disagree, because they ask the same function.
 | timezone vs `timezoneEnabled` | ✅ | ✅ | ✗ |
 | calendar validity | ✅ | ✅ | ✗ |
 | choice membership | ✅ | ✅ | ✗ |
-| `minItems` / `maxItems` | ✅ | ✅ | ✗ |
+| `minItems` / `maxItems` | ✅ | ✅ | ✅ |
 | controlled-term structure (`@id`/`rdfs:label` pair, IRI form) | ✅ | ✅ | ✗ |
 | controlled-term **membership** | ✗ | ✗ | ✗ |
 | attribute-value name uniqueness | n/a | n/a | auto-corrected |
 
-Two cells are not green, both deliberately.
+One cell is not green, deliberately.
 
 **Controlled-term membership** cannot be checked locally. Deciding whether a
 term belongs to the declared ontologies, value sets, classes or branches needs
@@ -307,63 +307,31 @@ claimed to. A test pins the boundary so it reads as a decision rather than an
 oversight. Closing it means an asynchronous validation pass, which is a
 different feature.
 
-**The Handlers column stays empty**, and that is a real gap rather than a
-decision. `HandlerContext` accepts any write: `changeValue` stores whatever it
-is given, `addMultiInstance` will exceed `maxItems`, and read-only does not
-prevent a programmatic edit. An embedder driving the handlers directly rather
-than through the widgets has no guardrails. Now that the validator is pure and
-callable from anywhere, closing this is mostly a question of what should happen
-on a violation — reject, or record and continue — which is a design decision.
+**The Handlers column** is now green where it should be and empty where it
+should be, which took separating two cases that look alike:
+
+- *Value writes stay permissive.* Reaching `10` in a field with `minValue: 10`
+  means passing through `1`. Intermediate states are legitimately invalid, and
+  a handler that refused them would make the field untypeable. Storing freely
+  and judging separately is the right design, not a gap.
+- *Structural operations are enforced.* There is no transient state in which an
+  element holds more instances than `maxItems` allows, so `addMultiInstance`,
+  `copyMultiInstance` and `deleteMultiInstance` refuse to cross a bound and
+  return whether the operation happened. Refusal is a no-op plus a trace rather
+  than an exception: the pager already disables the control at the bound, so a
+  call arriving there is a caller bug, and throwing would take the editor down
+  over something recoverable.
 
 **Attribute-value** names are auto-corrected rather than validated: a duplicate
 or blank name is silently replaced with `Attribute Value Field<n>`, discarding
 what the user typed. Not a validation gap so much as a missing message.
 
-**The report and the widgets disagree.** Sixteen input components render
-`mat-error` — email, link, phone, numeric, text length, ORCID, ROR, DOI, PubMed,
-RRID, NIH Grant, controlled, select, multiple-choice, and the date picker. So
-for a malformed email the form shows a red error *and* the report says the
-instance is valid, at the same instant. A host page polling
-`cee.dataQualityReport.isValid` to gate submission will accept metadata the user
-can see is wrong.
-
-That is the same shape as two of the three defects closed above: a second place
-forming its own opinion instead of consulting the first. Here the two opinions
-are visible side by side on screen.
-
-**There are no diagnostics.** The contract is two integers and a boolean.
-`requiredFieldValueCount: 3, nonNullRequiredFieldValueCount: 2` says something is
-missing but not what, so an embedder cannot tell the user which field to fix.
-The `valueTree` is a data dump, not a problem list.
-
-**Nothing new needs parsing.** CEE already reads every constraint required —
-`minLength`, `maxLength`, `regex`, `numberType`, `minValue`, `maxValue`,
-`decimalPlace`, `temporalType`, `granularity`, choice literals, and
-`minItems`/`maxItems` — and the widgets already implement most of the checks as
-Angular validators. The work is not writing validation; it is putting the
-existing validation somewhere both consumers can reach.
-
-Suggested shape:
-
-- Extract the widgets' validators into pure functions keyed by input type, and
-  have both the `FormControl` setup and the report call them. One definition of
-  "valid email", not two.
-- Add `problems: Array<{ path, code, message }>` to `DataQualityReport`, so the
-  host can point at a field. Keep the counters for backwards compatibility.
-- Cover the constraints nothing checks today: numeric range and type, choice
-  membership, and `minItems`/`maxItems` cardinality.
-- Controlled-term membership needs the terminology server and should stay out
-  of a local, synchronous report — worth stating explicitly so its absence is a
-  decision rather than an oversight.
-
-Also unresolved, and now characterized in `harness/test/cardinality.spec.ts`
-rather than assumed: an element with **zero** instances contributes zero
-requirements, so a template whose only required field sits inside one reports
-vacuously valid.
-
-The harness makes this safe to take on — the report is already its most heavily
-covered surface, and `expectNoErrors` plus the round-trip oracle will catch
-collateral.
+The viewer used to be the weakest path in the system. `DataContext
+.setInputTemplate` skipped the quality report in read-only mode, on the
+reasoning that nothing can be edited so validity is uninteresting — but
+read-only plus `hideEmptyFields` is the viewer configuration, and read-only
+also suppresses the widgets' own errors. An injected instance therefore reached
+the screen with no validation at any layer. The report is now always built.
 
 ### Unify the external authority fields
 
