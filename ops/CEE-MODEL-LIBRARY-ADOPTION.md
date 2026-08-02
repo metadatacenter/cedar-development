@@ -57,7 +57,7 @@ builds a template and parses it, so the factory is on every path.
 
 Two gaps matter, and only one is serious.
 
-### 1. The corpus gap — real templates, cheaply closed
+### 1. The corpus gap — real templates ✅ closed
 
 The harness generates every template it uses. That is deliberate and it buys
 enumerable coverage, but it means CEE has never been tested against a template a
@@ -77,9 +77,8 @@ parsed ok: 36 / 37
 same template without complaint — that case has both TS and Java generated
 output in the corpus.
 
-So CEE hard-fails on a real artifact the library tolerates. Small fix, and it
-should land **before** any refactor, so the corpus can be used as a safety net
-rather than being blocked by one crash.
+So CEE hard-failed on a real artifact the library tolerates. Fixed, and the
+corpus is now a standing part of the suite.
 
 ### 2. The oracle problem — the real risk
 
@@ -102,20 +101,32 @@ The JSON contract is no longer tested by CEE's tests at all. A library bug that
 is symmetric between its writer and reader becomes invisible — and both of the
 fidelity bugs fixed in the library recently were exactly that shape.
 
-**Mitigation, and it is not optional:** add corpus-driven tests whose input is
-hand-authored JSON the library did not produce. `cedar-test-artifacts` has 37
-templates and 21 instances; `cedar-artifact-library` ships the HuBMAP YAML
-corpus. Those keep an independent oracle in the loop. This is the one piece of
-new testing the refactor genuinely requires.
+**Mitigation — now in place.** `test/corpus.spec.ts` runs CEE over 37
+`cedar-test-artifacts` fixtures and 57 HuBMAP production templates, none of
+which the library produced. That keeps an independent oracle in the loop, and
+the tree snapshots make any behavioural change across the refactor visible as a
+diff rather than a judgement call.
 
 ## Scope, in phases
 
-**Phase 0 — prerequisites.** Fix the `_ui.order` crash. Add corpus-driven tests
-over all 37 templates and 21 instances, asserting CEE parses them and produces a
-stable component tree. Snapshot the resulting trees so the refactor has a
-before/after to diff. *Small; a day.*
+**Phase 0 — prerequisites. ✅ done** (`cedar-embeddable-editor` @ `25bf538`,
+`a2c9e56`.)
 
-**Phase 1 — template reading.** Replace `TemplateRepresentationFactory`'s raw
+The `_ui.order` crash is fixed: the orphan is skipped and reported rather than
+taking the editor down. `test/corpus.spec.ts` covers **37 numbered fixtures and
+57 HuBMAP production templates**, plus the 21 corpus instances, each with a
+checked-in structural fingerprint — 94 snapshots, 1,794 lines. The harness went
+from 671 tests to 1,016; the visual baselines are unchanged at 36.
+
+The HuBMAP set is where the value is. Those are templates people authored and
+used, with deep element nesting, controlled terms throughout and the long tail
+of `_ui` metadata a generator never emits. All 57 parse cleanly.
+
+Snapshots record names, types, cardinality, constraints and nesting rather than
+the whole representation, which carries object identity and cursors and would
+churn on changes that mean nothing. They exist to be diffed across Phase 1.
+
+**Phase 1 — template reading. ⬅ next, and now safe to start.** Replace `TemplateRepresentationFactory`'s raw
 JSON walk with `JsonTemplateReader`, mapping the library's parsed model onto
 CEE's component tree. Delete the duplicated vocabulary constants. 475 LOC
 touched, but the tree it produces is unchanged, so the whole harness plus the
@@ -135,14 +146,15 @@ substitution. **Recommend deferring** until 1 and 2 have settled.
 
 ## Verdict
 
-Phases 0 and 1 are safe to attempt now — the behavioural tests are strong, and
-Phase 0 closes the one input-coverage gap while the corpus snapshots give an
-exact before/after.
+Phase 0 is done, and it did what it was for — it found a crash on the first run.
+
+**Phase 1 is safe to start.** 1,016 behavioural tests, 94 tree snapshots over
+input the library did not generate, and 36 visual baselines. The oracle problem
+is answered rather than merely noted.
 
 Phase 2 is safe once Phase 1 has shaken out.
 
 Phase 3 is not a refactor and should not be scoped as one.
 
-The condition on all of it is the oracle problem: without corpus-driven tests,
-adopting the library for both generation and parsing would leave CEE's JSON
-handling effectively untested, however green the suite looks.
+Phases 1 and beyond should go on a feature branch — Phase 0 was additive and
+belonged on `develop`, but replacing the parser does not.
