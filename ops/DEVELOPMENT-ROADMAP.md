@@ -8,7 +8,9 @@ For how to run and build the system see [DEVELOPMENT-RUNBOOK.md](./DEVELOPMENT-R
 State" section records what the stack currently sits on. Library-internal items belong in that
 library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact-library/ROADMAP.md).
 Frontend work for the embeddable editor is tracked separately in
-[CEE-ROADMAP.md](./CEE-ROADMAP.md).
+[CEE-ROADMAP.md](./CEE-ROADMAP.md). Parity between the Java and TypeScript
+model libraries — where their JSON and YAML serializations diverge — is in
+[MODEL-LIBRARY-PARITY.md](./MODEL-LIBRARY-PARITY.md).
 
 ## Next
 
