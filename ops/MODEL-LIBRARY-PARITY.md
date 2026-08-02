@@ -111,21 +111,34 @@ still a serialization difference.
 
 See the table below.
 
-### TypeScript loses data that Java preserves
+### ~~TypeScript loses data that Java preserves~~ — both fixed
 
-**5. Empty controlled-term objects are dropped from instances** (18 occurrences)
+Fixed in `cedar-model-typescript-library` @ `09fb69a`. Verified across all 21
+corpus instances: zero source keys dropped, zero keys Java emits that TypeScript
+does not. Regenerating the corpus would change two files, +25/-1, entirely
+restored entries. Regression tests in
+`test/.../template-instance/InstanceRoundTripFidelity.spec.ts`.
 
-See the table below.
+**5. ~~Empty controlled-term objects are dropped from instances~~** (was 18
+occurrences)
 
-**6. `@context` entries for children with no data** (`instances/005`)
+The reader classified `{}` correctly as an empty atom; the writer's
+`serializeCommonType` had no branch for that type, fell through to `return
+null`, and the caller then skipped the key. The field vanished. A branch
+returning `{}` fixes it.
+
+**6. ~~`@context` entries for children with no data~~** (`instances/005`)
 
 The source `@context` maps both `Element` and `Element1` to property IRIs.
 Neither appears in the instance body. Java preserves both entries; TypeScript
 drops them, keeping only the entries whose child carries data.
 
-Defensible as pruning, but it is a divergence from both the source and Java, and
-it means a round trip through TypeScript is not idempotent for an instance whose
-template declares more children than the data populates.
+The reader built its mapping by walking the keys present in the body, so
+entries for unpopulated children were dropped. It now also walks the source
+`@context` and keeps anything not covered by the standard prefixes, since that
+is by definition a child property IRI. The new pass runs after the
+attribute-value pass so existing key order is untouched and the change is purely
+additive.
 
 ### Empty values in instances — the systematic one
 
@@ -134,16 +147,18 @@ no exceptions.
 
 | Source | Java emits | TypeScript emits |
 |---|---|---|
-| `{}` (18×) | `{}` — faithful | **key absent** |
+| `{}` (18×) | `{}` — faithful | `{}` — faithful *(was: key absent)* |
 | `{"@value": null}` (44×) | `{}` — **normalised** | `{"@value": null}` — faithful |
 
-Neither library round-trips the source faithfully, and each is faithful exactly
-where the other is not. Java collapses every empty field to `{}`, losing the
-distinction between an empty literal and an empty controlled term. TypeScript
-keeps that distinction but omits the empty controlled term altogether.
+TypeScript is now faithful to both shapes. Java still collapses every empty
+field to `{}`, losing the distinction between an empty literal and an empty
+controlled term.
 
-Whether `{}` and `{"@value": null}` are meant to be distinguishable is a model
-question, and answering it decides which library changes.
+That leaves the model question live rather than settled: TypeScript now
+*preserves* a distinction Java erases, so the two still disagree on 44
+occurrences. If `{}` and `{"@value": null}` are meant to be the same thing,
+TypeScript is over-faithful and Java is right; if they are not, Java is losing
+data. Someone has to say which.
 
 ### Both diverge from the source
 
@@ -165,16 +180,23 @@ round trip, and TypeScript inventing a `""` description is its own small wart.
 
 1. **Decide on `boolean`.** It gates whether three corpus artifacts are valid,
    and it is the only whole-type divergence.
-2. **Decide whether `{}` and `{"@value": null}` are distinguishable.** It is the
-   largest class by occurrence and both libraries are currently wrong about it in
-   opposite directions.
+2. **Decide whether `{}` and `{"@value": null}` are distinguishable.** The
+   largest class by occurrence, 44 cases. TypeScript now preserves the
+   distinction and Java erases it, so this decides whether Java changes or
+   TypeScript should start normalising too.
 3. **Fix Java's `_ui._size` drop.** Unambiguous data loss with the model already
    in place, so no design decision is needed.
 4. **Fix Java's `skos:prefLabel: null`.** Same character.
-5. **Add corpus cases for the four uncovered field types**, so parity for them is
+5. **Regenerate the corpus** with the fixed TypeScript library — two instance
+   files are now stale.
+6. **Add corpus cases for the four uncovered field types**, so parity for them is
    measured rather than assumed.
-6. **Expose `booleanFieldBuilder`** in the TypeScript facade, if item 1 resolves
+7. **Expose `booleanFieldBuilder`** in the TypeScript facade, if item 1 resolves
    in favour of keeping the type.
 
 Items 3 and 4 are one-directional bugs. Items 1 and 2 are model decisions that
 need an owner before either library can be called correct.
+
+> Comparison run against `cedar-artifact-library` **`main`** @ `3d2afb1e`
+> (release 2.9.1). That repo's `develop` carries 18 further commits including a
+> YAML value-constraint key overhaul, which this comparison does not cover.
