@@ -35,19 +35,37 @@ checkout looks like and is easily mistaken for breakage.
 npx ts-node ./itest/scripts/compare-verbatim-ts-java-yaml-files.ts
 ```
 
+A case with output on only one side is skipped and counted rather than throwing,
+so the run reads as a summary:
+
+```
+templateField: 13 compared, 0 differing, 7 skipped — no output on one side: 5, 6, 7, 17, 18, 19, 20
+templateElement: 6 compared, 0 differing
+DIFF FOUND:  - template-9
+template: 37 compared, 1 differing
+```
+
 ## Corpus coverage
 
 | | cases | both libraries | TS only |
 |---|---|---|---|
-| fields | 16 | 13 | 3 |
+| fields | 20 | 13 | 7 |
 | elements | 6 | 6 | — |
 | templates | 37 | 37 | — |
 | instances | 21 | 21 | — |
 
-**Four input types are exercised nowhere in the corpus**: `ext-pubmed`,
-`ext-rrid`, `ext-nih-grant-id`, `ext-doi`. Both libraries claim to support them
-and neither has ever been checked against the other for them. Adding one corpus
-case per type would close that.
+`ext-pubmed`, `ext-rrid`, `ext-nih-grant-id` and `ext-doi` were exercised
+nowhere in the corpus — not as field cases, not inside any template or element.
+Cases **017-020** now cover them (`cedar-test-artifacts` @ `043d497`), modelled
+on 016 (PFAS). All four round-trip through the TypeScript library with zero keys
+dropped and zero added.
+
+They carry TypeScript output only, so they join the boolean cases in the TS-only
+column. The Java artifact library has moved on considerably from the version the
+rest of the corpus was generated against, and generating its side for four cases
+alone would mix two Java versions into one corpus. Cross-library parity for
+these four therefore remains unmeasured until the Java side is regenerated
+wholesale.
 
 ---
 
@@ -187,8 +205,9 @@ round trip, and TypeScript inventing a `""` description is its own small wart.
 3. **Fix Java's `_ui._size` drop.** Unambiguous data loss with the model already
    in place, so no design decision is needed.
 4. **Fix Java's `skos:prefLabel: null`.** Same character.
-5. **Add corpus cases for the four uncovered field types**, so parity for them is
-   measured rather than assumed.
+5. **Regenerate the Java side of the corpus** against whichever Java version is
+   current. Seven field cases now have TypeScript output only, and parity for
+   them cannot be measured until that happens.
 6. **Expose `booleanFieldBuilder`** in the TypeScript facade, if item 1 resolves
    in favour of keeping the type.
 
