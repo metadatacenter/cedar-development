@@ -184,11 +184,21 @@ either is a deliberate, visible change.
    so the quality report and the instance builder agree. Covered by per-type
    regression tests in `harness/test/cardinality.spec.ts`.
 
-2. **Filling one page of a multi element marks every page satisfied.**
-   `buildRecursively` evaluates a multi element's children once against the
-   current page, incrementing the required-value counters, then `cloneDeep`s the
-   result `currentCount` times. An incomplete instance reports as valid —
-   `data-quality-report-builder.handler.ts:65-80`.
+2. ~~**Filling one page of a multi element marks every page satisfied.**~~
+   **Fixed**, once the semantic was settled as *at least one instance must
+   carry a value*. The real defect turned out to be narrower than first
+   described: validity was answered against whichever page `currentIndex`
+   pointed at, so the same instance reported valid or invalid depending on
+   where the user had paged to. Under at-least-one no per-instance evaluation
+   is needed, so the fix did not require touching the shared mutable cursor —
+   `DataQualityReportBuilderHandler.findAnyValue` walks the extract instance
+   directly instead. The value tree still shows the displayed page; only the
+   counters are page-independent.
+
+   Left open deliberately: whether an element with **zero** instances should
+   satisfy or violate a requirement. It contributes no requirements today and
+   so reports vacuously valid. Characterized in
+   `harness/test/cardinality.spec.ts`.
 
 3. ~~**Element visibility depends on the order of its element children.**~~
    **Fixed.** Under `hideEmptyFields`, `hasNonEmptyChild` assigned its
