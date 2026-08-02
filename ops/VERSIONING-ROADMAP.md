@@ -8,8 +8,9 @@ running server), `sourceSystem` routing (serve locally or report unavailable, ne
 non-BioPortal source), the value-constraint spec (JSON + YAML) with schema validation,
 freeze-on-publish pinning all four constraint kinds on every artifact type, multilingual label +
 synonym capture (every language preserved outside content identity, backfilled across the served
-catalog), and `owl:Ontology`-header identity recovery for acronym-only ontologies — lives in git and the
-design doc. This tracks only what remains, in three buckets: **Pending** (to build), **Testing** (built, needs
+catalog) and served on the local read path (multilingual + synonym search recall, synonyms on class
+detail, `lang=<code>` on the class and integrated-search endpoints), and `owl:Ontology`-header identity
+recovery for acronym-only ontologies — lives in git and the design doc. This tracks only what remains, in three buckets: **Pending** (to build), **Testing** (built, needs
 live verification), and **Future** (deferred / needs a decision / speculative). Items are numbered
 continuously as stable handles.
 
@@ -152,13 +153,16 @@ response.
    canonical identity explicitly, immune to acronym ambiguity and future cross-source resolution), not a
    functional gap. Do a zero-mutation dry-run first (report coverage and non-derivable acronyms) before any
    run against the live template store.
-- **12. Serve captured multilingual labels (`lang=`).** Label *capture* is shipped: every snapshot now
-   preserves every language variant of every name (labels + synonyms) with its BCP-47 tag, outside content
-   identity, backfilled across the served catalog — see [MULTILINGUAL-LABELS.md](MULTILINGUAL-LABELS.md).
-   What remains is the read side, matching BioPortal's contract: an optional `lang=<code>|all` on the
-   class/tree/search endpoints (single string per language; `{lang: value}` hash for `all`; `none` bucket),
-   multilingual search recall so a query in any language matches, and honoring the submission's
-   `naturalLanguage` for the default instead of the hardcoded English preference.
+- **12. Serve captured multilingual labels (`lang=`). *Mostly shipped.*** Capture was already done (every
+   snapshot preserves every language variant of every name, outside content identity, backfilled across the
+   served catalog — see [MULTILINGUAL-LABELS.md](MULTILINGUAL-LABELS.md)). The read side is now live on the
+   local serving path: multilingual + synonym **search recall** (a query in any language or against a
+   synonym finds the concept), **synonyms** returned on class detail, and **`lang=<code>`** on the class
+   endpoint and on integrated-search (result labels in the requested language, falling back to the default;
+   verified live — searching "occupational" with `lang=fr` returns "professionnel"/"ergothérapie"). *Still
+   deferred:* `lang=all` (the `{lang:value}` hash), `lang=` on the public `search`/tree output, and honoring
+   the submission's `naturalLanguage` for the default (the default stays English-preferred) — all by
+   decision, not blockers.
 - **13. Is the content-identity label choice correct?** `version_id` is `normalizedContentHash` with
    labels included, which folds in each concept's single `pref_label` — the English-preferred pick
    (English > untagged > any other; `rdfs:label` over `skos:prefLabel`), plus the IRI-fragment fallback

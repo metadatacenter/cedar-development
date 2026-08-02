@@ -93,10 +93,21 @@ acronyms). Structure and identity were untouched throughout, and the live server
 Synonyms — never stored before this work — account for ~5.2 M of the rows. Method: aggregate every
 snapshot's `label`/`meta` tables ([label-coverage.py](label-coverage.py)).
 
-## Deferred: Serving the Languages
+## Serving the Languages
 
-This work preserves the languages so they are never lost again; it does not yet serve them. The
-follow-on is the BioPortal contract on the read side: an optional `lang=<code>|all` on the class,
-tree, and search endpoints (single string per language; `{lang: value}` hash for `all`; `none`
-bucket), multilingual search recall so a query in any language matches, and honoring the submission's
-`naturalLanguage` for the default instead of a hardcoded English preference.
+The local read path now serves the captured names:
+
+- **Search recall** — a non-empty query matches any captured name, in any language or a synonym, not
+  only the served `pref_label`. Searching "réseau" returns a concept whose default label is the English
+  "Health Network"; an empty-query browse is unchanged.
+- **Synonyms** — class detail returns the captured altLabels and OBO synonym scopes.
+- **`lang=<code>`** — the class endpoint (`GET .../classes/{id}?lang=fr`) and integrated-search
+  (`POST /bioportal/integrated-search?lang=fr`) return labels in the requested language, falling back to
+  the default when a concept has none. Only the returned page slice is re-labelled. Verified live:
+  searching "occupational" with `lang=fr` returns "professionnel" / "ergothérapie".
+
+`lang=` is honored on the local path; a BioPortal-proxied ontology returns BioPortal's own default label.
+
+**Still deferred (by decision):** `lang=all` (the `{lang:value}` hash), `lang=` on the public
+`search`/tree output, and honoring the submission's `naturalLanguage` for the default (it stays
+English-preferred).
