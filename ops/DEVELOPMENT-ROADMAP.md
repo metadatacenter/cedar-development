@@ -7,6 +7,8 @@ shared library rather than to one server.
 For how to run and build the system see [DEVELOPMENT-RUNBOOK.md](./DEVELOPMENT-RUNBOOK.md), whose "Dependency and Framework
 State" section records what the stack currently sits on. Library-internal items belong in that
 library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact-library/ROADMAP.md).
+Frontend work for the embeddable editor is tracked separately in
+[CEE-ROADMAP.md](./CEE-ROADMAP.md).
 
 ## Next
 
