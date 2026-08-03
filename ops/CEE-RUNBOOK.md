@@ -109,7 +109,7 @@ cd ../cedar-model-typescript-library && npm install && npm run build
 nvm use 20 && cd harness && npm install && npm test
 ```
 
-Expect **1,047 passing** on `develop`, **2,034** on `cee-with-model-library`. Watch mode is `npm run test:watch`.
+Expect **1,047 passing** on `develop`, **2,069** on `cee-with-model-library`. Watch mode is `npm run test:watch`.
 
 A green run here means CEE agrees with itself. For whether its output is
 actually a valid CEDAR instance, see
@@ -284,7 +284,7 @@ nvm use 20 && cd visual && npm install && npx playwright install chromium
 npm run prepare:all && npm test
 ```
 
-Expect **88 passing** in about 35 seconds. `prepare:all` re-concatenates the
+Expect **124 passing** in about 45 seconds. `prepare:all` re-concatenates the
 bundle from `../dist` and regenerates the template fixtures; run it after any
 rebuild.
 

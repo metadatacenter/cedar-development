@@ -23,27 +23,29 @@ and any wrong turns.
 
 | # | Item | State |
 |---|---|---|
-| **1** | Sign off the time-picker replacement | ⛔ **needs you** — gates Phases 3 and 4 |
-| **2** | Zero-instance element satisfying a requirement | ❓ **needs a decision** — semantics |
-| 3 | Visual-suite flake | ⚠️ likely cause addressed, **unproven** — retry still in place |
-| 4 | Derive the occurrence count instead of caching it | ⬜ last "two copies" — agreement now tested |
-| 5 | Rebrand BMIR → CCM | ⬜ chore — four places in the footer |
-| 6 | Delete legacy test scaffolding | ⬜ chore — Phase 4, deliberately last |
-| — | **Phase 2** dependency de-risking | ⬅ blocked on decision 1 |
-| — | **Phase 3** Angular 14 → 22 | ⬜ blocked on decision 1 |
+| **1** | Zero-instance element satisfying a requirement | ❓ **needs a decision** — semantics |
+| 2 | Visual-suite flake | ⚠️ likely cause addressed, **unproven** — retry still in place |
+| 3 | Derive the occurrence count instead of caching it | ⬜ last "two copies" — agreement now tested |
+| 4 | Rebrand BMIR → CCM | ⬜ chore — four places in the footer |
+| 5 | Delete legacy test scaffolding | ⬜ chore — Phase 4, deliberately last |
+| — | **Phase 3** Angular 14 → 22 | ⬅ **next, and no longer blocked** |
+| — | **Phase 4** retire legacy scaffolding | ⬜ after Phase 3 |
 
-Numbered 1–6; entries under *Closed* keep the numbers they carried at the time,
-so a commit message citing "item 12" still finds its entry.
+Numbered 1–5; entries under *Closed* keep the numbers they carried at the time.
 
 `cee-with-model-library` is an **experiment**, not work pending a merge. All the
 closed work below lives on it.
 
 Conformance: **34 of 37** corpus instances validate against their own template,
-up from 0; the three that do not are defects in the templates. Coverage: 2,034
-domain tests, 88 browser tests.
+up from 0; the three that do not are defects in the templates. Coverage: 2,069
+domain tests, 124 browser tests.
 
-**Decisions 1 and 2 are the critical path.** Both are yours; nothing else on the
-list waits on anything.
+**Phase 2 is complete and Phase 3 is unblocked.** The time picker was the only
+dependency with no upgrade path; `@ng-select/ng-select` and
+`ngx-mat-select-search` both cap the *installed* versions rather than the
+packages, so they are bumps during the migration rather than blockers.
+
+Nothing on the list above blocks Phase 3, and only item 1 needs you.
 
 ---
 
@@ -62,12 +64,19 @@ sense that the cost of the jump grows every release.
 | Test coverage before this work | 40 spec files, 45 `it()` blocks, all `expect(component).toBeTruthy()` |
 | Test coverage now | 2,034 domain tests in `harness/`, 88 browser tests in `visual/` |
 
-## The blocker, stated plainly
+## The blocker, removed
 
-`@angular-material-components/datetime-picker` **caps the upgrade at Angular
-16**. Its latest release is 16.0.1; Angular is at 22. Upgrading to 16 and
-stopping is not a resting place — 16 is itself EOL, so that path buys a second
-migration later.
+`@angular-material-components/datetime-picker` **capped the upgrade at Angular
+16** — its latest release is 16.0.1, and 16 is itself EOL, so that path bought a
+second migration later.
+
+**It is gone.** CEE used one element from it, and that element is now
+`app-time-picker`, written in-house against CEDAR's granularity model. Removed
+from `package.json` and the lockfile, pruned from `node_modules`, and the app
+rebuilt with it physically absent. See *Closed*.
+
+What follows is kept because it is the record of why the replacement is in-house
+rather than another dependency.
 
 The **usage** is small: three module imports in
 `src/app/modules/input-types/input-types.module.ts` and exactly one element,
@@ -81,7 +90,7 @@ candidate, cannot express what CEE needs.
 
 | Package | Current | Latest | Peers | Verdict |
 |---|---|---|---|---|
-| `@angular-material-components/datetime-picker` | 8.0.0 | 16.0.1 | Angular 16 only | **Blocker — replace** |
+| ~~`@angular-material-components/datetime-picker`~~ | — | — | — | **Removed** — replaced by `app-time-picker` |
 | `@ngx-translate/core` | 11.0.0 | 18.0.0 | Angular ≥18, rxjs ≥7 | API rewrite across 8 majors; 8 files touch it |
 | `@ng-select/ng-select` | 9.1.0 | 23.5.1 | Angular 22 | Fine |
 | `ngx-mat-select-search` | 4.2.1 | 9.0.0 | Material 17–22 | Fine |
@@ -107,8 +116,8 @@ confidence and a characterization baseline.
 
 ### Phase 1 — Visual regression baseline ✅ done
 
-`visual/` — 88 Playwright tests against the **concatenated bundle** as an
-embedder consumes it, not the dev server. Eight fixtures covering input types,
+`visual/` — 124 Playwright tests against the **concatenated bundle** as an
+embedder consumes it, not the dev server. Nine fixtures covering input types,
 choice widgets, two-deep multi-instance nesting, controlled terms, static
 content with page breaks, validation states, the timezone picker and all seven
 external authority widgets; two viewports. Runs in ~35s. See
@@ -122,7 +131,7 @@ not describe.
 Baselines were captured on Angular 14 **before** any upgrade work, which is the
 only moment they are worth capturing.
 
-### Phase 2 — Dependency de-risking ⬅ next, blocked on a decision
+### Phase 2 — Dependency de-risking ✅ done
 
 #### The time picker: `@ng-matero/extensions` is not a drop-in
 
@@ -201,7 +210,7 @@ Plan the ngx-translate v11 → v18 rewrite. `forRoot`/loader wiring changed shap
 across eight majors; `FallbackTranslateLoader` and its factory will need rework.
 Eight files import from `@ngx-translate/*`.
 
-### Phase 3 — Angular upgrade, one major at a time
+### Phase 3 — Angular upgrade, one major at a time ⬅ next
 
 `ng update` migration schematics chain, so skipping hops means hand-applying
 migrations.
@@ -835,6 +844,50 @@ having first.
   the library's model. That is a legitimate derived view, rebuilt on every parse,
   not a maintained copy.
 - **The quality report's `valueTree`.** Also derived, rebuilt on every report.
+
+### ~~The time picker capped the upgrade~~ — replaced, in-house
+
+`@angular-material-components/datetime-picker` peered Angular 16 and nothing
+later. CEE used one element from it, and that element held the whole framework
+upgrade at a version already end-of-life.
+
+`@ng-matero/extensions`, the obvious replacement, supports no seconds — a
+functional regression against the CEDAR model rather than a UX difference.
+Measuring both corpora settled how much of one: second-precision is the second
+most used temporal granularity after `day`, ahead of `year`. `SimpleTemplate` in
+the artifact library has four such fields and names them `(hh:mm:ss)` and
+`(hh:mm:ss, seconds)`, so the precision is the field's purpose.
+
+So `app-time-picker`, beside `app-date-picker` and `app-timezone-picker`, written
+against CEDAR's granularity model rather than adapted to someone else's. It
+implements `ControlValueAccessor`, so the widget above binds a `Date` through
+`[(ngModel)]` exactly as before — swapping it in changed one element and no
+logic. The read-only branch that used to live in the datetime template went with
+it, so one place decides what a read-only time looks like.
+
+The 12-hour conversion lives in `util/clock-time.ts`, apart from the component and
+unit-tested, because CEDAR stores `HH:mm:ss` on a 24-hour clock whatever the field
+displays — an off-by-twelve writes the wrong instant and both values look
+well-formed. 33 tests, including a round trip through every hour.
+
+New `09-temporal` fixture covers all eight granularities and both time formats.
+Before it the only temporal field under test was minute-granularity, so the
+seconds boxes and the 12-hour face were rendered by nothing.
+
+Two things worth keeping:
+
+- **Mutation testing caught a hole in the new tests themselves.** Breaking
+  `12 PM → 12` failed the unit tests and passed all fifteen browser tests, because
+  the cases were 2 PM and 12 AM and neither exercises noon. 2 PM survives most
+  off-by-twelve bugs; noon survives none.
+- **Aligning the colons took three attempts,** and the simplest won. A chrome-less
+  `mat-form-field` holding one collapsed its input to zero width — positioned
+  perfectly, invisible. A `matSuffix` aligned exactly but put the colon inside the
+  preceding box. The plain version needs a number matched to Material's geometry,
+  which the MDC migration will change, so it is tested rather than trusted.
+
+Dependency removed from `package.json` and the lockfile, pruned from
+`node_modules`, and the app rebuilt with it physically absent.
 
 ---
 
