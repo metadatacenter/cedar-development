@@ -23,17 +23,17 @@ and any wrong turns.
 
 | # | Item | State |
 |---|---|---|
-| 1 | Zero-instance element: last divergence from the canonical validator | ⬜ small — or close as unreachable; **needs no semantics ruling** |
-| — | **Phase 3** Angular 14 → 22 | ⬅ **next, and no longer blocked** |
+| — | **Phase 3** Angular 14 → 22 | ⬅ **next, and nothing outstanding before it** |
 | — | **Phase 4** delete the legacy test scaffolding | ⬜ after Phase 3 — 40 stub specs, Protractor |
 
-One numbered item; entries under *Closed* keep the numbers they carried at the time.
+No numbered items outstanding. Entries under *Closed* keep the numbers they carried
+at the time.
 
 `cee-with-model-library` is an **experiment**, not work pending a merge. All the
 closed work below lives on it.
 
 Conformance: **34 of 37** corpus instances validate against their own template,
-up from 0; the three that do not are defects in the templates. Coverage: 2,113
+up from 0; the three that do not are defects in the templates. Coverage: 2,115
 domain tests, 180 browser tests.
 
 **Phase 2 is complete and Phase 3 is unblocked.** The time picker was the only
@@ -58,7 +58,7 @@ sense that the cost of the jump grows every release.
 | TypeScript | 4.8 |
 | rxjs | 6.6.7 |
 | Test coverage before this work | 40 spec files, 45 `it()` blocks, all `expect(component).toBeTruthy()` |
-| Test coverage now | 2,113 domain tests in `harness/`, 180 browser tests in `visual/` |
+| Test coverage now | 2,115 domain tests in `harness/`, 180 browser tests in `visual/` |
 
 ## The blocker, removed
 
@@ -233,64 +233,15 @@ Phases 1–3, so nothing is removed while it might still be a signal.
 
 ## What needs doing
 
-Numbered so they can be referred to in conversation and in commits. Roughly in
-the order to take them: the two decisions gate everything else, and nothing
-below them is blocked by anything above except where it says so.
+Nothing numbered is outstanding — the list emptied out, and Phase 3 is the next
+work. Items are numbered here so they can be referred to in conversation; commit
+messages do not cite the numbers, since the numbering is local to this file and
+means nothing to anyone reading the history.
 
 Reference material — how conformance is measured, where each constraint is
 enforced, what the boundaries look like — is under *Reference*. Everything
 already closed is under *Closed*, kept because several entries record a wrong
 turn worth not repeating.
-
-### 1. Should an element with zero instances satisfy a requirement?
-
-**Largely answered, and not by a product decision.** Kept as an item only because
-one narrow case is still open, and that case looks unreachable.
-
-The question was raised because a multi element with no instances reported
-*vacuously* valid: the multi-element branch is guarded by `multiCount > 0`, so no
-requirement was counted and `0 <= 0` passed. Cardinality checking settled it
-without anyone having to rule on what CEDAR means by required — with a `minItems`
-floor, zero instances is a **`minItems` violation**, which is the more precise
-complaint anyway. The problem is not that a required field is unfilled; it is that
-the element is not there. Characterised in `harness/test/cardinality.spec.ts`.
-
-That agrees with the canonical validator exactly. Checked by **running
-`cedar-model-validation-library` itself** — `ops/cedar_validate.sh instance` —
-rather than by reasoning from the schema, against
-`multiple-element-items-template.json`, where `Participant` is a multi element with
-`minItems: 1` and is listed in the template's `required` array:
-
-| Instance | `minItems: 1` | no `minItems` | Why it fails |
-|---|---|---|---|
-| as shipped | valid | valid | |
-| element `[]` | **invalid** | valid | at least 1 items but found 0 |
-| element omitted | **invalid** | **invalid** | missing required property |
-| element `null` | **invalid** | **invalid** | null found, array expected |
-
-An `ajv-draft-04` run over the same eight cases gave identical verdicts, which is
-worth knowing but is not what settles it — the Java library is the arbiter, and on
-this branch three plausible conclusions have already had to be reverted after
-checking what the Java side actually does.
-
-**What is still open** is the same element with **no `minItems` declared at all**.
-Read the right-hand column: with the floor gone, `[]` becomes valid — and CEE
-agrees — but omitted or `null` stays invalid, because CEDAR lists multi elements in
-the template's `required` array independently of any floor. CEE reports that case
-valid with no problems. So the residual divergence is precisely: **a multi element
-with no `minItems`, absent or null, is invalid at the gate and valid in CEE.**
-
-**It appears to be unreachable.** Measured across three independent corpora —
-147 corpus templates, 57 HuBMAP templates, 24 canonical validator fixtures — there
-are **321 multi children and not one of them omits `minItems`**. The model library
-always writes a floor for a multi child, which is why the characterisation test has
-to strip it by hand to reach the case at all.
-
-So there is nothing here that needs a semantics ruling. The options are to close it
-as unreachable, or to spend a small change removing the divergence anyway: check
-the template's `required` array for structural element presence, so absent-or-null
-is invalid whatever `minItems` says. That is matching the canonical validator
-rather than deciding anything, and it does not block Phase 3 either way.
 
 ### Chores
 
@@ -1035,6 +986,63 @@ not — the header, the pager and the add button all render, and only the occupi
 row is missing, which is correct for a 0..4 field. The fixture asks for one row
 because a clipped baseline needs something to photograph, not because the
 behaviour is wrong.
+
+### ~~1. Should an element with zero instances satisfy a requirement?~~ — done
+
+**It never needed a semantics ruling.** It was raised as a product question about
+what CEDAR means by required, and the answer turned out to be written down already —
+in the arbiter, which had simply never been asked.
+
+Cardinality checking settled most of it earlier: with a `minItems` floor, zero
+instances is a **`minItems` violation**, which is the more precise complaint anyway.
+The problem is not that a required field is unfilled; it is that the element is not
+there.
+
+What was left was the same element with **no floor at all**, which CEE reported
+vacuously valid — the cardinality check had nothing to compare against and returned
+early, so nothing asked the prior question of whether the property was there. It has
+to be: CEDAR lists a multi child in its parent's JSON Schema `required` array
+independently of any `minItems`, and an array is the only shape that satisfies it.
+
+Verdicts from **running `cedar-model-validation-library` itself**, via
+`ops/cedar_validate.sh instance`, over `multiple-element-items-template.json` with
+and without the floor:
+
+| Instance | `minItems: 1` | no `minItems` | Why it fails |
+|---|---|---|---|
+| as shipped | valid | valid | |
+| element `[]` | **invalid** | valid | at least 1 items but found 0 |
+| element omitted | **invalid** | **invalid** | missing required property |
+| element `null` | **invalid** | **invalid** | null found, array expected |
+
+`DataQualityReportBuilderHandler.collectPresenceProblems` now enforces the right-hand
+column with a `missingProperty` code, and CEE matches the table throughout. Both
+halves are tested: a presence check that fired on `[]` would have been a new
+divergence in the opposite direction, and the empty array is exactly what a
+zero-floor template exists to allow.
+
+**Testing the shape rather than presence is the part that only showed up by probing
+what CEE actually holds.** An injected `null` does not survive as `null` — it is read
+into `{}`, an object where the template declares an array, which the gate rejects for
+the same reason. `Array.isArray` covers absent, `null` and `{}` in one condition,
+where a presence-only check would have passed `{}` and left the divergence half open.
+
+One existing assertion was changed rather than made to pass: `cardinality.spec.ts`
+asserted that an absent element and an empty one were reported *identically*. They
+agree on everything callers act on — the verdict and the counts — but the gate reports
+different errors for them, so collapsing the distinction was hiding information the
+arbiter provides. The test now pins the agreement and the difference separately.
+
+Never an outage. Across the corpus, HuBMAP and the validator's own fixtures there are
+**321 multi children and every one declares a floor**, which is why the
+characterisation test has to strip `minItems` by hand to reach the case at all. The
+147 corpus templates in `model-conformance.spec.ts` confirm the new check does not
+over-fire.
+
+**The transferable lesson**, given three reverts on this branch already: when a
+question looks like a product decision about what the model means, ask the Java
+validator before asking a human. It answered this one in about a minute once there
+was a way to call it, and `ops/cedar_validate.sh` is now that way.
 
 ---
 
