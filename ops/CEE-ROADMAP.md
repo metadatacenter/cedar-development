@@ -23,11 +23,11 @@ and any wrong turns.
 
 | # | Item | State |
 |---|---|---|
-| 1 | Where does a choice field's value actually come from? | ⬜ small — blocks retiring the last legacy spec |
-| — | **Phase 3** Angular 14 → 22 | ⬅ **next; item 1 does not block it** |
-| — | **Phase 4** delete the legacy test scaffolding | ⬜ after Phase 3 — karma, Protractor; the 38 stub specs are already gone |
+| — | **Phase 3** Angular 14 → 22 | ⬅ **next, and nothing outstanding before it** |
+| — | **Phase 4** delete the legacy test scaffolding | ⬜ after Phase 3 — karma, Protractor; **all 40 specs are gone** |
 
-One numbered item. Entries under *Closed* keep the numbers they carried at the time.
+No numbered items outstanding. Entries under *Closed* keep the numbers they carried
+at the time.
 
 `cee-with-model-library` is an **experiment**, not work pending a merge. All the
 closed work below lives on it.
@@ -279,49 +279,15 @@ Phases 1–3, so nothing is removed while it might still be a signal.
 
 ## What needs doing
 
-Items are numbered here so they can be referred to in conversation; commit
-messages do not cite the numbers, since the numbering is local to this file and
-means nothing to anyone reading the history.
+Nothing numbered is outstanding — Phase 3 is the next work. Items are numbered here
+so they can be referred to in conversation; commit messages do not cite the numbers,
+since the numbering is local to this file and means nothing to anyone reading the
+history.
 
 Reference material — how conformance is measured, where each constraint is
 enforced, what the boundaries look like — is under *Reference*. Everything
 already closed is under *Closed*, kept because several entries record a wrong
 turn worth not repeating.
-
-### 1. Where does a choice field's value actually come from?
-
-Small, and it is the one thing standing between here and no legacy specs at all.
-
-38 of the 40 stub specs are gone. The renderer spec was ported to a browser test and
-deleted on mutation evidence — making `shouldRenderContentOfNonIterable` always
-return true kills the ported test in both projects.
-`cedar-input-multiple-choice.component.spec.ts` is the last one left, and it is left
-because **the port could not be verified**.
-
-Two browser tests now assert what a user should see — a template default fills an
-empty choice field, and a value the document already holds is not overwritten by
-that default. Both are worth having. Neither kills a mutant. Three were tried, each
-rebuilt and run:
-
-| Mutant | Expected | Actual |
-|---|---|---|
-| disable `populateItemsOnLoad`'s `@value` guard | default overwrites the instance | both tests pass |
-| stop it applying the default at all | empty field stays empty | both tests pass |
-| disable the data layer's `selectedByDefault` seeding | empty field stays empty | `default fills empty` passes |
-
-So the rendered outcome is robust to all three, and **the mechanism that produces it
-has not been found**. Until it is, the browser tests do not replace the spec's
-coverage and deleting the spec would lose something unmeasured.
-
-The interesting possibility is that `populateItemsOnLoad` has no observable effect at
-all — both its guard and its default branch survived removal. If that holds, the spec
-was asserting that a method called a `jasmine.createSpyObj` mock with a particular
-argument, which is not coverage of anything, and both the method and the spec can go.
-That is the thing to establish; it is an hour of tracing, not a design question.
-
-Worth stating plainly because the temptation here was real: the tidy outcome was to
-delete both specs and report the legacy suite retired. Mutation testing is the only
-reason that did not happen.
 
 ### Chores
 
@@ -1123,6 +1089,49 @@ over-fire.
 question looks like a product decision about what the model means, ask the Java
 validator before asking a human. It answered this one in about a minute once there
 was a way to call it, and `ops/cedar_validate.sh` is now that way.
+
+### ~~1. Where does a choice field's value come from?~~ — traced; last legacy spec retired
+
+Opened because two new browser tests killed no mutant, which looked like a coverage
+gap and was not. The code has **two independent paths to the same outcome**, so no
+single-line mutant is observable. Traced by instrumenting the candidates and reading
+the console:
+
+1. `DataObjectBuilderHandler` seeds `selectedByDefault` into the instance. The default
+   is applied by the **data layer**, before any widget exists.
+2. The widget's `populateItemsOnLoad` then reads the data object, finds the seeded
+   value already there, takes its "existing `@value`" branch and sets the control. Its
+   own default-applying loop is never reached in this path.
+3. An injected instance arrives **after** the widget initialises — `populateItemsOnLoad`
+   runs once and sees the seeded default, never the injected value. What puts the
+   injected value on screen is `ActiveComponentRegistryService.updateViewToModel`,
+   pushing the model into the widget through `setCurrentValue`.
+
+Disabling `populateItemsOnLoad`'s guard turns out to be an **equivalent mutant**: it
+falls through to the default loop, which applies the same value the guard would have
+set, because the data layer had already seeded it. Disabling that loop is masked by the
+seeding; disabling the seeding is masked by the loop.
+
+The mutants that *do* kill the tests, both confirmed by rebuilding and running, and
+recorded in the test comment so nobody repeats the search:
+
+| Test | Killing mutant |
+|---|---|
+| `default fills empty` | disable the seeding **and** the default loop — either alone is masked |
+| `injected value not overwritten` | disable the literal push in `updateViewToModel` |
+
+`cedar-input-multiple-choice.component.spec.ts` is deleted on that basis, and **no spec
+files remain in `src`**. It asserted that `populateItemsOnLoad` did not call a
+`jasmine.createSpyObj` mock with the default — a claim about a method whose every branch
+is redundant with something else, which is exactly why it could survive its own subject
+being disabled. A test that passes when you delete what it tests was never coverage.
+
+Two things worth carrying forward. A surviving mutant is a question, not a verdict:
+here it was equivalence and redundancy rather than a weak test, and the tests were fine
+all along. And `populateItemsOnLoad` is a candidate for deletion — every branch is
+redundant with a data-layer path — but that is a behaviour change across load paths this
+did not examine, so it stays until someone checks the sample-template and
+`templateAndInstanceObject` routes.
 
 ---
 
