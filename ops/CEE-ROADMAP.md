@@ -27,11 +27,10 @@ and any wrong turns.
 | 2 | Visual-suite flake | ⚠️ likely cause addressed, **unproven** — retry still in place |
 | 3 | Derive the occurrence count instead of caching it | ⬜ last "two copies" — agreement now tested |
 | 4 | Rebrand BMIR → CCM | ⬜ chore — four places in the footer |
-| 5 | Delete legacy test scaffolding | ⬜ chore — Phase 4, deliberately last |
 | — | **Phase 3** Angular 14 → 22 | ⬅ **next, and no longer blocked** |
-| — | **Phase 4** retire legacy scaffolding | ⬜ after Phase 3 |
+| — | **Phase 4** delete the legacy test scaffolding | ⬜ after Phase 3 — 40 stub specs, Protractor |
 
-Numbered 1–5; entries under *Closed* keep the numbers they carried at the time.
+Numbered 1–4; entries under *Closed* keep the numbers they carried at the time.
 
 `cee-with-model-library` is an **experiment**, not work pending a merge. All the
 closed work below lives on it.
@@ -290,12 +289,12 @@ needs the multi-instance info tree to know its own path.
 
 ### Chores
 
-**5. Rebrand BMIR → Center for Computational Medicine.** Four places in the
+**4. Rebrand BMIR → Center for Computational Medicine.** Four places in the
 footer, listed under *Rebrand* below.
 
-**6. Delete the legacy test scaffolding.** Phase 4 — 40 `should create` specs
-and the Protractor setup. Deliberately last, so nothing is removed while it
-might still be a signal.
+Deleting the legacy test scaffolding is Phase 4's whole content — 40
+`should create` specs and the Protractor setup — so it is tracked as the phase
+rather than duplicated as a chore.
 
 ---
 
