@@ -34,7 +34,7 @@ closed work below lives on it.
 
 Conformance: **34 of 37** corpus instances validate against their own template,
 up from 0; the three that do not are defects in the templates. Coverage: 2,115
-domain tests, 188 browser tests.
+domain tests, 198 browser tests.
 
 **Phase 2 is complete and Phase 3 is unblocked.** The time picker was the only
 dependency with no upgrade path; `@ng-select/ng-select` and
@@ -58,7 +58,7 @@ sense that the cost of the jump grows every release.
 | TypeScript | 4.8 |
 | rxjs | 6.6.7 |
 | Test coverage before this work | 40 spec files, 45 `it()` blocks, all `expect(component).toBeTruthy()` |
-| Test coverage now | 2,115 domain tests in `harness/`, 188 browser tests in `visual/` |
+| Test coverage now | 2,115 domain tests in `harness/`, 198 browser tests in `visual/` |
 
 ## The blocker, removed
 
@@ -1126,12 +1126,31 @@ files remain in `src`**. It asserted that `populateItemsOnLoad` did not call a
 is redundant with something else, which is exactly why it could survive its own subject
 being disabled. A test that passes when you delete what it tests was never coverage.
 
-Two things worth carrying forward. A surviving mutant is a question, not a verdict:
-here it was equivalence and redundancy rather than a weak test, and the tests were fine
-all along. And `populateItemsOnLoad` is a candidate for deletion — every branch is
-redundant with a data-layer path — but that is a behaviour change across load paths this
-did not examine, so it stays until someone checks the sample-template and
-`templateAndInstanceObject` routes.
+A surviving mutant is a question, not a verdict: here it was equivalence and
+redundancy rather than a weak test, and the tests were fine all along.
+
+**`populateItemsOnLoad` has since been deleted**, after checking the load paths this
+entry said needed checking. Every one ends at `initDataFromInstance` →
+`renderInstance`, which sweeps `updateViewToModel` across every child, so the widget
+populating itself was redundant everywhere. Six cases compared before and after on both
+the checked radio and `currentMetadata` — `templateObject` alone, instance plus
+template, the combined `templateAndInstanceObject`, and a paged element in all three
+shapes — identical throughout. The sample-template route needed no separate case:
+`triggerUpdateOnInjectedSampleData` assembles the combined object and funnels into the
+same input.
+
+The paged cases were the ones that mattered. A widget created *after* the initial sweep,
+by paging to another occurrence, was never part of it, so that is where a residual
+dependency on `ngOnInit` population would have shown. It did not.
+
+**The deletion improved the tests, not just the code.** All six are now tests rather
+than a one-off check, and breaking the literal push in `updateViewToModel` fails all
+eight of them. Before the deletion that same mutant left the default case *passing*,
+because the widget's own population masked it. Redundant code had been hiding a
+single-line change from the suite.
+
+The sibling `CedarInputSelectComponent.populateItemsOnLoad` survives and must: same
+name, unrelated job — it fills the dropdown's *option list*, not a value.
 
 ---
 
