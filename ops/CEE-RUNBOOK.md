@@ -105,7 +105,7 @@ cd ../cedar-model-typescript-library && npm install && npm run build
 nvm use 20 && cd harness && npm install && npm test
 ```
 
-Expect **1,047 passing** on `develop`. Watch mode is `npm run test:watch`.
+Expect **1,047 passing** on `develop`, **1,481** on `cee-with-model-library`. Watch mode is `npm run test:watch`.
 
 ### Coverage
 
@@ -131,12 +131,25 @@ because `vitest.config.ts` sets `root` to the repo):
 npx vitest run harness/test/controlled-terms.spec.ts
 ```
 
+### Reading a template from YAML
+
+CEE parses templates through the CEDAR Model TypeScript Library, which reads
+YAML into the same model it reads JSON into — so a template written either way
+produces the same form. `harness/test/format-independence.spec.ts` checks that
+over all 37 corpus templates, and `harness/test/instance-output.spec.ts` checks
+the same for the instance CEE emits.
+
+If either starts failing after a change to the parser or the emitter, the
+question to ask is which of the two formats the new code is quietly assuming.
+
 ### Running against the old template parser
 
-**Branch note.** This applies on `cee-with-model-library`, not
-on `develop`. There CEE builds its component tree with the CEDAR Model
-TypeScript Library, the hand-written JSON walk it used before is still in the
-tree, and the whole suite has to pass with either one underneath:
+**Historical.** The hand-written JSON walk was kept alongside the
+library-backed parser during the migration so the whole suite could be run
+against either, which is what caught most of the defects. Both walks were
+deleted once the swap had settled, and `CEE_TEMPLATE_PARSER` /
+`CEE_INSTANCE_READER` no longer exist. On `develop` — before the migration —
+the walk is the only implementation:
 
 ```bash
 CEE_TEMPLATE_PARSER=json-walk npm test

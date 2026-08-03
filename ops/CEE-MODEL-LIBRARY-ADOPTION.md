@@ -240,12 +240,68 @@ corpus snapshots say whether anything else moved. Rewriting `collectNodes` and
 `findAnyValue` buys consistency of style and nothing else, and every line of it
 is a line that can be got wrong.
 
+**Phase 3 — instance writing. ✅ done, and not the way this predicted.**
+(`cee-with-model-library`.)
+
+The prediction below was that CEE's live mutable trees could not be reconciled
+with a writer that serialises a finished artifact, and that trying would be a
+redesign. That was right about the trees and wrong about what had to change.
+
+CEE still keeps its working tree of plain objects, still mutates it in place,
+still addresses it through multi-instance cursors. None of that moved, and none
+of it needed to — it is internal, and its shape is CEE's own business. What
+moved is the boundary: the tree is read into a `TemplateInstance` on the way out
+and the library writes it. `currentMetadata` is the library's JSON;
+`currentMetadataYaml` is the same instance from the other writer.
+
+So the answer to "CEE writes CEDAR JSON by hand" turned out not to be "stop
+holding a mutable tree" but "stop being the thing that serialises it".
+
+Also in this phase: the widget-sync layer's value ladder became typed dispatch,
+the value writes construct atoms the library serialises, and the empty instance
+is built from the parsed components rather than a second walk over the template
+JSON.
+
+Four defects came out of it, all of which had no test and three of which lost
+data: a part-named attribute-value list dropped the names it had; writing a
+literal over an IRI left the IRI behind; `deleteContext` deleted the `@id` of any
+controlled term or link carrying a `@type`; and `"@type": null` went into every
+instance built from a template that declared the key without a value.
+
+One accepted behaviour change: the emitted instance now carries the envelope —
+`@id`, `schema:name`, `schema:description` and the four provenance fields, all
+null. CEE cannot know them. All 21 corpus instances carry all seven and one has
+them null throughout, so an instance without them was an incomplete artifact.
+
+### The original assessment, kept because it was half right
+
 **Phase 3 — instance writing.** The hard one, and it may not be worth doing.
 CEE's instance handling is not a serializer: it maintains two live trees that a
 UI mutates in place, addressed through multi-instance cursors, with the
 attribute-value special case threaded through. The library's writer serializes a
 finished artifact. Reconciling those is a redesign of CEE's data layer, not a
 substitution. **Recommend deferring** until 1 and 2 have settled.
+
+## Is it done?
+
+The question was never really how many `'@value'` literals are left in the
+source. It is whether CEE understands a CEDAR artifact or merely understands one
+serialisation of it, and that has an answer that can fail:
+`format-independence.spec.ts` reads all 37 corpus templates as JSON *and* as
+YAML and requires the same component tree, the same instance skeleton, the same
+`@context` and the same validity from each. `instance-output.spec.ts` does the
+same for what leaves — the instance goes out as either format from one model.
+
+They pass. One field in one template differs, and it is the format's limit
+rather than CEE's: YAML has nowhere to record a lower bound on a field that is
+multiple by its type, so `template-029`'s `Other Language` reads back with
+`minItems` 0. No YAML file in either corpus records one, from either library.
+
+What is left of the raw key references is not CEDAR JSON handling: roughly
+sixteen in the external authority services, which parse BioPortal search
+responses and never touch an artifact; a dozen or so where CEE constructs its
+own internal shapes for widgets; and the cursor arithmetic over the working
+tree, which is not a serialisation at all.
 
 ## Verdict
 
