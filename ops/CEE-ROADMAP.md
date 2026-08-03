@@ -28,7 +28,7 @@ sense that the cost of the jump grows every release.
 | TypeScript | 4.8 |
 | rxjs | 6.6.7 |
 | Test coverage before this work | 40 spec files, 45 `it()` blocks, all `expect(component).toBeTruthy()` |
-| Test coverage now | 2,006 domain tests in `harness/`, 88 browser tests in `visual/` |
+| Test coverage now | 2,026 domain tests in `harness/`, 88 browser tests in `visual/` |
 
 ## The blocker, stated plainly
 
@@ -60,7 +60,7 @@ candidate, cannot express what CEE needs.
 
 ### Phase 0 — Domain test harness ✅ done
 
-`harness/` — 2,006 headless tests across 28 files, over template parsing,
+`harness/` — 2,026 headless tests across 30 files, over template parsing,
 instance reading and writing, path resolution, value writes, multi-instance
 mechanics, controlled-term constraints, the quality report, and conformance to
 the CEDAR model. Imports no Angular, so it survives the upgrade unchanged. See
@@ -204,44 +204,18 @@ blocks everything practically*, since the branch now carries the model-library
 adoption, the conformance suite and ~24 defect fixes. Held for colleague
 clearance. The longer it sits, the more the rebase costs.
 
-### Defects
+### The remaining question
 
-**8. An element with zero instances satisfies a requirement vacuously.**
-*Needs your decision, not code.* It contributes no requirements today and so
-reports valid. Characterised in `harness/test/cardinality.spec.ts` so the
-behaviour is recorded either way; which it *should* be is a question about
-validity semantics rather than a bug to fix, which is why it was left alone
-overnight.
+**8. Should an element with zero instances satisfy a requirement?**
+*A decision, not a defect.* It contributes no requirements today, so it reports
+valid — vacuously. Characterised in `harness/test/cardinality.spec.ts` so the
+behaviour is recorded whichever way it goes, but which way it *should* go is a
+question about what CEDAR means by required, and that is not ours to settle
+unilaterally.
 
-*Items 3, 4, 5, 6, 7, 9 and 10 are done — see Closed.* Conformance is 34 of 37,
-and all three remaining failures are defects in the corpus templates rather than
-in CEE.
-
-### Debt worth paying deliberately
-
-*Item 11 is done — see Closed.*
-
-**13. Two instance trees maintained in parallel.** Partly closed: the two trees
-now provably agree on their own shape, and a divergence is something a test
-notices — see Closed. What remains is the design question, that every mutation is
-still written to both trees separately rather than to one source of truth.
-
-**14. Path resolution is not pure.** `getDataObjectNodeByPath` resolves through
-each multi ancestor's `currentIndex`, so a path identifies a node *per cursor
-position* rather than a node, and every caller is order-dependent whether it
-knows it or not.
-
-The prerequisite is done: `harness/test/path-resolution.spec.ts` pins the exact
-behaviour, including what a pure replacement would have to accept — not an index
-but a path of indices, one per multi ancestor, applied outside-in, because an
-inner element's cursor is reached *through* the outer element's current
-occurrence. It also pins two asymmetries a naive refactor would flatten: a multi
-*field*'s path resolves to the whole list regardless of cursor, and the node
-returned is live rather than a copy, which is what lets the widgets mutate in
-place.
-
-The fix itself changes the shape of `HandlerContext` and every call site. That is
-a design decision, so it is stated rather than taken.
+Everything else that was on this list is under *Closed*: items 3–7 and 9–14.
+Conformance is 34 of 37, and all three remaining failures are defects in the
+corpus templates rather than in CEE.
 
 ### Chores
 
@@ -421,25 +395,9 @@ working, not a problem.
 
 ### Design debt worth paying independently
 
-- **Circular import.** `data-object-util.ts:157` reads one static (`iriPrefix`)
-  off the top-level Angular component, dragging the whole component subtree —
-  HttpClient services, a `package.json` import, and an edge back into
-  `DataObjectUtil` — into anything using the data-object builder. It survives
-  only because webpack tolerates it. Moving `iriPrefix` to a constant would
-  delete both this and `harness/stubs/editor-component.ts`.
-- **Two instance trees, no single source of truth.** Every mutation is written
-  separately to `instanceExtractData` and `instanceFullData`. Divergence is
-  invisible from the UI, because widgets read one tree and the host page reads
-  the other. The harness now asserts they agree, and both are projections of one
-  parsed model on the way in — but they are still maintained in parallel after
-  that. (The `deleteContext` pass `multiInstanceItemAdd` used to need between
-  them is gone: the builder is asked for the right shape instead.)
-- **Path resolution is not pure.** `getDataObjectNodeByPath` resolves through
-  each multi ancestor's `currentIndex`, so it returns different nodes depending
-  on which pages the user has flipped to. `HandlerContext` depends on mutating
-  data *before* the cursor; nothing in the code says so.
-
----
+Nothing outstanding here. The three entries this section carried — the circular
+import via `iriPrefix`, the two instance trees maintained in parallel, and
+cursor-dependent path resolution — are all under *Closed*.
 
 ---
 
@@ -702,6 +660,57 @@ Two things worth keeping from how it went:
 Safe to attempt only because of the 21 browser tests across all seven widgets
 added the night before: 2,006 domain tests, 88 visual, and the `08-authority`
 screenshots unchanged, so the five rewritten widgets render identically.
+
+### ~~Two instance trees maintained in parallel~~ — done
+
+Every mutation was applied to both trees by making the same call twice with a
+different first argument, eleven pairs across two handlers. Forgetting the second
+was a one-line mistake nothing would catch, and the *difference* between the
+trees — the building mode, which is why the full copy carries an `@context` and
+an `@id` — was passed separately at each site, from memory. It was got wrong at
+one of them.
+
+`DataContext.applyToBothTrees` takes one mutation and hands each tree its own
+building mode, so the mode arrives with the tree it belongs to. No handler now
+mentions either tree by name.
+
+`tree-consistency.spec.ts` asserts two independent things after each of ten kinds
+of mutation: that the trees agree with the envelope stripped, and that the extract
+carries no envelope keys at all. Both are needed — mutation testing showed that
+stripping before comparing catches a *missed* write but cannot catch a write that
+put the envelope *into* the extract, because stripping hides that on both sides.
+
+**Not a single source of truth, and worth being clear about why.** The full copy
+carries information the extract does not — minted `@id`s, provenance from an
+injected instance — so it cannot be derived from the extract. And the extract
+cannot be derived on demand from the full copy either, because the widgets hold
+live references into it and mutate in place. Both trees remain; what changed is
+that they are maintained together rather than in parallel, and a divergence is
+now something a test notices.
+
+### ~~Path resolution is not pure~~ — done
+
+`getDataPathNodeRecursively` chose which occurrence of each multi ancestor to
+descend into by reading that ancestor's `currentIndex`. So a component path
+identified a node *per cursor position* rather than a node, and every caller was
+order-dependent on a mutation nothing documented.
+
+The choice is now an `OccurrenceSelector`, with two:
+
+- `fromCursor` — the historical behaviour, still what `getDataObjectNodeByPath`
+  does, because acting on the visible form is what the widgets and the pager
+  want. Named, so a caller depending on the cursor does so visibly.
+- `at([...])` — specific occurrences, outermost multi ancestor first. Same walk,
+  same node, whatever the user has since paged to.
+
+Outermost-first rather than a single index because with nesting "which
+occurrence" is not one number: an inner element's occurrences live inside the
+outer element's chosen one. The characterisation tests written beforehand
+established that, which is why the signature was right first time.
+
+No behaviour changed — every existing caller keeps the cursor behaviour it had.
+A hidden dependency became an explicit one, and callers wanting determinism can
+now ask for it. Verified by making `at` ignore its indices: seven tests fail.
 
 ---
 
