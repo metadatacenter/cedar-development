@@ -67,7 +67,7 @@ the CEDAR model. Imports no Angular, so it survives the upgrade unchanged. See
 [harness/README.md](../../cedar-embeddable-editor/harness/README.md).
 
 Grew from 422 during the model-library adoption below, which is where most of
-the defects in Open findings were caught.
+the defects listed under *Closed* were caught.
 
 Deliberately **not** upgrade insurance: the pure-TypeScript domain layer is the
 part least likely to break when the framework moves. This phase buys refactoring
@@ -177,7 +177,378 @@ Phases 1–3, so nothing is removed while it might still be a signal.
 
 ---
 
-## Open findings
+## What needs doing
+
+Numbered so they can be referred to in conversation and in commits. Roughly in
+the order to take them: the two decisions gate everything else, and nothing
+below them is blocked by anything above except where it says so.
+
+Reference material — how conformance is measured, where each constraint is
+enforced, what the boundaries look like — is under *Reference*. Everything
+already closed is under *Closed*, kept because several entries record a wrong
+turn worth not repeating.
+
+### Decisions — these block other work
+
+**1. Sign off the time picker replacement.** *Blocks Phases 3 and 4, i.e. the
+entire Angular upgrade.* `@angular-material-components/datetime-picker` caps CEE
+at Angular 16, and the obvious replacement cannot express seconds or
+decimal-seconds, which CEDAR's granularity model requires. Recommendation is
+Option B, build `app-time-picker` in-house — see *Phase 2* above for the
+comparison and the reasoning. This needs a human decision because it is new UI
+code rather than a dependency bump; it has been the only thing standing between
+here and Phase 3 for some time.
+
+**2. Review and merge `cee-with-model-library`.** *Blocks nothing technically;
+blocks everything practically*, since the branch now carries the model-library
+adoption, the conformance suite and ~24 defect fixes. Held for colleague
+clearance. The longer it sits, the more the rebase costs.
+
+### Defects
+
+**3. A hidden field is dropped from the instance.** A field marked `_ui.hidden`
+is left out of the component tree altogether, so the instance gets no slot for
+it — while the template still lists it as required. Hiding is a display
+decision and must not change what the document contains. **Take this one
+first**: it accounts for three of the six non-conformant corpus templates (025,
+034, and part of 029), and the fix turns on a single question with a clear
+answer — the model says `_ui.hidden` suppresses rendering only.
+
+**4. A required multi field starts below its own `minItems`.** Template 028.
+The instance is built with fewer occurrences than the template demands, so it
+is invalid the moment it is created.
+
+**5. A controlled field is written as `{"@value": …}`.** Template 029, in a
+field whose schema allows only `@id` and `rdfs:label` — so CEE is not
+recognising it as IRI-valued. Smaller than 3 and 4 and probably a one-line
+classification fix, but it needs its own diagnosis.
+
+**6. The model library discards a label with no `@id`, silently.** *Belongs in
+`cedar-model-typescript-library`, not CEE.* A reader that drops input should
+say so. No data is lost that was not already being lost, but CEE can no longer
+see it either, so the diagnostic that used to name the problem is gone. Detail
+below under *A label with no @id is discarded silently*.
+
+**7. `getIRIMap()` returns unparsed JSON.** *Also a library item.* It is the
+reason for the single remaining raw key lookup in CEE's template read path —
+`iriMap[name][JsonSchema.enum][0]` in `model-library-template-parser.ts`. A
+typed IRI would delete it.
+
+**8. An element with zero instances satisfies a requirement vacuously.**
+*Semantics decision, not a bug report.* It contributes no requirements today and
+so reports valid. Characterised in `harness/test/cardinality.spec.ts` so the
+behaviour is recorded either way; someone has to decide which it should be.
+
+**9. Attribute-value names are auto-corrected without telling anyone.** A
+duplicate or blank name is silently replaced with `Attribute Value Field<n>`,
+discarding what the user typed. Not a validation gap so much as a missing
+message.
+
+**10. The visual suite flakes about twice in twenty runs.** Papered over with a
+single Playwright retry, which is a workaround and not a diagnosis. Worth
+finding before the Material migration, when a genuine flake and a genuine
+regression will look identical.
+
+### Debt worth paying deliberately
+
+**11. Unify the seven external authority fields.** ~1,860 lines of input
+components and 347 of services implementing one search-select-resolve flow seven
+times, plus 56 near-identical files downstream in the model library. This is no
+longer hypothetical debt: the keystroke defect fixed in *Closed* was in six
+copies at once, and only one of them had ever been correct. Full sizing and a
+proposed shape below. **Do it before adding an eighth authority type, not
+after.**
+
+**12. Circular import via `iriPrefix`.** `data-object-util.ts` reads one static
+off the top-level Angular component, dragging the whole component subtree into
+anything that uses the data-object builder. Survives only because webpack
+tolerates it. Moving `iriPrefix` to a constant deletes both this and
+`harness/stubs/editor-component.ts`.
+
+**13. Two instance trees maintained in parallel.** Both are now projections of
+one parsed model on the way in, but every mutation after that is still written
+to `instanceExtractData` and `instanceFullData` separately. Divergence is
+invisible from the UI, because widgets read one and the host page reads the
+other. The harness asserts they agree, which is a net rather than a fix.
+
+**14. Path resolution is not pure.** `getDataObjectNodeByPath` resolves through
+each multi ancestor's `currentIndex`, so it returns different nodes depending on
+which pages the user has flipped to. `HandlerContext` depends on mutating data
+*before* the cursor, and nothing in the code says so.
+
+### Chores
+
+**15. Rebrand BMIR → Center for Computational Medicine.** Four places in the
+footer, listed under *Rebrand* below.
+
+**16. Delete the legacy test scaffolding.** Phase 4 — 40 `should create` specs
+and the Protractor setup. Deliberately last, so nothing is removed while it
+might still be a signal.
+
+---
+
+## Reference
+
+Not action items. How the numbers above are arrived at, and what the current
+state is measured against.
+
+### Where the boundaries stand
+
+CEE's three boundaries with the outside world all go through the model library
+now. What is left inside is plain objects, deliberately.
+
+| Boundary | Through the library? | Where |
+|---|---|---|
+| Template in | Yes | `factory/model-library-template-parser.ts`, and `yaml-template-parser.ts` reading the same templates as YAML into the same form |
+| Instance in | Yes | `util/instance-deserializer.ts` |
+| Instance out | Yes | `util/instance-serializer.ts` — `currentMetadata` and `currentMetadataYaml` are two writers, not two code paths |
+
+**CEE contains no code that writes CEDAR JSON, and none that reads it.** Raw
+vocabulary references are down from 156 on `develop` to 80, and the residue is
+not what the goal was aimed at: 14 are ORCID/ROR/PubMed *search responses*,
+which are not CEDAR artifacts; 11 are the vocabulary definition itself; 16 are
+services assembling `{@id, rdfs:label}` pairs from search hits. The remaining
+~39 are the internal working tree, which stays plain objects because the
+widgets hold references into it and edit in place.
+
+One raw lookup survives in the template read path —
+`iriMap[name][JsonSchema.enum][0]` in `model-library-template-parser.ts` —
+because the library's `getIRIMap()` returns unparsed JSON rather than a typed
+IRI. That is a library gap, not a CEE one.
+
+### Model conformance — 31 of 37, and why the number exists at all
+
+Everything above validates CEE against CEE. A template is also a JSON Schema
+for its own instances, which makes "does CEE emit a valid CEDAR instance" a
+question with a mechanical answer — and until August 2026 nobody had asked it.
+The answer was **zero of 37**, with 1,488 tests green at the time. Two of those
+tests compare CEE's JSON output against its YAML output and find them
+equivalent. Self-consistency implies nothing about conformance.
+
+`harness/test/model-conformance.spec.ts` now asks it on every run, and
+`harness/test/validator-agreement.spec.ts` checks that our ajv-draft-04 answer
+matches `cedar-model-validation-library`'s on its own fixtures — seven that must
+pass, nine mutations that must fail, all 17 agreeing. How to run both, and the
+canonical Java suite behind them, is in
+[CEE-RUNBOOK.md](./CEE-RUNBOOK.md) → Checking output against the CEDAR model.
+
+Fixed to get from 0 to 31:
+
+- **No CEE instance carried `schema:isBasedOn`** — the one key that says which
+  template an instance came from. CEE cannot render a form without the template,
+  so it always had the value; it simply never wrote it. Nothing downstream could
+  identify a CEE-produced instance.
+- **The rest of the envelope was absent, then present as nulls.** `@id` and the
+  provenance fields are `["string", "null"]` and may be null; `schema:name` is
+  `string` with `minLength: 1` and `schema:description` is `string`, and neither
+  may be. Emitting nulls uniformly failed 35 of 37 on those two keys alone.
+- **The envelope was only added to freshly-built instances.** An injected one
+  skips the builder, so every document loaded from a host page failed against
+  its own template. `DataContext.setInputTemplate` now adds it on both paths.
+
+Still failing, four of them real defects:
+
+| Template | What is wrong |
+|---|---|
+| 001 | Template has no `@id` — its readme says it was never saved — so no instance of it can name it. Not CEE's defect; CEE reports the template on read. |
+| 003 | Template is malformed; its schema will not compile. Same template as the crash noted below. |
+| 025, 034 | A field marked `_ui.hidden` is dropped from the component tree, so the instance gets no slot for it — while the template still lists it as required. Hiding is a display decision and must not change what the document contains. |
+| 028 | A required multi field starts with fewer items than its own `minItems`. |
+| 029 | The hidden-field defect, plus a controlled field written as `{"@value": …}` where the schema allows only `@id` and `rdfs:label` — CEE is not recognising it as IRI-valued. |
+
+The hidden-field defect is the one to take first: it accounts for three of the
+six, and the fix turns on a single question — whether `_ui.hidden` suppresses
+rendering only, or membership in the document. The model says rendering only.
+
+A test asserts the failing set *equals* that list, so a template that starts
+conforming fails as loudly as one that stops. The number is a defect count and
+should only go down.
+
+### Where each constraint is enforced
+
+One validator now. `FieldValueValidator` is pure and framework-free;
+`CedarValidators.forComponent` adapts it as an Angular `ValidatorFn` for the
+widgets, and `DataQualityReportBuilderHandler` calls it directly. The widgets
+and the report can no longer disagree, because they ask the same function.
+
+✅ enforced, ✗ not enforced, n/a not applicable.
+
+| Constraint | Widget | Report | Handlers |
+|---|---|---|---|
+| `requiredValue` | ✅ | ✅ | ✗ |
+| `minLength` / `maxLength` | ✅ | ✅ | ✗ |
+| `regex` | ✅ | ✅ | ✗ |
+| email / link / phone format | ✅ | ✅ | ✗ |
+| external-authority IRI well-formedness | ✅ | ✅ | ✗ |
+| numeric type pattern, all seven XSD types | ✅ | ✅ | ✗ |
+| numeric implicit type bounds (int, long, byte, short) | ✅ | ✅ | ✗ |
+| `minValue` / `maxValue` / `decimalPlace` | ✅ | ✅ | ✗ |
+| temporal shape vs `temporalType` | ✅ | ✅ | ✗ |
+| temporal shape vs `granularity` | ✅ | ✅ | ✗ |
+| timezone vs `timezoneEnabled` | ✅ | ✅ | ✗ |
+| calendar validity | ✅ | ✅ | ✗ |
+| choice membership | ✅ | ✅ | ✗ |
+| `minItems` / `maxItems` | ✅ | ✅ | ✅ |
+| controlled-term structure (`@id`/`rdfs:label` pair, IRI form) | ✅ | ✅ | ✗ |
+| controlled-term **membership** | ✗ | ✗ | ✗ |
+| attribute-value name uniqueness | n/a | n/a | auto-corrected |
+
+One cell is not green, deliberately.
+
+**Controlled-term membership** cannot be checked locally. Deciding whether a
+term belongs to the declared ontologies, value sets, classes or branches needs
+the terminology server, and a local synchronous report that quietly made a
+network call — or quietly skipped one — would be worse than one that never
+claimed to. A test pins the boundary so it reads as a decision rather than an
+oversight. Closing it means an asynchronous validation pass, which is a
+different feature.
+
+**The Handlers column** is now green where it should be and empty where it
+should be, which took separating two cases that look alike:
+
+- *Value writes stay permissive.* Reaching `10` in a field with `minValue: 10`
+  means passing through `1`. Intermediate states are legitimately invalid, and
+  a handler that refused them would make the field untypeable. Storing freely
+  and judging separately is the right design, not a gap.
+- *Structural operations are enforced.* There is no transient state in which an
+  element holds more instances than `maxItems` allows, so `addMultiInstance`,
+  `copyMultiInstance` and `deleteMultiInstance` refuse to cross a bound and
+  return whether the operation happened. Refusal is a no-op plus a trace rather
+  than an exception: the pager already disables the control at the bound, so a
+  call arriving there is a caller bug, and throwing would take the editor down
+  over something recoverable.
+
+**Attribute-value** names are auto-corrected rather than validated: a duplicate
+or blank name is silently replaced with `Attribute Value Field<n>`, discarding
+what the user typed. Not a validation gap so much as a missing message.
+
+The viewer used to be the weakest path in the system. `DataContext
+.setInputTemplate` skipped the quality report in read-only mode, on the
+reasoning that nothing can be edited so validity is uninteresting — but
+read-only plus `hideEmptyFields` is the viewer configuration, and read-only
+also suppresses the widgets' own errors. An injected instance therefore reached
+the screen with no validation at any layer. The report is now always built.
+
+### Defect: a label with no @id is discarded silently
+
+`{"rdfs:label": "Some Term"}` with no `@id` is not a value node — there is no
+term, only text where one should be — and the model library drops it while
+parsing, reporting nothing.
+
+This is not new: `currentMetadata` has always serialised through the library,
+so the label never reached the instance CEE emitted. What changed when the read
+path moved to `CedarReaders` is that CEE no longer *sees* it either, so the
+`controlledStructure` diagnostic that used to name the problem is gone. The
+field now reads as unfilled, which for a required field is at least an
+actionable message and for an optional one is silence.
+
+Worth fixing in the library rather than in CEE: a reader that discards input
+should say so. Until then a host page can inject a half-written controlled term
+and get it back empty with no explanation. Pinned in
+`harness/test/validation.spec.ts` so the behaviour is recorded rather than
+assumed.
+
+### Unify the external authority fields
+
+Seven field types — ORCID, ROR, PFAS, PubMed, RRID, NIH Grant, DOI — are
+implemented seven times over. They differ in a lookup URL, a label, a logo and
+an IRI prefix; the behaviour is the same search-select-resolve flow throughout.
+
+Measured on `develop`:
+
+| | Count | Size |
+|---|---|---|
+| Input components (ts + html + scss) | 7 | ~1,860 lines |
+| Lookup services | 7 | 347 lines |
+| REST response model folders | 16 | — |
+
+How close the copies are: `doi-field-data.service.ts` and
+`rrid-field-data.service.ts` differ on 33 of ~50 lines, and most of those
+differences are a URL and a type name. `cedar-input-pmid` and
+`cedar-input-rrid` share 79% of their template verbatim.
+
+The same duplication exists downstream in `cedar-model-typescript-library`,
+where each type needs eight near-identical files plus registration in nine
+places. Those 56 files were produced by name substitution from the ROR set,
+which is about as direct a demonstration as one could ask for that they are a
+template rather than seven designs.
+
+A plausible shape:
+
+- One `ExternalAuthorityLookupService` configured by a descriptor
+  (`searchUrl`, `detailsUrl`, response mapper) rather than seven services.
+- One abstract input component holding the search/select/resolve flow, with
+  per-type descriptors supplying label, placeholder, logo and IRI prefix — and
+  one shared template, since Angular allows several components to reuse a
+  `templateUrl`.
+- A generic response model in place of the per-type `*SearchResponse` /
+  `*DetailResponse` pairs.
+
+`EXTERNAL_AUTHORITY_INPUT_TYPES` (`models/ext-auth-categories.model.ts`) is
+already the canonical list of the seven and would be the natural registry key.
+
+The argument for doing it is stronger than tidiness. The quality-report defect
+fixed under *Closed* existed precisely because a second place had its own
+idea of which fields are IRI-valued instead of consulting that set; seven
+parallel implementations are seven opportunities for the same class of drift.
+An eighth authority type currently costs eight files here plus eight more in
+the model library.
+
+The argument against: the current per-type classes give each field a distinct
+TypeScript type. Today those types carry no information beyond an input-type
+string, since none of them adds behaviour — but a unified base would give that
+up, and it is worth being deliberate about rather than assuming it does not
+matter. Do this before adding an eighth type, not after.
+
+### Rebrand: BMIR → Center for Computational Medicine
+
+The group has been renamed. CEE's footer still credits the old name and links
+to the old site, in four places:
+
+| What | Where |
+|---|---|
+| Logo image | `src/assets/images/bmir-logo.png` |
+| Logo CSS class | `.bmir-logo`, `static-footer.component.scss` |
+| Link and aria-label | `static-footer.component.html:5` — `https://bmir.stanford.edu` |
+| Strings | `assets/i18n-cee/en.json` and `hu.json` — `Maintained` ("…Stanford Center for Biomedical Informatics Research.") and the `BMIR` label |
+
+Needs the new logo asset and the new URL before it can be done; the string and
+markup changes are trivial once those exist. Both language files must be
+updated together, or the Hungarian map silently keeps the old name.
+
+The footer is covered by the visual baseline's `chrome` preset
+(`preset-chrome.png`), so this change will show up as a screenshot diff and the
+baseline will need re-recording as part of the work — that is the mechanism
+working, not a problem.
+
+### Design debt worth paying independently
+
+- **Circular import.** `data-object-util.ts:157` reads one static (`iriPrefix`)
+  off the top-level Angular component, dragging the whole component subtree —
+  HttpClient services, a `package.json` import, and an edge back into
+  `DataObjectUtil` — into anything using the data-object builder. It survives
+  only because webpack tolerates it. Moving `iriPrefix` to a constant would
+  delete both this and `harness/stubs/editor-component.ts`.
+- **Two instance trees, no single source of truth.** Every mutation is written
+  separately to `instanceExtractData` and `instanceFullData`. Divergence is
+  invisible from the UI, because widgets read one tree and the host page reads
+  the other. The harness now asserts they agree, and both are projections of one
+  parsed model on the way in — but they are still maintained in parallel after
+  that. (The `deleteContext` pass `multiInstanceItemAdd` used to need between
+  them is gone: the builder is asked for the right shape instead.)
+- **Path resolution is not pure.** `getDataObjectNodeByPath` resolves through
+  each multi ancestor's `currentIndex`, so it returns different nodes depending
+  on which pages the user has flipped to. `HandlerContext` depends on mutating
+  data *before* the cursor; nothing in the code says so.
+
+---
+
+---
+
+## Closed
+
+Kept rather than deleted. Several record a wrong turn, and the wrong turns are
+the part worth not repeating.
 
 ### Defects found and fixed
 
@@ -305,162 +676,6 @@ corpus were read by nothing — and the factory did not extract it.
 **Behavioural change worth naming:** `isValid` is stricter, so instances that
 previously reported valid may not.
 
-### Where each constraint is enforced
-
-One validator now. `FieldValueValidator` is pure and framework-free;
-`CedarValidators.forComponent` adapts it as an Angular `ValidatorFn` for the
-widgets, and `DataQualityReportBuilderHandler` calls it directly. The widgets
-and the report can no longer disagree, because they ask the same function.
-
-✅ enforced, ✗ not enforced, n/a not applicable.
-
-| Constraint | Widget | Report | Handlers |
-|---|---|---|---|
-| `requiredValue` | ✅ | ✅ | ✗ |
-| `minLength` / `maxLength` | ✅ | ✅ | ✗ |
-| `regex` | ✅ | ✅ | ✗ |
-| email / link / phone format | ✅ | ✅ | ✗ |
-| external-authority IRI well-formedness | ✅ | ✅ | ✗ |
-| numeric type pattern, all seven XSD types | ✅ | ✅ | ✗ |
-| numeric implicit type bounds (int, long, byte, short) | ✅ | ✅ | ✗ |
-| `minValue` / `maxValue` / `decimalPlace` | ✅ | ✅ | ✗ |
-| temporal shape vs `temporalType` | ✅ | ✅ | ✗ |
-| temporal shape vs `granularity` | ✅ | ✅ | ✗ |
-| timezone vs `timezoneEnabled` | ✅ | ✅ | ✗ |
-| calendar validity | ✅ | ✅ | ✗ |
-| choice membership | ✅ | ✅ | ✗ |
-| `minItems` / `maxItems` | ✅ | ✅ | ✅ |
-| controlled-term structure (`@id`/`rdfs:label` pair, IRI form) | ✅ | ✅ | ✗ |
-| controlled-term **membership** | ✗ | ✗ | ✗ |
-| attribute-value name uniqueness | n/a | n/a | auto-corrected |
-
-One cell is not green, deliberately.
-
-**Controlled-term membership** cannot be checked locally. Deciding whether a
-term belongs to the declared ontologies, value sets, classes or branches needs
-the terminology server, and a local synchronous report that quietly made a
-network call — or quietly skipped one — would be worse than one that never
-claimed to. A test pins the boundary so it reads as a decision rather than an
-oversight. Closing it means an asynchronous validation pass, which is a
-different feature.
-
-**The Handlers column** is now green where it should be and empty where it
-should be, which took separating two cases that look alike:
-
-- *Value writes stay permissive.* Reaching `10` in a field with `minValue: 10`
-  means passing through `1`. Intermediate states are legitimately invalid, and
-  a handler that refused them would make the field untypeable. Storing freely
-  and judging separately is the right design, not a gap.
-- *Structural operations are enforced.* There is no transient state in which an
-  element holds more instances than `maxItems` allows, so `addMultiInstance`,
-  `copyMultiInstance` and `deleteMultiInstance` refuse to cross a bound and
-  return whether the operation happened. Refusal is a no-op plus a trace rather
-  than an exception: the pager already disables the control at the bound, so a
-  call arriving there is a caller bug, and throwing would take the editor down
-  over something recoverable.
-
-**Attribute-value** names are auto-corrected rather than validated: a duplicate
-or blank name is silently replaced with `Attribute Value Field<n>`, discarding
-what the user typed. Not a validation gap so much as a missing message.
-
-The viewer used to be the weakest path in the system. `DataContext
-.setInputTemplate` skipped the quality report in read-only mode, on the
-reasoning that nothing can be edited so validity is uninteresting — but
-read-only plus `hideEmptyFields` is the viewer configuration, and read-only
-also suppresses the widgets' own errors. An injected instance therefore reached
-the screen with no validation at any layer. The report is now always built.
-
-### Model conformance — 31 of 37, and why the number exists at all
-
-Everything above validates CEE against CEE. A template is also a JSON Schema
-for its own instances, which makes "does CEE emit a valid CEDAR instance" a
-question with a mechanical answer — and until August 2026 nobody had asked it.
-The answer was **zero of 37**, with 1,488 tests green at the time. Two of those
-tests compare CEE's JSON output against its YAML output and find them
-equivalent. Self-consistency implies nothing about conformance.
-
-`harness/test/model-conformance.spec.ts` now asks it on every run, and
-`harness/test/validator-agreement.spec.ts` checks that our ajv-draft-04 answer
-matches `cedar-model-validation-library`'s on its own fixtures — seven that must
-pass, nine mutations that must fail, all 17 agreeing. How to run both, and the
-canonical Java suite behind them, is in
-[CEE-RUNBOOK.md](./CEE-RUNBOOK.md) → Checking output against the CEDAR model.
-
-Fixed to get from 0 to 31:
-
-- **No CEE instance carried `schema:isBasedOn`** — the one key that says which
-  template an instance came from. CEE cannot render a form without the template,
-  so it always had the value; it simply never wrote it. Nothing downstream could
-  identify a CEE-produced instance.
-- **The rest of the envelope was absent, then present as nulls.** `@id` and the
-  provenance fields are `["string", "null"]` and may be null; `schema:name` is
-  `string` with `minLength: 1` and `schema:description` is `string`, and neither
-  may be. Emitting nulls uniformly failed 35 of 37 on those two keys alone.
-- **The envelope was only added to freshly-built instances.** An injected one
-  skips the builder, so every document loaded from a host page failed against
-  its own template. `DataContext.setInputTemplate` now adds it on both paths.
-
-Still failing, four of them real defects:
-
-| Template | What is wrong |
-|---|---|
-| 001 | Template has no `@id` — its readme says it was never saved — so no instance of it can name it. Not CEE's defect; CEE reports the template on read. |
-| 003 | Template is malformed; its schema will not compile. Same template as the crash noted below. |
-| 025, 034 | A field marked `_ui.hidden` is dropped from the component tree, so the instance gets no slot for it — while the template still lists it as required. Hiding is a display decision and must not change what the document contains. |
-| 028 | A required multi field starts with fewer items than its own `minItems`. |
-| 029 | The hidden-field defect, plus a controlled field written as `{"@value": …}` where the schema allows only `@id` and `rdfs:label` — CEE is not recognising it as IRI-valued. |
-
-The hidden-field defect is the one to take first: it accounts for three of the
-six, and the fix turns on a single question — whether `_ui.hidden` suppresses
-rendering only, or membership in the document. The model says rendering only.
-
-A test asserts the failing set *equals* that list, so a template that starts
-conforming fails as loudly as one that stops. The number is a defect count and
-should only go down.
-
-### Where the boundaries stand
-
-CEE's three boundaries with the outside world all go through the model library
-now. What is left inside is plain objects, deliberately.
-
-| Boundary | Through the library? | Where |
-|---|---|---|
-| Template in | Yes | `factory/model-library-template-parser.ts`, and `yaml-template-parser.ts` reading the same templates as YAML into the same form |
-| Instance in | Yes | `util/instance-deserializer.ts` |
-| Instance out | Yes | `util/instance-serializer.ts` — `currentMetadata` and `currentMetadataYaml` are two writers, not two code paths |
-
-**CEE contains no code that writes CEDAR JSON, and none that reads it.** Raw
-vocabulary references are down from 156 on `develop` to 80, and the residue is
-not what the goal was aimed at: 14 are ORCID/ROR/PubMed *search responses*,
-which are not CEDAR artifacts; 11 are the vocabulary definition itself; 16 are
-services assembling `{@id, rdfs:label}` pairs from search hits. The remaining
-~39 are the internal working tree, which stays plain objects because the
-widgets hold references into it and edit in place.
-
-One raw lookup survives in the template read path —
-`iriMap[name][JsonSchema.enum][0]` in `model-library-template-parser.ts` —
-because the library's `getIRIMap()` returns unparsed JSON rather than a typed
-IRI. That is a library gap, not a CEE one.
-
-### Defect: a label with no @id is discarded silently
-
-`{"rdfs:label": "Some Term"}` with no `@id` is not a value node — there is no
-term, only text where one should be — and the model library drops it while
-parsing, reporting nothing.
-
-This is not new: `currentMetadata` has always serialised through the library,
-so the label never reached the instance CEE emitted. What changed when the read
-path moved to `CedarReaders` is that CEE no longer *sees* it either, so the
-`controlledStructure` diagnostic that used to name the problem is gone. The
-field now reads as unfilled, which for a required field is at least an
-actionable message and for an optional one is silence.
-
-Worth fixing in the library rather than in CEE: a reader that discards input
-should say so. Until then a host page can inject a half-written controlled term
-and get it back empty with no explanation. Pinned in
-`harness/test/validation.spec.ts` so the behaviour is recorded rather than
-assumed.
-
 ### ~~Adopt the model library instead of hand-reading JSON~~ — done, on `cee-with-model-library`
 
 CEE parsed template JSON and built instance JSON by hand — 475 LOC and 77 raw
@@ -479,7 +694,7 @@ it, so `currentMetadataYaml` is a second writer rather than a second code path.
 
 The method that made it safe, worth reusing: keep both implementations behind a
 seam, run the *entire* suite against each, and delete the old one only once they
-agree across the corpus. Most of the defects in Open findings were found that
+agree across the corpus. Most of the defects under *Closed* were found that
 way rather than by reading code.
 
 Both findings from the scoping are closed:
@@ -492,99 +707,6 @@ Both findings from the scoping are closed:
   corpus is now part of the suite, which is what makes the conformance and
   format-independence numbers mean anything. It found the crash above within one
   throwaway test.
-
-### Unify the external authority fields
-
-Seven field types — ORCID, ROR, PFAS, PubMed, RRID, NIH Grant, DOI — are
-implemented seven times over. They differ in a lookup URL, a label, a logo and
-an IRI prefix; the behaviour is the same search-select-resolve flow throughout.
-
-Measured on `develop`:
-
-| | Count | Size |
-|---|---|---|
-| Input components (ts + html + scss) | 7 | ~1,860 lines |
-| Lookup services | 7 | 347 lines |
-| REST response model folders | 16 | — |
-
-How close the copies are: `doi-field-data.service.ts` and
-`rrid-field-data.service.ts` differ on 33 of ~50 lines, and most of those
-differences are a URL and a type name. `cedar-input-pmid` and
-`cedar-input-rrid` share 79% of their template verbatim.
-
-The same duplication exists downstream in `cedar-model-typescript-library`,
-where each type needs eight near-identical files plus registration in nine
-places. Those 56 files were produced by name substitution from the ROR set,
-which is about as direct a demonstration as one could ask for that they are a
-template rather than seven designs.
-
-A plausible shape:
-
-- One `ExternalAuthorityLookupService` configured by a descriptor
-  (`searchUrl`, `detailsUrl`, response mapper) rather than seven services.
-- One abstract input component holding the search/select/resolve flow, with
-  per-type descriptors supplying label, placeholder, logo and IRI prefix — and
-  one shared template, since Angular allows several components to reuse a
-  `templateUrl`.
-- A generic response model in place of the per-type `*SearchResponse` /
-  `*DetailResponse` pairs.
-
-`EXTERNAL_AUTHORITY_INPUT_TYPES` (`models/ext-auth-categories.model.ts`) is
-already the canonical list of the seven and would be the natural registry key.
-
-The argument for doing it is stronger than tidiness. The quality-report defect
-fixed in Open findings existed precisely because a second place had its own
-idea of which fields are IRI-valued instead of consulting that set; seven
-parallel implementations are seven opportunities for the same class of drift.
-An eighth authority type currently costs eight files here plus eight more in
-the model library.
-
-The argument against: the current per-type classes give each field a distinct
-TypeScript type. Today those types carry no information beyond an input-type
-string, since none of them adds behaviour — but a unified base would give that
-up, and it is worth being deliberate about rather than assuming it does not
-matter. Do this before adding an eighth type, not after.
-
-### Rebrand: BMIR → Center for Computational Medicine
-
-The group has been renamed. CEE's footer still credits the old name and links
-to the old site, in four places:
-
-| What | Where |
-|---|---|
-| Logo image | `src/assets/images/bmir-logo.png` |
-| Logo CSS class | `.bmir-logo`, `static-footer.component.scss` |
-| Link and aria-label | `static-footer.component.html:5` — `https://bmir.stanford.edu` |
-| Strings | `assets/i18n-cee/en.json` and `hu.json` — `Maintained` ("…Stanford Center for Biomedical Informatics Research.") and the `BMIR` label |
-
-Needs the new logo asset and the new URL before it can be done; the string and
-markup changes are trivial once those exist. Both language files must be
-updated together, or the Hungarian map silently keeps the old name.
-
-The footer is covered by the visual baseline's `chrome` preset
-(`preset-chrome.png`), so this change will show up as a screenshot diff and the
-baseline will need re-recording as part of the work — that is the mechanism
-working, not a problem.
-
-### Design debt worth paying independently
-
-- **Circular import.** `data-object-util.ts:157` reads one static (`iriPrefix`)
-  off the top-level Angular component, dragging the whole component subtree —
-  HttpClient services, a `package.json` import, and an edge back into
-  `DataObjectUtil` — into anything using the data-object builder. It survives
-  only because webpack tolerates it. Moving `iriPrefix` to a constant would
-  delete both this and `harness/stubs/editor-component.ts`.
-- **Two instance trees, no single source of truth.** Every mutation is written
-  separately to `instanceExtractData` and `instanceFullData`. Divergence is
-  invisible from the UI, because widgets read one tree and the host page reads
-  the other. The harness now asserts they agree, and both are projections of one
-  parsed model on the way in — but they are still maintained in parallel after
-  that. (The `deleteContext` pass `multiInstanceItemAdd` used to need between
-  them is gone: the builder is asked for the right shape instead.)
-- **Path resolution is not pure.** `getDataObjectNodeByPath` resolves through
-  each multi ancestor's `currentIndex`, so it returns different nodes depending
-  on which pages the user has flipped to. `HandlerContext` depends on mutating
-  data *before* the cursor; nothing in the code says so.
 
 ---
 

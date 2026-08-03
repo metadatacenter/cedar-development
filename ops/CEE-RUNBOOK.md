@@ -234,8 +234,8 @@ starts conforming fails just as loudly as one that stops. The number is a
 defect count. It should only go down.
 
 Two of the six are not CEE's fault (template 001 has no `@id`; template 003 is
-malformed). The other four are real: see [CEE-ROADMAP.md](./CEE-ROADMAP.md) →
-Open findings.
+malformed). The other four are real, and are items 3, 4 and 5 in
+[CEE-ROADMAP.md](./CEE-ROADMAP.md) → What needs doing.
 
 ### Why the harness check can be trusted
 
@@ -348,7 +348,7 @@ The harness consumes `dist/`. Re-run `npm run build` in
 
 **A test asserts something that looks wrong**
 Check whether it sits in a "known defects (characterized, not endorsed)" block.
-Those assert what CEE *does*, deliberately. See [CEE-ROADMAP.md](./CEE-ROADMAP.md) → Open findings.
+Those assert what CEE *does*, deliberately. See [CEE-ROADMAP.md](./CEE-ROADMAP.md) → What needs doing.
 
 ---
 
