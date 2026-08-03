@@ -24,18 +24,17 @@ and any wrong turns.
 | # | Item | State |
 |---|---|---|
 | **1** | Zero-instance element satisfying a requirement | ❓ **needs a decision** — semantics |
-| 2 | Full-page baselines can't see a widget-sized change | ⬜ do before Phase 3 — 9 fixtures, same 1% blind spot |
 | — | **Phase 3** Angular 14 → 22 | ⬅ **next, and no longer blocked** |
 | — | **Phase 4** delete the legacy test scaffolding | ⬜ after Phase 3 — 40 stub specs, Protractor |
 
-Numbered 1–2; entries under *Closed* keep the numbers they carried at the time.
+One numbered item; entries under *Closed* keep the numbers they carried at the time.
 
 `cee-with-model-library` is an **experiment**, not work pending a merge. All the
 closed work below lives on it.
 
 Conformance: **34 of 37** corpus instances validate against their own template,
 up from 0; the three that do not are defects in the templates. Coverage: 2,113
-domain tests, 128 browser tests.
+domain tests, 180 browser tests.
 
 **Phase 2 is complete and Phase 3 is unblocked.** The time picker was the only
 dependency with no upgrade path; `@ng-select/ng-select` and
@@ -59,7 +58,7 @@ sense that the cost of the jump grows every release.
 | TypeScript | 4.8 |
 | rxjs | 6.6.7 |
 | Test coverage before this work | 40 spec files, 45 `it()` blocks, all `expect(component).toBeTruthy()` |
-| Test coverage now | 2,113 domain tests in `harness/`, 128 browser tests in `visual/` |
+| Test coverage now | 2,113 domain tests in `harness/`, 180 browser tests in `visual/` |
 
 ## The blocker, removed
 
@@ -266,26 +265,6 @@ unilaterally.
 Everything else that was on this list is under *Closed*, under the numbers it
 had at the time. Conformance is 34 of 37, and all three remaining failures are defects in the
 corpus templates rather than in CEE.
-
-### 2. Full-page baselines cannot see a widget-sized change
-
-Found by the footer rebrand, which passed `preset-chrome` with a new logo, a new
-organisation name and a new link: 0.708% of the desktop page and 0.897% of the
-narrow one, against a `maxDiffPixelRatio` of 1%. The footer is now covered by a
-clipped screenshot plus text assertions, but **the nine full-page fixture
-baselines have the same property** — any single widget is well under 1% of any of
-them, so a widget-level regression in `01-input-types` or `04-controlled-terms`
-would read as green.
-
-Worth doing **before** Phase 3, because the migration is when those baselines get
-leaned on hardest and a Material DOM rewrite is exactly the change that will move
-some widgets and not others. Lowering the ratio globally is the wrong fix — it is
-there to absorb cross-machine font rasterisation. The shape that works is the one
-`pager.png` and `footer.png` already use: clip to the element, and assert in text
-whatever is a string rather than a picture.
-
-Not yet sized. The first question is which regions are worth their own clip,
-which is a judgement about what each fixture exists to protect.
 
 ### Chores
 
@@ -986,6 +965,50 @@ Worth applying the same test to the other baselines before trusting them on
 anything small: `pager.png` was already clipped for exactly this reason, but the
 nine full-page fixtures are not, and a single widget is well under 1% of any of
 them.
+
+### ~~2. Full-page baselines could not see a widget-sized change~~ — done
+
+The generalisation of what the footer rebrand exposed. A single widget is a small
+fraction of any of the nine full-page fixtures, so a widget that renders wrong
+after the MDC rewrite — the thing this suite exists to catch — could move every
+pixel it owns and still come in under the page's 1% budget.
+
+Each of 25 widgets now also gets a screenshot clipped to its own host element with
+an absolute 120-pixel budget instead of an inherited ratio. Playwright takes the
+`min` of an absolute budget and the ratio expanded against the image's area, so
+the override tightens rather than being softened by the config. Two things follow
+beyond sensitivity: a failure names the widget rather than handing over a
+full-page diff to search, and the baselines are small enough to review.
+
+**Mutation-tested, and the numbers are the argument.** Shifting the section
+break's left padding from 10px to 14px — its own text moves 4px, nothing else on
+the page moves, which is the shape of an MDC restyle — changes 674 pixels. That is
+0.059% of the desktop `05-static-paged` page and 0.107% of the narrow one, so both
+full-page baselines pass in both projects while both clipped section-break
+baselines fail.
+
+**Two widgets rendered in no fixture at all**, so no baseline of any kind could
+see them, clipped or not. Both now covered: attribute-value, in a new
+`10-attribute-values` fixture — the odd one out among field types, since the name
+is user-supplied rather than fixed by the template, giving a name box beside a
+value box that no other widget uses — and the static image, added to
+`05-static-paged` with the image carried as a `data:` URI so it renders offline.
+
+Three are left uncovered on purpose, with the reasons recorded beside the table.
+`static-youtube` renders `<youtube-player>`, which fetches
+`youtube.com/iframe_api`; the suite must not reach the network for the same reason
+it points the terminology server at a dead port, and a baseline of the empty
+container it degrades to would assert nothing. **Worth carrying into Phase 3: that
+is a live network dependency inside CEE, not only a test problem.** The ORCID and
+ROR detail panels only render after a term is selected against a reachable
+authority service.
+
+One suspicion checked and dropped: a `minItems: 0` attribute-value field looked at
+first like it might be unreachable, since the widget is absent from the page. It is
+not — the header, the pager and the add button all render, and only the occupied
+row is missing, which is correct for a 0..4 field. The fixture asks for one row
+because a clipped baseline needs something to photograph, not because the
+behaviour is wrong.
 
 ---
 
