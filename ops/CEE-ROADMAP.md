@@ -24,11 +24,10 @@ and any wrong turns.
 | # | Item | State |
 |---|---|---|
 | **1** | Zero-instance element satisfying a requirement | ❓ **needs a decision** — semantics |
-| 2 | Rebrand BMIR → CCM | ⬜ chore — four places in the footer |
 | — | **Phase 3** Angular 14 → 22 | ⬅ **next, and no longer blocked** |
 | — | **Phase 4** delete the legacy test scaffolding | ⬜ after Phase 3 — 40 stub specs, Protractor |
 
-Numbered 1–2; entries under *Closed* keep the numbers they carried at the time.
+One numbered item; entries under *Closed* keep the numbers they carried at the time.
 
 `cee-with-model-library` is an **experiment**, not work pending a merge. All the
 closed work below lives on it.
@@ -269,9 +268,6 @@ corpus templates rather than in CEE.
 
 ### Chores
 
-**2. Rebrand BMIR → Center for Computational Medicine.** Four places in the
-footer, listed under *Rebrand* below.
-
 Deleting the legacy test scaffolding is Phase 4's whole content — 40
 `should create` specs and the Protractor setup — so it is tracked as the phase
 rather than duplicated as a chore.
@@ -451,27 +447,6 @@ reasoning that nothing can be edited so validity is uninteresting — but
 read-only plus `hideEmptyFields` is the viewer configuration, and read-only
 also suppresses the widgets' own errors. An injected instance therefore reached
 the screen with no validation at any layer. The report is now always built.
-
-### Rebrand: BMIR → Center for Computational Medicine
-
-The group has been renamed. CEE's footer still credits the old name and links
-to the old site, in four places:
-
-| What | Where |
-|---|---|
-| Logo image | `src/assets/images/bmir-logo.png` |
-| Logo CSS class | `.bmir-logo`, `static-footer.component.scss` |
-| Link and aria-label | `static-footer.component.html:5` — `https://bmir.stanford.edu` |
-| Strings | `assets/i18n-cee/en.json` and `hu.json` — `Maintained` ("…Stanford Center for Biomedical Informatics Research.") and the `BMIR` label |
-
-Needs the new logo asset and the new URL before it can be done; the string and
-markup changes are trivial once those exist. Both language files must be
-updated together, or the Hungarian map silently keeps the old name.
-
-The footer is covered by the visual baseline's `chrome` preset
-(`preset-chrome.png`), so this change will show up as a screenshot diff and the
-baseline will need re-recording as part of the work — that is the mechanism
-working, not a problem.
 
 ### Design debt worth paying independently
 
@@ -935,6 +910,61 @@ failures actually appeared under. Also clean.
 probability around 2e-5, so the local retry is gone and a flake now fails loudly.
 CI keeps one, for shared-runner noise rather than for this. `npm run flake-hunt`
 (RUNS=n) re-establishes the number if it is ever needed.
+
+### ~~Rebrand: BMIR → Division of Computational Medicine~~ — done
+
+The group renamed. The footer credited the old name and linked to the old site in
+four places, all now changed: the inlined logo, its CSS class, the link and its
+`aria-label`, and the `Maintained` string in **both** `en.json` and `hu.json`.
+`Generic.BMIR` — the old brand's label, with no callers anywhere in the repo —
+went with them, and so did `assets/images/bmir-logo.png`, which nothing
+referenced; the stylesheet inlines the mark, and a second unreferenced copy of it
+was the same duplication this branch spent its time removing.
+
+**The name is Division, not Center.** This entry said Center for Computational
+Medicine for as long as it was pending. The Division's own site
+(`computationalmedicine.stanford.edu`) calls it the *Stanford Division of
+Computational Medicine* in its title and throughout, and that is what the footer
+now says. Worth flagging rather than quietly correcting, because the wrong name
+was written down here first and could have been copied out of it.
+
+The logo is the existing asset with the wordmark cropped off, not a new download:
+the mark sat in rows 3–193 of a 572×318 image with "BMIR" in rows 217–311 and one
+clean gap between, so the crop is measured rather than judged — 224×194, which
+sets the box to 77×67 at the old height. That also matches how the Division
+presents itself: the same tree, with the name set in text beside it rather than
+baked into the image. Cropping it is what makes the `Maintained` string the single
+source of the organisation's name; while the name was inside a PNG, no text
+assertion could reach it. `margin-right: 24px` replaces the ~37px of visual gap
+the old image carried as internal whitespace.
+
+**The visual baseline did not catch any of this, and this entry used to claim it
+would.** It said the change "will show up as a screenshot diff … that is the
+mechanism working". It did not. `preset-chrome` was the only baseline covering the
+footer, and it passed — a new logo, a new organisation name and a new link, all
+green. Measured against the previous baselines the whole rebrand moved **0.708%**
+of the desktop page and **0.897%** of the narrow one, against a
+`maxDiffPixelRatio` of **1%**. Narrow cleared it by a tenth of a percentage point.
+
+Mutation-tested afterwards, which is what settled it: reverting both the logo and
+the name kills all four new footer assertions across both projects and leaves both
+`preset-chrome` tests green.
+
+The ratio is not the bug — it exists to absorb cross-machine font rasterisation,
+and tightening it globally trades a silent failure for a noisy one. The gap is
+that a **whole-page ratio cannot see a localised change to a small region of a
+tall page**, which is a general property, not a fact about footers. Two things
+close it here, and the config comment now says so instead of overclaiming:
+
+- a screenshot clipped to the footer, where the same 1% is about a thousand pixels
+  rather than sixteen thousand, and
+- the organisation's name and URL asserted as **text**. A brand is a specific
+  string, not a pixel region, and it should fail on the string.
+
+Worth applying the same test to the other baselines before trusting them on
+anything small: `pager.png` was already clipped for exactly this reason, but the
+nine full-page fixtures are not, and a single widget is well under 1% of any of
+them.
 
 ---
 
