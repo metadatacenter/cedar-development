@@ -24,17 +24,18 @@ and any wrong turns.
 | # | Item | State |
 |---|---|---|
 | **1** | Zero-instance element satisfying a requirement | ❓ **needs a decision** — semantics |
+| 2 | Full-page baselines can't see a widget-sized change | ⬜ do before Phase 3 — 9 fixtures, same 1% blind spot |
 | — | **Phase 3** Angular 14 → 22 | ⬅ **next, and no longer blocked** |
 | — | **Phase 4** delete the legacy test scaffolding | ⬜ after Phase 3 — 40 stub specs, Protractor |
 
-One numbered item; entries under *Closed* keep the numbers they carried at the time.
+Numbered 1–2; entries under *Closed* keep the numbers they carried at the time.
 
 `cee-with-model-library` is an **experiment**, not work pending a merge. All the
 closed work below lives on it.
 
 Conformance: **34 of 37** corpus instances validate against their own template,
 up from 0; the three that do not are defects in the templates. Coverage: 2,113
-domain tests, 124 browser tests.
+domain tests, 128 browser tests.
 
 **Phase 2 is complete and Phase 3 is unblocked.** The time picker was the only
 dependency with no upgrade path; `@ng-select/ng-select` and
@@ -58,7 +59,7 @@ sense that the cost of the jump grows every release.
 | TypeScript | 4.8 |
 | rxjs | 6.6.7 |
 | Test coverage before this work | 40 spec files, 45 `it()` blocks, all `expect(component).toBeTruthy()` |
-| Test coverage now | 2,113 domain tests in `harness/`, 124 browser tests in `visual/` |
+| Test coverage now | 2,113 domain tests in `harness/`, 128 browser tests in `visual/` |
 
 ## The blocker, removed
 
@@ -265,6 +266,26 @@ unilaterally.
 Everything else that was on this list is under *Closed*, under the numbers it
 had at the time. Conformance is 34 of 37, and all three remaining failures are defects in the
 corpus templates rather than in CEE.
+
+### 2. Full-page baselines cannot see a widget-sized change
+
+Found by the footer rebrand, which passed `preset-chrome` with a new logo, a new
+organisation name and a new link: 0.708% of the desktop page and 0.897% of the
+narrow one, against a `maxDiffPixelRatio` of 1%. The footer is now covered by a
+clipped screenshot plus text assertions, but **the nine full-page fixture
+baselines have the same property** — any single widget is well under 1% of any of
+them, so a widget-level regression in `01-input-types` or `04-controlled-terms`
+would read as green.
+
+Worth doing **before** Phase 3, because the migration is when those baselines get
+leaned on hardest and a Material DOM rewrite is exactly the change that will move
+some widgets and not others. Lowering the ratio globally is the wrong fix — it is
+there to absorb cross-machine font rasterisation. The shape that works is the one
+`pager.png` and `footer.png` already use: clip to the element, and assert in text
+whatever is a string rather than a picture.
+
+Not yet sized. The first question is which regions are worth their own clip,
+which is a judgement about what each fixture exists to protect.
 
 ### Chores
 
