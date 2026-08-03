@@ -28,7 +28,7 @@ sense that the cost of the jump grows every release.
 | TypeScript | 4.8 |
 | rxjs | 6.6.7 |
 | Test coverage before this work | 40 spec files, 45 `it()` blocks, all `expect(component).toBeTruthy()` |
-| Test coverage now | 1,710 domain tests in `harness/`, 86 browser tests in `visual/` |
+| Test coverage now | 2,006 domain tests in `harness/`, 88 browser tests in `visual/` |
 
 ## The blocker, stated plainly
 
@@ -60,7 +60,7 @@ candidate, cannot express what CEE needs.
 
 ### Phase 0 — Domain test harness ✅ done
 
-`harness/` — 1,710 headless tests across 23 files, over template parsing,
+`harness/` — 2,006 headless tests across 28 files, over template parsing,
 instance reading and writing, path resolution, value writes, multi-instance
 mechanics, controlled-term constraints, the quality report, and conformance to
 the CEDAR model. Imports no Angular, so it survives the upgrade unchanged. See
@@ -75,7 +75,7 @@ confidence and a characterization baseline.
 
 ### Phase 1 — Visual regression baseline ✅ done
 
-`visual/` — 86 Playwright tests against the **concatenated bundle** as an
+`visual/` — 88 Playwright tests against the **concatenated bundle** as an
 embedder consumes it, not the dev server. Eight fixtures covering input types,
 choice widgets, two-deep multi-instance nesting, controlled terms, static
 content with page breaks, validation states, the timezone picker and all seven
@@ -219,22 +219,7 @@ in CEE.
 
 ### Debt worth paying deliberately
 
-**11. Unify the seven external authority fields.** ~1,860 lines of components
-and 347 of services implementing one search-select-resolve flow seven times,
-plus 56 near-identical files downstream in the model library.
-
-**Deliberately not attempted unsupervised, and the reason is worth recording.**
-The duplication's *dangerous* half is already gone: the keystroke defect lived in
-six copies of the same blur logic, and that logic now exists once, in
-`util/authority-search-control.ts`. What is left is code volume — through the
-widget layer that the Material migration will rewrite, against a trade-off the
-roadmap itself flags as needing a decision (the per-type classes give each field
-a distinct TypeScript type, carrying no information today but not nothing), and
-with no eighth authority type pending to force the issue. A 2,200-line diff
-through soon-to-be-rewritten templates is the wrong thing to land while nobody
-is watching.
-
-Do it before adding an eighth type. Full sizing and a proposed shape below.
+*Item 11 is done — see Closed.*
 
 **13. Two instance trees maintained in parallel.** Partly closed: the two trees
 now provably agree on their own shape, and a divergence is something a test
@@ -412,58 +397,6 @@ reasoning that nothing can be edited so validity is uninteresting — but
 read-only plus `hideEmptyFields` is the viewer configuration, and read-only
 also suppresses the widgets' own errors. An injected instance therefore reached
 the screen with no validation at any layer. The report is now always built.
-
-### Unify the external authority fields
-
-Seven field types — ORCID, ROR, PFAS, PubMed, RRID, NIH Grant, DOI — are
-implemented seven times over. They differ in a lookup URL, a label, a logo and
-an IRI prefix; the behaviour is the same search-select-resolve flow throughout.
-
-Measured on `develop`:
-
-| | Count | Size |
-|---|---|---|
-| Input components (ts + html + scss) | 7 | ~1,860 lines |
-| Lookup services | 7 | 347 lines |
-| REST response model folders | 16 | — |
-
-How close the copies are: `doi-field-data.service.ts` and
-`rrid-field-data.service.ts` differ on 33 of ~50 lines, and most of those
-differences are a URL and a type name. `cedar-input-pmid` and
-`cedar-input-rrid` share 79% of their template verbatim.
-
-The same duplication exists downstream in `cedar-model-typescript-library`,
-where each type needs eight near-identical files plus registration in nine
-places. Those 56 files were produced by name substitution from the ROR set,
-which is about as direct a demonstration as one could ask for that they are a
-template rather than seven designs.
-
-A plausible shape:
-
-- One `ExternalAuthorityLookupService` configured by a descriptor
-  (`searchUrl`, `detailsUrl`, response mapper) rather than seven services.
-- One abstract input component holding the search/select/resolve flow, with
-  per-type descriptors supplying label, placeholder, logo and IRI prefix — and
-  one shared template, since Angular allows several components to reuse a
-  `templateUrl`.
-- A generic response model in place of the per-type `*SearchResponse` /
-  `*DetailResponse` pairs.
-
-`EXTERNAL_AUTHORITY_INPUT_TYPES` (`models/ext-auth-categories.model.ts`) is
-already the canonical list of the seven and would be the natural registry key.
-
-The argument for doing it is stronger than tidiness. The quality-report defect
-fixed under *Closed* existed precisely because a second place had its own
-idea of which fields are IRI-valued instead of consulting that set; seven
-parallel implementations are seven opportunities for the same class of drift.
-An eighth authority type currently costs eight files here plus eight more in
-the model library.
-
-The argument against: the current per-type classes give each field a distinct
-TypeScript type. Today those types carry no information beyond an input-type
-string, since none of them adds behaviour — but a unified base would give that
-up, and it is worth being deliberate about rather than assuming it does not
-matter. Do this before adding an eighth type, not after.
 
 ### Rebrand: BMIR → Center for Computational Medicine
 
@@ -726,6 +659,49 @@ repeats:
   does not exist in that ESM package, and a `try/catch` turned the failure into a
   constant. It passed 86 tests while doing nothing. A test now asserts the
   versioned URL is what actually gets fetched.
+
+### ~~Unify the seven external authority fields~~ — done
+
+**Net 2,025 deletions against 204 insertions.** Seven lookup services, fourteen
+response-model files, seven components and fourteen blocks of config wiring, all
+saying one thing seven times — the later ones produced from the ROR pair by name
+substitution.
+
+- `AuthorityDescriptor`, one per authority: identifier pattern, error key,
+  message keys, and the config keys and default paths for its two endpoints.
+  `EXTERNAL_AUTHORITY_INPUT_TYPES` was already the canonical list, so it is the
+  registry key, and a test asserts the descriptors cover exactly it.
+- `ExternalAuthorityLookupService` replaces seven services. `resolve` is generic
+  in the document returned, so ORCID and ROR name their own record types instead
+  of casting.
+- One `AbstractAuthorityInputComponent` and one shared template — Angular lets
+  several components reuse a `templateUrl` — so five widgets are ~40 lines each
+  and say only which authority they are.
+- The editor component's fourteen config blocks became one loop.
+
+**ORCID and ROR keep their own components and templates.** Each renders a panel
+from a detail document with its own shape — a researcher record; an organisation
+record with geonames and relationships — and that panel is the one thing about
+them that is genuinely theirs. They take their identifier pattern and message
+keys from the shared descriptor, because those are the parts that had drifted.
+
+Two things worth keeping from how it went:
+
+- **Patterns were transcribed verbatim first, including one that was wrong**, so
+  the unification commit is provably behaviour-preserving and the fix is a commit
+  of its own. Halfway through I had written five of the seven patterns from
+  memory rather than reading them; the tests were written to catch exactly that
+  and did.
+- **The refactor found a defect.** PubMed carried PFAS's identifier pattern
+  verbatim — the file was copied and the line never changed — so a PubMed field
+  treated `DTXSID…` as something to resolve and a PubMed ID as a name to search
+  for. Invisible unless you diff two files nobody had reason to diff. Putting the
+  seven side by side made it obvious in seconds. That is the argument for having
+  done this, found by doing it.
+
+Safe to attempt only because of the 21 browser tests across all seven widgets
+added the night before: 2,006 domain tests, 88 visual, and the `08-authority`
+screenshots unchanged, so the five rewritten widgets render identically.
 
 ---
 

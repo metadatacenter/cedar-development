@@ -109,7 +109,7 @@ cd ../cedar-model-typescript-library && npm install && npm run build
 nvm use 20 && cd harness && npm install && npm test
 ```
 
-Expect **1,047 passing** on `develop`, **1,984** on `cee-with-model-library`. Watch mode is `npm run test:watch`.
+Expect **1,047 passing** on `develop`, **2,006** on `cee-with-model-library`. Watch mode is `npm run test:watch`.
 
 A green run here means CEE agrees with itself. For whether its output is
 actually a valid CEDAR instance, see
