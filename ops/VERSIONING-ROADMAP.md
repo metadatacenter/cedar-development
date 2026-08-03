@@ -137,11 +137,14 @@ response.
 
 
 - **7. Lookup-coverage tail (replace-BioPortal track, orthogonal to versioning).** Improve display for the
-   ~179 zero-label ontologies beyond the IRI-fragment fallback where a real label is recoverable. *The 4
-   quality-deferred cases are resolved:* BSAO and EHDAA reclaimed (the extractor now treats obo2owl's
-   `TEMP#is_a` — an OBO `relationship: is_a` — as subsumption, and EHDAA is configured as a `part_of`
-   partonomy; re-ingested and re-allowlisted), DDSS was already healthy (807k/800k edges), and EO1 stays
-   BioPortal-served (its SKOS source is broken — `skos:broader` values are string literals, not IRIs).
+   ~200 IRI-fragment-only ontologies (measured 2026-08-03 against the served catalog: ~240 snapshots serve
+   the IRI code as the label, less ~40 false positives whose local names are real words — PROVO, RDFS, …)
+   where a real label is recoverable. Dominated by HOOM (135k, `HP:` codes), XREF-FUNDER-REG (45k, numeric),
+   SCHEMA (SNOMED numeric), GALEN, ICD-O-3, MCCL, DERMLEX, HORD. *The 4 quality-deferred cases are resolved:*
+   BSAO and EHDAA reclaimed (the extractor now treats obo2owl's `TEMP#is_a` — an OBO `relationship: is_a` —
+   as subsumption, and EHDAA is configured as a `part_of` partonomy; re-ingested and re-allowlisted), DDSS
+   was already healthy (807k labelled classes), and EO1 stays BioPortal-served (its SKOS source is broken —
+   `skos:broader` values are string literals, not IRIs).
 - **8. Where `actions` belongs in the YAML.** `actions` (delete/move refinements on the term set)
    currently render as a field-level key, a sibling of `values`, naming each affected term by `termIri` +
    `sourceAcronym`. Open question: is that the right home, or should each action nest inside the `values`
@@ -182,7 +185,12 @@ response.
    verified live — searching "occupational" with `lang=fr` returns "professionnel"/"ergothérapie"). *Still
    deferred:* `lang=all` (the `{lang:value}` hash), `lang=` on the public `search`/tree output, and honoring
    the submission's `naturalLanguage` for the default (the default stays English-preferred) — all by
-   decision, not blockers.
+   decision, not blockers. *Coverage gap (found 2026-08-03):* the backfill did not reach every served
+   snapshot — 275 of 1215 latest snapshots have an empty label side-table, including major ontologies
+   (HP, MESH, NCIT, NCBITAXON, DDSS, LOINC, EFO). Their primary English labels serve fine, but the
+   multilingual/synonym features above silently no-op for them. *Fix (task):* re-run `--backfill-labels`
+   over the served catalog (idempotent, additive, identity-preserving); freshly-ingested snapshots (e.g.
+   the 49 OBO refreshes) already carry labels captured at ingest, so this is pure gap-fill.
 - **12. Extend the value-constraint YAML to express a term's language.** A controlled-term constraint
    currently says nothing about language; a field always renders (and searches) labels in the served
    default. Add a key naming the language the field should present its terms in — `termLanguage`, or
