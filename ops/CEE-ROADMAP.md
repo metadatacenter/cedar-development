@@ -19,8 +19,8 @@ decision 2.
 
 ## Status at a glance
 
-Outstanding work only. Finished items are under *Closed*, with their reasoning
-and any wrong turns.
+Outstanding work only — finished items are under *Closed*, with their reasoning
+and any wrong turns. Grouped by kind; the numbers are identifiers, not an order.
 
 | # | Item | State |
 |---|---|---|
