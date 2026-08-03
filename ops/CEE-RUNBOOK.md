@@ -47,6 +47,10 @@ nvm install 18 && nvm install 20
 
 Then `nvm use 18` or `nvm use 20` per the table above.
 
+Nothing here needs Java. The one exception is the canonical validator, which
+needs **JDK 17** specifically — see
+[Checking output against the CEDAR model](#checking-output-against-the-cedar-model).
+
 ---
 
 ## Running the app
@@ -105,7 +109,11 @@ cd ../cedar-model-typescript-library && npm install && npm run build
 nvm use 20 && cd harness && npm install && npm test
 ```
 
-Expect **1,047 passing** on `develop`, **1,488** on `cee-with-model-library`. Watch mode is `npm run test:watch`.
+Expect **1,047 passing** on `develop`, **1,607** on `cee-with-model-library`. Watch mode is `npm run test:watch`.
+
+A green run here means CEE agrees with itself. For whether its output is
+actually a valid CEDAR instance, see
+[Checking output against the CEDAR model](#checking-output-against-the-cedar-model).
 
 ### Coverage
 
@@ -161,6 +169,102 @@ cardinality rather than copied verbatim — and `harness/test/corpus.spec.ts`
 names them one by one, so a difference that stops happening fails as loudly as a
 new one. Run this before and after anything that touches
 `factory/model-library-template-parser.ts`.
+
+## Checking output against the CEDAR model
+
+Everything above checks CEE against itself. This checks it against the model.
+
+The distinction is not academic. In August 2026 the harness had 1,488 passing
+tests, including a pair that compare CEE's JSON output against its YAML output
+and find them equivalent — and **zero** of the 37 instances CEE produced
+validated against the template it built them from. The tests all agreed with
+each other. None of them asked the model.
+
+### Why a template can validate its own instances
+
+A CEDAR template *is* a JSON Schema (draft-04) for its instances. Not a
+description of one — the document itself, `properties` and `required` and all.
+That is exactly how `cedar-model-validation-library` validates an instance:
+`CedarValidator.validateTemplateInstance(instanceNode, schemaNode)` hands the
+template to a JSON Schema validator as the schema.
+
+So there is nothing to derive and no mapping to trust. Any draft-04 validator
+can answer the question.
+
+### The canonical check — cedar-model-validation-library
+
+`cedar-model-validation-library` is the arbiter. When it and anything else
+disagree, it wins.
+
+It needs **JDK 17** — the POM enforces `[17,18)` and will refuse 21 or 23 with
+`RequireJavaVersion` — and its parent POM `org.metadatacenter:cedar-parent`,
+which resolves only against the CEDAR nexus. Clone and `mvn install`
+`cedar-parent` first if you have not; the public repos return 402 for it.
+
+```bash
+cd ../cedar-model-validation-library && export JAVA_HOME=$(/usr/libexec/java_home -v 17) && mvn test
+```
+
+Expect **210 passing, 7 skipped**.
+
+Its own fixtures are the thing to read: `src/test/resources/instances/*.jsonld`
+paired with `src/test/resources/templates/*.json`, and
+`TemplateInstanceValidationTest`, which is nine `shouldFail` cases each deleting
+one required key. That list is the definition of the instance envelope.
+
+The `scripts/validate-*.sh` wrappers do not currently run — they call `python`
+rather than `python3`, want a `jsonschema` module that is not installed, and
+point at a `template-schema.json` that is generated rather than committed. Use
+`mvn test`, or add a fixture to the Java suite.
+
+### The same check, in the harness
+
+Running Maven is not something to do per-edit, so the harness runs the
+equivalent check on every `npm test` with `ajv-draft-04`:
+
+```bash
+npx vitest run harness/test/model-conformance.spec.ts
+```
+
+For each corpus template it builds CEE's instance and validates it against that
+template. **31 of 37 pass.** The six that do not are listed by name in
+`KNOWN_NON_CONFORMANT` at the top of the file with what is wrong with each, and
+a separate test asserts the failing set *equals* that list — so a template that
+starts conforming fails just as loudly as one that stops. The number is a
+defect count. It should only go down.
+
+Two of the six are not CEE's fault (template 001 has no `@id`; template 003 is
+malformed). The other four are real: see [CEE-ROADMAP.md](./CEE-ROADMAP.md) →
+Open findings.
+
+### Why the harness check can be trusted
+
+ajv is not the Java validator, so the agreement has to be demonstrated rather
+than assumed:
+
+```bash
+npx vitest run harness/test/validator-agreement.spec.ts
+```
+
+This runs the canonical library's *own* instance fixtures through ajv — the
+seven it requires to pass and the nine mutations it requires to fail — and
+checks the verdicts match. All 17 do. It skips itself if
+`cedar-model-validation-library` is not checked out beside CEE.
+
+The failing half is the informative one: a validator that accepted everything
+would pass the seven. If a future CEDAR release tightens a rule ajv does not
+implement, this is where it surfaces, rather than in a quietly over-optimistic
+conformance number.
+
+### When to run which
+
+Change the emitter, the envelope, or `data-object-builder.handler.ts` →
+`model-conformance.spec.ts`, which `npm test` runs anyway.
+
+Upgrade the model library, take a new CEDAR release, or find yourself arguing
+with the harness about what the model requires → run Maven. The Java suite is
+the tie-breaker, and `validator-agreement.spec.ts` is where its verdict gets
+written back down into the harness.
 
 ## Running the visual baseline
 

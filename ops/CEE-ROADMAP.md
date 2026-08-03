@@ -333,6 +333,54 @@ read-only plus `hideEmptyFields` is the viewer configuration, and read-only
 also suppresses the widgets' own errors. An injected instance therefore reached
 the screen with no validation at any layer. The report is now always built.
 
+### Model conformance — 31 of 37, and why the number exists at all
+
+Everything above validates CEE against CEE. A template is also a JSON Schema
+for its own instances, which makes "does CEE emit a valid CEDAR instance" a
+question with a mechanical answer — and until August 2026 nobody had asked it.
+The answer was **zero of 37**, with 1,488 tests green at the time. Two of those
+tests compare CEE's JSON output against its YAML output and find them
+equivalent. Self-consistency implies nothing about conformance.
+
+`harness/test/model-conformance.spec.ts` now asks it on every run, and
+`harness/test/validator-agreement.spec.ts` checks that our ajv-draft-04 answer
+matches `cedar-model-validation-library`'s on its own fixtures — seven that must
+pass, nine mutations that must fail, all 17 agreeing. How to run both, and the
+canonical Java suite behind them, is in
+[CEE-RUNBOOK.md](./CEE-RUNBOOK.md) → Checking output against the CEDAR model.
+
+Fixed to get from 0 to 31:
+
+- **No CEE instance carried `schema:isBasedOn`** — the one key that says which
+  template an instance came from. CEE cannot render a form without the template,
+  so it always had the value; it simply never wrote it. Nothing downstream could
+  identify a CEE-produced instance.
+- **The rest of the envelope was absent, then present as nulls.** `@id` and the
+  provenance fields are `["string", "null"]` and may be null; `schema:name` is
+  `string` with `minLength: 1` and `schema:description` is `string`, and neither
+  may be. Emitting nulls uniformly failed 35 of 37 on those two keys alone.
+- **The envelope was only added to freshly-built instances.** An injected one
+  skips the builder, so every document loaded from a host page failed against
+  its own template. `DataContext.setInputTemplate` now adds it on both paths.
+
+Still failing, four of them real defects:
+
+| Template | What is wrong |
+|---|---|
+| 001 | Template has no `@id` — its readme says it was never saved — so no instance of it can name it. Not CEE's defect; CEE reports the template on read. |
+| 003 | Template is malformed; its schema will not compile. Same template as the crash noted below. |
+| 025, 034 | A field marked `_ui.hidden` is dropped from the component tree, so the instance gets no slot for it — while the template still lists it as required. Hiding is a display decision and must not change what the document contains. |
+| 028 | A required multi field starts with fewer items than its own `minItems`. |
+| 029 | The hidden-field defect, plus a controlled field written as `{"@value": …}` where the schema allows only `@id` and `rdfs:label` — CEE is not recognising it as IRI-valued. |
+
+The hidden-field defect is the one to take first: it accounts for three of the
+six, and the fix turns on a single question — whether `_ui.hidden` suppresses
+rendering only, or membership in the document. The model says rendering only.
+
+A test asserts the failing set *equals* that list, so a template that starts
+conforming fails as loudly as one that stops. The number is a defect count and
+should only go down.
+
 ### Adopt the model library instead of hand-reading JSON
 
 CEE parses template JSON and builds instance JSON by hand — 475 LOC and 77 raw
