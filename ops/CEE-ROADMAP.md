@@ -23,18 +23,18 @@ and any wrong turns.
 
 | # | Item | State |
 |---|---|---|
-| — | **Phase 3** Angular 14 → 22 | ⬅ **next, and nothing outstanding before it** |
-| — | **Phase 4** delete the legacy test scaffolding | ⬜ after Phase 3 — 40 stub specs, Protractor |
+| 1 | Where does a choice field's value actually come from? | ⬜ small — blocks retiring the last legacy spec |
+| — | **Phase 3** Angular 14 → 22 | ⬅ **next; item 1 does not block it** |
+| — | **Phase 4** delete the legacy test scaffolding | ⬜ after Phase 3 — karma, Protractor; the 38 stub specs are already gone |
 
-No numbered items outstanding. Entries under *Closed* keep the numbers they carried
-at the time.
+One numbered item. Entries under *Closed* keep the numbers they carried at the time.
 
 `cee-with-model-library` is an **experiment**, not work pending a merge. All the
 closed work below lives on it.
 
 Conformance: **34 of 37** corpus instances validate against their own template,
 up from 0; the three that do not are defects in the templates. Coverage: 2,115
-domain tests, 180 browser tests.
+domain tests, 188 browser tests.
 
 **Phase 2 is complete and Phase 3 is unblocked.** The time picker was the only
 dependency with no upgrade path; `@ng-select/ng-select` and
@@ -58,7 +58,7 @@ sense that the cost of the jump grows every release.
 | TypeScript | 4.8 |
 | rxjs | 6.6.7 |
 | Test coverage before this work | 40 spec files, 45 `it()` blocks, all `expect(component).toBeTruthy()` |
-| Test coverage now | 2,115 domain tests in `harness/`, 180 browser tests in `visual/` |
+| Test coverage now | 2,115 domain tests in `harness/`, 188 browser tests in `visual/` |
 
 ## The blocker, removed
 
@@ -279,8 +279,7 @@ Phases 1–3, so nothing is removed while it might still be a signal.
 
 ## What needs doing
 
-Nothing numbered is outstanding — the list emptied out, and Phase 3 is the next
-work. Items are numbered here so they can be referred to in conversation; commit
+Items are numbered here so they can be referred to in conversation; commit
 messages do not cite the numbers, since the numbering is local to this file and
 means nothing to anyone reading the history.
 
@@ -289,9 +288,44 @@ enforced, what the boundaries look like — is under *Reference*. Everything
 already closed is under *Closed*, kept because several entries record a wrong
 turn worth not repeating.
 
+### 1. Where does a choice field's value actually come from?
+
+Small, and it is the one thing standing between here and no legacy specs at all.
+
+38 of the 40 stub specs are gone. The renderer spec was ported to a browser test and
+deleted on mutation evidence — making `shouldRenderContentOfNonIterable` always
+return true kills the ported test in both projects.
+`cedar-input-multiple-choice.component.spec.ts` is the last one left, and it is left
+because **the port could not be verified**.
+
+Two browser tests now assert what a user should see — a template default fills an
+empty choice field, and a value the document already holds is not overwritten by
+that default. Both are worth having. Neither kills a mutant. Three were tried, each
+rebuilt and run:
+
+| Mutant | Expected | Actual |
+|---|---|---|
+| disable `populateItemsOnLoad`'s `@value` guard | default overwrites the instance | both tests pass |
+| stop it applying the default at all | empty field stays empty | both tests pass |
+| disable the data layer's `selectedByDefault` seeding | empty field stays empty | `default fills empty` passes |
+
+So the rendered outcome is robust to all three, and **the mechanism that produces it
+has not been found**. Until it is, the browser tests do not replace the spec's
+coverage and deleting the spec would lose something unmeasured.
+
+The interesting possibility is that `populateItemsOnLoad` has no observable effect at
+all — both its guard and its default branch survived removal. If that holds, the spec
+was asserting that a method called a `jasmine.createSpyObj` mock with a particular
+argument, which is not coverage of anything, and both the method and the spec can go.
+That is the thing to establish; it is an hour of tracing, not a design question.
+
+Worth stating plainly because the temptation here was real: the tidy outcome was to
+delete both specs and report the legacy suite retired. Mutation testing is the only
+reason that did not happen.
+
 ### Chores
 
-Deleting the legacy test scaffolding is Phase 4's whole content — 40
+Deleting the remaining legacy test scaffolding is Phase 4's content — 40
 `should create` specs and the Protractor setup — so it is tracked as the phase
 rather than duplicated as a chore.
 
