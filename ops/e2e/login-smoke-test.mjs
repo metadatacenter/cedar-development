@@ -248,6 +248,26 @@ async function verifyDiseaseSuggestion(page, query) {
   }
 }
 
+// Save the populated instance from the Metadata Editor (V2 / embeddable editor) and confirm it is
+// created. The save button reads the instance from the embeddable editor's `currentMetadata`, which
+// carries an explicit `@id: null` for a not-yet-created instance; the create POST answering 201 is the
+// proof. This also regression-guards a bug where that null `@id` sent the save down the update branch,
+// which called getTemplateInstance(null) and threw before any request left the browser — so "no create
+// request was sent" is called out as its own failure. Returns the created instance's id and name.
+async function saveInstanceInEditor(page) {
+  const pending = page
+    .waitForResponse(r => /\/template-instances(\?|$)/.test(r.url()) && r.request().method() === 'POST',
+      { timeout: 20_000 })
+    .catch(() => null);
+  await page.locator('#button-save-metadata').click();
+  const resp = await pending;
+  if (!resp) throw new Error('save sent no create-instance request — the metadata editor save handler threw before calling the server');
+  if (resp.status() !== 201) throw new Error(`instance save answered ${resp.status()}`);
+  const body = await resp.json().catch(() => ({}));
+  if (!body['@id']) throw new Error('instance save response carried no @id');
+  return { id: body['@id'], name: body['schema:name'] };
+}
+
 // ── OpenView helpers ───────────────────────────────────────────────────────────
 
 // Publish a template to OpenView via the row ⋮ → "Enable OpenView" menu item. That
@@ -414,6 +434,14 @@ try {
   await verifyDiseaseSuggestion(page, 'asthma');
   console.log('✓ populate: Disease field suggested a DOID term for "asthma"');
 
+  // 3b-ii. Save the populated instance from the Metadata Editor and confirm it is created. This
+  //        exercises the V2/embeddable-editor save path end to end — the one that once threw a stack
+  //        trace on a new instance's null @id and saved nothing.
+  step = 'save-instance';
+  await page.waitForTimeout(500);
+  const savedInstance = await saveInstanceInEditor(page);
+  console.log(`✓ Metadata Editor saved the populated instance: ${savedInstance.name}`);
+
   // 3c. Publish the template to OpenView, then confirm an anonymous visitor — a
   //     fresh browser with no CEDAR session — sees it presented on the OpenView
   //     site (its name in the title bar, its Disease field rendered). This exercises
@@ -427,9 +455,14 @@ try {
   await verifyPresentedInOpenView(browser, templateId);
   console.log('✓ OpenView presents the template (rendered in CEE) to an anonymous visitor');
 
-  // 4. Delete the template, then the (now empty) folder, verifying each. Deleting an
-  //    open artifact is allowed and removes it from OpenView too, so no need to
-  //    disable OpenView first.
+  // 4. Delete the saved instance, then the template, then the (now empty) folder, verifying each.
+  //    The instance goes first because it lives in the folder and a non-empty folder cannot be
+  //    deleted. Deleting an open artifact is allowed and removes it from OpenView too, so no need
+  //    to disable OpenView first.
+  step = 'delete-instance';
+  await deleteRow(page, savedInstance.name, folderId);
+  console.log('✓ instance deleted');
+
   step = 'delete-template';
   await deleteRow(page, TEMPLATE_NAME, folderId);
   console.log('✓ template deleted');
@@ -438,7 +471,7 @@ try {
   await deleteRow(page, FOLDER_NAME);
   console.log('✓ folder deleted');
 
-  console.log('\nPASS: login → folder → template w/ DOID-constrained Disease field → populate suggestion → OpenView presented anonymously → delete');
+  console.log('\nPASS: login → folder → template w/ DOID-constrained Disease field → populate suggestion → save instance → OpenView presented anonymously → delete');
   await browser.close();
   process.exit(0);
 } catch (e) {
