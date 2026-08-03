@@ -109,7 +109,7 @@ cd ../cedar-model-typescript-library && npm install && npm run build
 nvm use 20 && cd harness && npm install && npm test
 ```
 
-Expect **1,047 passing** on `develop`, **1,710** on `cee-with-model-library`. Watch mode is `npm run test:watch`.
+Expect **1,047 passing** on `develop`, **1,984** on `cee-with-model-library`. Watch mode is `npm run test:watch`.
 
 A green run here means CEE agrees with itself. For whether its output is
 actually a valid CEDAR instance, see
@@ -227,15 +227,16 @@ npx vitest run harness/test/model-conformance.spec.ts
 ```
 
 For each corpus template it builds CEE's instance and validates it against that
-template. **31 of 37 pass.** The six that do not are listed by name in
+template. **34 of 37 pass.** The three that do not are listed by name in
 `KNOWN_NON_CONFORMANT` at the top of the file with what is wrong with each, and
 a separate test asserts the failing set *equals* that list — so a template that
 starts conforming fails just as loudly as one that stops. The number is a
-defect count. It should only go down.
+defect count. It has gone 0 → 31 → 34 and should only go up.
 
-Two of the six are not CEE's fault (template 001 has no `@id`; template 003 is
-malformed). The other four are real, and are items 3, 4 and 5 in
-[CEE-ROADMAP.md](./CEE-ROADMAP.md) → What needs doing.
+All three remaining failures are defects in the templates themselves — 001 has
+no `@id`, 003 will not compile, and 029 contradicts itself by offering literal
+choices under an IRI-only schema. See [CEE-ROADMAP.md](./CEE-ROADMAP.md) →
+Model conformance for the evidence on each.
 
 ### Why the harness check can be trusted
 
@@ -283,9 +284,19 @@ nvm use 20 && cd visual && npm install && npx playwright install chromium
 npm run prepare:all && npm test
 ```
 
-Expect **16 passing** in about 5 seconds. `prepare:all` re-concatenates the
+Expect **88 passing** in about 35 seconds. `prepare:all` re-concatenates the
 bundle from `../dist` and regenerates the template fixtures; run it after any
-rebuild, or the suite silently tests a stale bundle.
+rebuild.
+
+It no longer *silently* tests a stale bundle if you forget — `npm test` refuses
+to run when `../dist` is newer than the copy in `public/`. That guard exists
+because the suite did exactly that, reporting green against the previous build,
+and a real fix was briefly believed not to work on the strength of such a run.
+
+Not all screenshots any more: the external-authority tests assert behaviour —
+that a keystroke raises no error, that free text is discarded on blur — because
+that is a class of defect the domain harness cannot see and a baseline image
+would not describe.
 
 To accept an intentional visual change:
 
