@@ -34,7 +34,7 @@ Numbered 1–2; entries under *Closed* keep the numbers they carried at the time
 closed work below lives on it.
 
 Conformance: **34 of 37** corpus instances validate against their own template,
-up from 0; the three that do not are defects in the templates. Coverage: 2,071
+up from 0; the three that do not are defects in the templates. Coverage: 2,113
 domain tests, 124 browser tests.
 
 **Phase 2 is complete and Phase 3 is unblocked.** The time picker was the only
@@ -59,7 +59,7 @@ sense that the cost of the jump grows every release.
 | TypeScript | 4.8 |
 | rxjs | 6.6.7 |
 | Test coverage before this work | 40 spec files, 45 `it()` blocks, all `expect(component).toBeTruthy()` |
-| Test coverage now | 2,071 domain tests in `harness/`, 124 browser tests in `visual/` |
+| Test coverage now | 2,113 domain tests in `harness/`, 124 browser tests in `visual/` |
 
 ## The blocker, removed
 
@@ -98,7 +98,7 @@ candidate, cannot express what CEE needs.
 
 ### Phase 0 — Domain test harness ✅ done
 
-`harness/` — 2,071 headless tests across 32 files, over template parsing,
+`harness/` — 2,113 headless tests across 33 files, over template parsing,
 instance reading and writing, path resolution, value writes, multi-instance
 mechanics, controlled-term constraints, the quality report, and conformance to
 the CEDAR model. Imports no Angular, so it survives the upgrade unchanged. See
@@ -285,27 +285,57 @@ state is measured against.
 
 ### Where the boundaries stand
 
-CEE's three boundaries with the outside world all go through the model library
-now. What is left inside is plain objects, deliberately.
+Every point at which CEE touches a CEDAR document goes through the model library.
 
-| Boundary | Through the library? | Where |
+| Boundary | Where |
+|---|---|
+| Template in, JSON | `factory/model-library-template-parser.ts` |
+| Template in, YAML | `factory/yaml-template-parser.ts` — four lines of logic, which is the proof the reader is not JSON-flavoured |
+| Instance in | `util/instance-deserializer.ts` |
+| Instance out, JSON and YAML | `util/instance-serializer.ts` — `currentMetadata` and `currentMetadataYaml` are two writers, not two code paths |
+
+**CEE contains no code that reads or writes CEDAR JSON by hand**, and that is now
+true without an asterisk. It took closing two small gaps that had been left as
+"internal": the *empty* value slots were hand-built while the filled ones already
+went through the library, and `SampleTemplatesService` reached for `schema:name`
+in a fetched template to label a menu entry — the only place outside the four
+rows above that opened a document itself.
+
+CEE also no longer *defines* the vocabulary. Its own `JsonSchema` and
+`CedarModel` are deleted; all eleven importers take the library's.
+
+Raw vocabulary references: **156 on `develop` → 44**, and the residue is not what
+the goal was aimed at:
+
+| Count | Where | What |
 |---|---|---|
-| Template in | Yes | `factory/model-library-template-parser.ts`, and `yaml-template-parser.ts` reading the same templates as YAML into the same form |
-| Instance in | Yes | `util/instance-deserializer.ts` |
-| Instance out | Yes | `util/instance-serializer.ts` — `currentMetadata` and `currentMetadataYaml` are two writers, not two code paths |
+| 36 | `handler/` | The internal working tree |
+| 4 | `models/rest/` | ORCID and ROR *search responses* — not CEDAR artifacts |
+| 4 | `service/` | Assembling `{@id, rdfs:label}` for a widget from a search hit |
 
-**CEE contains no code that writes CEDAR JSON, and none that reads it.** Raw
-vocabulary references are down from 156 on `develop` to 80, and the residue is
-not what the goal was aimed at: 14 are ORCID/ROR/PubMed *search responses*,
-which are not CEDAR artifacts; 11 are the vocabulary definition itself; 16 are
-services assembling `{@id, rdfs:label}` pairs from search hits. The remaining
-~39 are the internal working tree, which stays plain objects because the
-widgets hold references into it and edit in place.
+`components/`, `validation/` and `factory/` are at zero. The `factory/` mention is
+inside a comment.
 
-One raw lookup survives in the template read path —
-`iriMap[name][JsonSchema.enum][0]` in `model-library-template-parser.ts` —
-because the library's `getIRIMap()` returns unparsed JSON rather than a typed
-IRI. That is a library gap, not a CEE one.
+**The 36 in `handler/` are a deliberate non-goal, not a loose end.** That tree is
+plain objects because the widgets hold live references into it and edit in place,
+so converting it means changing the contract between the widget layer and the
+domain layer across roughly thirty components. Three reasons to leave it:
+
+- Material 15's MDC migration rewrites the DOM and CSS class names of every one
+  of those components. Rewriting the data contract in files about to be rewritten
+  for unrelated reasons means reviewing both changes tangled together.
+- The visual baseline is the safety net *for* that migration, and it is only
+  trustworthy if behaviour is held still while rendering changes. Changing both
+  at once removes the fixed point.
+- The value is lower than it looks. That tree never leaves CEE — `currentMetadata`
+  reads it with the library and writes it with the library — so what a host page
+  receives is already model-produced. What is left to gain is internal
+  consistency, not correctness of output.
+
+It also gets cheaper by waiting: the widget layer is already smaller than it was
+(two of the seven authority widgets collapsed into one component, the datetime
+widget lost its read-only branch), and Phase 3 will consolidate more. Revisit
+after the upgrade, if at all.
 
 ### Model conformance — 34 of 37, and why the number exists at all
 
