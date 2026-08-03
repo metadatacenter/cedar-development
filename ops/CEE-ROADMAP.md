@@ -225,16 +225,43 @@ them. All five were added upstream.
 so a 25th input type without a matching builder fails the suite — which is how
 the original five surfaced.
 
-### ~~Defect: five external-authority fields have unreachable error messages~~ — fixed
+### ~~Defect: five external-authority fields have unreachable error messages~~ — fixed, after one wrong attempt
 
 `cedar-input-pfas`, `-pmid`, `-rrid`, `-nih-grant` and `-doi` each rendered a
 `mat-error` bound to a type-specific key that nothing ever set — copied from
 the ORCID/ROR pair without the code that raises it, so those fields accepted
 any string while carrying markup implying they validated it.
 
-`CedarValidators` maps `iriMalformed` onto each type's expected key, so the
-existing markup came alive rather than being deleted. Regression tests cover
-all seven.
+**The first fix was wrong and shipped.** Mapping `iriMalformed` onto each
+type's key and wiring `CedarValidators.forComponent` into the widgets brought
+the markup alive at the wrong moment: these controls hold *search text*, not
+the value — after a selection, `"Label - https://iri"` — so no intermediate
+state can be a well-formed IRI and the field said "not a valid RRID and has
+been cleared" on the first keystroke, over a field that had not been cleared.
+Reported from a deployment.
+
+Verifying the removal found the larger defect the dead markup had been hiding:
+**six of the seven widgets left free text in the box on blur**, over an
+instance holding nothing, so the field looked filled and read back blank. Only
+ORCID reconciled. ROR carried the same machinery but its template never bound
+a blur event; the five simplest had no blur handler at all.
+
+All six now reconcile through `util/authority-search-control.ts` — one rule
+rather than six copies, because the drift between copies is what hid this. The
+stored IRI is still validated, by the data quality report, which sees the value
+rather than the search text.
+
+Two testing gaps closed with it:
+
+- **The visual suite served a stale bundle.** It serves `visual/public/`, a
+  copy of `dist/` that `ng build` does not refresh, so it ran green against
+  whatever was copied last — and this fix was briefly believed not to work on
+  the strength of such a run. `visual/check-bundle-fresh.mjs` now fails the run
+  when `dist/` is newer.
+- **No fixture carried more than two authority types.** `04-controlled-terms`
+  has ORCID and ROR; the other five are copies that had drifted. The new
+  `08-authority` fixture carries all seven, parameterised so an eighth type
+  costs one line.
 
 ### ~~Defect: the add button ignores maxItems when minItems is absent~~ — fixed
 
