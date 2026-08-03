@@ -11,9 +11,8 @@ Sibling runbooks:
 - [CEE-RUNBOOK.md](./CEE-RUNBOOK.md) — building, running and testing CEE.
 - [CEE-RELEASE-RUNBOOK.md](./CEE-RELEASE-RUNBOOK.md) — cutting and publishing a version.
 
-Last reviewed against `cee-with-model-library` @ CEE 1.5.2. Note that most of
-what is under *Closed* lives on that branch and **not yet on `develop`** — see
-decision 2.
+Last reviewed against `cee-with-model-library` @ CEE 1.5.2 — an experimental
+branch, where most of what is under *Closed* lives. It is not on `develop`.
 
 ---
 
@@ -25,24 +24,26 @@ and any wrong turns.
 | # | Item | State |
 |---|---|---|
 | **1** | Sign off the time-picker replacement | ⛔ **needs you** — gates Phases 3 and 4 |
-| **2** | Review and merge `cee-with-model-library` | ⛔ **needs you** — all closed work is on it |
-| **3** | Zero-instance element satisfying a requirement | ❓ **needs a decision** — semantics |
-| 4 | Visual-suite flake | ⚠️ likely cause addressed, **unproven** — retry still in place |
-| 5 | Derive the occurrence count instead of caching it | ⬜ last "two copies" — agreement now tested |
-| 6 | Rebrand BMIR → CCM | ⬜ chore — four places in the footer |
-| 7 | Delete legacy test scaffolding | ⬜ chore — Phase 4, deliberately last |
+| **2** | Zero-instance element satisfying a requirement | ❓ **needs a decision** — semantics |
+| 3 | Visual-suite flake | ⚠️ likely cause addressed, **unproven** — retry still in place |
+| 4 | Derive the occurrence count instead of caching it | ⬜ last "two copies" — agreement now tested |
+| 5 | Rebrand BMIR → CCM | ⬜ chore — four places in the footer |
+| 6 | Delete legacy test scaffolding | ⬜ chore — Phase 4, deliberately last |
 | — | **Phase 2** dependency de-risking | ⬅ blocked on decision 1 |
 | — | **Phase 3** Angular 14 → 22 | ⬜ blocked on decision 1 |
 
-Renumbered 1–7 as items closed. Entries under *Closed* keep the numbers they
-carried at the time, so a commit message citing "item 12" still finds its entry.
+Numbered 1–6; entries under *Closed* keep the numbers they carried at the time,
+so a commit message citing "item 12" still finds its entry.
+
+`cee-with-model-library` is an **experiment**, not work pending a merge. All the
+closed work below lives on it.
 
 Conformance: **34 of 37** corpus instances validate against their own template,
 up from 0; the three that do not are defects in the templates. Coverage: 2,034
 domain tests, 88 browser tests.
 
-**Decisions 1, 2 and 3 are the entire critical path.** All three are yours, and
-nothing else on the list waits on anything.
+**Decisions 1 and 2 are the critical path.** Both are yours; nothing else on the
+list waits on anything.
 
 ---
 
@@ -219,7 +220,7 @@ enforced, what the boundaries look like — is under *Reference*. Everything
 already closed is under *Closed*, kept because several entries record a wrong
 turn worth not repeating.
 
-### Decisions — these block other work
+### The decision that blocks everything
 
 **1. Sign off the time picker replacement.** *Blocks Phases 3 and 4, i.e. the
 entire Angular upgrade.* `@angular-material-components/datetime-picker` caps CEE
@@ -230,14 +231,9 @@ comparison and the reasoning. This needs a human decision because it is new UI
 code rather than a dependency bump; it has been the only thing standing between
 here and Phase 3 for some time.
 
-**2. Review and merge `cee-with-model-library`.** *Blocks nothing technically;
-blocks everything practically*, since the branch now carries the model-library
-adoption, the conformance suite and ~24 defect fixes. Held for colleague
-clearance. The longer it sits, the more the rebase costs.
-
 ### The remaining question
 
-**3. Should an element with zero instances satisfy a requirement?**
+**2. Should an element with zero instances satisfy a requirement?**
 *A decision, not a defect.* It contributes no requirements today, so it reports
 valid — vacuously. Characterised in `harness/test/cardinality.spec.ts` so the
 behaviour is recorded whichever way it goes, but which way it *should* go is a
@@ -250,7 +246,7 @@ corpus templates rather than in CEE.
 
 ### Loose ends
 
-**4. The visual-suite flake.** Two runs in roughly a dozen once failed a single
+**3. The visual-suite flake.** Two runs in roughly a dozen once failed a single
 screenshot immediately after a fresh bundle. A mechanism that fits has been
 addressed — the dev server sends no `Cache-Control`, so a browser may reuse a
 cached bundle heuristically and a run straight after a re-bundle can render the
@@ -260,18 +256,18 @@ after. The single retry stays until a long clean stretch means something, and
 `npm run flake-hunt` makes the next occurrence chaseable rather than something to
 wait for.
 
-**5. Derive the occurrence count instead of caching it.** The last place CEE keeps
-a second copy of something it already knows — detail under *Item 5* in Reference.
+**4. Derive the occurrence count instead of caching it.** The last place CEE keeps
+a second copy of something it already knows — detail under *Item 4* in Reference.
 The count agrees with the instance today and is now tested against it after every
 structural operation, which is the part worth having first; deriving it properly
 needs the multi-instance info tree to know its own path.
 
 ### Chores
 
-**6. Rebrand BMIR → Center for Computational Medicine.** Four places in the
+**5. Rebrand BMIR → Center for Computational Medicine.** Four places in the
 footer, listed under *Rebrand* below.
 
-**7. Delete the legacy test scaffolding.** Phase 4 — 40 `should create` specs
+**6. Delete the legacy test scaffolding.** Phase 4 — 40 `should create` specs
 and the Protractor setup. Deliberately last, so nothing is removed while it
 might still be a signal.
 
@@ -790,7 +786,7 @@ Three of the four CEE-only additions were dead code. The fourth is now
 `CedarModel.propertyIriPrefix` upstream, where the library had the same string
 hardcoded as a literal *and* commented out as a constant.
 
-### Item 5: derive the occurrence count
+### Item 4: derive the occurrence count
 
 `MultiInstanceObjectInfo.currentCount` is how many occurrences a multi component
 has — which is also `instance[path].length`. It is maintained alongside the
