@@ -381,6 +381,49 @@ A test asserts the failing set *equals* that list, so a template that starts
 conforming fails as loudly as one that stops. The number is a defect count and
 should only go down.
 
+### Where the boundaries stand
+
+CEE's three boundaries with the outside world all go through the model library
+now. What is left inside is plain objects, deliberately.
+
+| Boundary | Through the library? | Where |
+|---|---|---|
+| Template in | Yes | `factory/model-library-template-parser.ts`, and `yaml-template-parser.ts` reading the same templates as YAML into the same form |
+| Instance in | Yes | `util/instance-deserializer.ts` |
+| Instance out | Yes | `util/instance-serializer.ts` — `currentMetadata` and `currentMetadataYaml` are two writers, not two code paths |
+
+**CEE contains no code that writes CEDAR JSON, and none that reads it.** Raw
+vocabulary references are down from 156 on `develop` to 80, and the residue is
+not what the goal was aimed at: 14 are ORCID/ROR/PubMed *search responses*,
+which are not CEDAR artifacts; 11 are the vocabulary definition itself; 16 are
+services assembling `{@id, rdfs:label}` pairs from search hits. The remaining
+~39 are the internal working tree, which stays plain objects because the
+widgets hold references into it and edit in place.
+
+One raw lookup survives in the template read path —
+`iriMap[name][JsonSchema.enum][0]` in `model-library-template-parser.ts` —
+because the library's `getIRIMap()` returns unparsed JSON rather than a typed
+IRI. That is a library gap, not a CEE one.
+
+### Defect: a label with no @id is discarded silently
+
+`{"rdfs:label": "Some Term"}` with no `@id` is not a value node — there is no
+term, only text where one should be — and the model library drops it while
+parsing, reporting nothing.
+
+This is not new: `currentMetadata` has always serialised through the library,
+so the label never reached the instance CEE emitted. What changed when the read
+path moved to `CedarReaders` is that CEE no longer *sees* it either, so the
+`controlledStructure` diagnostic that used to name the problem is gone. The
+field now reads as unfilled, which for a required field is at least an
+actionable message and for an optional one is silence.
+
+Worth fixing in the library rather than in CEE: a reader that discards input
+should say so. Until then a host page can inject a half-written controlled term
+and get it back empty with no explanation. Pinned in
+`harness/test/validation.spec.ts` so the behaviour is recorded rather than
+assumed.
+
 ### Adopt the model library instead of hand-reading JSON
 
 CEE parses template JSON and builds instance JSON by hand — 475 LOC and 77 raw
