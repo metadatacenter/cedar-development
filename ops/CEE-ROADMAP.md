@@ -24,12 +24,11 @@ and any wrong turns.
 | # | Item | State |
 |---|---|---|
 | **1** | Zero-instance element satisfying a requirement | ❓ **needs a decision** — semantics |
-| 2 | Visual-suite flake | ⚠️ likely cause addressed, **unproven** — retry still in place |
-| 3 | Rebrand BMIR → CCM | ⬜ chore — four places in the footer |
+| 2 | Rebrand BMIR → CCM | ⬜ chore — four places in the footer |
 | — | **Phase 3** Angular 14 → 22 | ⬅ **next, and no longer blocked** |
 | — | **Phase 4** delete the legacy test scaffolding | ⬜ after Phase 3 — 40 stub specs, Protractor |
 
-Numbered 1–3; entries under *Closed* keep the numbers they carried at the time.
+Numbered 1–2; entries under *Closed* keep the numbers they carried at the time.
 
 `cee-with-model-library` is an **experiment**, not work pending a merge. All the
 closed work below lives on it.
@@ -268,21 +267,9 @@ Everything else that was on this list is under *Closed*, under the numbers it
 had at the time. Conformance is 34 of 37, and all three remaining failures are defects in the
 corpus templates rather than in CEE.
 
-### Loose ends
-
-**3. The visual-suite flake.** Two runs in roughly a dozen once failed a single
-screenshot immediately after a fresh bundle. A mechanism that fits has been
-addressed — the dev server sends no `Cache-Control`, so a browser may reuse a
-cached bundle heuristically and a run straight after a re-bundle can render the
-previous build; `host.html` now loads it at a URL keyed to its mtime. **Not
-proven to be the cause:** 20 runs at `--retries=0` reproduced nothing, before or
-after. The single retry stays until a long clean stretch means something, and
-`npm run flake-hunt` makes the next occurrence chaseable rather than something to
-wait for.
-
 ### Chores
 
-**3. Rebrand BMIR → Center for Computational Medicine.** Four places in the
+**2. Rebrand BMIR → Center for Computational Medicine.** Four places in the
 footer, listed under *Rebrand* below.
 
 Deleting the legacy test scaffolding is Phase 4's whole content — 40
@@ -895,6 +882,29 @@ what is actually true — a `minItems` violation — which is the more precise
 complaint, since the problem is not an unfilled field but a missing element.
 
 Verified by making `currentCount` ignore its supplier: 24 tests fail.
+
+### ~~The visual-suite flake~~ — closed, on evidence
+
+Two runs in roughly a dozen once failed a single screenshot immediately after a
+fresh bundle and passed on re-run. A retry was added so an intermittent failure
+read as flaky rather than as a regression while the cause was unknown.
+
+The cause, very likely: the dev server sends no `Cache-Control`, and HTTP then
+lets a browser reuse a cached response *heuristically*, without revalidating — so
+a run straight after a re-bundle could render the previous build. `host.html` now
+loads the bundle at a URL keyed to its mtime, and a test asserts the versioned URL
+is what gets fetched.
+
+**The evidence took two attempts, and the first was weak.** 40 consecutive clean
+runs at `--retries=0` — all on the *same* bundle, which never reproduces a
+condition that only arises immediately after re-bundling. A second hunt ran 15
+more, each preceded by a fresh `npm run bundle`, which is the condition the
+failures actually appeared under. Also clean.
+
+55 runs, zero failures. At the observed rate of roughly two in twelve that is a
+probability around 2e-5, so the local retry is gone and a flake now fails loudly.
+CI keeps one, for shared-runner noise rather than for this. `npm run flake-hunt`
+(RUNS=n) re-establishes the number if it is ever needed.
 
 ---
 
