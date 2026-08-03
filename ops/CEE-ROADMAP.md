@@ -23,18 +23,20 @@ and any wrong turns.
 
 | # | Item | State |
 |---|---|---|
-| — | **Phase 3** Angular 14 → 22 | ⬅ **next, and nothing outstanding before it** |
+| 1 | `eventHandler` is a documented input that does nothing | ❓ **needs a decision** — what should it emit? |
+| 2 | Sanitization: read-only renders instance values as HTML | ❓ **needs a decision** — trust boundary |
+| — | **Phase 3** Angular 14 → 22 | ⬅ **next; neither item blocks it** |
 | — | **Phase 4** delete the legacy test scaffolding | ⬜ after Phase 3 — karma, Protractor; **all 40 specs are gone** |
 
-No numbered items outstanding. Entries under *Closed* keep the numbers they carried
-at the time.
+Two numbered items, both needing a decision rather than work. Entries under *Closed*
+keep the numbers they carried at the time.
 
 `cee-with-model-library` is an **experiment**, not work pending a merge. All the
 closed work below lives on it.
 
 Conformance: **34 of 37** corpus instances validate against their own template,
-up from 0; the three that do not are defects in the templates. Coverage: 2,115
-domain tests, 198 browser tests.
+up from 0; the three that do not are defects in the templates. Coverage: 2,124
+domain tests, 260 browser tests.
 
 **Phase 2 is complete and Phase 3 is unblocked.** The time picker was the only
 dependency with no upgrade path; `@ng-select/ng-select` and
@@ -58,7 +60,7 @@ sense that the cost of the jump grows every release.
 | TypeScript | 4.8 |
 | rxjs | 6.6.7 |
 | Test coverage before this work | 40 spec files, 45 `it()` blocks, all `expect(component).toBeTruthy()` |
-| Test coverage now | 2,115 domain tests in `harness/`, 198 browser tests in `visual/` |
+| Test coverage now | 2,124 domain tests in `harness/`, 260 browser tests in `visual/` |
 
 ## The blocker, removed
 
@@ -279,7 +281,7 @@ Phases 1–3, so nothing is removed while it might still be a signal.
 
 ## What needs doing
 
-Nothing numbered is outstanding — Phase 3 is the next work. Items are numbered here
+Items are numbered here
 so they can be referred to in conversation; commit messages do not cite the numbers,
 since the numbering is local to this file and means nothing to anyone reading the
 history.
@@ -288,6 +290,43 @@ Reference material — how conformance is measured, where each constraint is
 enforced, what the boundaries look like — is under *Reference*. Everything
 already closed is under *Closed*, kept because several entries record a wrong
 turn worth not repeating.
+
+### 1. `eventHandler` is a documented input that does nothing
+
+`@Input() set eventHandler` calls `MessageHandlerService.injectEventHandler`, which
+assigns the value to a private field that **is read nowhere in `src`**. A host page
+passing an event handler gets silence.
+
+Found while looking for a test to write for it. Not a test gap — there is nothing to
+observe — and not something to fix unilaterally, because what CEE should emit is a
+question about the host contract: value changes, validity changes, save requests, load
+completion? Whatever it emits becomes API.
+
+Worth deciding rather than deleting. The input is documented, so somebody may be
+passing one and assuming it works.
+
+### 2. Sanitization: read-only mode renders instance values as HTML
+
+`EscapeHtmlPipe` is `bypassSecurityTrustHtml`. `cedar-input-text` renders
+`[innerHTML]` when `isRichText` is set, and `checkHTMLContent` sets it by asking
+whether the **value** looks like HTML — called from `onReadOnlyModeChange(true)`. So
+the trigger is the data and the gate is read-only mode.
+
+Verified in a browser with an inert probe value (`<b data-markup-probe="1">`, no
+script): escaped as text when editable, **parsed into a live DOM element when
+read-only**. There is a second sink of the same shape in the pager's "all values" box,
+behind `showAllMultiInstanceValues`.
+
+So instance data reaches an `innerHTML` sink with Angular's sanitizer explicitly
+bypassed, through a documented mode, in a component whose purpose is to be embedded in
+someone else's page. **Whether that is a vulnerability depends on whether instance
+documents are attacker-influenced where CEE is deployed**, which is not a question a
+test can answer and not one to guess at.
+
+Characterised rather than changed: `markup in an instance value` records both modes, so
+the behaviour is visible and any change is deliberate. If the decision is to sanitize,
+that test inverts, and template-authored rich text (`cedar-static-rich-text`) should
+keep its behaviour — a template author and an instance are different trust levels.
 
 ### Chores
 
@@ -1151,6 +1190,37 @@ single-line change from the suite.
 
 The sibling `CedarInputSelectComponent.populateItemsOnLoad` survives and must: same
 name, unrelated job — it fills the dropdown's *option list*, not a value.
+
+### ~~Coverage review — gaps found and closed~~ — four of six done
+
+A step-back audit of the suites, which had grown from nothing. The two strong halves —
+the model boundary and the rendered widgets — were confirmed strong. Six gaps, four now
+closed and two escalated to decisions above.
+
+**Two leads were false, and both came from grepping for method names.**
+`multiInstanceItemAdd/Copy/Delete` looked untested; they are covered across seven spec
+files through the `handlerContext` façade (`addMultiInstance`), which is what tests
+call. Clearing a value looked untested; it is covered in `value-writes.spec.ts`. Name
+presence is a bad coverage proxy and the audit should have distrusted it sooner.
+
+Closed:
+
+| Gap | What was wrong | Now |
+|---|---|---|
+| Hungarian translations | 60 of 85 keys; every authority string missing; `Generic.Szűrés` — a *translated key* — sitting where `Generic.Filter` belonged | at parity, in en's key order, held by `translations.spec.ts` |
+| Authority endpoints | 7 fields read their endpoints from 7 config-key pairs, and nothing checked a field asked its own | 14 tests intercept the request per authority; mutation-tested by pointing PFAS at PubMed's key |
+| `currentMetadataYaml` | untouched by either suite, though it is a separate serializer and a host output | 3 tests, agreement with the JSON output plus the shapes a broken serializer yields |
+| Config surface | 19 of 31 keys in no test | all 19 swept off-vs-on; all wired |
+
+The Hungarian defect is worth remembering for how it drifted: the key was translated
+along with the value, so parity broke *and* a dead key appeared, and the file stayed
+plausible. `translations.spec.ts` checks ASCII-only key names for exactly that, because
+a parity count alone cannot see it. The 25 new Hungarian strings are machine
+translations in the register of the existing file and should be read by a native
+speaker.
+
+Not yet done: `CustomDateAdapter` and `DateTimeService` parse user-typed dates and have
+no test; `loadConfigFromURL` and `sampleTemplateLoaderObject` are untested host inputs.
 
 ---
 
