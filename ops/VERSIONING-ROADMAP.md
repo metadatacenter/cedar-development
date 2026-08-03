@@ -136,9 +136,12 @@ response.
    optional (or the JSON side to derive it too) and the editor to stop writing it.
 
 
-- **7. Lookup-coverage tail (replace-BioPortal track, orthogonal to versioning).** IRI-fragment label
-   fallback for the 179 zero-label ontologies; reclaim the 4 quality-deferred (DDSS re-ingest,
-   EHDAA/BSAO/EO1 0-edge extraction — issue #12).
+- **7. Lookup-coverage tail (replace-BioPortal track, orthogonal to versioning).** Improve display for the
+   ~179 zero-label ontologies beyond the IRI-fragment fallback where a real label is recoverable. *The 4
+   quality-deferred cases are resolved:* BSAO and EHDAA reclaimed (the extractor now treats obo2owl's
+   `TEMP#is_a` — an OBO `relationship: is_a` — as subsumption, and EHDAA is configured as a `part_of`
+   partonomy; re-ingested and re-allowlisted), DDSS was already healthy (807k/800k edges), and EO1 stays
+   BioPortal-served (its SKOS source is broken — `skos:broader` values are string literals, not IRIs).
 - **8. Where `actions` belongs in the YAML.** `actions` (delete/move refinements on the term set)
    currently render as a field-level key, a sibling of `values`, naming each affected term by `termIri` +
    `sourceAcronym`. Open question: is that the right home, or should each action nest inside the `values`
