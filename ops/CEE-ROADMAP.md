@@ -28,6 +28,7 @@ and any wrong turns.
 | **2** | Review and merge `cee-with-model-library` | ⛔ **needs you** — all closed work is on it |
 | **8** | Zero-instance element satisfying a requirement | ❓ **needs a decision** — semantics |
 | 10 | Visual-suite flake | ⚠️ likely cause addressed, **unproven** — retry still in place |
+| 17 | Derive the occurrence count instead of caching it | ⬜ last "two copies" — agreement now tested |
 | 15 | Rebrand BMIR → CCM | ⬜ chore — four places in the footer |
 | 16 | Delete legacy test scaffolding | ⬜ chore — Phase 4, deliberately last |
 | — | **Phase 2** dependency de-risking | ⬅ blocked on decision 1 |
@@ -36,7 +37,7 @@ and any wrong turns.
 Items 3–7, 9, 11, 12, 13 and 14 are closed, along with Phases 0 and 1.
 
 Conformance: **34 of 37** corpus instances validate against their own template,
-up from 0; the three that do not are defects in the templates. Coverage: 2,032
+up from 0; the three that do not are defects in the templates. Coverage: 2,034
 domain tests, 88 browser tests.
 
 **Decisions 1, 2 and 8 are the entire critical path.** All three are yours, and
@@ -57,7 +58,7 @@ sense that the cost of the jump grows every release.
 | TypeScript | 4.8 |
 | rxjs | 6.6.7 |
 | Test coverage before this work | 40 spec files, 45 `it()` blocks, all `expect(component).toBeTruthy()` |
-| Test coverage now | 2,032 domain tests in `harness/`, 88 browser tests in `visual/` |
+| Test coverage now | 2,034 domain tests in `harness/`, 88 browser tests in `visual/` |
 
 ## The blocker, stated plainly
 
@@ -89,7 +90,7 @@ candidate, cannot express what CEE needs.
 
 ### Phase 0 — Domain test harness ✅ done
 
-`harness/` — 2,032 headless tests across 30 files, over template parsing,
+`harness/` — 2,034 headless tests across 30 files, over template parsing,
 instance reading and writing, path resolution, value writes, multi-instance
 mechanics, controlled-term constraints, the quality report, and conformance to
 the CEDAR model. Imports no Angular, so it survives the upgrade unchanged. See
@@ -757,6 +758,51 @@ established that, which is why the signature was right first time.
 No behaviour changed — every existing caller keeps the cursor behaviour it had.
 A hidden dependency became an explicit one, and callers wanting determinism can
 now ask for it. Verified by making `at` ignore its indices: seven tests fail.
+
+### ~~Duplicated CEDAR vocabulary~~ — done
+
+`JsonSchema` and `CedarModel` existed twice, once in CEE and once in
+`cedar-model-typescript-library`, which exports both: 55 constants defined in two
+places. No values had drifted — checked before deleting — and CEE's were strict
+subsets, so the only reason they existed is that they predate CEE using the
+library at all. CEE's are gone.
+
+Three of the four CEE-only additions were dead code. The fourth is now
+`CedarModel.propertyIriPrefix` upstream, where the library had the same string
+hardcoded as a literal *and* commented out as a constant.
+
+### Item 17: derive the occurrence count
+
+`MultiInstanceObjectInfo.currentCount` is how many occurrences a multi component
+has — which is also `instance[path].length`. It is maintained alongside the
+instance (incremented on add and copy, decremented on delete) rather than derived
+from it. `currentIndex` beside it is genuinely UI state and is not a duplicate.
+
+The two agree today, and **nothing verified that**, which is precisely where the
+extract tree stood before it diverged three times. `tree-consistency.spec.ts` now
+checks it on fresh and loaded instances, after add, copy and delete, and in the
+case where a delete is refused at `minItems` and the count must *not* move.
+
+Deriving it properly needs the info tree to know its own path, so it can ask the
+instance. That is a larger change than it looks; the check is the part worth
+having first.
+
+### Other copies looked at and left alone
+
+- **`InputType` (CEE) vs the library's field types.** Not a duplicate. CEE's
+  `controlled` is its own pseudo-type — the template says `textfield`, and the
+  presence of ontologies is what makes it a controlled term — so this is a view
+  the parser maps onto, not a second copy of the model.
+- **`Xsd` (CEE).** Ten numeric and temporal type IRIs, which the library splits
+  across `NumberType`, temporal types and `XsdDatatype`. A partial overlap rather
+  than a duplicate; consolidating it means picking apart three library types for
+  little gain.
+- **`Numbers` (CEE).** Validation patterns and integer bounds. The library has no
+  equivalent — this is CEE's own.
+- **The component tree vs the parsed `Template`.** CEE builds its own tree from
+  the library's model. That is a legitimate derived view, rebuilt on every parse,
+  not a maintained copy.
+- **The quality report's `valueTree`.** Also derived, rebuilt on every report.
 
 ---
 
