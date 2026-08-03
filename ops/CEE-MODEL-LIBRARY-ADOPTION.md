@@ -132,10 +132,74 @@ CEE's component tree. Delete the duplicated vocabulary constants. 475 LOC
 touched, but the tree it produces is unchanged, so the whole harness plus the
 visual baselines apply directly. *The tractable half.*
 
-**Phase 2 — instance reading.** Replace instance parsing in
-`MultiInstanceObjectHandler.updateFromInstanceExtractData` and the quality
-report with `JsonTemplateInstanceReader`. *Medium. Interacts with the
-`@#index[N]#@` path encoding.*
+**Phase 2a — instance cardinality. ✅ done** (`cee-with-model-library` @
+`b831166`.)
+
+`MultiInstanceObjectHandler`'s walk sits behind `InstanceCardinalityReader`,
+which emits `(path, count)` pairs in the `@#index[N]#@` encoding
+`setSingleMultiInstance` already parses. Two implementations; the library-backed
+one is the default. All four combinations of parser and reader pass all 1,051
+tests. Three defects in the library came out of it — an element with no
+`@context` read as a link atom, a crash on `null`, and the parsed-instance node
+types not being exported.
+
+**Phase 2b — the quality report. ⬅ scoped below. Recommend doing a tenth of it.**
+
+### Phase 2b in detail
+
+`DataQualityReportBuilderHandler` walks the *component* tree and pulls values
+out of the instance as it goes. It reads the instance three ways, and they are
+not equally replaceable.
+
+| What it does | Lines | Library fit |
+|---|---|---|
+| `extractPlainValue` — decide what a node's value *is* | 15 | **good** |
+| `collectNodes` / `findAnyValue` — every node at a path, cursor-free | 42 | parity rewrite |
+| `getDataObjectNodeByPath` — the node on the page being displayed | — | wrong layer |
+
+**The one real win is `extractPlainValue`.** It sniffs keys — `@value`, else
+`@id`, else `rdfs:label` — and to tell an IRI-valued field from a controlled
+term it has to ask the *template*, through `isIriValued` and
+`EXTERNAL_AUTHORITY_INPUT_TYPES`. The library has already made that call at
+parse time and recorded it in the node's type: `InstanceDataLinkAtom` means the
+IRI is the value, `InstanceDataControlledAtom` means the label is. Type dispatch
+replaces a template lookup, and the report stops needing to know which input
+types happen to be IRI-valued.
+
+It carries one behaviour decision. A controlled term written as `@id` with no
+`rdfs:label` reads as **empty** today — the report falls through to the label
+and finds nothing — and would read as **filled**, valued by its IRI. Nine such
+nodes exist across the 21 corpus instances against 45 with labels, so it is not
+hypothetical. The new answer looks like the right one: a field holding an IRI is
+not empty. It changes whether some instances report valid.
+
+**The cursor-free walks are a parity rewrite, not a simplification.**
+`InstanceDataContainer` has no by-path accessor — `JsonPath` is for error
+reporting — so `collectNodes` and `findAnyValue` get rewritten against typed
+nodes rather than deleted. Same shape, same length, no fewer branches. The only
+gain is that the array-branching would walk containers instead of guessing at
+untyped objects, and that guess is already fixed.
+
+**`getDataObjectNodeByPath` is the wrong layer to touch from here.** It resolves
+through each multi ancestor's live `currentIndex`, and eight widget and service
+call sites use it besides the report. Replacing it for the report alone would
+leave the report reading the instance two different ways, which is worse than
+what it does now. It belongs with Phase 3 or not at all: cursor state is not in
+the library's model and has no business being there.
+
+**Performance is not the objection.** The instance is mutated in place and the
+report is rebuilt on all eight mutation paths, so a parsed instance is stale
+immediately and has to be re-derived every time. Measured on a 62 kB instance —
+20 elements, 20 fields each, five occurrences — the report build costs 1.15 ms
+and the library parse 0.42 ms. Both are well inside a frame. Worth stating
+plainly because it is the first thing anyone assumes is the blocker; it is not.
+
+**Recommendation.** Take `extractPlainValue`, leave the walks. That is a
+half-day: swap 15 lines for type dispatch, delete the `isIriValued` coupling,
+decide the labelless-controlled-term question, and let the 1,051 tests and the
+corpus snapshots say whether anything else moved. Rewriting `collectNodes` and
+`findAnyValue` buys consistency of style and nothing else, and every line of it
+is a line that can be got wrong.
 
 **Phase 3 — instance writing.** The hard one, and it may not be worth doing.
 CEE's instance handling is not a serializer: it maintains two live trees that a
@@ -152,7 +216,9 @@ Phase 0 is done, and it did what it was for — it found a crash on the first ru
 input the library did not generate, and 36 visual baselines. The oracle problem
 is answered rather than merely noted.
 
-Phase 2 is safe once Phase 1 has shaken out.
+Phase 2a is done. Phase 2b is mostly not worth doing: one 15-line win, the rest
+parity work on code that a mutation test would struggle to distinguish from what
+is already there.
 
 Phase 3 is not a refactor and should not be scoped as one.
 
