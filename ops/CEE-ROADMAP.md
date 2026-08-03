@@ -171,9 +171,26 @@ place to verify it — `harness/` for the value semantics, `visual/` for the
 rendering.
 
 **C. Adopt mtx and accept the regression.** Loses second and decimal-second
-precision. Only viable if no CEDAR template in practice uses those
-granularities — which should be measured, not assumed, before anyone considers
-it.
+precision. Was written as "only viable if no CEDAR template in practice uses
+those granularities — which should be measured, not assumed".
+
+**Measured, across both corpora, de-duplicating the generated variants of each
+case:**
+
+| Granularity | Distinct templates |
+|---|---|
+| `day` | 9 |
+| `second` | **4** — `template-010`, `template-035`, `SimpleTemplate`, `lib:template-010` |
+| `decimalSecond` | **3** — `template-010`, `SimpleTemplate`, `lib:template-010` |
+| `year` | 3 |
+| `month` / `hour` / `minute` | 1 each |
+
+Second-precision is the *second most used* granularity after `day`, ahead of
+`year`. `SimpleTemplate` in the artifact library has four such fields and names
+them `(hh:mm:ss)` and `(hh:mm:ss, seconds)`, so the precision is the point of the
+field rather than an accident of authoring.
+
+**Option C is therefore off the table**, not on a judgement call but on a count.
 
 **This decision gates Phase 3.** Option B is the recommendation; it needs a
 sign-off because it is new UI code rather than a dependency bump.
