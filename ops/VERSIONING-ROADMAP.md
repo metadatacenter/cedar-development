@@ -155,9 +155,13 @@ response.
    identical from OBO PURL `.owl`/`.obo` and AgroPortal REST; UNESCO identical from `.ttl`/`.rdf`). Running
    tally in the **Ingestion tracker (ongoing)** below; survey and method in
    [ONTOLOGY-INGEST-SOURCES.md](ONTOLOGY-INGEST-SOURCES.md). A constraint that names one of these sources
-   already resolves correctly (serve locally or report unavailable). *Remaining:* bulk-harvest OLS
-   `fileLocation`s; label the OntoPortal authority on the snapshot (backend records `bioportal` regardless
-   of instance).
+   already resolves correctly (serve locally or report unavailable). *Version currency (2026-08-03):* the
+   served prod catalog's OBO ontologies (mostly stale BioPortal submissions) were refreshed to their
+   current OBO Foundry release straight from their canonical PURLs by `ops/harvest-obo-ingest.sh` —
+   155/158 due ingested (49 genuinely newer content, the rest already content-identical), leaving OGG
+   (upstream PURL 404) and the giants GAZ + NCBITaxon (a dedicated RAM-freed run) for follow-up.
+   *Remaining:* bulk-harvest OLS `fileLocation`s; the GAZ + NCBITaxon giant-run; label the OntoPortal
+   authority on the snapshot (backend records `bioportal` regardless of instance).
 - **10. Backfill `iri`/`sourceSystem` onto existing stored constraints.** A data migration over published
    CEDAR templates, not a code change — and not required for function, since tolerant readers already
    default a constraint with no `sourceSystem`/`iri` to BioPortal + acronym-derived resolution. Two halves:
@@ -230,8 +234,16 @@ ontology, distinct content hashes): GO-basic (2024-01-17 vs 2025-06-01), PATO (2
   source-side, not the ingester.
 - 2026-08-01 — served-store proof: EMI (backend=url) ingested into the live dev catalog + allowlist; the
   running server serves it locally, unpinned and pinned (frozen read), verified over REST.
+- 2026-08-03 — OBO **currency** pass over the **served prod catalog** (distinct from the expansion store
+  above): `ops/harvest-obo-ingest.sh` pulled the current release of every active OBO Foundry ontology from
+  its canonical PURL, mapping each id to the acronym prod already uses and skipping ones already current.
+  190 active → 32 already current, 158 due → **155 ingested** (prod 1284→1333 snapshots, 1262→1310
+  hashes = **49 genuinely-newer refreshes**: GO, UBERON, MP, OBI, ECO, PO, FOODON, RO, RXNO, EMAPA, …; the
+  rest merged content-identical). 3 failed: OGG (PURL 404, upstream), GAZ + NCBITaxon (too RAM/time-heavy —
+  deferred to a giant-run with the server stopped). New `latest` snapshots serve after a terminology restart.
 
-**Next iterations** are one command — `ops/harvest-ols-ingest.sh <catalog> <snapshotDir> [--max N]`
-(idempotent, skips already-ingested acronyms, logs and skips failures). Remaining: bulk-harvest the rest
-of the OLS fileLocations; add more OntoPortal instances (EcoPortal, IndustryPortal, each needs its own
-key); retry the transient failures; grow version pairs from dated OBO/GO releases.
+**Next iterations** are one command — `ops/harvest-ols-ingest.sh` (source expansion) and
+`ops/harvest-obo-ingest.sh` (OBO release currency), both `<catalog> <snapshotDir> [--max N]`, idempotent,
+skipping already-current acronyms and logging/skipping failures. Remaining: the GAZ + NCBITaxon giant-run;
+bulk-harvest the rest of the OLS fileLocations; add more OntoPortal instances (EcoPortal, IndustryPortal,
+each needs its own key); retry the transient failures; grow version pairs from dated OBO/GO releases.
