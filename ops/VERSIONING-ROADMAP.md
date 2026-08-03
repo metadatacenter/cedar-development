@@ -162,9 +162,14 @@ response.
    served prod catalog's OBO ontologies (mostly stale BioPortal submissions) were refreshed to their
    current OBO Foundry release straight from their canonical PURLs by `ops/harvest-obo-ingest.sh` —
    155/158 due ingested (49 genuinely newer content, the rest already content-identical), leaving OGG
-   (upstream PURL 404) and the giants GAZ + NCBITaxon (a dedicated RAM-freed run) for follow-up.
-   *Remaining:* bulk-harvest OLS `fileLocation`s; the GAZ + NCBITaxon giant-run; label the OntoPortal
-   authority on the snapshot (backend records `bioportal` regardless of instance).
+   (upstream PURL 404) and the giants GAZ + NCBITaxon for follow-up. *GAZ (2026-08-03):* attempted twice
+   in server-down windows and it fails reliably on the download — the large PURL→Zenodo fetch outruns
+   `DirectUrlSubmissionSource`'s HTTP client (once "closed", once a response-timeout timer-cancel). This
+   needs a fetch fix, not a retry: pre-fetch to disk then ingest from the file, or raise/disable the
+   response timeout for large downloads. Until then GAZ stays at its 2014 BioPortal snapshot; NCBITaxon
+   stays deferred (too RAM/time-heavy). *Remaining:* the GAZ fetch fix + NCBITaxon giant-run; bulk-harvest
+   OLS `fileLocation`s; label the OntoPortal authority on the snapshot (backend records `bioportal`
+   regardless of instance).
 - **10. Backfill `iri`/`sourceSystem` onto existing stored constraints.** A data migration over published
    CEDAR templates, not a code change — and not required for function, since tolerant readers already
    default a constraint with no `sourceSystem`/`iri` to BioPortal + acronym-derived resolution. Two halves:
@@ -188,9 +193,13 @@ response.
    decision, not blockers. *Coverage gap (found 2026-08-03):* the backfill did not reach every served
    snapshot — 275 of 1215 latest snapshots have an empty label side-table, including major ontologies
    (HP, MESH, NCIT, NCBITAXON, DDSS, LOINC, EFO). Their primary English labels serve fine, but the
-   multilingual/synonym features above silently no-op for them. *Fix (task):* re-run `--backfill-labels`
-   over the served catalog (idempotent, additive, identity-preserving); freshly-ingested snapshots (e.g.
-   the 49 OBO refreshes) already carry labels captured at ingest, so this is pure gap-fill.
+   multilingual/synonym features above silently no-op for them. *Fix (staged, 2026-08-03):* a
+   `--backfill-labels` run over the 274 empty bioportal-backed snapshots (NCBITaxon excluded as too heavy)
+   is prepared but not yet completed — it needs a server-down window (RAM), and since each snapshot is
+   re-fetched from BioPortal and re-extracted, the 10 remaining giants (DDSS, MESH, LOINC, NCIT, BERO, …)
+   make it the long leg. Idempotent/resumable (skips snapshots that already carry labels), so it can stop
+   and continue across windows. Freshly-ingested snapshots (e.g. the 49 OBO refreshes) already carry labels
+   captured at ingest, so this is pure gap-fill.
 - **12. Extend the value-constraint YAML to express a term's language.** A controlled-term constraint
    currently says nothing about language; a field always renders (and searches) labels in the served
    default. Add a key naming the language the field should present its terms in — `termLanguage`, or
@@ -252,6 +261,8 @@ ontology, distinct content hashes): GO-basic (2024-01-17 vs 2025-06-01), PATO (2
 
 **Next iterations** are one command — `ops/harvest-ols-ingest.sh` (source expansion) and
 `ops/harvest-obo-ingest.sh` (OBO release currency), both `<catalog> <snapshotDir> [--max N]`, idempotent,
-skipping already-current acronyms and logging/skipping failures. Remaining: the GAZ + NCBITaxon giant-run;
+skipping already-current acronyms and logging/skipping failures. Remaining: the GAZ fetch fix (its
+PURL→Zenodo download outruns the HTTP client) + NCBITaxon giant-run; the staged label backfill of the 274
+empty-label snapshots (item 11);
 bulk-harvest the rest of the OLS fileLocations; add more OntoPortal instances (EcoPortal, IndustryPortal,
 each needs its own key); retry the transient failures; grow version pairs from dated OBO/GO releases.
