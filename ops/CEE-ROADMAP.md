@@ -20,27 +20,28 @@ decision 2.
 ## Status at a glance
 
 Outstanding work only — finished items are under *Closed*, with their reasoning
-and any wrong turns. Grouped by kind; the numbers are identifiers, not an order.
+and any wrong turns.
 
 | # | Item | State |
 |---|---|---|
 | **1** | Sign off the time-picker replacement | ⛔ **needs you** — gates Phases 3 and 4 |
 | **2** | Review and merge `cee-with-model-library` | ⛔ **needs you** — all closed work is on it |
-| **8** | Zero-instance element satisfying a requirement | ❓ **needs a decision** — semantics |
-| 10 | Visual-suite flake | ⚠️ likely cause addressed, **unproven** — retry still in place |
-| 17 | Derive the occurrence count instead of caching it | ⬜ last "two copies" — agreement now tested |
-| 15 | Rebrand BMIR → CCM | ⬜ chore — four places in the footer |
-| 16 | Delete legacy test scaffolding | ⬜ chore — Phase 4, deliberately last |
+| **3** | Zero-instance element satisfying a requirement | ❓ **needs a decision** — semantics |
+| 4 | Visual-suite flake | ⚠️ likely cause addressed, **unproven** — retry still in place |
+| 5 | Derive the occurrence count instead of caching it | ⬜ last "two copies" — agreement now tested |
+| 6 | Rebrand BMIR → CCM | ⬜ chore — four places in the footer |
+| 7 | Delete legacy test scaffolding | ⬜ chore — Phase 4, deliberately last |
 | — | **Phase 2** dependency de-risking | ⬅ blocked on decision 1 |
 | — | **Phase 3** Angular 14 → 22 | ⬜ blocked on decision 1 |
 
-Items 3–7, 9, 11, 12, 13 and 14 are closed, along with Phases 0 and 1.
+Renumbered 1–7 as items closed. Entries under *Closed* keep the numbers they
+carried at the time, so a commit message citing "item 12" still finds its entry.
 
 Conformance: **34 of 37** corpus instances validate against their own template,
 up from 0; the three that do not are defects in the templates. Coverage: 2,034
 domain tests, 88 browser tests.
 
-**Decisions 1, 2 and 8 are the entire critical path.** All three are yours, and
+**Decisions 1, 2 and 3 are the entire critical path.** All three are yours, and
 nothing else on the list waits on anything.
 
 ---
@@ -236,23 +237,41 @@ clearance. The longer it sits, the more the rebase costs.
 
 ### The remaining question
 
-**8. Should an element with zero instances satisfy a requirement?**
+**3. Should an element with zero instances satisfy a requirement?**
 *A decision, not a defect.* It contributes no requirements today, so it reports
 valid — vacuously. Characterised in `harness/test/cardinality.spec.ts` so the
 behaviour is recorded whichever way it goes, but which way it *should* go is a
 question about what CEDAR means by required, and that is not ours to settle
 unilaterally.
 
-Everything else that was on this list is under *Closed*: items 3–7 and 9–14.
-Conformance is 34 of 37, and all three remaining failures are defects in the
+Everything else that was on this list is under *Closed*, under the numbers it
+had at the time. Conformance is 34 of 37, and all three remaining failures are defects in the
 corpus templates rather than in CEE.
+
+### Loose ends
+
+**4. The visual-suite flake.** Two runs in roughly a dozen once failed a single
+screenshot immediately after a fresh bundle. A mechanism that fits has been
+addressed — the dev server sends no `Cache-Control`, so a browser may reuse a
+cached bundle heuristically and a run straight after a re-bundle can render the
+previous build; `host.html` now loads it at a URL keyed to its mtime. **Not
+proven to be the cause:** 20 runs at `--retries=0` reproduced nothing, before or
+after. The single retry stays until a long clean stretch means something, and
+`npm run flake-hunt` makes the next occurrence chaseable rather than something to
+wait for.
+
+**5. Derive the occurrence count instead of caching it.** The last place CEE keeps
+a second copy of something it already knows — detail under *Item 5* in Reference.
+The count agrees with the instance today and is now tested against it after every
+structural operation, which is the part worth having first; deriving it properly
+needs the multi-instance info tree to know its own path.
 
 ### Chores
 
-**15. Rebrand BMIR → Center for Computational Medicine.** Four places in the
+**6. Rebrand BMIR → Center for Computational Medicine.** Four places in the
 footer, listed under *Rebrand* below.
 
-**16. Delete the legacy test scaffolding.** Phase 4 — 40 `should create` specs
+**7. Delete the legacy test scaffolding.** Phase 4 — 40 `should create` specs
 and the Protractor setup. Deliberately last, so nothing is removed while it
 might still be a signal.
 
@@ -771,7 +790,7 @@ Three of the four CEE-only additions were dead code. The fourth is now
 `CedarModel.propertyIriPrefix` upstream, where the library had the same string
 hardcoded as a literal *and* commented out as a constant.
 
-### Item 17: derive the occurrence count
+### Item 5: derive the occurrence count
 
 `MultiInstanceObjectInfo.currentCount` is how many occurrences a multi component
 has — which is also `instance[path].length`. It is maintained alongside the
