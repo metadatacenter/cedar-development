@@ -28,7 +28,7 @@ sense that the cost of the jump grows every release.
 | TypeScript | 4.8 |
 | rxjs | 6.6.7 |
 | Test coverage before this work | 40 spec files, 45 `it()` blocks, all `expect(component).toBeTruthy()` |
-| Test coverage now | + 422 domain tests in `harness/` |
+| Test coverage now | 1,710 domain tests in `harness/`, 86 browser tests in `visual/` |
 
 ## The blocker, stated plainly
 
@@ -60,10 +60,14 @@ candidate, cannot express what CEE needs.
 
 ### Phase 0 — Domain test harness ✅ done
 
-`harness/` — 422 headless tests over template parsing, instance construction,
-path resolution, value writes, multi-instance mechanics, controlled-term
-constraints and the quality report. Imports no Angular, so it survives the
-upgrade unchanged. See [harness/README.md](../../cedar-embeddable-editor/harness/README.md).
+`harness/` — 1,710 headless tests across 23 files, over template parsing,
+instance reading and writing, path resolution, value writes, multi-instance
+mechanics, controlled-term constraints, the quality report, and conformance to
+the CEDAR model. Imports no Angular, so it survives the upgrade unchanged. See
+[harness/README.md](../../cedar-embeddable-editor/harness/README.md).
+
+Grew from 422 during the model-library adoption below, which is where most of
+the defects in Open findings were caught.
 
 Deliberately **not** upgrade insurance: the pure-TypeScript domain layer is the
 part least likely to break when the framework moves. This phase buys refactoring
@@ -71,11 +75,17 @@ confidence and a characterization baseline.
 
 ### Phase 1 — Visual regression baseline ✅ done
 
-`visual/` — 16 Playwright screenshot tests against the **concatenated bundle**
-as an embedder consumes it, not the dev server. Five fixtures covering input
-types, choice widgets, two-deep multi-instance nesting, controlled terms, and
-static content with page breaks; two viewports. Stable across repeated runs
-(~5s). See [visual/README.md](../../cedar-embeddable-editor/visual/README.md).
+`visual/` — 86 Playwright tests against the **concatenated bundle** as an
+embedder consumes it, not the dev server. Eight fixtures covering input types,
+choice widgets, two-deep multi-instance nesting, controlled terms, static
+content with page breaks, validation states, the timezone picker and all seven
+external authority widgets; two viewports. Runs in ~35s. See
+[visual/README.md](../../cedar-embeddable-editor/visual/README.md).
+
+Not only screenshots any more. The authority-widget tests assert behaviour —
+that a keystroke raises no error, that free text is discarded on blur — because
+that is a class of defect the domain harness cannot see and a screenshot would
+not describe.
 
 Baselines were captured on Angular 14 **before** any upgrade work, which is the
 only moment they are worth capturing.
@@ -451,27 +461,37 @@ and get it back empty with no explanation. Pinned in
 `harness/test/validation.spec.ts` so the behaviour is recorded rather than
 assumed.
 
-### Adopt the model library instead of hand-reading JSON
+### ~~Adopt the model library instead of hand-reading JSON~~ — done, on `cee-with-model-library`
 
-CEE parses template JSON and builds instance JSON by hand — 475 LOC and 77 raw
+CEE parsed template JSON and built instance JSON by hand — 475 LOC and 77 raw
 key lookups for templates, 2,084 LOC and 112 lookups for instances — against its
-own copy of the model vocabulary, which the CEDAR Model TypeScript Library
-already owns. That duplication is how CEE came to know four numeric types where
-the model has seven.
+own copy of the model vocabulary that the CEDAR Model TypeScript Library already
+owned. That duplication is how CEE came to know four numeric types where the
+model has seven.
 
-Scoped in [CEE-MODEL-LIBRARY-ADOPTION.md](./CEE-MODEL-LIBRARY-ADOPTION.md).
-Template reading is tractable and the library covers every key CEE reads;
-instance *writing* is not a refactor at all and should not be scoped as one.
+All three boundaries now go through the library; see *Where the boundaries
+stand* above for the accounting. Originally scoped in
+[CEE-MODEL-LIBRARY-ADOPTION.md](./CEE-MODEL-LIBRARY-ADOPTION.md), which called
+instance *writing* "not a refactor at all and should not be scoped as one" —
+correct as a warning, wrong as a limit. It was done by replacing the emitter
+rather than converting it: CEE builds a working tree and the library serialises
+it, so `currentMetadataYaml` is a second writer rather than a second code path.
 
-Two findings from the scoping worth acting on independently:
+The method that made it safe, worth reusing: keep both implementations behind a
+seam, run the *entire* suite against each, and delete the old one only once they
+agree across the corpus. Most of the defects in Open findings were found that
+way rather than by reading code.
 
-- CEE **crashes on `template-003`** in the shared corpus. Its `_ui.order` names a
-  child with no entry in `properties`, and the factory dereferences it unguarded.
-  The model library reads the same template without complaint. 36 of the 37
-  corpus templates parse; this one hard-fails.
-- The harness generates every template it tests with, so CEE has never been run
-  against a human-authored one. Closing that gap took a single throwaway test
-  and found the crash above.
+Both findings from the scoping are closed:
+
+- ~~CEE **crashes on `template-003`**~~ — the `_ui.order` names a child with no
+  entry in `properties`, which the hand-written factory dereferenced unguarded.
+  The library-backed parser reads it, and `corpus.spec.ts` pins that. All 37
+  corpus templates now parse.
+- ~~The harness only ever fed CEE templates it generated itself~~ — the shared
+  corpus is now part of the suite, which is what makes the conformance and
+  format-independence numbers mean anything. It found the crash above within one
+  throwaway test.
 
 ### Unify the external authority fields
 
@@ -555,10 +575,12 @@ working, not a problem.
   only because webpack tolerates it. Moving `iriPrefix` to a constant would
   delete both this and `harness/stubs/editor-component.ts`.
 - **Two instance trees, no single source of truth.** Every mutation is written
-  separately to `instanceExtractData` and `instanceFullData`;
-  `multiInstanceItemAdd` even needs a `deleteContext` between the two passes.
-  Divergence is invisible from the UI, because widgets read one tree and the
-  host page reads the other. The harness now asserts they agree.
+  separately to `instanceExtractData` and `instanceFullData`. Divergence is
+  invisible from the UI, because widgets read one tree and the host page reads
+  the other. The harness now asserts they agree, and both are projections of one
+  parsed model on the way in — but they are still maintained in parallel after
+  that. (The `deleteContext` pass `multiInstanceItemAdd` used to need between
+  them is gone: the builder is asked for the right shape instead.)
 - **Path resolution is not pure.** `getDataObjectNodeByPath` resolves through
   each multi ancestor's `currentIndex`, so it returns different nodes depending
   on which pages the user has flipped to. `HandlerContext` depends on mutating
