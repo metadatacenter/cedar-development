@@ -207,6 +207,14 @@ response.
    (name to be decided). On the read side it maps to the `lang=` the editor/CEE already sends to the
    terminology server (item 11); mostly a spec + editor addition, orthogonal to the identity question
    (item 4).
+- **15. Name the title-less ontologies in the picker (low priority, cosmetic).** The ingest now takes an
+   ontology's display name from BioPortal's metadata, then from its own `owl:Ontology` header title, then
+   the acronym — and never downgrades a set name back to the acronym on re-ingest. That leaves the
+   ontologies whose source declares no header title at all still showing the bare acronym in the picker:
+   13 as of 2026-08-03 — VODANANIGERIA, MCHVODANATERMS, DSIP_FL_7, ETHANC, M4M-CHAR, OCDARREUSE, OCDARV1,
+   OCDARWN, OCDARWNE, OCDO, RDL, REGN_BRO, STY1 (mostly VODAN/OCDAR/test/project artifacts). No automatic
+   source exists, so each needs a hand-assigned title written to `ontology_source.name`. Cosmetic — the
+   picker also shows the acronym — and cheap once the correct names are supplied; low priority.
 
 ### Open questions (authorities that don't fit the version model)
 
