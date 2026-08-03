@@ -105,7 +105,7 @@ cd ../cedar-model-typescript-library && npm install && npm run build
 nvm use 20 && cd harness && npm install && npm test
 ```
 
-Expect **1,047 passing** on `develop`, **1,481** on `cee-with-model-library`. Watch mode is `npm run test:watch`.
+Expect **1,047 passing** on `develop`, **1,488** on `cee-with-model-library`. Watch mode is `npm run test:watch`.
 
 ### Coverage
 

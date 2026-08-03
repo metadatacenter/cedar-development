@@ -262,11 +262,24 @@ the value writes construct atoms the library serialises, and the empty instance
 is built from the parsed components rather than a second walk over the template
 JSON.
 
-Four defects came out of it, all of which had no test and three of which lost
+Five defects came out of it, all of which had no test and four of which lost
 data: a part-named attribute-value list dropped the names it had; writing a
 literal over an IRI left the IRI behind; `deleteContext` deleted the `@id` of any
-controlled term or link carrying a `@type`; and `"@type": null` went into every
-instance built from a template that declared the key without a value.
+controlled term or link carrying a `@type`; `"@type": null` went into every
+instance built from a template that declared the key without a value; and no
+instance CEE had ever produced named the template it came from.
+
+That last one is worth its own paragraph, because it is older and larger than
+the rest and nothing about this migration caused it. `schema:isBasedOn` is the
+only link from an instance back to the thing that defines it; the Java artifact
+library treats it as mandatory, a non-optional URI checked when the artifact is
+constructed. CEE never wrote it. Not a gap in the TypeScript library, which
+models it and emits it from both writers — CEE builds the instance from the
+parsed form structure rather than from the template file, and the template's own
+`@id` had never been copied into that structure, because nothing about drawing a
+form needs it. No line dropped it; no line carried it. Three lines fixed it, and
+a template with no `@id` of its own is now reported when it is read rather than
+discovered later as a document nothing can resolve.
 
 One accepted behaviour change: the emitted instance now carries the envelope —
 `@id`, `schema:name`, `schema:description` and the four provenance fields, all
@@ -296,6 +309,14 @@ They pass. One field in one template differs, and it is the format's limit
 rather than CEE's: YAML has nowhere to record a lower bound on a field that is
 multiple by its type, so `template-029`'s `Other Language` reads back with
 `minItems` 0. No YAML file in either corpus records one, from either library.
+
+Worth saying plainly, because the two tests above make it easy to overclaim:
+they show CEE no longer depends on a *serialisation*. They do not show that
+everything CEE emits is right — `schema:isBasedOn` was missing from every
+instance CEE had ever produced, and both tests passed throughout, because an
+instance missing a field in both formats is consistent with itself. Format
+independence and correctness are different properties and only one of them has
+a test that can fail.
 
 What is left of the raw key references is not CEDAR JSON handling: roughly
 sixteen in the external authority services, which parse BioPortal search
