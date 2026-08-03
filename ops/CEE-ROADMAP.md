@@ -25,18 +25,17 @@ and any wrong turns.
 |---|---|---|
 | **1** | Zero-instance element satisfying a requirement | ❓ **needs a decision** — semantics |
 | 2 | Visual-suite flake | ⚠️ likely cause addressed, **unproven** — retry still in place |
-| 3 | Derive the occurrence count instead of caching it | ⬜ last "two copies" — agreement now tested |
-| 4 | Rebrand BMIR → CCM | ⬜ chore — four places in the footer |
+| 3 | Rebrand BMIR → CCM | ⬜ chore — four places in the footer |
 | — | **Phase 3** Angular 14 → 22 | ⬅ **next, and no longer blocked** |
 | — | **Phase 4** delete the legacy test scaffolding | ⬜ after Phase 3 — 40 stub specs, Protractor |
 
-Numbered 1–4; entries under *Closed* keep the numbers they carried at the time.
+Numbered 1–3; entries under *Closed* keep the numbers they carried at the time.
 
 `cee-with-model-library` is an **experiment**, not work pending a merge. All the
 closed work below lives on it.
 
 Conformance: **34 of 37** corpus instances validate against their own template,
-up from 0; the three that do not are defects in the templates. Coverage: 2,069
+up from 0; the three that do not are defects in the templates. Coverage: 2,071
 domain tests, 124 browser tests.
 
 **Phase 2 is complete and Phase 3 is unblocked.** The time picker was the only
@@ -61,7 +60,7 @@ sense that the cost of the jump grows every release.
 | TypeScript | 4.8 |
 | rxjs | 6.6.7 |
 | Test coverage before this work | 40 spec files, 45 `it()` blocks, all `expect(component).toBeTruthy()` |
-| Test coverage now | 2,034 domain tests in `harness/`, 88 browser tests in `visual/` |
+| Test coverage now | 2,071 domain tests in `harness/`, 124 browser tests in `visual/` |
 
 ## The blocker, removed
 
@@ -100,7 +99,7 @@ candidate, cannot express what CEE needs.
 
 ### Phase 0 — Domain test harness ✅ done
 
-`harness/` — 2,034 headless tests across 30 files, over template parsing,
+`harness/` — 2,071 headless tests across 32 files, over template parsing,
 instance reading and writing, path resolution, value writes, multi-instance
 mechanics, controlled-term constraints, the quality report, and conformance to
 the CEDAR model. Imports no Angular, so it survives the upgrade unchanged. See
@@ -281,15 +280,9 @@ after. The single retry stays until a long clean stretch means something, and
 `npm run flake-hunt` makes the next occurrence chaseable rather than something to
 wait for.
 
-**4. Derive the occurrence count instead of caching it.** The last place CEE keeps
-a second copy of something it already knows — detail under *Item 4* in Reference.
-The count agrees with the instance today and is now tested against it after every
-structural operation, which is the part worth having first; deriving it properly
-needs the multi-instance info tree to know its own path.
-
 ### Chores
 
-**4. Rebrand BMIR → Center for Computational Medicine.** Four places in the
+**3. Rebrand BMIR → Center for Computational Medicine.** Four places in the
 footer, listed under *Rebrand* below.
 
 Deleting the legacy test scaffolding is Phase 4's whole content — 40
@@ -811,22 +804,6 @@ Three of the four CEE-only additions were dead code. The fourth is now
 `CedarModel.propertyIriPrefix` upstream, where the library had the same string
 hardcoded as a literal *and* commented out as a constant.
 
-### Item 4: derive the occurrence count
-
-`MultiInstanceObjectInfo.currentCount` is how many occurrences a multi component
-has — which is also `instance[path].length`. It is maintained alongside the
-instance (incremented on add and copy, decremented on delete) rather than derived
-from it. `currentIndex` beside it is genuinely UI state and is not a duplicate.
-
-The two agree today, and **nothing verified that**, which is precisely where the
-extract tree stood before it diverged three times. `tree-consistency.spec.ts` now
-checks it on fresh and loaded instances, after add, copy and delete, and in the
-case where a delete is refused at `minItems` and the count must *not* move.
-
-Deriving it properly needs the info tree to know its own path, so it can ask the
-instance. That is a larger change than it looks; the check is the part worth
-having first.
-
 ### Other copies looked at and left alone
 
 - **`InputType` (CEE) vs the library's field types.** Not a duplicate. CEE's
@@ -887,6 +864,37 @@ Two things worth keeping:
 
 Dependency removed from `package.json` and the lockfile, pruned from
 `node_modules`, and the app rebuilt with it physically absent.
+
+### ~~The occurrence count was cached, not derived~~ — done
+
+`MultiInstanceObjectInfo.currentCount` is how many occurrences a multi component
+has, which is also `instance[path].length`. It was stored and kept in step by
+hand — incremented on add and copy, decremented on delete, beside the splice into
+the instance itself. The same shape as the two instance trees, and the same
+question: does the second copy need to exist?
+
+It does not. `currentCount` is now a getter reading the live instance through a
+resolver `HandlerContext` installs, so it cannot drift from the document it
+describes, and add/copy/delete no longer maintain it. `currentIndex` next to it
+*is* genuinely UI state — which page the user is on exists nowhere else — and
+stays stored.
+
+Two things made it safe rather than lucky:
+
+- **The ordering was already right.** All three structural operations mutate the
+  instance and *then* the info tree, so a derived count is correct by the time
+  anything reads it. That was checked before the change, not after.
+- **No cycle.** Resolving a path reads each multi ancestor's `currentIndex`,
+  never its count.
+
+It found a consistency bug on the way. An element that is *absent* and one whose
+array is *empty* say the same thing, and were reported differently: `absent`
+counted three unfilled required fields, because the count came from the template's
+`minItems` rather than the document, while `empty` counted none. Both now report
+what is actually true — a `minItems` violation — which is the more precise
+complaint, since the problem is not an unfilled field but a missing element.
+
+Verified by making `currentCount` ignore its supplier: 24 tests fail.
 
 ---
 
