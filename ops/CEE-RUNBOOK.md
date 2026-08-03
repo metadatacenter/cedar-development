@@ -214,8 +214,44 @@ one required key. That list is the definition of the instance envelope.
 
 The `scripts/validate-*.sh` wrappers do not currently run — they call `python`
 rather than `python3`, want a `jsonschema` module that is not installed, and
-point at a `template-schema.json` that is generated rather than committed. Use
-`mvn test`, or add a fixture to the Java suite.
+point at a `template-schema.json` that is generated rather than committed.
+
+### Running the gate on one artifact
+
+**This is the gate production artifacts have to pass**, so being able to point it
+at an arbitrary file matters more than the test suite passing. You do not need to
+add a fixture to the Java suite to do that: the library already ships runnable
+entry points under `org.metadatacenter.model.validation.exec`, and
+`ops/cedar_validate.sh` wraps them.
+
+```bash
+ops/cedar_validate.sh instance path/to/template.json path/to/instance.jsonld
+```
+
+```bash
+ops/cedar_validate.sh template path/to/template.json
+```
+
+`element` and `field` take one file the same way. The first run resolves and caches
+the dependency classpath under `target/`; after that a check is about 0.3s, fast
+enough to loop over a directory of artifacts.
+
+**Exit status is the point:** `0` valid, `1` invalid, `2` could not run. The
+library's own mains print `Instance is invalid` and still exit `0`, which is
+useless in a pipeline, so the script re-derives the verdict from the output. Check
+the status rather than grepping the text.
+
+It locates `cedar-model-validation-library` via `$CEDAR_HOME`, then
+`CEDAR_VALIDATION_LIB`, then the sibling checkout, and needs the same JDK 17 as
+above — which it will find itself if `JAVA_HOME` is unset.
+
+What a real rejection looks like. The location is a JSON pointer into the
+instance, which is what makes it actionable:
+
+```
+Instance is invalid. Found 1 error(s)
+[ERROR]: object has missing required properties (['@id']), location: /
+```
 
 ### The same check, in the harness
 
@@ -266,6 +302,13 @@ Upgrade the model library, take a new CEDAR release, or find yourself arguing
 with the harness about what the model requires → run Maven. The Java suite is
 the tie-breaker, and `validator-agreement.spec.ts` is where its verdict gets
 written back down into the harness.
+
+About to put an artifact into production, or holding one artifact whose verdict you
+actually need → `ops/cedar_validate.sh`. This is the gate itself rather than an
+approximation of it, so when the question is "will this be accepted", it is the
+only answer that counts. Reach for it in preference to reasoning from the schema:
+a draft-04 validator agreeing with it is evidence, not proof, and the two have
+diverged before.
 
 ## Running the visual baseline
 

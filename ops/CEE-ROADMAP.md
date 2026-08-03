@@ -23,7 +23,7 @@ and any wrong turns.
 
 | # | Item | State |
 |---|---|---|
-| **1** | Zero-instance element satisfying a requirement | ❓ **needs a decision** — semantics |
+| 1 | Zero-instance element: last divergence from the canonical validator | ⬜ small — or close as unreachable; **needs no semantics ruling** |
 | — | **Phase 3** Angular 14 → 22 | ⬅ **next, and no longer blocked** |
 | — | **Phase 4** delete the legacy test scaffolding | ⬜ after Phase 3 — 40 stub specs, Protractor |
 
@@ -41,7 +41,7 @@ dependency with no upgrade path; `@ng-select/ng-select` and
 `ngx-mat-select-search` both cap the *installed* versions rather than the
 packages, so they are bumps during the migration rather than blockers.
 
-Nothing on the list above blocks Phase 3, and only item 1 needs you.
+Nothing on the list above blocks Phase 3.
 
 ---
 
@@ -242,29 +242,55 @@ enforced, what the boundaries look like — is under *Reference*. Everything
 already closed is under *Closed*, kept because several entries record a wrong
 turn worth not repeating.
 
-### The decision that blocks everything
+### 1. Should an element with zero instances satisfy a requirement?
 
-**1. Sign off the time picker replacement.** *Blocks Phases 3 and 4, i.e. the
-entire Angular upgrade.* `@angular-material-components/datetime-picker` caps CEE
-at Angular 16, and the obvious replacement cannot express seconds or
-decimal-seconds, which CEDAR's granularity model requires. Recommendation is
-Option B, build `app-time-picker` in-house — see *Phase 2* above for the
-comparison and the reasoning. This needs a human decision because it is new UI
-code rather than a dependency bump; it has been the only thing standing between
-here and Phase 3 for some time.
+**Largely answered, and not by a product decision.** Kept as an item only because
+one narrow case is still open, and that case looks unreachable.
 
-### The remaining question
+The question was raised because a multi element with no instances reported
+*vacuously* valid: the multi-element branch is guarded by `multiCount > 0`, so no
+requirement was counted and `0 <= 0` passed. Cardinality checking settled it
+without anyone having to rule on what CEDAR means by required — with a `minItems`
+floor, zero instances is a **`minItems` violation**, which is the more precise
+complaint anyway. The problem is not that a required field is unfilled; it is that
+the element is not there. Characterised in `harness/test/cardinality.spec.ts`.
 
-**2. Should an element with zero instances satisfy a requirement?**
-*A decision, not a defect.* It contributes no requirements today, so it reports
-valid — vacuously. Characterised in `harness/test/cardinality.spec.ts` so the
-behaviour is recorded whichever way it goes, but which way it *should* go is a
-question about what CEDAR means by required, and that is not ours to settle
-unilaterally.
+That agrees with the canonical validator exactly. Checked by **running
+`cedar-model-validation-library` itself** — `ops/cedar_validate.sh instance` —
+rather than by reasoning from the schema, against
+`multiple-element-items-template.json`, where `Participant` is a multi element with
+`minItems: 1` and is listed in the template's `required` array:
 
-Everything else that was on this list is under *Closed*, under the numbers it
-had at the time. Conformance is 34 of 37, and all three remaining failures are defects in the
-corpus templates rather than in CEE.
+| Instance | `minItems: 1` | no `minItems` | Why it fails |
+|---|---|---|---|
+| as shipped | valid | valid | |
+| element `[]` | **invalid** | valid | at least 1 items but found 0 |
+| element omitted | **invalid** | **invalid** | missing required property |
+| element `null` | **invalid** | **invalid** | null found, array expected |
+
+An `ajv-draft-04` run over the same eight cases gave identical verdicts, which is
+worth knowing but is not what settles it — the Java library is the arbiter, and on
+this branch three plausible conclusions have already had to be reverted after
+checking what the Java side actually does.
+
+**What is still open** is the same element with **no `minItems` declared at all**.
+Read the right-hand column: with the floor gone, `[]` becomes valid — and CEE
+agrees — but omitted or `null` stays invalid, because CEDAR lists multi elements in
+the template's `required` array independently of any floor. CEE reports that case
+valid with no problems. So the residual divergence is precisely: **a multi element
+with no `minItems`, absent or null, is invalid at the gate and valid in CEE.**
+
+**It appears to be unreachable.** Measured across three independent corpora —
+147 corpus templates, 57 HuBMAP templates, 24 canonical validator fixtures — there
+are **321 multi children and not one of them omits `minItems`**. The model library
+always writes a floor for a multi child, which is why the characterisation test has
+to strip it by hand to reach the case at all.
+
+So there is nothing here that needs a semantics ruling. The options are to close it
+as unreachable, or to spend a small change removing the divergence anyway: check
+the template's `required` array for structural element presence, so absent-or-null
+is invalid whatever `minItems` says. That is matching the canonical validator
+rather than deciding anything, and it does not block Phase 3 either way.
 
 ### Chores
 
