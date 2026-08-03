@@ -45,35 +45,6 @@ model libraries — where their JSON and YAML serializations diverge — is in
   the template cannot be found, so an instance cannot be validated against a template that does not yet
   exist. Reasonable, and worth stating.
 
-- **Make search-index mutations reliable (grants and deletes). One architectural cause, still open.**
-  This is the remaining index work and the next focused effort. Documents are indexed with a
-  server-generated random `_id` (`ElasticsearchIndexingWorker.addToIndex` uses `new IndexRequest(index)`
-  with no id), so there is no stable resource→document identity. Every update and delete is therefore a
-  `deleteByQuery(matchQuery("cid", id))` against a searchable snapshot with **no forced refresh, no
-  retry at the mutation sites, and a silent catch** in `SearchPermissionExecutorService.upsertOnePermissions`.
-  Two symptoms follow: a permission grant never reaches the term-search document (the grantee's
-  `"<userId>|read"` key is never added, so a shared resource is openable and shows under "shared with
-  me" but a name search never finds it — only the everybody grant reaches term search, because it is
-  denormalized onto the node as `everybodyPermission`); and a deleted artifact is never removed from the
-  index. The clean fix is to index with a **deterministic `_id` derived from `cid`**, making update a
-  true upsert and delete a delete-by-id — eliminating the refresh race — and to stop swallowing the
-  reindex exception (a retrying `removeDocumentFromIndex(id, true)` overload already exists and is used
-  only by the category paths). This needs an index regeneration for existing random-`_id` documents and
-  live verification, so it is deliberately its own change. Pinned by `ops/e2e/rest/suites/finding.mjs`.
-
-  The fix must be verified in **both directions**, because the same architectural cause breaks
-  revocation as well as granting, and revocation is the fail-dangerous one: if the projection lags or
-  loses the message, a user whose access was withdrawn keeps seeing the resource in their listings and
-  search results, and may still open it from there depending on which reads are index-backed.
-  `GroupSharingRevocationIntegrationTest` already establishes that the *graph* stops granting access
-  immediately, on both membership removal and group deletion, so the model is right; what is unverified
-  is the projection of that into the index. It cannot be checked in the current JUnit suites — they run
-  `NoOpNodeIndexingService` precisely so they need no OpenSearch, so the enqueue path is a no-op there.
-  So the deliverable includes a projection test against a real index, or a smoke-level assertion that a
-  revoked user's listing no longer shows the resource — the revocation counterpart to the grant-side
-  check `finding.mjs` already makes. This is the same folder-listing staleness documented in `deleteRow`
-  in the smoke.
-
 - **Decide on concurrency control.** There is no `ETag`, `If-Match` or `@Version` anywhere in the
   stack, so two users editing one template is a silent lost update: the second save wins and the
   first user is never told. This is a design item rather than a coverage item, since no test can be
@@ -304,10 +275,10 @@ per-server modules.
   4. **Payload boundaries.** For template, element, field and instance: malformed and minimally-valid
      bodies around required properties, nested composition, cardinality, identifiers, controlled terms
      and YAML/JSON round-trips. Assert the error body and the persisted post-state, not only the status.
-  5. **Revocation and asynchronous projections.** Complete the grant-side tests (`finding.mjs`) with
-     revocation, deletion and rename propagation through OpenSearch, including when the queue or index is
-     briefly unavailable. This is the test deliverable the "Make search-index mutations reliable" feature
-     item already calls for — the two are one effort seen from either end.
+  5. **Projection under an unavailable queue or index.** Grant, revocation, deletion and rename
+     propagation through OpenSearch are now pinned in `finding.mjs` (see the search-findability fix in
+     Done). What remains is the failure case: assert the projection still converges — or degrades
+     safely — when the queue or the index is briefly unavailable, rather than losing the message.
   6. **Repeatability and reporting.** Run the REST estate twice against the same clean stack and fail on
      leaked fixtures; record an expected-check inventory; emit machine-readable results for CI. A change
      that quietly drops a loop, a suite or a conditional assertion should stay visible even when every
@@ -413,6 +384,31 @@ These are deliberate decisions, recorded so they are not rediscovered as gaps.
 ## Done
 
 Completed cross-cutting work, kept as a short record of what changed and how it was verified.
+
+- **A shared artifact could not be found by name in search.** The cause was a single Cypher defect, not
+  the indexing-identity problem this item was once framed as. `getUserIdsWithTransitivePermissionOnFilesystemResource`
+  in `CypherQueryBuilderFilesystemResourcePermission` bound one `user` variable across both its owner
+  traversal and its grant traversal, so the second reused the first's binding and every grantee who was
+  not also an owner was dropped. That query materializes the user list projected into the search index,
+  so a shared artifact never carried its grantee's `"<userId>|read"` key: the grantee could open it and
+  saw it under "shared with me" (graph-backed views), but a name search found nothing. It affected direct
+  user grants, group-membership grants, and folder-inherited grants alike; the everybody grant was
+  unaffected because it rides a denormalized node property rather than this traversal. The fix binds
+  distinct `owner`/`grantee` variables and unions the two sets. Verified on the live graph (the isolated
+  grant traversal returned the grantee while the full query did not, and returned it once the variables
+  were split), then end to end: the three grant cases in `finding.mjs` now find the artifact by name, and
+  revocation of a per-user grant removes it from the grantee's search — the fail-dangerous direction.
+  Green across the `finding` suite, the full REST estate, and the resource-server permission/sharing JUnit
+  matrices.
+
+  Two things this cleared up. The premise that a **deterministic `_id`** and a refresh-race fix were needed
+  was wrong: delete, rename, and revoke were measured reliable across repeated runs, so the random-`_id`
+  and `deleteByQuery`-by-`cid` scheme is left as is; those paths are now pinned by positive assertions in
+  `finding.mjs`. And the reindex consumer runs in the **worker server** (`PermissionQueueProcessor`), not
+  the resource server, so a deploy of this fix must ship both, and an existing index needs one full
+  `regenerate-search-index` to backfill grants materialized before the fix. What is deliberately left: the
+  silent catch and absent forced-refresh in `SearchPermissionExecutorService.upsertOnePermissions` remain,
+  deprioritized now that the behaviour is verified reliable rather than merely assumed.
 
 - **Retired the `CedarDataServices` static service locator.** Its accessors are now instance methods on
   a single managed object. The request-handling resources receive that object as a field through their
