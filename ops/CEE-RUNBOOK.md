@@ -105,7 +105,7 @@ cd ../cedar-model-typescript-library && npm install && npm run build
 nvm use 20 && cd harness && npm install && npm test
 ```
 
-Expect **1,033 passing** on `develop`. Watch mode is `npm run test:watch`.
+Expect **1,047 passing** on `develop`. Watch mode is `npm run test:watch`.
 
 ### Coverage
 
@@ -120,8 +120,9 @@ and pipes, which the harness does not load and should not, so the headline
 number for all of `shared/` is meaningless.
 
 Read the *never-called-function* list rather than the percentage. That is what
-found the attribute-value hole in August 2026: three functions no test had ever
-entered, one of them the widget's delete button.
+found the attribute-value hole in August 2026 — three functions no test had ever
+entered, one of them the widget's delete button — and, right after it, a bug
+that had been losing everything inside an element on reload.
 
 To run one file (note: paths are relative to the repo root, not `harness/`,
 because `vitest.config.ts` sets `root` to the repo):
@@ -132,7 +133,7 @@ npx vitest run harness/test/controlled-terms.spec.ts
 
 ### Running against the old template parser
 
-**Branch note.** This applies on `feature/model-library-template-reading`, not
+**Branch note.** This applies on `cee-with-model-library`, not
 on `develop`. There CEE builds its component tree with the CEDAR Model
 TypeScript Library, the hand-written JSON walk it used before is still in the
 tree, and the whole suite has to pass with either one underneath:
