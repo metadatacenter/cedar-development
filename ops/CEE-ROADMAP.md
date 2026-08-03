@@ -11,7 +11,42 @@ Sibling runbooks:
 - [CEE-RUNBOOK.md](./CEE-RUNBOOK.md) — building, running and testing CEE.
 - [CEE-RELEASE-RUNBOOK.md](./CEE-RELEASE-RUNBOOK.md) — cutting and publishing a version.
 
-Last reviewed against `develop` @ CEE 1.5.2.
+Last reviewed against `cee-with-model-library` @ CEE 1.5.2. Note that most of
+what is under *Closed* lives on that branch and **not yet on `develop`** — see
+decision 2.
+
+---
+
+## Status at a glance
+
+| # | Item | State |
+|---|---|---|
+| — | **Phase 0** domain test harness | ✅ done — 2,026 tests |
+| — | **Phase 1** visual baseline | ✅ done — 88 tests |
+| **1** | Sign off the time-picker replacement | ⛔ **needs you** — gates Phases 3 and 4 |
+| **2** | Review and merge `cee-with-model-library` | ⛔ **needs you** — everything below is on it |
+| 3 | Hidden field dropped from the instance | ✅ done |
+| 4 | Required multi field below its `minItems` | ✅ done |
+| 5 | Controlled field written as `@value` | ✅ done — template's defect, not CEE's |
+| 6 | Label with no `@id` discarded silently | ✅ done — library + CEE |
+| 7 | `getIRIMap` returned unparsed JSON | ✅ done — library |
+| **8** | Zero-instance element satisfying a requirement | ❓ **needs a decision** — semantics |
+| 9 | Attribute names auto-corrected silently | ✅ done |
+| 10 | Visual-suite flake | ⚠️ likely cause addressed, unproven |
+| 11 | Unify the seven authority fields | ✅ done — −2,025 lines |
+| 12 | Domain → component import cycle | ✅ done |
+| 13 | Two instance trees in parallel | ✅ done — not a single source of truth; see entry |
+| 14 | Path resolution not pure | ✅ done — no behaviour change |
+| 15 | Rebrand BMIR → CCM | ⬜ chore |
+| 16 | Delete legacy test scaffolding | ⬜ chore — Phase 4, deliberately last |
+| — | **Phase 2** dependency de-risking | ⬅ blocked on decision 1 |
+| — | **Phase 3** Angular 14 → 22 | ⬜ blocked on decision 1 |
+
+Conformance: **34 of 37** corpus instances validate against their own template,
+up from 0. The three that do not are defects in the templates.
+
+Two decisions are the whole critical path. Nothing in the list above is waiting
+on anything else.
 
 ---
 
@@ -564,7 +599,7 @@ Both findings from the scoping are closed:
   format-independence numbers mean anything. It found the crash above within one
   throwaway test.
 
-### ~~Overnight batch: items 3, 4, 5, 6, 7, 9, 10, 12 and part of 13~~ — done
+### ~~Overnight batch: items 3, 4, 5, 6, 7, 9, 10, 12~~ — done
 
 Worked in one unattended stretch, each committed separately with its own tests.
 
@@ -599,10 +634,11 @@ Worked in one unattended stretch, each committed separately with its own tests.
   that imports nothing. `harness/stubs/editor-component.ts` deleted, and
   `import-boundaries.spec.ts` guards the direction — verified to fail when the
   import is put back.
-- **13, part. The two trees disagreed about their own shape.** `addRandomAtId`
-  ignored the building mode, so a freshly built extract carried element `@id`s
-  and a loaded one did not. Every consumer saw a different shape depending on how
-  the user arrived. Now minted only into the full tree.
+- **The two trees disagreed about their own shape.** `addRandomAtId` ignored the
+  building mode, so a freshly built extract carried element `@id`s and a loaded
+  one did not. Every consumer saw a different shape depending on how the user
+  arrived. Now minted only into the full tree. The rest of item 13 followed
+  later; see *Two instance trees maintained in parallel*.
 
 Two things went wrong along the way and are recorded because the pattern
 repeats:
