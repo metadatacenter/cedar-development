@@ -36,7 +36,7 @@ and any wrong turns.
 Items 3–7, 9, 11, 12, 13 and 14 are closed, along with Phases 0 and 1.
 
 Conformance: **34 of 37** corpus instances validate against their own template,
-up from 0; the three that do not are defects in the templates. Coverage: 2,026
+up from 0; the three that do not are defects in the templates. Coverage: 2,032
 domain tests, 88 browser tests.
 
 **Decisions 1, 2 and 8 are the entire critical path.** All three are yours, and
@@ -57,7 +57,7 @@ sense that the cost of the jump grows every release.
 | TypeScript | 4.8 |
 | rxjs | 6.6.7 |
 | Test coverage before this work | 40 spec files, 45 `it()` blocks, all `expect(component).toBeTruthy()` |
-| Test coverage now | 2,026 domain tests in `harness/`, 88 browser tests in `visual/` |
+| Test coverage now | 2,032 domain tests in `harness/`, 88 browser tests in `visual/` |
 
 ## The blocker, stated plainly
 
@@ -89,7 +89,7 @@ candidate, cannot express what CEE needs.
 
 ### Phase 0 — Domain test harness ✅ done
 
-`harness/` — 2,026 headless tests across 30 files, over template parsing,
+`harness/` — 2,032 headless tests across 30 files, over template parsing,
 instance reading and writing, path resolution, value writes, multi-instance
 mechanics, controlled-term constraints, the quality report, and conformance to
 the CEDAR model. Imports no Angular, so it survives the upgrade unchanged. See
@@ -691,32 +691,48 @@ Safe to attempt only because of the 21 browser tests across all seven widgets
 added the night before: 2,006 domain tests, 88 visual, and the `08-authority`
 screenshots unchanged, so the five rewritten widgets render identically.
 
-### ~~Two instance trees maintained in parallel~~ — done
+### ~~Two instance trees maintained in parallel~~ — done, and then done properly
 
-Every mutation was applied to both trees by making the same call twice with a
-different first argument, eleven pairs across two handlers. Forgetting the second
-was a one-line mistake nothing would catch, and the *difference* between the
-trees — the building mode, which is why the full copy carries an `@context` and
-an `@id` — was passed separately at each site, from memory. It was got wrong at
-one of them.
+CEE kept the instance twice: `instanceFullData`, the artifact with its envelope,
+and `instanceExtractData`, the same content with the envelope left off. Every
+mutation wrote to both by making the same call twice, eleven pairs across two
+handlers, and the two diverged three times that were found — each invisible until
+something was emitted, because that was the only moment they were compared.
 
-`DataContext.applyToBothTrees` takes one mutation and hands each tree its own
-building mode, so the mode arrives with the tree it belongs to. No handler now
-mentions either tree by name.
+**The first attempt made the dual write a single operation and stopped there**,
+on the reasoning that neither tree could be derived from the other: the full copy
+carries minted `@id`s and injected provenance the extract does not, and the
+extract could not be recomputed on demand because the widgets hold live
+references into it. That reasoning was recorded here as a conclusion. It was
+wrong, and being told so was fair.
 
-`tree-consistency.spec.ts` asserts two independent things after each of ten kinds
-of mutation: that the trees agree with the envelope stripped, and that the extract
-carries no envelope keys at all. Both are needed — mutation testing showed that
-stripping before comparing catches a *missed* write but cannot catch a write that
-put the envelope *into* the extract, because stripping hides that on both sides.
+**The extract tree was not needed at all.** Everything that reads an instance
+either navigates by *component path* — and no envelope key is a component name,
+so the envelope is never visited — or goes through the model library's parsed
+container, which excludes the envelope by construction. The one walk that
+enumerates raw keys is the one re-minting element `@id`s on copy, and that wants
+to see them. The second tree existed to spare consumers a problem none of them
+had.
 
-**Not a single source of truth, and worth being clear about why.** The full copy
-carries information the extract does not — minted `@id`s, provenance from an
-injected instance — so it cannot be derived from the extract. And the extract
-cannot be derived on demand from the full copy either, because the widgets hold
-live references into it and mutate in place. Both trees remain; what changed is
-that they are maintained together rather than in parallel, and a divergence is
-now something a test notices.
+So there is one tree. `instanceExtractData` is a lazily derived, cached view,
+produced by `InstanceDeserializer` — the same library code that projects one at
+the read boundary, not a second definition of "without the envelope". It exists
+because two things want that view and only read it: the quality report hands one
+to the host page, and the source panel displays one.
+
+`DataContext.mutate` replaces the paired write: one call, no building mode, and
+it drops the cache so nothing has to remember to. `buildNewExtractDataObject` is
+deleted. Cost measured before trusting it — 0.05ms per derivation on the largest
+HuBMAP template, once per report build.
+
+Collapsing it immediately found the third divergence, which the paired-write
+approach had left in place: the builder omitted a numeric value's `@type` from
+the extract while the reader included it. The fresh-versus-loaded test had missed
+it because its fixture had no numeric field; it has one now.
+
+The lesson worth keeping: "these two things must be kept in sync" is worth
+one more question — *does the second one need to exist?* Twice here the answer
+was no, and both times the sync machinery was built first.
 
 ### ~~Path resolution is not pure~~ — done
 
