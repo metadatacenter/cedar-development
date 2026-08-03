@@ -35,6 +35,17 @@ export const DELETE_CONFIRM_NAME = 'Yes, delete it!';
 // ARIA roles.
 export const MODAL = '.modal';
 
+// ── OpenView (publish an artifact to the public OpenView site) ──────────────────
+// Row ⋮ menu items, discriminated by their stable class — the same handler-name
+// stability the ng-click selectors rely on. The visible labels come from i18n
+// (makeopen = "Enable OpenView", makenotopen = "Disable OpenView", openopen =
+// "Visit OpenView"); the class is the language-independent anchor. All three are
+// gated by window.makeOpenEnabled, which the local build sets true. Enable is a
+// plain success flash with no confirm dialog; a disabled item carries link-disabled.
+export const MENU_ENABLE_OPENVIEW = 'a.makeopen';
+export const MENU_DISABLE_OPENVIEW = 'a.makenotopen';
+export const MENU_VISIT_OPENVIEW = 'a.openopen';
+
 // ── Template designer ─────────────────────────────────────────────────────────
 // The text-field palette entry is identified by its icon; the palette has no stable
 // text label or test id.

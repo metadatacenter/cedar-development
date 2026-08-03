@@ -1,8 +1,9 @@
 // End-to-end smoke test against a running CEDAR stack: log in through the real
 // Keycloak form, create a folder, create a template inside it with a Disease field
 // constrained to the DOID "disease" branch via the live BioPortal picker, populate
-// the template and confirm the field suggests a live DOID term, then delete the
-// template and the folder — verifying each step.
+// the template and confirm the field suggests a live DOID term, publish it to the
+// public OpenView site and confirm an anonymous visitor sees it presented, then
+// delete the template and the folder — verifying each step.
 //
 //   npm run smoke              headless
 //   npm run smoke:headed       watch it in a real browser
@@ -29,6 +30,10 @@ const FAIL_DIR = resolve(__dirname, 'failures');
 
 const BASE = process.env.CEDAR_BASE
   ?? `https://cedar.${process.env.CEDAR_HOST ?? 'metadatacenter.orgx'}`;
+// The public OpenView site (the AngularJS app's `openViewBase`), a distinct subdomain
+// from the editor. It renders open artifacts to callers with no CEDAR session.
+const OPENVIEW_FRONTEND = process.env.CEDAR_OPENVIEW_FRONTEND
+  ?? `https://openview.${process.env.CEDAR_HOST ?? 'metadatacenter.orgx'}`;
 const USER = process.env.CEDAR_FRONTEND_local_USER1_LOGIN ?? 'test1@test.com';
 const PASSWORD = process.env.CEDAR_FRONTEND_local_USER1_PASSWORD ?? 'test1';
 const HEADED = !!process.env.HEADED;
@@ -243,6 +248,70 @@ async function verifyDiseaseSuggestion(page, query) {
   }
 }
 
+// ── OpenView helpers ───────────────────────────────────────────────────────────
+
+// Publish a template to OpenView via the row ⋮ → "Enable OpenView" menu item. That
+// item POSTs make-artifact-open and shows a success flash — there is no confirm
+// dialog (unlike delete). The command body carries the artifact's @id, which is the
+// one place the smoke can learn it, and which the OpenView URL is built from, so this
+// captures it off the request and returns it.
+async function enableOpenView(page, folderId, templateName) {
+  await gotoListing(page, folderId);
+  await openRowMenu(page, templateName);
+  const item = page.locator(S.MENU_ENABLE_OPENVIEW).filter({ visible: true }).first();
+  await item.waitFor({ timeout: 8000 });
+  // Armed before the click so a fast response is not missed.
+  const pending = page
+    .waitForResponse(r => r.url().includes('/command/make-artifact-open')
+      && r.request().method() === 'POST', { timeout: 15_000 })
+    .catch(() => null);
+  await item.click();
+  const resp = await pending;
+  if (!resp) throw new Error('Enable OpenView sent no make-artifact-open request');
+  if (!resp.ok()) throw new Error(`make-artifact-open answered ${resp.status()}`);
+  const id = JSON.parse(resp.request().postData() ?? '{}')['@id'];
+  if (!id) throw new Error('make-artifact-open request carried no @id');
+  return id;
+}
+
+// Confirm the open template is served and presented by the OpenView site to a
+// visitor with no CEDAR session at all. A fresh, cookie-less browser context is the
+// point of the check: openness means "anyone with the link", so it must not borrow
+// the logged-in session.
+//
+// "Presented" here means OpenView resolved the open grant and handed the template to
+// CEE to render: OpenView mounts its `cedar-embeddable-editor` element only when the
+// template resolves (`*ngIf="template && !artifactStatus"`), and shows an error page
+// otherwise, so the element's presence is the signal. What CEE renders *inside* — the
+// name, the fields — is deliberately not asserted here; that belongs to later,
+// dedicated OpenView-rendering tests.
+//
+// The OpenView server's view of the grant can lag the make-open command by a moment,
+// and the app fetches once per load and latches an error, so reload while the editor
+// is absent rather than polling in place.
+async function verifyPresentedInOpenView(browser, templateId) {
+  const anon = await browser.newContext({
+    ignoreHTTPSErrors: true,
+    viewport: { width: 1280, height: 900 },
+  });
+  const p = await anon.newPage();
+  const url = `${OPENVIEW_FRONTEND}/templates/${enc(templateId)}`;
+  const editor = p.locator('cedar-embeddable-editor');
+  try {
+    for (let attempt = 1; attempt <= 5; attempt++) {
+      await p.goto(url, { waitUntil: 'domcontentloaded' });
+      try { await editor.waitFor({ state: 'attached', timeout: 12_000 }); return; }
+      catch { await p.waitForTimeout(2500); } // grant not propagated yet — reload and retry
+    }
+    await mkdir(FAIL_DIR, { recursive: true });
+    const shot = resolve(FAIL_DIR, `openview-${Date.now()}.png`);
+    await p.screenshot({ path: shot, fullPage: true }).catch(() => {});
+    throw new Error(`OpenView did not present the open template — CEE never mounted; screenshot: ${shot}`);
+  } finally {
+    await anon.close();
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 const browser = await chromium.launch({ headless: !HEADED });
 const context = await browser.newContext({
@@ -345,7 +414,22 @@ try {
   await verifyDiseaseSuggestion(page, 'asthma');
   console.log('✓ populate: Disease field suggested a DOID term for "asthma"');
 
-  // 4. Delete the template, then the (now empty) folder, verifying each.
+  // 3c. Publish the template to OpenView, then confirm an anonymous visitor — a
+  //     fresh browser with no CEDAR session — sees it presented on the OpenView
+  //     site (its name in the title bar, its Disease field rendered). This exercises
+  //     the make-open command, the OpenView server's anonymous read, and OpenView's
+  //     CEE-based rendering end to end.
+  step = 'enable-openview';
+  const templateId = await enableOpenView(page, folderId, TEMPLATE_NAME);
+  console.log(`✓ OpenView enabled on the template`);
+
+  step = 'verify-openview';
+  await verifyPresentedInOpenView(browser, templateId);
+  console.log('✓ OpenView presents the template (rendered in CEE) to an anonymous visitor');
+
+  // 4. Delete the template, then the (now empty) folder, verifying each. Deleting an
+  //    open artifact is allowed and removes it from OpenView too, so no need to
+  //    disable OpenView first.
   step = 'delete-template';
   await deleteRow(page, TEMPLATE_NAME, folderId);
   console.log('✓ template deleted');
@@ -354,7 +438,7 @@ try {
   await deleteRow(page, FOLDER_NAME);
   console.log('✓ folder deleted');
 
-  console.log('\nPASS: login → folder → template w/ DOID-constrained Disease field → populate suggestion → delete');
+  console.log('\nPASS: login → folder → template w/ DOID-constrained Disease field → populate suggestion → OpenView presented anonymously → delete');
   await browser.close();
   process.exit(0);
 } catch (e) {

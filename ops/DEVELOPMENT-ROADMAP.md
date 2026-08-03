@@ -265,17 +265,6 @@ model libraries — where their JSON and YAML serializations diverge — is in
   here is the *cause*: read `CEDAR_BIOPORTAL_API_KEY` from config, delete the constant, and rotate the
   exposed key so the partial loads stop happening in the first place.
 
-- **Retire the `CedarDataServices` static service locator.** `CedarDataServices` is a global singleton
-  reached through ~21 static accessors from ~230 call sites across the servers. Because each consumer
-  pulls its dependencies from it statically rather than receiving them, a class's real requirements are
-  invisible at its constructor, and tests become order-dependent: whichever test first triggers global
-  initialization fixes the state for the rest of the shared JVM — the same coupling that forced the
-  `CedarConfig` environment-override machinery. The hard hazard is already gone (the accessors now throw
-  `IllegalStateException` instead of calling `System.exit()`, so a mis-init fails one request rather than
-  the process), but the locator pattern remains. Move these services to constructor injection, following
-  the `CedarConfig`-injectable work already done, so dependencies are explicit and tests independent.
-  Large and cross-cutting; stage it one service at a time rather than in a single change.
-
 - **Identify API keys by a non-secret id, not the secret in the URL.** The API-key management routes
   carry the full secret in the path — `POST /{id}/api-keys/{key}/regenerate` and
   `DELETE /{id}/api-keys/{key}` — so the key lands in nginx access logs, request traces, monitoring and
@@ -420,6 +409,23 @@ These are deliberate decisions, recorded so they are not rediscovered as gaps.
 - **Modernizing `cedar-keycloak-event-listener`.** It stays on Java 8 and HttpClient 4 on purpose: it
   is an SPI plugin loaded inside the Keycloak runtime, whose version is locked, so it must match what
   Keycloak provides rather than what the rest of the stack uses.
+
+## Done
+
+Completed cross-cutting work, kept as a short record of what changed and how it was verified.
+
+- **Retired the `CedarDataServices` static service locator.** Its accessors are now instance methods on
+  a single managed object. The request-handling resources receive that object as a field through their
+  base-class constructor rather than reaching a global static from every method. Composition roots (each
+  server's `Application`), the test harness, and the boot-wired search and indexing services obtain the
+  one instance through a sanctioned `getInstance()`. The process-level Neo4j and Mongo lifecycle, which
+  includes the connection-pool reuse a shared test JVM depends on, stays static, since that is resource
+  management rather than the locator pattern. Verified end to end: a full build of the libraries and
+  every server, all services redeployed healthy and on the current binary, both the REST and the browser
+  smokes, and the workspace-graph and resource-server JUnit suites. Landed across the ten repositories
+  that referenced it. What is deliberately left: the boot-wired indexing and search services still
+  fetch the instance rather than receive it, because their construction threads through many call sites;
+  giving them the object explicitly is an optional later pass, not a prerequisite.
 
 - **Aligning the Jackson pins in the `mcp/*` subprojects.** Those poms deliberately pair
   `jackson-annotations` 3.0-rc5 with 2.x `jackson-databind` to work around a missing constant, and
