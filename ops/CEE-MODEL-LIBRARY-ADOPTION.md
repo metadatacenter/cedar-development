@@ -144,7 +144,7 @@ tests. Three defects in the library came out of it — an element with no
 types not being exported.
 
 **Phase 2b — the quality report. ✅ done, as the tenth that was worth doing**
-(`cee-with-model-library` @ `d0b5b0e`.)
+(`cee-with-model-library` @ `d9e88c1`.)
 
 `extractPlainValue` and `DataObjectUtil.deleteContext` both go through
 `InstanceValueNode`, backed by the library's `isValueNode` / `readValueNode`.
