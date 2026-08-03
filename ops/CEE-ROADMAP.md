@@ -19,34 +19,28 @@ decision 2.
 
 ## Status at a glance
 
+Outstanding work only. Finished items are under *Closed*, with their reasoning
+and any wrong turns.
+
 | # | Item | State |
 |---|---|---|
-| — | **Phase 0** domain test harness | ✅ done — 2,026 tests |
-| — | **Phase 1** visual baseline | ✅ done — 88 tests |
 | **1** | Sign off the time-picker replacement | ⛔ **needs you** — gates Phases 3 and 4 |
-| **2** | Review and merge `cee-with-model-library` | ⛔ **needs you** — everything below is on it |
-| 3 | Hidden field dropped from the instance | ✅ done |
-| 4 | Required multi field below its `minItems` | ✅ done |
-| 5 | Controlled field written as `@value` | ✅ done — template's defect, not CEE's |
-| 6 | Label with no `@id` discarded silently | ✅ done — library + CEE |
-| 7 | `getIRIMap` returned unparsed JSON | ✅ done — library |
+| **2** | Review and merge `cee-with-model-library` | ⛔ **needs you** — all closed work is on it |
 | **8** | Zero-instance element satisfying a requirement | ❓ **needs a decision** — semantics |
-| 9 | Attribute names auto-corrected silently | ✅ done |
-| 10 | Visual-suite flake | ⚠️ likely cause addressed, unproven |
-| 11 | Unify the seven authority fields | ✅ done — −2,025 lines |
-| 12 | Domain → component import cycle | ✅ done |
-| 13 | Two instance trees in parallel | ✅ done — not a single source of truth; see entry |
-| 14 | Path resolution not pure | ✅ done — no behaviour change |
-| 15 | Rebrand BMIR → CCM | ⬜ chore |
+| 10 | Visual-suite flake | ⚠️ likely cause addressed, **unproven** — retry still in place |
+| 15 | Rebrand BMIR → CCM | ⬜ chore — four places in the footer |
 | 16 | Delete legacy test scaffolding | ⬜ chore — Phase 4, deliberately last |
 | — | **Phase 2** dependency de-risking | ⬅ blocked on decision 1 |
 | — | **Phase 3** Angular 14 → 22 | ⬜ blocked on decision 1 |
 
-Conformance: **34 of 37** corpus instances validate against their own template,
-up from 0. The three that do not are defects in the templates.
+Items 3–7, 9, 11, 12, 13 and 14 are closed, along with Phases 0 and 1.
 
-Two decisions are the whole critical path. Nothing in the list above is waiting
-on anything else.
+Conformance: **34 of 37** corpus instances validate against their own template,
+up from 0; the three that do not are defects in the templates. Coverage: 2,026
+domain tests, 88 browser tests.
+
+**Decisions 1, 2 and 8 are the entire critical path.** All three are yours, and
+nothing else on the list waits on anything.
 
 ---
 
