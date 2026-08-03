@@ -143,7 +143,13 @@ tests. Three defects in the library came out of it — an element with no
 `@context` read as a link atom, a crash on `null`, and the parsed-instance node
 types not being exported.
 
-**Phase 2b — the quality report. ⬅ scoped below. Recommend doing a tenth of it.**
+**Phase 2b — the quality report. ✅ done, as the tenth that was worth doing**
+(`cee-with-model-library` @ `d0b5b0e`.)
+
+`extractPlainValue` and `DataObjectUtil.deleteContext` both go through
+`InstanceValueNode`, backed by the library's `isValueNode` / `readValueNode`.
+The cursor-free walks were left alone, as recommended. Scoping this turned up a
+third divergent rule and a data-destroying bug in it — see below.
 
 ### Phase 2b in detail
 
@@ -194,7 +200,24 @@ immediately and has to be re-derived every time. Measured on a 62 kB instance �
 and the library parse 0.42 ms. Both are well inside a frame. Worth stating
 plainly because it is the first thing anyone assumes is the blocker; it is not.
 
-**Recommendation.** Take `extractPlainValue`, leave the walks. That is a
+**What actually happened.** Taking `extractPlainValue` meant introducing a
+shared classifier, and the moment there was one it was obvious that
+`DataObjectUtil.deleteContext` was asking the same question with a third rule —
+exact key counts. That one destroyed data: it runs over the instance a host page
+injects, and a controlled term or link carrying a `@type` has the wrong number
+of keys, so its `@id` was deleted. `@type: xsd:anyURI` on an IRI is ordinary
+JSON-LD. The field then showed empty and saving wrote the loss back.
+
+So the win was larger than the scope predicted, and for a reason the scope did
+not anticipate: not that `extractPlainValue` improves much on its own, but that
+naming the question exposes everywhere else it was being answered.
+
+`isIriValued` stays. The template settles one thing the instance cannot —
+`{@id, rdfs:label}` is a term shown by its label on a controlled field and a
+resource shown by its IRI on a link. The scope claimed that coupling would go;
+it does not.
+
+**Original recommendation.** Take `extractPlainValue`, leave the walks. That is a
 half-day: swap 15 lines for type dispatch, delete the `isIriValued` coupling,
 decide the labelless-controlled-term question, and let the 1,051 tests and the
 corpus snapshots say whether anything else moved. Rewriting `collectNodes` and
