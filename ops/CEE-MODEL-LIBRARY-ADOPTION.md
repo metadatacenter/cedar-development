@@ -277,8 +277,19 @@ constructed. CEE never wrote it. Not a gap in the TypeScript library, which
 models it and emits it from both writers — CEE builds the instance from the
 parsed form structure rather than from the template file, and the template's own
 `@id` had never been copied into that structure, because nothing about drawing a
-form needs it. No line dropped it; no line carried it. Three lines fixed it, and
-a template with no `@id` of its own is now reported when it is read rather than
+form needs it. No line dropped it; no line carried it.
+
+Fixing it took two goes. The first put it on the instance while the instance was
+being built, which covers a new document and misses the case that matters more:
+an injected instance skips the builder entirely — `DataContext` only builds when
+there is not already an instance — so every document a host page *loaded* was
+still orphaned. It is now set either way.
+
+An instance with no `schema:isBasedOn` is not a valid CEDAR instance, so nothing
+should produce one and no fixture should model one. All ten injected-instance
+fixtures in the harness were themselves invalid instances and now name a
+template; the corpus needed nothing, since all 21 real instances already do. A
+template with no `@id` of its own is reported when it is read, rather than
 discovered later as a document nothing can resolve.
 
 One accepted behaviour change: the emitted instance now carries the envelope —
