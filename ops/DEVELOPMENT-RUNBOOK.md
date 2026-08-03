@@ -241,6 +241,30 @@ default): `demo.cee` 4260, `docs.cee` 4280, `cee-dev` 4400.
   normal. Its real `CompTox` health check reports "registry not loaded yet" during an asynchronous
   warm-up. Wait for `curl -sk http://localhost:9115/healthcheck` to show `"comp-tox":{"healthy":true`.
 
+- **The whole stack is green, but real requests 500 — often with `NoClassDefFoundError`** → a backend
+  service is **`STALE`**: running a jar older than the one on disk, and that jar can be a *broken* build,
+  not merely old code. A parallel session or an interrupted `restart` can start a service from a
+  half-written or unshaded jar — one whose shade dropped a class, say Guava's
+  `com.google.common.cache.RemovalCause` — and it boots and passes `/healthcheck`, then throws on the
+  first request that needs the missing class (seen as a 500 on `GET /folders`, which breaks the whole
+  dashboard). `health` cannot catch this: a stale service is still healthy. So **confirm no backend
+  service is stale before trusting the stack for anything**, not only after your own redeploy — another
+  session may have restarted it under you, which is exactly how this happened. The check is one line:
+
+  ```bash
+  bash $CEDAR_HOME/cedar-development/ops/cedar-services.sh status | grep -q STALE \
+    && echo "a backend service is STALE — restart it" || echo "all backend services current"
+  ```
+  Restart the offender by name so it loads the current jar, and re-check that its **BINARY** column
+  reads `current`:
+  ```bash
+  bash $CEDAR_HOME/cedar-development/ops/cedar-services.sh restart <name>
+  ```
+  If you suspect the *current* jar is itself a partial build, confirm it is a sound fat jar before
+  restarting into it: `unzip -l <app>.jar | grep -c RemovalCause` should be non-zero, and the jar
+  should be ~130 MB, not a few MB (a thin jar has no `Main-Class` and dies at start instead — a
+  different, louder failure covered above).
+
 ## cedarcli (headless invocation)
 
 `cedarcli` is a shell alias (`source $CEDAR_HOME/cedar-cli/cli.sh`) that activates a venv and runs
@@ -410,6 +434,8 @@ The full gate, in order:
 cedarcli build java                                                # authoritative full build
 bash $CEDAR_HOME/cedar-development/ops/cedar-services.sh restart    # ALL 21 — pass no names
 bash $CEDAR_HOME/cedar-development/ops/cedar-services.sh health     # exit 0 only if all healthy
+bash $CEDAR_HOME/cedar-development/ops/cedar-services.sh status | grep -q STALE \
+  && echo "a backend service is STALE — restart the straggler(s) before trusting the run"   # no service on an old jar
 cd $CEDAR_HOME/cedar-development/ops/e2e && npm run smoke
 ```
 
