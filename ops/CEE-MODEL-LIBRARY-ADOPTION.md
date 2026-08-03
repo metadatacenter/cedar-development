@@ -126,11 +126,27 @@ Snapshots record names, types, cardinality, constraints and nesting rather than
 the whole representation, which carries object identity and cursors and would
 churn on changes that mean nothing. They exist to be diffed across Phase 1.
 
-**Phase 1 — template reading. ⬅ next, and now safe to start.** Replace `TemplateRepresentationFactory`'s raw
-JSON walk with `JsonTemplateReader`, mapping the library's parsed model onto
-CEE's component tree. Delete the duplicated vocabulary constants. 475 LOC
-touched, but the tree it produces is unchanged, so the whole harness plus the
-visual baselines apply directly. *The tractable half.*
+**Phase 1 — template reading. ✅ done** (`cee-with-model-library` @ `32f68f9`,
+`9bba696`, `26b0a42`.)
+
+`TemplateRepresentationFactory` is split into a swappable `TemplateParser` and
+the derived rendering layer — empty-field hiding, static collapsing, page
+breaks — which runs identically whichever parser ran. The old JSON walk is still
+there as `JsonWalkTemplateParser`, and `CEE_TEMPLATE_PARSER=json-walk` selects
+it, so the comparison keeps working as the code moves on.
+
+Four rendered list fields across the 94 corpus templates changed, deliberately:
+`multipleChoice` is normalised against the property's cardinality instead of
+copied verbatim, which is what both model libraries do when they write the same
+template back. Three of the four move to the coherent answer — they were
+rendering a multi-select over a single-valued property. `corpus.spec.ts` names
+each one and fails if the difference stops happening.
+
+Cost: **64 kB gzipped**, 823 kB against 759 kB, and all-or-nothing — the
+library's readers reach every field type and its writer registry, so dropping
+the writer import saved 0.3 kB. The initial-bundle budget moved from 3.1/3.2 MB
+to 3.45/3.55 MB. Reversible in one line if that is judged too much for an
+embeddable widget.
 
 **Phase 2a — instance cardinality. ✅ done** (`cee-with-model-library` @
 `b831166`.)
