@@ -215,13 +215,59 @@ migrations.
 |---|---|
 | 14 → 15 | **The hard one.** Material MDC migration; run `ng generate @angular/material:mdc-migration`. Expect broad SCSS churn. |
 | 15 → 16 | `entryComponents` removed (used in `app.module.prod.ts`), rxjs 6 → 7, TypeScript 5.0 |
-| 16 → 17 | New esbuild/vite build pipeline — the web-component concat step in the README changes shape |
-| 17 → 22 | Comparatively smooth |
+| 16 → 17 | New esbuild/vite build pipeline — the web-component concat step in the README changes shape, **and with it the visual suite's bundle step** |
+| 17 → 22 | Mostly smooth, **except Material 3 theming** |
+
+**Material 3 is a second theming migration, after MDC.** `styles-own.scss` builds
+two custom palettes with `mat.define-palette` (four calls) and
+`mat.define-light-theme` (two). Those are the Material 2 APIs; M3 becomes the
+default partway through this range and they are deprecated and then removed inside
+it. Confirm which hop when you get there — the point is that "17 → 22 is smooth"
+is not true for a codebase that defines its own palettes, and this is the second
+styling hit rather than a continuation of the first.
+
+**The safety net breaks at the same hop as the builder.** `visual/`'s bundle step
+is `cat runtime.js polyfills.js main.js`, three filenames the esbuild application
+builder does not produce in that shape. So the 180 browser tests stop working at
+16 → 17 and have to be repaired there before they can protect anything after.
+Sequencing is in our favour and worth not disturbing: the MDC hop is 14 → 15, two
+hops *before* the builder changes, so the net is intact for the hard one.
+
+**Consider deleting the legacy specs before Phase 3 rather than after.** All 40 of
+them assert `expect(component).toBeTruthy()` and nothing else — 45 `it()` blocks,
+40 of them that single line. They will break at every hop, for no information, and
+each break costs triage. Phase 4 is written as following Phase 3, but nothing
+depends on that order.
+
+What is *not* in scope, which is most of what people assume: no standalone-component
+or signals rewrite (Angular 22 still takes the 4 NgModules and 43 components as
+they are), and no `@if`/`@for` template rewrite. The churn is styling plus two
+library APIs.
 
 Note `origin/upgrade/angular-15` exists but is a dead stub: 3 commits, last
 touched November 2023, branched from an old `main`. Its "Legacy references
 removed" commit may be worth skimming for an MDC hit list; it is not a
 foundation.
+
+### What the hard hop actually touches
+
+Measured, so the estimate is not an adjective:
+
+| Surface | Size |
+|---|---|
+| SCSS files | 43 files, 1,635 lines; **10** reach into Material internals |
+| `.mat-*` selectors depended on | 16 distinct — `.mat-form-field-outline`, `.mat-form-field-infix`, `.mat-expansion-panel-header-title` are the ones MDC restructures |
+| Material elements in templates | 21 `mat-form-field`, 23 `mat-error`, 21 `matSuffix`, 14 `mat-option`, 8 `mat-expansion-panel` |
+| `ViewEncapsulation.None` | **37 files** — the load-bearing risk, see below |
+| `@ngx-translate` | 9 TS files (`TranslateLoader` ×16, `.get` ×23); the 113 template pipe usages should survive, the pipe name does not change |
+| `entryComponents` | 2 lines, one per app module |
+
+`ViewEncapsulation.None` in 37 files is the thing to be careful about. It is how the
+web component styles itself, so component styles are global and match by selector —
+and MDC changes which selectors exist. A rule that stops matching does not error, it
+just stops applying. Nothing but pixels catches it, which is the whole reason the
+visual baseline exists and the reason the widget-level clips were worth adding
+before starting.
 
 ### Phase 4 — Retire the legacy test scaffolding
 
