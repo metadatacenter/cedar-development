@@ -324,29 +324,45 @@ async function reEditInstance(page, newValue) {
 // Exercise the serialization config against the deployed CEE bundle, in the browser.
 //
 // The library round-trip is proven in the CEE harness; this proves the shipped web
-// component honours the config a host sets — the one thing node tests cannot. Read
-// against the populated editor: `currentMetadata` is always JSON and
-// `currentMetadataSerialized` follows `outputSerialization`, so flipping it to yaml
-// must turn the serialized output into YAML while `currentMetadata` stays JSON — the
-// contract every existing host depends on. Runs last on this page; OpenView uses a
-// fresh browser, so re-configuring the element here disturbs nothing after it.
+// component honours the config a host sets — the one thing node tests cannot.
+//
+// Two independent things are checked, and deliberately kept apart so neither can make
+// the other flaky:
+//   1. The value is read through the two *always-on* getters — `currentMetadata` (JSON)
+//      and `currentMetadataYaml` (YAML) — which take no config and so cannot disturb the
+//      instance. Both must carry the value, each in its own format.
+//   2. `outputSerialization` is then checked for the one thing only it decides: the
+//      *format* `currentMetadataSerialized` returns — a JSON object by default, a YAML
+//      string once flipped — with `currentMetadata` left JSON either way (the save-path
+//      contract). This step reads only the *type*, never the value, so flipping the
+//      config (which re-runs the editor's init) can't make it depend on timing.
+//
+// Runs last on this page; OpenView uses a fresh browser, so re-configuring the element
+// here disturbs nothing after it.
 async function verifySerializationConfig(page, expectedValue) {
   const r = await page.evaluate((needle) => {
     const cee = document.querySelector('cedar-embeddable-editor');
     const str = (v) => (typeof v === 'string' ? v : '');
-    const json = cee.currentMetadata; // always JSON object
-    const defaultSerialized = cee.currentMetadataSerialized; // default config → JSON object
-    cee.config = { outputSerialization: 'yaml' }; // flip output to YAML
-    const yamlSerialized = cee.currentMetadataSerialized; // now a YAML string
-    const jsonStill = cee.currentMetadata; // must stay JSON
+
+    // (1) Value, through the always-on getters — no config change.
+    const json = cee.currentMetadata; // JSON object
+    const yaml = cee.currentMetadataYaml; // YAML string
+
+    // (2) Format selection. Default first (JSON object), then flip to YAML (string).
+    const defaultSerialized = cee.currentMetadataSerialized;
+    cee.config = { outputSerialization: 'yaml' };
+    const configuredSerialized = cee.currentMetadataSerialized;
+    const jsonStill = cee.currentMetadata;
+
     return {
       jsonIsObject: json !== null && typeof json === 'object' && !Array.isArray(json),
+      jsonCarriesValue: JSON.stringify(json).includes(needle),
+      yamlIsString: typeof yaml === 'string' && yaml.length > 0,
+      yamlIsNotJson: !str(yaml).trim().startsWith('{') && str(yaml).includes('type:'),
+      yamlCarriesValue: str(yaml).includes(needle),
       defaultSerializedIsJson: defaultSerialized !== null && typeof defaultSerialized === 'object',
-      yamlSerializedIsString: typeof yamlSerialized === 'string' && yamlSerialized.length > 0,
-      yamlSerializedLooksYaml:
-        str(yamlSerialized).includes('children') && !str(yamlSerialized).trim().startsWith('{'),
+      configuredSerializedIsYamlString: typeof configuredSerialized === 'string' && configuredSerialized.length > 0,
       jsonContractPreserved: jsonStill !== null && typeof jsonStill === 'object' && !Array.isArray(jsonStill),
-      valueCarriedBothWays: JSON.stringify(json).includes(needle) && str(yamlSerialized).includes(needle),
     };
   }, expectedValue);
   const failed = Object.entries(r).filter(([, ok]) => !ok).map(([k]) => k);
