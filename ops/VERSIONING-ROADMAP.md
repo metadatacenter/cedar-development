@@ -247,6 +247,15 @@ response.
    domain only, or the whole definition — the same question as item 4); how instance-level capture
    (item 5) rides along when a filled value comes from a CDE; and that non-enumerated CDEs never involve a
    vocabulary, so they belong only to a CDE/field service, never the terminology server.
+   A concrete authoring feature this points at: caDSR CDEs are already categorized in CEDAR by (possibly
+   several) categories — the caDSR contexts and classification schemes cedar-cadsr-tools turns into CEDAR
+   categories, each CDE attached to one or more. That category graph is a browsable hierarchy, structurally
+   the same as an ontology tree, so a **CDE field** could let an author navigate the categories down to an
+   individual CDE, reusing the roots/children/branch browse the terminology server already serves for
+   ontology classes, with the CDE as the selectable leaf (a versioned field reference). Picking a CDE by
+   category navigation is then the field-level analog of picking a class by ontology-branch navigation, and
+   it gives the CDE-serving idea a concrete first surface: serve the category hierarchy and its CDE leaves,
+   browsable and resolvable, before tackling full field-definition versioning.
 
 ## Ingestion tracker (ongoing)
 
