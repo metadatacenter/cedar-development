@@ -158,18 +158,12 @@ response.
    identical from OBO PURL `.owl`/`.obo` and AgroPortal REST; UNESCO identical from `.ttl`/`.rdf`). Running
    tally in the **Ingestion tracker (ongoing)** below; survey and method in
    [ONTOLOGY-INGEST-SOURCES.md](ONTOLOGY-INGEST-SOURCES.md). A constraint that names one of these sources
-   already resolves correctly (serve locally or report unavailable). *Version currency (2026-08-03):* the
-   served prod catalog's OBO ontologies (mostly stale BioPortal submissions) were refreshed to their
-   current OBO Foundry release straight from their canonical PURLs by `ops/harvest-obo-ingest.sh` —
-   155/158 due ingested (49 genuinely newer content, the rest already content-identical), leaving OGG
-   (upstream PURL 404) and the giants GAZ + NCBITaxon for follow-up. *GAZ (2026-08-03):* attempted twice
-   in server-down windows and it fails reliably on the download — the large PURL→Zenodo fetch outruns
-   `DirectUrlSubmissionSource`'s HTTP client (once "closed", once a response-timeout timer-cancel). This
-   needs a fetch fix, not a retry: pre-fetch to disk then ingest from the file, or raise/disable the
-   response timeout for large downloads. Until then GAZ stays at its 2014 BioPortal snapshot; NCBITaxon
-   stays deferred (too RAM/time-heavy). *Remaining:* the GAZ fetch fix + NCBITaxon giant-run; bulk-harvest
-   OLS `fileLocation`s; label the OntoPortal authority on the snapshot (backend records `bioportal`
-   regardless of instance).
+   already resolves correctly (serve locally or report unavailable). *Version currency (done):* the served
+   prod catalog's OBO ontologies were refreshed to their current OBO Foundry release via
+   `ops/harvest-obo-ingest.sh` (155/158, 49 genuinely-newer refreshes — logged in the tracker), and GAZ
+   ingested once its download timeout was raised to 90 min (commit `f66b1bb`). *Remaining:* NCBITaxon
+   (deferred, too RAM/time-heavy); bulk-harvest OLS `fileLocation`s; label the OntoPortal authority on the
+   snapshot (backend records `bioportal` regardless of instance).
 - **10. Backfill `iri`/`sourceSystem` onto existing stored constraints.** A data migration over published
    CEDAR templates, not a code change — and not required for function, since tolerant readers already
    default a constraint with no `sourceSystem`/`iri` to BioPortal + acronym-derived resolution. Two halves:
@@ -181,31 +175,13 @@ response.
    canonical identity explicitly, immune to acronym ambiguity and future cross-source resolution), not a
    functional gap. Do a zero-mutation dry-run first (report coverage and non-derivable acronyms) before any
    run against the live template store.
-- **11. Serve captured multilingual labels (`lang=`). *Mostly shipped.*** Capture was already done (every
-   snapshot preserves every language variant of every name, outside content identity, backfilled across the
-   served catalog — see [MULTILINGUAL-LABELS.md](MULTILINGUAL-LABELS.md)). The read side is now live on the
-   local serving path: multilingual + synonym **search recall** (a query in any language or against a
-   synonym finds the concept), **synonyms** returned on class detail, and **`lang=<code>`** on the class
-   endpoint and on integrated-search (result labels in the requested language, falling back to the default;
-   verified live — searching "occupational" with `lang=fr` returns "professionnel"/"ergothérapie"). *Still
-   deferred:* `lang=all` (the `{lang:value}` hash), `lang=` on the public `search`/tree output, and honoring
-   the submission's `naturalLanguage` for the default (the default stays English-preferred) — all by
-   decision, not blockers. *Coverage gap (found 2026-08-03):* the backfill did not reach every served
-   snapshot — 275 of 1215 latest snapshots have an empty label side-table, including major ontologies
-   (HP, MESH, NCIT, NCBITAXON, DDSS, LOINC, EFO). Their primary English labels serve fine, but the
-   multilingual/synonym features above silently no-op for them. *Fixed (2026-08-04).* The first attempt
-   (`--backfill-labels`, which re-fetches from BioPortal) largely failed: our stored snapshots have drifted
-   from BioPortal's live content, so 97 hashed-mismatch and some ontologies are withdrawn (HTTP 422) — only
-   5 filled. The working fix is **`--backfill-labels-from-raw`**: re-extract labels from each snapshot's
-   *retained local raw* (the file under `snapshots/<acr>/raw/` whose SHA-256 matches the stored
-   `file_hash`), no network. Because labels key by concept IRI (`addLabels` is INSERT-OR-IGNORE on `c.iri`),
-   the matched `file_hash` alone proves authenticity, so it does not gate on the recomputed content-hash
-   (today's extractor derives a different model hash than at ingest without the source differing). A
-   server-down run added **+5.6M labels across 77 snapshots** — every recoverable one, giants included
-   (MESH 1.0M, BERO 939k, DDSS 862k, LOINC 686k, EFO 334k). Residual: of the 274, **89 now carry labels**,
-   **176 are genuinely label-less** (the item-7 IRI-fragment tail — nothing in source to fill), and **9
-   have no retained raw matching their `file_hash`** (NCIT, MS, DOVES, FLOPO, MIXS, MOLSIM, NAMO, RS,
-   SSTIM) so they need their original source re-fetched, plus NCBITaxon still deferred.
+- **11. Remaining multilingual read-side options (deferred by decision).** Done and in the "Built" list:
+   capture, serving (search recall, synonyms, `lang=<code>` on the class and integrated-search endpoints),
+   and the label backfill — `--backfill-labels-from-raw` (re-extract from the retained local raw matched by
+   `file_hash`, no version-id gate since labels key by IRI) added +5.6M labels across the served catalog.
+   Residual data gap is item 17 (9 raw-less ontologies). Still open here, *by decision not blockers:*
+   `lang=all` (the `{lang:value}` hash), `lang=` on the public `search`/tree output, and honoring the
+   submission's `naturalLanguage` for the default (stays English-preferred).
 - **12. Extend the value-constraint YAML to express a term's language.** A controlled-term constraint
    currently says nothing about language; a field always renders (and searches) labels in the served
    default. Add a key naming the language the field should present its terms in — `termLanguage`, or
@@ -311,11 +287,12 @@ ontology, distinct content hashes): GO-basic (2024-01-17 vs 2025-06-01), PATO (2
   hashes = **49 genuinely-newer refreshes**: GO, UBERON, MP, OBI, ECO, PO, FOODON, RO, RXNO, EMAPA, …; the
   rest merged content-identical). 3 failed: OGG (PURL 404, upstream), GAZ + NCBITaxon (too RAM/time-heavy —
   deferred to a giant-run with the server stopped). New `latest` snapshots serve after a terminology restart.
+- 2026-08-04 — GAZ ingested (download timeout raised to 90 min, commit `f66b1bb`), and the served catalog's
+  multilingual labels were backfilled from retained local raws (`--backfill-labels-from-raw`, +5.6M labels
+  across 77 snapshots incl. giants MESH/BERO/DDSS/LOINC/EFO — item 11). Residual re-fetch tracked as item 17.
 
 **Next iterations** are one command — `ops/harvest-ols-ingest.sh` (source expansion) and
 `ops/harvest-obo-ingest.sh` (OBO release currency), both `<catalog> <snapshotDir> [--max N]`, idempotent,
-skipping already-current acronyms and logging/skipping failures. Remaining: the GAZ fetch fix (its
-PURL→Zenodo download outruns the HTTP client) + NCBITaxon giant-run; the staged label backfill of the 274
-empty-label snapshots (item 11);
+skipping already-current acronyms and logging/skipping failures. Remaining: the NCBITaxon giant-run;
 bulk-harvest the rest of the OLS fileLocations; add more OntoPortal instances (EcoPortal, IndustryPortal,
 each needs its own key); retry the transient failures; grow version pairs from dated OBO/GO releases.
