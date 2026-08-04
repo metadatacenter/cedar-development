@@ -23,20 +23,18 @@ and any wrong turns.
 
 | # | Item | State |
 |---|---|---|
-| 1 | `eventHandler` is a documented input that does nothing | ❓ **needs a decision** — what should it emit? |
-| 2 | Sanitization: read-only renders instance values as HTML | ❓ **needs a decision** — trust boundary |
-| — | **Phase 3** Angular 14 → 22 | ⬅ **next; neither item blocks it** |
+| — | **Phase 3** Angular 14 → 22 | ⬅ **next, and nothing outstanding before it** |
 | — | **Phase 4** delete the legacy test scaffolding | ⬜ after Phase 3 — karma, Protractor; **all 40 specs are gone** |
 
-Two numbered items, both needing a decision rather than work. Entries under *Closed*
-keep the numbers they carried at the time.
+No numbered items outstanding. Entries under *Closed* keep the numbers they carried
+at the time.
 
 `cee-with-model-library` is an **experiment**, not work pending a merge. All the
 closed work below lives on it.
 
 Conformance: **34 of 37** corpus instances validate against their own template,
-up from 0; the three that do not are defects in the templates. Coverage: 2,124
-domain tests, 260 browser tests.
+up from 0; the three that do not are defects in the templates. Coverage: 2,131
+domain tests, 266 browser tests.
 
 **Phase 2 is complete and Phase 3 is unblocked.** The time picker was the only
 dependency with no upgrade path; `@ng-select/ng-select` and
@@ -60,7 +58,7 @@ sense that the cost of the jump grows every release.
 | TypeScript | 4.8 |
 | rxjs | 6.6.7 |
 | Test coverage before this work | 40 spec files, 45 `it()` blocks, all `expect(component).toBeTruthy()` |
-| Test coverage now | 2,124 domain tests in `harness/`, 260 browser tests in `visual/` |
+| Test coverage now | 2,131 domain tests in `harness/`, 266 browser tests in `visual/` |
 
 ## The blocker, removed
 
@@ -291,42 +289,75 @@ enforced, what the boundaries look like — is under *Reference*. Everything
 already closed is under *Closed*, kept because several entries record a wrong
 turn worth not repeating.
 
-### 1. `eventHandler` is a documented input that does nothing
+### ~~1. `eventHandler` did nothing~~ — now forwards diagnostics
 
-`@Input() set eventHandler` calls `MessageHandlerService.injectEventHandler`, which
-assigns the value to a private field that **is read nowhere in `src`**. A host page
-passing an event handler gets silence.
+A documented `@Input` whose value was stored in `MessageHandlerService` and read nowhere,
+so a host page passing one received silence.
 
-Found while looking for a test to write for it. Not a test gap — there is nothing to
-observe — and not something to fix unilaterally, because what CEE should emit is a
-question about the host contract: value changes, validity changes, save requests, load
-completion? Whatever it emits becomes API.
+What it should emit was never recorded anywhere — no README, no demo, nothing in the
+history — so the narrow reading was taken rather than a richer one invented: the value
+was always routed into the service whose whole job is `trace` and `error`, so a handler
+hears those, under the names the service already uses. Emitting less is the conservative
+choice when whatever is emitted becomes API, and a host wanting value-changed or
+save-requested events has somewhere obvious to extend from.
 
-Worth deciding rather than deleting. The input is documented, so somebody may be
-passing one and assuming it works.
+Three details matter more than the forwarding. A handler is called only if it has a
+matching method, so `{ error }` alone is valid. **A throwing handler cannot break CEE** —
+it is the host's code inside CEE's call stack during an instance read, so a logging bug
+in the host would otherwise present as CEE failing to load a document. And console output
+is unchanged, so existing debugging keeps working.
 
-### 2. Sanitization: read-only mode renders instance values as HTML
+Covered from both sides, which answer different questions:
+`harness/test/message-handler.spec.ts` asks whether the contract holds, a browser test
+asks whether the input is wired to it. The browser test was wrong first — it asserted a
+`HideEmptyFields` warning that does not fire from a config flag, while the handler had
+been receiving four real traces all along.
 
-`EscapeHtmlPipe` is `bypassSecurityTrustHtml`. `cedar-input-text` renders
-`[innerHTML]` when `isRichText` is set, and `checkHTMLContent` sets it by asking
-whether the **value** looks like HTML — called from `onReadOnlyModeChange(true)`. So
-the trigger is the data and the gate is read-only mode.
+### ~~2. Sanitization: instance values rendered as trusted HTML~~ — fixed, and it was real
 
-Verified in a browser with an inert probe value (`<b data-markup-probe="1">`, no
-script): escaped as text when editable, **parsed into a live DOM element when
-read-only**. There is a second sink of the same shape in the pager's "all values" box,
-behind `showAllMultiInstanceValues`.
+`EscapeHtmlPipe` (`keepHtml`) is `bypassSecurityTrustHtml`, applied to three things: the
+static rich-text field's body, a text field's own value when `isRichText`, and pager
+labels built from values. The first is content a **template author** wrote. The other two
+are **instance data**, arriving with whatever document the host loaded — and CEE is
+embedded in someone else's page, so trusting them handed an instance author script
+execution in that origin.
 
-So instance data reaches an `innerHTML` sink with Angular's sanitizer explicitly
-bypassed, through a documented mode, in a component whose purpose is to be embedded in
-someone else's page. **Whether that is a vulnerability depends on whether instance
-documents are attacker-influenced where CEE is deployed**, which is not a question a
-test can answer and not one to guess at.
+Reachable with no exotic config: `checkHTMLContent` sets `isRichText` by asking whether
+the *value* looks like HTML, from `onReadOnlyModeChange(true)`. The trigger is the data
+and the gate is read-only mode, which has its own config preset.
 
-Characterised rather than changed: `markup in an instance value` records both modes, so
-the behaviour is visible and any change is deliberate. If the decision is to sanitize,
-that test inverts, and template-authored rich text (`cedar-static-rich-text`) should
-keep its behaviour — a template author and an instance are different trust levels.
+**Demonstrated, not argued.** Reverting the text field to `keepHtml` and re-running fails
+with *"an event handler from an instance value executed"* — the `onerror` in the probe
+value actually ran. That is both the mutation test for the fix and the proof the concern
+was real rather than theoretical.
+
+The two instance sinks now use a new `safeHtml` pipe that sanitizes rather than bypasses.
+Sanitize is not escape: `<b>` still renders bold, while script, event-handler attributes
+and `javascript:` URLs do not. `cedar-static-rich-text` keeps `keepHtml` deliberately — a
+template author is already trusted with the form's structure, and stripping their
+formatting would break a documented feature for no gain. The pipe's doc comment states
+that boundary, since the two now differ only in trust and someone will otherwise
+"simplify" them back together.
+
+The probe value carries safe formatting *and* a handler, so one test separates all three
+possible behaviours: `<b>` surviving proves the field was not escaped wholesale, which
+would be a regression dressed as a fix.
+
+### ~~Date display formats~~ — checked, no bug
+
+`DateTimeService` is `providedIn: 'root'`, so one instance is shared by every date picker,
+each `DatePickerComponent.ngOnInit` writes its own `dateFormat` into it, and
+`CustomDateAdapter.format` reads that shared value while ignoring the `displayFormat`
+Material passes. Whether the last picker to initialise formatted all of them was not
+obvious from reading it, and the failure would be quiet — a year field showing
+`03/04/2026` looks like a date.
+
+It does not. A year field and a day field on one page each render their own format, now
+asserted with two different years and a day-of-month that cannot be read as a month.
+
+Established incidentally: a year-granularity field needs a **full date** in the instance.
+Bare `2019` never reaches the control, which is input handling rather than formatting, and
+is why the first probe looked like a display bug.
 
 ### Chores
 
@@ -1219,8 +1250,10 @@ a parity count alone cannot see it. The 25 new Hungarian strings are machine
 translations in the register of the existing file and should be read by a native
 speaker.
 
-Not yet done: `CustomDateAdapter` and `DateTimeService` parse user-typed dates and have
-no test; `loadConfigFromURL` and `sampleTemplateLoaderObject` are untested host inputs.
+Since closed as well: the date-format question (its own entry below) and `eventHandler`,
+which turned out to be dead rather than untested. **Still open: `loadConfigFromURL` and
+`sampleTemplateLoaderObject`** — two host inputs with no test, both of which fetch, so
+covering them needs the harness page to serve a config and a sample template.
 
 ---
 
