@@ -24,7 +24,7 @@ and any wrong turns.
 | # | Item | State |
 |---|---|---|
 | 1 | Resolve `cedar-model-typescript-library` through npm | ⬜ leave the current sibling `file:` dependency in place for now |
-| 2 | Repair and enforce Angular ESLint | ⬜ configure during Phase 3, clear the existing baseline, then add it to `test:ci` |
+| 2 | Repair and enforce Angular ESLint | ⬜ do once at the Angular 22 target during Phase 3, clear the baseline, then add it to `test:ci` |
 | — | **Phase 3** Angular 14 → 22 | ⬅ **next, and nothing outstanding before it** |
 | — | **Phase 4** delete the legacy test scaffolding | ⬜ after Phase 3 — karma, Protractor; **all 40 specs are gone** |
 
@@ -315,12 +315,14 @@ existing errors. Adding that command to `test:ci` today would therefore make the
 unified gate permanently red; weakening or broadly suppressing the rules merely
 to get a green result would provide no useful protection.
 
-Configure Angular ESLint at the target framework version during Phase 3, with
-separate TypeScript and Angular-template parser/rule overrides. Resolve the
-existing violations to a zero-error baseline, preserving intentional exceptions
-locally and explicitly. Once `npm run lint` is green from a clean checkout, add
-it to the unified `test:ci` command so new TypeScript and template violations
-fail CI.
+Do not repair this against Angular 14 as a separate preliminary task: that would
+configure version-coupled tooling only to replace it during the framework
+upgrade. Configure Angular ESLint once at the Angular 22 target during Phase 3,
+with separate TypeScript and Angular-template parser/rule overrides. Resolve the
+resulting violations to a zero-error baseline, preserving intentional
+exceptions locally and explicitly. Once `npm run lint` is green from a clean
+checkout, add it to the unified `test:ci` command so new TypeScript and template
+violations fail CI.
 
 ### ~~1. `eventHandler` did nothing~~ — now forwards diagnostics
 
