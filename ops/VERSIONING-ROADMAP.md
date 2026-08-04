@@ -145,12 +145,6 @@ response.
    as subsumption, and EHDAA is configured as a `part_of` partonomy; re-ingested and re-allowlisted), DDSS
    was already healthy (807k labelled classes), and EO1 stays BioPortal-served (its SKOS source is broken —
    `skos:broader` values are string literals, not IRIs).
-- **8. Where `actions` belongs in the YAML.** `actions` (delete/move refinements on the term set)
-   currently render as a field-level key, a sibling of `values`, naming each affected term by `termIri` +
-   `sourceAcronym`. Open question: is that the right home, or should each action nest inside the `values`
-   entry it refines, so a refinement travels with its source? Field-level keeps all actions in one place
-   and mirrors the CEDAR JSON `_valueConstraints.actions` array; per-entry ties each refinement to the
-   source it applies to but scatters actions across entries. Decide before the version-aware YAML ships.
 - **9. Ingest ontologies from more sources.** *Shipped:* `--source url` (`DirectUrlSubmissionSource` —
    any URL) and `--source bioportal --base-url` (any OntoPortal instance: AgroPortal, EcoPortal, …).
    Proven across five serializations (RDF/XML, OBO, Turtle, gzipped OWL, SKOS) and nine authorities, with
