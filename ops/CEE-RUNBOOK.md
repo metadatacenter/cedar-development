@@ -7,8 +7,6 @@ Everything here has been run on macOS (Apple silicon) against `develop` @ CEE
 Sibling runbooks:
 - [CEE-ROADMAP.md](./CEE-ROADMAP.md) — the framework-upgrade programme, open
   findings and known defects.
-- [CEE-RELEASE-RUNBOOK.md](./CEE-RELEASE-RUNBOOK.md) — cutting a CEE version and
-  publishing it to npm.
 - [DEVELOPMENT-RUNBOOK.md](./DEVELOPMENT-RUNBOOK.md) — running the full CEDAR
   stack locally.
 
@@ -479,14 +477,13 @@ Those assert what CEE *does*, deliberately. See [CEE-ROADMAP.md](./CEE-ROADMAP.m
 
 `main` is owned by the release process. Work lands on `develop`.
 
-Cutting and publishing a version is **[CEE-RELEASE-RUNBOOK.md](./CEE-RELEASE-RUNBOOK.md)** —
-npm auth, the 2FA gotcha, and propagating the new version to the repos that
-embed CEE. Don't duplicate any of that here.
+Cutting and publishing a version has no runbook yet: npm auth, the 2FA gotcha,
+and propagating the new version to the repos that embed CEE are all undocumented.
 
-One thing worth knowing before reading either doc: the root `package.json`
-declares a `publishConfig` pointing at the Stanford Nexus registry, but that is
-**not** what a release publishes. The release publishes the generated
-`dist-npm` package, which has no `publishConfig` and therefore goes to public
-npmjs. Reading the root manifest alone gives you the wrong answer.
+One thing worth knowing: the root `package.json` declares a `publishConfig`
+pointing at the Stanford Nexus registry, but that is **not** what a release
+publishes. The release publishes the generated `dist-npm` package, which has no
+`publishConfig` and therefore goes to public npmjs. Reading the root manifest
+alone gives you the wrong answer.
 
 Version is surfaced at runtime as `window.cedarEmbeddableEditorVersion`.

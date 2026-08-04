@@ -7,9 +7,8 @@ coverage it depends on.
 Backend and cross-service items live in
 [DEVELOPMENT-ROADMAP.md](./DEVELOPMENT-ROADMAP.md); this one is CEE only.
 
-Sibling runbooks:
+Sibling runbook:
 - [CEE-RUNBOOK.md](./CEE-RUNBOOK.md) — building, running and testing CEE.
-- [CEE-RELEASE-RUNBOOK.md](./CEE-RELEASE-RUNBOOK.md) — cutting and publishing a version.
 
 Last reviewed against `cee-with-model-library` @ CEE 1.5.2 — an experimental
 branch, where most of what is under *Closed* lives. It is not on `develop`.
