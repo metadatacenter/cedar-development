@@ -23,18 +23,19 @@ and any wrong turns.
 
 | # | Item | State |
 |---|---|---|
+| 1 | Resolve `cedar-model-typescript-library` through npm | ⬜ leave the current sibling `file:` dependency in place for now |
 | — | **Phase 3** Angular 14 → 22 | ⬅ **next, and nothing outstanding before it** |
 | — | **Phase 4** delete the legacy test scaffolding | ⬜ after Phase 3 — karma, Protractor; **all 40 specs are gone** |
 
-No numbered items outstanding. Entries under *Closed* keep the numbers they carried
-at the time.
+One numbered dependency-hygiene item is outstanding. Entries under *Closed*
+keep the numbers they carried at the time.
 
 `cee-with-model-library` is an **experiment**, not work pending a merge. All the
 closed work below lives on it.
 
 Conformance: **34 of 37** corpus instances validate against their own template,
-up from 0; the three that do not are defects in the templates. Coverage: 2,131
-domain tests, 266 browser tests.
+up from 0; the three that do not are defects in the templates. Coverage: 2,257
+domain tests, 276 browser tests.
 
 **Phase 2 is complete and Phase 3 is unblocked.** The time picker was the only
 dependency with no upgrade path; `@ng-select/ng-select` and
@@ -58,7 +59,7 @@ sense that the cost of the jump grows every release.
 | TypeScript | 4.8 |
 | rxjs | 6.6.7 |
 | Test coverage before this work | 40 spec files, 45 `it()` blocks, all `expect(component).toBeTruthy()` |
-| Test coverage now | 2,131 domain tests in `harness/`, 266 browser tests in `visual/` |
+| Test coverage now | 2,257 domain tests in `harness/`, 276 browser tests in `visual/` |
 
 ## The blocker, removed
 
@@ -97,7 +98,7 @@ candidate, cannot express what CEE needs.
 
 ### Phase 0 — Domain test harness ✅ done
 
-`harness/` — 2,113 headless tests across 33 files, over template parsing,
+`harness/` — 2,257 headless tests across 40 files, over template parsing,
 instance reading and writing, path resolution, value writes, multi-instance
 mechanics, controlled-term constraints, the quality report, and conformance to
 the CEDAR model. Imports no Angular, so it survives the upgrade unchanged. See
@@ -112,7 +113,7 @@ confidence and a characterization baseline.
 
 ### Phase 1 — Visual regression baseline ✅ done
 
-`visual/` — 124 Playwright tests against the **concatenated bundle** as an
+`visual/` — 276 Playwright tests against the **concatenated bundle** as an
 embedder consumes it, not the dev server. Nine fixtures covering input types,
 choice widgets, two-deep multi-instance nesting, controlled terms, static
 content with page breaks, validation states, the timezone picker and all seven
@@ -228,7 +229,7 @@ styling hit rather than a continuation of the first.
 
 **The safety net breaks at the same hop as the builder.** `visual/`'s bundle step
 is `cat runtime.js polyfills.js main.js`, three filenames the esbuild application
-builder does not produce in that shape. So the 180 browser tests stop working at
+builder does not produce in that shape. So the 276 browser tests stop working at
 16 → 17 and have to be repaired there before they can protect anything after.
 Sequencing is in our favour and worth not disturbing: the MDC hop is 14 → 15, two
 hops *before* the builder changes, so the net is intact for the hard one.
@@ -288,6 +289,19 @@ Reference material — how conformance is measured, where each constraint is
 enforced, what the boundaries look like — is under *Reference*. Everything
 already closed is under *Closed*, kept because several entries record a wrong
 turn worth not repeating.
+
+### 1. Resolve the TypeScript model library through npm
+
+CEE, its domain harness and its visual-fixture generator currently resolve
+`cedar-model-typescript-library` from a sibling checkout's built `dist/`
+directory through `file:` dependencies. That makes installation and CI depend
+on recreating a particular local workspace layout and building another
+repository first.
+
+Replace those `file:` references with one pinned, published npm version. Keep
+the sibling dependency as-is until the required model-library version is
+published and available to every environment that builds CEE; this item is a
+roadmap note, not authorization to change resolution now.
 
 ### ~~1. `eventHandler` did nothing~~ — now forwards diagnostics
 

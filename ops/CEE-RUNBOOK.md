@@ -19,13 +19,15 @@ Sibling runbooks:
 
 ## Node versions — read this first
 
-**Two different Node versions are required, and using the wrong one is the most
-common way to lose an hour.**
+Interactive Angular development and the automated test gate have different
+supported Node versions. Using the wrong one is a common source of misleading
+failures.
 
 | What | Node | Why |
 |---|---|---|
-| The Angular app (`npm install`, `ng build`, `ng serve`) | **18** | Angular 14's CLI and build pipeline. Node 20+ is untested here and Node 22+ will refuse. |
-| `harness/` (Vitest domain tests) | **20** | Vitest 1.6 and the ESM config. Imports no Angular, so it has no Angular-era constraint. |
+| Interactive Angular development (`ng serve`, Karma watch mode) | **18** | Retains the established Angular 14 development environment. |
+| Unified test gate (`npm run test:ci`) | **20.20.2** | This is the version pinned by `.github/workflows/test.yml`; it runs Angular/Karma, Vitest, the production build and Playwright together. |
+| `harness/` or `visual/` in isolation | **20.20.2** | Matches the unified gate and CI. |
 | `cedar-model-typescript-library` | 18 or 20 | Webpack 5 / TS 5.3; both work. |
 
 Install both once:
@@ -42,10 +44,11 @@ export NVM_DIR="$HOME/.nvm"
 ```
 
 ```bash
-nvm install 18 && nvm install 20
+nvm install 18 && nvm install 20.20.2
 ```
 
-Then `nvm use 18` or `nvm use 20` per the table above.
+Then use `nvm use 18` for interactive Angular development or an installed
+20.20.2 for testing. CI is the source of truth for the test version.
 
 Nothing here needs Java. The one exception is the canonical validator, which
 needs **JDK 17** specifically — see
@@ -96,6 +99,53 @@ The concat order matters and the filenames are Angular 14's. **This step changes
 shape at Angular 17**, when the build moves to esbuild/vite and stops emitting
 these three files — see [CEE-ROADMAP.md](./CEE-ROADMAP.md) Phase 3.
 
+## Running the complete test gate
+
+The canonical, non-interactive verification command is run from the CEE
+repository root:
+
+```bash
+nvm use 20.20.2
+npm run test:ci
+```
+
+It runs these stages in order and stops at the first failure:
+
+1. Angular/Karma unit tests in headless Chrome (`test:unit:ci`).
+2. The Vitest domain harness with V8 coverage (`test:domain:coverage`).
+3. A production build of the web component.
+4. Fixture preparation and the Playwright browser suite at desktop and narrow
+   viewport sizes (`test:visual`).
+
+The domain fixtures are vendored under `harness/fixtures/`. Neither
+`cedar-artifact-library` nor `cedar-test-artifacts` needs to be cloned or
+checked out.
+
+### First-time setup
+
+CEE still resolves `cedar-model-typescript-library` through a sibling `file:`
+dependency. Build it before installing CEE. Replacing this with an npm-resolved
+package is roadmap item #1; the sibling dependency remains for now.
+
+```bash
+cd ../cedar-model-typescript-library
+npm ci
+npm run build
+
+cd ../cedar-embeddable-editor
+npm ci
+npm --prefix harness ci
+npm --prefix visual ci
+./visual/node_modules/.bin/playwright install chromium
+```
+
+The current gate should report 32 Karma assertions, 2,257 domain tests and 276
+Playwright tests. Treat these as useful smoke checks, not permanent constants:
+new tests should make the counts rise.
+
+Use the complete gate before pushing or opening a pull request. The focused
+commands below are faster feedback while working on one layer.
+
 ## Running the domain test harness
 
 The harness depends on the model library's built `dist/`, not its source, so the
@@ -106,10 +156,12 @@ cd ../cedar-model-typescript-library && npm install && npm run build
 ```
 
 ```bash
-nvm use 20 && cd harness && npm install && npm test
+nvm use 20.20.2
+npm run test:domain
 ```
 
-Expect **1,047 passing** on `develop`, **2,113** on `cee-with-model-library`. Watch mode is `npm run test:watch`.
+Expect **2,257 passing** on `cee-with-model-library`. For watch mode, run
+`npm --prefix harness run test:watch`.
 
 A green run here means CEE agrees with itself. For whether its output is
 actually a valid CEDAR instance, see
@@ -118,7 +170,7 @@ actually a valid CEDAR instance, see
 ### Coverage
 
 ```bash
-nvm use 20 && cd harness && npm run test:coverage
+npm run test:domain:coverage
 ```
 
 Over `shared/factory`, `shared/handler`, `shared/util` and `shared/validation` —
@@ -255,8 +307,9 @@ Instance is invalid. Found 1 error(s)
 
 ### The same check, in the harness
 
-Running Maven is not something to do per-edit, so the harness runs the
-equivalent check on every `npm test` with `ajv-draft-04`:
+Running Maven is not something to do per-edit, so the domain harness runs the
+equivalent check on every `npm run test:domain` and `npm run test:ci` with
+`ajv-draft-04`:
 
 ```bash
 npx vitest run harness/test/model-conformance.spec.ts
@@ -296,7 +349,7 @@ conformance number.
 ### When to run which
 
 Change the emitter, the envelope, or `data-object-builder.handler.ts` →
-`model-conformance.spec.ts`, which `npm test` runs anyway.
+`model-conformance.spec.ts`, which the domain and unified gates run anyway.
 
 Upgrade the model library, take a new CEDAR release, or find yourself arguing
 with the harness about what the model requires → run Maven. The Java suite is
@@ -312,22 +365,25 @@ diverged before.
 
 ## Running the visual baseline
 
-Screenshot regression against the built bundle. Requires a fresh `dist/`, so
-build the app first (Node 18), then switch to Node 20 to run Playwright.
+Screenshot and browser-behaviour regression against the production bundle. The
+focused root command builds a fresh `dist/`, prepares the visual fixtures and
+runs Playwright:
 
 ```bash
-nvm use 18 && npx ng build --configuration=production
+nvm use 20.20.2
+npm run test:visual
 ```
 
-```bash
-nvm use 20 && cd visual && npm install && npx playwright install chromium
-```
+For first-time installation, including the Chromium browser binary, use the
+[complete gate setup](#first-time-setup). If running from `visual/` directly,
+the equivalent commands after a production build are:
 
 ```bash
+cd visual
 npm run prepare:all && npm test
 ```
 
-Expect **124 passing** in about 45 seconds. `prepare:all` re-concatenates the
+Expect **276 passing** in about 40 seconds. `prepare:all` re-concatenates the
 bundle from `../dist` and regenerates the template fixtures; run it after any
 rebuild.
 
@@ -350,22 +406,24 @@ npm run update
 Review every changed PNG before committing — a baseline update asserts the new
 rendering is correct.
 
-## Running the legacy Angular specs
+## Running the Angular unit tests
 
 ```bash
-nvm use 18 && npx ng test
+npm run test:unit:ci
 ```
 
-These are 40 CLI-generated `expect(component).toBeTruthy()` stubs. They assert
-nothing and are slated for deletion — see [CEE-ROADMAP.md](./CEE-ROADMAP.md) Phase 4. Do not read a green
-run here as coverage.
+This is the headless, single-run form included in `npm run test:ci`. The legacy
+root `npm test` command starts Karma in watch mode and is intended only for
+interactive development. The unit layer is small; do not treat it as a
+substitute for the domain and browser stages.
 
 ---
 
 ## Troubleshooting
 
 **`ng` refuses to run, or `npm install` fails with engine errors**
-Wrong Node. `nvm use 18` for anything Angular.
+Check which workflow you are running. Use Node 18 for interactive Angular
+development and Node 20.20.2 for `npm run test:ci` and its focused test stages.
 
 **Harness: `SyntaxError: Invalid or unexpected token` pointing at line 1 of a
 CEE source file**
