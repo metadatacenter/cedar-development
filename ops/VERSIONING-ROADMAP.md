@@ -228,16 +228,25 @@ response.
    and *if* a content hash of a flat set (a chemical list, not a hierarchy) is meaningful across
    serializations. Worth a spike.
 - **16. Serve CDEs (and their vocabularies) as versioned fields? (exploratory.)** A Common Data Element
-   bundles a field definition with its permissible value set — a reusable, named field. The terminology
-   server today versions the *vocabularies* a field's constraint points at (ontologies, value sets); a CDE
-   sits one level up: the whole field, value domain and metadata, as a single resolvable artifact. Worth
-   thinking through: should the terminology server serve CDEs the same content-hash-versioned way, so
-   reusing a CDE pins the *field* — not just its terms — and a CDE library (caDSR/NCI, …) becomes a
-   versioned, diffable catalog beside the ontologies? It pulls on the machinery already built (snapshots,
-   latest/frozen resolution, freeze-on-publish, instance capture — item 5) but at field granularity. Open:
-   what a CDE's content identity is (its value domain, or the whole definition), how it relates to the
-   value-set collections already modeled, and whether this belongs in the terminology server at all or in
-   a sibling CDE service that reuses the same versioning core.
+   (ISO 11179) is a `publicId + version` identity plus a *value domain*, and
+   [cedar-cadsr-tools](https://github.com/metadatacenter/cedar-cadsr-tools) already reads caDSR CDEs as
+   CEDAR fields through a near-lossless mapping that splits on the value domain: an **enumerated** domain
+   becomes a value set (packaged today as the CADSR-VS value-set ontology and served through BioPortal, so
+   already terminology), a **non-enumerated** domain becomes a plain datatype field (numeric/temporal/
+   string bounds, no vocabulary at all). So the question splits in two. *Value sets:* move CADSR-VS onto
+   the versioned terminology core as first-class, content-hashed value sets with `latest`/frozen resolution
+   and cross-version diff, replacing the hand-built OWL packaging; low-risk, high-value, mostly a re-ingest
+   path. *CDE-fields:* the whole field is a *definition* (value domain + datatype + constraints +
+   provenance), a CEDAR artifact rather than a term, so serving it means either a **new artifact kind** in
+   the versioning store (content-hash the field definition) or a **sibling CDE service** that reuses the
+   versioning core while the artifact stays in the CEDAR repo. The fit is real because caDSR CDEs are
+   already versioned the way this server versions things: `publicId+version` plus a `sourceHash`
+   change-detector that a true content hash would make precise. So pinning, `latest`, diff, and
+   freeze-on-publish apply one level up, to a whole field, and a CDE library (caDSR/NCI) becomes a
+   versioned, diffable catalog beside the ontologies. Open: what a CDE's content identity is (its value
+   domain only, or the whole definition — the same question as item 4); how instance-level capture
+   (item 5) rides along when a filled value comes from a CDE; and that non-enumerated CDEs never involve a
+   vocabulary, so they belong only to a CDE/field service, never the terminology server.
 
 ## Ingestion tracker (ongoing)
 
