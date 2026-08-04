@@ -193,13 +193,19 @@ response.
    decision, not blockers. *Coverage gap (found 2026-08-03):* the backfill did not reach every served
    snapshot — 275 of 1215 latest snapshots have an empty label side-table, including major ontologies
    (HP, MESH, NCIT, NCBITAXON, DDSS, LOINC, EFO). Their primary English labels serve fine, but the
-   multilingual/synonym features above silently no-op for them. *Fix (staged, 2026-08-03):* a
-   `--backfill-labels` run over the 274 empty bioportal-backed snapshots (NCBITaxon excluded as too heavy)
-   is prepared but not yet completed — it needs a server-down window (RAM), and since each snapshot is
-   re-fetched from BioPortal and re-extracted, the 10 remaining giants (DDSS, MESH, LOINC, NCIT, BERO, …)
-   make it the long leg. Idempotent/resumable (skips snapshots that already carry labels), so it can stop
-   and continue across windows. Freshly-ingested snapshots (e.g. the 49 OBO refreshes) already carry labels
-   captured at ingest, so this is pure gap-fill.
+   multilingual/synonym features above silently no-op for them. *Fixed (2026-08-04).* The first attempt
+   (`--backfill-labels`, which re-fetches from BioPortal) largely failed: our stored snapshots have drifted
+   from BioPortal's live content, so 97 hashed-mismatch and some ontologies are withdrawn (HTTP 422) — only
+   5 filled. The working fix is **`--backfill-labels-from-raw`**: re-extract labels from each snapshot's
+   *retained local raw* (the file under `snapshots/<acr>/raw/` whose SHA-256 matches the stored
+   `file_hash`), no network. Because labels key by concept IRI (`addLabels` is INSERT-OR-IGNORE on `c.iri`),
+   the matched `file_hash` alone proves authenticity, so it does not gate on the recomputed content-hash
+   (today's extractor derives a different model hash than at ingest without the source differing). A
+   server-down run added **+5.6M labels across 77 snapshots** — every recoverable one, giants included
+   (MESH 1.0M, BERO 939k, DDSS 862k, LOINC 686k, EFO 334k). Residual: of the 274, **89 now carry labels**,
+   **176 are genuinely label-less** (the item-7 IRI-fragment tail — nothing in source to fill), and **9
+   have no retained raw matching their `file_hash`** (NCIT, MS, DOVES, FLOPO, MIXS, MOLSIM, NAMO, RS,
+   SSTIM) so they need their original source re-fetched, plus NCBITaxon still deferred.
 - **12. Extend the value-constraint YAML to express a term's language.** A controlled-term constraint
    currently says nothing about language; a field always renders (and searches) labels in the served
    default. Add a key naming the language the field should present its terms in — `termLanguage`, or
