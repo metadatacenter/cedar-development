@@ -435,6 +435,20 @@ These are deliberate decisions, recorded so they are not rediscovered as gaps.
 
 Completed cross-cutting work, kept as a short record of what changed and how it was verified.
 
+- **Downgraded the "was not removed from the index" search log from `error` to `warn`.** A smoke run
+  surfaced an `ElasticsearchIndexingWorker` ERROR when deleting a template instance; tracing it showed
+  the line is benign. `removeAllFromIndex` deletes by `cid`, and its `getDeleted() == 0` branch logged
+  at ERROR — but a zero count is the expected, self-healing case: neither the index nor the
+  delete-by-query forces a refresh, so a remove during a rapid create→update (the `updateIndexResource`
+  remove-then-readd path, which uses the non-retry overload) matches a doc that isn't refreshed into the
+  searchable index yet. The removal machinery already tolerates this — `NodeIndexingService`'s retry
+  overload treats 0-removed as retryable, and delete-by-`cid` wipes any duplicate on the next mutation —
+  so the condition is a warning, not an error, and shouldn't trip ERROR-level log monitoring or the
+  `cedar-services.sh` status column. Log-severity change only, no behavioural change; the deeper item
+  (add a forced refresh, or route the update path through the retry overload) is the same
+  absent-forced-refresh residual already noted under the search-permission fix, and stays deprioritized.
+  Committed to `cedar-microservice-libraries`; takes effect on the next rebuild/redeploy.
+
 - **Made YAML a first-class serialization for the embeddable editor, and completed the model library's
   read/write matrix.** CEE reads and emits both JSON and YAML through `cedar-model-typescript-library`,
   and a generative harness now proves the two are interchangeable — every field kind renders and fills
