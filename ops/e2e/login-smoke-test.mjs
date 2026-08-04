@@ -21,9 +21,13 @@
 // runner, now in cedar-mkdocs/runner, which still keeps its own copies.
 import { chromium } from 'playwright';
 import { mkdir } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import * as S from './selectors.mjs';
+// REST helpers, used to seed setup fixtures (folder, standalone field) without driving the UI, and
+// to tear them down. The browser drives only the gestures under test (designer, metadata editor).
+import { actors, call as restCall, artifactBody } from './rest/lib.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const FAIL_DIR = resolve(__dirname, 'failures');
@@ -41,6 +45,12 @@ const HEADED = !!process.env.HEADED;
 const RUN_ID = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
 const FOLDER_NAME = `E2E Smoke ${RUN_ID}`;
 const TEMPLATE_NAME = `E2E Smoke Template ${RUN_ID}`;
+const FIELD_NAME = `E2E Standalone Field ${RUN_ID}`;
+const TEXT_FIELD_NAME = 'Notes';
+// A saved browser session, reused across runs so the Keycloak login is paid once. Regenerated
+// automatically when missing or stale. Gitignored — it holds live tokens.
+const AUTH_DIR = resolve(__dirname, '.auth');
+const AUTH_STATE = resolve(AUTH_DIR, 'storage-state.json');
 
 // ── dashboard helpers ──────────────────────────────────────────────────────
 const enc = iri => encodeURIComponent(iri);
@@ -263,9 +273,52 @@ async function saveInstanceInEditor(page) {
   const resp = await pending;
   if (!resp) throw new Error('save sent no create-instance request — the metadata editor save handler threw before calling the server');
   if (resp.status() !== 201) throw new Error(`instance save answered ${resp.status()}`);
-  const body = await resp.json().catch(() => ({}));
-  if (!body['@id']) throw new Error('instance save response carried no @id');
-  return { id: body['@id'], name: body['schema:name'] };
+  // The create redirects (a full navigation) to /instances/edit/<id>. Recover the id from that URL
+  // rather than the response body, which the navigation would race and lose. Reading the status above
+  // needs no body, so it is safe.
+  await page.waitForURL(/instances\/edit\//, { timeout: 20_000 });
+  const m = page.url().match(/instances\/edit\/(.+?)(?:\?|$)/);
+  if (!m) throw new Error('post-save redirect did not carry an instance id');
+  return { id: decodeURIComponent(m[1]) };
+}
+
+// Fill a plain (unconstrained) text field the CEE renders. The CEE labels each field, so match the
+// labeled control first; fall back to a text input inside the field block carrying the label text.
+async function fillCeeTextField(page, name, value) {
+  const cee = page.locator('cedar-embeddable-editor');
+  // Wait for the labeled input to render — on the edit view the CEE hydrates the loaded instance
+  // asynchronously ("CEDAR Embeddable Editor initializing…"), so the field is not there immediately.
+  const byLabel = cee.getByLabel(name, { exact: false }).first();
+  try {
+    await byLabel.waitFor({ state: 'visible', timeout: 25_000 });
+    await byLabel.fill(value);
+    return;
+  } catch { /* fall through to a structural match */ }
+  const input = cee.locator('div', { hasText: name })
+    .filter({ has: page.locator('input[type="text"], textarea') }).last()
+    .locator('input[type="text"], textarea').first();
+  await input.waitFor({ timeout: 10_000 });
+  await input.fill(value);
+}
+
+// Re-edit the just-saved instance. The create redirects to the instance edit view; the field must
+// render there (it once stayed stuck "CEDAR Embeddable Editor initializing…" because the redirect set
+// the instance on the CEE element mid-re-init — now fixed by loading the edit view cleanly). Change
+// the text field and save again — this drives the UPDATE branch, which carries the instance's real
+// @id (the branch create's null-@id bug never reached). A 200 on the update call is the proof; if the
+// editor is stuck, fillCeeTextField below times out, catching a regression of the redirect fix.
+async function reEditInstance(page, newValue) {
+  await page.waitForURL(/instances\/edit/, { timeout: 20_000 }); // the post-save redirect lands here
+  await page.locator('cedar-embeddable-editor').waitFor({ state: 'attached', timeout: 20_000 });
+  await fillCeeTextField(page, TEXT_FIELD_NAME, newValue); // waits for the field to hydrate
+  const pending = page
+    .waitForResponse(r => /\/template-instances\/[^?]+$/.test(r.url().split('?')[0])
+        && ['PUT', 'POST'].includes(r.request().method()), { timeout: 20_000 })
+    .catch(() => null);
+  await page.locator('#button-save-metadata').click();
+  const resp = await pending;
+  if (!resp) throw new Error('re-edit sent no update request');
+  if (resp.status() !== 200) throw new Error(`instance update answered ${resp.status()}`);
 }
 
 // ── OpenView helpers ───────────────────────────────────────────────────────────
@@ -337,47 +390,55 @@ const browser = await chromium.launch({ headless: !HEADED });
 const context = await browser.newContext({
   ignoreHTTPSErrors: true, // local CA
   viewport: { width: 1280, height: 900 },
+  ...(existsSync(AUTH_STATE) ? { storageState: AUTH_STATE } : {}),
 });
 const page = await context.newPage();
 let step = 'init';
 
 try {
-  // 1. Login through Keycloak. The app redirects unauthenticated visitors to
-  //    the Keycloak form; the "New" button only exists once authenticated.
+  // 1. Reuse a saved session if the storage state carried a valid one; otherwise log in through
+  //    Keycloak and save the state for the next run. Unauthenticated visitors are redirected to the
+  //    Keycloak form, so the form's presence (vs the "New" button) tells the two paths apart.
   step = 'login';
   await page.goto(`${BASE}/dashboard`);
-  await page.locator(S.KC_USERNAME).first().fill(USER);
-  await page.locator(S.KC_PASSWORD).first().fill(PASSWORD);
-  await page.locator(S.KC_SUBMIT).first().click();
-  await page.getByRole('button', { name: 'New' }).waitFor({ timeout: 60_000 });
-  console.log(`✓ logged in as ${USER}`);
-
-  // 2. Create the folder. CEDAR occasionally answers with a transient server
-  //    error, and a fresh folder can lag the listing via indexing — so retry
-  //    the gesture and poll for the row (pattern proven by the tutorial runner).
-  step = 'create-folder';
-  let created = false;
-  for (let attempt = 1; attempt <= 3 && !created; attempt++) {
-    await gotoListing(page);
-    await page.getByRole('button', { name: 'New' }).click();
-    await menuItem(page, 'Folder');
-    const dialog = page.getByRole('dialog').or(page.locator(S.MODAL));
-    await dialog.getByRole('textbox').fill(FOLDER_NAME);
-    await dialog.getByRole('button', { name: 'Save' }).click();
-    for (let poll = 1; poll <= 6; poll++) {
-      await gotoListing(page);
-      if (await row(page, FOLDER_NAME).count()) { created = true; break; }
-      await page.waitForTimeout(1500);
-    }
-    if (!created) console.warn(`  folder create attempt ${attempt} did not appear — retrying`);
+  const loginForm = page.locator(S.KC_USERNAME).first();
+  const newButton = page.getByRole('button', { name: 'New' });
+  // A reused session lands on the dashboard; a missing/stale one is redirected to the Keycloak form.
+  // Race the two so neither path pays the other's timeout (`isVisible` can't be used here — it is an
+  // immediate check and would fire mid-redirect).
+  const seen = await Promise.race([
+    loginForm.waitFor({ state: 'visible', timeout: 30_000 }).then(() => 'login').catch(() => null),
+    newButton.waitFor({ state: 'visible', timeout: 30_000 }).then(() => 'reused').catch(() => null),
+  ]);
+  if (seen === 'login') {
+    await loginForm.fill(USER);
+    await page.locator(S.KC_PASSWORD).first().fill(PASSWORD);
+    await page.locator(S.KC_SUBMIT).first().click();
+    await newButton.waitFor({ timeout: 60_000 });
+    await mkdir(AUTH_DIR, { recursive: true });
+    await context.storageState({ path: AUTH_STATE }); // pay the login once; reuse next run
+    console.log(`✓ logged in as ${USER} (session saved for reuse)`);
+  } else if (seen === 'reused') {
+    console.log(`✓ reused saved session for ${USER}`);
+  } else {
+    throw new Error('neither the Keycloak login form nor the dashboard appeared');
   }
-  if (!created) throw new Error(`folder "${FOLDER_NAME}" never appeared on the dashboard`);
 
-  // Enter the folder to learn its id (needed for the template deep link).
-  await row(page, FOLDER_NAME).dblclick();
-  await page.waitForURL(/folderId=/);
-  const folderId = decodeURIComponent(new URL(page.url()).searchParams.get('folderId'));
-  console.log(`✓ folder created: ${FOLDER_NAME}`);
+  // 2. Seed the working folder and a standalone field over REST — fast, hermetic setup that needs no
+  //    UI (folder-creation clicking is not the coverage this smoke is here for). A standalone field is
+  //    one of the artifact shapes the CEE renders; seeding it exercises field-artifact create/teardown
+  //    and leaves it available for later use. The same REST token tears both down at the end.
+  step = 'seed';
+  const { user1 } = await actors();
+  const folderResp = await restCall(user1.auth, 'POST', '/folders',
+      { folderId: user1.profile.homeFolderId, name: FOLDER_NAME, description: 'Created by the UI smoke' });
+  if (folderResp.status !== 201) throw new Error(`could not seed folder: ${folderResp.status} ${folderResp.text}`);
+  const folderId = folderResp.body['@id'];
+  const fieldResp = await restCall(user1.auth, 'POST', `/template-fields?folder_id=${enc(folderId)}`,
+      artifactBody('field', FIELD_NAME));
+  if (fieldResp.status !== 201) throw new Error(`could not seed standalone field: ${fieldResp.status} ${fieldResp.text}`);
+  const standaloneFieldId = fieldResp.body['@id'];
+  console.log(`✓ seeded folder + standalone field over REST`);
 
   // 3. Create a template inside the folder via the designer deep link, name it, add
   //    a Disease field and constrain it to the DOID "disease" branch through the
@@ -403,6 +464,12 @@ try {
       step = 'constrain-disease-field';
       await addTextField(page, 'Disease', 'The disease studied, from the Human Disease Ontology');
       await constrainToDoidDiseaseBranch(page);
+
+      // A second, plain (unconstrained) text field. The template now carries two field shapes the
+      // CEE must render and collect — a controlled term and free text — and this is the field the
+      // re-edit step below mutates.
+      step = 'add-text-field';
+      await addTextField(page, TEXT_FIELD_NAME, 'Free-text notes');
       break;
     } catch (e) {
       if (attempt === CONSTRAIN_ATTEMPTS) throw e;
@@ -434,13 +501,24 @@ try {
   await verifyDiseaseSuggestion(page, 'asthma');
   console.log('✓ populate: Disease field suggested a DOID term for "asthma"');
 
+  // Fill the plain text field too, so the instance carries free text alongside the controlled term
+  // and the re-edit step has something to change.
+  step = 'fill-text-field';
+  await fillCeeTextField(page, TEXT_FIELD_NAME, 'initial notes');
+  console.log(`✓ filled the "${TEXT_FIELD_NAME}" text field`);
+
   // 3b-ii. Save the populated instance from the Metadata Editor and confirm it is created. This
   //        exercises the V2/embeddable-editor save path end to end — the one that once threw a stack
   //        trace on a new instance's null @id and saved nothing.
   step = 'save-instance';
   await page.waitForTimeout(500);
   const savedInstance = await saveInstanceInEditor(page);
-  console.log(`✓ Metadata Editor saved the populated instance: ${savedInstance.name}`);
+  console.log(`✓ Metadata Editor saved the populated instance (create → 201, redirected to edit)`);
+
+  // 3b-iii. Re-edit through the post-save redirect (which must render, then update).
+  step = 're-edit-instance';
+  await reEditInstance(page, 'edited notes');
+  console.log('✓ Metadata Editor rendered the post-save edit view, re-edited, and updated');
 
   // 3c. Publish the template to OpenView, then confirm an anonymous visitor — a
   //     fresh browser with no CEDAR session — sees it presented on the OpenView
@@ -459,19 +537,28 @@ try {
   //    The instance goes first because it lives in the folder and a non-empty folder cannot be
   //    deleted. Deleting an open artifact is allowed and removes it from OpenView too, so no need
   //    to disable OpenView first.
+  // Delete the instance over REST by id (robust across the post-save navigation, and independent of
+  // its display name); the template and folder follow.
   step = 'delete-instance';
-  await deleteRow(page, savedInstance.name, folderId);
+  await restCall(user1.auth, 'DELETE', `/template-instances/${enc(savedInstance.id)}`);
   console.log('✓ instance deleted');
 
   step = 'delete-template';
   await deleteRow(page, TEMPLATE_NAME, folderId);
   console.log('✓ template deleted');
 
+  // The standalone field and the working folder were seeded over REST, so tear them down the same
+  // way. The field goes before the folder — a non-empty folder cannot be deleted.
+  step = 'delete-standalone-field';
+  await restCall(user1.auth, 'DELETE', `/template-fields/${enc(standaloneFieldId)}`);
+  console.log('✓ standalone field deleted');
+
   step = 'delete-folder';
-  await deleteRow(page, FOLDER_NAME);
+  const delFolder = await restCall(user1.auth, 'DELETE', `/folders/${enc(folderId)}`);
+  if (![200, 204].includes(delFolder.status)) throw new Error(`folder delete answered ${delFolder.status}: ${delFolder.text}`);
   console.log('✓ folder deleted');
 
-  console.log('\nPASS: login → folder → template w/ DOID-constrained Disease field → populate suggestion → save instance → OpenView presented anonymously → delete');
+  console.log('\nPASS: login (reusable session) → seed folder+field → template w/ DOID + text field → populate + fill → save instance → re-edit (update) → OpenView presented anonymously → delete');
   await browser.close();
   process.exit(0);
 } catch (e) {
