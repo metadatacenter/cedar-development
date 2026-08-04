@@ -212,16 +212,19 @@ model libraries — where their JSON and YAML serializations diverge — is in
   library's `YamlTitleDerivation` / `YamlJsonConstraintParity` specs; this item is the design decision
   those tests currently encode by default.
 
-- **The datetime field has an odd visual layout in CEE.** The date/time/timezone widget renders with
-  spacing or alignment that looks wrong next to the other input types. Not a data defect — the value is
-  read and written correctly (`cedar-input-datetime`, and the temporal value now carries its `@type`) —
-  but a layout one. Reproduce against the running editor, identify whether it is the component's own
-  template/styles or how the surrounding field row wraps the three sub-controls, and bring it into line
-  with the other fields.
+- **Fix and modernize CEE's datetime field.** The date/time/timezone control needs work on three
+  fronts, from the cheap near-term fix to the deeper rework the Angular upgrade unlocks.
 
-- **Revisit CEE's datetime controls after the Angular upgrade, and settle offset versus timezone
-  semantics.** Angular Material 19 added an official `MatTimepicker` that can share a value with
-  `MatDatepicker`, use locale-driven 12/24-hour display, parse seconds, and generate options at second
+  The immediate one is layout. The widget renders with spacing or alignment that looks wrong next to
+  the other input types. Not a data defect — the value is read and written correctly
+  (`cedar-input-datetime`, and the temporal value now carries its `@type`) — but a visual one.
+  Reproduce against the running editor, identify whether it is the component's own template/styles or
+  how the surrounding field row wraps the three sub-controls, and bring it into line with the other
+  fields.
+
+  The deeper rework waits on the framework. Angular Material 19 added an official `MatTimepicker` that
+  can share a value with `MatDatepicker`, use locale-driven 12/24-hour display, parse seconds, and
+  generate options at second
   intervals. Once Phase 3 reaches Angular 22, prototype replacing only CEE's in-house
   `app-time-picker` with it. Do not replace the CEDAR-level temporal wrapper: Material still does not
   provide year/month-only values, decimal seconds, a timezone selector, or CEDAR's XSD serialization
@@ -441,83 +444,3 @@ These are deliberate decisions, recorded so they are not rediscovered as gaps.
 - **Modernizing `cedar-keycloak-event-listener`.** It stays on Java 8 and HttpClient 4 on purpose: it
   is an SPI plugin loaded inside the Keycloak runtime, whose version is locked, so it must match what
   Keycloak provides rather than what the rest of the stack uses.
-
-## Done
-
-Completed cross-cutting work, kept as a short record of what changed and how it was verified.
-
-- **Downgraded the "was not removed from the index" search log from `error` to `warn`.** A smoke run
-  surfaced an `ElasticsearchIndexingWorker` ERROR when deleting a template instance; tracing it showed
-  the line is benign. `removeAllFromIndex` deletes by `cid`, and its `getDeleted() == 0` branch logged
-  at ERROR — but a zero count is the expected, self-healing case: neither the index nor the
-  delete-by-query forces a refresh, so a remove during a rapid create→update (the `updateIndexResource`
-  remove-then-readd path, which uses the non-retry overload) matches a doc that isn't refreshed into the
-  searchable index yet. The removal machinery already tolerates this — `NodeIndexingService`'s retry
-  overload treats 0-removed as retryable, and delete-by-`cid` wipes any duplicate on the next mutation —
-  so the condition is a warning, not an error, and shouldn't trip ERROR-level log monitoring or the
-  `cedar-services.sh` status column. Log-severity change only, no behavioural change; the deeper item
-  (add a forced refresh, or route the update path through the retry overload) is the same
-  absent-forced-refresh residual already noted under the search-permission fix, and stays deprioritized.
-  Committed to `cedar-microservice-libraries`; takes effect on the next rebuild/redeploy.
-
-- **Made YAML a first-class serialization for the embeddable editor, and completed the model library's
-  read/write matrix.** CEE reads and emits both JSON and YAML through `cedar-model-typescript-library`,
-  and a generative harness now proves the two are interchangeable — every field kind renders and fills
-  the same whether the template arrives as JSON or as YAML, at single and multiple cardinality, and the
-  instance emitted carries the same values either way (`format-independence-generative`). Shaking that
-  out found two real round-trip divergences, each fixed against the canonical Java library: a numeric
-  field's datatype defaulted to `xsd:decimal` from JSON but came back null from YAML
-  (`YamlFieldReaderNumeric`), and a YAML-sourced artifact lost its `title`/`description` — which the
-  meta-schema requires non-empty — because the YAML carries only a name (`YamlAbstractArtifactReader`
-  now derives them as `"<name> <type> schema"`, as Java does). The one missing cell, a YAML *instance*
-  reader, is now built (`YamlTemplateInstanceReader`), with an `InstanceInflater` that restores from the
-  template what a sparse YAML instance drops — the `@context` property IRIs and the empty required slots
-  — so a YAML instance round-trips to a valid JSON instance. A host can now choose input and output
-  serialization by config, independently, with `currentMetadata` left JSON so the save path is
-  unchanged. Verified across the CEE harness (format-independence, container and constraint reader
-  parity, instance round-trip), the library's own reader/inflater specs, the CEE component config suite
-  in karma (the app's first component tests), a browser step in the UI smoke that flips the deployed
-  bundle's output to YAML, and a REST matrix that creates and updates every artifact kind from YAML over
-  the wire (`negotiation`).
-
-- **A shared artifact could not be found by name in search.** The cause was a single Cypher defect, not
-  the indexing-identity problem this item was once framed as. `getUserIdsWithTransitivePermissionOnFilesystemResource`
-  in `CypherQueryBuilderFilesystemResourcePermission` bound one `user` variable across both its owner
-  traversal and its grant traversal, so the second reused the first's binding and every grantee who was
-  not also an owner was dropped. That query materializes the user list projected into the search index,
-  so a shared artifact never carried its grantee's `"<userId>|read"` key: the grantee could open it and
-  saw it under "shared with me" (graph-backed views), but a name search found nothing. It affected direct
-  user grants, group-membership grants, and folder-inherited grants alike; the everybody grant was
-  unaffected because it rides a denormalized node property rather than this traversal. The fix binds
-  distinct `owner`/`grantee` variables and unions the two sets. Verified on the live graph (the isolated
-  grant traversal returned the grantee while the full query did not, and returned it once the variables
-  were split), then end to end: the three grant cases in `finding.mjs` now find the artifact by name, and
-  revocation of a per-user grant removes it from the grantee's search — the fail-dangerous direction.
-  Green across the `finding` suite, the full REST estate, and the resource-server permission/sharing JUnit
-  matrices.
-
-  Two things this cleared up. The premise that a **deterministic `_id`** and a refresh-race fix were needed
-  was wrong: delete, rename, and revoke were measured reliable across repeated runs, so the random-`_id`
-  and `deleteByQuery`-by-`cid` scheme is left as is; those paths are now pinned by positive assertions in
-  `finding.mjs`. And the reindex consumer runs in the **worker server** (`PermissionQueueProcessor`), not
-  the resource server, so a deploy of this fix must ship both, and an existing index needs one full
-  `regenerate-search-index` to backfill grants materialized before the fix. What is deliberately left: the
-  silent catch and absent forced-refresh in `SearchPermissionExecutorService.upsertOnePermissions` remain,
-  deprioritized now that the behaviour is verified reliable rather than merely assumed.
-
-- **Retired the `CedarDataServices` static service locator.** Its accessors are now instance methods on
-  a single managed object. The request-handling resources receive that object as a field through their
-  base-class constructor rather than reaching a global static from every method. Composition roots (each
-  server's `Application`), the test harness, and the boot-wired search and indexing services obtain the
-  one instance through a sanctioned `getInstance()`. The process-level Neo4j and Mongo lifecycle, which
-  includes the connection-pool reuse a shared test JVM depends on, stays static, since that is resource
-  management rather than the locator pattern. Verified end to end: a full build of the libraries and
-  every server, all services redeployed healthy and on the current binary, both the REST and the browser
-  smokes, and the workspace-graph and resource-server JUnit suites. Landed across the ten repositories
-  that referenced it. What is deliberately left: the boot-wired indexing and search services still
-  fetch the instance rather than receive it, because their construction threads through many call sites;
-  giving them the object explicitly is an optional later pass, not a prerequisite.
-
-- **Aligning the Jackson pins in the `mcp/*` subprojects.** Those poms deliberately pair
-  `jackson-annotations` 3.0-rc5 with 2.x `jackson-databind` to work around a missing constant, and
-  they say so in comments. Revisit when Jackson 3 is released.
