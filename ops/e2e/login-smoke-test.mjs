@@ -330,7 +330,12 @@ async function reEditInstance(page, newValue) {
 // the other flaky:
 //   1. The value is read through the two *always-on* getters — `currentMetadata` (JSON)
 //      and `currentMetadataYaml` (YAML) — which take no config and so cannot disturb the
-//      instance. Both must carry the value, each in its own format.
+//      instance. Both must carry the value, each in its own format. The re-edit's value
+//      lands in the model asynchronously and can lag the update's HTTP 200 by a beat, so
+//      we first wait for it to appear in both getters; only then are the assertions read.
+//      A genuine value-carriage regression still fails — the wait just times out and the
+//      assertions run against the (still value-less) metadata, reporting exactly what is
+//      missing.
 //   2. `outputSerialization` is then checked for the one thing only it decides: the
 //      *format* `currentMetadataSerialized` returns — a JSON object by default, a YAML
 //      string once flipped — with `currentMetadata` left JSON either way (the save-path
@@ -340,6 +345,24 @@ async function reEditInstance(page, newValue) {
 // Runs last on this page; OpenView uses a fresh browser, so re-configuring the element
 // here disturbs nothing after it.
 async function verifySerializationConfig(page, expectedValue) {
+  // Wait for the re-edited value to propagate into both getters before asserting.
+  // Reading a getter is side-effect-free, so polling cannot disturb the instance.
+  // On timeout we fall through: the assertions below then report precisely which
+  // getter is missing the value, so a real regression is not masked by the wait.
+  await page
+    .waitForFunction(
+      (needle) => {
+        const cee = document.querySelector('cedar-embeddable-editor');
+        if (!cee) return false;
+        const yaml = cee.currentMetadataYaml;
+        const yamlStr = typeof yaml === 'string' ? yaml : '';
+        return JSON.stringify(cee.currentMetadata).includes(needle) && yamlStr.includes(needle);
+      },
+      expectedValue,
+      { timeout: 15_000 },
+    )
+    .catch(() => {});
+
   const r = await page.evaluate((needle) => {
     const cee = document.querySelector('cedar-embeddable-editor');
     const str = (v) => (typeof v === 'string' ? v : '');
