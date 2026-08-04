@@ -24,10 +24,12 @@ and any wrong turns.
 | # | Item | State |
 |---|---|---|
 | 1 | Resolve `cedar-model-typescript-library` through npm | ⬜ leave the current sibling `file:` dependency in place for now |
+| 2 | Repair and enforce Angular ESLint | ⬜ configure during Phase 3, clear the existing baseline, then add it to `test:ci` |
 | — | **Phase 3** Angular 14 → 22 | ⬅ **next, and nothing outstanding before it** |
 | — | **Phase 4** delete the legacy test scaffolding | ⬜ after Phase 3 — karma, Protractor; **all 40 specs are gone** |
 
-One numbered dependency-hygiene item is outstanding. Entries under *Closed*
+Two numbered engineering-hygiene items are outstanding. Neither blocks Phase 3;
+item #2 belongs within it. Entries under *Closed*
 keep the numbers they carried at the time.
 
 `cee-with-model-library` is an **experiment**, not work pending a merge. All the
@@ -35,7 +37,7 @@ closed work below lives on it.
 
 Conformance: **34 of 37** corpus instances validate against their own template,
 up from 0; the three that do not are defects in the templates. Coverage: 2,260
-domain tests, 276 browser tests.
+domain tests, 36 Karma tests and 294 browser tests.
 
 **Phase 2 is complete and Phase 3 is unblocked.** The time picker was the only
 dependency with no upgrade path; `@ng-select/ng-select` and
@@ -302,6 +304,23 @@ Replace those `file:` references with one pinned, published npm version. Keep
 the sibling dependency as-is until the required model-library version is
 published and available to every environment that builds CEE; this item is a
 roadmap note, not authorization to change resolution now.
+
+### 2. Repair and enforce Angular ESLint
+
+`npm run lint` is configured in `angular.json`, but it cannot currently start
+because `@angular-eslint/builder` is absent. Installing the Angular 14-compatible
+builder exposes the deeper baseline problem: Angular templates are parsed with
+the TypeScript parser, and the current TypeScript/Prettier rules report 184
+existing errors. Adding that command to `test:ci` today would therefore make the
+unified gate permanently red; weakening or broadly suppressing the rules merely
+to get a green result would provide no useful protection.
+
+Configure Angular ESLint at the target framework version during Phase 3, with
+separate TypeScript and Angular-template parser/rule overrides. Resolve the
+existing violations to a zero-error baseline, preserving intentional exceptions
+locally and explicitly. Once `npm run lint` is green from a clean checkout, add
+it to the unified `test:ci` command so new TypeScript and template violations
+fail CI.
 
 ### ~~1. `eventHandler` did nothing~~ — now forwards diagnostics
 
