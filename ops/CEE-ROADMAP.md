@@ -23,13 +23,14 @@ and any wrong turns.
 
 | # | Item | State |
 |---|---|---|
-| 1 | Repair and enforce Angular ESLint | ⬜ do once at the Angular 22 target during Phase 3, clear the baseline, then add it to `test:ci` |
+| 1 | Move off the model library's `dev` prerelease | ⬜ CEE pins `0.9.2-dev.20260804.f1a3784`; publish `0.9.2` and repoint all three manifests |
+| 2 | Repair and enforce Angular ESLint | ⬜ do once at the Angular 22 target during Phase 3, clear the baseline, then add it to `test:ci` |
 | — | **Phase 3** Angular 14 → 22 | ⬅ **next, and nothing outstanding before it** |
 | — | **Phase 4** delete the legacy test scaffolding | ⬜ after Phase 3 — karma, Protractor; **all 40 specs are gone** |
 
-One numbered engineering-hygiene item is outstanding. It does not block Phase 3;
-it belongs within it. Entries under *Closed* keep the numbers they carried at the
-time.
+Two numbered engineering-hygiene items are outstanding. Neither blocks Phase 3;
+item #2 belongs within it. Entries under *Closed* keep the numbers they carried at
+the time.
 
 `cee-with-model-library` is an **experiment**, not work pending a merge. All the
 closed work below lives on it.
@@ -292,7 +293,49 @@ enforced, what the boundaries look like — is under *Reference*. Everything
 already closed is under *Closed*, kept because several entries record a wrong
 turn worth not repeating.
 
-### 1. Repair and enforce Angular ESLint
+### 1. Move off the model library's `dev` prerelease
+
+All three CEE manifests pin
+`@org.metadatacenter/cedar-model-typescript-library@0.9.2-dev.20260804.f1a3784`:
+a prerelease built from model-library commit `f1a3784`, carrying the `dev`
+dist-tag, published to the BMIR Nexus hosted repo and nowhere else. It is the
+snapshot equivalent, and CEE's current dependency state is therefore transient by
+construction.
+
+Four consequences follow, and they are the reason this is an item rather than a
+footnote:
+
+- **Dev builds exist to be superseded.** Nothing guarantees this one stays on
+  Nexus. Nexus rejects a republish of the same version rather than overwriting
+  it, so the pin cannot silently change underneath CEE — but it can be deleted,
+  and then CEE stops installing.
+- **Bumping it is manual, in three places.** A prerelease sits outside semver
+  ranges: `^0.9.0` does not match `0.9.2-dev.…`, so there is no range that tracks
+  dev builds. Every bump edits the root, `harness/` and `visual/` manifests
+  together, and a mismatch between them is not detected by anything.
+- **The scoped package is Nexus-only.** The old unscoped
+  `cedar-model-typescript-library` remains on public npmjs.org with `latest` at
+  0.8.0, and the scoped one was never published there. Building CEE now requires
+  Nexus to be reachable, which is a change in kind for a public repository. It is
+  reachable in practice: a GitHub-hosted macOS runner installed all three trees
+  from the committed lockfiles with no credentials, so Nexus serves anonymous
+  reads from outside the Stanford network. That is a property of the current
+  Nexus configuration, not a guarantee.
+- **The version encodes a commit, not a release.** `f1a3784` was `develop`'s head
+  when the build was published, and the working tree carried uncommitted
+  packaging edits at the time. The compiled output matches that commit; the
+  version string is not a claim about anything else.
+
+Resolution: publish `0.9.2` proper from the model library, repoint the three
+manifests at it, and re-lock. Decide at the same time whether the scoped package
+should also go to public npmjs.org — if CEE is to be buildable by anyone who
+cannot reach Nexus, it must, and that is a project decision rather than a
+mechanical one.
+
+Nothing here blocks Phase 3. It blocks calling CEE's dependency state settled,
+and it should be closed before any CEE release.
+
+### 2. Repair and enforce Angular ESLint
 
 `npm run lint` is configured in `angular.json`, but it cannot currently start
 because `@angular-eslint/builder` is absent. Installing the Angular 14-compatible
@@ -363,7 +406,12 @@ Three things cost time, all worth knowing:
    resolves to the public package.
 
 Verified from clean `npm ci` in all three trees: 36 Karma, 2,260 domain, 294
-Playwright, production build unchanged at 10.42 MB.
+Playwright, production build unchanged at 10.42 MB. Green in CI on a
+GitHub-hosted runner with no `~/.npmrc` and no credentials, which is what proves
+the three scope mappings and the Nexus fetch work outside this workspace.
+
+What this did not settle is *which* version CEE depends on. The pinned build is a
+`dev` prerelease, which is outstanding item 1 above.
 
 ### ~~1. `eventHandler` did nothing~~ — now forwards diagnostics
 
