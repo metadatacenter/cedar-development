@@ -221,6 +221,16 @@ response.
    OCDARWN, OCDARWNE, OCDO, RDL, REGN_BRO, STY1 (mostly VODAN/OCDAR/test/project artifacts). No automatic
    source exists, so each needs a hand-assigned title written to `ontology_source.name`. Cosmetic — the
    picker also shows the acronym — and cheap once the correct names are supplied; low priority.
+- **17. Re-fetch labels for the 9 drifted, raw-less ontologies (low priority).** Nine served ontologies
+   have real labels but could not be multilingual-backfilled (item 11): no retained local raw matches their
+   snapshot `file_hash`, and BioPortal has drifted, so neither `--backfill-labels` (source refetch) nor
+   `--backfill-labels-from-raw` can fill them — **NCIT, MS, DOVES, FLOPO, MIXS, MOLSIM, NAMO, RS, SSTIM**
+   (plus NCBITaxon, deferred for size). Their primary English `pref_label` serves fine; only the
+   multilingual/synonym side-table is missing, so search recall on a synonym or another language misses
+   them. Fix: re-ingest the current release from a source that still serves them — an OBO PURL for the OBO
+   ones (MS, FLOPO, RS, …), the way GAZ was refreshed; BioPortal for NCIT — which captures labels at ingest.
+   That mints a new labeled snapshot and moves `latest` (a currency refresh, not an in-place label add), so
+   it doubles as bringing these up to date. Low priority.
 
 ### Open questions (authorities that don't fit the version model)
 
