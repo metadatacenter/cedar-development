@@ -227,6 +227,17 @@ response.
    could fit the content-hash snapshot model *if* they expose retrievable content and release identifiers,
    and *if* a content hash of a flat set (a chemical list, not a hierarchy) is meaningful across
    serializations. Worth a spike.
+- **16. Serve CDEs (and their vocabularies) as versioned fields? (exploratory.)** A Common Data Element
+   bundles a field definition with its permissible value set — a reusable, named field. The terminology
+   server today versions the *vocabularies* a field's constraint points at (ontologies, value sets); a CDE
+   sits one level up: the whole field, value domain and metadata, as a single resolvable artifact. Worth
+   thinking through: should the terminology server serve CDEs the same content-hash-versioned way, so
+   reusing a CDE pins the *field* — not just its terms — and a CDE library (caDSR/NCI, …) becomes a
+   versioned, diffable catalog beside the ontologies? It pulls on the machinery already built (snapshots,
+   latest/frozen resolution, freeze-on-publish, instance capture — item 5) but at field granularity. Open:
+   what a CDE's content identity is (its value domain, or the whole definition), how it relates to the
+   value-set collections already modeled, and whether this belongs in the terminology server at all or in
+   a sibling CDE service that reuses the same versioning core.
 
 ## Ingestion tracker (ongoing)
 
