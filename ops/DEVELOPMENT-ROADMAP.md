@@ -212,20 +212,31 @@ model libraries — where their JSON and YAML serializations diverge — is in
   library's `YamlTitleDerivation` / `YamlJsonConstraintParity` specs; this item is the design decision
   those tests currently encode by default.
 
-- **Does the YAML serialization represent field UI order?** A template's `_ui.order` fixes the order its
-  fields are shown in. In the JSON that order is named explicitly; in YAML the children are a sequence, so
-  their order is carried by the list position instead. `container-reader-parity` shows `_ui.order`
-  survives a JSON → YAML → JSON round trip for a generated template, so nothing is *lost*. What is not yet
-  pinned is which side is authoritative on the way in: whether reordering the YAML sequence reorders the
-  form, and how a template whose `_ui.order` disagrees with its children order — a state JSON can express
-  and a plain YAML sequence cannot — resolves through each reader. Confirm the source of truth and pin it.
-
 - **The datetime field has an odd visual layout in CEE.** The date/time/timezone widget renders with
   spacing or alignment that looks wrong next to the other input types. Not a data defect — the value is
   read and written correctly (`cedar-input-datetime`, and the temporal value now carries its `@type`) —
   but a layout one. Reproduce against the running editor, identify whether it is the component's own
   template/styles or how the surrounding field row wraps the three sub-controls, and bring it into line
   with the other fields.
+
+- **Revisit CEE's datetime controls after the Angular upgrade, and settle offset versus timezone
+  semantics.** Angular Material 19 added an official `MatTimepicker` that can share a value with
+  `MatDatepicker`, use locale-driven 12/24-hour display, parse seconds, and generate options at second
+  intervals. Once Phase 3 reaches Angular 22, prototype replacing only CEE's in-house
+  `app-time-picker` with it. Do not replace the CEDAR-level temporal wrapper: Material still does not
+  provide year/month-only values, decimal seconds, a timezone selector, or CEDAR's XSD serialization
+  and granularity rules. Keep the custom control if matching those rules through Material formats and
+  options is more complex or less usable than the small component already owned here.
+
+  Treat the timezone selector as a separate design correction. It currently offers city-labelled
+  "timezones" but stores only fixed offsets such as `-08:00`; it also guesses an IANA browser zone and
+  immediately reduces it to the offset *now*, which can be wrong for the selected date across a DST
+  boundary. Decide which value the field means. If it means an XSD offset, label choices neutrally as
+  `UTC−08:00` rather than Pacific Time and derive any default for the selected instant. If it means a
+  civil timezone, preserve an IANA identifier such as `America/Los_Angeles` separately and derive the
+  applicable offset from the selected date and time, including ambiguous and nonexistent DST times.
+  While touching the component, remove the duplicate `valueChanges` subscriptions in `ngOnInit` and
+  `ngAfterViewInit`, which currently propagate each selection twice.
 
 ### Infrastructure
 
