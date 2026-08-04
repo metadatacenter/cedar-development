@@ -209,6 +209,18 @@ curl -s "https://metadatacenter.org/category/happenings/?cb=$RANDOM" | grep -c "
 Individual post pages can also be purged from the **Purge from cache** action on the post's row in
 Posts → All Posts.
 
+Cloudflare sits in front of the origin but returns `cf-cache-status: DYNAMIC` for these pages, so it
+is not the layer holding anything stale. Check with `curl -sI <url> | grep -i cf-cache-status` before
+suspecting it.
+
+**Some cached pages resist purging altogether.** The `/category/happenings/` archive has been observed
+pinned to one generation through two rounds of Purge All Caches *and* a Purge Modules → Page Cache,
+while a cache-busted request rendered correctly. When that happens the content is genuinely fine and
+the entry expires on its own. It is worth distinguishing what is actually affected: the archive shows
+only the auto-generated excerpt, so a stale copy there misstates a sentence in a listing, while the
+post itself — the page readers land on — is already correct. Do not keep purging in the hope it
+resolves; confirm the origin with a cache-buster, then move on.
+
 ## Reading the Site Without Logging In
 
 The public REST API answers most questions about what is already published, which is quicker than
