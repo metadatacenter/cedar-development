@@ -23,14 +23,13 @@ and any wrong turns.
 
 | # | Item | State |
 |---|---|---|
-| 1 | Resolve `cedar-model-typescript-library` through npm | ⬜ leave the current sibling `file:` dependency in place for now |
-| 2 | Repair and enforce Angular ESLint | ⬜ do once at the Angular 22 target during Phase 3, clear the baseline, then add it to `test:ci` |
+| 1 | Repair and enforce Angular ESLint | ⬜ do once at the Angular 22 target during Phase 3, clear the baseline, then add it to `test:ci` |
 | — | **Phase 3** Angular 14 → 22 | ⬅ **next, and nothing outstanding before it** |
 | — | **Phase 4** delete the legacy test scaffolding | ⬜ after Phase 3 — karma, Protractor; **all 40 specs are gone** |
 
-Two numbered engineering-hygiene items are outstanding. Neither blocks Phase 3;
-item #2 belongs within it. Entries under *Closed*
-keep the numbers they carried at the time.
+One numbered engineering-hygiene item is outstanding. It does not block Phase 3;
+it belongs within it. Entries under *Closed* keep the numbers they carried at the
+time.
 
 `cee-with-model-library` is an **experiment**, not work pending a merge. All the
 closed work below lives on it.
@@ -293,20 +292,7 @@ enforced, what the boundaries look like — is under *Reference*. Everything
 already closed is under *Closed*, kept because several entries record a wrong
 turn worth not repeating.
 
-### 1. Resolve the TypeScript model library through npm
-
-CEE, its domain harness and its visual-fixture generator currently resolve
-`cedar-model-typescript-library` from a sibling checkout's built `dist/`
-directory through `file:` dependencies. That makes installation and CI depend
-on recreating a particular local workspace layout and building another
-repository first.
-
-Replace those `file:` references with one pinned, published npm version. Keep
-the sibling dependency as-is until the required model-library version is
-published and available to every environment that builds CEE; this item is a
-roadmap note, not authorization to change resolution now.
-
-### 2. Repair and enforce Angular ESLint
+### 1. Repair and enforce Angular ESLint
 
 `npm run lint` is configured in `angular.json`, but it cannot currently start
 because `@angular-eslint/builder` is absent. Installing the Angular 14-compatible
@@ -324,6 +310,60 @@ resulting violations to a zero-error baseline, preserving intentional
 exceptions locally and explicitly. Once `npm run lint` is green from a clean
 checkout, add it to the unified `test:ci` command so new TypeScript and template
 violations fail CI.
+
+### ~~Resolve the TypeScript model library through npm~~ — done, scoped package on Nexus
+
+CEE, its domain harness and its visual-fixture generator resolved
+`cedar-model-typescript-library` from a sibling checkout's built `dist/` through
+`file:` dependencies, so installing and CI both depended on recreating a
+particular workspace layout and building another repository first.
+
+All three manifests now depend on
+`@org.metadatacenter/cedar-model-typescript-library`, published to the BMIR Nexus
+hosted repo `npm-cedar`, under an alias that preserves the local import name:
+
+```json
+"cedar-model-typescript-library": "npm:@org.metadatacenter/cedar-model-typescript-library@0.9.2-dev.20260804.f1a3784"
+```
+
+The alias is what kept the change small: 46 files import the library by its old
+unscoped name and none of them had to change. An `.npmrc` beside each of the
+three manifests maps the `@org.metadatacenter` scope to Nexus — three copies,
+because npm does not inherit `.npmrc` from a parent directory, and CI has no
+`~/.npmrc`. Reads need no credentials. CI no longer checks out or builds the
+model library.
+
+Scoping the dependency, rather than pointing the whole registry at Nexus, is what
+keeps the lockfiles public: 1,116 of 1,117 resolved URLs still point at
+npmjs.org. A repository-wide `registry=` would have put an internal host into
+every entry of a public repo's lockfile.
+
+Three things cost time, all worth knowing:
+
+1. **Nexus could not serve scoped packages at all.** npm requests them with the
+   slash percent-encoded (`@angular%2fcore`); Apache in front of Nexus decoded
+   and rejected that path, so every scoped install 404'd before reaching Nexus,
+   while unscoped ones worked. Fixed by the sysadmin with
+   `AllowEncodedSlashes NoDecode` and `nocanon` on the `ProxyPass`. Until that
+   landed, the only workaround was a direct tarball URL as the dependency spec,
+   since npm maps registries per *scope* and the old package name was unscoped.
+2. **`npm publish dist` publishes the wrong thing.** npm reads a bare `dist` as a
+   package *name*, resolves the unrelated public `dist@0.1.2` from npmjs.org, and
+   targets `registry.npmjs.org`. It must be `npm publish ./dist --tag dev`. A
+   `--dry-run` shows the resolved name, version and target registry, and is worth
+   running every time, because a publish cannot be undone.
+3. **`-SNAPSHOT` means nothing to npm.** Versions are immutable and a republish
+   is rejected outright rather than overwriting, so a SNAPSHOT version can be
+   published exactly once. Interim builds encode date and commit instead
+   (`0.9.2-dev.20260804.f1a3784`) and go out under the `dev` dist-tag, which
+   keeps `latest` off them. Prereleases also sit outside semver ranges: `^0.9.0`
+   does not match `0.9.2-dev.…`. Publishing under a scope additionally matters
+   because the old unscoped name still exists on public npmjs.org, where
+   `latest` is 0.8.0 — a loose range against the unscoped name silently
+   resolves to the public package.
+
+Verified from clean `npm ci` in all three trees: 36 Karma, 2,260 domain, 294
+Playwright, production build unchanged at 10.42 MB.
 
 ### ~~1. `eventHandler` did nothing~~ — now forwards diagnostics
 

@@ -123,15 +123,12 @@ checked out.
 
 ### First-time setup
 
-CEE still resolves `cedar-model-typescript-library` through a sibling `file:`
-dependency. Build it before installing CEE. Replacing this with an npm-resolved
-package is roadmap item #1; the sibling dependency remains for now.
+CEE resolves the model library from
+`@org.metadatacenter/cedar-model-typescript-library` on the BMIR Nexus, so no
+sibling checkout is needed. Only that one package comes from Nexus; everything
+else resolves from npmjs.org, and reads need no credentials.
 
 ```bash
-cd ../cedar-model-typescript-library
-npm ci
-npm run build
-
 cd ../cedar-embeddable-editor
 npm ci
 npm --prefix harness ci
@@ -148,12 +145,8 @@ commands below are faster feedback while working on one layer.
 
 ## Running the domain test harness
 
-The harness depends on the model library's built `dist/`, not its source, so the
-library must be built first.
-
-```bash
-cd ../cedar-model-typescript-library && npm install && npm run build
-```
+The harness depends on the published model library, resolved from Nexus like
+CEE's own dependency, so no local build of it is needed.
 
 ```bash
 nvm use 20.20.2
@@ -461,8 +454,20 @@ and nothing fails until the widget runs in a browser — the domain harness stay
 green throughout. The visual baseline is what catches it.
 
 **Model library changes aren't visible to the harness**
-The harness consumes `dist/`. Re-run `npm run build` in
-`cedar-model-typescript-library` — there is no watch link between them.
+The harness consumes the published package, not a local checkout, so a local
+build of the library changes nothing. To pick up model-library work, publish a
+new dev version and bump the alias in all three CEE manifests:
+
+```bash
+cd ../cedar-model-typescript-library && npm run build && npm publish ./dist --tag dev
+```
+
+Publish with the explicit `./dist` path — a bare `dist` is read as a package name
+and resolves an unrelated public package. Set the version in
+`package-dist.json`, not `package.json`; the build copies it to
+`dist/package.json`. Each publish needs a new version, because npm rejects a
+republish rather than overwriting. For a tight local edit loop, prefer
+`npm link` over publishing a version per iteration.
 
 **A test asserts something that looks wrong**
 Check whether it sits in a "known defects (characterized, not endorsed)" block.
