@@ -321,6 +321,40 @@ async function reEditInstance(page, newValue) {
   if (resp.status() !== 200) throw new Error(`instance update answered ${resp.status()}`);
 }
 
+// Exercise the serialization config against the deployed CEE bundle, in the browser.
+//
+// The library round-trip is proven in the CEE harness; this proves the shipped web
+// component honours the config a host sets — the one thing node tests cannot. Read
+// against the populated editor: `currentMetadata` is always JSON and
+// `currentMetadataSerialized` follows `outputSerialization`, so flipping it to yaml
+// must turn the serialized output into YAML while `currentMetadata` stays JSON — the
+// contract every existing host depends on. Runs last on this page; OpenView uses a
+// fresh browser, so re-configuring the element here disturbs nothing after it.
+async function verifySerializationConfig(page, expectedValue) {
+  const r = await page.evaluate((needle) => {
+    const cee = document.querySelector('cedar-embeddable-editor');
+    const str = (v) => (typeof v === 'string' ? v : '');
+    const json = cee.currentMetadata; // always JSON object
+    const defaultSerialized = cee.currentMetadataSerialized; // default config → JSON object
+    cee.config = { outputSerialization: 'yaml' }; // flip output to YAML
+    const yamlSerialized = cee.currentMetadataSerialized; // now a YAML string
+    const jsonStill = cee.currentMetadata; // must stay JSON
+    return {
+      jsonIsObject: json !== null && typeof json === 'object' && !Array.isArray(json),
+      defaultSerializedIsJson: defaultSerialized !== null && typeof defaultSerialized === 'object',
+      yamlSerializedIsString: typeof yamlSerialized === 'string' && yamlSerialized.length > 0,
+      yamlSerializedLooksYaml:
+        str(yamlSerialized).includes('children') && !str(yamlSerialized).trim().startsWith('{'),
+      jsonContractPreserved: jsonStill !== null && typeof jsonStill === 'object' && !Array.isArray(jsonStill),
+      valueCarriedBothWays: JSON.stringify(json).includes(needle) && str(yamlSerialized).includes(needle),
+    };
+  }, expectedValue);
+  const failed = Object.entries(r).filter(([, ok]) => !ok).map(([k]) => k);
+  if (failed.length > 0) {
+    throw new Error(`serialization-config check failed [${failed.join(', ')}] — ${JSON.stringify(r)}`);
+  }
+}
+
 // ── OpenView helpers ───────────────────────────────────────────────────────────
 
 // Publish a template to OpenView via the row ⋮ → "Enable OpenView" menu item. That
@@ -520,6 +554,13 @@ try {
   await reEditInstance(page, 'edited notes');
   console.log('✓ Metadata Editor rendered the post-save edit view, re-edited, and updated');
 
+  // 3b-iv. The deployed CEE honours the serialization config: default output is JSON,
+  //        outputSerialization:'yaml' makes currentMetadataSerialized YAML, and
+  //        currentMetadata stays JSON so the host's save path is unchanged.
+  step = 'serialization-config';
+  await verifySerializationConfig(page, 'edited notes');
+  console.log('✓ deployed CEE honours serialization config (JSON by default; YAML on request; currentMetadata stays JSON)');
+
   // 3c. Publish the template to OpenView, then confirm an anonymous visitor — a
   //     fresh browser with no CEDAR session — sees it presented on the OpenView
   //     site (its name in the title bar, its Disease field rendered). This exercises
@@ -558,7 +599,7 @@ try {
   if (![200, 204].includes(delFolder.status)) throw new Error(`folder delete answered ${delFolder.status}: ${delFolder.text}`);
   console.log('✓ folder deleted');
 
-  console.log('\nPASS: login (reusable session) → seed folder+field → template w/ DOID + text field → populate + fill → save instance → re-edit (update) → OpenView presented anonymously → delete');
+  console.log('\nPASS: login (reusable session) → seed folder+field → template w/ DOID + text field → populate + fill → save instance → re-edit (update) → serialization config (JSON/YAML) → OpenView presented anonymously → delete');
   await browser.close();
   process.exit(0);
 } catch (e) {
