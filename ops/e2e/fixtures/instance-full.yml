@@ -1,0 +1,8 @@
+type: "instance"
+name: "Single Field Template metadata"
+id: "https://repo.metadatacenter.org/template-instances/e68980be-6583-4529-954a-edabceb29239"
+isBasedOn: "https://repo.metadatacenter.org/templates/dc898011-2742-41e9-9dae-9b57dbf2600f"
+createdOn: "2018-11-12T16:37:43-08:00"
+createdBy: "https://metadatacenter.org/users/018bbf94-f8e4-4e0e-946d-341698f70245"
+modifiedOn: "2018-11-12T16:37:43-08:00"
+modifiedBy: "https://metadatacenter.org/users/018bbf94-f8e4-4e0e-946d-341698f70245"

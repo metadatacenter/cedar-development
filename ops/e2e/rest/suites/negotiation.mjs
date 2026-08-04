@@ -94,6 +94,49 @@ export async function run({ user1, folderId }) {
         `the message was "${(fullOnCreate.text ?? '').slice(0, 200)}"`);
   }
 
+  suite('content negotiation: YAML in across element, field and instance');
+
+  // The template above proved the write path; these prove it is uniform. Every artifact resource
+  // @Consumes application/yaml, so the minimal authoring form should create and the full form should
+  // update for each kind, not templates alone. The instance is based on a template created here and
+  // carries no children — an empty instance the server inflates against its template (an empty
+  // `children: {}` is refused as unknown, so the key is omitted).
+  const baseTpl = await call(auth, 'POST', `/templates?folder_id=${enc(folderId)}`,
+      yaml('template-minimal.yml'), { contentType: 'application/yaml' });
+  const baseTplId = checkStatus(baseTpl, 201, 'a base template is created for the YAML instance')
+      ? baseTpl.body['@id'] : null;
+  if (baseTplId) cleanup('template', `/templates/${enc(baseTplId)}`, `YAML base template ${RUN}`);
+
+  const YAML_IN_KINDS = [
+    { kind: 'element', path: '/template-elements' },
+    { kind: 'field', path: '/template-fields' },
+    { kind: 'instance', path: '/template-instances' },
+  ];
+
+  for (const { kind, path } of YAML_IN_KINDS) {
+    if (kind === 'instance' && !baseTplId) continue;
+    // An instance names the template it belongs to; point it at the one created above.
+    const rebase = (text) =>
+        kind === 'instance' ? text.replace(/^isBasedOn: .*$/m, `isBasedOn: "${baseTplId}"`) : text;
+
+    const created = await call(auth, 'POST', `${path}?folder_id=${enc(folderId)}`,
+        rebase(yaml(`${kind}-minimal.yml`)), { contentType: 'application/yaml' });
+    if (!checkStatus(created, 201, `${kind}: the minimal YAML form is accepted on create`)) continue;
+    const id = created.body['@id'];
+    cleanup(kind, `${path}/${enc(id)}`, `YAML ${kind} ${RUN}`);
+    check(!!id, `${kind}: and the system assigns the identifier it omitted`, 'no identifier came back');
+
+    // What YAML created must read back as a proper JSON artifact — YAML in must not leave YAML behind.
+    const back = await call(auth, 'GET', `${path}/${enc(id)}`);
+    check(back.status === 200 && !!back.body?.['@id'],
+        `${kind}: what YAML created reads back as JSON`, `${back.status}: ${(back.text ?? '').slice(0, 150)}`);
+
+    // The full form — id plus the system keys — is accepted on update.
+    const full = rebase(yaml(`${kind}-full.yml`).replace(/^id: .*$/m, `id: ${id}`));
+    const put = await call(auth, 'PUT', `${path}/${enc(id)}`, full, { contentType: 'application/yaml' });
+    checkStatus(put, 200, `${kind}: the full YAML form is accepted on update`);
+  }
+
   // x-yaml is the older spelling and must behave the same as application/yaml.
   const xYaml = await call(auth, 'GET', at, undefined, { accept: 'application/x-yaml' });
   check(xYaml.status === 200 && (xYaml.headers.get('content-type') ?? '').includes('yaml'),
