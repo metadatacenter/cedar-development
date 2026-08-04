@@ -170,8 +170,11 @@ status() {
     port_open "$(app_port "$name")" && port_disp="up" || port_disp="down"
     h=$(health_of "$name"); [ "$h" = healthy ] && up=$((up+1))
     bin=$(binary_of "$name" "$own"); [ "$bin" = STALE ] && stale=$((stale+1))
-    # Exclude logback's own configuration chatter, which mentions appenders named FILE-ERROR
-    errs=$(grep -iE "ERROR|Exception" "$(logfile "$name")" 2>/dev/null | grep -cv "|-INFO in"); errs=${errs:-0}
+    # Exclude logback's own configuration chatter. Its internal status lines all take the
+    # form "|-LEVEL in <class>" (INFO/WARN/ERROR/…), and one WARN reports an appender named
+    # FILE-ERROR "not referenced" — which the old "|-INFO in"-only filter let through as a
+    # phantom error. Real application errors have no "|-" prefix (e.g. "ERROR [ts] logger:").
+    errs=$(grep -iE "ERROR|Exception" "$(logfile "$name")" 2>/dev/null | grep -cvE "\|-(INFO|WARN|ERROR|TRACE|DEBUG) in "); errs=${errs:-0}
     printf "%-18s %-8s %-6s %-10s %-8s %s\n" "$name" "$pid_disp" "$port_disp" "$h" "$bin" "$errs"
   done < <(names)
   echo "-------------------------------------------------------------"
