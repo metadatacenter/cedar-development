@@ -34,7 +34,7 @@ keep the numbers they carried at the time.
 closed work below lives on it.
 
 Conformance: **34 of 37** corpus instances validate against their own template,
-up from 0; the three that do not are defects in the templates. Coverage: 2,257
+up from 0; the three that do not are defects in the templates. Coverage: 2,260
 domain tests, 276 browser tests.
 
 **Phase 2 is complete and Phase 3 is unblocked.** The time picker was the only
@@ -59,7 +59,7 @@ sense that the cost of the jump grows every release.
 | TypeScript | 4.8 |
 | rxjs | 6.6.7 |
 | Test coverage before this work | 40 spec files, 45 `it()` blocks, all `expect(component).toBeTruthy()` |
-| Test coverage now | 2,257 domain tests in `harness/`, 276 browser tests in `visual/` |
+| Test coverage now | 2,260 domain tests in `harness/`, 276 browser tests in `visual/` |
 
 ## The blocker, removed
 
@@ -98,7 +98,7 @@ candidate, cannot express what CEE needs.
 
 ### Phase 0 — Domain test harness ✅ done
 
-`harness/` — 2,257 headless tests across 40 files, over template parsing,
+`harness/` — 2,260 headless tests across 40 files, over template parsing,
 instance reading and writing, path resolution, value writes, multi-instance
 mechanics, controlled-term constraints, the quality report, and conformance to
 the CEDAR model. Imports no Angular, so it survives the upgrade unchanged. See

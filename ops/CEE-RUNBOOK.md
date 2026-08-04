@@ -139,7 +139,7 @@ npm --prefix visual ci
 ./visual/node_modules/.bin/playwright install chromium
 ```
 
-The current gate should report 32 Karma assertions, 2,257 domain tests and 276
+The current gate should report 32 Karma assertions, 2,260 domain tests and 276
 Playwright tests. Treat these as useful smoke checks, not permanent constants:
 new tests should make the counts rise.
 
@@ -160,7 +160,7 @@ nvm use 20.20.2
 npm run test:domain
 ```
 
-Expect **2,257 passing** on `cee-with-model-library`. For watch mode, run
+Expect **2,260 passing** on `cee-with-model-library`. For watch mode, run
 `npm --prefix harness run test:watch`.
 
 A green run here means CEE agrees with itself. For whether its output is
@@ -178,6 +178,12 @@ the domain layer the harness actually targets — expect roughly **95%
 statements**. The rest of `shared/` is Angular services, REST response models
 and pipes, which the harness does not load and should not, so the headline
 number for all of `shared/` is meaningless.
+
+Coverage is enforced by directory rather than against that misleading
+aggregate. `factory` has 90% statement and branch floors; `handler`, `util` and
+`validation` have 90% statement and 85% branch floors. These grouped thresholds
+are part of `npm run test:ci`, so a domain regression fails CI even when every
+test assertion still passes.
 
 Read the *never-called-function* list rather than the percentage. That is what
 found the attribute-value hole in August 2026 — three functions no test had ever
