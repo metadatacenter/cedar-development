@@ -212,6 +212,21 @@ model libraries — where their JSON and YAML serializations diverge — is in
   library's `YamlTitleDerivation` / `YamlJsonConstraintParity` specs; this item is the design decision
   those tests currently encode by default.
 
+- **Does the YAML serialization represent field UI order?** A template's `_ui.order` fixes the order its
+  fields are shown in. In the JSON that order is named explicitly; in YAML the children are a sequence, so
+  their order is carried by the list position instead. `container-reader-parity` shows `_ui.order`
+  survives a JSON → YAML → JSON round trip for a generated template, so nothing is *lost*. What is not yet
+  pinned is which side is authoritative on the way in: whether reordering the YAML sequence reorders the
+  form, and how a template whose `_ui.order` disagrees with its children order — a state JSON can express
+  and a plain YAML sequence cannot — resolves through each reader. Confirm the source of truth and pin it.
+
+- **The datetime field has an odd visual layout in CEE.** The date/time/timezone widget renders with
+  spacing or alignment that looks wrong next to the other input types. Not a data defect — the value is
+  read and written correctly (`cedar-input-datetime`, and the temporal value now carries its `@type`) —
+  but a layout one. Reproduce against the running editor, identify whether it is the component's own
+  template/styles or how the surrounding field row wraps the three sub-controls, and bring it into line
+  with the other fields.
+
 ### Infrastructure
 
 - **Upgrade the persistence and infrastructure servers.** These versions are currently pinned (see the
@@ -269,6 +284,16 @@ model libraries — where their JSON and YAML serializations diverge — is in
   secret. Give each `CedarUserApiKey` a stable non-secret identifier and address keys by that id
   (`/api-keys/{keyId}`), keeping the secret out of the path. Breaking change: cedar-cli and the profile
   UI call these routes, so it needs a coordinated client update.
+
+- **Containerize the CEDAR deployment: local first, then staging and production.** The local stack runs
+  as native processes brought up by hand — JDK 17 pinned, infra services started, fifteen service jars
+  and the frontends launched through `cedar-services.sh`. It works but it is assembled, not reproducible,
+  and it does not resemble how staging or production would run. Investigate a Docker-based deploy: an
+  image per service, a compose file for the local estate, and a path from there to staging and prod.
+  Scope the build-and-publish pipeline, config and secret injection, the version-locked persistence and
+  infra services (Mongo, MySQL, Neo4j, Redis, OpenSearch, Keycloak — pinned, so they are dependencies to
+  wire rather than rebuild), the `.orgx` TLS story, and whether the containerized workflow replaces the
+  native one or runs alongside it for local development.
 
 ## Testing
 
@@ -409,6 +434,26 @@ These are deliberate decisions, recorded so they are not rediscovered as gaps.
 ## Done
 
 Completed cross-cutting work, kept as a short record of what changed and how it was verified.
+
+- **Made YAML a first-class serialization for the embeddable editor, and completed the model library's
+  read/write matrix.** CEE reads and emits both JSON and YAML through `cedar-model-typescript-library`,
+  and a generative harness now proves the two are interchangeable — every field kind renders and fills
+  the same whether the template arrives as JSON or as YAML, at single and multiple cardinality, and the
+  instance emitted carries the same values either way (`format-independence-generative`). Shaking that
+  out found two real round-trip divergences, each fixed against the canonical Java library: a numeric
+  field's datatype defaulted to `xsd:decimal` from JSON but came back null from YAML
+  (`YamlFieldReaderNumeric`), and a YAML-sourced artifact lost its `title`/`description` — which the
+  meta-schema requires non-empty — because the YAML carries only a name (`YamlAbstractArtifactReader`
+  now derives them as `"<name> <type> schema"`, as Java does). The one missing cell, a YAML *instance*
+  reader, is now built (`YamlTemplateInstanceReader`), with an `InstanceInflater` that restores from the
+  template what a sparse YAML instance drops — the `@context` property IRIs and the empty required slots
+  — so a YAML instance round-trips to a valid JSON instance. A host can now choose input and output
+  serialization by config, independently, with `currentMetadata` left JSON so the save path is
+  unchanged. Verified across the CEE harness (format-independence, container and constraint reader
+  parity, instance round-trip), the library's own reader/inflater specs, the CEE component config suite
+  in karma (the app's first component tests), a browser step in the UI smoke that flips the deployed
+  bundle's output to YAML, and a REST matrix that creates and updates every artifact kind from YAML over
+  the wire (`negotiation`).
 
 - **A shared artifact could not be found by name in search.** The cause was a single Cypher defect, not
   the indexing-identity problem this item was once framed as. `getUserIdsWithTransitivePermissionOnFilesystemResource`
