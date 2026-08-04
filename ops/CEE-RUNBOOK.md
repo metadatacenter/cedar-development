@@ -139,7 +139,7 @@ npm --prefix visual ci
 ./visual/node_modules/.bin/playwright install chromium
 ```
 
-The current gate should report 32 Karma assertions, 2,260 domain tests and 276
+The current gate should report 36 Karma assertions, 2,260 domain tests and 294
 Playwright tests. Treat these as useful smoke checks, not permanent constants:
 new tests should make the counts rise.
 
@@ -389,7 +389,7 @@ cd visual
 npm run prepare:all && npm test
 ```
 
-Expect **276 passing** in about 40 seconds. `prepare:all` re-concatenates the
+Expect **294 passing** in about 40 seconds. `prepare:all` re-concatenates the
 bundle from `../dist` and regenerates the template fixtures; run it after any
 rebuild.
 

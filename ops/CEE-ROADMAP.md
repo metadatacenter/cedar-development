@@ -61,7 +61,7 @@ sense that the cost of the jump grows every release.
 | TypeScript | 4.8 |
 | rxjs | 6.6.7 |
 | Test coverage before this work | 40 spec files, 45 `it()` blocks, all `expect(component).toBeTruthy()` |
-| Test coverage now | 2,260 domain tests in `harness/`, 276 browser tests in `visual/` |
+| Test coverage now | 2,260 domain tests in `harness/`, 294 browser tests in `visual/` |
 
 ## The blocker, removed
 
@@ -115,11 +115,12 @@ confidence and a characterization baseline.
 
 ### Phase 1 — Visual regression baseline ✅ done
 
-`visual/` — 276 Playwright tests against the **concatenated bundle** as an
-embedder consumes it, not the dev server. Nine fixtures covering input types,
+`visual/` — 294 Playwright tests against the **concatenated bundle** as an
+embedder consumes it, not the dev server. Twelve fixtures covering input types,
 choice widgets, two-deep multi-instance nesting, controlled terms, static
-content with page breaks, validation states, the timezone picker and all seven
-external authority widgets; two viewports. Runs in ~35s. See
+content with page breaks, validation states, temporal granularities,
+attribute-value fields, the timezone picker and all seven external authority
+widgets; two viewports. Runs in ~40s. See
 [visual/README.md](../../cedar-embeddable-editor/visual/README.md).
 
 Not only screenshots any more. The authority-widget tests assert behaviour —
@@ -231,7 +232,7 @@ styling hit rather than a continuation of the first.
 
 **The safety net breaks at the same hop as the builder.** `visual/`'s bundle step
 is `cat runtime.js polyfills.js main.js`, three filenames the esbuild application
-builder does not produce in that shape. So the 276 browser tests stop working at
+builder does not produce in that shape. So the 294 browser tests stop working at
 16 → 17 and have to be repaired there before they can protect anything after.
 Sequencing is in our favour and worth not disturbing: the MDC hop is 14 → 15, two
 hops *before* the builder changes, so the net is intact for the hard one.
@@ -1091,13 +1092,13 @@ close it here, and the config comment now says so instead of overclaiming:
 
 Worth applying the same test to the other baselines before trusting them on
 anything small: `pager.png` was already clipped for exactly this reason, but the
-nine full-page fixtures are not, and a single widget is well under 1% of any of
+twelve full-page fixtures are not, and a single widget is well under 1% of any of
 them.
 
 ### ~~2. Full-page baselines could not see a widget-sized change~~ — done
 
 The generalisation of what the footer rebrand exposed. A single widget is a small
-fraction of any of the nine full-page fixtures, so a widget that renders wrong
+fraction of any of the twelve full-page fixtures, so a widget that renders wrong
 after the MDC rewrite — the thing this suite exists to catch — could move every
 pixel it owns and still come in under the page's 1% budget.
 
