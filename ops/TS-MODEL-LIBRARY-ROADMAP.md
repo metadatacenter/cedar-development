@@ -15,7 +15,7 @@ labels.
 
 ## Current position
 
-- 61 suites and 606 tests. Every push to `develop` runs them and builds the
+- 63 suites and 639 tests. Every push to `develop` runs them and builds the
   distributable.
 - The test data is in the repository: the artifact corpus at
   `cedar-test-artifacts/`, the 93 reference templates the integration tests read
@@ -27,6 +27,14 @@ labels.
   are recorded as warnings rather than rejected, and `STRICT` stays strict.
 - `InstanceValidator.validate` answers instance conformance, with 56 corpus
   template/instance pairs as its false-positive net.
+- The two verdicts on a parse differ. `wasSuccessful()` counts errors, so it
+  answers whether the artifact is usable; `adheresToBlueprint()` counts warnings
+  too, so it answers whether the document is in the canonical form. A pre-2024
+  template is successful and does not adhere.
+- An instance is read against the envelope it should carry — `@context`, `@id`,
+  `schema:isBasedOn` and the four provenance keys. Gaps are warnings, so the 35
+  of 120 corpus instances that are merely incomplete still read successfully
+  while no longer claiming to adhere.
 - `package-dist.json` carries `0.9.2-dev.20260804.f1a3784`, the version before
   any of the validator work. Nothing has shipped.
 
@@ -38,52 +46,22 @@ Nothing downstream can move until this ships. CEE has a written conformance spec
 it cannot run and no check at all on its own output in the meantime — see
 [CEE-ROADMAP.md](./CEE-ROADMAP.md) item 7.
 
-Three decisions, then a publish:
+Two decisions, then a publish:
 
-- Whether the new instance reports are errors or warnings.
 - Whether this is `0.10.0` rather than `0.9.x`. The question is real rather than
-  ceremonial: `wasSuccessful()` on an instance parse could only ever return true
-  before, and now can return false. Any consumer branching on it sees new
-  behavior.
+  ceremonial, and there are now two reasons: `wasSuccessful()` on an instance
+  parse could only ever return true before and can now return false, and
+  `adheresToBlueprint()` has stopped being a second name for it. Any consumer
+  branching on either sees new behavior.
 - Which version field is authoritative. `package.json` says `0.9.0` and
   `package-dist.json` says the prerelease above; the dist one is what publishes.
 
-## Validation Correctness
-
-Three findings of the same kind: the reader has no template to compare against,
-so it cannot always tell one shape from another, and the gap shows up as
-something not checked rather than something checked wrongly.
-
-### 2. The instance envelope is not validated
-
-[Issue #2](https://github.com/metadatacenter/cedar-model-typescript-library/issues/2).
-An instance with no `@id`, no `schema:isBasedOn`, no provenance and an empty
-`@context` still reports `adheresToBlueprint() === true`. The reader's
-`knownKeys` already lists the envelope; nothing consults it. Reporting a null
-`@id` was the first write into that parsing result, and the rest of the envelope
-is the remainder of the issue.
-
-### 3. `[]` is read as an `InstanceDataAttributeValueField`
-
-An empty list is not an empty array, but without a template the reader cannot
-tell one from the other. Worked around in `InstanceValidator` with a comment
-rather than fixed. Every unfilled multi child looked like a cardinality mismatch
-until this was understood, which is why the workaround exists.
-
-### 4. `wasSuccessful()` and `adheresToBlueprint()` are identical
-
-Both return `blueprintComparisonErrors.length === 0`, in both
-`JsonArtifactParsingResult` and `YamlArtifactParsingResult`. Warnings now carry
-real signal, so one of the two should probably mean "clean, including warnings".
-Decide which before item 1 fixes the meaning of both in a published version.
-
-## Naming
-
-### 5. `JsonTemplateInstancetReader.ts` — the transposed `t`
-
-The exported class name is correct; only the filename is wrong. The package ships
-as a bundle, so no consumer imports the path and the rename is internal to
-`src/index.ts` and `CedarJsonReaders.ts`.
+The errors-versus-warnings question is settled and needs no further decision. A
+document that cannot be right is an error — a null `@id`, a value carrying the
+wrong `@type`. A document that is merely incomplete or written in a superseded
+form is a warning, because the corpus proves such documents exist and a reader
+that rejects them is useless. `adheresToBlueprint()` is where a caller wanting
+the strict reading goes.
 
 ## Corpus
 
@@ -125,15 +103,11 @@ reachable. A `cedar-development` job, if it is worth having at all.
 
 ## Delivery Order
 
-1. Settle the `wasSuccessful()` / `adheresToBlueprint()` meaning (item 4) and the
-   error-versus-warning question, since both change what a published version
-   promises.
-2. Release (item 1). CEE unblocks here.
-3. Close the envelope gap (item 2) and the empty-list workaround (item 3), which
-   are the same defect class and are cheaper to test together.
-4. Take the filename fix (item 5) with whichever release is convenient.
-5. Resolve the corpus judgements (items 6 and 7) when someone with the version
-   history is available.
+1. Release (item 1). Everything that changes what a published version promises
+   has landed, so this is now the only thing between the library and CEE.
+2. Resolve the corpus judgements (items 6 and 7) when someone with the version
+   history is available. Neither blocks a release.
+3. Revisit the deferred items (8 and 9) only if a consumer asks for them.
 
 ## Out of Scope
 
