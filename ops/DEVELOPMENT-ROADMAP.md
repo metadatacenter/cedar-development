@@ -241,6 +241,17 @@ model libraries — where their JSON and YAML serializations diverge — is in
   While touching the component, remove the duplicate `valueChanges` subscriptions in `ngOnInit` and
   `ngAfterViewInit`, which currently propagate each selection twice.
 
+- **Saving a template fails validation when GAZ is constrained as a whole ontology.** Adding the GAZ
+  (Gazetteer) ontology to a field as an *entire-ontology* controlled-term value makes the template
+  fail validation on save; a branch or specific-class constraint on the same ontology does not.
+  Reproduce and capture the exact error and which service raises it — the resource/schema validation
+  path, or a terminology call the save blocks on. GAZ is one of the largest ontologies served, so the
+  first hypothesis is scale (a slow, oversized, or timed-out terminology response when the constraint
+  is resolved or version-pinned) rather than a structural validation defect; test it by comparing a
+  small whole-ontology constraint and a GAZ branch/class constraint, which bound the work. Decide
+  whether the fix belongs on the terminology/resolution path (avoid enumerating a full ontology at
+  validate/save time, or paginate and cache it) or in how the whole-ontology constraint is validated.
+
 ### Infrastructure
 
 - **Upgrade the persistence and infrastructure servers.** These versions are currently pinned (see the
