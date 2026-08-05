@@ -30,7 +30,9 @@ either type shows the broken header; a template without them renders normally.
 
 Reproduced on a template carrying one of every field type: 23 of 25 field labels
 render, and exactly NIH Grant ID and DOI are missing, with the header left as raw
-`{{...}}`.
+`{{...}}`. Removing those two types renders everything — including a 123-child,
+two-level-nested template exercising every other field type at single and multiple
+cardinality, which comes up clean with the header intact.
 
 Add designer renderer support for `ext-nih-grant-id-field` and `ext-doi-field`,
 mirroring the existing external-authority field renderers (ROR/ORCID/PFAS/RRID/
@@ -39,16 +41,11 @@ header title interpolates.
 
 ## Performance
 
-### 2. The designer stalls on large templates
+### 2. ~~The designer stalls on large templates~~ — withdrawn (same cause as item 1)
 
-Opening a large template (~130+ children across nested elements, exercising every
-field type at single and multiple cardinality) pegs the main thread long enough
-that the page never finishes its first render — the header stays on the literal
-`{{...}}` binding and interactions block. The template is model-valid and saves
-through the REST API; the designer's per-node watch/digest cost appears to grow
-past a usable bound at this size. Characterize where the cost concentrates
-(watch count, repeated digests, per-field terminology or lookup calls) and set a
-target size the designer must handle without stalling. A natural benchmark to
-retest against is the Angular upgrade tracked in
-[CEE-ROADMAP.md](./CEE-ROADMAP.md) item 2 (that upgrade is for the embeddable
-editor, but the designer shares much of the same rendering pressure).
+First recorded as a size/digest cliff after a ~133-child template failed to render.
+It is not a size problem: that template carried `ext-nih-grant-id-field` and
+`ext-doi-field` in every field group (about ten copies in all), so item 1's
+render-abort fired repeatedly and looked like a hang. A 123-child, two-level-nested
+template with every *other* field type renders cleanly, header intact. Folded into
+item 1. Reopen only if a template free of the item-1 types is shown to stall.
