@@ -145,7 +145,7 @@ response.
    as subsumption, and EHDAA is configured as a `part_of` partonomy; re-ingested and re-allowlisted), DDSS
    was already healthy (807k labelled classes), and EO1 stays BioPortal-served (its SKOS source is broken —
    `skos:broader` values are string literals, not IRIs).
-- **9. Ingest ontologies from more sources.** *Shipped:* `--source url` (`DirectUrlSubmissionSource` —
+- **8. Ingest ontologies from more sources.** *Shipped:* `--source url` (`DirectUrlSubmissionSource` —
    any URL) and `--source bioportal --base-url` (any OntoPortal instance: AgroPortal, EcoPortal, …).
    Proven across five serializations (RDF/XML, OBO, Turtle, gzipped OWL, SKOS) and nine authorities, with
    source-, serialization-, and host-independent content-hash identity confirmed on real data (BFO
@@ -158,7 +158,7 @@ response.
    ingested once its download timeout was raised to 90 min (commit `f66b1bb`). *Remaining:* NCBITaxon
    (deferred, too RAM/time-heavy); bulk-harvest OLS `fileLocation`s; label the OntoPortal authority on the
    snapshot (backend records `bioportal` regardless of instance).
-- **10. Backfill `iri`/`sourceSystem` onto existing stored constraints.** A data migration over published
+- **9. Backfill `iri`/`sourceSystem` onto existing stored constraints.** A data migration over published
    CEDAR templates, not a code change — and not required for function, since tolerant readers already
    default a constraint with no `sourceSystem`/`iri` to BioPortal + acronym-derived resolution. Two halves:
    `sourceSystem` is a no-op (absent already means BioPortal everywhere it is read, including the router);
@@ -169,21 +169,21 @@ response.
    canonical identity explicitly, immune to acronym ambiguity and future cross-source resolution), not a
    functional gap. Do a zero-mutation dry-run first (report coverage and non-derivable acronyms) before any
    run against the live template store.
-- **11. Remaining multilingual read-side options (deferred by decision).** Done and in the "Built" list:
+- **10. Remaining multilingual read-side options (deferred by decision).** Done and in the "Built" list:
    capture, serving (search recall, synonyms, `lang=<code>` on the class and integrated-search endpoints),
    and the label backfill — `--backfill-labels-from-raw` (re-extract from the retained local raw matched by
    `file_hash`, no version-id gate since labels key by IRI) added +5.6M labels across the served catalog.
-   Residual data gap is item 17 (9 raw-less ontologies). Still open here, *by decision not blockers:*
+   Residual data gap is item 13 (9 raw-less ontologies). Still open here, *by decision not blockers:*
    `lang=all` (the `{lang:value}` hash), `lang=` on the public `search`/tree output, and honoring the
    submission's `naturalLanguage` for the default (stays English-preferred).
-- **12. Extend the value-constraint YAML to express a term's language.** A controlled-term constraint
+- **11. Extend the value-constraint YAML to express a term's language.** A controlled-term constraint
    currently says nothing about language; a field always renders (and searches) labels in the served
    default. Add a key naming the language the field should present its terms in — `termLanguage`, or
    `termDefaultLanguage` if a field may hold values in several languages and the key only sets the default
    (name to be decided). On the read side it maps to the `lang=` the editor/CEE already sends to the
-   terminology server (item 11); mostly a spec + editor addition, orthogonal to the identity question
+   terminology server (item 10); mostly a spec + editor addition, orthogonal to the identity question
    (item 4).
-- **15. Name the title-less ontologies in the picker (low priority, cosmetic).** The ingest now takes an
+- **12. Name the title-less ontologies in the picker (low priority, cosmetic).** The ingest now takes an
    ontology's display name from BioPortal's metadata, then from its own `owl:Ontology` header title, then
    the acronym — and never downgrades a set name back to the acronym on re-ingest. That leaves the
    ontologies whose source declares no header title at all still showing the bare acronym in the picker:
@@ -191,8 +191,8 @@ response.
    OCDARWN, OCDARWNE, OCDO, RDL, REGN_BRO, STY1 (mostly VODAN/OCDAR/test/project artifacts). No automatic
    source exists, so each needs a hand-assigned title written to `ontology_source.name`. Cosmetic — the
    picker also shows the acronym — and cheap once the correct names are supplied; low priority.
-- **17. Re-fetch labels for the 9 drifted, raw-less ontologies (low priority).** Nine served ontologies
-   have real labels but could not be multilingual-backfilled (item 11): no retained local raw matches their
+- **13. Re-fetch labels for the 9 drifted, raw-less ontologies (low priority).** Nine served ontologies
+   have real labels but could not be multilingual-backfilled (item 10): no retained local raw matches their
    snapshot `file_hash`, and BioPortal has drifted, so neither `--backfill-labels` (source refetch) nor
    `--backfill-labels-from-raw` can fill them — **NCIT, MS, DOVES, FLOPO, MIXS, MOLSIM, NAMO, RS, SSTIM**
    (plus NCBITaxon, deferred for size). Their primary English `pref_label` serves fine; only the
@@ -204,12 +204,12 @@ response.
 
 ### Open questions (authorities that don't fit the version model)
 
-- **13. ORCID / ROR / RRID (and DOI): not versionable per se.** A constraint names the *authority*; the
+- **14. ORCID / ROR / RRID (and DOI): not versionable per se.** A constraint names the *authority*; the
    value is a stable identifier captured in the instance — no snapshot, no current-version. The spec
    already covers the shape (`sourceSystem` set, `version` omitted). Open question: how the editor and
    instance model represent authority-typed, value-captured, unversioned fields distinctly from a
    versioned controlled term. (The instance is where these land — see item 5.)
-- **14. CompTox / PFAS (release-based databases): possibly versionable.** Content with releases, so they
+- **15. CompTox / PFAS (release-based databases): possibly versionable.** Content with releases, so they
    could fit the content-hash snapshot model *if* they expose retrievable content and release identifiers,
    and *if* a content hash of a flat set (a chemical list, not a hierarchy) is meaningful across
    serializations. Worth a spike.
@@ -245,7 +245,7 @@ response.
 
 ## Ingestion tracker (ongoing)
 
-An **iterative** task: updated each time more ontologies are ingested from other repositories (item 9).
+An **iterative** task: updated each time more ontologies are ingested from other repositories (item 8).
 Identity is the content hash, so the same release from multiple sources/serializations collapses to one
 snapshot — the distinct-hash count is the true store size. Method/findings in
 [ONTOLOGY-INGEST-SOURCES.md](ONTOLOGY-INGEST-SOURCES.md).
@@ -283,7 +283,7 @@ ontology, distinct content hashes): GO-basic (2024-01-17 vs 2025-06-01), PATO (2
   deferred to a giant-run with the server stopped). New `latest` snapshots serve after a terminology restart.
 - 2026-08-04 — GAZ ingested (download timeout raised to 90 min, commit `f66b1bb`), and the served catalog's
   multilingual labels were backfilled from retained local raws (`--backfill-labels-from-raw`, +5.6M labels
-  across 77 snapshots incl. giants MESH/BERO/DDSS/LOINC/EFO — item 11). Residual re-fetch tracked as item 17.
+  across 77 snapshots incl. giants MESH/BERO/DDSS/LOINC/EFO — item 10). Residual re-fetch tracked as item 13.
 
 **Next iterations** are one command — `ops/harvest-ols-ingest.sh` (source expansion) and
 `ops/harvest-obo-ingest.sh` (OBO release currency), both `<catalog> <snapshotDir> [--max N]`, idempotent,
