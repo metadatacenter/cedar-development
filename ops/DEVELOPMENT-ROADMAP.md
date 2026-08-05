@@ -243,14 +243,26 @@ model libraries — where their JSON and YAML serializations diverge — is in
 
 - **Saving a template fails validation when GAZ is constrained as a whole ontology.** Adding the GAZ
   (Gazetteer) ontology to a field as an *entire-ontology* controlled-term value makes the template
-  fail validation on save; a branch or specific-class constraint on the same ontology does not.
-  Reproduce and capture the exact error and which service raises it — the resource/schema validation
-  path, or a terminology call the save blocks on. GAZ is one of the largest ontologies served, so the
-  first hypothesis is scale (a slow, oversized, or timed-out terminology response when the constraint
-  is resolved or version-pinned) rather than a structural validation defect; test it by comparing a
-  small whole-ontology constraint and a GAZ branch/class constraint, which bound the work. Decide
-  whether the fix belongs on the terminology/resolution path (avoid enumerating a full ontology at
-  validate/save time, or paginate and cache it) or in how the whole-ontology constraint is validated.
+  fail validation on save (`POST /templates` → 400); a branch or specific-class constraint on the
+  same ontology does not. Reproduced in the editor, root cause confirmed from the artifact server's
+  validation report — it is **not** the scale/timeout issue first assumed. The determining error is:
+
+  ```
+  /properties/<field>/_valueConstraints/ontologies/0/numTerms: must have a minimum value of 1
+  ```
+
+  The chain: GAZ's term count comes back `n/a` (the terminology server reports no count for it — the
+  picker even shows "Number Terms: n/a" and "Tree browsing not supported for this ontology"), the
+  editor then serializes the ontology constraint with `numTerms: 0`, and the meta-schema requires
+  `_valueConstraints.ontologies[].numTerms` to be an integer with `minimum: 1`
+  (`literal-field-meta-schema.json`, `iri-field-meta-schema.json`). `0 < 1` fails, and the
+  JSON-Schema `oneOf` over field kinds turns that one failure into a cascade of unrelated-looking
+  errors in the report. Pick a fix: (a) have the terminology layer return a real `numTerms` for GAZ
+  (an `iri-field` `numTerms` already allows `minimum: 0` elsewhere, so the count path is the anomaly);
+  (b) stop the editor emitting `numTerms: 0` when the count is unknown; or (c) relax the `ontologies`
+  `numTerms` minimum to `0` so a whole-ontology constraint with an unknown count validates. Also worth
+  a look: the interactive `POST /command/validate` returned 200 while the create 400'd, so the
+  editor's live check does not exercise the same constraint.
 
 ### Infrastructure
 
