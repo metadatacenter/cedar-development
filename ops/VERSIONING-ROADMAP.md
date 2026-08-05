@@ -202,18 +202,7 @@ response.
    That mints a new labeled snapshot and moves `latest` (a currency refresh, not an in-place label add), so
    it doubles as bringing these up to date. Low priority.
 
-### Open questions (authorities that don't fit the version model)
-
-- **14. ORCID / ROR / RRID (and DOI): not versionable per se.** A constraint names the *authority*; the
-   value is a stable identifier captured in the instance — no snapshot, no current-version. The spec
-   already covers the shape (`sourceSystem` set, `version` omitted). Open question: how the editor and
-   instance model represent authority-typed, value-captured, unversioned fields distinctly from a
-   versioned controlled term. (The instance is where these land — see item 5.)
-- **15. CompTox / PFAS (release-based databases): possibly versionable.** Content with releases, so they
-   could fit the content-hash snapshot model *if* they expose retrievable content and release identifiers,
-   and *if* a content hash of a flat set (a chemical list, not a hierarchy) is meaningful across
-   serializations. Worth a spike.
-- **16. Investigate storing caDSR CDE value sets.** The enumerated caDSR CDEs — those whose value domain
+- **14. Investigate storing caDSR CDE value sets.** The enumerated caDSR CDEs — those whose value domain
    is a permissible-value list — already resolve to value sets, packaged today as the hand-built CADSR-VS
    value-set ontology and served through BioPortal; [cedar-cadsr-tools](https://github.com/metadatacenter/cedar-cadsr-tools)
    builds them (`ValueSetsOntologyManager`) as part of its CDE→CEDAR-field mapping. Investigate storing
@@ -225,6 +214,17 @@ response.
    value-set collections already served. This scopes the broader "serve whole CDE-fields" idea down to just
    the value-set slice — the lowest-risk, highest-value part.
 
+### Open questions (authorities that don't fit the version model)
+
+- **15. ORCID / ROR / RRID (and DOI): not versionable per se.** A constraint names the *authority*; the
+   value is a stable identifier captured in the instance — no snapshot, no current-version. The spec
+   already covers the shape (`sourceSystem` set, `version` omitted). Open question: how the editor and
+   instance model represent authority-typed, value-captured, unversioned fields distinctly from a
+   versioned controlled term. (The instance is where these land — see item 5.)
+- **16. CompTox / PFAS (release-based databases): possibly versionable.** Content with releases, so they
+   could fit the content-hash snapshot model *if* they expose retrievable content and release identifiers,
+   and *if* a content hash of a flat set (a chemical list, not a hierarchy) is meaningful across
+   serializations. Worth a spike.
 ## Ingestion tracker (ongoing)
 
 An **iterative** task: updated each time more ontologies are ingested from other repositories (item 8).
