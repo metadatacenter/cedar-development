@@ -213,35 +213,17 @@ response.
    could fit the content-hash snapshot model *if* they expose retrievable content and release identifiers,
    and *if* a content hash of a flat set (a chemical list, not a hierarchy) is meaningful across
    serializations. Worth a spike.
-- **16. Serve CDEs (and their vocabularies) as versioned fields? (exploratory.)** A Common Data Element
-   (ISO 11179) is a `publicId + version` identity plus a *value domain*, and
-   [cedar-cadsr-tools](https://github.com/metadatacenter/cedar-cadsr-tools) already reads caDSR CDEs as
-   CEDAR fields through a near-lossless mapping that splits on the value domain: an **enumerated** domain
-   becomes a value set (packaged today as the CADSR-VS value-set ontology and served through BioPortal, so
-   already terminology), a **non-enumerated** domain becomes a plain datatype field (numeric/temporal/
-   string bounds, no vocabulary at all). So the question splits in two. *Value sets:* move CADSR-VS onto
-   the versioned terminology core as first-class, content-hashed value sets with `latest`/frozen resolution
-   and cross-version diff, replacing the hand-built OWL packaging; low-risk, high-value, mostly a re-ingest
-   path. *CDE-fields:* the whole field is a *definition* (value domain + datatype + constraints +
-   provenance), a CEDAR artifact rather than a term, so serving it means either a **new artifact kind** in
-   the versioning store (content-hash the field definition) or a **sibling CDE service** that reuses the
-   versioning core while the artifact stays in the CEDAR repo. The fit is real because caDSR CDEs are
-   already versioned the way this server versions things: `publicId+version` plus a `sourceHash`
-   change-detector that a true content hash would make precise. So pinning, `latest`, diff, and
-   freeze-on-publish apply one level up, to a whole field, and a CDE library (caDSR/NCI) becomes a
-   versioned, diffable catalog beside the ontologies. Open: what a CDE's content identity is (its value
-   domain only, or the whole definition — the same question as item 4); how instance-level capture
-   (item 5) rides along when a filled value comes from a CDE; and that non-enumerated CDEs never involve a
-   vocabulary, so they belong only to a CDE/field service, never the terminology server.
-   A concrete authoring feature this points at: caDSR CDEs are already categorized in CEDAR by (possibly
-   several) categories — the caDSR contexts and classification schemes cedar-cadsr-tools turns into CEDAR
-   categories, each CDE attached to one or more. That category graph is a browsable hierarchy, structurally
-   the same as an ontology tree, so a **CDE field** could let an author navigate the categories down to an
-   individual CDE, reusing the roots/children/branch browse the terminology server already serves for
-   ontology classes, with the CDE as the selectable leaf (a versioned field reference). Picking a CDE by
-   category navigation is then the field-level analog of picking a class by ontology-branch navigation, and
-   it gives the CDE-serving idea a concrete first surface: serve the category hierarchy and its CDE leaves,
-   browsable and resolvable, before tackling full field-definition versioning.
+- **16. Investigate storing caDSR CDE value sets.** The enumerated caDSR CDEs — those whose value domain
+   is a permissible-value list — already resolve to value sets, packaged today as the hand-built CADSR-VS
+   value-set ontology and served through BioPortal; [cedar-cadsr-tools](https://github.com/metadatacenter/cedar-cadsr-tools)
+   builds them (`ValueSetsOntologyManager`) as part of its CDE→CEDAR-field mapping. Investigate storing
+   those value sets on the versioned terminology core instead — first-class, content-hashed value sets with
+   `latest`/frozen resolution and cross-version diff, replacing the OWL packaging — so caDSR's enumerated
+   fields get the same version pinning as ontology terms. Mostly a re-ingest path. Open: how a CDE value
+   set's identity and version map onto the content-hash model (a CDE carries `publicId + version` plus a
+   `sourceHash` change-detector a true content hash would make precise), and how these relate to the
+   value-set collections already served. This scopes the broader "serve whole CDE-fields" idea down to just
+   the value-set slice — the lowest-risk, highest-value part.
 
 ## Ingestion tracker (ongoing)
 
