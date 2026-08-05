@@ -1,8 +1,9 @@
 # CEDAR Embeddable Editor (CEE) — Roadmap
 
-Outstanding work for `cedar-embeddable-editor`. Backend and cross-service work
-belongs in [DEVELOPMENT-ROADMAP.md](./DEVELOPMENT-ROADMAP.md); build and test
-instructions belong in [CEE-RUNBOOK.md](./CEE-RUNBOOK.md).
+Outstanding work for `cedar-embeddable-editor`. Model-library work belongs in
+[TS-MODEL-LIBRARY-ROADMAP.md](./TS-MODEL-LIBRARY-ROADMAP.md); backend and
+cross-service work in [DEVELOPMENT-ROADMAP.md](./DEVELOPMENT-ROADMAP.md); build
+and test instructions in [CEE-RUNBOOK.md](./CEE-RUNBOOK.md).
 
 This roadmap tracks open work only. Item numbers are stable handles, not commit
 labels.
@@ -17,9 +18,11 @@ labels.
   `1.6.0-dev.20260804.85b7ccf` on `cee-with-model-library`.
 - The model dependency is the Nexus-only prerelease
   `@org.metadatacenter/cedar-model-typescript-library@0.9.2-dev.20260804.f1a3784`.
-- The safety net consists of 2,270 domain tests, five focused Angular unit-spec
-  files and 325 bundle-level Playwright checks: 304 full Chromium checks plus
-  seven smoke checks on each of Chromium, Firefox and WebKit.
+- The safety net consists of 2,125 domain tests, 51 tests across seven focused
+  Angular unit-spec files, and 325 bundle-level Playwright checks: 304 full
+  Chromium checks plus seven smoke checks on each of Chromium, Firefox and WebKit.
+- Nothing checks CEE's own instance output against its template. The `ajv` check
+  that used to is gone, and its replacement is blocked — item 7.
 - The obsolete datetime-picker dependency has been replaced by CEE's in-house
   time picker, so no dependency currently caps the Angular upgrade.
 
@@ -99,6 +102,24 @@ template overrides. Resolve the baseline without broad suppressions, then add
 Done when lint succeeds from a clean checkout and new TypeScript or template
 violations fail CI.
 
+### 7. Land the instance-conformance spec
+
+CEE used to check its own output against each template with `ajv`, which meant
+carrying a second validator and restating rules CEDAR already defines. That was
+removed. The model library now answers the question through
+`InstanceValidator.validate` — so until the library ships, **nothing catches a
+dropped `@type` or a missing property in CEE's output**.
+
+The spec is written and proven: 117 tests, taking the domain suite from 2,125 to
+2,242. It is parked at `harness/test/instance-conformance.spec.ts.pending`
+because it cannot run against the published library. Rename it to `.ts` once the
+dependency in `package.json` and `harness/package.json` moves off the prerelease.
+
+Blocked on [TS-MODEL-LIBRARY-ROADMAP.md](./TS-MODEL-LIBRARY-ROADMAP.md) item 1.
+
+Done when the spec runs in `test:ci` against a published library version and CEE
+output that drops a required key fails the suite.
+
 ## Security
 
 ### 6. Define and enforce the trust boundary for template-authored rich text
@@ -133,14 +154,16 @@ silently, and tests prove both the security boundary and formatting compatibilit
 
 ## Delivery order
 
-1. Start the Angular upgrade, including retiring the obsolete Protractor project
+1. Land the conformance spec as soon as the library publishes (item 7). It is
+   written and waiting, and until it runs CEE has no check on its own output.
+2. Start the Angular upgrade, including retiring the obsolete Protractor project
    (item 2).
-2. Establish linting at the Angular 22 target before closing the upgrade
+3. Establish linting at the Angular 22 target before closing the upgrade
    (item 4).
-3. Keep the production bundle and Playwright checks working throughout.
-4. Complete the public host contract before the stable `1.6.0` release (item 1);
+4. Keep the production bundle and Playwright checks working throughout.
+5. Complete the public host contract before the stable `1.6.0` release (item 1);
    the stable model-library release lands as an aside of that work.
-5. Define and enforce the template-rich-text trust contract before allowing
+6. Define and enforce the template-rich-text trust contract before allowing
    untrusted users to supply templates (item 6).
 
 ## Out of scope
@@ -150,3 +173,6 @@ silently, and tests prove both the security boundary and formatting compatibilit
 - Replacing CEE's temporal wrapper with Angular Material's time picker; Material
   still does not cover CEDAR's granularity, decimal-second and timezone rules.
 - Backend or cross-service work tracked by the development roadmap.
+- Model-library defects and its release, tracked by
+  [TS-MODEL-LIBRARY-ROADMAP.md](./TS-MODEL-LIBRARY-ROADMAP.md). CEE consumes the
+  published package; it does not carry fixes for it.

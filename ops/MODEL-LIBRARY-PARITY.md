@@ -10,26 +10,10 @@ key structure of all 77 artifacts they have both processed.
 
 ## How to reproduce
 
-The corpus lives on the **`develop`** branch of `cedar-test-artifacts` — `main`
-carries only a README, so a default clone looks empty.
-
-```bash
-cd $CEDAR_HOME && git clone https://github.com/metadatacenter/cedar-test-artifacts
-cd cedar-test-artifacts && git checkout develop
-```
-
-The TypeScript library resolves the corpus by two different conventions:
-`pretest.js` looks for `../cedar-test-artifacts`, while `itest/TestResource.ts`
-builds `cedar-test-artifacts/...` relative to the working directory. A symlink
-satisfies both:
-
-```bash
-cd $CEDAR_HOME/cedar-model-typescript-library && ln -sfn ../cedar-test-artifacts cedar-test-artifacts
-```
-
-With that in place `npm test` runs clean — **47 suites, 308 tests**. Without it,
-15 suites and 172 tests fail on missing files, which is what an unprepared
-checkout looks like and is easily mistaken for breakage.
+The TypeScript library carries the corpus in-repo at `cedar-test-artifacts/`, so
+`npm test` runs clean on a plain clone — **61 suites, 606 tests**. Nothing needs
+cloning or symlinking first. The copy came from the **`develop`** branch of
+`cedar-test-artifacts`; `main` there carries only a README.
 
 ```bash
 npx ts-node ./itest/scripts/compare-verbatim-ts-java-yaml-files.ts
