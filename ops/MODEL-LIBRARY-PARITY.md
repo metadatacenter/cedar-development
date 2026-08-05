@@ -69,9 +69,13 @@ wholesale.
 
 ---
 
-## The `boolean` field type
+## The `boolean` field type — resolved
 
-Java's `FieldInputType` has 23 values. TypeScript's `UiInputType` has 24 — the
+**Resolved.** `boolean` is a valid v1.6.0 field type; it is now supported end to end (TypeScript
+facade builder, Java `BooleanField` + `BooleanValueConstraints`, and the meta-schema). The account
+below is kept for context.
+
+Java's `FieldInputType` had 23 values. TypeScript's `UiInputType` has 24 — the
 extra one is `boolean`.
 
 This is not merely a naming difference. Corpus field cases **005, 006 and 007**
@@ -102,20 +106,19 @@ One diff is reported by the library's own comparator
 
 ### Java loses data that TypeScript preserves
 
-**1. Static field `_ui._size` — width and height** (`templates/009`)
+**1. ~~Static field `_ui._size` — width and height~~** (`templates/009`) — **fixed**
 
 The source declares `_ui._size: {width: 192, height: 108}` on a YouTube field.
-TypeScript emits it; Java emits `_ui` with only `_content` and `inputType`.
+TypeScript emits it; Java once emitted `_ui` with only `_content` and `inputType`.
+Current Java already emits `_ui._size`; a corpus regeneration confirmed template-009 now carries it.
 
-Java is not missing the concept — `StaticFieldUi` declares `Optional<Integer>
-width()` and `height()`, and `ImageField` and `YouTubeField` reference them. The
-model has the fields and the serialization drops them, which makes this a
-reader or renderer defect rather than a modelling gap.
+**2. ~~`skos:prefLabel` on child artifacts~~** (`templates/029`) — **fixed**
 
-**2. `skos:prefLabel` on child artifacts** (`templates/029`, 28 occurrences)
-
-The source carries `skos:prefLabel: "Data File Language"` on a child. Java emits
-`skos:prefLabel: null`. TypeScript preserves the value.
+The source carries `skos:prefLabel: "Data File Language"` on child *elements*. The loss was that
+`ElementSchemaArtifact` did not model a preferred label at all (only fields did), so the reader
+dropped it and the renderer never emitted it. Java now carries `skos:prefLabel`/`skos:altLabel` on
+elements; template-029's JSON output went from 117 to 145 string-valued prefLabels, matching
+TypeScript's 145.
 
 **3. A spurious `_content: null` on page and section breaks** (5 occurrences
 across `templates/004`, `009`, `037`)
@@ -196,24 +199,49 @@ round trip, and TypeScript inventing a `""` description is its own small wart.
 
 ## Suggested order
 
-1. **Decide on `boolean`.** It gates whether three corpus artifacts are valid,
-   and it is the only whole-type divergence.
-2. **Decide whether `{}` and `{"@value": null}` are distinguishable.** The
-   largest class by occurrence, 44 cases. TypeScript now preserves the
-   distinction and Java erases it, so this decides whether Java changes or
-   TypeScript should start normalising too.
-3. **Fix Java's `_ui._size` drop.** Unambiguous data loss with the model already
-   in place, so no design decision is needed.
-4. **Fix Java's `skos:prefLabel: null`.** Same character.
-5. **Regenerate the Java side of the corpus** against whichever Java version is
-   current. Seven field cases now have TypeScript output only, and parity for
-   them cannot be measured until that happens.
-6. **Expose `booleanFieldBuilder`** in the TypeScript facade, if item 1 resolves
-   in favour of keeping the type.
+Resolved this pass:
 
-Items 3 and 4 are one-directional bugs. Items 1 and 2 are model decisions that
-need an owner before either library can be called correct.
+1. ~~**Decide on `boolean`.**~~ **Resolved: `boolean` is a valid v1.6.0 field type** — the
+   meta-schema lists it in the field `inputType` enum and the corpus carries boolean cases. It is
+   now supported end to end: `booleanFieldBuilder` is exposed on the TypeScript facade
+   (`cedar-model-typescript-library`); the Java library (`cedar-artifact-library`) gained a
+   `BooleanField` type plus a `BooleanValueConstraints` type (`nullEnabled`, a three-state boolean
+   default, the true/false/null label map) with JSON and YAML read/render; and the meta-schema
+   (`cedar-model-validation-library`) now accepts the boolean value-constraints shape. Corpus fields
+   005–007 read, render, round-trip (JSON), and validate. Deployed and smoke-verified (REST + UI).
+3. ~~**Fix Java's `_ui._size` drop.**~~ **Resolved** — current Java already emits `_ui._size`; a
+   corpus regeneration confirmed template-009 now carries the width/height.
+4. ~~**Fix Java's `skos:prefLabel: null`.**~~ **Resolved** — the loss was on *elements*, which did
+   not model a preferred label at all. Java now carries `skos:prefLabel`/`skos:altLabel` on elements;
+   on template-029 the JSON output went from 117 to 145 string-valued prefLabels, matching TypeScript.
+6. ~~**Expose `booleanFieldBuilder`.**~~ **Resolved** (folded into item 1).
 
-> Comparison run against `cedar-artifact-library` **`main`** @ `3d2afb1e`
+Remaining:
+
+2. **Decide whether `{}` and `{"@value": null}` are distinguishable.** Unchanged — the largest class
+   (44 cases). TypeScript preserves the distinction, Java erases it; this decides whether Java changes
+   or TypeScript should start normalising too. A model-owner decision.
+5. **Regenerate *both* sides of the corpus.** Bigger than first framed: the committed corpus is stale
+   on both the Java and the TypeScript side, so regenerating only Java makes the comparison worse
+   (current-Java vs stale-TS: template diffs went 1 → 10 in a trial). A both-sides regeneration to the
+   current libraries surfaces the divergences below, so this is a triage-then-regenerate batch, not a
+   one-shot.
+7. **`propertyLabels`/`propertyDescriptions` orphan keys** (`templates/003`) — unchanged; both
+   libraries diverge from the source.
+
+### Newly surfaced (both sides regenerated to current)
+
+Regenerating both libraries to current output — then reverted, as it is out of scope for a single fix —
+exposed divergences the uniformly-stale corpus hid, across ~10 templates (7, 9, 22, 23, 24, 28, 29, 30,
+35, 36) and element-6:
+
+- **`id:` in compact YAML** — Java emits it, TypeScript omits it.
+- **Value-constraint key naming** — Java `sourceAcronym`/`sourceName` vs TypeScript
+  `acronym`/`ontologyName`/`termLabel`/`iri`/`maxDepth` for the same concept.
+- **Element `prefLabel` in compact YAML** — TypeScript's compact writer drops it; Java (now fixed)
+  keeps it, so they diverge there in the opposite direction. JSON is faithful on both sides.
+
+> Original comparison run against `cedar-artifact-library` **`main`** @ `3d2afb1e`. The boolean,
+> `_ui._size`, and `skos:prefLabel` resolutions above landed on **`develop`** and are deployed.
 > (release 2.9.1). That repo's `develop` carries 18 further commits including a
 > YAML value-constraint key overhaul, which this comparison does not cover.
