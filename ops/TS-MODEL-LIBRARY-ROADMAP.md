@@ -95,19 +95,13 @@ may hold a literal or an IRI depending on its value constraints. The model keeps
 no per-field `required` array, so this means consulting the blueprint per field
 kind.
 
-### 9. The cross-validator agreement check has no home
-
-Whether this library's reading of conformance matches the canonical Java
-validator is worth knowing, cannot live in CEE, and needs both implementations
-reachable. A `cedar-development` job, if it is worth having at all.
-
 ## Delivery Order
 
 1. Release (item 1). Everything that changes what a published version promises
    has landed, so this is now the only thing between the library and CEE.
 2. Resolve the corpus judgements (items 6 and 7) when someone with the version
    history is available. Neither blocks a release.
-3. Revisit the deferred items (8 and 9) only if a consumer asks for them.
+3. Revisit the deferred item (8) only if a consumer asks for it.
 
 ## Out of Scope
 
