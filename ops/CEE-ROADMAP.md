@@ -75,22 +75,14 @@ Known work:
 - Adapt the production concatenated-bundle step and Playwright preparation when
   the Angular build pipeline changes.
 - Migrate the two custom Material themes to the supported Material 3 APIs.
+- Retire the obsolete `e2e/` Protractor project: delete it and its configuration
+  and npm command. The five focused Angular unit-spec files remain — they cover
+  component configuration and instance-isolation behaviour not redundant with the
+  domain or browser suites.
 
-Done when a clean checkout builds the production custom-element bundle and all
-unit, domain and browser tests pass on Angular 22.
-
-### 3. Replace the model-library prerelease with a stable release
-
-Publish `@org.metadatacenter/cedar-model-typescript-library@0.9.2`, update the
-root, `harness/` and `visual/` manifests together, and regenerate all three
-lockfiles.
-
-Decide whether the scoped package must also be published to npmjs.org. Keeping
-it Nexus-only means an otherwise public CEE build depends on BMIR infrastructure
-remaining anonymously reachable.
-
-Done when clean installs use the stable version in all three package trees and
-CI verifies that the manifests cannot drift.
+Done when a clean checkout builds the production custom-element bundle, all unit,
+domain and browser tests pass on Angular 22, and no Protractor dependency,
+configuration or script remains.
 
 ## Testing
 
@@ -106,16 +98,6 @@ template overrides. Resolve the baseline without broad suppressions, then add
 
 Done when lint succeeds from a clean checkout and new TypeScript or template
 violations fail CI.
-
-### 5. Retire Protractor
-
-Delete the obsolete `e2e/` Protractor project and remove its configuration and
-npm command. The five focused Angular unit-spec files remain; they cover
-component configuration and instance-isolation behavior that is not redundant
-with the domain or browser suites.
-
-Done when no Protractor dependency, configuration or script remains and the
-unified test command is green.
 
 ## Security
 
@@ -151,14 +133,14 @@ silently, and tests prove both the security boundary and formatting compatibilit
 
 ## Delivery order
 
-1. Start the Angular upgrade (item 2).
+1. Start the Angular upgrade, including retiring the obsolete Protractor project
+   (item 2).
 2. Establish linting at the Angular 22 target before closing the upgrade
    (item 4).
 3. Keep the production bundle and Playwright checks working throughout.
-4. Complete the public host contract and stable model dependency before the
-   stable `1.6.0` release (items 1 and 3).
-5. Remove Protractor independently when convenient (item 5).
-6. Define and enforce the template-rich-text trust contract before allowing
+4. Complete the public host contract before the stable `1.6.0` release (item 1);
+   the stable model-library release lands as an aside of that work.
+5. Define and enforce the template-rich-text trust contract before allowing
    untrusted users to supply templates (item 6).
 
 ## Out of scope
