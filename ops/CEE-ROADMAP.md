@@ -17,8 +17,9 @@ labels.
   `1.6.0-dev.20260804.85b7ccf` on `cee-with-model-library`.
 - The model dependency is the Nexus-only prerelease
   `@org.metadatacenter/cedar-model-typescript-library@0.9.2-dev.20260804.f1a3784`.
-- The safety net consists of 2,260 domain tests, five focused Angular unit-spec
-  files and 294 bundle-level Playwright checks.
+- The safety net consists of 2,270 domain tests, five focused Angular unit-spec
+  files and 325 bundle-level Playwright checks: 304 full Chromium checks plus
+  seven smoke checks on each of Chromium, Firefox and WebKit.
 - The obsolete datetime-picker dependency has been replaced by CEE's in-house
   time picker, so no dependency currently caps the Angular upgrade.
 
@@ -116,6 +117,38 @@ with the domain or browser suites.
 Done when no Protractor dependency, configuration or script remains and the
 unified test command is green.
 
+## Security
+
+### 6. Define and enforce the trust boundary for template-authored rich text
+
+Instance-authored HTML is sanitized, but template-authored static rich text is
+rendered through `bypassSecurityTrustHtml` in `keep-html.pipe.ts`. This is safe
+only when the embedding application treats template authors as trusted to run
+content in the host application's origin. An embedder that lets arbitrary users
+supply templates turns static rich text into an XSS path. The source documents
+this boundary, but the public README does not.
+
+Deliver:
+
+- Add an embedding-security section to the README that identifies templates as
+  trusted input, explains that Shadow DOM is not a security boundary, and tells
+  hosts not to load arbitrary templates under the current behavior.
+- Inventory the rich-text markup emitted by the CEDAR Template Editor and define
+  the minimum supported allowlist for elements, attributes, URL schemes, inline
+  styles and embedded media.
+- Decide and document the product contract: either require trusted templates
+  explicitly, or sanitize template rich text with a policy that preserves the
+  supported formatting while removing executable content.
+- If trusted rendering remains available, make it an explicit host policy rather
+  than an undocumented consequence of loading a template.
+- Add browser tests using malicious template rich text, including event-handler
+  attributes and executable URLs, alongside regression fixtures for supported
+  formatting.
+
+Done when the README states the trust requirement, the runtime behavior matches
+the documented policy, executable template content cannot cross that policy
+silently, and tests prove both the security boundary and formatting compatibility.
+
 ## Delivery order
 
 1. Start the Angular upgrade (item 2).
@@ -125,6 +158,8 @@ unified test command is green.
 4. Complete the public host contract and stable model dependency before the
    stable `1.6.0` release (items 1 and 3).
 5. Remove Protractor independently when convenient (item 5).
+6. Define and enforce the template-rich-text trust contract before allowing
+   untrusted users to supply templates (item 6).
 
 ## Out of scope
 
