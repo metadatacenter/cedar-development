@@ -318,9 +318,12 @@ Every server's test suite runs backend-free: no live Keycloak, Neo4j, Mongo, MyS
 shared `cedar-microservice-libraries/cedar-test-support-library` supplies in-memory authentication
 (`TestAuthUtil` / `InMemoryUserService`, exercising the real API-key path) and embedded backends
 (in-process Neo4j via neo4j-harness, Mongo via Flapdoodle, MariaDB via MariaDB4j standing in for
-MySQL). Two suites still need something external: terminology's BioPortal resource tests hit live
-BioPortal (they are disabled or fail without a key), and the bridge server's DataCite and CompTox
-tests need the live stack.
+MySQL). Nor does any suite need an external service. The tests that do call one are tagged and
+excluded from the default build by their application POM: terminology excludes `bioportal` (61 tests
+across six resource classes) and bridge excludes `datacite` (`DataCiteResourceTest`). Clear the
+exclusion with `-DexcludedGroups=` to run them against the real service. Their CEDAR variables must
+still be set even when the tests are excluded, because the configuration substitutes them as it
+loads; a placeholder value is enough.
 
 Test servers boot on the alternate `19xxx` port range (test port = dev port + 10000), so a running
 dev stack and a test run coexist. Redirection goes through `CedarEnvironmentSource.setOverride(map)`,
@@ -335,8 +338,8 @@ started in a static `@BeforeAll` and stopped in `@AfterAll`. Do not use the JUni
 current JUnit platform.
 
 Rough suite sizes: artifact 1279 (parameterized CRUD over four artifact types on embedded Mongo),
-artifact-library 687, model-validation 210, terminology ~130 (13 need live BioPortal), resource 49,
-microservice-libraries 19 (the workspace-graph and lifecycle tests), group 10, and a
+artifact-library 687, model-validation 210, terminology 246 (61 more excluded under `bioportal`),
+resource 49, microservice-libraries 19 (the workspace-graph and lifecycle tests), group 10, and a
 two-to-three-test boot-and-config tier on the thin servers. Known exceptions: the submission server's
 suite hangs at teardown (its NCBI queue enqueues a stop message to Redis on shutdown), so package it
 with `-DskipTests`.
