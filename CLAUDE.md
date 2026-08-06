@@ -38,6 +38,9 @@ Runbooks:
   CEE npm package, and deploying to production.
 - [WORDPRESS-RUNBOOK.md](ops/WORDPRESS-RUNBOOK.md) — the CEDAR WordPress site.
 
+- [TEST-COVERAGE-MATRIX.md](ops/TEST-COVERAGE-MATRIX.md) — which integration baseline each microservice
+  meets, how it pins its failure path, and what in-process backend it needs.
+
 Roadmaps:
 - [BACKEND-ROADMAP.md](ops/BACKEND-ROADMAP.md) — cross-cutting backend work: the microservices, the
   shared libraries, and the test and ops tooling.

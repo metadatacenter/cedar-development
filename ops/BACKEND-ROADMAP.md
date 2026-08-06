@@ -217,6 +217,35 @@ model libraries — where their JSON and YAML serializations diverge — is in
   a look: the interactive `POST /command/validate` returned 200 while the create 400'd, so the
   editor's live check does not exercise the same constraint.
 
+- **Decide whether `maxItems: 0` should mean unlimited, or the key should simply be absent.** The
+  Template Designer emits `maxItems: 0` for an unbounded multi-instance field. Its cardinality
+  selector labels the zero "unlimited" (`cardinality-selector.directive.js`, `zeros = {'min': 'none',
+  'max': 'unlimited'}`), `defaultMinMax` in `cedar-template-element.directive.js` sets it on every new
+  multi-instance element, and the runtime directives guard with `!maxItems || model.length < maxItems`,
+  so zero is falsy and imposes no ceiling.
+
+  Omitting the key would say the same thing better. An absent `maxItems` already means unbounded to
+  every consumer, and it is what JSON Schema means: there, `maxItems: 0` constrains an array to be
+  *empty*, the exact opposite of unlimited. So the current encoding does not merely duplicate the
+  default, it inverts the standard reading, and any tool validating a CEDAR template as ordinary JSON
+  Schema draws the wrong conclusion from it.
+
+  `cedar-artifact-library` rejected `maxItems < 1` outright until `ValidationHelper.UNBOUNDED_MAX_ITEMS`
+  was introduced. It now accepts zero and skips the `minItems <= maxItems` check when the maximum is
+  unbounded. That is tolerance of the convention, not endorsement of it. Whichever way this is decided,
+  the library has to keep reading zero: templates already stored carry it.
+
+  Related, and worth settling at the same time: single-instance fields can carry stray cardinality keys.
+  In one working template `publication_doi` is `"type": "object"` yet has `minItems: 0, maxItems: 0`. The
+  reader drops both, taking cardinality only from a `{type: array, items: {…}}` envelope. Establish
+  whether the frontend writes those or whether they are residue from a field that was once
+  multi-instance.
+
+  This is the same shape as the GAZ `numTerms: 0` item above — the editor using zero as a sentinel where
+  the schema gives zero a different meaning — so the two are worth deciding together. The frontend change
+  belongs to [TEMPLATE-DESIGNER-ROADMAP.md](./TEMPLATE-DESIGNER-ROADMAP.md); it is tracked here because
+  the decision binds the meta-schema and both model libraries as well.
+
 ### Infrastructure
 
 - **Upgrade the persistence and infrastructure servers.** These versions are currently pinned (see the
@@ -309,22 +338,6 @@ per-server modules.
   continually redraws the terminal, magnifying the log flood and making progress hard to distinguish
   from a hang. Acceptance means the default build remains monitorable, the opt-in full test build has
   bounded useful output, and both modes finish with a trustworthy non-zero exit code on failure.
-
-- **Add a minimum integration-test baseline to every microservice repository.** Inventory all CEDAR
-  microservices and give each application module at least one integration suite that boots the real
-  service wiring, exercises a representative authenticated request through HTTP, and verifies both a
-  successful response and one meaningful failure path. This is a consistency floor, not a demand for
-  equally deep domain coverage in every service: peripheral or retiring services can keep a small
-  boot-and-route suite, while the resource/artifact path retains the richer state and contract tests
-  described below.
-
-  Normal integration tests must run without shared developer infrastructure or live external APIs.
-  Use the common test-support library for in-process stores, authentication and deterministic fixtures;
-  bind isolated ports; clean up processes and data even after failure; and explicitly tag the few tests
-  that genuinely require an external sandbox. Publish a repository-by-repository coverage matrix so a
-  newly added service cannot silently omit the baseline. The suites must be runnable per repository and
-  together through the test-enabled `cedarcli build` mode, with failures attributed to the responsible
-  service rather than disappearing inside the aggregate reactor output.
 
 - **Deepen the core-workflow tests instead of growing the headline count.** The JUnit matrices and the
   19 REST suites now give the system respectable horizontal coverage: routes boot, authentication and
