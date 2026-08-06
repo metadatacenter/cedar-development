@@ -4,7 +4,7 @@ Outstanding work for the template-authoring frontend, `cedar-template-editor`
 (the AngularJS 1.x application that renders the Template Designer at
 `/templates/edit/...`). Distinct from the embeddable metadata editor, whose work
 is tracked in [CEE-ROADMAP.md](./CEE-ROADMAP.md); backend and cross-service work
-is in [DEVELOPMENT-ROADMAP.md](./DEVELOPMENT-ROADMAP.md).
+is in [BACKEND-ROADMAP.md](./BACKEND-ROADMAP.md).
 
 This roadmap tracks open work only. Item numbers are stable handles.
 

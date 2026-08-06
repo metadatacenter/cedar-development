@@ -8,7 +8,7 @@ Sibling runbooks:
 - [RELEASE-RUNBOOK.md](./RELEASE-RUNBOOK.md) — cutting a full CEDAR release.
 - [PROD-DEPLOY-RUNBOOK.md](./PROD-DEPLOY-RUNBOOK.md) — deploying CEDAR to prod (step 6 rebuilds the
   template editor against the CEE version — that's how CEE reaches prod).
-- [DEVELOPMENT-RUNBOOK.md](./DEVELOPMENT-RUNBOOK.md) — running CEDAR locally.
+- [BACKEND-RUNBOOK.md](./BACKEND-RUNBOOK.md) — running CEDAR locally.
 
 > `gocee`, `gocedar`, `goartifacts`, `gobridging` are CEDAR profile aliases (cd to the respective
 > repo). `cedarcli build this` builds the repo you're standing in. Run in an interactive `cedar`

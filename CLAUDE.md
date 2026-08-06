@@ -10,7 +10,7 @@ for a session rooted in any repo under the container.
 
 Full operational knowledge (architecture, bring-up sequence, gotchas, port map) lives in:
 
-**`cedar-development/ops/DEVELOPMENT-RUNBOOK.md`**
+**`cedar-development/ops/BACKEND-RUNBOOK.md`**
 
 Helper scripts are in `cedar-development/ops/`:
 - `cedar-services.sh` — start / stop / **status** / watch / logs for the microservices + frontends,
@@ -23,6 +23,32 @@ Helper scripts are in `cedar-development/ops/`:
 - `cedar_usage_matrix.py` — reduce that harvest to the atomic-target usage matrix: one row per
   distinct `(kind, acronym, target)` terminology lookup production performs, for comparing two
   terminology-server implementations (current vs SQLite-backed).
+
+## Ops docs: roadmaps and runbooks
+
+More docs live under `cedar-development/ops/`. The runbooks tell you how to run, build, release
+and deploy; the roadmaps track open work, where item numbers are stable handles.
+
+Runbooks:
+- [BACKEND-RUNBOOK.md](ops/BACKEND-RUNBOOK.md) — the local native stack: architecture, bring-up,
+  gotchas, port map, and current framework state.
+- [CEE-RUNBOOK.md](ops/CEE-RUNBOOK.md) — build and test the embeddable editor (CEE).
+- [RELEASE-RUNBOOK.md](ops/RELEASE-RUNBOOK.md), [CEE-RELEASE-RUNBOOK.md](ops/CEE-RELEASE-RUNBOOK.md)
+  and [PROD-DEPLOY-RUNBOOK.md](ops/PROD-DEPLOY-RUNBOOK.md) — releasing the artifacts, publishing the
+  CEE npm package, and deploying to production.
+- [WORDPRESS-RUNBOOK.md](ops/WORDPRESS-RUNBOOK.md) — the CEDAR WordPress site.
+
+Roadmaps:
+- [BACKEND-ROADMAP.md](ops/BACKEND-ROADMAP.md) — cross-cutting backend work: the microservices, the
+  shared libraries, and the test and ops tooling.
+- [CEE-ROADMAP.md](ops/CEE-ROADMAP.md) — the embeddable metadata editor.
+- [TEMPLATE-DESIGNER-ROADMAP.md](ops/TEMPLATE-DESIGNER-ROADMAP.md) — the AngularJS Template Designer
+  frontend (`cedar-template-editor`).
+- [VERSIONING-ROADMAP.md](ops/VERSIONING-ROADMAP.md) — terminology versioning (its design is in
+  [VERSIONING-DESIGN.md](ops/VERSIONING-DESIGN.md)).
+- [TS-MODEL-LIBRARY-ROADMAP.md](ops/TS-MODEL-LIBRARY-ROADMAP.md) and
+  [MODEL-LIBRARY-PARITY.md](ops/MODEL-LIBRARY-PARITY.md) — the TypeScript model library and its
+  parity with the Java one.
 
 ## The four things that bite first (don't skip)
 
@@ -37,7 +63,7 @@ Helper scripts are in `cedar-development/ops/`:
    `launchctl setenv OPENSEARCH_JAVA_HOME "$(/usr/libexec/java_home -v 17)"; brew services restart opensearch`.
 4. **Login shows a browser cert error but `curl -sk` works** → the local `.orgx` TLS **leaves expired**
    (~824-day life; the CEDAR CA is fine). Re-issue them from the CA and `sudo nginx -s reload` — full
-   sequence in `cedar-development/ops/DEVELOPMENT-RUNBOOK.md` ("Browser blocks login with a cert error"). Check with:
+   sequence in `cedar-development/ops/BACKEND-RUNBOOK.md` ("Browser blocks login with a cert error"). Check with:
    `echo | openssl s_client -connect cedar.metadatacenter.orgx:443 -servername cedar.metadatacenter.orgx 2>/dev/null | openssl x509 -noout -dates`.
 
 ## Bring it up
@@ -67,14 +93,14 @@ suggestion, ~30 s): `cd cedar-development/ops/e2e && npm run smoke` — details 
   smoke after changes to inter-service HTTP, validation, or startup wiring: real runtime bugs have
   passed green suites.
 - Full operational, build, test, and dependency-state detail lives in the runbook
-  (`cedar-development/ops/DEVELOPMENT-RUNBOOK.md`).
+  (`cedar-development/ops/BACKEND-RUNBOOK.md`).
 
 ## Version locks and framework state
 
 - **Locked: Java 17, and the persistence/infra server versions** (Mongo, MySQL, Neo4j, Redis,
   OpenSearch, Keycloak). Client libraries may move; those servers may not.
 - Current framework baseline (Dropwizard version, namespace, what's migrated) lives in the runbook —
-  `cedar-development/ops/DEVELOPMENT-RUNBOOK.md`, "Version locks and framework state". Don't restate it here.
+  `cedar-development/ops/BACKEND-RUNBOOK.md`, "Version locks and framework state". Don't restate it here.
 
 ## Conventions
 

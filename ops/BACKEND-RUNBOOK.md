@@ -1,4 +1,4 @@
-# CEDAR Local Operations Runbook
+# CEDAR Backend Runbook
 
 Operational knowledge for running and managing a **local, native CEDAR** on macOS — written
 to be read by a human or an LLM agent. It covers the architecture, the bring-up sequence, the
@@ -9,7 +9,7 @@ Dropwizard JVMs, frontends via `gulp`). The all-Docker deployment is a separate 
 covered here.
 
 Known backend work items, and the decisions about what is deliberately not being done, are tracked
-in [DEVELOPMENT-ROADMAP.md](./DEVELOPMENT-ROADMAP.md).
+in [BACKEND-ROADMAP.md](./BACKEND-ROADMAP.md).
 
 ## Architecture
 
@@ -659,7 +659,7 @@ simply was not being sent. If it starts burning retries again, check the Dropwiz
 a unit, each attempt starting from the designer deep link, because only a page load helps: the
 editor loads BioPortal's ontology list once per page and latches an empty cache when that load
 fails, so re-running the ontology *search* re-reads the same empty cache and can never succeed. The
-underlying frontend defect is unfixed and on the [roadmap](./DEVELOPMENT-ROADMAP.md); the retry tolerates it
+underlying frontend defect is unfixed and on the [roadmap](./BACKEND-ROADMAP.md); the retry tolerates it
 rather than curing it.
 
 ## Login

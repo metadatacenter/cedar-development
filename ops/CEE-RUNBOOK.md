@@ -7,7 +7,7 @@ Everything here has been run on macOS (Apple silicon) against `develop` @ CEE
 Sibling runbooks:
 - [CEE-ROADMAP.md](./CEE-ROADMAP.md) — the framework-upgrade programme, open
   findings and known defects.
-- [DEVELOPMENT-RUNBOOK.md](./DEVELOPMENT-RUNBOOK.md) — running the full CEDAR
+- [BACKEND-RUNBOOK.md](./BACKEND-RUNBOOK.md) — running the full CEDAR
   stack locally.
 
 > CEE is a standalone Angular web component. It does **not** need the CEDAR

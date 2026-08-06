@@ -9,7 +9,7 @@ This is the **prod-deploy** counterpart to:
 - [RELEASE-RUNBOOK.md](./RELEASE-RUNBOOK.md) — *cutting* a release (`cedarcli release all-in-one`,
   tag/merge/push across the repos, publish to Nexus + npm). Do that **first**; this runbook takes
   the released `main` and stands it up on prod.
-- [DEVELOPMENT-RUNBOOK.md](./DEVELOPMENT-RUNBOOK.md) — running CEDAR locally.
+- [BACKEND-RUNBOOK.md](./BACKEND-RUNBOOK.md) — running CEDAR locally.
 
 > Replace `youruser@<prod-app-host>` and `<prod-log-db-host>` with the real prod hosts, and
 > `<MODIFIER>` with the deploy's version modifier (see step 3). Never commit real hostnames,

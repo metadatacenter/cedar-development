@@ -2,7 +2,7 @@
 
 Outstanding work for `cedar-embeddable-editor`. Model-library work belongs in
 [TS-MODEL-LIBRARY-ROADMAP.md](./TS-MODEL-LIBRARY-ROADMAP.md); backend and
-cross-service work in [DEVELOPMENT-ROADMAP.md](./DEVELOPMENT-ROADMAP.md); build
+cross-service work in [BACKEND-ROADMAP.md](./BACKEND-ROADMAP.md); build
 and test instructions in [CEE-RUNBOOK.md](./CEE-RUNBOOK.md).
 
 This roadmap tracks open work only. Item numbers are stable handles, not commit
@@ -205,7 +205,7 @@ silently, and tests prove both the security boundary and formatting compatibilit
   flow solely because the upgraded Angular version supports them.
 - Replacing CEE's temporal wrapper with Angular Material's time picker; Material
   still does not cover CEDAR's granularity, decimal-second and timezone rules.
-- Backend or cross-service work tracked by the development roadmap.
+- Backend or cross-service work tracked by the backend roadmap.
 - Model-library defects and its release, tracked by
   [TS-MODEL-LIBRARY-ROADMAP.md](./TS-MODEL-LIBRARY-ROADMAP.md). CEE consumes the
   published package; it does not carry fixes for it.

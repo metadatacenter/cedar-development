@@ -2,7 +2,7 @@
 
 Outstanding work for `cedar-model-typescript-library`. CEE-side work belongs in
 [CEE-ROADMAP.md](./CEE-ROADMAP.md); backend and cross-service work in
-[DEVELOPMENT-ROADMAP.md](./DEVELOPMENT-ROADMAP.md). Where this library and the
+[BACKEND-ROADMAP.md](./BACKEND-ROADMAP.md). Where this library and the
 Java one disagree is recorded in [MODEL-LIBRARY-PARITY.md](./MODEL-LIBRARY-PARITY.md),
 and the case for CEE adopting the library at all in
 [CEE-MODEL-LIBRARY-ADOPTION.md](./CEE-MODEL-LIBRARY-ADOPTION.md).
@@ -52,15 +52,18 @@ Nothing downstream can move until this ships. CEE has a written conformance spec
 it cannot run and no check at all on its own output in the meantime — see
 [CEE-ROADMAP.md](./CEE-ROADMAP.md) item 7.
 
-Two decisions, then a publish:
+One decision, then a publish:
 
 - Whether this is `0.10.0` rather than `0.9.x`. The question is real rather than
-  ceremonial, and there are now two reasons: `wasSuccessful()` on an instance
-  parse could only ever return true before and can now return false, and
+  ceremonial, and there are two reasons: `wasSuccessful()` on an instance parse
+  could only ever return true before and can now return false, and
   `adheresToBlueprint()` has stopped being a second name for it. Any consumer
   branching on either sees new behavior.
-- Which version field is authoritative. `package.json` says `0.9.0` and
-  `package-dist.json` says the prerelease above; the dist one is what publishes.
+
+The two version fields no longer disagree. `package.json` reads `0.9.2` and
+`package-dist.json` the `0.9.2` prerelease. Only the second one publishes — the
+build copies it into `dist/` — so the root field is a readable cross-check rather
+than a thing to decide.
 
 The errors-versus-warnings question is settled and needs no further decision. A
 document that cannot be right is an error — a null `@id`, a value carrying the
