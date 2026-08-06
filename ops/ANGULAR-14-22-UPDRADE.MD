@@ -60,6 +60,13 @@ two.
 initial commit, asserted Angular's default welcome text, and had no protractor
 installed. `@types/node` went from ^12 (EOL 2022) to ^20.
 
+**Legacy Web Components compatibility removed.** CEE now states its requirement
+for native Custom Elements v1 and Shadow DOM, and no longer bundles
+`@webcomponents/custom-elements` or emits the ES5-only `native-shim.js`. The
+consumer examples use `customElements.whenDefined()` rather than the
+polyfill-specific `WebComponentsReady` event. The complete 329-test browser gate
+passes against the native-only bundle in Chromium, Firefox and WebKit.
+
 ## Coverage That Did Not Exist Before
 
 Two gaps turned up while working, both in the shape that matters most: a thing
@@ -90,9 +97,9 @@ continued. The current baseline is:
 | Domain | 2,125 tests in 39 files |
 | Visual | 329 tests in 3 files, across the configured Playwright projects |
 | Visual snapshots | 98 baselines |
-| Packaging | 9 tests |
+| Packaging | 8 tests |
 | Lint | 0 errors; 77 baselined `no-explicit-any` warnings |
-| Bundle | 3,157,756 raw / 750,702 gzip-9 bytes, within the enforced budgets |
+| Bundle | 3,138,914 raw / 745,806 gzip-9 bytes, within the enforced budgets |
 
 CI installs from all three lockfiles: the application, domain harness, and visual
 harness lockfiles.
