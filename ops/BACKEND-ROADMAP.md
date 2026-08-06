@@ -58,7 +58,8 @@ model libraries — where their JSON and YAML serializations diverge — is in
   disabled the guard on purpose. So deletability stays for now; the discrepancy with the documentation
   is the open question. Deciding it means choosing between amending the docs (published is deletable) or
   re-enabling the guard together with a supported cleanup path (e.g. an admin-only delete, or cascading
-  through folder deletion). The re-publish immutability above is unaffected — that is enforced.
+  through folder deletion). Immutability of published content is a separate guarantee and is
+  unaffected either way — that one is enforced.
 
 - **Clean up the DataCite DOI minting workflow.** Treat minting as one explicit, auditable lifecycle
   rather than a preparatory GET followed by a loosely coupled POST. The mutation endpoint must itself
@@ -243,7 +244,7 @@ model libraries — where their JSON and YAML serializations diverge — is in
   whether the frontend writes those or whether they are residue from a field that was once
   multi-instance.
 
-  This is the same shape as the GAZ `numTerms: 0` item above — the editor using zero as a sentinel where
+  This is the same shape as the GAZ `numTerms: 0` item — the editor using zero as a sentinel where
   the schema gives zero a different meaning — so the two are worth deciding together. The frontend change
   belongs to [TEMPLATE-DESIGNER-ROADMAP.md](./TEMPLATE-DESIGNER-ROADMAP.md); it is tracked here because
   the decision binds the meta-schema and both model libraries as well.
@@ -285,7 +286,7 @@ model libraries — where their JSON and YAML serializations diverge — is in
   repository is public and the constant dates from its earliest configuration commits, so the key has
   been readable by anyone for years. BioPortal rate-limits per key, and a burnt quota surfaces to
   users as controlled terms silently not existing, because the picker latches its empty cache for the
-  life of the page: the same defect described in the term-picker item above.
+  life of the page: the same defect as the term-picker ontology-list item.
 
   The *safety* half of this is now done, on both `develop` and the `versioned-terminology-server`
   branch: a cold or rate-limited fetch that returns a handful of ontologies instead of the full ~1300
@@ -341,7 +342,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   bounded useful output, and both modes finish with a trustworthy non-zero exit code on failure.
 
 - **Deepen the core-workflow tests instead of growing the headline count.** The JUnit matrices and the
-  19 REST suites now give the system respectable horizontal coverage: routes boot, authentication and
+  REST suites now give the system respectable horizontal coverage: routes boot, authentication and
   permission boundaries are pinned, and create/read/update/delete, sharing, search, versioning and the
   cross-service hop all execute against the real stack. Much of that is deliberately
   characterization-level, though — a representative payload walks the happy path while many assertions
@@ -354,7 +355,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
      graph update, for create, rename, publish, draft and delete. Assert the operation either rolls back
      or leaves a detectable, recoverable state — never a silently orphaned artifact, a stale graph node
      or a half-published version. This is the write-path counterpart to the read-path degradation-tests
-     item below, which asks only that a service not 500 when a dependency is down.
+     item, which asks only that a service not 500 when a dependency is down.
   2. **Retry and idempotency.** Repeat a write after a timeout or an ambiguous response. Publish, draft,
      move, delete, permission change and DOI-set must not produce a duplicate version, a duplicate graph
      node or divergent state.
@@ -365,8 +366,8 @@ Coverage and test-infrastructure work. The active REST integration suites live i
      bodies around required properties, nested composition, cardinality, identifiers, controlled terms
      and YAML/JSON round-trips. Assert the error body and the persisted post-state, not only the status.
   5. **Projection under an unavailable queue or index.** Grant, revocation, deletion and rename
-     propagation through OpenSearch are now pinned in `finding.mjs` (see the search-findability fix in
-     Done). What remains is the failure case: assert the projection still converges — or degrades
+     propagation through OpenSearch are now pinned in `finding.mjs`. What remains is the failure
+     case: assert the projection still converges — or degrades
      safely — when the queue or the index is briefly unavailable, rather than losing the message.
   6. **Repeatability and reporting.** Run the REST estate twice against the same clean stack and fail on
      leaked fixtures; record an expected-check inventory; emit machine-readable results for CI. A change
