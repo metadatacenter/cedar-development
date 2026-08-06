@@ -291,6 +291,41 @@ Coverage and test-infrastructure work, and the testing decisions taken deliberat
 REST integration suites live in `ops/e2e/rest/suites/`; the JUnit matrices and boot-smoke live in the
 per-server modules.
 
+- **Make test execution an explicit, usable option in `cedarcli build`.** The Java build currently
+  uses `mvn clean install -DskipTests`; this restores the historically fast and predictable developer
+  build after briefly enabling every JUnit suite made `cedarcli build java` appear to run forever.
+  Investigate whether tests should eventually become the default again, but at minimum give `build
+  this`, `build parent`, `build libraries`, `build project`, `build clients` and `build java` clear
+  `--tests` / `--skip-tests` options with one documented default. The selected policy must apply
+  consistently to every Maven task in the generated plan and preserve Maven's failure status.
+
+  Enabling tests is not only a command-line switch. The backend-free suites deliberately point Redis
+  at dead port 1 because queue writes are best-effort; each expected failed write currently emits a
+  full Jedis connection stack trace. In one captured `cedarcli build java` run this produced 1.17
+  million lines (49 MB) in 1 minute 39 seconds while the tests were still advancing. Give tests a
+  quiet queue substitute or suppress the expected queue/Jedis exceptions in test logging, while
+  retaining a focused assertion that an unavailable queue does not fail the request. Also replace
+  cedar-cli's nonblocking `while proc.poll() is None` output loop: it busy-polls at 100% CPU and Rich
+  continually redraws the terminal, magnifying the log flood and making progress hard to distinguish
+  from a hang. Acceptance means the default build remains monitorable, the opt-in full test build has
+  bounded useful output, and both modes finish with a trustworthy non-zero exit code on failure.
+
+- **Add a minimum integration-test baseline to every microservice repository.** Inventory all CEDAR
+  microservices and give each application module at least one integration suite that boots the real
+  service wiring, exercises a representative authenticated request through HTTP, and verifies both a
+  successful response and one meaningful failure path. This is a consistency floor, not a demand for
+  equally deep domain coverage in every service: peripheral or retiring services can keep a small
+  boot-and-route suite, while the resource/artifact path retains the richer state and contract tests
+  described below.
+
+  Normal integration tests must run without shared developer infrastructure or live external APIs.
+  Use the common test-support library for in-process stores, authentication and deterministic fixtures;
+  bind isolated ports; clean up processes and data even after failure; and explicitly tag the few tests
+  that genuinely require an external sandbox. Publish a repository-by-repository coverage matrix so a
+  newly added service cannot silently omit the baseline. The suites must be runnable per repository and
+  together through the test-enabled `cedarcli build` mode, with failures attributed to the responsible
+  service rather than disappearing inside the aggregate reactor output.
+
 - **Deepen the core-workflow tests instead of growing the headline count.** The JUnit matrices and the
   19 REST suites now give the system respectable horizontal coverage: routes boot, authentication and
   permission boundaries are pinned, and create/read/update/delete, sharing, search, versioning and the
