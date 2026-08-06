@@ -338,11 +338,10 @@ started in a static `@BeforeAll` and stopped in `@AfterAll`. Do not use the JUni
 current JUnit platform.
 
 Rough suite sizes: artifact 1279 (parameterized CRUD over four artifact types on embedded Mongo),
-artifact-library 687, model-validation 210, terminology 246 (61 more excluded under `bioportal`),
-resource 49, microservice-libraries 19 (the workspace-graph and lifecycle tests), group 10, and a
-two-to-three-test boot-and-config tier on the thin servers. Known exceptions: the submission server's
-suite hangs at teardown (its NCBI queue enqueues a stop message to Redis on shutdown), so package it
-with `-DskipTests`.
+microservice-libraries 810 over seven modules (server-rest 249, workspace-operations 182,
+search-operations 178), artifact-library 800, terminology 246 (61 more excluded under `bioportal`),
+model-validation 216, resource 78, cadsr-tools 70, core-library 56, user 11, group 10, and a
+one-to-seven-test boot-and-config tier on the remaining thin servers.
 
 ### What the suites actually cover
 
