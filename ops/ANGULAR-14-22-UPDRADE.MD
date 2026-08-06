@@ -51,8 +51,24 @@ reasons; this exists so that moment is a decision rather than an improvisation a
 4 → 7, three majors each, landed alone against a green suite instead of inside the
 march. The API held across the jump.
 
+**The YouTube wrapper is gone.** CEE used `@angular/youtube-player` only to pass
+one ID into a player and used none of its playback API. A validated native iframe
+now accepts both the bare IDs and full YouTube URLs found in existing templates,
+and the global `youtube.com/iframe_api` script is no longer loaded on every page.
+The browser test intercepts the embed navigation, so this path is covered in all
+three engines without making the gate depend on YouTube or the network.
+
+**The searchable Material select has an explicit upgrade ladder.** CEE remains on
+`ngx-mat-select-search` 4.2.1 while it is on Angular 14. At the Angular 15 MDC hop,
+pin 7.0.10 (v6 uses the legacy select); at Angular 16, pin 8.0.6, which can remain
+through Angular 22. Do not install the unpinned latest release during the Angular
+16 hop, because current releases require Angular 17 or newer. The sample-template
+select now has cross-browser coverage for filtering, clearing, and loading a
+selection so the MDC change cannot fail silently. See the upstream
+[compatibility table](https://github.com/bithost-gmbh/ngx-mat-select-search#compatibility).
+
 **Unit tests run on Vitest.** The karma builder is deprecated and goes away before
-22. Seven spec files, 51 tests, none using `TestBed`, now run in Node in about a
+22. Eight spec files, 64 tests, none using `TestBed`, now run in Node in about a
 second instead of launching Chrome — and the repo has one test runner instead of
 two.
 
@@ -64,7 +80,7 @@ installed. `@types/node` went from ^12 (EOL 2022) to ^20.
 for native Custom Elements v1 and Shadow DOM, and no longer bundles
 `@webcomponents/custom-elements` or emits the ES5-only `native-shim.js`. The
 consumer examples use `customElements.whenDefined()` rather than the
-polyfill-specific `WebComponentsReady` event. The complete 329-test browser gate
+polyfill-specific `WebComponentsReady` event. The complete 335-test browser gate
 passes against the native-only bundle in Chromium, Firefox and WebKit.
 
 ## Coverage That Did Not Exist Before
@@ -93,13 +109,13 @@ continued. The current baseline is:
 
 | Gate | Current baseline |
 | --- | --- |
-| Unit | 51 tests in 7 files (Vitest, Node) |
+| Unit | 64 tests in 8 files (Vitest, Node) |
 | Domain | 2,125 tests in 39 files |
-| Visual | 329 tests in 3 files, across the configured Playwright projects |
+| Visual | 335 tests in 3 files, across the configured Playwright projects |
 | Visual snapshots | 98 baselines |
 | Packaging | 8 tests |
 | Lint | 0 errors; 77 baselined `no-explicit-any` warnings |
-| Bundle | 3,138,914 raw / 745,806 gzip-9 bytes, within the enforced budgets |
+| Bundle | 3,131,159 raw / 743,467 gzip-9 bytes, within the enforced budgets |
 
 CI installs from all three lockfiles: the application, domain harness, and visual
 harness lockfiles.
