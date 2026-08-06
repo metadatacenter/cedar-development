@@ -91,7 +91,7 @@ model libraries — where their JSON and YAML serializations diverge — is in
 
   - **Six declared permission levels, two enforced.** `READ` and `WRITE` are checked;
     `CHANGEPERMISSIONS`, `CHANGEOWNER`, `PUBLISH` and `CREATE_DRAFT` are consulted nowhere, yet can be
-    granted and stored. Detailed in its own item below.
+    granted and stored. Detailed below.
   - **`WRITE` confers re-sharing, but not versioning.** The ACL update asks only for write access, so
     editing implies re-sharing; versioning asks for ownership, so it does not. Two different answers to
     "what does write let me do", and neither is written down.
@@ -100,11 +100,13 @@ model libraries — where their JSON and YAML serializations diverge — is in
   - **Categories are world-readable, folders are not.** A category is readable by any authenticated
     user holding the role, with no per-category check, because it is a shared vocabulary. Defensible,
     and the opposite of every other resource, and undocumented.
+  - **A user cannot classify their own artifacts.** Attaching a category needs a grant on the category
+    rather than on the artifact, and only an administrator can give it. Detailed below.
   - **Group membership confers no read.** A member cannot fetch the group or its member list, so a user
     can reach resources through a group they cannot see and cannot discover who else can reach them.
-  - **Denials answer 401 or 403 depending on which code path refuses.** Detailed in its own item below.
+  - **Denials answer 401 or 403 depending on which code path refuses.**
   - **Authority checks live in different layers per subsystem**, so one of them is bypassable by a
-    non-HTTP caller. Detailed in its own item below.
+    non-HTTP caller.
   - **Transferring ownership does not transfer control.** The owner field moves, but a resource inside
     the donor's own tree is still reachable by the donor, because permissions inherit from the parent
     they still own. So handing something over leaves the donor with read and write on it, and the
@@ -114,25 +116,10 @@ model libraries — where their JSON and YAML serializations diverge — is in
     because it is the boundary the rest of the model leans on, and because it is the only place
     `CHANGEOWNER` would be consulted if it were consulted at all.
 
-  One of the original findings is already fixed rather than listed: a permissions response containing a
-  group grant could not be deserialized by the shared model, because `CedarGroupExtract` had no
-  no-argument constructor while `CedarUserExtract` did. That is now a one-line constructor in
-  `cedar-core-library`, with the typed read in `SharingRoundTripTest` as its regression test.
-
-  The deliverable is **a permissions document** — there is none today, and its absence is the root of
-  everything above. It should state the tiers, what each confers, how inheritance interacts with
-  ownership, and which of the listed behaviours are intentional. Only then is it worth making the code
-  and the enum agree with it.
-
-  Pinned by `FolderPermissionLevelMatrixTest`, `ArtifactPermissionLevelMatrixTest`,
-  `SharingRoundTripTest`, `ArtifactsAndCategoriesAuthorizationMatrixTest`,
-  `GroupMembershipAuthorizationMatrixTest`, `GroupSharingRevocationIntegrationTest` and
-  `ArtifactLifecycleMatrixTest`.
-
-- **Decide what the unenforced permission levels are for.** `FilesystemResourcePermission` declares
-  six: `READ`, `WRITE`, `CHANGEOWNER`, `CHANGEPERMISSIONS`, `PUBLISH`, `CREATE_DRAFT`. Outside the
-  enum declaration and tests, `CHANGEPERMISSIONS` and `CHANGEOWNER` appear nowhere in the codebase —
-  nothing ever consults them. Only read and write are enforced.
+  **The unenforced levels.** `FilesystemResourcePermission` declares six: `READ`, `WRITE`,
+  `CHANGEOWNER`, `CHANGEPERMISSIONS`, `PUBLISH`, `CREATE_DRAFT`. Outside the enum declaration and
+  tests, `CHANGEPERMISSIONS` and `CHANGEOWNER` appear nowhere in the codebase — nothing ever consults
+  them. Only read and write are enforced.
 
   The visible consequence is that **a WRITE grant confers re-sharing**, on folders and on all four
   artifact types alike. Updating an ACL is gated by
@@ -157,17 +144,32 @@ model libraries — where their JSON and YAML serializations diverge — is in
   restriction while being none. Either enforce the four unused levels or remove them and document the
   three tiers, including that write implies re-sharing and that versioning is owner-only.
 
-- **Decide whether users can classify their own artifacts.** Attaching a category to an artifact
-  requires a grant on the *category*, not merely on the artifact: `ATTACH` (or `WRITE`, which implies
-  it) must be held on the category being attached. The category tree is writable only by someone with
-  write on the root, which is an administrator, so out of the box a normal user can read the vocabulary
-  and attach nothing to anything — including to templates they own.
+  **Classifying an artifact.** Attaching a category requires a grant on the *category*, not merely on
+  the artifact: `ATTACH` (or `WRITE`, which implies it) must be held on the category being attached.
+  The category tree is writable only by someone with write on the root, which is an administrator, so
+  out of the box a normal user can read the vocabulary and attach nothing to anything — including to
+  templates they own.
 
   This is the design working as built, and `ATTACH` is one of the few permission levels that *is*
-  enforced. But it means the category picker is inert for ordinary users until an administrator grants
-  `ATTACH` on each category, and nothing in the product surfaces that. Either grant `ATTACH` broadly
-  when a category is created, or make the requirement visible. `ops/e2e/rest/suites/categories.mjs`
-  pins the whole sequence: refused without the grant, allowed with it.
+  enforced, which is what makes it the counter-example to the four that are not. But it means the
+  category picker is inert for ordinary users until an administrator grants `ATTACH` on each category,
+  and nothing in the product surfaces that. Either grant `ATTACH` broadly when a category is created,
+  or make the requirement visible.
+
+  One of the original findings is already fixed rather than listed: a permissions response containing a
+  group grant could not be deserialized by the shared model, because `CedarGroupExtract` had no
+  no-argument constructor while `CedarUserExtract` did. That is now a one-line constructor in
+  `cedar-core-library`, with the typed read in `SharingRoundTripTest` as its regression test.
+
+  The deliverable is **a permissions document** — there is none today, and its absence is the root of
+  everything above. It should state the tiers, what each confers, how inheritance interacts with
+  ownership, what `ATTACH` is for, and which of the listed behaviours are intentional. Only then is it
+  worth making the code and the enum agree with it.
+
+  Pinned by `FolderPermissionLevelMatrixTest`, `ArtifactPermissionLevelMatrixTest`,
+  `SharingRoundTripTest`, `ArtifactsAndCategoriesAuthorizationMatrixTest`,
+  `GroupMembershipAuthorizationMatrixTest`, `GroupSharingRevocationIntegrationTest`,
+  `ArtifactLifecycleMatrixTest` and `ops/e2e/rest/suites/categories.mjs`.
 
 - **Decide the contract for `title`/`internalName` across the YAML and JSON serializations.** A CEDAR
   artifact carries two names. The JSON has a JSON-Schema `title` (and `description`) alongside
