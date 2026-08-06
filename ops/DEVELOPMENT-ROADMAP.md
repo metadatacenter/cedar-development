@@ -50,24 +50,6 @@ model libraries — where their JSON and YAML serializations diverge — is in
   first user is never told. This is a design item rather than a coverage item, since no test can be
   written until the API offers the conditional-request machinery.
 
-- **Cache the CompTox substance registry locally.** On every start the bridge server rebuilds its
-  registry by fetching roughly 14,700 substances from the external CompTox API in batches of a
-  thousand, holding the result in a `ConcurrentHashMap` that dies with the process
-  (`SubstanceRegistry`, driven by the `Managed` `SubstanceRegistryLoader`). Three costs follow: the
-  load takes around ninety seconds, during which `/healthcheck` returns 500 and every redeploy shows
-  the service as UNHEALTHY; startup depends on a third party being reachable and on the API key being
-  valid at that moment; and each restart re-fetches a slowly-changing reference dataset that has not
-  meaningfully changed since the last one.
-
-  Persist it instead, and refresh on a schedule or when the local copy is stale rather than on every
-  boot, so the server serves from the cache immediately. SQLite fits and is already in the stack:
-  `org.xerial:sqlite-jdbc` is pinned in `cedar-parent` for the terminology local store, so there is
-  both precedent and an existing dependency to follow.
-
-  Splitting readiness from liveness in the health check is worth doing alongside, so that a server
-  which is up but still warming reports as such rather than as failed. On its own it only relabels
-  the ninety seconds; caching removes them.
-
 - **A published artifact can be deleted, contradicting the docs.** The docs say a published
   artifact is permanent, but `DELETE` on one succeeds. The guard in
   `AbstractResourceServerResource.executeArtifactDelete` was briefly re-enabled and then **reverted by
@@ -211,35 +193,6 @@ model libraries — where their JSON and YAML serializations diverge — is in
   `cedar-embeddable-editor/harness/test/format-independence-generative.spec.ts` and the derivation in the
   library's `YamlTitleDerivation` / `YamlJsonConstraintParity` specs; this item is the design decision
   those tests currently encode by default.
-
-- **Fix and modernize CEE's datetime field.** The date/time/timezone control needs work on three
-  fronts, from the cheap near-term fix to the deeper rework the Angular upgrade unlocks.
-
-  The immediate one is layout. The widget renders with spacing or alignment that looks wrong next to
-  the other input types. Not a data defect — the value is read and written correctly
-  (`cedar-input-datetime`, and the temporal value now carries its `@type`) — but a visual one.
-  Reproduce against the running editor, identify whether it is the component's own template/styles or
-  how the surrounding field row wraps the three sub-controls, and bring it into line with the other
-  fields.
-
-  The deeper rework waits on the framework. Angular Material 19 added an official `MatTimepicker` that
-  can share a value with `MatDatepicker`, use locale-driven 12/24-hour display, parse seconds, and
-  generate options at second
-  intervals. Once Phase 3 reaches Angular 22, prototype replacing only CEE's in-house
-  `app-time-picker` with it. Do not replace the CEDAR-level temporal wrapper: Material still does not
-  provide year/month-only values, decimal seconds, a timezone selector, or CEDAR's XSD serialization
-  and granularity rules. Keep the custom control if matching those rules through Material formats and
-  options is more complex or less usable than the small component already owned here.
-
-  Treat the timezone selector as a separate design correction. It currently offers city-labelled
-  "timezones" but stores only fixed offsets such as `-08:00`; it also guesses an IANA browser zone and
-  immediately reduces it to the offset *now*, which can be wrong for the selected date across a DST
-  boundary. Decide which value the field means. If it means an XSD offset, label choices neutrally as
-  `UTC−08:00` rather than Pacific Time and derive any default for the selected instant. If it means a
-  civil timezone, preserve an IANA identifier such as `America/Los_Angeles` separately and derive the
-  applicable offset from the selected date and time, including ambiguous and nonexistent DST times.
-  While touching the component, remove the duplicate `valueChanges` subscriptions in `ngOnInit` and
-  `ngAfterViewInit`, which currently propagate each selection twice.
 
 - **Saving a template fails validation when GAZ is constrained as a whole ontology.** Adding the GAZ
   (Gazetteer) ontology to a field as an *entire-ontology* controlled-term value makes the template

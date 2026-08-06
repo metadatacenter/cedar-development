@@ -225,6 +225,19 @@ response.
    could fit the content-hash snapshot model *if* they expose retrievable content and release identifiers,
    and *if* a content hash of a flat set (a chemical list, not a hierarchy) is meaningful across
    serializations. Worth a spike.
+- **17. Cache the CompTox substance registry locally (bridge server, infra).** On every start the bridge
+   server rebuilds its registry by fetching roughly 14,700 substances from the external CompTox API in
+   batches of a thousand, holding the result in a `ConcurrentHashMap` that dies with the process
+   (`SubstanceRegistry`, driven by the `Managed` `SubstanceRegistryLoader`). Three costs follow: the load
+   takes around ninety seconds, during which `/healthcheck` returns 500 and every redeploy shows the
+   service as UNHEALTHY; startup depends on a third party being reachable and on the API key being valid
+   at that moment; and each restart re-fetches a slowly-changing reference dataset. Persist it instead,
+   refreshing on a schedule or when the local copy is stale rather than on every boot, so the server
+   serves from the cache immediately. SQLite fits and is already in the stack (`org.xerial:sqlite-jdbc`,
+   pinned in `cedar-parent` for the terminology local store). Split readiness from liveness in the health
+   check alongside, so a warming server reports as such rather than as failed. Related to item 16: both
+   concern how CompTox content enters and is held by the stack.
+
 ## Ingestion tracker (ongoing)
 
 An **iterative** task: updated each time more ontologies are ingested from other repositories (item 8).
