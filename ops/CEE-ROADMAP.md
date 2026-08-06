@@ -17,7 +17,9 @@ labels.
 - The package is currently
   `1.6.0-dev.20260804.85b7ccf` on `cee-with-model-library`.
 - The model dependency is the Nexus-only prerelease
-  `@org.metadatacenter/cedar-model-typescript-library@0.9.2-dev.20260804.f1a3784`.
+  `@org.metadatacenter/cedar-model-typescript-library@0.9.2-dev.20260805.4105f7c`.
+  That build carries `InstanceValidator`, so item 7 is no longer blocked on the
+  library having shipped — only on it having shipped *stably*.
 - The safety net consists of 2,125 domain tests, 51 tests across seven focused
   Angular unit-spec files, and 325 bundle-level Playwright checks: 304 full
   Chromium checks plus seven smoke checks on each of Chromium, Firefox and WebKit.

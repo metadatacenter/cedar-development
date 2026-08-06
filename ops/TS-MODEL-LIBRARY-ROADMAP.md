@@ -39,8 +39,10 @@ renumbered, so a number identifies an item today and nothing beyond today.
   `schema:isBasedOn` and the four provenance keys. Gaps are warnings, so the 35
   of 120 corpus instances that are merely incomplete still read successfully
   while no longer claiming to adhere.
-- `package-dist.json` carries `0.9.2-dev.20260804.f1a3784`, the version before
-  any of the validator work. Nothing has shipped.
+- `0.9.2-dev.20260805.4105f7c` is published to Nexus under the `dev` dist-tag,
+  built from develop with all of the above in it, and CEE consumes it. Nothing is
+  tagged `latest`, so asking for the package without a version still resolves to
+  nothing — a stable release is item 1.
 
 ## Critical Path
 
