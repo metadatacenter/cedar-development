@@ -7,11 +7,12 @@ Java one disagree is recorded in [MODEL-LIBRARY-PARITY.md](./MODEL-LIBRARY-PARIT
 and the case for CEE adopting the library at all in
 [CEE-MODEL-LIBRARY-ADOPTION.md](./CEE-MODEL-LIBRARY-ADOPTION.md).
 
-This roadmap tracks open work only. Item numbers are stable handles, not commit
-labels.
+This roadmap tracks open work only. Closed items are removed and the rest
+renumbered, so a number identifies an item today and nothing beyond today.
 
 > **Commit-message rule:** Never refer to roadmap items or item numbers in commit
-> or check-in messages. Describe the concrete change and affected surface.
+> or check-in messages — renumbering makes any such reference wrong. Describe the
+> concrete change and affected surface.
 
 ## Current position
 
@@ -26,7 +27,10 @@ labels.
   malformed ones — `cee-suite/086` and `templates/003` — still fail. Older forms
   are recorded as warnings rather than rejected, and `STRICT` stays strict.
 - `InstanceValidator.validate` answers instance conformance, with 56 corpus
-  template/instance pairs as its false-positive net.
+  template/instance pairs as its false-positive net. One pair, `cee-suite/002`,
+  does not conform — its template declares `minItems: 10` and its instance holds
+  two values — and is pinned in `KNOWN_NONCONFORMANT` with a test that fails if it
+  ever starts conforming. Recorded rather than tracked: no one is waiting on it.
 - The two verdicts on a parse differ. `wasSuccessful()` counts errors, so it
   answers whether the artifact is usable; `adheresToBlueprint()` counts warnings
   too, so it answers whether the document is in the canonical form. A pre-2024
@@ -65,10 +69,10 @@ the strict reading goes.
 
 ## Corpus
 
-These need someone who knows CEDAR's version history. They are judgements about
-what the corpus means, not code changes.
+A judgement about what the corpus means, rather than a code change. It needs
+someone who knows CEDAR's version history.
 
-### 6. Temporal `required` is inconsistent across the corpus
+### 2. Temporal `required` is inconsistent across the corpus
 
 28 templates require `@type` on a temporal value, 27 do not, and 12 require
 nothing. The blueprint comparison does not check field-level `required`, so it
@@ -77,16 +81,9 @@ roughly half the corpus, on the grounds that the field declares a `temporalType`
 and so the value is a typed literal. That was a judgement, and it should be an
 explicit one.
 
-### 7. `cee-suite/002` does not conform
-
-Its template declares `minItems: 10` on `Multi Text Field`; its instance carries
-two values. Recorded in `KNOWN_NONCONFORMANT` in `InstanceValidatorCorpus.spec.ts`
-with a companion test that fails if it ever starts conforming, so the corpus stays
-green without the discrepancy being forgotten.
-
 ## Deferred
 
-### 8. Widen instance validation to per-field value-node `required`
+### 3. Widen instance validation to per-field value-node `required`
 
 A template states `required: ["@value"]` per field, so "this value node is
 missing the key its own schema demands" is checkable without inferring anything
@@ -99,9 +96,9 @@ kind.
 
 1. Release (item 1). Everything that changes what a published version promises
    has landed, so this is now the only thing between the library and CEE.
-2. Resolve the corpus judgements (items 6 and 7) when someone with the version
-   history is available. Neither blocks a release.
-3. Revisit the deferred item (8) only if a consumer asks for it.
+2. Settle the temporal `required` judgement (item 2) when someone with the version
+   history is available. It does not block a release.
+3. Revisit the deferred item (item 3) only if a consumer asks for it.
 
 ## Out of Scope
 
