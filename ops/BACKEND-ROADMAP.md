@@ -318,9 +318,8 @@ model libraries — where their JSON and YAML serializations diverge — is in
 
 ## Testing
 
-Coverage and test-infrastructure work, and the testing decisions taken deliberately. The active
-REST integration suites live in `ops/e2e/rest/suites/`; the JUnit matrices and boot-smoke live in the
-per-server modules.
+Coverage and test-infrastructure work. The active REST integration suites live in
+`ops/e2e/rest/suites/`; the JUnit matrices and boot-smoke live in the per-server modules.
 
 - **Make test execution an explicit, usable option in `cedarcli build`.** The Java build currently
   uses `mvn clean install -DskipTests`; this restores the historically fast and predictable developer
@@ -432,41 +431,3 @@ per-server modules.
   service a fresh attempt; re-running the ontology search inside the picker reads the same empty cache
   and never could succeed. Nothing is saved server-side until after the block, so a failed attempt
   leaves no orphan template.
-
-### Out of scope for testing
-
-Deliberate exclusions, recorded so they are not rediscovered as gaps.
-
-- **Deeper test coverage for the value-recommender, impex and submission servers.** Not a priority.
-  The value recommender is slated for retirement, so investment in it is wasted; impex and submission
-  are peripheral to the core workspace/artifact flows the suites concentrate on. Boot-smoke and route-
-  surface coverage stay, but they are not targets for the REST or contract suites. Cross-service
-  contract testing is therefore scoped to the resource ↔ artifact hop (see `ops/e2e/rest/suites/
-  contract.mjs`), which is the one every core operation crosses. `POST /templates/recommend`
-  (RecommendResource) is on the resource server but belongs to the value recommender, so it stays
-  untested for the same reason.
-
-- **REST-testing the admin and internal resource-server commands.** Left untested on purpose, not by
-  oversight. The index-management commands — `regenerate-search-index`, `regenerate-rules-index`,
-  `generate-empty-search-index`, `generate-empty-rules-index` — rebuild or wipe the whole search index,
-  so running them inside the smoke would sabotage every other suite's search assertions; they are
-  exercised by hand when the index needs rebuilding, not on every run. `load-valuesets-ontology` and
-  its `-status` poll do a slow bulk load against external terminology, wrong for a fast smoke.
-  `auth-user-callback` is an internal Keycloak sign-in callback, not a client-facing operation.
-
-- **A load or performance suite.** The end-to-end smoke plus real usage covers the shape, and the
-  yield is low next to the items above.
-
-- **Fuzzing and injection suites.** Jersey and Jackson absorb most malformed input, and no endpoint
-  builds queries by string concatenation.
-
-- **Annotation-gating the bridge server's live tests.** They currently pass, so marking them
-  `@Disabled` in the name of consistency with the terminology suite would remove real coverage.
-
-## Out of Scope
-
-These are deliberate decisions, recorded so they are not rediscovered as gaps.
-
-- **Modernizing `cedar-keycloak-event-listener`.** It stays on Java 8 and HttpClient 4 on purpose: it
-  is an SPI plugin loaded inside the Keycloak runtime, whose version is locked, so it must match what
-  Keycloak provides rather than what the rest of the stack uses.
