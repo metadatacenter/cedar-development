@@ -136,6 +136,54 @@ Auxiliary frontends (Angular `ng serve`, port-only health): `ui-openview` 4220, 
 `ui-monitoring` 4300, `ui-artifacts` 4320, `ui-bridging` 4340. Non-essential CEE demos (not started by
 default): `demo.cee` 4260, `docs.cee` 4280, `cee-dev` 4400.
 
+## YAML is a native artifact format
+
+YAML is a first-class CEDAR representation, not a side format you convert to. Both the resource
+server and the artifact server negotiate it on the wire, so reading and writing artifacts as YAML
+needs no conversion step: ask for it with `Accept`, send it with `Content-Type`. Two media types
+are recognized, `application/yaml` (RFC 9512) and `application/x-yaml`. JSON stays the default when
+`Accept` is absent or a wildcard, and an `Accept` naming neither yields `406`.
+
+All four artifact types accept it — `/templates`, `/template-elements`, `/template-fields`,
+`/template-instances` — on `GET`, `POST`, and `PUT`, plus `/{id}/download` on the resource server.
+Both servers share one implementation, `ArtifactYamlTranscoder` in `cedar-server-rest-library`.
+
+```bash
+ID='https%3A%2F%2Frepo.metadatacenter.orgx%2Ftemplates%2F<uuid>'
+curl -sk -H "Authorization: apiKey $CEDAR_ADMIN_USER_API_KEY" -H 'Accept: application/yaml' \
+  "https://resource.metadatacenter.orgx/templates/$ID" -o t.yaml
+curl -sk -X PUT -H "Authorization: apiKey $CEDAR_ADMIN_USER_API_KEY" -H 'Content-Type: application/yaml' \
+  --data-binary @t.yaml "https://resource.metadatacenter.orgx/templates/$ID"
+```
+
+Authoring a new artifact needs no id and no provenance — the minimal form is enough, and the server
+supplies the rest:
+
+```bash
+printf 'type: template\nname: Minimal\n' | curl -sk -X POST -H "Authorization: apiKey $CEDAR_ADMIN_USER_API_KEY" \
+  -H 'Content-Type: application/yaml' -H 'Accept: application/yaml' --data-binary @- \
+  "https://resource.metadatacenter.orgx/templates?folder_id=<encoded-folder-id>"
+```
+
+Two things to know before relying on it:
+
+- **`?compact=true` is read-only.** It returns the lean form — on a 23-field template, 40% of the
+  full YAML and under a seventh of the JSON — by dropping provenance, version, and status. Writing
+  it back is rejected with a `400` naming the compact form. Write the full form, or omit `id` to
+  author minimally.
+- **A template instance takes `?format=` ahead of `Accept`.** That parameter already names the
+  representation (`jsonld`, `json`, `rdf-nquad`), so YAML negotiation applies only when it is absent.
+
+Storage stays JSON on both servers: YAML is a request and response representation, transcoded per
+request, never a stored form.
+
+A YAML round trip is expected to be lossless. The case that historically was not is the `_ui._size`
+box on `static-image` and `static-youtube-video` fields: the YAML serialization carries it in the
+child's `configuration:` block, and a reader that looked only at the field level dropped it on every
+nested static field. `YamlAsymmetryProbeTest` in `cedar-artifact-library` and `YamlNegotiationTest`
+in `cedar-artifact-server` both pin it. If a round trip ever loses a setting again, add a probe there
+rather than documenting the loss.
+
 ## Known gotchas and fixes (the expensive ones)
 
 - **Browser blocks login with a cert error, but `curl` works** → the local TLS **leaf certs
