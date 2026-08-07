@@ -342,6 +342,17 @@ model libraries — where their JSON and YAML serializations diverge — is in
   admin` and `--detach`. The profile reads the installation's env files rather than the templates, the
   admin stack's three undefined port variables are defined, and nginx serves `shared.<host>`.
 
+  `cedar-infra-nginx` and `cedar-frontend-main` build again. Both installed nginx from nginx.org on
+  `debian:bullseye-slim`, fetching the repository signing key from a keyserver by fingerprint; nginx
+  rotated that key to `2FD21310B49F6B46`, apt began rejecting the repository as unsigned, and both
+  failed in their second layer. They now start from `nginx:1.23.4`, the image upstream builds from the
+  same sources and the base the five other frontend images already use — 135 lines down to 41, and 178
+  down to 72. None of the four dynamic modules the old block installed were used: nothing in `config/`
+  calls `load_module`, and `module-geo.inc.conf` uses the core `geo` directive rather than the geoip
+  module. Verified on arm64: the image builds, and `nginx -t` inside it passes across all 49
+  `server_name` entries with the real certificates mounted. `cedar-frontend-main` now reaches its
+  tarball download and fails there instead, which is the frontend publishing item below.
+
   `cedar-java` and `cedar-microservice` are no longer declared as services. They were listed only to
   force build order, and both exited as soon as they started — `cedar-java` with no command at all,
   `cedar-microservice` with `Unable to access jarfile` — so every `up` left two dead containers. The
@@ -370,25 +381,51 @@ model libraries — where their JSON and YAML serializations diverge — is in
      of the six frontend npm tarballs do. `npm-cedar` holds `2.9.1-SNAPSHOT` for five of them and has
      never held `cedar-content-distribution` at any version. Either the frontend repositories publish
      snapshots the way the Java repositories do, or image builds are release-time only and should say
-     so. Until then the frontend half of the estate cannot be built from develop, those build jobs stay
-     `continue-on-error`, and no full bring-up is possible.
+     so. Until then the frontend half of the estate cannot be built from develop and no full bring-up
+     is possible.
+
+     Those build jobs carry `continue-on-error`, which does less than it sounds like: it stops a
+     failure blocking dependent jobs, but the run's own conclusion still counts it, so
+     `cedar-docker-build` stays red while any frontend fails. With the nginx images fixed these five
+     are the only remaining failures, so settling publishing is also what turns that build green.
   3. **Give the frontends a local-build path.** The other half of the Nexus decoupling. The six
      frontend images download a tarball with no local equivalent, so an edit-compile-run loop works for
      the backend and not the UI.
   4. **Publish images from CI.** Building is covered; releasing is not. Tagging and pushing to
      `cedar-dockerhub.bmir.stanford.edu` is still `bin/release-all-images.sh`, run by hand. The open
      question is whether a merge to develop publishes snapshot tags or publishing stays explicit.
-  5. **Reconcile the infra pins.** The three unlocked admin images have been refreshed and the
-     docker-eval profile no longer forces the legacy builder, so what is left here is the locked set,
-     and it is the persistence-upgrade item (9) above wearing a different hat: the Docker pins disagree
-     with what the native stack runs — OpenSearch 1.3.6 against 2.19, MySQL 8.0.32 against 9.6, Redis
-     6.2.7 against 7.2. Whichever way that resolves, the two paths should not be two different
-     environments. Parked with the lock.
+  5. **Decide what the version lock actually locks, then hold both paths to it.** This is not a
+     catch-Docker-up item, which is how it read before it was measured.
 
-     The nginx images are a separate, live breakage rather than staleness: `cedar-infra-nginx` and
-     `cedar-frontend-main` install nginx from nginx.org and pin its signing key, and nginx has since
-     rotated to `2FD21310B49F6B46`. apt now rejects the repository as unsigned and both builds fail in
-     their second layer. Re-pinning buys time; not pinning a key that upstream rotates is the fix.
+     The lock is stated in two places and neither records a version. CLAUDE.md and the runbook both
+     say Mongo, MySQL, Neo4j, Redis, OpenSearch and Keycloak must not move; nothing in `os-mirror`,
+     the install scripts or the production runbook says what they must not move *from*. So it cannot
+     be honoured or checked, and the two deployment paths have drifted apart unnoticed. Measured
+     against the running native services rather than what Homebrew has installed:
+
+         server       native (live)   Docker pin
+         Mongo        5.0.31          5.0.14
+         MySQL        9.6.0           8.0.32
+         Neo4j        5.26.0          5.3.0
+         Redis        7.2.7           6.2.7
+         OpenSearch   2.19.1          1.3.6
+         Keycloak     22.0.5          22.0.4
+
+     The direction is the surprise. The Docker images are the only place any of these versions is
+     written down; the native stack is Homebrew, so `brew upgrade` moves four of the six with nobody
+     deciding to. Despite the policy, native is the unpinned side and Docker is merely old.
+
+     One pairing needs checking before it is treated as cosmetic. `cedar-parent` pins
+     `opensearch.version` at 2.19.2, so the servers ship the OpenSearch 2.19 high-level REST client.
+     Native pairs that with server 2.19.1 and is coherent; Docker pairs it with server 1.3.6, which is
+     not a supported combination. There is also a legacy `org.opensearch.client:transport` artifact at
+     1.3.20, so this is a prediction rather than a fact — but if search or indexing fails at the first
+     Docker bring-up, look here first.
+
+     The work: record one table of locked versions somewhere single and authoritative, pin the native
+     stack to it so Homebrew stops drifting, and move the Docker pins to it. Mongo and Keycloak are
+     already close enough to be a non-event. MySQL, Redis and OpenSearch are major-version decisions
+     and belong with the persistence-upgrade item (9) above.
   6. **Decide the TLS story.** The leaves bundled in `cedar-assets` expired 2026-04-20.
      `copy_certificates` prefers `$CEDAR_HOME/CEDAR_CA`, whose 28 hosts run to 2028, so this bites a
      fresh clone rather than this machine. The question is whether the repo should carry certificates
