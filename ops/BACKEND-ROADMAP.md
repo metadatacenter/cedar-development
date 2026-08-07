@@ -348,10 +348,10 @@ model libraries — where their JSON and YAML serializations diverge — is in
      Node 12.18.4 publishes an arm64 image, so a full build fails on Apple Silicon — though the Java
      chain itself builds clean there, base through server image. The docker-eval profile also forces
      the legacy builder (`DOCKER_BUILDKIT=0`), which still works on Docker 29 but warns that it is
-     deprecated and due for removal. Separately, the infra pins disagree with what the native stack runs: OpenSearch 1.3.6
-     against 2.19, MySQL 8.0.32 against 9.6, Redis 6.2.7 against 7.2. Whichever way that resolves, the
-     two paths should not be two different environments — it interacts with the persistence-upgrade
-     item (9) above.
+     deprecated and due for removal. Separately, the infra pins disagree with what the native stack
+     runs: OpenSearch 1.3.6 against 2.19, MySQL 8.0.32 against 9.6, Redis 6.2.7 against 7.2. Whichever
+     way that resolves, the two paths should not be two different environments — it interacts with the
+     persistence-upgrade item (9) above.
   3. **Publish images from CI, not by hand.** Both Docker repos now build on push and pull request:
      `cedar-docker-deploy` validates its compose stacks, and `cedar-docker-build` resolves every Nexus
      coordinate the images need, then builds the Java chain sequentially and the independent images as
