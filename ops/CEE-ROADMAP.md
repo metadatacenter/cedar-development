@@ -6,11 +6,7 @@ library it consumes. Backend and cross-service work belongs in
 [CEE-RUNBOOK.md](./CEE-RUNBOOK.md); where the TypeScript and Java libraries
 disagree in [MODEL-LIBRARY-PARITY.md](./MODEL-LIBRARY-PARITY.md).
 
-This roadmap tracks open work only. Item numbers are stable handles, not commit
-labels.
-
-> **Commit-message rule:** Never refer to phases or phase numbers in commit or
-> check-in messages. Describe the concrete change and affected surface.
+This roadmap tracks open work only.
 
 ## Current position
 

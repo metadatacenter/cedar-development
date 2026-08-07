@@ -12,8 +12,7 @@ catalog) and served on the local read path (multilingual + synonym search recall
 detail, `lang=<code>` on the class and integrated-search endpoints), and `owl:Ontology`-header identity
 recovery for acronym-only ontologies — lives in git and the design doc. The numbered items track only
 what remains, in three buckets: **Pending** (to build), **Testing** (built, needs live verification),
-and **Future** (deferred / needs a decision / speculative). Items are numbered continuously as stable
-handles.
+and **Future** (deferred / needs a decision / speculative). Items are numbered continuously.
 
 The sections after the numbered items are findings rather than plans, and stay put: the running
 [ingestion tracker](#ingestion-tracker-ongoing), the

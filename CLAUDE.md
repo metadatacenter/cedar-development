@@ -27,9 +27,14 @@ Helper scripts are in `cedar-development/ops/`:
 ## Ops docs: roadmaps and runbooks
 
 Eleven documents under `cedar-development/ops/`, paired by area: a runbook says how to run, build,
-release and deploy; a roadmap tracks open work, where item numbers are stable handles. Findings and
-measurements sit with whichever of the pair they belong to rather than in files of their own, so
-start from the pair for your area and search within it.
+release and deploy; a roadmap tracks open work. Findings and measurements sit with whichever of the
+pair they belong to rather than in files of their own, so start from the pair for your area and
+search within it.
+
+Item numbers on a roadmap are for referring to items in conversation, nothing more. They are not
+stable handles, so nothing should depend on one keeping its number. **Never refer to a numbered item
+— or to a phase number — in a commit or check-in message.** Describe the concrete change and the
+surface it affects.
 
 The backend — the microservices, the shared Java libraries, the stack itself:
 - [BACKEND-RUNBOOK.md](ops/BACKEND-RUNBOOK.md) — architecture, bring-up, the `cedar-services.sh`

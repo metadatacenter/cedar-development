@@ -6,7 +6,7 @@ Outstanding work for the template-authoring frontend, `cedar-template-editor`
 is tracked in [CEE-ROADMAP.md](./CEE-ROADMAP.md); backend and cross-service work
 is in [BACKEND-ROADMAP.md](./BACKEND-ROADMAP.md).
 
-This roadmap tracks open work only. Item numbers are stable handles.
+This roadmap tracks open work only.
 
 ## Bugs
 
