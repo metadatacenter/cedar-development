@@ -70,8 +70,9 @@ export CEDAR_KIBANA_PORT=5601
 
 #------------------------------------------------------
 # CEDAR Docker BuildKit behavior
-export DOCKER_BUILDKIT=0
-export COMPOSE_DOCKER_CLI_BUILD=0
+# BuildKit is the default and the only builder CI uses. The legacy builder these two selected still
+# runs on Docker 29 but warns that it is deprecated and due for removal, so stop asking for it.
+# Set both to 0 if a build turns out to depend on legacy behaviour, and say why here.
 
 #------------------------------------------------------
 # Unit test settings
