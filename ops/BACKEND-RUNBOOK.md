@@ -285,9 +285,32 @@ rather than documenting the loss.
   before the server was built. Always build in dependency order: `cedar-parent` first, then
   `cedar-microservice-libraries`, then the servers. `cedarcli build java` does this for you.
 
-- **The bridge server reads `UNHEALTHY` for a minute or two after start, then goes healthy** →
-  normal. Its real `CompTox` health check reports "registry not loaded yet" during an asynchronous
-  warm-up. Wait for `curl -sk http://localhost:9115/healthcheck` to show `"comp-tox":{"healthy":true`.
+- **PFAS lookups return `503` and the bridge's `comp-tox` health message says the registry is not
+  loaded** → the EPA CTX API is unreachable, and there is nothing to fix locally. The registry loads
+  asynchronously from `https://comptox.epa.gov/ctx-api/`, and the loader retries forever with
+  exponential backoff up to ten minutes. Confirm it is upstream with the same call the server makes:
+
+  ```bash
+  curl -sS -D- -o /dev/null -H 'Accept: application/json' -H "x-api-key: $CEDAR_COMP_TOX_API_KEY" 'https://comptox.epa.gov/ctx-api/chemical/list/chemicals/search/by-listname/PFASSTRUCTV5'
+  ```
+  An Apache `503 Service Unavailable` in `text/html` is EPA's load balancer with no backend — their
+  whole data plane, not just this list, while `https://comptox.epa.gov/ctx-api/docs/chemical.json`
+  keeps serving. The API itself has not moved: that spec still declares this exact path, the
+  `x-api-key` header, and `https://comptox.epa.gov/ctx-api` as its server.
+
+  The bridge **stays healthy** throughout, deliberately. CompTox is one of its eight resources, the
+  other seven are unaffected, and the two PFAS endpoints already answer `503` with a `Retry-After`
+  derived from the loader's next attempt — so nothing is hidden. The condition is reported in the
+  health *message* instead, which names the attempt count and last error:
+
+  ```bash
+  curl -sk http://localhost:9115/healthcheck | python3 -c 'import sys,json;print(json.load(sys.stdin)["comp-tox"]["message"])'
+  ```
+  This used to fail the check, which meant an EPA outage made `cedar-services.sh health` exit
+  non-zero and blocked the full gate below on a third party. A health check answers "should traffic
+  reach this instance", and for a dependency the loader will retry forever the answer is yes.
+  (`TerminologyServerHealthCheck` is right to do the opposite: the ontology catalogue is that
+  server's entire job, and its degraded mode silently served a partial catalogue.)
 
 - **The whole stack is green, but real requests 500 — often with `NoClassDefFoundError`** → a backend
   service is **`STALE`**: running a jar older than the one on disk, and that jar can be a *broken* build,
@@ -493,9 +516,9 @@ Pass `restart` no service names. With no arguments it restarts everything the sc
 which includes the gulp frontend and the five `ui-*` frontends, not only the 15 Dropwizard
 services. Naming services explicitly narrows that and is easy to get wrong: a list of the Java
 services alone leaves the frontend running whatever it started with, so the gate cannot catch a
-frontend regression at all. Gate on `health` rather than reading the status table, and expect it to
-take a couple of minutes — the bridge server reports unhealthy until its CompTox registry finishes
-loading, which is normal and not a fault.
+frontend regression at all. Gate on `health` rather than reading the status table. It no longer
+waits on the bridge: a CompTox registry that has not loaded leaves the bridge healthy and says so in
+its health message, so an EPA outage cannot block the gate (see the PFAS `503` entry above).
 
 A full `restart` is slow (it stops and starts 21 processes) and can be cut short — a shell timeout,
 an interrupt — partway through, leaving some services on the previous build. So after it, run
