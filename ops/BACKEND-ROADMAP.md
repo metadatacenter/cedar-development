@@ -445,8 +445,34 @@ model libraries — where their JSON and YAML serializations diverge — is in
      that worker drains, and never open MySQL themselves.
 
      So no server was missing a wait for something it opens eagerly, and the one real hole was schema.
-     The remaining work is to stop hand-maintaining fifteen scripts: derive each from the components
-     its configuration actually resolves, so the next server added cannot repeat schema's omission.
+
+     The waits are now one script in the base image, `wait-for-dependencies.sh`, driven by the
+     environment: a container waits for a backend when it is handed that backend's coordinates.
+     Fourteen of the fifteen derive byte-identical behaviour to what they had; only bridge changes,
+     gaining a Mongo wait because it is given Mongo coordinates it does not use — harmless, and a sign
+     the compose entry is what is wrong. Two things stay explicit because no host variable implies
+     them: the MySQL step creates databases and users, so `wait-and-init-mysql.py` keeps deciding for
+     itself from `CEDAR_SERVER_NAME`, and waiting on another CEDAR server is declared per image as
+     `CEDAR_WAIT_FOR_SERVERS`.
+
+     `pre-docker-entrypoint.sh` survives as an optional per-server hook for work that is not a
+     dependency wait, and exactly one server still has one. The resource server's carried the
+     first-run bootstrap of the whole system — Neo4j indices, global and caDSR objects, the initial
+     users — behind a flag on the `resource_state` volume, buried under six lines of waits. Anything
+     folding those scripts together has to keep it.
+
+     That bootstrap has a latent problem worth its own look. The `cedarat.sh` calls are not checked
+     and the flag is written unconditionally, so a first run against a half-ready Neo4j marks the
+     system initialised without having initialised it, and never retries; recovering means deleting
+     the flag from the volume by hand. Observed while testing the split, not introduced by it.
+
+     The entrypoint now also honours the pre-entrypoint's exit status. It did not before, which never
+     mattered because every wait script blocks until its backend answers rather than giving up — but
+     it meant a misconfigured server would have started anyway. A server asked to wait for a peer
+     whose admin port is not set now exits 1 instead of starting into a failure it cannot explain.
+
+     What remains is bridge's surplus Mongo coordinates, and the same treatment for the frontends,
+     which have no waits at all.
 
   One estate difference is worth a decision rather than a fix. The Docker nginx now serves 24 virtual
   hosts against the native stack's 28; the four that remain are CEE's — `demo.cee`, `demo-dist.cee`,
