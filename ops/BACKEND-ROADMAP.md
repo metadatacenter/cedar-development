@@ -332,11 +332,13 @@ model libraries — where their JSON and YAML serializations diverge — is in
 
   Four things keep it from being the answer as it stands, and they are the work:
 
-  1. **Break the build-time Nexus coupling.** `install_deps.sh` runs `mvn dependency:get` for
-     `org.metadatacenter:cedar-<name>-server-application:${CEDAR_VERSION}` while the image builds, and
-     the frontends pull tarballs from the Nexus npm repo the same way. A local change is invisible to
-     Docker until it is published, so the path cannot serve an edit-compile-run loop. Give the images a
-     way to take a jar from the checkout.
+  1. **Break the build-time Nexus coupling.** Done for the Java images, open for the frontends. Each
+     of the fifteen server images and the admin tool now has a `local/` staging directory in its build
+     context; `bin/stage-local-jar.sh` copies the jar out of the checkout's `target/`, and
+     `install_deps.sh` prefers whatever is staged over `mvn dependency:get`. Staged jars are
+     git-ignored, so a release still builds from published artifacts. The six frontend images still
+     download a tarball from the Nexus npm repo with no local equivalent, so an edit-compile-run loop
+     works for the backend and not the UI.
   2. **Refresh the base images and reconcile the pins.** The admin images are the worst of it:
      `kibana:6.4.3`, `phpmyadmin:5.0.0`, redis-commander on `node:12.18.4`. Neither Kibana 6.4.3 nor
      Node 12.18.4 publishes an arm64 image, so a full build fails on Apple Silicon. The docker-eval
@@ -345,9 +347,19 @@ model libraries — where their JSON and YAML serializations diverge — is in
      against 2.19, MySQL 8.0.32 against 9.6, Redis 6.2.7 against 7.2. Whichever way that resolves, the
      two paths should not be two different environments — it interacts with the persistence-upgrade item
      above.
-  3. **Put image builds under CI.** Neither Docker repo has a workflow. Every other Java repo builds on
-     push and publishes its snapshot on merge, but images are built and pushed by hand from
-     `bin/build-all-images.sh` and `bin/release-all-images.sh`.
+  3. **Publish images from CI, not by hand.** Both Docker repos now build on push and pull request:
+     `cedar-docker-deploy` validates its compose stacks, and `cedar-docker-build` resolves every Nexus
+     coordinate the images need, then builds the Java chain sequentially and the independent images as
+     a matrix. What CI still does not do is *release*: tagging and pushing to
+     `cedar-dockerhub.bmir.stanford.edu` remains `bin/release-all-images.sh`, run by hand.
+
+     That first run turned up a gap. All eighteen Java artifacts resolve at the current snapshot, but
+     none of the six frontend npm tarballs do: `npm-cedar` holds `2.9.1-SNAPSHOT` for five of them and
+     has never held `cedar-content-distribution` at any version. So the frontend images cannot build
+     against develop at all. Their build jobs are `continue-on-error` for now and the resolve step
+     reports the missing tarball rather than failing the run. Either the frontend repositories publish
+     their snapshots the way the Java repositories do, or image builds are release-time only and should
+     say so; until that is settled the frontend half of the estate is unbuildable from develop.
   4. **Fix the TLS story.** The leaves bundled in `cedar-assets` expired 2026-04-20, so a fresh bring-up
      hits the same cert wall the native stack does. `copy_certificates` prefers `$CEDAR_HOME/CEDAR_CA`
      when it exists and falls back to the repo copy, so the question is whether the repo should carry
