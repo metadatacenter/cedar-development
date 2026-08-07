@@ -164,9 +164,10 @@ response.
    already resolves correctly (serve locally or report unavailable). *Version currency (done):* the served
    prod catalog's OBO ontologies were refreshed to their current OBO Foundry release via
    `ops/harvest-obo-ingest.sh` (155/158, 49 genuinely-newer refreshes — logged in the tracker), and GAZ
-   ingested once its download timeout was raised to 90 min (commit `f66b1bb`). *Remaining:* NCBITaxon
-   (deferred, too RAM/time-heavy); bulk-harvest OLS `fileLocation`s; label the OntoPortal authority on the
-   snapshot (backend records `bioportal` regardless of instance).
+   ingested once its download timeout was raised to 90 min (commit `f66b1bb`), with NCBITaxon following on
+   2026-08-06 (82 min at 40g, server stopped — a 3.7× expansion, see the tracker). *Remaining:*
+   bulk-harvest OLS `fileLocation`s; OGG, whose PURL still 404s upstream (the 2026-07-29 snapshot stands);
+   label the OntoPortal authority on the snapshot (backend records `bioportal` regardless of instance).
 - **9. Backfill `iri`/`sourceSystem` onto existing stored constraints.** A data migration over published
    CEDAR templates, not a code change — and not required for function, since tolerant readers already
    default a constraint with no `sourceSystem`/`iri` to BioPortal + acronym-derived resolution. Two halves:
@@ -200,16 +201,32 @@ response.
    OCDARWN, OCDARWNE, OCDO, RDL, REGN_BRO, STY1 (mostly VODAN/OCDAR/test/project artifacts). No automatic
    source exists, so each needs a hand-assigned title written to `ontology_source.name`. Cosmetic — the
    picker also shows the acronym — and cheap once the correct names are supplied; low priority.
-- **13. Re-fetch labels for the 9 drifted, raw-less ontologies (low priority).** Nine served ontologies
-   have real labels but could not be multilingual-backfilled (item 10): no retained local raw matches their
-   snapshot `file_hash`, and BioPortal has drifted, so neither `--backfill-labels` (source refetch) nor
-   `--backfill-labels-from-raw` can fill them — **NCIT, MS, DOVES, FLOPO, MIXS, MOLSIM, NAMO, RS, SSTIM**
+- **13. Re-fetch labels for the drifted, raw-less ontologies (done — one caveat).** Nine served ontologies
+   had real labels but could not be multilingual-backfilled (item 10): no retained local raw matched their
+   snapshot `file_hash`, and BioPortal had drifted, so neither `--backfill-labels` (source refetch) nor
+   `--backfill-labels-from-raw` could fill them — NCIT, MS, DOVES, FLOPO, MIXS, MOLSIM, NAMO, RS, SSTIM
    (plus NCBITaxon, deferred for size). Their primary English `pref_label` serves fine; only the
-   multilingual/synonym side-table is missing, so search recall on a synonym or another language misses
-   them. Fix: re-ingest the current release from a source that still serves them — an OBO PURL for the OBO
-   ones (MS, FLOPO, RS, …), the way GAZ was refreshed; BioPortal for NCIT — which captures labels at ingest.
-   That mints a new labeled snapshot and moves `latest` (a currency refresh, not an in-place label add), so
-   it doubles as bringing these up to date. Low priority.
+   multilingual/synonym side-table was missing, so search recall on a synonym or another language missed
+   them. The fix is a re-ingest of the current release, which captures labels at ingest and doubles as a
+   currency refresh (it mints a labelled snapshot and moves `latest`, rather than adding labels in place).
+   *Done 2026-08-06, all ten:* **MS** (+4,619 labels), **RS** (+14,611) and **NCBITaxon** (+3,354,524, and
+   far more than a label fix — see the tracker) from the OBO PURL; **NCIT** (+206,860), **DOVES**
+   (+138,835), **MOLSIM** (+3,491), **MIXS** (+1,516), **NAMO** (+259) and **SSTIM** (+206) from BioPortal.
+   Structure held in every one of those nine — root counts identical before and after, class and edge
+   counts identical or marginally better. **FLOPO** is the exception: the re-ingest gained labels but lost
+   the hierarchy, and was reverted (below), so it still has no label side-table.
+   **BioPortal drift is what makes the BioPortal route work, not what blocks it.** The original note here
+   assumed drift ruled BioPortal out. It does rule out `--backfill-labels`, which needs a source still
+   serving the *same* content as the stored snapshot. A plain re-ingest wants the opposite: because
+   BioPortal has moved on, it mints a fresh snapshot and captures labels on the way in. That is the whole
+   fix for the six non-OBO ones, and it is cheap — all five stragglers finished in 81 seconds together.
+   **The PURL route only works for ontologies whose hierarchy survives without their imports.** A bare
+   `purl.obolibrary.org/obo/<id>.owl` is the asserted file, not the import closure BioPortal's submission
+   resolves. For MS and RS that changes nothing (no unresolved imports; structure identical or slightly
+   better). For FLOPO it was a regression — 22,717 of 35,351 classes arrived parentless against 23 roots
+   before, an unbrowsable tree on an ontology allowlisted for both search and browse — so its `latest` was
+   moved back to the dated BioPortal snapshot and the new one is retained but unserved. Check roots and
+   edges, not just class count, before letting a PURL refresh stand on an import-heavy ontology.
 
 - **14. Investigate storing caDSR CDE value sets.** The enumerated caDSR CDEs — those whose value domain
    is a permissible-value list — already resolve to value sets, packaged today as the hand-built CADSR-VS
@@ -288,18 +305,68 @@ ontology, distinct content hashes): GO-basic (2024-01-17 vs 2025-06-01), PATO (2
 - 2026-08-04 — GAZ ingested (download timeout raised to 90 min, commit `f66b1bb`), and the served catalog's
   multilingual labels were backfilled from retained local raws (`--backfill-labels-from-raw`, +5.6M labels
   across 77 snapshots incl. giants MESH/BERO/DDSS/LOINC/EFO — item 10). Residual re-fetch tracked as item 13.
+- 2026-08-06 — targeted pass over the served prod catalog: item 13's label re-fetch (all ten, closing it)
+  plus the ingests deferred from the 2026-08-03 OBO pass (prod 1332→1343 snapshots, 1309→1320 hashes,
+  1214→1215 acronyms).
+  **NCBITaxon is the headline** — the refresh that was deferred as too RAM/time-heavy ran in 82 min at
+  40g with the terminology server stopped, and BioPortal's submission turns out to have been badly
+  truncated: **761,814 → 2,854,537 classes** (2,854,485 edges), roots *down* 63 → 3 (`NCBITaxon_1` plus the
+  two TAXRANK meta-classes), and +3,354,524 labels. 2.1 GB snapshot; verified serving live. Also **NCIT**
+  from BioPortal (206,628 → 206,860 classes, roots unchanged at 18, +206,860 labels), **MS** and **RS**
+  (structure unchanged or marginally better, +4,619 and +14,611 labels), and **GEMET** newly ingested
+  (5,609 concepts via `skos:broader`, +202,276 labels — its 2026-08-01 failure is resolved, see below), and
+  item 13's five non-OBO stragglers from BioPortal (DOVES, MIXS, MOLSIM, NAMO, SSTIM — 81 s for all five).
+  **FLOPO refreshed and reverted** — see item 13; the store keeps both snapshots.
+  *GEMET's failure was never the remote end.* It fails under Java with `SSLHandshakeException: PKIX path
+  building failed` because `eionet.europa.eu` serves a chain JDK 17's truststore will not build a path to.
+  `curl` succeeds against the same URL using the system trust store, so a curl reachability check does not
+  predict whether the ingester can fetch it. Ingested instead by downloading with curl and serving the dump
+  over loopback http, which needs no truststore edit and costs nothing in provenance: the catalog records
+  the ontology's canonical IRI read from its own content plus the `--backend` label, never the download URL.
+  **GEMET is now served** (both allowlists, 2026-08-07): 5,609 concepts, 148 roots, 37 languages, every
+  concept carrying an English label and 5,461 of 5,609 a parent. Verified live on all four paths — search
+  (249 hits for "water"), `lang=fr` on the same query (chaudière / ruissellement / eau usée / aquifère),
+  `/classes/roots` returning exactly the snapshot's 148, and class detail under `lang=de`
+  (`concept/518` → Grundwasserträger). Store load went 1212/1211 → 1213/1212 ontologies.
+  *An ontology BioPortal does not carry cannot be gated, and this is structural, not a gap.* The gate is a
+  differential against recorded BioPortal goldens; BioPortal has no GEMET (`/ontologies/GEMET` → 404), so
+  there is nothing to record and `cedar_term_gate.sh` has no opinion to offer. The same holds for EMI and
+  for every future `--source url` / non-BioPortal-OntoPortal ingest. Two consequences worth keeping in
+  mind: such an ontology is admitted on local verification alone (structure, language coverage, and a live
+  REST check of all four paths — the checklist GEMET just ran), and because `sourceSystem` routing never
+  proxies it, the allowlist is not an optimisation but the only thing making it reachable at all — before
+  allowlisting, a GEMET search returned HTTP 404 rather than falling back to anything.
 
 **Next iterations** are one command — `ops/harvest-ols-ingest.sh` (source expansion) and
 `ops/harvest-obo-ingest.sh` (OBO release currency), both `<catalog> <snapshotDir> [--max N]`, idempotent,
-skipping already-current acronyms and logging/skipping failures. Remaining: the NCBITaxon giant-run;
-bulk-harvest the rest of the OLS fileLocations; add more OntoPortal instances (EcoPortal, IndustryPortal,
-each needs its own key); retry the transient failures; grow version pairs from dated OBO/GO releases.
+skipping already-current acronyms and logging/skipping failures.
+
+Ordered for the next unattended run, cheapest and most certain first. The catalog is
+`$CEDAR_HOME/cedar-term/prod/catalog.sqlite`; back it up before any write, and re-check roots and edges
+after every refresh rather than class count alone (this is what caught FLOPO).
+
+1. **Give FLOPO its labels back.** The only item-13 ontology still without a label side-table. It needs a
+   source carrying its import closure, which the bare OBO PURL is not — try BioPortal, the route that
+   worked for the other six, and keep the reverted `latest` if the tree does not come back at ~23 roots.
+2. **Settle DDSS.** The catalog shows 807,061 classes and 800,850 edges as of 2026-07-29, contradicting
+   the "re-ingest timed out; unresolved" note in reconciliation issue 12 — it is in neither allowlist. If
+   the snapshot really is healthy this is a free promotion; the work is a browse/search check, not an
+   ingest.
+3. **Bulk-harvest the remaining OLS `fileLocation`s** (`ops/harvest-ols-ingest.sh --max N`). Open-ended, so
+   bound it. Note these arrive unserved: a BioPortal-carried ontology still needs the differential gate,
+   and one BioPortal lacks cannot be gated at all and is admitted on local verification (GEMET above).
+4. **Add another OntoPortal instance** (EcoPortal, IndustryPortal — each needs its own API key).
+5. **Grow version pairs** from dated OBO/GO release URLs, for diff coverage.
+
+Not worth retrying: **OGG**, whose PURL still 404s upstream (checked 2026-08-06; the 2026-07-29 snapshot
+stands), and **EO1**, deferred by decision (item 7 — its SKOS source declares `skos:broader` as string
+literals).
 
 ## BioPortal reconciliation issues
 
 A living log of every way the local terminology replica diverges from BioPortal, why, and what
 we did about it. Compiled from the corpus-wide differential gate over the 1,214 ingested
-ontologies (goldens + snapshots under `~/tmp/cedar-term/gate-all/`). Kept for later review; append
+ontologies (goldens + snapshots under `$CEDAR_HOME/cedar-term/gate-all/`). Kept for later review; append
 new findings as they surface.
 
 **Overarching finding.** Where the local replica and BioPortal disagree, the cause is far more
