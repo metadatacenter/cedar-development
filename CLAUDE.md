@@ -33,6 +33,8 @@ Runbooks:
 - [BACKEND-RUNBOOK.md](ops/BACKEND-RUNBOOK.md) — the local native stack: architecture, bring-up,
   gotchas, port map, and current framework state.
 - [CEE-RUNBOOK.md](ops/CEE-RUNBOOK.md) — build and test the embeddable editor (CEE).
+- [TS-MODEL-LIBRARY-RUNBOOK.md](ops/TS-MODEL-LIBRARY-RUNBOOK.md) — build and test the TypeScript
+  model library.
 - [ANGULAR-14-22-UPDRADE.MD](ops/ANGULAR-14-22-UPDRADE.MD) — preparation baseline and safety-net
   contract for incrementally upgrading CEE from Angular 14 through 22.
 - [RELEASE-RUNBOOK.md](ops/RELEASE-RUNBOOK.md), [CEE-RELEASE-RUNBOOK.md](ops/CEE-RELEASE-RUNBOOK.md)

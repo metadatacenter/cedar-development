@@ -141,6 +141,36 @@ new tests should make the counts rise.
 Use the complete gate before pushing or opening a pull request. The focused
 commands below are faster feedback while working on one layer.
 
+### What CI runs
+
+`.github/workflows/test.yml` runs the same gate on every pull request and on
+pushes to `main`, `develop` and `cee-with-model-library`, with a thirty-minute
+ceiling. Two of its choices are deliberate and expensive to rediscover.
+
+**The runner is pinned to `macos-15`, not `macos-latest`.** The committed
+Playwright snapshots are macOS baselines, so a runner bump would move them
+underneath the suite and fail it for no reason anyone had changed. It is also
+specifically not `macos-14`: Playwright no longer builds WebKit for
+`mac14-arm64` and serves a frozen v2251 there, while the pinned Playwright
+drives v2336. The driver sends `Page.overrideSetting: PushAPIEnabled`, v2251
+does not implement it, and every `newPage()` in the webkit-smoke project fails.
+
+**The job changes Node version midway.** Angular 14 supports Node 14 and 16 but
+not the Node 20 that the current Playwright needs, so CI installs dependencies
+and builds the production web component on Node 16.20.2, then switches the
+runner to Node 20.20.2, reinstalls, and tests that already-built `dist` with
+`npm run test:ci:prebuilt`. Locally you do not have to do this hop, because
+`nvm use 20.20.2` plus `npm run test:ci` builds and tests in one pass on a
+single version — the split exists only so each tool runs on a version it
+supports.
+
+Lint runs on the Node 16 hop, beside the Angular compiler. Warnings do not fail
+the build: the pre-existing `any` debt is baselined per file in
+`.eslintrc.json`.
+
+Nothing is published from CI. Releasing the npm package is a separate, manual
+procedure — see [CEE-RELEASE-RUNBOOK.md](./CEE-RELEASE-RUNBOOK.md).
+
 ## Running the domain test harness
 
 The harness depends on the published model library, resolved from Nexus like
