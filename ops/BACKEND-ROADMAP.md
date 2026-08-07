@@ -342,6 +342,23 @@ model libraries — where their JSON and YAML serializations diverge — is in
   admin` and `--detach`. The profile reads the installation's env files rather than the templates, the
   admin stack's three undefined port variables are defined, and nginx serves `shared.<host>`.
 
+  `cedar-java` and `cedar-microservice` are no longer declared as services. They were listed only to
+  force build order, and both exited as soon as they started — `cedar-java` with no command at all,
+  `cedar-microservice` with `Unable to access jarfile` — so every `up` left two dead containers. The
+  `depends_on: cedar-microservice` entries that pinned them there went with them; they ordered against
+  a container that exits, so they never conferred anything. Building the base images is
+  `bin/build-all-images.sh`, which is what the release script and CI already use.
+
+  **Startup ordering: not a compose problem.** Merging the infrastructure and microservice stacks into
+  one project, so a `service_healthy` condition could span them, turned out to be the wrong fix. Each
+  server already waits for precisely the backends it needs through its `pre-docker-entrypoint.sh`, and
+  `wait-for-server.py` covers inter-service HTTP dependencies that a container health condition cannot
+  express at all. Fourteen of the fifteen were already correct. The fifteenth was the actual defect:
+  `cedar-server-schema` had no `scripts/` directory and waited for nothing, so it raced Mongo, Neo4j
+  and Redis on every start. It now waits for all three, like its siblings. Compose 5.3 does support
+  `include`, so a one-command combined bring-up remains available if it is ever wanted for its own
+  sake, but it should not be adopted as an ordering mechanism.
+
   **What remains.**
 
   1. **Bring the stack up.** Everything so far is static verification: no CEDAR container has been run.
@@ -361,26 +378,38 @@ model libraries — where their JSON and YAML serializations diverge — is in
   4. **Publish images from CI.** Building is covered; releasing is not. Tagging and pushing to
      `cedar-dockerhub.bmir.stanford.edu` is still `bin/release-all-images.sh`, run by hand. The open
      question is whether a merge to develop publishes snapshot tags or publishing stays explicit.
-  5. **Refresh the base images and reconcile the pins.** `kibana:6.4.3`, `phpmyadmin:5.0.0` and
-     redis-commander on `node:12.18.4` are the worst of it, and neither Kibana 6.4.3 nor Node 12.18.4
-     publishes an arm64 image, so a full build fails on Apple Silicon — though the Java chain itself
-     builds clean there. The docker-eval profile also forces the legacy builder (`DOCKER_BUILDKIT=0`),
-     which still works on Docker 29 but warns it is deprecated and due for removal. Separately the
-     infra pins disagree with what the native stack runs: OpenSearch 1.3.6 against 2.19, MySQL 8.0.32
-     against 9.6, Redis 6.2.7 against 7.2. Whichever way that resolves, the two paths should not be two
-     different environments — it interacts with the persistence-upgrade item (9) above.
+  5. **Reconcile the infra pins.** The three unlocked admin images have been refreshed and the
+     docker-eval profile no longer forces the legacy builder, so what is left here is the locked set,
+     and it is the persistence-upgrade item (9) above wearing a different hat: the Docker pins disagree
+     with what the native stack runs — OpenSearch 1.3.6 against 2.19, MySQL 8.0.32 against 9.6, Redis
+     6.2.7 against 7.2. Whichever way that resolves, the two paths should not be two different
+     environments. Parked with the lock.
+
+     The nginx images are a separate, live breakage rather than staleness: `cedar-infra-nginx` and
+     `cedar-frontend-main` install nginx from nginx.org and pin its signing key, and nginx has since
+     rotated to `2FD21310B49F6B46`. apt now rejects the repository as unsigned and both builds fail in
+     their second layer. Re-pinning buys time; not pinning a key that upstream rotates is the fix.
   6. **Decide the TLS story.** The leaves bundled in `cedar-assets` expired 2026-04-20.
      `copy_certificates` prefers `$CEDAR_HOME/CEDAR_CA`, whose 28 hosts run to 2028, so this bites a
      fresh clone rather than this machine. The question is whether the repo should carry certificates
      at all rather than issue them at setup.
-  7. **Let healthchecks order startup.** Infrastructure and the microservices are separate compose
-     projects, so `depends_on: condition: service_healthy` cannot reach across the boundary and
-     ordering still rests entirely on the in-image `wait-for-*.py` scripts. Merging the stacks into one
-     project would fix it, at the cost of changing how the estate is started.
-  8. **Stop declaring the build-order placeholders as services.** `cedar-java` has no command and exits
-     at once; `cedar-microservice` starts its entrypoint, fails with `Unable to access jarfile`, and
-     exits. Every `up` of the microservices stack therefore leaves two dead containers. They are marked
-     `restart: "no"` so they cannot crash-loop, but they should not be services at all.
+  7. **Derive the wait coverage instead of maintaining it by hand.** The audit came out better than
+     expected and is worth recording, because the reasoning is not obvious. `cedar-main.yml` is one
+     shared file naming about 120 variables, and the substitutor runs non-strict: a variable a
+     container is not given stays a literal `${VAR}` and only matters if that component is used. So
+     each compose `environment:` list is a curated per-server subset, not a statement of what the
+     server opens, and comparing the two overstates the gaps. What the servers actually do at startup:
+     Neo4j is initialised eagerly for every one of them, and all fifteen waited for it; the persistent
+     Redis pool is constructed for every one of them by `AppLoggerQueueService`, but `JedisPool` is
+     lazy and `enqueueEvent` catches and counts failures, so an absent Redis drops log events rather
+     than failing startup. Five servers were not waiting for Redis and now do — cheap insurance
+     against a silent hole. The apparent Mongo gap on bridge is not one: bridge references Mongo
+     nowhere. The MySQL gaps on impex and monitor are not either: they log through the Redis queue
+     that worker drains, and never open MySQL themselves.
+
+     So no server was missing a wait for something it opens eagerly, and the one real hole was schema.
+     The remaining work is to stop hand-maintaining fifteen scripts: derive each from the components
+     its configuration actually resolves, so the next server added cannot repeat schema's omission.
 
   One estate difference is worth a decision rather than a fix. The Docker nginx now serves 24 virtual
   hosts against the native stack's 28; the four that remain are CEE's — `demo.cee`, `demo-dist.cee`,
