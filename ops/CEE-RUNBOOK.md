@@ -477,13 +477,13 @@ Those assert what CEE *does*, deliberately. See [CEE-ROADMAP.md](./CEE-ROADMAP.m
 
 `main` is owned by the release process. Work lands on `develop`.
 
-Cutting and publishing a version has no runbook yet: npm auth, the 2FA gotcha,
-and propagating the new version to the repos that embed CEE are all undocumented.
+Cutting and publishing a version is in [CEE-RELEASE-RUNBOOK.md](./CEE-RELEASE-RUNBOOK.md).
 
-One thing worth knowing: the root `package.json` declares a `publishConfig`
-pointing at the Stanford Nexus registry, but that is **not** what a release
-publishes. The release publishes the generated `dist-npm` package, which has no
-`publishConfig` and therefore goes to public npmjs. Reading the root manifest
-alone gives you the wrong answer.
+The one thing to know before reading anything else about it: dev builds publish to the Stanford
+Nexus registry as the **scoped** `@org.metadatacenter/cedar-embeddable-editor`, while every repo
+that embeds CEE still depends on the **unscoped** `cedar-embeddable-editor` from public npmjs. They
+are two different packages, so a dev build reaches no consumer by itself. `scripts/npm-package.mjs`
+generates the published manifest and is the authority on both the name and the registry; the root
+`package.json` alone will not tell you.
 
 Version is surfaced at runtime as `window.cedarEmbeddableEditorVersion`.
