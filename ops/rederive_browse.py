@@ -12,7 +12,7 @@ snapshots on disk; no server, no re-record. Emits the new allowlist and a breakd
 import json, glob, sqlite3, os, re, collections, sys
 
 CAT = os.environ["CEDAR_TERMINOLOGY_STORE_CATALOG"]; BASE = os.path.dirname(CAT)
-G = "/Users/martin/tmp/cedar-term/gate-all"
+G = os.path.join(os.path.dirname(BASE), "gate-all")
 rep = json.load(open(f"{G}/gate_roots_all.json")); per = rep["ontologies"]; THR = rep["labelThreshold"]
 import os as _os
 cur_live = set(filter(None, _os.environ.get("CEDAR_TERMINOLOGY_LOCAL_ROOTS_ONTOLOGIES","").split(",")))

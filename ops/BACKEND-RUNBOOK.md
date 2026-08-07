@@ -793,8 +793,9 @@ enumeration is not a browse test). `verify` emits a per-ontology readiness repor
 on both gates (integrated-search and `--roots`), prints the ready sets, and tears the instance down.
 `cedar_term_gate.sh record` re-records the BioPortal goldens (drift refresh) from a BioPortal-proxy
 instance — run it on a cadence (BioPortal content drifts; ours is pinned), monthly is ample given the
-measured ~0.03%/day, additive pace of change. Paths default to `~/tmp/{catalog.sqlite,goldens,
-goldens_roots,matrix.jsonl}`; override with `TERM_*` env vars.
+measured ~0.03%/day, additive pace of change. Paths default to
+`$CEDAR_HOME/cedar-term/{prod/catalog.sqlite,goldens,goldens_roots,matrix.jsonl}`; override with
+`TERM_*` env vars.
 
 Cutover is **per-endpoint**, set from the profile and injected by `cedar-services.sh` (unset the vars
 to revert to a pure BioPortal proxy):
@@ -851,8 +852,8 @@ mvn -q -pl cedar-terminology-server-ingest dependency:build-classpath \
     -Dmdep.outputFile=/tmp/ingest-cp.txt -DincludeScope=runtime
 CP="cedar-terminology-server-ingest/target/classes:$(cat /tmp/ingest-cp.txt)"
 BIOPORTAL_API_KEY=$CEDAR_BIOPORTAL_API_KEY java -cp "$CP" \
-    org.metadatacenter.terms.ingest.IngestJob ~/tmp/cedar-term/prod/catalog.sqlite \
-    ~/tmp/cedar-term/prod/snapshots DOID
+    org.metadatacenter.terms.ingest.IngestJob $CEDAR_HOME/cedar-term/prod/catalog.sqlite \
+    $CEDAR_HOME/cedar-term/prod/snapshots DOID
 ```
 
 Ingest is idempotent on the content hash (same download overwrites in place, atomically, only on a

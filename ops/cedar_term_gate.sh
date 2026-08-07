@@ -18,11 +18,12 @@ CMD=${1:-verify}
 OPS="$CEDAR_HOME/cedar-development/ops"
 APP="$CEDAR_HOME/cedar-terminology-server/cedar-terminology-server-application"
 
-CATALOG=${TERM_CATALOG:-${CEDAR_TERMINOLOGY_STORE_CATALOG:-$HOME/tmp/cedar-term/prod/catalog.sqlite}}
-GOLDENS=${TERM_GOLDENS:-$HOME/tmp/goldens}
-GOLDENS_ROOTS=${TERM_GOLDENS_ROOTS:-$HOME/tmp/goldens_roots}
-MATRIX=${TERM_MATRIX:-$HOME/tmp/matrix.jsonl}
-REPORT_DIR=${TERM_REPORT_DIR:-$HOME/tmp}
+STORE=$CEDAR_HOME/cedar-term
+CATALOG=${TERM_CATALOG:-${CEDAR_TERMINOLOGY_STORE_CATALOG:-$STORE/prod/catalog.sqlite}}
+GOLDENS=${TERM_GOLDENS:-$STORE/goldens}
+GOLDENS_ROOTS=${TERM_GOLDENS_ROOTS:-$STORE/goldens_roots}
+MATRIX=${TERM_MATRIX:-$STORE/matrix.jsonl}
+REPORT_DIR=${TERM_REPORT_DIR:-$STORE}
 # CEDAR key for the roots endpoint (needs CEDAR auth, unlike integrated-search).
 APIKEY=${CEDAR_ADMIN_USER_API_KEY:-}
 
