@@ -2,8 +2,8 @@
 
 A source-explicit, content-addressed version model for value constraints. Living document; the
 canonical statement of *what* the model is and *why*. Implementation status and sequencing live in
-[VERSIONING-ROADMAP.md](VERSIONING-ROADMAP.md); the divergence findings that motivated it live in
-[BP-RECONCILIATION-ISSUES.md](BP-RECONCILIATION-ISSUES.md).
+[VERSIONING-ROADMAP.md](VERSIONING-ROADMAP.md), along with the divergence findings that motivated
+it — see [BioPortal reconciliation issues](VERSIONING-ROADMAP.md#bioportal-reconciliation-issues).
 
 Grounded in a survey of the 1,214 ingested BioPortal ontologies (2026-07-29).
 

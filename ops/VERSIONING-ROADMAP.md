@@ -10,9 +10,16 @@ freeze-on-publish pinning all four constraint kinds on every artifact type (no v
 synonym capture (every language preserved outside content identity, backfilled across the served
 catalog) and served on the local read path (multilingual + synonym search recall, synonyms on class
 detail, `lang=<code>` on the class and integrated-search endpoints), and `owl:Ontology`-header identity
-recovery for acronym-only ontologies — lives in git and the design doc. This tracks only what remains, in three buckets: **Pending** (to build), **Testing** (built, needs
-live verification), and **Future** (deferred / needs a decision / speculative). Items are numbered
-continuously as stable handles.
+recovery for acronym-only ontologies — lives in git and the design doc. The numbered items track only
+what remains, in three buckets: **Pending** (to build), **Testing** (built, needs live verification),
+and **Future** (deferred / needs a decision / speculative). Items are numbered continuously as stable
+handles.
+
+The sections after the numbered items are findings rather than plans, and stay put: the running
+[ingestion tracker](#ingestion-tracker-ongoing), the
+[BioPortal reconciliation issues](#bioportal-reconciliation-issues) log that motivated the model, the
+[survey of ingesting from other repositories](#ingesting-from-other-repositories), and what the store
+captures and serves for [multilingual labels](#multilingual-labels).
 
 ## Goal
 
@@ -150,8 +157,8 @@ response.
    Proven across five serializations (RDF/XML, OBO, Turtle, gzipped OWL, SKOS) and nine authorities, with
    source-, serialization-, and host-independent content-hash identity confirmed on real data (BFO
    identical from OBO PURL `.owl`/`.obo` and AgroPortal REST; UNESCO identical from `.ttl`/`.rdf`). Running
-   tally in the **Ingestion tracker (ongoing)** below; survey and method in
-   [ONTOLOGY-INGEST-SOURCES.md](ONTOLOGY-INGEST-SOURCES.md). A constraint that names one of these sources
+   tally in the **Ingestion tracker (ongoing)** below; survey and method under
+   [Ingesting from other repositories](#ingesting-from-other-repositories). A constraint that names one of these sources
    already resolves correctly (serve locally or report unavailable). *Version currency (done):* the served
    prod catalog's OBO ontologies were refreshed to their current OBO Foundry release via
    `ops/harvest-obo-ingest.sh` (155/158, 49 genuinely-newer refreshes — logged in the tracker), and GAZ
@@ -242,8 +249,8 @@ response.
 
 An **iterative** task: updated each time more ontologies are ingested from other repositories (item 8).
 Identity is the content hash, so the same release from multiple sources/serializations collapses to one
-snapshot — the distinct-hash count is the true store size. Method/findings in
-[ONTOLOGY-INGEST-SOURCES.md](ONTOLOGY-INGEST-SOURCES.md).
+snapshot — the distinct-hash count is the true store size. Method/findings under
+[Ingesting from other repositories](#ingesting-from-other-repositories).
 
 **As of 2026-08-01: 63 ontologies · 65 snapshots · 62 distinct content identities · 10 source systems**
 (plus AgroPortal via the REST path, ingested in a separate run; plus EMI live in the served dev catalog).
@@ -285,3 +292,474 @@ ontology, distinct content hashes): GO-basic (2024-01-17 vs 2025-06-01), PATO (2
 skipping already-current acronyms and logging/skipping failures. Remaining: the NCBITaxon giant-run;
 bulk-harvest the rest of the OLS fileLocations; add more OntoPortal instances (EcoPortal, IndustryPortal,
 each needs its own key); retry the transient failures; grow version pairs from dated OBO/GO releases.
+
+## BioPortal reconciliation issues
+
+A living log of every way the local terminology replica diverges from BioPortal, why, and what
+we did about it. Compiled from the corpus-wide differential gate over the 1,214 ingested
+ontologies (goldens + snapshots under `~/tmp/cedar-term/gate-all/`). Kept for later review; append
+new findings as they surface.
+
+**Overarching finding.** Where the local replica and BioPortal disagree, the cause is far more
+often a BioPortal artifact (or a place where our extraction is *more* correct) than a local defect.
+BioPortal's `/classes/roots` in particular is not reproducible by any clean local rule, because it
+reflects which `owl:imports` BioPortal happened to resolve at its own ingest time — inconsistent
+across ontologies.
+
+### Status Legend
+
+- **BP-ARTIFACT** — BioPortal is wrong or inconsistent; local is equal-or-better. No local fix.
+- **LOCAL-BETTER** — local is more complete/correct than BioPortal.
+- **FIXING** — a local change is in progress.
+- **OPEN** — needs a decision or further work.
+- **EXTERNAL** — source-data / provenance issue, not something the extractor can fix.
+
+---
+
+### 1. Root over-reporting: unresolved-import dangling references  — FIXED (data), SERVING-BLOCKED
+
+Import-heavy ontologies list far more roots than BioPortal (CL 250 vs 66; UBERON 53 vs 9). The
+extras are classes an ontology *mentions* in an axiom (e.g. a restriction filler) but whose
+defining ontology was not loaded, so they arrive **unlabeled and parentless** and look like roots.
+
+- **Evidence.** CL's 184 extra roots are CHEBI (169), BFO (10), COB (2), PCL (1), all unlabeled;
+  its agreed roots (ncbigene 38, CLM 25) are all labeled. `250 − 184 = 66` = BioPortal exactly.
+- **Fix.** Suppress a root iff it is **unlabeled AND foreign-namespace AND has no labeled
+  descendant** — a pure dead-end dangling reference that can hide nothing useful. Validated safe:
+  CL 250→77, UBERON 53→7; **zero** roots removed from DOID/OBI/GO/CHEBI/MONDO/NCIT/ABA-AMB; CL keeps
+  the 11 unlabeled entry points that lead to real content (no orphaning).
+- **Note.** This makes us *cleaner than* BioPortal, not a match — a deliberate philosophy choice
+  (2026-07-29): serve a clean tree rather than reproduce BioPortal's inconsistent root set.
+- **Implemented (2026-07-29).** `SnapshotStore.pruneDeadEndImportRoots(acronym)` (+ unit test),
+  called by `IngestJob` for new ingests; `PruneRootsBackfill` backfilled all 1,214 existing snapshots
+  (14,532 roots pruned across 318 ontologies; root table is derived data, so version ids unchanged).
+  Verified end-to-end in a `localOnly` instance: CL 250→77, UBERON 53→7, ABD 392→338, DOID 15
+  unchanged; no locally-labeled or content-bearing root removed.
+- **Serving live (2026-07-29).** Two follow-ons landed. (1) A wiring bug in
+  `TerminologyServerApplication.buildTerminologyService` gated browse on the *search* provider's
+  allowlist, silently requiring roots ⊆ search; fixed by resolving the provider over the union of
+  the search and browse sets and gating each endpoint on its own allowlist. (2) The browse allowlist
+  was **re-derived from the pruned snapshots** (`ops/rederive_browse.py`): browse-ready = misses no
+  genuine own-namespace labeled BioPortal root and has a non-empty tree; label form/language
+  differences (issue #7) do NOT exclude. Result: **1,145 browse-served** (from 806), including the
+  import-heavy set. Verified live: CL 77, UBERON 7, GO 3, MONDO 4, ABD 338 all served local with
+  zero outbound BioPortal calls; the 26 real-gap ontologies (BTO-EMMO, NDDO, …) correctly proxy.
+
+### 10. Zero-label ontologies emptied by the root prune  — FOLLOW-UP
+
+Twenty ontologies carry no `rdfs:label`/`skos:prefLabel` at all (e.g. ACGT-MO: 1,754 concepts, 1,732
+edges, **0 labeled**). Because every root is then unlabeled with no labeled descendant, the dead-end
+prune (issue #1) removes *all* of them, leaving 0 roots — unbrowsable — so they are excluded from
+the browse allowlist and proxy to BioPortal (which shows their unlabeled roots). Refinement worth
+doing: `pruneDeadEndImportRoots` should never prune an ontology to zero roots (keep the originals
+when the prune would empty it), so a label-less-but-structured ontology still browses locally.
+
+### 9. Source data contains OWLAPI parse-error artifacts  — EXTERNAL
+
+Some ontologies' source files fail to parse cleanly, and OWLAPI emits placeholder classes in the
+{@code http://org.semanticweb.owlapi/error#ErrorN} namespace. BioPortal ingests and displays these
+(labeled "ErrorN"); our extractor also captures them, where they surface as unlabeled foreign roots.
+Example: ABD has 54 such error roots (BioPortal shows all 392 roots including them; our prune drops
+them, serving 338). Issue #1's prune removes them from the tree; the underlying source-file parse
+failure is upstream and not fixable at ingest.
+
+### 2. Root over-reporting on BioPortal's side: foreign / meta vocabulary  — BP-ARTIFACT
+
+BioPortal roots external vocabulary that we correctly exclude: RDF/RDFS (`Datatype`, `Resource`,
+`List`), FOAF (`Organization`), Dublin Core (`Agent`), SKOS (`Collection`), OWL-Time
+(`TemporalEntity`), Protégé (`PAL-CONSTRAINT`), BIBO (`ThesisDegree`), and imported upper-ontology
+IDs (`BFO_0000001`, `GO_0008150`, `NCBITaxon_1`, `OMIM_000000`).
+
+- **Evidence.** Across the 25 pure-subset ontologies, 126 of 176 missing roots are these foreign
+  classes; e.g. PO's only "gap" is `obo/NCBITaxon_1` ("root"), NIFSTD's is `obo/OMIM_000000`.
+- **Verdict.** BioPortal artifact; local is cleaner. No fix.
+
+### 3. BioPortal misses real subClassOf edges we captured  — LOCAL-BETTER
+
+BioPortal reports a class as a root that in fact has a genuine `rdfs:subClassOf`/genus parent our
+OWLAPI extraction captured.
+
+- **Evidence.** One disease branch: BioPortal returns 197 direct children where 8 is correct (it
+  dropped a `subClassOf` edge and dumped the orphans under the root). 50 such cases across the
+  subset/mixed ontologies (e.g. BCIO `CHEBI_50906` → "realizable entity", JFO allergen → food
+  allergy).
+- **Verdict.** Local is more correct. The gate's directional invariant ("every BioPortal root is
+  also a local root") holds for 1,099/1,191 (92%).
+
+### 4. BioPortal root set is not rule-reproducible  — BP-ARTIFACT / OPEN
+
+No clean local rule reproduces BioPortal's roots, because BioPortal resolves some imports and not
+others, inconsistently. "Roots must be labeled" wrongly drops 433 ontologies to subset (BioPortal
+roots legitimate unlabeled classes in ABA-AMB, ABD, …); "unlabeled AND foreign" still mismatches
+because BioPortal roots unlabeled-foreign classes where it *didn't* resolve the import.
+
+- **Verdict.** Matching BioPortal exactly would require downloading each import closure (heavy,
+  offline-fragile, snapshot-ballooning). Rejected in favor of issue #1's cleaner-tree approach.
+
+### 5. Genuine own-content root gaps  — EXTERNAL (only 2 across the corpus)
+
+Triage (2026-07-29) of the 26 ontologies the re-derivation excluded for "missing a genuine
+own-namespace labeled BioPortal root". Their 490 missing roots break down as **480 "we captured a
+`subClassOf`/genus parent BioPortal missed"** (BP over-roots; we correctly file the class under its
+parent — the class is present and reachable, just not a root, so our tree is *more* correct),
+7 foreign/artifact IRIs the own-namespace heuristic misread as own, 1 obsolete locally, and
+**3 genuinely-absent own-content classes** across 3 ontologies: BTO-EMMO, NDDO (`NDDO_20000841`
+"unclassified"), and OCRE (`.../OCRe/statistics.owl#OCRE200072` "Statistical concept"; OCRe is
+multi-module and the statistics.owl module classes are not all ingested). Each looks like a
+source-module/provenance quirk; all three are now in `task_9ea65cb1` (OCRE folded in 2026-07-29).
+
+NIFDYS was flagged a fourth time but was a **false positive** of the own-namespace heuristic, now
+fixed. NIF-Dysfunction is 34% imported GO / 31% PATO / 18% UBERON, its own `uri.neuinfo.org/nif/nifstd/`
+only 4%, so the old dominant-namespace fallback wrongly called `obo/GO_` "own" and its 3 "absent" GO
+roots looked like own-content gaps — and it wrongly *excluded* NIFDYS from browse (and mis-pruned its
+snapshot). **Fixed (2026-07-29):** `own_spaces` (in `rederive_browse.py`) and `SnapshotStore.ownIdspaces`
+(Java) now fall back to the dominant namespace **among non-imports** (a curated upper/reference-ontology
+denylist), so imported content is never mistaken for own. The 22 ontologies whose own-namespace changed
+were re-backfilled (re-materialize + re-prune) to correct their snapshots. NIFDYS now serves its own
+nifstd tree locally (10 roots). Genuine gaps stand at **3** (BTO-EMMO, NDDO, OCRE); **browse-served
+1,187**.
+
+The "we're more correct" classification was spot-verified against the raw source for
+JFO (`allergen subClassOf food_allergy`), BCO, ICF, COSTART, and O3 — in every case the source
+asserts the edge BioPortal dropped.
+
+**Consequence for the browse allowlist (applied).** The gap test was refined to count only
+own-content roots **absent** locally, not ones present-with-a-parent. That returned the 22
+"more-correct" ontologies (HL7, MESH, JFO, GDMT, …) to browse-ready: **browse-served 1,164 → 1,186**,
+verified serving trees more correct than BioPortal. Only BTO-EMMO, NDDO, NIFDYS, OCRE stay excluded
+as genuine gaps.
+
+#### Earlier note (superseded by the triage above): BTO-EMMO, NDDO  — EXTERNAL
+
+Two ontologies genuinely miss a few of their *own* top classes: BTO-EMMO (4 EMMO classes:
+Temporally/Spatially Fundamental/Redundant) and NDDO (1: "unclassified"). Only real own-content
+gaps across all 1,191 gated (5 classes).
+
+- **Status.** A separate session investigated (see memory `roots-gate-genuine-gaps-are-artifacts`):
+  concluded these are source-data / provenance artifacts, not extractor bugs — the extractor
+  already handles axiom-only class declarations. Spawned task `task_9ea65cb1`.
+
+### 6. Un-gatable ontologies: BioPortal roots 404/500  — BP-ARTIFACT
+
+23 ingested ontologies could not be gated because BioPortal's own `/classes/roots` returned 404 or
+500 for them (e.g. ADALAB-META, BFLC, BIBFRAME, BMT, CST). BioPortal-side gaps.
+
+### 7. Label disagreements below the 98% bar  — OPEN (minor)
+
+16 ontologies are root-set-equal to BioPortal but labels agree < 98% (e.g. AIDENTIFYAGE 75%, HECON
+75%, NLN 80%). Cause is language / label-form differences (which of several labels is "the" label).
+Not structural; revisit if it blocks specific ontologies.
+
+### 8. Search gate not feasible corpus-wide  — OPEN
+
+The differential search gate replays specific usage targets; the broad corpus has none, and the
+only generic probe (enumerate a whole ontology from BioPortal) is infeasible for giants
+(NCBITaxon 762k classes). Corpus-wide gating is roots-only; search remains gated over the ~260
+CEDAR-used ontologies with real usage atoms.
+
+---
+
+### 11. Label-less ontologies: name is the IRI fragment  — FIXABLE (A9)
+
+179 of the 1,214 ingested ontologies carry no `rdfs:label`/`skos:prefLabel`; the human-readable name
+is the IRI fragment (ACGT-MO `#3DRadiotherapyPlanning`, APADISORDERS `#AIDS_(Attitudes_Toward)`,
+BIOPAX `#BindingFeature`). BioPortal falls back to displaying the fragment, so its search/browse work;
+we store `null` and return empty local search — so these correctly defer to BioPortal for now (found
+while widening search-serving, roadmap A8: search local 186 → 1,034, these 179 excluded).
+
+**Fix (A9):** when no label exists, derive one from the fragment (URL-decode, `_`→space, split
+CamelCase) and store it in `pref_label`. Backfillable by UPDATE over existing concept IRIs (no
+re-download); add to the extractor for new ingests. Unlocks the 179 for both search and browse
+(→ ceiling ~1,213) and fixes their unlabeled browse trees.
+
+### 12. QA pass of the locally-served corpus  — MOSTLY CLEAN; ~6 genuinely broken
+
+After widening search+browse to ~1,213 (issues #1, #11), a quality pass checked whether the
+newly-served ontologies serve *worse* than BioPortal. Method: local structural flags (opaque/code
+labels; 0-edge "flat" hierarchies) then classification against the recorded BioPortal **goldens**
+(roots + labels) to separate genuine extraction failures from legitimately flat/code ontologies —
+no new BioPortal calls.
+
+**Result: the corpus is mostly clean.** ~1,005 ontologies clearly good; ~34 flagged for opaque
+labels and ~31 for 0 edges, but the golden comparison shows **most of those are fine**:
+- Many 0-edge ontologies are *legitimately flat* — SKOS code lists (ISO639-1, MARC-LANGUAGES, …)
+  where BioPortal also returns 0 roots. Keep serving.
+- Many opaque-label ontologies are genuinely code-based; BioPortal is no better. Keep serving.
+
+**Genuinely worse than BioPortal (golden-confirmed): ~6**, mixed causes/formats —
+- no hierarchy where BioPortal has one: **EHDAA** (OBO, 2314/0 vs BP 1 root), **BSAO** (OBO, 104/0
+  vs BP 8), **EO1** (SKOS, 25/0 vs BP 3);
+- code labels where BioPortal has words: **FAST-GENREFORM** (SKOS), **DDSS** (OWL, 807k), **PECO**
+  (OBO — hierarchy is fine, labels opaque).
+
+**Root-cause probe (OBO `import:`):** a raw OBO with `import:` stanzas makes OWLAPI's obo2owl
+converter fetch each import with a hardcoded loader config, so `MissingImportHandlingStrategy.SILENT`
+is ignored and a server-error response (PECO's envo import → HTTP 520) throws
+`UnloadableImportException`, aborting the parse. `IngestJob.stripOboImports` fixes this — verified:
+stripped `peco.obo` → 3,163 classes, 3,356 subClassOf, 9,921 label annotations (vs 0/opaque stored).
+But only **2 of 105 OBO** are 0-edge, so this is not widespread in the current corpus; the broken
+snapshots are **stale** (ingested before the strip was effective), not a current-code bug.
+
+**Caveat surfaced:** the A9 IRI-fragment fallback (#11) can *mask* a real label-extraction failure by
+filling codes — so "has labels" ≠ "good labels." The golden comparison is the check.
+
+**Action taken (re-ingest of the 6 with current code):**
+- **Fixed → kept local:** PECO (own-class labels recovered — "plant exposure" etc. — + 3,356 edges)
+  and FAST-GENREFORM (edges + real labels; some leaf LCSH `sh…` codes remain).
+- **Still worse than BioPortal → deferred to BioPortal** (dropped from both allowlists, now
+  **1,209 / 1,209**): EHDAA, BSAO, EO1 (still 0 edges after a fresh re-ingest — BioPortal has real
+  labels + a tree we don't extract, likely a different/flattened source submission), and DDSS
+  (807k — re-ingest **timed out** at the 600s cap; unresolved).
+
+**Follow-ups:**
+- DDSS: re-ingest with the big-heap/long-timeout retry harness (32g / 45min).
+- EHDAA / BSAO / EO1: extractor investigation — why 0 edges from their OBO/SKOS source when
+  BioPortal has a hierarchy (submission/serialization mismatch or an is_a/broader extraction gap).
+
+The differential-as-quality-flag approach (serve local by default; goldens flag the few genuine
+offenders; re-ingest or defer them) is validated: of ~1,214 held, only ~4 end up deferred for
+quality, and BioPortal stays the fallback exactly where it is genuinely better.
+
+### Gate outcome snapshot (2026-07-29, roots)
+
+- Gated: 1,191 (23 un-gatable, issue #6).
+- Raw exact-match ready: 791 → 806 → **browse-served live: 1,145** (re-derived from pruned snapshots).
+- Excluded from browse: 26 real own-content gaps (issue #5), 20 zero-label empties (issue #10),
+  23 un-gatable (issue #6).
+- Import-heavy ontologies (CL, UBERON, GO, …) now serve clean pruned trees locally.
+
+## Ingesting from other repositories
+
+An investigation into ingesting ontologies from repositories beyond BioPortal and OBO Foundry, with a
+new ingestion primitive and real, verified ingests across formats, serializations, versions, and
+authorities. Everything below was run against live sources on 2026-08-01; the terminology server's
+content-hash identity makes the *source* of an ontology irrelevant to its identity, and that is what the
+results confirm on real data.
+
+### What was added
+
+Two small, tested additions to `IngestJob` generalize ingestion beyond the two hardcoded sources:
+
+- **`DirectUrlSubmissionSource`** — downloads an ontology from *any* URL. `--source url --url <URL>
+  [--format OWL|SKOS] [--backend <name>]`. It reports one synthetic submission and treats the content as
+  public; identity stays the normalized content hash, so the same release from a different host or
+  serialization merges rather than duplicating. This is the right primitive because the major registries
+  (OLS, OntoPortal) are *discovery* layers that point at a file elsewhere — see below.
+- **`--base-url`** — points `--source bioportal` at any OntoPortal instance (AgroPortal, EcoPortal,
+  IndustryPortal, EarthPortal) instead of BioPortal. They run the same OntoPortal REST codebase, so the
+  existing `BioPortalDownloader` works unchanged; each instance needs its own `BIOPORTAL_API_KEY`.
+
+Both are covered by unit tests; the ingest module suite stays green (53 tests).
+
+### What was proven (real ingests)
+
+**19 snapshots of 18 ontologies from 9 distinct authorities**, spanning five serializations and both
+extractors, with zero code changes per source after the two additions above.
+
+| Serialization | Extractor | Examples (host) |
+|---|---|---|
+| RDF/XML OWL | OWLAPI | DUO, BFO, RO (OBO PURL); PROV-O (W3C); MAMO (GitHub); VARIO (vendor) |
+| OBO | OWLAPI | BFO, PATO (OBO PURL) |
+| Turtle | OWLAPI | EMI, BIOLINK (w3id); DCAT, W3C-Time (W3C); schema.org |
+| gzipped OWL | OWLAPI | ROR (w3id) — `.owl.gz`, decompressed transparently |
+| SKOS (Turtle + RDF/XML) | SKOS | UNESCO thesaurus; LCSH (id.loc.gov) |
+
+Hosts exercised: OBO PURL, GitHub raw, W3C, w3id.org, schema.org, id.loc.gov, UNESCO, a vendor site, and
+the AgroPortal REST API. The OWLAPI extractor auto-detects the serialization from content, so the
+`--format` hint only chooses between the OWL and SKOS extractors.
+
+#### Content-hash identity is source-, serialization-, and host-independent
+
+The headline result. The *same ontology content* produces the *same* `version_id` no matter where or how
+it was fetched:
+
+- **BFO across three authorities and two serializations → one hash (`5ddbbc94…`):** OBO PURL `bfo.owl`
+  (RDF/XML), OBO PURL `bfo.obo` (OBO), and AgroPortal's REST download all extracted to the identical
+  35-class model and merged to a single snapshot.
+- **UNESCO thesaurus, two serializations → one hash (`14d6cd54…`):** the 4,595-concept SKOS thesaurus
+  from `unesco-thesaurus.ttl` and from `unesco-thesaurus.rdf` produced the same `version_id`.
+
+#### Versions merge and diff correctly on real releases
+
+Three dated PATO `.obo` releases were ingested as one ontology:
+
+- 2022-12-15 and 2023-05-18 → the *same* `version_id` (`3ef9a582…`): byte-different files, identical
+  extracted content, merged to one snapshot.
+- 2024-03-28 → a *different* `version_id` (`d4aa8644…`).
+- The `SnapshotDiff` of 2022 → 2024 reported `~3 changed concepts` and `+2 added edges` (with the
+  `-[rdfs:subClassOf]->` predicate) — exercising the content-complete diff (changed concepts + edge
+  predicates) on real version drift. A label-only change like this is exactly what an IRI/edge-only diff
+  would have missed.
+
+### The repository landscape
+
+The registries that *look* like ontology hosts are mostly discovery layers; the real files live upstream.
+
+**EBI OLS4** (`https://www.ebi.ac.uk/ols4/api`) — 282 ontologies, but **does not host downloadable
+files**: `allowDownload` is `false` for every one, and the `/download` route serves the web app shell.
+The real download is each ontology's `config.fileLocation`, which points at an OBO PURL, a GitHub raw
+URL, or a w3id/vendor URL. OLS exposes only the currently loaded version (no history). So OLS is a
+*catalogue* — harvest its `fileLocation`s and fetch them with `DirectUrlSubmissionSource`.
+
+**OntoPortal instances** — AgroPortal, EcoPortal, IndustryPortal, EarthPortal, MatPortal run the same
+REST API as BioPortal (`/ontologies`, `/ontologies/{ACR}/submissions`, `/download`), with real dated
+submissions (proper version history). Each needs its own API key; a BioPortal key does not authenticate
+elsewhere. AgroPortal has moved to `data.agroportal.eu` (260 ontologies) — reachable now via
+`--base-url`. This is the one source type with first-class version history beyond BioPortal.
+
+**Ontobee** — its `?format=owl|rdf|turtle` parameter is a dead end: it returned the ontology's HTML home
+page, not the file (the extractor correctly rejected the non-ontology HTML). A different download route
+is needed; not usable as-is.
+
+**Linked Open Vocabularies (LOV)** — archives dated versions as files, e.g.
+`lov.linkeddata.es/dataset/lov/vocabs/foaf/versions/2014-01-14.n3`. A clean small multi-version source.
+
+**SKOS thesauri** (all direct-download, all ingest via `--format SKOS`):
+
+| Thesaurus | URL | Serialization |
+|---|---|---|
+| UNESCO | `vocabularies.unesco.org/exports/thesaurus/latest/unesco-thesaurus.{ttl,rdf}` | Turtle / RDF-XML (small) |
+| LCSH (LoC) | `id.loc.gov/authorities/subjects.rdf.gz` (full); single-concept `…/{id}.skos.rdf` (tiny) | RDF-XML |
+| GEMET (EEA) | `www.eionet.europa.eu/gemet/latest/gemet.rdf.gz` | RDF-XML, gzipped |
+| AGROVOC (FAO) | `agrovoc.fao.org/latestAgrovoc/agrovoc_core.nt.zip` | N-Triples, ~95 MB |
+| Getty AAT | `aatdownloads.getty.edu/VocabData/full.zip` | N-Triples, large |
+| EuroVoc | EU Vocabularies "Downloads" tab (versions 4.7–4.24) | handler-generated, not a static URL |
+
+**W3C / community OWL** (small, direct): schema.org (`/version/latest/schemaorg-current-https.{ttl,rdf}`,
+dated at `/version/N/`), PROV-O (`www.w3.org/ns/prov-o.owl`, `prov.ttl`), Time (`www.w3.org/2006/time.ttl`),
+SKOS (`www.w3.org/2009/08/skos-reference/skos.rdf`), FOAF, Dublin Core Terms.
+
+**GO release server / GitHub / Zenodo** — dated OBO releases at
+`release.geneontology.org/{date}/ontology/go-basic.obo`; OBO PURLs (`purl.obolibrary.org/obo/{x}/releases/{date}/{x}.owl`)
+are the reliable versioned front door. Zenodo blocks headless downloads (403); prefer the PURL for the
+same artifact.
+
+### Recommendations / next steps
+
+- **Two ingestion modes cover the field.** `--source url` for anything with a stable file URL (OLS
+  `fileLocation`s, W3C, SKOS dumps, LOV dated versions); `--source bioportal --base-url` for OntoPortal
+  instances, which additionally give real submission history. These map onto roadmap item 14.
+- **Harvest OLS as a catalogue**: read `fileLocation` from `/api/ontologies?size=300` and feed each to
+  `--source url`. (Skip the two `file:///nfs/...` entries; they are not downloadable.)
+- **SKOS is fully supported** end to end, including serialization-independent identity — the thesaurus
+  world (AGROVOC, UNESCO, GEMET, LCSH, EuroVoc) is ingestable today.
+- **Small gaps worth a follow-up:** the `--backend` provenance label applies only to `--source url`; a
+  `--source bioportal --base-url agroportal` snapshot still records backend `bioportal` (the
+  `declared_version` and base-url distinguish it, but the authority is not labelled). And Ontobee needs a
+  working download route if it is ever wanted.
+- **Version history** beyond BioPortal comes from OntoPortal submissions and from dated OBO/GO release
+  URLs; OLS and most direct-download vocabularies expose only the current release.
+
+## Multilingual labels
+
+A concept in a source ontology can be named in several languages, and with several synonyms. The
+terminology store historically kept only one name per concept — the single label it serves — and
+discarded the rest at ingest. For a multilingual ontology that threw away real content: a French or
+Japanese label, an exact synonym, a hidden search term. This records how BioPortal handles language,
+what the store now captures, and how the existing snapshots were backfilled.
+
+### How BioPortal Serves Language
+
+BioPortal (through the OntoPortal layer) stores every language variant of a name and chooses per
+request. The same class answers four ways:
+
+| Request | `prefLabel` |
+|---|---|
+| default | `"water"` |
+| `?lang=en` | `"water"` |
+| `?lang=fr` | `"eau"` |
+| `?lang=all` | `{"en": "water", "fr": "eau"}` |
+
+- One label by default: a single string, the submission's declared `naturalLanguage`, English
+  otherwise.
+- `lang=<code>` (alias `language=`) narrows every label-valued property to that BCP-47 language.
+- `lang=all` turns each into a `{lang: value}` hash; untagged literals bucket under `"none"`.
+- Search indexes all languages: a query in any language matches, presentation is language-scoped.
+
+### What the Store Captures
+
+Identity is the point of leverage. A snapshot's `version_id` is the normalized content hash, and that
+hash reads only the concept's single served `pref_label`, its obsolete flag and replacement, the
+subsumption edges, and the typed relations. So a second table that the hash never reads sits outside
+identity by construction.
+
+The `label` table holds every name literal with its language tag:
+
+```
+label(concept_id, property, lang, value)   -- lang '' = untagged (BioPortal's "none")
+```
+
+captured for the label proper (`rdfs:label`, `skos:prefLabel`) and the synonym properties BioPortal
+serves (`skos:altLabel`, `skos:hiddenLabel`, and the OBO-in-OWL synonym scopes
+`hasExactSynonym`/`hasRelatedSynonym`/`hasBroadSynonym`/`hasNarrowSynonym`/`hasSynonym`). Both
+extraction paths capture — the OWL/OBO extractor and the relation (SKOS) extractor.
+
+The change is strictly additive: the single `pref_label` is chosen exactly as before (English, then
+untagged, then any other language; `rdfs:label` over `skos:prefLabel`), so `version_id` is unchanged.
+A store test asserts that adding labels moves neither the structure-only nor the label-sensitive
+content hash.
+
+### Backfilling the Existing Snapshots
+
+The discarded labels live only in the source files, which are not cached — so backfill re-fetches and
+re-parses from source. `IngestJob --backfill-labels` walks the catalog and, for each snapshot:
+re-fetches its submission (by recorded submission id, else the source's current latest), re-extracts
+into a throwaway store, and **only if the recomputed `version_id` equals the snapshot's** copies the
+captured labels into the existing snapshot file. The version-id gate makes it fail-safe: a snapshot is
+enriched in place with identity-preserving labels, or left untouched, never rewritten with different
+content. A durable `meta` marker records completion, so the run is resumable and idempotent (a
+label-less ontology is marked done rather than reprocessed). The catalog is never mutated, and a
+SQLite busy timeout lets the write land while the live server is reading the same snapshot.
+
+**Content drift is the coverage limit.** Most snapshots recorded no submission id, so backfill re-fetches
+the source's current latest. Where the ontology has changed since it was ingested, the re-extraction
+hashes differently and the snapshot is skipped — its exact original bytes are no longer retrievable.
+Those snapshots keep their single served label; capturing their languages needs a fresh ingest of the
+current release (a new `version_id`), which is a catalog update, not a label backfill.
+
+### Coverage
+
+Run against the served catalog on 2026-08-01 (`ops/label-coverage`-style aggregate over every
+snapshot):
+
+Of 1,281 served BioPortal snapshots, **1,142 were backfilled** (967 with at least one real label;
+the rest are genuinely label-less, named only by IRI fragment, and marked done). **127 are
+multilingual** (more than one language). **134 were skipped as content-drift** (BioPortal has a newer
+release than the one ingested), and **5 failed** on a BioPortal-side HTTP 422 (retired `OCDAR*`/`OCDO`
+acronyms). Structure and identity were untouched throughout, and the live server kept serving.
+
+**14,058,647 label literals** captured, across more than 30 languages:
+
+| Language | Rows | | Property | Rows |
+|---|--:|---|---|--:|
+| (untagged) | 12,491,357 | | `rdfs:label` | 5,906,158 |
+| en | 1,224,055 | | `oboInOwl:hasExactSynonym` | 3,173,105 |
+| fr | 197,422 | | `skos:altLabel` | 1,748,748 |
+| de | 66,216 | | `oboInOwl:hasRelatedSynonym` | 1,663,113 |
+| es | 21,279 | | `skos:prefLabel` | 1,201,926 |
+| it | 19,903 | | `oboInOwl:hasNarrowSynonym` | 254,944 |
+| pt | 15,481 | | `oboInOwl:hasBroadSynonym` | 75,727 |
+| ja | 10,416 | | `skos:hiddenLabel` | 21,431 |
+| + ~25 more (zh, nl, ar, el, da, …) | | | `oboInOwl:hasSynonym` | 13,495 |
+
+Synonyms — never stored before this work — account for ~5.2 M of the rows. Method: aggregate every
+snapshot's `label`/`meta` tables ([label-coverage.py](label-coverage.py)).
+
+### Serving the Languages
+
+The local read path now serves the captured names:
+
+- **Search recall** — a non-empty query matches any captured name, in any language or a synonym, not
+  only the served `pref_label`. Searching "réseau" returns a concept whose default label is the English
+  "Health Network"; an empty-query browse is unchanged.
+- **Synonyms** — class detail returns the captured altLabels and OBO synonym scopes.
+- **`lang=<code>`** — the class endpoint (`GET .../classes/{id}?lang=fr`) and integrated-search
+  (`POST /bioportal/integrated-search?lang=fr`) return labels in the requested language, falling back to
+  the default when a concept has none. Only the returned page slice is re-labelled. Verified live:
+  searching "occupational" with `lang=fr` returns "professionnel" / "ergothérapie".
+
+`lang=` is honored on the local path; a BioPortal-proxied ontology returns BioPortal's own default label.
+
+**Still deferred (by decision):** `lang=all` (the `{lang:value}` hash), `lang=` on the public
+`search`/tree output, and honoring the submission's `naturalLanguage` for the default (it stays
+English-preferred).
