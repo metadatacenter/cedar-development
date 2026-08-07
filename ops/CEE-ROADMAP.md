@@ -10,9 +10,13 @@ This roadmap tracks open work only.
 
 ## Current position
 
-- CEE is on Angular 14.3, TypeScript 4.8 and RxJS 6.6.
-- The package is currently
-  `1.6.0-dev.20260804.85b7ccf` on `cee-with-model-library`.
+- The version march is in progress and has reached **Angular 19.2**, TypeScript
+  5.6 and RxJS 7.8, one branch per hop: `cee-angular-15` through
+  `cee-angular-19`. Only 19 is unpushed. `develop` is still on Angular 14.3,
+  TypeScript 4.8 and RxJS 6.6, so both readings of "where CEE is" are true and
+  the distinction matters — item 3.
+- The package is `1.6.0-dev.20260804.85b7ccf` on `cee-with-model-library`, and
+  staged as `1.6.0-ng18` on the hop branches.
 - The model dependency is the Nexus-only prerelease
   `@org.metadatacenter/cedar-model-typescript-library@0.9.2-dev.20260805.4105f7c`.
   That build carries `InstanceValidator`, so item 5 is no longer blocked on the
@@ -24,6 +28,11 @@ This roadmap tracks open work only.
   that used to is gone, and its replacement is blocked — item 5.
 - The obsolete datetime-picker dependency has been replaced by CEE's in-house
   time picker, so no dependency currently caps the Angular upgrade.
+- Linting is built and running, and is not in the test gate — item 4. `ng lint`
+  covers `src/**/*.ts` and `src/**/*.html` through `@angular-eslint/builder:lint`,
+  with separate TypeScript and template overrides in `.eslintrc.json`. On
+  `cee-angular-19` it reports 264 errors, every one `prettier/prettier` and
+  auto-fixable, plus the 77 baselined `no-explicit-any` warnings.
 
 ## Features
 
@@ -97,6 +106,11 @@ subscriptions in `ngOnInit` and `ngAfterViewInit`, which currently propagate eac
 Run the official migrations one major version at a time and keep the build and
 test gates green after every migration. Do not combine this with a standalone
 component, signals or control-flow rewrite.
+
+**14 → 19 is done**, a branch per hop (`cee-angular-15` … `cee-angular-19`), which
+means the Material 15 MDC restyle — the hop this item was most worried about — is
+behind rather than ahead. Three hops remain, 19 → 22, and then landing the march
+on `develop`, which has not moved.
 
 Known work:
 
@@ -210,18 +224,36 @@ to look like.
 
 ## Testing
 
-### 4. Repair and enforce Angular ESLint
+### 4. Enforce the lint gate that already runs
 
-`npm run lint` cannot currently start because the Angular ESLint builder is
-missing. Adding the Angular 14-compatible builder exposes a baseline of 184
-errors, including Angular templates parsed with the TypeScript parser.
+Repairing lint is done; enforcing it is not, and the gap between those two is
+what this item now is. `ng lint` starts and completes, covering `src/**/*.ts` and
+`src/**/*.html` through `@angular-eslint/builder:lint`. `.eslintrc.json` carries
+separate TypeScript and template overrides, so templates are parsed by
+`@angular-eslint/template` rather than by the TypeScript parser. The
+`no-explicit-any` debt is a curated baseline rather than a blanket suppression:
+44 named files hold the rule at `warn` while it stays an error everywhere else,
+with the three clusters recorded in a comment, so new code cannot add to it.
 
-Configure Angular ESLint at the Angular 22 target with separate TypeScript and
-template overrides. Resolve the baseline without broad suppressions, then add
-`npm run lint` to `test:ci`.
+Three things remain, and only one of them waits for anything:
 
-Done when lint succeeds from a clean checkout and new TypeScript or template
-violations fail CI.
+- **Clear the formatting drift.** `cee-angular-19` reports 264 errors, every one
+  `prettier/prettier` and auto-fixable. Mechanical, and best landed as its own
+  formatting-only commit so it does not hide inside a version hop.
+- **Add `npm run lint` to `test:ci`.** Today the gate is unit, domain and visual
+  only, which is why the drift above accumulated unnoticed across the hops. This
+  is the item's substance and it does not depend on reaching 22.
+- **Move `@angular-eslint/*` off `~14.4.0`.** This is the part that tracks the
+  march: the packages follow the Angular major, so they land on 19 now and again
+  at 22. Not a bare version bump — 18 through 20 need `@typescript-eslint/utils`
+  `>=7.11`, and the repo is on `@typescript-eslint` 6.10, so typescript-eslint
+  moves to 7 or 8 with it. ESLint itself can stay on 8: those majors accept
+  `^8.57.0 || ^9.0.0`, so `.eslintrc.json` need not become flat config yet, and
+  the current pin is 8.53.
+
+Done when lint runs clean from a clean checkout, `test:ci` fails on a new
+TypeScript or template violation, and the plugins match the Angular version in
+use.
 
 ### 5. Land the instance-conformance spec
 
@@ -241,7 +273,7 @@ Blocked until the model library publishes a stable version.
 Done when the spec runs in `test:ci` against a published library version and CEE
 output that drops a required key fails the suite.
 
-### 8. Reach the two config flags nothing exercises
+### 6. Reach the two config flags nothing exercises
 
 The browser suite asserts that every config key changes what renders, because a
 key that is silently ignored looks exactly like one that works. Two keys cannot
@@ -284,7 +316,7 @@ or is removed with the reason recorded.
 
 ## Security
 
-### 6. Define and enforce the trust boundary for template-authored rich text
+### 7. Define and enforce the trust boundary for template-authored rich text
 
 Instance-authored HTML is sanitized, but template-authored static rich text is
 rendered through `bypassSecurityTrustHtml` in `keep-html.pipe.ts`. This is safe
@@ -326,7 +358,7 @@ ever return true before and can now return false, and `adheresToBlueprint()` has
 stopped being a second name for it, so a consumer branching on either sees new
 behaviour.
 
-### 7. Settle the temporal `required` judgement
+### 8. Settle the temporal `required` judgement
 
 A judgement about what the corpus means, rather than a code change; it needs
 someone who knows CEDAR's version history. 28 templates require `@type` on a
@@ -369,15 +401,16 @@ a test that can fail.
 
 1. Land the conformance spec as soon as the library publishes (item 5). It is
    written and waiting, and until it runs CEE has no check on its own output.
-2. Start the Angular upgrade (item 3), landing the preparation branch on
-   `develop` first so the safety net is in place before the version march.
-3. Establish linting at the Angular 22 target before closing the upgrade
-   (item 4).
+2. Carry the Angular march from 19 to 22 (item 3), then land it on `develop`,
+   which is still on 14.3 and has none of the preparation.
+3. Put lint in `test:ci` now rather than at the 22 target (item 4). The 264
+   formatting errors that accumulated between the preparation branch and Angular
+   19 are what an unenforced gate costs over three hops, and three hops remain.
 4. Keep the production bundle and Playwright checks working throughout.
 5. Complete the public host contract before the stable `1.6.0` release (item 1);
    the stable model-library release lands as an aside of that work.
 6. Define and enforce the template-rich-text trust contract before allowing
-   untrusted users to supply templates (item 6).
+   untrusted users to supply templates (item 7).
 
 ## Out of scope
 
