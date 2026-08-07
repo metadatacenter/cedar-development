@@ -307,15 +307,61 @@ model libraries — where their JSON and YAML serializations diverge — is in
   (`/api-keys/{keyId}`), keeping the secret out of the path. Breaking change: cedar-cli and the profile
   UI call these routes, so it needs a coordinated client update.
 
-- **Containerize the CEDAR deployment: local first, then staging and production.** The local stack runs
-  as native processes brought up by hand — JDK 17 pinned, infra services started, fifteen service jars
-  and the frontends launched through `cedar-services.sh`. It works but it is assembled, not reproducible,
-  and it does not resemble how staging or production would run. Investigate a Docker-based deploy: an
-  image per service, a compose file for the local estate, and a path from there to staging and prod.
-  Scope the build-and-publish pipeline, config and secret injection, the version-locked persistence and
-  infra services (Mongo, MySQL, Neo4j, Redis, OpenSearch, Keycloak — pinned, so they are dependencies to
-  wire rather than rebuild), the `.orgx` TLS story, and whether the containerized workflow replaces the
-  native one or runs alongside it for local development.
+- **Modernize the Docker deployment that already exists, and decide what it is for.** The local stack
+  runs as native processes brought up by hand — JDK 17 pinned, infra services started, fifteen service
+  jars and the frontends launched through `cedar-services.sh`. It works but it is assembled, not
+  reproducible, and it does not resemble how staging or production would run. A containerized path is
+  not missing, though: it is built, complete, and released on every version bump. What it needs is
+  modernization and a decision about its role, not a design.
+
+  `cedar-docker-build` holds 34 image definitions and two shell scripts that build every image and push
+  it to `cedar-dockerhub.bmir.stanford.edu`. `cedar-docker-deploy` holds four compose files —
+  infrastructure (7 services), microservices (17), frontend (6), admin (4) — plus a bundled CA and leaf
+  certificates. `cedarcli docker` drives it: `one-time-setup` creates the network and the certificate
+  volumes, then `start`/`stop` per stack. The address plan lives in
+  `bin/templates/cedar-profile-docker-eval.sh`, which the Docker path requires and the native profile
+  cannot substitute for.
+
+  The images layer three deep. `cedar-java` is a Temurin 17 JRE on UBI9; `cedar-microservice` adds the
+  Python venv, the `wait-for-*.py` readiness scripts and the entrypoint; each of the fifteen
+  `cedar-server-*` images then contributes only a server name, three ports, a log volume and a call to
+  `install_deps.sh`. Networking is static: `cedarnet` is a `192.168.17.0/24` bridge with a pinned
+  address per container, and those addresses are passed back to the services as environment variables.
+  TLS rides on two external volumes, `cedar_cert` for the nginx leaves and `cedar_ca` for the CA, which
+  every Java entrypoint imports into the JVM truststore with `keytool`.
+
+  Four things keep it from being the answer as it stands, and they are the work:
+
+  1. **Break the build-time Nexus coupling.** `install_deps.sh` runs `mvn dependency:get` for
+     `org.metadatacenter:cedar-<name>-server-application:${CEDAR_VERSION}` while the image builds, and
+     the frontends pull tarballs from the Nexus npm repo the same way. A local change is invisible to
+     Docker until it is published, so the path cannot serve an edit-compile-run loop. Give the images a
+     way to take a jar from the checkout.
+  2. **Refresh the base images and reconcile the pins.** The admin images are the worst of it:
+     `kibana:6.4.3`, `phpmyadmin:5.0.0`, redis-commander on `node:12.18.4`. Neither Kibana 6.4.3 nor
+     Node 12.18.4 publishes an arm64 image, so a full build fails on Apple Silicon. The docker-eval
+     profile also forces the legacy builder (`DOCKER_BUILDKIT=0`), which current Docker Engine no longer
+     ships. Separately, the infra pins disagree with what the native stack runs: OpenSearch 1.3.6
+     against 2.19, MySQL 8.0.32 against 9.6, Redis 6.2.7 against 7.2. Whichever way that resolves, the
+     two paths should not be two different environments — it interacts with the persistence-upgrade item
+     above.
+  3. **Put image builds under CI.** Neither Docker repo has a workflow. Every other Java repo builds on
+     push and publishes its snapshot on merge, but images are built and pushed by hand from
+     `bin/build-all-images.sh` and `bin/release-all-images.sh`.
+  4. **Fix the TLS story.** The leaves bundled in `cedar-assets` expired 2026-04-20, so a fresh bring-up
+     hits the same cert wall the native stack does. `copy_certificates` prefers `$CEDAR_HOME/CEDAR_CA`
+     when it exists and falls back to the repo copy, so the question is whether the repo should carry
+     certificates at all rather than issue them at setup.
+
+  Smaller gaps worth closing along the way: no compose service declares a `healthcheck` or a `restart`
+  policy (ordering rests on `depends_on` and the in-image wait scripts), `cedarcli docker` has no
+  command for the admin stack and no detached start, and CEE is not containerized.
+
+  The decision that frames all of it: the containerized path is currently evaluation-only. Staging,
+  preprod and production profiles all set `CEDAR_NET_GATEWAY=127.0.0.1` and the production runbook never
+  mentions Docker. Settle whether it stays an eval install, becomes the local development environment,
+  or becomes the deployment shape for staging and prod — the four items above are worth different
+  amounts depending on the answer.
 
 ## Testing
 
