@@ -152,11 +152,18 @@ re-baselined.
   Components polyfills are gone, CEE now stating its requirement for native
   Custom Elements v1 and Shadow DOM. Unit tests moved from the deprecated karma
   builder to Vitest, which also removes the second runner.
-- **`ngx-mat-select-search` has an explicit ladder.** Stay on 4.2.1 while on
-  Angular 14; pin **7.0.10** at the Angular 15 MDC hop (v6 uses the legacy
-  select); pin **8.0.6** at Angular 16, which can remain through Angular 22. Do
-  not install the unpinned latest during the Angular 16 hop — current releases
-  require Angular 17 or newer.
+- **`ngx-mat-select-search` has an explicit ladder**, corrected against what the
+  packages actually do rather than what they claim. Stay on 4.2.1 while on Angular
+  14. The version is driven by which Material components CEE uses, not by the
+  Angular version: **6.0.0** imports the legacy entry points and is right while CEE
+  is still on legacy components, **7.0.10** imports the MDC ones and is right from
+  the MDC migration onward. 7.0.10 holds through Angular 16.
+
+  **8.0.6 does not work on Angular 16, whatever its peer range says.** It declares
+  `@angular/material ^16.0.0 || …`, but the package is compiled against Angular
+  19.2.21 and the build refuses it outright: "requires Angular version 17.0.0 or
+  newer to work correctly". Take it at Angular 17 or later. This entry previously
+  said to pin it at 16, which would have cost the next person the same hour.
 
 Two failure modes found while preparing, both worth knowing during the march
 because neither looks like a failure. A translation loader that silently stops
@@ -233,6 +240,47 @@ Blocked until the model library publishes a stable version.
 
 Done when the spec runs in `test:ci` against a published library version and CEE
 output that drops a required key fails the suite.
+
+### 8. Reach the two config flags nothing exercises
+
+The browser suite asserts that every config key changes what renders, because a
+key that is silently ignored looks exactly like one that works. Two keys cannot
+be answered that way today: each gates on a second condition as well as itself,
+and no fixture in the corpus produces that condition. Both are `test.fixme` in
+`visual/tests/render.spec.ts` with the condition named, so a run reports them
+rather than passing over them.
+
+**`showAllMultiInstanceValues`** draws the "All values" summary above a paged
+field — each occurrence's value, numbered, with the current one marked.
+`getMultiInstanceDataValueInfo()` returns `""` unless the paged component is a
+*field*, since a paged element has no single value to summarise. Every generated
+fixture pages elements and never a field; the two real Template Designer fixtures
+are the opposite, `17-real-flat` paging two fields and `18-real-nested` sixty-
+eight. So the template side already exists. What is missing is an **instance** —
+all three companion instances belong to element-paged templates, and with no
+values the summary is empty whatever the flag says. One instance file for
+`17-real-flat` reaches it.
+
+**`showStaticText`** is the harder one, and it needs a decision before a fixture.
+The name promises more than it delivers: free-standing static content renders
+regardless of it, and its only use in the application is one `*ngIf` in
+`cedar-component-renderer.component.html`. What it actually governs is static
+content that `collapseStaticFieldsIntoNextFieldOrElement` has folded *into* a
+field, so it draws inside that field's card. Folding happens only when
+`collapseStaticComponents` is on, the static is **odd** — consecutive statics are
+paired off and left where they are — and it sits immediately before a field. Every
+static run in the corpus is a pair, so nothing is ever folded.
+
+Before building a fixture, establish whether the Template Designer can author a
+lone static immediately before a field at all. If it cannot, this is not untested
+configuration but **dead** configuration, reachable only by hand-written JSON, and
+the answer is to remove the key rather than to test it. Either way the name is
+worth revisiting — a host reading the config list would reasonably expect turning
+`showStaticText` off to hide all static content, and it does nothing of the sort.
+That belongs with the host-contract work in item 1.
+
+Done when each flag either has a fixture that reaches it and a passing assertion,
+or is removed with the reason recorded.
 
 ## Security
 
