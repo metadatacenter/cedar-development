@@ -812,7 +812,7 @@ to revert to a pure BioPortal proxy):
 
 For locally-served ontologies the store keeps every language variant of every name and every synonym
 (captured at ingest, backfilled across the served catalog — see
-[Multilingual labels](VERSIONING-ROADMAP.md#multilingual-labels)). The read path serves them:
+[Multilingual labels](VERSIONING-DESIGN.md#10-multilingual-labels)). The read path serves them:
 
 - **Search recall** — a query matches a label in any language or a synonym, not just the served
   `pref_label`; an empty-query browse is unchanged.
