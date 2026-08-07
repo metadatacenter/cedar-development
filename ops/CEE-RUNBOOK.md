@@ -503,6 +503,49 @@ Those assert what CEE *does*, deliberately. See [CEE-ROADMAP.md](./CEE-ROADMAP.m
 
 ---
 
+## Building the model library
+
+CEE consumes `@org.metadatacenter/cedar-model-typescript-library` as a published
+package, so this is only needed when working on the library itself.
+
+The library needs **Node 20**; `package.json` declares `>=20.19.0` and CI pins
+20.20.2, the same version the CEE test gate uses. Nothing needs a sibling
+checkout: the test corpus is vendored under `cedar-test-artifacts/`, along with
+the reference templates it compares against.
+
+```bash
+npm ci
+npm run lint          # eslint over src, the eslint config and the smoke test
+npm run typecheck     # tsc --noEmit
+npm run test:coverage # jest with coverage thresholds enforced
+npm run test:package  # build the tarball and install it as a consumer would
+```
+
+`test:package` is the one worth knowing about. It builds the real tarball,
+installs it into a throwaway project outside the repository, and imports it
+through CommonJS, through ESM, and against the shipped declarations. Unit tests
+import from `src/` and so cannot catch a broken `dist/` — a missing export map
+entry, a declaration that does not resolve, a dependency that was only ever a
+devDependency.
+
+`npm run build` synchronizes the version into `package-dist.json` before
+webpack runs, which is where the published name comes from: the repository is
+`cedar-model-typescript-library`, the package is
+`@org.metadatacenter/cedar-model-typescript-library`.
+
+`.github/workflows/test.yml` runs exactly that sequence on `ubuntu-latest` with
+a fifteen-minute ceiling, on every push and pull request to `develop`. Nothing
+renders or screenshots, so it needs no macOS runner and no browser install,
+unlike the CEE gate.
+
+Nothing is published from CI. CEE resolves the package from the BMIR Nexus npm
+registry (`https://nexus.bmir.stanford.edu/repository/npm-cedar/`) through its
+own `.npmrc`, pinned to an exact version whose suffix carries the build date
+and commit. The publish step itself is written down nowhere — not in
+[RELEASE-RUNBOOK.md](./RELEASE-RUNBOOK.md), not in
+[CEE-RELEASE-RUNBOOK.md](./CEE-RELEASE-RUNBOOK.md), and the repository records
+no target registry of its own. Whoever publishes next should capture it here.
+
 ## Release
 
 `main` is owned by the release process. Work lands on `develop`.

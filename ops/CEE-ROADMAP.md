@@ -1,9 +1,10 @@
 # CEDAR Embeddable Editor (CEE) — Roadmap
 
-Outstanding work for `cedar-embeddable-editor`. Model-library work belongs in
-[TS-MODEL-LIBRARY-ROADMAP.md](./TS-MODEL-LIBRARY-ROADMAP.md); backend and
-cross-service work in [BACKEND-ROADMAP.md](./BACKEND-ROADMAP.md); build
-and test instructions in [CEE-RUNBOOK.md](./CEE-RUNBOOK.md).
+Outstanding work for `cedar-embeddable-editor` and for the TypeScript model
+library it consumes. Backend and cross-service work belongs in
+[BACKEND-ROADMAP.md](./BACKEND-ROADMAP.md); build and test instructions in
+[CEE-RUNBOOK.md](./CEE-RUNBOOK.md); where the TypeScript and Java libraries
+disagree in [MODEL-LIBRARY-PARITY.md](./MODEL-LIBRARY-PARITY.md).
 
 This roadmap tracks open work only. Item numbers are stable handles, not commit
 labels.
@@ -148,7 +149,7 @@ The spec is written and proven: 117 tests, taking the domain suite from 2,125 to
 because it cannot run against the published library. Rename it to `.ts` once the
 dependency in `package.json` and `harness/package.json` moves off the prerelease.
 
-Blocked on [TS-MODEL-LIBRARY-ROADMAP.md](./TS-MODEL-LIBRARY-ROADMAP.md) item 1.
+Blocked on item 9.
 
 Done when the spec runs in `test:ci` against a published library version and CEE
 output that drops a required key fails the suite.
@@ -185,6 +186,82 @@ Done when the README states the trust requirement, the runtime behavior matches
 the documented policy, executable template content cannot cross that policy
 silently, and tests prove both the security boundary and formatting compatibility.
 
+## Model library
+
+Work on `cedar-model-typescript-library` itself. CEE consumes the published
+package and does not carry fixes for it.
+
+### 9. Release the library
+
+Nothing downstream can move until this ships. CEE has a written conformance spec
+it cannot run, and no check at all on its own output in the meantime — item 7.
+
+One decision, then a publish: whether this is `0.10.0` rather than `0.9.x`. The
+question is real rather than ceremonial. `wasSuccessful()` on an instance parse
+could only ever return true before and can now return false, and
+`adheresToBlueprint()` has stopped being a second name for it. Any consumer
+branching on either sees new behavior.
+
+The two version fields no longer disagree: `package.json` reads `0.9.2` and
+`package-dist.json` the `0.9.2` prerelease. Only the second one publishes — the
+build copies it into `dist/` — so the root field is a readable cross-check
+rather than a thing to decide.
+
+The errors-versus-warnings question is settled and needs no further decision. A
+document that cannot be right is an error — a null `@id`, a value carrying the
+wrong `@type`. A document that is merely incomplete or written in a superseded
+form is a warning, because the corpus proves such documents exist and a reader
+that rejects them is useless. `adheresToBlueprint()` is where a caller wanting
+the strict reading goes.
+
+### 10. Settle the temporal `required` judgement
+
+A judgement about what the corpus means, rather than a code change; it needs
+someone who knows CEDAR's version history. 28 templates require `@type` on a
+temporal value, 27 do not, and 12 require nothing. The blueprint comparison does
+not check field-level `required`, so it flags none of them. `InstanceValidator`
+requires `@type` always — stricter than roughly half the corpus, on the grounds
+that the field declares a `temporalType` and so the value is a typed literal.
+That was a judgement, and it should be an explicit one. It does not block the
+release.
+
+### 11. Widen instance validation to per-field value-node `required`
+
+Deferred; revisit only if a consumer asks. A template states
+`required: ["@value"]` per field, so "this value node is missing the key its own
+schema demands" is checkable without inferring anything from `uiInputType` —
+which cannot be inferred from anyway, since a `textfield` may hold a literal or
+an IRI depending on its value constraints. The model keeps no per-field
+`required` array, so this means consulting the blueprint per field kind.
+
+### Adoption status
+
+CEE historically parsed template JSON and built instance JSON by hand, key by
+key, against its own copy of the model vocabulary. Replacing that with the
+library was scoped in phases, and where they stand is worth keeping even though
+the analysis behind them is not:
+
+- **Phase 0** (additive, on `develop`) is done, and earned its place by finding
+  a crash on the first run.
+- **Phase 1** is safe to start: 1,016 behavioural tests, 94 tree snapshots over
+  input the library did not generate, and 36 visual baselines answer the oracle
+  problem rather than merely noting it.
+- **Phase 2a** is done. **Phase 2b** is mostly not worth doing — one 15-line
+  win, the rest parity work on code a mutation test would struggle to
+  distinguish from what is already there.
+- **Phase 3** is not a refactor and should not be scoped as one.
+
+Phase 1 and beyond belong on a feature branch; replacing the parser is not an
+additive change.
+
+One caution, because it is easy to overclaim. `format-independence.spec.ts` and
+`instance-output.spec.ts` show CEE no longer depends on a *serialisation* — they
+do not show that what CEE emits is right. `schema:isBasedOn` was missing from
+every instance CEE had ever produced while both passed throughout, because an
+instance missing a field in both formats is consistent with itself. Format
+independence and correctness are different properties, and only one of them has
+a test that can fail.
+
 ## Delivery order
 
 1. Land the conformance spec as soon as the library publishes (item 7). It is
@@ -206,6 +283,10 @@ silently, and tests prove both the security boundary and formatting compatibilit
 - Replacing CEE's temporal wrapper with Angular Material's time picker; Material
   still does not cover CEDAR's granularity, decimal-second and timezone rules.
 - Backend or cross-service work tracked by the backend roadmap.
-- Model-library defects and its release, tracked by
-  [TS-MODEL-LIBRARY-ROADMAP.md](./TS-MODEL-LIBRARY-ROADMAP.md). CEE consumes the
-  published package; it does not carry fixes for it.
+- Reconciling the TypeScript library with the Java one beyond what
+  [MODEL-LIBRARY-PARITY.md](./MODEL-LIBRARY-PARITY.md) records as a defect on one
+  side. Divergence that reflects a genuine CEDAR ambiguity is a corpus question,
+  not a library one.
+- Validating anything that needs the template at instance-read time. The reader's
+  contract is that it reads an instance alone; `InstanceValidator` is where the
+  template-aware checks live.

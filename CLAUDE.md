@@ -40,20 +40,17 @@ Runbooks:
   CEE npm package, and deploying to production.
 - [WORDPRESS-RUNBOOK.md](ops/WORDPRESS-RUNBOOK.md) — the CEDAR WordPress site.
 
-- [TEST-COVERAGE-MATRIX.md](ops/TEST-COVERAGE-MATRIX.md) — which integration baseline each microservice
-  meets, how it pins its failure path, and what in-process backend it needs.
-
 Roadmaps:
 - [BACKEND-ROADMAP.md](ops/BACKEND-ROADMAP.md) — cross-cutting backend work: the microservices, the
   shared libraries, and the test and ops tooling.
-- [CEE-ROADMAP.md](ops/CEE-ROADMAP.md) — the embeddable metadata editor.
+- [CEE-ROADMAP.md](ops/CEE-ROADMAP.md) — the embeddable metadata editor and the TypeScript model
+  library it consumes.
 - [TEMPLATE-DESIGNER-ROADMAP.md](ops/TEMPLATE-DESIGNER-ROADMAP.md) — the AngularJS Template Designer
   frontend (`cedar-template-editor`).
 - [VERSIONING-ROADMAP.md](ops/VERSIONING-ROADMAP.md) — terminology versioning (its design is in
   [VERSIONING-DESIGN.md](ops/VERSIONING-DESIGN.md)).
-- [TS-MODEL-LIBRARY-ROADMAP.md](ops/TS-MODEL-LIBRARY-ROADMAP.md) and
-  [MODEL-LIBRARY-PARITY.md](ops/MODEL-LIBRARY-PARITY.md) — the TypeScript model library and its
-  parity with the Java one.
+- [MODEL-LIBRARY-PARITY.md](ops/MODEL-LIBRARY-PARITY.md) — where the TypeScript and Java model
+  libraries disagree.
 
 ## The four things that bite first (don't skip)
 
