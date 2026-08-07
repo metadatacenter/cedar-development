@@ -229,7 +229,7 @@ The spec is written and proven: 117 tests, taking the domain suite from 2,125 to
 because it cannot run against the published library. Rename it to `.ts` once the
 dependency in `package.json` and `harness/package.json` moves off the prerelease.
 
-Blocked on item 9.
+Blocked until the model library publishes a stable version.
 
 Done when the spec runs in `test:ci` against a published library version and CEE
 output that drops a required key fails the suite.
@@ -271,28 +271,12 @@ silently, and tests prove both the security boundary and formatting compatibilit
 Work on `cedar-model-typescript-library` itself. CEE consumes the published
 package and does not carry fixes for it.
 
-### 9. Release the library
-
-Nothing downstream can move until this ships. CEE has a written conformance spec
-it cannot run, and no check at all on its own output in the meantime — item 7.
-
-One decision, then a publish: whether this is `0.10.0` rather than `0.9.x`. The
-question is real rather than ceremonial. `wasSuccessful()` on an instance parse
-could only ever return true before and can now return false, and
-`adheresToBlueprint()` has stopped being a second name for it. Any consumer
-branching on either sees new behavior.
-
-The two version fields no longer disagree: `package.json` reads `0.9.2` and
-`package-dist.json` the `0.9.2` prerelease. Only the second one publishes — the
-build copies it into `dist/` — so the root field is a readable cross-check
-rather than a thing to decide.
-
-The errors-versus-warnings question is settled and needs no further decision. A
-document that cannot be right is an error — a null `@id`, a value carrying the
-wrong `@type`. A document that is merely incomplete or written in a superseded
-form is a warning, because the corpus proves such documents exist and a reader
-that rejects them is useless. `adheresToBlueprint()` is where a caller wanting
-the strict reading goes.
+The stable release is not tracked here — it lands as a matter of course. One
+judgement rides along with it whenever it goes out: whether the version is
+`0.10.0` rather than `0.9.x`. `wasSuccessful()` on an instance parse could only
+ever return true before and can now return false, and `adheresToBlueprint()` has
+stopped being a second name for it, so a consumer branching on either sees new
+behaviour.
 
 ### 10. Settle the temporal `required` judgement
 
