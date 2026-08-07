@@ -32,9 +32,10 @@ pair they belong to rather than in files of their own, so start from the pair fo
 search within it.
 
 Item numbers on a roadmap are for referring to items in conversation, nothing more. They are not
-stable handles, so nothing should depend on one keeping its number. **Never refer to a numbered item
-— or to a phase number — in a commit or check-in message.** Describe the concrete change and the
-surface it affects.
+stable handles. **Numbering is contiguous and has no gaps: when an item is removed, renumber the
+rest and fix the cross-references that named them.** Number in document order. **Never refer to a
+numbered item — or to a phase number — in a commit or check-in message**; describe the concrete
+change and the surface it affects.
 
 The backend — the microservices, the shared Java libraries, the stack itself:
 - [BACKEND-RUNBOOK.md](ops/BACKEND-RUNBOOK.md) — architecture, bring-up, the `cedar-services.sh`

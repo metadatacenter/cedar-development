@@ -15,13 +15,13 @@ This roadmap tracks open work only.
   `1.6.0-dev.20260804.85b7ccf` on `cee-with-model-library`.
 - The model dependency is the Nexus-only prerelease
   `@org.metadatacenter/cedar-model-typescript-library@0.9.2-dev.20260805.4105f7c`.
-  That build carries `InstanceValidator`, so item 7 is no longer blocked on the
+  That build carries `InstanceValidator`, so item 5 is no longer blocked on the
   library having shipped — only on it having shipped *stably*.
 - The safety net consists of 2,125 domain tests, 51 tests across seven focused
   Angular unit-spec files, and 325 bundle-level Playwright checks: 304 full
   Chromium checks plus seven smoke checks on each of Chromium, Firefox and WebKit.
 - Nothing checks CEE's own instance output against its template. The `ajv` check
-  that used to is gone, and its replacement is blocked — item 7.
+  that used to is gone, and its replacement is blocked — item 5.
 - The obsolete datetime-picker dependency has been replaced by CEE's in-house
   time picker, so no dependency currently caps the Angular upgrade.
 
@@ -59,7 +59,7 @@ transitions, endpoint/prefix/language resets and artifact assignment order.
 
 Complete this before declaring `1.6.0` stable.
 
-### 8. Fix and modernize the datetime field
+### 2. Fix and modernize the datetime field
 
 The date/time/timezone control needs work on three fronts, from the cheap near-term fix
 to the deeper rework the Angular upgrade unlocks.
@@ -73,7 +73,7 @@ into line with the other fields.
 
 The deeper rework waits on the framework. Angular Material 19 added an official `MatTimepicker`
 that can share a value with `MatDatepicker`, use locale-driven 12/24-hour display, parse
-seconds, and generate options at second intervals. Once the Angular 14→22 upgrade (item 2)
+seconds, and generate options at second intervals. Once the Angular 14→22 upgrade (item 3)
 lands, prototype replacing only the in-house `app-time-picker` with it. Do not replace the
 CEDAR-level temporal wrapper: Material still does not provide year/month-only values, decimal
 seconds, a timezone selector, or CEDAR's XSD serialization and granularity rules (the "Out of
@@ -92,7 +92,7 @@ subscriptions in `ngOnInit` and `ngAfterViewInit`, which currently propagate eac
 
 ## Infrastructure
 
-### 2. Upgrade Angular 14 to Angular 22
+### 3. Upgrade Angular 14 to Angular 22
 
 Run the official migrations one major version at a time and keep the build and
 test gates green after every migration. Do not combine this with a standalone
@@ -216,7 +216,7 @@ template overrides. Resolve the baseline without broad suppressions, then add
 Done when lint succeeds from a clean checkout and new TypeScript or template
 violations fail CI.
 
-### 7. Land the instance-conformance spec
+### 5. Land the instance-conformance spec
 
 CEE used to check its own output against each template with `ajv`, which meant
 carrying a second validator and restating rules CEDAR already defines. That was
@@ -278,7 +278,7 @@ ever return true before and can now return false, and `adheresToBlueprint()` has
 stopped being a second name for it, so a consumer branching on either sees new
 behaviour.
 
-### 10. Settle the temporal `required` judgement
+### 7. Settle the temporal `required` judgement
 
 A judgement about what the corpus means, rather than a code change; it needs
 someone who knows CEDAR's version history. 28 templates require `@type` on a
@@ -319,9 +319,9 @@ a test that can fail.
 
 ## Delivery order
 
-1. Land the conformance spec as soon as the library publishes (item 7). It is
+1. Land the conformance spec as soon as the library publishes (item 5). It is
    written and waiting, and until it runs CEE has no check on its own output.
-2. Start the Angular upgrade (item 2), landing the preparation branch on
+2. Start the Angular upgrade (item 3), landing the preparation branch on
    `develop` first so the safety net is in place before the version march.
 3. Establish linting at the Angular 22 target before closing the upgrade
    (item 4).
