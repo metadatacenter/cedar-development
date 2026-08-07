@@ -330,49 +330,57 @@ model libraries — where their JSON and YAML serializations diverge — is in
   TLS rides on two external volumes, `cedar_cert` for the nginx leaves and `cedar_ca` for the CA, which
   every Java entrypoint imports into the JVM truststore with `keytool`.
 
-  Four things keep it from being the answer as it stands, and they are the work:
+  **What has landed.** A jar built from a checkout can now reach an image: each server context and the
+  admin tool carries a `local/` staging directory, `bin/stage-local-jar.sh` fills it from the
+  checkout's `target/`, and `install_deps.sh` prefers what is staged over `mvn dependency:get`.
+  Verified on Docker 29.2.1, arm64, by building `cedar-server-artifact` both ways — the staged build
+  skips Maven and the jar inside the image matches the checkout's by hash. Both Docker repos now build
+  on push and pull request: `cedar-docker-deploy` validates its compose stacks, and `cedar-docker-build`
+  resolves every Nexus coordinate before building the Java chain sequentially and the rest as a matrix.
+  The compose files declare `restart` policies throughout and healthchecks on all 28 running services,
+  each probe checked against the image that runs it. `cedarcli docker` gained `validate`, `start`/`stop
+  admin` and `--detach`. The profile reads the installation's env files rather than the templates, the
+  admin stack's three undefined port variables are defined, and nginx serves `shared.<host>`.
 
-  1. **Break the build-time Nexus coupling.** Done for the Java images, open for the frontends. Each
-     of the fifteen server images and the admin tool now has a `local/` staging directory in its build
-     context; `bin/stage-local-jar.sh` copies the jar out of the checkout's `target/`, and
-     `install_deps.sh` prefers whatever is staged over `mvn dependency:get`. Staged jars are
-     git-ignored, so a release still builds from published artifacts. The six frontend images still
-     download a tarball from the Nexus npm repo with no local equivalent, so an edit-compile-run loop
-     works for the backend and not the UI.
+  **What remains.**
 
-     Verified on Docker 29.2.1, arm64, by building `cedar-server-artifact` both ways: without a staged
-     jar it downloads and the build reaches `cedar-server.jar` in 25 s; with one staged it skips Maven
-     entirely and gets there in 4 s, and the jar inside the image is byte-identical to the checkout's.
-  2. **Refresh the base images and reconcile the pins.** The admin images are the worst of it:
-     `kibana:6.4.3`, `phpmyadmin:5.0.0`, redis-commander on `node:12.18.4`. Neither Kibana 6.4.3 nor
-     Node 12.18.4 publishes an arm64 image, so a full build fails on Apple Silicon — though the Java
-     chain itself builds clean there, base through server image. The docker-eval profile also forces
-     the legacy builder (`DOCKER_BUILDKIT=0`), which still works on Docker 29 but warns that it is
-     deprecated and due for removal. Separately, the infra pins disagree with what the native stack
-     runs: OpenSearch 1.3.6 against 2.19, MySQL 8.0.32 against 9.6, Redis 6.2.7 against 7.2. Whichever
-     way that resolves, the two paths should not be two different environments — it interacts with the
-     persistence-upgrade item (9) above.
-  3. **Publish images from CI, not by hand.** Both Docker repos now build on push and pull request:
-     `cedar-docker-deploy` validates its compose stacks, and `cedar-docker-build` resolves every Nexus
-     coordinate the images need, then builds the Java chain sequentially and the independent images as
-     a matrix. What CI still does not do is *release*: tagging and pushing to
-     `cedar-dockerhub.bmir.stanford.edu` remains `bin/release-all-images.sh`, run by hand.
-
-     That first run turned up a gap. All eighteen Java artifacts resolve at the current snapshot, but
-     none of the six frontend npm tarballs do: `npm-cedar` holds `2.9.1-SNAPSHOT` for five of them and
-     has never held `cedar-content-distribution` at any version. So the frontend images cannot build
-     against develop at all. Their build jobs are `continue-on-error` for now and the resolve step
-     reports the missing tarball rather than failing the run. Either the frontend repositories publish
-     their snapshots the way the Java repositories do, or image builds are release-time only and should
-     say so; until that is settled the frontend half of the estate is unbuildable from develop.
-  4. **Fix the TLS story.** The leaves bundled in `cedar-assets` expired 2026-04-20, so a fresh bring-up
-     hits the same cert wall the native stack does. `copy_certificates` prefers `$CEDAR_HOME/CEDAR_CA`
-     when it exists and falls back to the repo copy, so the question is whether the repo should carry
-     certificates at all rather than issue them at setup.
-
-  Smaller gaps worth closing along the way: no compose service declares a `healthcheck` or a `restart`
-  policy (ordering rests on `depends_on` and the in-image wait scripts), and `cedarcli docker` has no
-  command for the admin stack and no detached start.
+  1. **Bring the stack up.** Everything so far is static verification: no CEDAR container has been run.
+     The estate publishes the same host ports as the native stack — 3306, 27017, 6379, 9200, 7474/7687,
+     8080/8443, 80/443 and 9001–9015 with their admin and stop ports — so the two cannot run side by
+     side, and a bring-up means stopping the native stack or remapping. Nothing else on this list is
+     well-ordered until this has been tried once.
+  2. **Settle frontend publishing.** All eighteen Java artifacts resolve at the current snapshot; none
+     of the six frontend npm tarballs do. `npm-cedar` holds `2.9.1-SNAPSHOT` for five of them and has
+     never held `cedar-content-distribution` at any version. Either the frontend repositories publish
+     snapshots the way the Java repositories do, or image builds are release-time only and should say
+     so. Until then the frontend half of the estate cannot be built from develop, those build jobs stay
+     `continue-on-error`, and no full bring-up is possible.
+  3. **Give the frontends a local-build path.** The other half of the Nexus decoupling. The six
+     frontend images download a tarball with no local equivalent, so an edit-compile-run loop works for
+     the backend and not the UI.
+  4. **Publish images from CI.** Building is covered; releasing is not. Tagging and pushing to
+     `cedar-dockerhub.bmir.stanford.edu` is still `bin/release-all-images.sh`, run by hand. The open
+     question is whether a merge to develop publishes snapshot tags or publishing stays explicit.
+  5. **Refresh the base images and reconcile the pins.** `kibana:6.4.3`, `phpmyadmin:5.0.0` and
+     redis-commander on `node:12.18.4` are the worst of it, and neither Kibana 6.4.3 nor Node 12.18.4
+     publishes an arm64 image, so a full build fails on Apple Silicon — though the Java chain itself
+     builds clean there. The docker-eval profile also forces the legacy builder (`DOCKER_BUILDKIT=0`),
+     which still works on Docker 29 but warns it is deprecated and due for removal. Separately the
+     infra pins disagree with what the native stack runs: OpenSearch 1.3.6 against 2.19, MySQL 8.0.32
+     against 9.6, Redis 6.2.7 against 7.2. Whichever way that resolves, the two paths should not be two
+     different environments — it interacts with the persistence-upgrade item (9) above.
+  6. **Decide the TLS story.** The leaves bundled in `cedar-assets` expired 2026-04-20.
+     `copy_certificates` prefers `$CEDAR_HOME/CEDAR_CA`, whose 28 hosts run to 2028, so this bites a
+     fresh clone rather than this machine. The question is whether the repo should carry certificates
+     at all rather than issue them at setup.
+  7. **Let healthchecks order startup.** Infrastructure and the microservices are separate compose
+     projects, so `depends_on: condition: service_healthy` cannot reach across the boundary and
+     ordering still rests entirely on the in-image `wait-for-*.py` scripts. Merging the stacks into one
+     project would fix it, at the cost of changing how the estate is started.
+  8. **Stop declaring the build-order placeholders as services.** `cedar-java` has no command and exits
+     at once; `cedar-microservice` starts its entrypoint, fails with `Unable to access jarfile`, and
+     exits. Every `up` of the microservices stack therefore leaves two dead containers. They are marked
+     `restart: "no"` so they cannot crash-loop, but they should not be services at all.
 
   One estate difference is worth a decision rather than a fix. The Docker nginx now serves 24 virtual
   hosts against the native stack's 28; the four that remain are CEE's — `demo.cee`, `demo-dist.cee`,
