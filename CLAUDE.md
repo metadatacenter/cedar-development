@@ -26,29 +26,44 @@ Helper scripts are in `cedar-development/ops/`:
 
 ## Ops docs: roadmaps and runbooks
 
-More docs live under `cedar-development/ops/`. The runbooks tell you how to run, build, release
-and deploy; the roadmaps track open work, where item numbers are stable handles.
+Eleven documents under `cedar-development/ops/`, paired by area: a runbook says how to run, build,
+release and deploy; a roadmap tracks open work, where item numbers are stable handles. Findings and
+measurements sit with whichever of the pair they belong to rather than in files of their own, so
+start from the pair for your area and search within it.
 
-Runbooks:
-- [BACKEND-RUNBOOK.md](ops/BACKEND-RUNBOOK.md) — the local native stack: architecture, bring-up,
-  gotchas, port map, and current framework state.
-- [CEE-RUNBOOK.md](ops/CEE-RUNBOOK.md) — build and test the embeddable editor (CEE).
-- [RELEASE-RUNBOOK.md](ops/RELEASE-RUNBOOK.md) and [PROD-DEPLOY-RUNBOOK.md](ops/PROD-DEPLOY-RUNBOOK.md)
-  — releasing the artifacts and deploying to production. Publishing the CEE npm package is in
-  CEE-RUNBOOK.md.
-- [WORDPRESS-RUNBOOK.md](ops/WORDPRESS-RUNBOOK.md) — the CEDAR WordPress site.
+The backend — the microservices, the shared Java libraries, the stack itself:
+- [BACKEND-RUNBOOK.md](ops/BACKEND-RUNBOOK.md) — architecture, bring-up, the `cedar-services.sh`
+  controller, port map, the expensive gotchas, building and testing (including which integration
+  baseline each microservice meets), continuous integration and snapshot publishing, the e2e smoke
+  test, and the current framework state.
+- [BACKEND-ROADMAP.md](ops/BACKEND-ROADMAP.md) — cross-cutting backend work across the
+  microservices, the shared libraries, and the test and ops tooling.
 
-Roadmaps:
-- [BACKEND-ROADMAP.md](ops/BACKEND-ROADMAP.md) — cross-cutting backend work: the microservices, the
-  shared libraries, and the test and ops tooling.
-- [CEE-ROADMAP.md](ops/CEE-ROADMAP.md) — the embeddable metadata editor and the TypeScript model
-  library it consumes.
+The embeddable editor (CEE) and the TypeScript model library it consumes:
+- [CEE-RUNBOOK.md](ops/CEE-RUNBOOK.md) — Node versions (they differ per task, read that first),
+  running the app, the test gate and what CI runs, checking output against the CEDAR model,
+  building the model library, and cutting and publishing an npm release.
+- [CEE-ROADMAP.md](ops/CEE-ROADMAP.md) — CEE's open work including the Angular 14 → 22 upgrade and
+  the preparation already landed for it, plus the model library's own items and adoption status.
+- [MODEL-LIBRARY-PARITY.md](ops/MODEL-LIBRARY-PARITY.md) — measured divergences between the
+  TypeScript and Java model libraries over the shared corpus.
+
+Terminology versioning:
+- [VERSIONING-DESIGN.md](ops/VERSIONING-DESIGN.md) — what the model is and why: content-hash
+  identity, the constraint shape, freeze-on-publish, and what the store captures and serves for
+  multilingual labels.
+- [VERSIONING-ROADMAP.md](ops/VERSIONING-ROADMAP.md) — what remains, plus the findings behind it:
+  the ingestion tracker, the BioPortal reconciliation log, and the survey of ingesting from other
+  repositories.
+
+The rest:
+- [RELEASE-RUNBOOK.md](ops/RELEASE-RUNBOOK.md) — `cedarcli release all-in-one` across the ~48
+  versioned repos, front and back. CEE, the TypeScript model library and three others are
+  `skip_from_release` and publish themselves.
+- [PROD-DEPLOY-RUNBOOK.md](ops/PROD-DEPLOY-RUNBOOK.md) — deploying CEDAR to production.
 - [TEMPLATE-DESIGNER-ROADMAP.md](ops/TEMPLATE-DESIGNER-ROADMAP.md) — the AngularJS Template Designer
   frontend (`cedar-template-editor`).
-- [VERSIONING-ROADMAP.md](ops/VERSIONING-ROADMAP.md) — terminology versioning (its design is in
-  [VERSIONING-DESIGN.md](ops/VERSIONING-DESIGN.md)).
-- [MODEL-LIBRARY-PARITY.md](ops/MODEL-LIBRARY-PARITY.md) — where the TypeScript and Java model
-  libraries disagree.
+- [WORDPRESS-RUNBOOK.md](ops/WORDPRESS-RUNBOOK.md) — the CEDAR WordPress site.
 
 ## The four things that bite first (don't skip)
 
