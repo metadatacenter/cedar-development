@@ -33,9 +33,9 @@ Runbooks:
 - [BACKEND-RUNBOOK.md](ops/BACKEND-RUNBOOK.md) — the local native stack: architecture, bring-up,
   gotchas, port map, and current framework state.
 - [CEE-RUNBOOK.md](ops/CEE-RUNBOOK.md) — build and test the embeddable editor (CEE).
-- [RELEASE-RUNBOOK.md](ops/RELEASE-RUNBOOK.md), [CEE-RELEASE-RUNBOOK.md](ops/CEE-RELEASE-RUNBOOK.md)
-  and [PROD-DEPLOY-RUNBOOK.md](ops/PROD-DEPLOY-RUNBOOK.md) — releasing the artifacts, publishing the
-  CEE npm package, and deploying to production.
+- [RELEASE-RUNBOOK.md](ops/RELEASE-RUNBOOK.md) and [PROD-DEPLOY-RUNBOOK.md](ops/PROD-DEPLOY-RUNBOOK.md)
+  — releasing the artifacts and deploying to production. Publishing the CEE npm package is in
+  CEE-RUNBOOK.md.
 - [WORDPRESS-RUNBOOK.md](ops/WORDPRESS-RUNBOOK.md) — the CEDAR WordPress site.
 
 Roadmaps:
