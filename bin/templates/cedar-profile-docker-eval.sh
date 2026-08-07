@@ -6,8 +6,10 @@ export CEDAR_DEVELOP_HOME=${CEDAR_HOME}/cedar-development
 
 #------------------------------------------------------
 # CEDAR custom environment variables
-source ${CEDAR_DEVELOP_HOME}/bin/templates/set-env-external.sh
-source ${CEDAR_DEVELOP_HOME}/bin/templates/set-env-internal.sh
+# These live at ${CEDAR_HOME}, copied from bin/templates and filled in for this installation.
+# Reading the templates directly would run the stack on their "changeme" placeholders.
+source ${CEDAR_HOME}/set-env-external.sh
+source ${CEDAR_HOME}/set-env-internal.sh
 
 #------------------------------------------------------
 # CEDAR network settings
@@ -57,6 +59,14 @@ export CEDAR_FRONTEND_OPENVIEW_HOST=192.168.17.153
 export CEDAR_FRONTEND_MONITORING_HOST=192.168.17.154
 export CEDAR_FRONTEND_ARTIFACTS_HOST=192.168.17.155
 export CEDAR_FRONTEND_BRIDGING_HOST=192.168.17.156
+
+#------------------------------------------------------
+# CEDAR admin stack host ports
+# The admin containers have no native counterpart, so these live here rather than in
+# set-env-generic.sh. Without them the cedar-admin stack publishes on blank ports.
+export CEDAR_REDIS_COMMANDER_PORT=8081
+export CEDAR_PHPMYADMIN_PORT=8082
+export CEDAR_KIBANA_PORT=5601
 
 #------------------------------------------------------
 # CEDAR Docker BuildKit behavior

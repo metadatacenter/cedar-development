@@ -357,14 +357,15 @@ model libraries — where their JSON and YAML serializations diverge — is in
   policy (ordering rests on `depends_on` and the in-image wait scripts), and `cedarcli docker` has no
   command for the admin stack and no detached start.
 
-  One estate difference is worth a decision rather than a fix. `cedar-assets` carries certificates for
-  four CEE hosts — `demo.cee`, `demo-dist.cee`, `docs.cee`, `docs-dist.cee` — and the Docker nginx image
-  has no server block for any of them, while the native nginx serves all four. CEE itself is not a
-  candidate for a container: it is a web component, built to a single JS file and embedded in a host
-  page, with no process to run. The `-dist` pair, though, is plain nginx over a built directory, the
-  same shape as the six frontend images, so serving those two from the Docker estate is one more image
-  if those sites are meant to be hosted. The other two proxy a live `ng serve` and belong to
-  development only.
+  One estate difference is worth a decision rather than a fix. The Docker nginx now serves 24 virtual
+  hosts against the native stack's 28; the four that remain are CEE's — `demo.cee`, `demo-dist.cee`,
+  `docs.cee`, `docs-dist.cee`. CEE itself is not a candidate for a container: it is a web component,
+  built to a single JS file and embedded in a host page, with no process to run. The `-dist` pair is
+  plain nginx over a built directory, the same shape as the six frontend images, so those two are one
+  more image if the sites are meant to be hosted at all — the runbook classes the demos as
+  non-essential and not started by default, and the `cedar-component-demo` checkout they are built from
+  is absent from this machine, so the native server blocks point at directories that do not exist. The
+  other two proxy a live `ng serve` and belong to development only.
 
   The decision that frames all of it: the containerized path is currently evaluation-only. Staging,
   preprod and production profiles all set `CEDAR_NET_GATEWAY=127.0.0.1` and the production runbook never
