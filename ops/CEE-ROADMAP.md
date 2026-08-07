@@ -309,15 +309,6 @@ that the field declares a `temporalType` and so the value is a typed literal.
 That was a judgement, and it should be an explicit one. It does not block the
 release.
 
-### 11. Widen instance validation to per-field value-node `required`
-
-Deferred; revisit only if a consumer asks. A template states
-`required: ["@value"]` per field, so "this value node is missing the key its own
-schema demands" is checkable without inferring anything from `uiInputType` —
-which cannot be inferred from anyway, since a `textfield` may hold a literal or
-an IRI depending on its value constraints. The model keeps no per-field
-`required` array, so this means consulting the blueprint per field kind.
-
 ### Adoption status
 
 CEE historically parsed template JSON and built instance JSON by hand, key by
@@ -374,3 +365,9 @@ a test that can fail.
 - Validating anything that needs the template at instance-read time. The reader's
   contract is that it reads an instance alone; `InstanceValidator` is where the
   template-aware checks live.
+- Widening instance validation to each field's own value-node `required` array.
+  What it would add is nearly all covered already: the `["@value", "@type"]` that
+  temporal and numeric fields declare is what `validateTypedValue` enforces, and
+  the `@id`-valued kinds declare no `required` at all. The residue is a literal
+  node omitting `@value` — which is `{}`, one of the spellings of an unfilled
+  slot, and emptiness is valid by policy. Revisit only if a consumer asks.
