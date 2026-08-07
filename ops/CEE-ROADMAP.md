@@ -113,13 +113,97 @@ Known work:
   the Angular build pipeline changes.
 - Migrate the two custom Material themes to the supported Material 3 APIs.
 - Retire the obsolete `e2e/` Protractor project: delete it and its configuration
-  and npm command. The five focused Angular unit-spec files remain — they cover
-  component configuration and instance-isolation behaviour not redundant with the
-  domain or browser suites.
+  and npm command. Done on `cee-with-model-library`; `develop` and `main` still
+  carry the four `e2e/` files and the karma references.
 
 Done when a clean checkout builds the production custom-element bundle, all unit,
 domain and browser tests pass on Angular 22, and no Protractor dependency,
 configuration or script remains.
+
+#### Preparation already landed
+
+On `cee-with-model-library`, not yet on `develop`. The goal was not to start the
+upgrade but to make its safety net survive it, and to take the independent
+dependency jumps out of the version march so a failure there means one thing
+instead of two. Every commit was verified against the full gate, and nothing was
+re-baselined.
+
+- **Packaging no longer assumes webpack.** The visual suite used to build its
+  bundle with `cat runtime.js polyfills.js main.js` — filenames and an operation
+  that belong to the webpack `browser` builder. The esbuild `application`
+  builder emits a `browser/` subdirectory, hashed filenames and an entry
+  importing sibling chunks, which concatenation turns into a file with dangling
+  `import` statements: broken while still looking like a bundle. Packaging now
+  goes through `visual/resolve-build-output.mjs`, which decides by reading the
+  entry rather than by consulting a version number. The freshness guard also
+  records a manifest with strategy, inputs and a sha256, because timestamps stop
+  being enough once the builder can change underneath the harness.
+- **Brand values sit behind an adapter.** `_cee-tokens.scss` holds CEDAR's
+  values and may not reference Material; `_cee-material-theme.scss` is the only
+  file touching Material's API and carries the list of renames ahead. The
+  adapter emits nothing at the top level on purpose — `@use` would hoist
+  Material's CSS above the rules that override it and silently reorder the
+  cascade.
+- **The visual contract is written down.** `THEMING.md` in the CEE repository
+  records what CEE's appearance is committed to, what is incidental, the 16
+  `.mat-*` selectors across 10 files reaching into Material internals, and a
+  five-step order for judging a failing snapshot. The Material 15 hop will turn
+  the baselines red for legitimate reasons; this is what makes that moment a
+  decision rather than an improvisation.
+- **Independent jumps are out of the march.** `@ngx-translate` core 11 → 14 and
+  http-loader 4 → 7 landed alone against a green suite. The `@angular/youtube-
+  player` wrapper is gone, replaced by a validated native iframe. Legacy Web
+  Components polyfills are gone, CEE now stating its requirement for native
+  Custom Elements v1 and Shadow DOM. Unit tests moved from the deprecated karma
+  builder to Vitest, which also removes the second runner.
+- **`ngx-mat-select-search` has an explicit ladder.** Stay on 4.2.1 while on
+  Angular 14; pin **7.0.10** at the Angular 15 MDC hop (v6 uses the legacy
+  select); pin **8.0.6** at Angular 16, which can remain through Angular 22. Do
+  not install the unpinned latest during the Angular 16 hop — current releases
+  require Angular 17 or newer.
+
+Two failure modes found while preparing, both worth knowing during the march
+because neither looks like a failure. A translation loader that silently stops
+fetching looks like the built-in text, which is also what CEE shows when
+everything is fine; both directions are now asserted. And under Vitest an
+unlinked Angular partial declaration makes a spec file fail to *import*, so its
+tests are never registered and the run reports fewer passing tests rather than a
+failure — seven of 51 vanished that way before `src/test-setup.ts` existed.
+
+Current gate baseline on that branch:
+
+| Gate | Baseline |
+| --- | --- |
+| Unit | 64 tests in 8 files (Vitest, Node) |
+| Domain | 2,125 tests in 39 files |
+| Visual | 335 tests in 3 files, across the configured Playwright projects |
+| Visual snapshots | 98 baselines |
+| Packaging | 8 tests |
+| Lint | 0 errors; 77 baselined `no-explicit-any` warnings |
+| Bundle | 3,131,159 raw / 743,467 gzip-9 bytes, within the enforced budgets |
+
+Deliberately left alone. **Nothing was upgraded toward 22** — no Angular package
+moved. **The stock-teal question stays open**: the component theme uses
+Angular's stock teal and deep-orange palettes rather than CEDAR's, and stock
+teal 600 accounts for 35 color values in the shipped bundle while CEDAR's
+`#0f7686` appears twice. It looks like an accident, but correcting it changes
+what users see, so deciding it *during* the upgrade is the one option with
+nothing to recommend it. **Material's own palettes were not inlined** into the
+tokens: the M2 palettes are frozen constants, so pinning them buys little while
+transcribing them risks a silent mismatch. **No `TestBed` route under Vitest**,
+since nothing under `src/**` needs one and adding it means an Angular-aware Vite
+plugin.
+
+What this changes about the estimate: reaching a compiling, unit-green branch is
+still roughly 65% of the work — nothing here makes Angular's breaking changes
+easier. The remaining 10–15% to reach honestly satisfied visual and bundle gates
+was low because the safety net was coupled to the builder being replaced, the
+baselines had no standing definition of a regression, and two dependency jumps
+were tangled into the same diff. The risk is now concentrated where it belongs,
+at the Material 15 MDC restyle and the form-field overrides that force padding
+against a DOM MDC replaces. The march still wants a human at that hop; what it
+no longer wants is a human reconstructing, at that moment, what CEE was supposed
+to look like.
 
 ## Testing
 
@@ -266,8 +350,8 @@ a test that can fail.
 
 1. Land the conformance spec as soon as the library publishes (item 7). It is
    written and waiting, and until it runs CEE has no check on its own output.
-2. Start the Angular upgrade, including retiring the obsolete Protractor project
-   (item 2).
+2. Start the Angular upgrade (item 2), landing the preparation branch on
+   `develop` first so the safety net is in place before the version march.
 3. Establish linting at the Angular 22 target before closing the upgrade
    (item 4).
 4. Keep the production bundle and Playwright checks working throughout.
