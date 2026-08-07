@@ -95,6 +95,10 @@ suggestion, ~30 s): `cd cedar-development/ops/e2e && npm run smoke` — details 
   `cedar-test-support-library`). No suite needs an external service: the tests that do call one are
   tagged and excluded by default, terminology's under `bioportal` and bridge's under `datacite`.
   Tests boot on `19xxx` ports (dev + 10000) so a running dev stack never collides.
+- GitHub Actions builds every Java repo on push and PR to `develop`, and a merge to `develop`
+  publishes that repo's snapshot to Nexus. Downstream builds and the Docker images resolve CEDAR
+  artifacts from Nexus, never from a checkout, so an unpublished snapshot breaks a consumer that
+  did not change. Details in the runbook, "Continuous integration".
 - Suites verify logic; a **redeploy + `ops/e2e` smoke run verifies reality**. Always redeploy and
   smoke after changes to inter-service HTTP, validation, or startup wiring: real runtime bugs have
   passed green suites.

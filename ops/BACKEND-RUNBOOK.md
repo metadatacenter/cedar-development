@@ -528,6 +528,70 @@ stragglers by name — `cedar-services.sh restart <name...>` — and re-check. A
 will not catch this: a stale service is still healthy. This bit more than once during a fix-and-
 redeploy pass, where a truncated `restart` left the group and messaging servers a build behind.
 
+## Continuous integration
+
+Every Java repository builds in GitHub Actions from `.github/workflows/ci.yml`, on each push and
+pull request to `develop` and on manual dispatch. The workflow is the same everywhere: Java 17 from
+temurin with the Maven cache, the BMIR Nexus credentials from the `BMIR_NEXUS_USERNAME` and
+`BMIR_NEXUS_PASSWORD` repository secrets, `mvn --update-snapshots verify`, and the surefire reports
+uploaded whatever the outcome. Jobs carry a hard timeout: twenty minutes for a component,
+forty-five for `cedar-project`, which builds nineteen repositories in one reactor.
+
+Two repositories are aggregators over `../` sibling paths that a lone checkout cannot satisfy, so
+`cedar-libraries` and `cedar-project` check their component repositories out beside themselves in
+the workspace and run Maven from the aggregator directory.
+
+The suites need no service container. The two exceptions both come from a real dependency rather
+than from CEDAR code: `cedar-monitor-server` talks to a live MySQL, so its job runs a disposable
+MySQL 8 service, and the embedded MongoDB that `cedar-artifact-server` boots is the 5.0 line the
+deployment runs, whose only Linux build links against OpenSSL 1.1. Ubuntu 24.04 ships OpenSSL 3, so
+that job installs `libssl1.1` on the runner first; without it `mongod` cannot start and every
+resource test errors out. Moving the tests onto a newer MongoDB would drop that step, at the cost of
+testing against a different engine than production runs.
+
+### Publishing snapshots
+
+Twenty-seven of the repositories deploy their snapshot to Nexus at the end of a successful build.
+The step is gated on a real push to `develop`, so a pull request verifies and stops, and a build
+that fails publishes nothing. `cedar-libraries` and `cedar-project` are the exceptions: their
+modules are other repositories, which publish themselves, and deploying from the aggregate as well
+would give one artifact two publishers.
+
+This matters more than it first appears. Everything downstream resolves CEDAR artifacts from Nexus
+rather than from a checkout — the servers take the libraries from there, and each microservice
+Docker image fetches its own jar by coordinate in `install_deps.sh`. An unpublished snapshot is
+therefore invisible: the code is on GitHub, and every consumer still compiles against, or ships, the
+previously published jar. The failure surfaces far from its cause, as a compile error or a failing
+test in a repository that has not changed.
+
+The verification asks for fresh snapshots (`--update-snapshots`) for the same reason from the other
+direction. Maven checks a snapshot for updates once a day by default and the runner restores a
+cached `~/.m2`, so without it a build can compile against a stale CEDAR jar for the rest of the day
+after a dependency was republished. The flag costs one metadata check per snapshot dependency, and
+when Nexus is unreachable it degrades to a warning and falls back to the cached artifact rather than
+failing.
+
+Publishing by hand is still occasionally needed — to seed a layer Nexus never had, or after work
+that bypassed CI:
+
+```bash
+cd $CEDAR_HOME/cedar-<name> && mvn --batch-mode deploy --settings .m2/travis-settings.xml
+# needs BMIR_NEXUS_USERNAME and BMIR_NEXUS_PASSWORD in the environment
+```
+
+To see whether a repository's published snapshot is behind its source, compare the Nexus timestamp
+against the commits that touched the build:
+
+```bash
+curl -s https://nexus.bmir.stanford.edu/repository/snapshots/org/metadatacenter/<artifact>/2.9.2-SNAPSHOT/maven-metadata.xml \
+  | grep -o '<lastUpdated>[^<]*'
+git -C $CEDAR_HOME/<repo> log --since=<that timestamp> origin/develop -- 'src' '*/src' 'pom.xml' '*/pom.xml'
+```
+
+The Travis build these workflows replace deployed on every `develop` build, which is why Nexus
+carried snapshots at all; publishing stopped silently when Travis was switched off, and the
+repositories froze until the Actions workflows took it over.
+
 ## Dependency and Framework State
 
 Two things are locked and must not move: **Java 17**, and the **persistence and infrastructure
