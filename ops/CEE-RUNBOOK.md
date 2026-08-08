@@ -17,36 +17,35 @@ Sibling runbooks:
 
 ## Node versions — read this first
 
-Interactive Angular development and the automated test gate have different
-supported Node versions. Using the wrong one is a common source of misleading
-failures.
+CEE builds, runs and tests on one Node version, and `.github/workflows/test.yml`
+is the source of truth for which.
 
 | What | Node | Why |
 |---|---|---|
-| Interactive Angular development (`ng serve`, Karma watch mode) | **18** | Retains the established Angular 14 development environment. |
-| Unified test gate (`npm run test:ci`) | **20.20.2** | This is the version pinned by `.github/workflows/test.yml`; it runs Angular/Karma, Vitest, the production build and Playwright together. |
-| `harness/` or `visual/` in isolation | **20.20.2** | Matches the unified gate and CI. |
-| `cedar-model-typescript-library` | 18 or 20 | Webpack 5 / TS 5.3; both work. |
+| Everything in CEE — `ng serve`, `npm run test:ci`, `harness/` and `visual/` alone | **24.19.0** | Angular 22 requires `^22.22.3 \|\| ^24.15.0 \|\| >=26`. 24 is the active LTS where 22 is in maintenance. Pinned by CI. |
+| `cedar-model-typescript-library` | 18 or 20 | Webpack 5 / TS 5.3; both work. It is a separate build with its own toolchain. |
 
-Install both once:
+The split this table used to describe — 18 for interactive development, 20.20.2
+for the gate — is gone. It existed because Angular 14's toolchain and the current
+Playwright did not accept the same Node, and the Angular march removed the reason
+for it. One version now builds the artifact that ships and runs the tests that
+judge it.
 
-```bash
-brew install nvm && mkdir -p ~/.nvm
-```
-
-Add to `~/.zshrc` (the Homebrew formula does not do this for you):
-
-```bash
-export NVM_DIR="$HOME/.nvm"
-[ -s "/opt/homebrew/opt/nvm/nvm.sh" ] && \. "/opt/homebrew/opt/nvm/nvm.sh"
-```
+Install it with Homebrew, keg-only so it does not displace the Node the other
+CEDAR frontends use:
 
 ```bash
-nvm install 18 && nvm install 20.20.2
+brew install node@24
 ```
 
-Then use `nvm use 18` for interactive Angular development or an installed
-20.20.2 for testing. CI is the source of truth for the test version.
+Then put it in front for CEE work:
+
+```bash
+export PATH="/opt/homebrew/opt/node@24/bin:$PATH"
+```
+
+Verify with `node -v` before blaming anything else: a version outside Angular's
+range fails in ways that read as unrelated breakage.
 
 Nothing here needs Java. The one exception is the canonical validator, which
 needs **JDK 17** specifically — see
@@ -76,7 +75,8 @@ cd cedar-component-distribution && npm install && npx ng serve
 Terminal 2 — CEE itself:
 
 ```bash
-nvm use 18 && npm install && npx ng serve
+export PATH="/opt/homebrew/opt/node@24/bin:$PATH"
+npm install && npx ng serve
 ```
 
 Then open `http://localhost:4400/`.
@@ -86,7 +86,8 @@ Then open `http://localhost:4400/`.
 This is the real deliverable — a single JS file embeddable in any page.
 
 ```bash
-nvm use 18 && npx ng build --configuration=production
+export PATH="/opt/homebrew/opt/node@24/bin:$PATH"
+npx ng build --configuration=production
 ```
 
 ```bash
@@ -103,7 +104,7 @@ The canonical, non-interactive verification command is run from the CEE
 repository root:
 
 ```bash
-nvm use 20.20.2
+export PATH="/opt/homebrew/opt/node@24/bin:$PATH"
 npm run test:ci
 ```
 
@@ -155,18 +156,15 @@ specifically not `macos-14`: Playwright no longer builds WebKit for
 drives v2336. The driver sends `Page.overrideSetting: PushAPIEnabled`, v2251
 does not implement it, and every `newPage()` in the webkit-smoke project fails.
 
-**The job changes Node version midway.** Angular 14 supports Node 14 and 16 but
-not the Node 20 that the current Playwright needs, so CI installs dependencies
-and builds the production web component on Node 16.20.2, then switches the
-runner to Node 20.20.2, reinstalls, and tests that already-built `dist` with
-`npm run test:ci:prebuilt`. Locally you do not have to do this hop, because
-`nvm use 20.20.2` plus `npm run test:ci` builds and tests in one pass on a
-single version — the split exists only so each tool runs on a version it
-supports.
+**One Node version, 24.19.0, for the whole job.** It used to change midway —
+build on 16.20.2, switch to 20.20.2, reinstall, then test the already-built
+`dist` — because Angular 14's toolchain and the Playwright the suite needs did
+not accept the same version. Angular 15 onwards do, so the split went at that
+hop, and the dist that ships is now produced on the same Node that exercised it.
 
-Lint runs on the Node 16 hop, beside the Angular compiler. Warnings do not fail
-the build: the pre-existing `any` debt is baselined per file in
-`.eslintrc.json`.
+Lint runs first, as the opening stage of `test:ci` rather than as a separate CI
+step, so the gate has one definition locally and in CI. Warnings do not fail the
+build: the pre-existing `any` debt is baselined per file in `.eslintrc.json`.
 
 Nothing is published from CI. Releasing the npm package is a separate, manual
 procedure — see [Release](#release) below.
@@ -177,7 +175,7 @@ The harness depends on the published model library, resolved from Nexus like
 CEE's own dependency, so no local build of it is needed.
 
 ```bash
-nvm use 20.20.2
+export PATH="/opt/homebrew/opt/node@24/bin:$PATH"
 npm run test:domain
 ```
 
@@ -397,7 +395,7 @@ focused root command builds a fresh `dist/`, prepares the visual fixtures and
 runs Playwright:
 
 ```bash
-nvm use 20.20.2
+export PATH="/opt/homebrew/opt/node@24/bin:$PATH"
 npm run test:visual
 ```
 
@@ -449,8 +447,8 @@ substitute for the domain and browser stages.
 ## Troubleshooting
 
 **`ng` refuses to run, or `npm install` fails with engine errors**
-Check which workflow you are running. Use Node 18 for interactive Angular
-development and Node 20.20.2 for `npm run test:ci` and its focused test stages.
+Check your Node version first — CEE is on 24.19.0 throughout, and a version
+outside Angular 22's range fails in ways that look like something else.
 
 **Harness: `SyntaxError: Invalid or unexpected token` pointing at line 1 of a
 CEE source file**
@@ -509,7 +507,9 @@ CEE consumes `@org.metadatacenter/cedar-model-typescript-library` as a published
 package, so this is only needed when working on the library itself.
 
 The library needs **Node 20**; `package.json` declares `>=20.19.0` and CI pins
-20.20.2, the same version the CEE test gate uses. Nothing needs a sibling
+20.20.2. That is deliberately not the 24.19.0 CEE now uses — the library is a
+separate build with its own toolchain, and CEE consumes it as a published npm
+package rather than from a checkout. Nothing needs a sibling
 checkout: the test corpus is vendored under `cedar-test-artifacts/`, along with
 the reference templates it compares against.
 

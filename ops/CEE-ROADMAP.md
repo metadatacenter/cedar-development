@@ -107,25 +107,32 @@ Run the official migrations one major version at a time and keep the build and
 test gates green after every migration. Do not combine this with a standalone
 component, signals or control-flow rewrite.
 
-**14 → 21 is done**, a branch per hop (`cee-angular-15` … `cee-angular-21`), which
-means the Material 15 MDC restyle — the hop this item was most worried about — is
-behind rather than ahead. One hop remains, 21 → 22, and then landing the march on
-`develop`, which has not moved.
+**14 → 22 is done**, a branch per hop (`cee-angular-15` … `cee-angular-22`). What
+remains is landing the march on `develop`, which has not moved, and the two pieces
+of work the march deliberately kept out of itself: TypeScript strict mode and
+Material 3 theming.
 
-Angular 22 needs a Node this machine does not have. It requires `^22.22.3 ||
-^24.15.0 || >=26`, and only 20, 23 and 25 are installed, so `brew install node@22`
-comes before `ng update`. TypeScript 6.0 goes with it.
+Node moved to 24.19.0 at the last hop, on this machine and in CI. Angular 22
+requires `^22.22.3 || ^24.15.0 || >=26`; 24 is the active LTS where 22 is in
+maintenance, and 26 does not exist yet. TypeScript went to 6.0 with it.
 
 Known work:
 
-- Migrate Angular Material to MDC and repair selectors that depend on Material
-  internals.
-- Upgrade RxJS, TypeScript, `@ngx-translate`, `@ng-select/ng-select` and
-  `ngx-mat-select-search` at their compatible Angular versions.
-- Replace obsolete `entryComponents` configuration.
-- Adapt the production concatenated-bundle step and Playwright preparation when
-  the Angular build pipeline changes.
+Done during the march: the MDC migration and the Material-internal selectors it
+broke, the RxJS, TypeScript, `@ngx-translate`, `@ng-select/ng-select` and
+`ngx-mat-select-search` upgrades, `entryComponents`, and the packaging and
+Playwright preparation for the esbuild pipeline.
+
+Still open:
+
 - Migrate the two custom Material themes to the supported Material 3 APIs.
+- Turn TypeScript `strict` on. TypeScript 6.0 made it the default and CEE does not
+  compile under it — 685 errors against 26, overwhelmingly `strictNullChecks`,
+  `noImplicitAny` and `strictPropertyInitialization`. `tsconfig.base.json` now sets
+  it to false explicitly, with the reasoning at the setting, so the position is a
+  decision rather than an inherited default. Doing it properly means rewriting null
+  handling across the codebase, which is why it was not folded into a framework
+  hop.
 - Retire the obsolete `e2e/` Protractor project: delete it and its configuration
   and npm command. Done on `cee-with-model-library`; `develop` and `main` still
   carry the four `e2e/` files and the karma references.
@@ -205,11 +212,11 @@ Current gate baseline on that branch:
 
 #### What the march has cost so far
 
-At Angular 21 the same gate reads 102 unit, 2,132 domain, 346 visual and 100
-snapshots, lint 0 errors against 32 baselined warnings, and 3,471,865 raw /
-798,253 gzip bytes.
+At Angular 22 the same gate reads 102 unit, 2,132 domain, 346 visual and 100
+snapshots, lint 0 errors against 32 baselined warnings, and 3,515,983 raw /
+807,197 gzip bytes.
 
-The bundle is the number that moved most: up 340KB raw and 55KB gzip, and its
+The bundle is the number that moved most: up 385KB raw and 64KB gzip, and its
 limits have been raised three times. MDC accounts for 190,966 raw and 19,620 gzip
 of that, measured either side of the migration commit; Angular 16 → 17 added
 42,632; Angular 18 gave 78,423 back; 20 and 21 together took 84,748. Gzip is now
@@ -228,6 +235,12 @@ implementation rather than the guarantee fail on upgrades that broke nothing** �
 the two overlay tests at Angular 21 asserted that `mat-select` options live inside
 `.cee-overlay-container`, which stopped being how Material delivers them while the
 guarantee itself held.
+
+A third is worth adding from the last hop. **A framework that stops guessing
+exposes markup that was always wrong**: 15 buttons carried both `mat-button` and
+`mat-icon-button`, and until Angular 22 refused to choose, both applied and drew a
+64x48 rounded rectangle that was neither. Nothing reported it, because nothing was
+failing — the mongrel had been the baseline since the MDC migration.
 
 Deliberately left alone. **Nothing was upgraded toward 22** — no Angular package
 moved. **The stock-teal question stays open**: the component theme uses
