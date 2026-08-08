@@ -505,12 +505,23 @@ outside Angular 22's range fails in ways that look like something else.
 
 **Harness: `SyntaxError: Invalid or unexpected token` pointing at line 1 of a
 CEE source file**
-esbuild transformed the file but left `@Injectable()` in place, or the file was
-externalized and never transformed at all. Both are handled in
-`harness/vitest.config.ts` — `esbuild.tsconfigRaw.experimentalDecorators` and
-the `TRANSFORM` patterns respectively. CEE sets `experimentalDecorators` in
-`tsconfig.base.json`, but esbuild reads the nearest `tsconfig.json`, where it is
-absent.
+The transform left `@Injectable()` in place, or the file was externalized and
+never transformed at all. Both are handled in `harness/vitest.config.ts` — the
+`oxc` block and the `TRANSFORM` patterns respectively. CEE sets
+`experimentalDecorators` in `tsconfig.base.json`, but the transform reads the
+nearest `tsconfig.json`, where it is absent.
+
+Since Vitest 4 the settings live under `oxc`, not `esbuild`: Vite 8 transforms
+with oxc and ignores an `esbuild` block, announcing that it has done so and then
+failing every spec that imports a decorated class. `decorator.legacy` is
+`experimentalDecorators`; `useDefineForClassFields: false` needs both
+`assumptions.setPublicClassFields` and
+`typescript.removeClassFieldsWithoutInitializer`.
+
+**Harness: `No handler function exported from …/vitest/dist/worker.js`**
+The root and the harness are on different Vitest versions. `harness/vitest.config.ts`
+sets `root` to the repository, so the harness resolves the root's worker. Upgrade
+both together.
 
 **Harness: a suite reports "no tests" but exits green**
 `deps.inline` is matching too broadly and has inlined `vitest` itself, giving

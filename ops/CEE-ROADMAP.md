@@ -46,15 +46,36 @@ This roadmap tracks open work only.
   files each carry their own disable comment, so each is a decision on record
   rather than a number in a budget — item 3.
 - **TypeScript `strict` is on**, whole, in `tsconfig.base.json`, and every project
-  type-checks clean under it — including the harness, which never had until now.
-  `npm run typecheck` covers every source file plus the harness and runs in the
-  gate between lint and the unit tests, with one compiler for both: the build only
-  checks what the app reaches and vitest checks nothing, so without it a file that
-  is neither reachable from `main.ts` nor executed by a test goes unchecked.
+  that extends it type-checks clean. `npm run typecheck` covers every source file
+  plus the harness and runs in the gate between lint and the unit tests, with one
+  compiler for both: the build only checks what the app reaches and vitest checks
+  nothing, so without it a file that is neither reachable from `main.ts` nor
+  executed by a test goes unchecked. The harness type-checks in the gate but
+  **not under `strict`** — `harness/tsconfig.json` stands alone rather than
+  extending the base, and sets `strict: false` — item 3.
+  `skipLibCheck` is gone from both root projects, so library declarations are
+  checked rather than trusted; the harness keeps it, because `paths` aims
+  `@angular/core` at a local stub and every `.d.ts` importing Angular would
+  otherwise be measured against that stub.
 - Templates are type-checked on every build, not only the production one.
   `angular.json` had `aot: false` in the build target's base options, so `ng build`
   and `ng serve` compiled no template at all — a binding to a property that does
   not exist built clean.
+- **Vitest is 4.1.10** in the root and the harness, up from 1.6.1, which clears
+  the critical advisory against a listening Vitest UI server. The two must move
+  together: the harness points its Vite root at the repository, so a split
+  version loads the root's worker and every spec dies with `No handler function
+  exported`. Vitest 4 brings Vite 8, which transforms with oxc and **silently
+  ignores an `esbuild` config block** — both configs stated
+  `experimentalDecorators` there, so every spec touching a decorated class failed
+  until they were rewritten as `oxc`. Coverage changed twice over: spec files are
+  no longer excluded by default, and the AST-aware remapping that replaced the
+  old V8 mapping counts more branches, so the same source that cleared a 90%
+  branch floor everywhere now measures 86.6 to 91.5. The floors are 85 for
+  branches, 90 for statements, and the drop is a measurement change rather than a
+  regression. A root audit is down from 19 findings to 12, both criticals gone;
+  the twelve left are the Angular CLI and webpack-dev-server chain, five of which
+  the application-builder migration would take with it.
 - **Templates are on block control flow.** All 203 `*ngIf` and `*ngFor` sites
   across 33 templates — 184 and 19 — are `@if` and `@for`, rewritten by
   `ng generate @angular/core:control-flow`. The migration was declined once, at
@@ -208,6 +229,14 @@ or restyles the form is a hop whose failures cannot be attributed.
   off a type with no such property, keywords typed `string[]` that are
   `string[][]`, and an ORCID resolve typed as the parsed researcher rather than
   the document parsed into one.
+- **Put the harness under `strict`.** `harness/tsconfig.json` does not extend
+  `tsconfig.base.json`; it declares its own options and sets `strict: false` and
+  `noImplicitAny: false`. So the claim that the repository is strict throughout
+  has a hole in the one project written to outlive framework upgrades. Turning it
+  on reports 77 errors, 57 of them `TS18047` and `TS2531` — "possibly null" and
+  "possibly undefined" on generated fixtures. That is the same shape of work the
+  `strictNullChecks` pass did in `src/`, where it surfaced real defects rather
+  than only noise, and it is too large to carry inside an unrelated change.
 - **The Metadata Editor scroll bug.** Scrolling past the end of the form and back
   makes the bottom disappear. Confirmed pre-existing on Angular 14, so the march
   neither caused nor fixed it. The suspects are the two nested
