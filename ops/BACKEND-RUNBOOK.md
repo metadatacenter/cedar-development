@@ -113,6 +113,35 @@ npm run smoke:rest
 To get back to the native stack, `cedarcli docker stop microservices` and `stop infrastructure`,
 then bring up native as above.
 
+### Running the native frontends against the containerized backend
+
+Useful while the frontend images cannot build. Every microservice container publishes its port to
+the host, and the native nginx proxies to `127.0.0.1:900x`, so it does not care whether a port
+belongs to a JVM or a container. Stop the container nginx, start the native one, and start only the
+frontends:
+
+```bash
+docker stop infra-nginx                       # frees 80/443
+startnginx                                    # sudo; the native nginx
+ops/cedar-services.sh start frontend ui-openview ui-content ui-monitoring ui-artifacts ui-bridging
+```
+
+Naming the services matters: a bare `cedar-services.sh start` would also start the fifteen native
+microservices, which collide with the containers.
+
+**`cedar-services.sh status` lies in this mode.** It probes ports, and those ports belong to
+containers, so every microservice reads `up / healthy` with the same `~pid` for every row. The `~`
+marks an unmanaged process and is the only signal that nothing native is running. The `BINARY`
+column stays useful — it compares what is running against the built jar.
+
+Proven this far: login, folder and template round-trip over REST, and a Disease field constrained to
+the DOID branch through live BioPortal all pass. The populate-time term suggestion does not — the
+field renders as a plain input rather than a controlled-term picker. The backend is not at fault:
+the template carries the branch constraint and the containerized terminology server answers the
+query. Whether that is a real defect or an artefact of a natively-built frontend against a
+containerized backend is unresolved; the comparison that would settle it is the same browser smoke
+against the native backend.
+
 ### Building an image against your own code
 
 By default every image fetches its jar from Nexus while it builds, so an image can only run code
@@ -282,6 +311,21 @@ rather than documenting the loss.
   `$SSL/<subdomain>/` — hence the copy step. The subdomain dir names match on both sides. Skipping the
   `index.txt` reset makes `openssl ca` fail with "There is already a certificate for …". The reload is
   the only step that needs your password (the master is a root process; there is no passwordless sudo).
+
+- **MongoDB will not start under `brew services`** → `brew services start mongodb-community@5.0`
+  fails with `launchctl bootstrap gui/<uid> ... exited with 5`, and there is no stale agent to boot
+  out. The daemon itself is fine; only the launch agent is broken. Start it directly:
+  ```bash
+  /opt/homebrew/opt/mongodb-community@5.0/bin/mongod --config /opt/homebrew/etc/mongod.conf \
+      --fork --logpath /opt/homebrew/var/log/mongodb/mongo.log
+  ```
+  Started this way it is outside `brew services`, so it does not survive a reboot and
+  `services-generic/startinfra.sh` still fails at that step until the plist is repaired. Unrelated
+  to the containerized path — it shows up whenever the native infrastructure is restarted.
+
+  Two `mongod` processes from `~/.embedmongo` may also be running: those are embedded MongoDBs left
+  by a test run using `cedar-test-support-library`. They hold no ports and are harmless, but
+  `pkill -f '\.embedmongo.*mongod'` clears them.
 
 - **Keycloak won't start** → wrong JDK. Pin `JAVA_HOME` to 17 (see above). Symptom: `Failed to start
   caches … getSubject is supported only if a security manager is allowed`.
