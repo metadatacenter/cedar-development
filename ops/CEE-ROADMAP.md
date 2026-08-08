@@ -22,17 +22,21 @@ This roadmap tracks open work only.
   `@org.metadatacenter/cedar-model-typescript-library@0.9.2-dev.20260805.50ef2b3`.
   That build carries `InstanceValidator`, so item 5 is no longer blocked on the
   library having shipped — only on it having shipped *stably*.
-- The safety net is 2,132 domain tests, 102 unit tests across nine Angular
-  unit-spec files, and 346 bundle-level Playwright checks across desktop, narrow
-  and smoke projects on Chromium, Firefox and WebKit, with 100 committed
+- The safety net is 2,164 domain tests, 102 unit tests across nine Angular
+  unit-spec files, and 348 bundle-level Playwright checks across desktop, narrow
+  and smoke projects on Chromium, Firefox and WebKit, with 102 committed
   snapshots.
 - Nothing checks CEE's own instance output against its template. The `ajv` check
   that used to is gone, and its replacement is blocked — item 5.
 - The obsolete datetime-picker dependency has been replaced by CEE's in-house
   time picker.
-- Lint is the first stage of `test:ci` and runs clean: 0 errors against 41
-  baselined `no-explicit-any` warnings across 25 files, on `angular-eslint` 22,
-  `typescript-eslint` 8 and ESLint 9 with a flat config.
+- Lint is the first stage of `test:ci` and runs clean, on `angular-eslint` 22,
+  `typescript-eslint` 8 and ESLint 9 with a flat config. `no-explicit-any` is an
+  error rather than a baselined warning; the 42 remaining `any` sites across 10
+  files each carry their own disable comment, so each is a decision on record
+  rather than a number in a budget — item 3.
+- **TypeScript `strict` is on**, whole, in `tsconfig.base.json`. The app, spec and
+  eslint projects all type-check clean under it.
 
 ## Features
 
@@ -112,21 +116,30 @@ or restyles the form is a hop whose failures cannot be attributed.
   TypeScript 4.8 and RxJS 6.6 — 170 commits behind `cee-with-model-library` and
   none of the preparation. This is the item's substance: everything else here is
   small beside a branch that has not moved in eight major versions.
-- **Turn TypeScript `strict` on.** TypeScript 6.0 made it the default and CEE does
-  not compile under it: 685 errors against 26, overwhelmingly `strictNullChecks`,
-  `noImplicitAny` and `strictPropertyInitialization`. `tsconfig.base.json` sets it
-  to false explicitly, with the reasoning at the setting, so the position is a
-  decision rather than an inherited default — but it is a decision to defer, not
-  to decline. `strict` also stops the next TypeScript major moving it again
-  without anyone choosing.
-- **Clear the 41 baselined `no-explicit-any` warnings.** Down from 77 across 44
-  files to 41 across 25 — 41 and not 32 because the lint toolchain upgrade found
-  three files suppressing nine of them behind a blanket file-level disable. The
-  largest clusters are the timezone picker (4), the model-library boundary casts
-  (9), the ROR `groupBy` helper (3) and `callbackOwnerObject` (3). Typing them is
-  not cosmetic: doing the same to the ROR and ORCID parsers surfaced two live bugs,
-  a call reading `rawResponse` off a type that has no such property, and keywords
-  typed `string[]` that are `string[][]`.
+- **Clear the 42 remaining `any` sites.** Down from 77 across 44 files, and now
+  errors with individual disable comments rather than a baseline, so the count
+  cannot drift upward unnoticed. The largest cluster by far is
+  `model-library-template-parser` (14), where the library's `valueConstraints` is
+  read as `any`; the two editor spec files hold 16 more between them. Typing them
+  is not cosmetic: doing the same elsewhere surfaced a call reading `rawResponse`
+  off a type with no such property, keywords typed `string[]` that are
+  `string[][]`, and an ORCID resolve typed as the parsed researcher rather than
+  the document parsed into one.
+- **Type-check the harness.** `harness/tsconfig.json` carried a `baseUrl` that
+  TypeScript 7 stops honouring; removing it made the project type-check for the
+  first time, because TS5101 is a configuration error and tsc reports those
+  instead of checking the program. 25 errors are underneath, most of them the
+  Angular stub in `harness/stubs/` not exporting what the shared code imports
+  (`OnInit`, `OnDestroy`, `DoCheck`, `ChangeDetectorRef`, `inject`). Nothing in
+  the gate runs that command — vitest does not type-check — so the errors are
+  invisible until someone adds it.
+- **Type-check templates on a plain build.** `angular.json` carries `aot: false`
+  in the build target's base options, with `aot: true` only under `production`.
+  So `ng build` and `ng serve` check no template at all: a binding to a property
+  that does not exist compiles clean. The production build the bundle ships from
+  does check them, and `strictTemplates` is on there, so CI catches it — but a
+  developer only sees it at the end. Angular has defaulted to AOT since 12; the
+  flag is a leftover.
 - **The Metadata Editor scroll bug.** Scrolling past the end of the form and back
   makes the bottom disappear. Confirmed pre-existing on Angular 14, so the march
   neither caused nor fixed it. The suspects are the two nested
@@ -140,9 +153,9 @@ or restyles the form is a hop whose failures cannot be attributed.
 Material 3 theming was also held out of the march. It belongs with the rest of the
 styling questions rather than here — item 4.
 
-Done when `develop` builds and tests on Angular 22, `strict` is on, the warning
-baseline is empty, the scroll bug is diagnosed, and `cedar-artifact-viewer` is
-either wired in or deleted.
+Done when `develop` builds and tests on Angular 22, the `any` sites are gone, the
+harness and a plain build both type-check, the scroll bug is diagnosed, and
+`cedar-artifact-viewer` is either wired in or deleted.
 
 #### What the march cost, and what it taught
 
@@ -377,8 +390,8 @@ a test that can fail.
    the branch that moved rather than the branch that ships.
 2. Land the conformance spec as soon as the library publishes (item 5). It is
    written and waiting, and until it runs CEE has no check on its own output.
-3. Empty the `no-explicit-any` baseline (item 3). 41 warnings across 25 files, and
-   typing them has surfaced live bugs twice.
+3. Clear the remaining `any` sites (item 3). 42 across 10 files, and typing them
+   has surfaced live bugs three times now.
 4. Keep the production bundle and Playwright checks working throughout.
 5. Complete the public host contract before the stable `1.6.0` release (item 1);
    the stable model-library release lands as an aside of that work.
