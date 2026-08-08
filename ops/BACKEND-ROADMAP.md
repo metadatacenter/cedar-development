@@ -460,7 +460,7 @@ model libraries — where their JSON and YAML serializations diverge — is in
   Kubernetes wants services to find each other, so adopting it would be a redesign rather than a
   translation. Revisit on a second node, a hard zero-downtime requirement, or a hosting mandate.
 
-  **What remains,** in the order it should be done. The first three are prerequisites for any
+  **What remains,** in the order it should be done. The first four are prerequisites for any
   automated deploy. The frontend and TLS items gate production specifically, and were deferrable only
   while the containerized path was evaluation-only.
 
@@ -517,10 +517,55 @@ model libraries — where their JSON and YAML serializations diverge — is in
      equally. Docker pins exactly. Homebrew mostly cannot: versioned formulae exist for some of the
      six and not others, and `brew pin` only prevents an upgrade rather than installing a chosen
      version. Containerized infrastructure takes Homebrew out of the development path and makes the
-     Docker pins the only pins, which is the cleanest resolution and the reason item 4 below follows
+     Docker pins the only pins, which is the cleanest resolution and the reason item 5 below follows
      this one closely.
 
-  2. **Publish immutable image tags from CI.** Building is covered; releasing is not. Tagging and
+  2. **Pin every image input, and check it mechanically.** The lock above answers one question: what
+     must not move because something else depends on it working. A deployable image raises a second:
+     what must not move because rebuilding a tag has to produce the same bytes. An immutable tag on a
+     non-reproducible image is half a guarantee, and a rollback is only as good as the weaker half.
+
+     Most of this is already right. Thirty-two of the thirty-four base images carry an exact tag, and
+     the JVM is the most precisely pinned thing in the estate: `cedar-java` is
+     `eclipse-temurin:17.0.8_7-jre-ubi9-minimal`, a JRE with no compiler, pinned to the build number.
+     The pip packages in `cedar-microservice` are pinned too, at `wheel==0.40.0`, `pymongo==3.6.1` and
+     `redis==2.10.6`. The habit exists. It stops in four specific places.
+
+     - **Two floating bases.** `cedar-infra-keycloak` is `FROM registry.access.redhat.com/ubi9` with
+       no tag at all, and `cedar-admin-redis-commander` is `node:20-bookworm`, floating within the
+       Node 20 line.
+     - **SNAPSHOT inside the build graph.** Fifteen server images build `FROM
+       metadatacenter/cedar-microservice:2.9.2-SNAPSHOT`; that image and the admin tool build `FROM
+       cedar-java:2.9.2-SNAPSHOT`; and `CEDAR_VERSION=2.9.2-SNAPSHOT` is baked in, so
+       `install_deps.sh` fetches its jar by a coordinate that resolves to the newest timestamped
+       build. The mutable tag is not only a deploy-time problem. Two builds of the same image can
+       differ in both their base and their jar.
+     - **Unpinned OS packages, two of them functional.** Both Java base images run a blanket
+       `microdnf -y update` and then install `bsdtar unzip wget jq nc maven gcc python3 python3-devel
+       python3-pip` at whatever version the repositories hold that day. `maven` is what
+       `install_deps.sh` runs, and `python3` runs every `wait-for-*.py` readiness script, so neither
+       is a convenience. The blanket update also defeats the base pin: the base is named exactly and
+       then mutated.
+     - **A third JVM, pinned only to its family.** `cedar-infra-keycloak` installs
+       `java-17-openjdk-headless` unpinned, so Keycloak runs a different vendor and a looser pin than
+       the servers do. The family is what matters for the crash on newer JDKs, and the image forces it
+       with `alternatives --set java`, but the patch level floats. Worth recording that the estate has
+       three Java pins — the build JDK, the CEDAR runtime JRE, and this one — and that a move to Java
+       21 moves all three.
+
+     The work is mostly a check rather than a rewrite, and it belongs with the static Docker CI
+     alongside `check_docker_env.py`: fail on a `FROM` with no tag or a floating one, and fail on any
+     SNAPSHOT reference in a release build, whether in a base, in `CEDAR_VERSION`, or in a frontend
+     tarball. Pinning third-party bases by digest rather than tag is worth considering too, since a
+     tag can be re-pushed. Then drop the blanket `microdnf -y update` from the images that get
+     deployed and install what is needed at explicit versions.
+
+     The environment wants a floor rather than a pin. Each target needs a minimum Docker engine and
+     Compose version, since the stacks use healthcheck conditions and `include` arrived in Compose
+     5.3.
+
+
+  3. **Publish immutable image tags from CI.** Building is covered; releasing is not. Tagging and
      pushing to `cedar-dockerhub.bmir.stanford.edu` is `bin/release-all-images.sh`, run by hand: it
      does not build, it loops the image list and tags and pushes whatever is in the local daemon.
      Neither Docker workflow references a registry credential. This was a small chore while the
@@ -538,7 +583,7 @@ model libraries — where their JSON and YAML serializations diverge — is in
      whichever architecture the operator's machine has, and local verification was arm64 while hosted
      runners are amd64. A deploy target's architecture is not something to decide by accident.
 
-  3. **Verify the containerized stack on a cadence.** Both Docker CIs verify statically.
+  4. **Verify the containerized stack on a cadence.** Both Docker CIs verify statically.
      `cedar-docker-build` asks whether the Dockerfiles build: it resolves every Nexus coordinate,
      builds the Java chain sequentially and the rest as matrices, and discards the images.
      `cedar-docker-deploy` asks whether the configuration coheres: `docker compose config` parses all
@@ -564,7 +609,7 @@ model libraries — where their JSON and YAML serializations diverge — is in
      role this stops being hygiene: it is what earns the confidence to deploy an image nobody built
      by hand.
 
-  4. **Adopt containerized infrastructure for development.** Run the `cedar-infrastructure` compose
+  5. **Adopt containerized infrastructure for development.** Run the `cedar-infrastructure` compose
      stack in place of the Homebrew services, keeping the fifteen servers native. Phase one is the
      five data stores — Mongo, MySQL, Neo4j, Redis and OpenSearch — with nginx and Keycloak left
      native: the infra nginx collides with the native one on 80/443 (`docker stop infra-nginx`,
@@ -577,7 +622,7 @@ model libraries — where their JSON and YAML serializations diverge — is in
      on item 1, and worth doing early — it is the cheapest rehearsal for the data-store migrations at
      the end of this list.
 
-  5. **Decide which frontends there are, then settle their publishing.** Publishing is the visible
+  6. **Decide which frontends there are, then settle their publishing.** Publishing is the visible
      half and probably not the first question. The estate builds six frontend images — the template
      editor at `cedar.<host>`, plus openview, monitoring, artifacts, bridging and content — and the
      working view is that only three are really needed: the template editor, openview and monitoring.
@@ -612,17 +657,17 @@ model libraries — where their JSON and YAML serializations diverge — is in
      artefact of a natively-built frontend against a containerized backend, and the comparison that
      would settle it is the same browser smoke against the native backend.
 
-  6. **Give the frontends a local-build path.** The other half of the Nexus decoupling. The six
+  7. **Give the frontends a local-build path.** The other half of the Nexus decoupling. The six
      frontend images download a tarball with no local equivalent, so an edit-compile-run loop works
      for the backend and not the UI.
 
-  7. **Decide the TLS story.** The leaves bundled in `cedar-assets` expired 2026-04-20.
+  8. **Decide the TLS story.** The leaves bundled in `cedar-assets` expired 2026-04-20.
      `copy_certificates` prefers `$CEDAR_HOME/CEDAR_CA`, whose 28 hosts run to 2028, so this bites a
      fresh clone rather than this machine. The question is whether the repo should carry certificates
      at all rather than issue them at setup, and a production deploy is what forces it: prod nginx
      serves real certificates that cannot come from a checked-in bundle.
 
-  8. **Deploy containerized services to staging, then production.** The goal the items above serve.
+  9. **Deploy containerized services to staging, then production.** The goal the items above serve.
      Services and nginx as containers, data stores native and untouched, on both existing hosts.
 
      Staging first, as the rehearsal. It is where the per-environment profile gets shaken out, and
@@ -633,10 +678,10 @@ model libraries — where their JSON and YAML serializations diverge — is in
 
      Keep the mechanism dumb. `cedarcli deploy <env> <tag>` doing a pull and `docker compose up -d`
      over SSH, or a GitHub Actions job with a deploy key. Each environment is a single host, so
-     nothing here justifies more machinery than that. Production additionally needs items 5 and 7
+     nothing here justifies more machinery than that. Production additionally needs items 6 and 8
      settled; staging can run with a native frontend build until then.
 
-  9. **Containerize the data stores.** The end state, and a separate project from item 8 — it must
+  10. **Containerize the data stores.** The end state, and a separate project from item 9 — it must
      not gate it. Each store moves at the version already running, per the rule in item 1, and each
      needs its own migration into a volume rehearsed on a copy. Take them in the order the
      persistence-upgrade item near the top of this roadmap sets — Redis, MySQL, OpenSearch, Mongo,
