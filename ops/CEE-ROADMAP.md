@@ -40,8 +40,16 @@ This roadmap tracks open work only.
   error rather than a baselined warning; the 42 remaining `any` sites across 10
   files each carry their own disable comment, so each is a decision on record
   rather than a number in a budget — item 3.
-- **TypeScript `strict` is on**, whole, in `tsconfig.base.json`. The app, spec and
-  eslint projects all type-check clean under it.
+- **TypeScript `strict` is on**, whole, in `tsconfig.base.json`, and every project
+  type-checks clean under it — including the harness, which never had until now.
+  `npm run typecheck` covers every source file plus the harness and runs in the
+  gate between lint and the unit tests, with one compiler for both: the build only
+  checks what the app reaches and vitest checks nothing, so without it a file that
+  is neither reachable from `main.ts` nor executed by a test goes unchecked.
+- Templates are type-checked on every build, not only the production one.
+  `angular.json` had `aot: false` in the build target's base options, so `ng build`
+  and `ng serve` compiled no template at all — a binding to a property that does
+  not exist built clean.
 
 ## Features
 
@@ -130,21 +138,6 @@ or restyles the form is a hop whose failures cannot be attributed.
   off a type with no such property, keywords typed `string[]` that are
   `string[][]`, and an ORCID resolve typed as the parsed researcher rather than
   the document parsed into one.
-- **Type-check the harness.** `harness/tsconfig.json` carried a `baseUrl` that
-  TypeScript 7 stops honouring; removing it made the project type-check for the
-  first time, because TS5101 is a configuration error and tsc reports those
-  instead of checking the program. 25 errors are underneath, most of them the
-  Angular stub in `harness/stubs/` not exporting what the shared code imports
-  (`OnInit`, `OnDestroy`, `DoCheck`, `ChangeDetectorRef`, `inject`). Nothing in
-  the gate runs that command — vitest does not type-check — so the errors are
-  invisible until someone adds it.
-- **Type-check templates on a plain build.** `angular.json` carries `aot: false`
-  in the build target's base options, with `aot: true` only under `production`.
-  So `ng build` and `ng serve` check no template at all: a binding to a property
-  that does not exist compiles clean. The production build the bundle ships from
-  does check them, and `strictTemplates` is on there, so CI catches it — but a
-  developer only sees it at the end. Angular has defaulted to AOT since 12; the
-  flag is a leftover.
 - **The Metadata Editor scroll bug.** Scrolling past the end of the form and back
   makes the bottom disappear. Confirmed pre-existing on Angular 14, so the march
   neither caused nor fixed it. The suspects are the two nested
@@ -159,8 +152,8 @@ Material 3 theming was also held out of the march. It belongs with the rest of t
 styling questions rather than here — item 4.
 
 Done when `develop` builds and tests on Angular 22, the `any` sites are gone, the
-harness and a plain build both type-check, the scroll bug is diagnosed, and
-`cedar-artifact-viewer` is either wired in or deleted.
+scroll bug is diagnosed, and `cedar-artifact-viewer` is either wired in or
+deleted.
 
 #### What the march cost, and what it taught
 
