@@ -17,7 +17,8 @@ This roadmap tracks open work only.
   of "where CEE is" remain true and it is worth saying which one is meant. Landing
   the branch is not tracked here: it happens as a matter of course.
 - The package is staged as `1.6.0-ng22`, which is what the local Template Designer
-  and OpenView both serve.
+  and OpenView both serve. It now ships TypeScript declarations for the host
+  contract — item 1.
 - The model dependency is the Nexus-only prerelease
   `@org.metadatacenter/cedar-model-typescript-library@0.9.2-dev.20260805.50ef2b3`.
   That build carries `InstanceValidator`, so item 5 is no longer blocked on the
@@ -71,12 +72,22 @@ hiding can be enabled but not cleanly disabled.
 
 Deliver:
 
-- Export `CeeConfig`, `CeeEventHandler`, `CeeTemplateAndInstance`, output and
-  report types, and a `CedarEmbeddableEditorElement` interface.
-- Publish TypeScript declarations and the machine-readable runtime schema with
-  the npm package.
+- ~~Export `CeeConfig`, `CeeEventHandler`, `CeeTemplateAndInstance`, output and
+  report types, and a `CedarEmbeddableEditorElement` interface.~~ Done, in
+  `src/app/cee-public-api.ts`, with an `HTMLElementTagNameMap` entry so the element
+  types itself.
+- ~~Publish TypeScript declarations~~ — shipped, generated from that one file at
+  staging time. **Types only**, and not by choice: the bundle is an IIFE that
+  registers a custom element and exports nothing, so a published `const` would
+  satisfy a host's compiler and be `undefined` at runtime. Publishing the key names
+  as values, or a machine-readable runtime schema, waits on the package exporting
+  anything at all — which is a packaging decision (app bundle versus library) that
+  belongs with the rest of this item.
 - Validate and normalize values crossing the custom-element boundary; report
-  unknown keys, wrong types and invalid combinations to the host.
+  unknown keys, wrong types and invalid combinations to the host. The declarations
+  now catch a wrong type at compile time for a TypeScript host, which is not the
+  same thing: a JavaScript host, or a config fetched through `loadConfigFromURL`,
+  still gets silence.
 - Define configuration assignment as either initialization-only or dynamic.
   If dynamic, use complete replacement semantics and apply changes atomically.
 - Define the lifecycle, reversibility and reset behavior of every setting.
@@ -86,6 +97,12 @@ Done when applying configuration B after A is externally equivalent to creating
 a fresh editor with B. The browser harness must cover invalid configuration,
 omitted defaults, reversible read-only and empty-field behavior, JSON/YAML
 transitions, endpoint/prefix/language resets and artifact assignment order.
+
+The three semantic decisions — replacement versus patch, whether the one-way flags
+become reversible, which artifact input wins — are the part that changes behaviour,
+and each breaks a host relying on today's answer. They are written down at the
+members they affect in `cee-public-api.ts` and in the README, so nobody adopts them
+by accident in the meantime.
 
 Complete this before declaring `1.6.0` stable.
 
