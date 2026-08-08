@@ -23,9 +23,9 @@ This roadmap tracks open work only.
   `@org.metadatacenter/cedar-model-typescript-library@0.9.2-dev.20260805.50ef2b3`.
   That build carries `InstanceValidator`, so item 5 is no longer blocked on the
   library having shipped — only on it having shipped *stably*.
-- The safety net is 2,164 domain tests, 102 unit tests across nine Angular
-  unit-spec files, and 348 bundle-level Playwright checks across desktop, narrow
-  and smoke projects on Chromium, Firefox and WebKit, with 102 committed
+- The safety net is 2,190 domain tests, 121 unit tests across eleven Angular
+  unit-spec files, and 356 bundle-level Playwright checks across desktop, narrow
+  and smoke projects on Chromium, Firefox and WebKit, with 108 committed
   snapshots.
 - One visual check is flaky at roughly one run in four: `external authority
   endpoints › a returned authority term can be selected and reaches the host
@@ -55,6 +55,17 @@ This roadmap tracks open work only.
   `angular.json` had `aot: false` in the build target's base options, so `ng build`
   and `ng serve` compiled no template at all — a binding to a property that does
   not exist built clean.
+- **`BrowserAnimationsModule` is gone** from both application modules, and
+  `@angular/animations` is no longer a dependency of any kind. Angular deprecated
+  the module at 20.2 and intends to remove it at 23. CEE never used it: no
+  `trigger`, no `[@…]` binding and no `animations:` metadata anywhere in the
+  source. Material 22 does not need it either — it dropped `@angular/animations`
+  from its peer dependencies and animates in CSS, consulting
+  `ANIMATION_MODULE_TYPE` only to ask whether it is `'NoopAnimations'`, which
+  `BrowserAnimationsModule` never provided. Removing it therefore changes no
+  behaviour, and the visual suite agrees across all 356 checks, overlays, select
+  panels and expansion panels included. The bundle drops 64,099 bytes to
+  3,428,943 raw and 802,561 gzip.
 
 ## Features
 
@@ -206,9 +217,11 @@ or restyles the form is a hop whose failures cannot be attributed.
   `@angular-devkit/build-angular` with `@angular/build`. The production build then
   succeeds unchanged.
 
-  **The bundle drops from 3,493,042 to 3,292,228 bytes — 200,814 smaller, 5.7%.**
-  That is the reason to do it; it is four times the headroom the current ceiling
-  leaves.
+  **The bundle dropped from 3,493,042 to 3,292,228 bytes — 200,814 smaller, 5.7%.**
+  That is the reason to do it: more than the raw ceiling currently leaves free.
+  Both figures predate the `BrowserAnimationsModule` removal, so the saving to
+  expect now is smaller by whatever share of those 64,099 bytes esbuild would have
+  shed anyway. Measure it again rather than subtracting.
 
   Packaging needs no work. `visual/resolve-build-output.mjs` was written for this:
   it finds the `browser/` subdirectory the new builder nests output in, tolerates
