@@ -194,12 +194,46 @@ or restyles the form is a hop whose failures cannot be attributed.
   package, but never wired into `angular.json`; its script tag is already
   commented out. Decide whether it is live or dead, and then make the repository
   say so.
+- **Move to the `@angular/build:application` builder.** CEE still builds through
+  `@angular-devkit/build-angular:browser`, which prints a deprecation on every
+  build: webpack support is being withdrawn, so this is a question of when rather
+  than whether.
+
+  Prototyped and then reverted, so the numbers are measured rather than estimated.
+  `ng update @angular/cli --migrate-only --name=use-application-builder` does the
+  whole edit — swaps the three builders, moves `main` to `browser`, makes
+  `polyfills` an array, drops `vendorChunk` and `buildOptimizer`, and replaces
+  `@angular-devkit/build-angular` with `@angular/build`. The production build then
+  succeeds unchanged.
+
+  **The bundle drops from 3,493,042 to 3,292,228 bytes — 200,814 smaller, 5.7%.**
+  That is the reason to do it; it is four times the headroom the current ceiling
+  leaves.
+
+  Packaging needs no work. `visual/resolve-build-output.mjs` was written for this:
+  it finds the `browser/` subdirectory the new builder nests output in, tolerates
+  hashed filenames, and decides between concatenating and re-bundling by reading
+  the entry's bytes rather than inferring from a version. It selected `concat`
+  correctly, because the esbuild entry imports no siblings, and `make-bundle.mjs`
+  already implements the `bundle` path for the day one does.
+
+  What is **not** established is whether the artifact still runs. The prototype was
+  stopped before the browser suite, so the only claim measured is that it builds
+  and packages smaller. A bundle that builds and a bundle that boots are different
+  claims — the suite loads this file with a plain `<script>`, and the new builder
+  emits ES modules, so `import.meta` or top-level `await` anywhere in the output
+  would break it in a way no build error shows. Run `npm run test:ci` first; that
+  is the whole remaining question.
+
+  The migration also adds `compilerOptions` to the solution-style `tsconfig.json`,
+  which holds no files. Worth understanding rather than accepting.
 
 Material 3 theming was also held out of the march. It belongs with the rest of the
 styling questions rather than here — item 4.
 
-Done when the `any` sites are gone, the scroll bug is diagnosed, and
-`cedar-artifact-viewer` is either wired in or deleted.
+Done when the `any` sites are gone, the scroll bug is diagnosed,
+`cedar-artifact-viewer` is either wired in or deleted, and the build no longer runs
+through a deprecated builder.
 
 #### What the march cost, and what it taught
 
