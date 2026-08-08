@@ -31,6 +31,10 @@ This roadmap tracks open work only.
   metadata`. Measured across four runs either side of an unrelated commit, so it
   is the test and not a regression — it was misread as one once already. Until it
   is fixed, a single red run of that name means re-run before investigating.
+- Template-authored rich text is **sanitized by default**; verbatim rendering is
+  available only to a host that sets `trustTemplateMarkup`. Instance-authored markup
+  was always sanitized and still is. The README's *Embedding security* section is
+  the first place this has been written down for embedders — item 7.
 - Nothing checks CEE's own instance output against its template. The `ajv` check
   that used to is gone, and its replacement is blocked — item 5.
 - The obsolete datetime-picker dependency has been replaced by CEE's in-house
@@ -295,35 +299,44 @@ or is removed with the reason recorded.
 
 ## Security
 
-### 7. Define and enforce the trust boundary for template-authored rich text
+### 7. Finish the rich-text trust boundary
 
-Instance-authored HTML is sanitized, but template-authored static rich text is
-rendered through `bypassSecurityTrustHtml` in `keep-html.pipe.ts`. This is safe
-only when the embedding application treats template authors as trusted to run
-content in the host application's origin. An embedder that lets arbitrary users
-supply templates turns static rich text into an XSS path. The source documents
-this boundary, but the public README does not.
+The boundary is drawn and enforced. Static rich text is sanitized unless the host
+sets `trustTemplateMarkup`, the README's *Embedding security* section says who
+should set it and who should not, and the browser suite asserts both that a
+malicious template cannot execute and that the formatting survives — the second
+being what stops a later "hardening" through Angular's sanitizer, which would pass
+every security assertion and flatten every inline style.
 
-Deliver:
+The policy is DOMPurify with an allowlist taken from an inventory of the 271 static
+content blocks in the CEDAR, HuBMAP and test-artifact corpora, not from CKEditor's
+toolbar. Two findings from that inventory are worth keeping, because both corrected
+a reasonable guess:
 
-- Add an embedding-security section to the README that identifies templates as
-  trusted input, explains that Shadow DOM is not a security boundary, and tells
-  hosts not to load arbitrary templates under the current behavior.
-- Inventory the rich-text markup emitted by the CEDAR Template Editor and define
-  the minimum supported allowlist for elements, attributes, URL schemes, inline
-  styles and embedded media.
-- Decide and document the product contract: either require trusted templates
-  explicitly, or sanitize template rich text with a policy that preserves the
-  supported formatting while removing executable content.
-- If trusted rendering remains available, make it an explicit host policy rather
-  than an undocumented consequence of loading a template.
-- Add browser tests using malicious template rich text, including event-handler
-  attributes and executable URLs, alongside regression fixtures for supported
-  formatting.
+- All twenty `data:` URLs in the corpus are inline PNGs on an `<img>`. Refusing
+  `data:` outright would have blanked every one. Raster types are allowed on images;
+  `image/svg+xml` is not, because an SVG can carry script.
+- Corpus template 009 already carries `ng-click` and `ng-class`, pasted from CEDAR's
+  own interface. Inert in CEE, which is Angular; executable in the AngularJS Template
+  Designer that embeds it.
 
-Done when the README states the trust requirement, the runtime behavior matches
-the documented policy, executable template content cannot cross that policy
-silently, and tests prove both the security boundary and formatting compatibility.
+What is left:
+
+- **Say it where a template author will see it.** The Template Designer's rich-text
+  editor has a `Source` button, so an author can type any markup at all and get no
+  indication that some of it will not render for an embedder. The editor should say
+  what survives, or refuse what will not.
+- **Decide whether `trustTemplateMarkup` belongs in the host contract.** It is a
+  plain boolean config key today, which is enough to be usable and not enough to be
+  discoverable — it should be part of the typed contract and the runtime schema in
+  item 1 rather than a key a host learns about from the README.
+- **Sweep the other template-authored strings.** Rich text was the one path
+  rendering as HTML, but section-break, image and YouTube content all come from the
+  same author through the same route. They are treated as text or as URLs today, and
+  that is a property worth a test rather than an observation.
+
+Done when a template author is told what their markup will do, and the trust key is
+part of the declared host contract rather than a README footnote.
 
 ## Model library
 
@@ -388,8 +401,9 @@ a test that can fail.
 5. Answer the palette question before that release too (item 4). Shipping 1.6.0 in
    stock Material teal decides it by default, which is the one way of deciding it
    nobody chose.
-6. Define and enforce the template-rich-text trust contract before allowing
-   untrusted users to supply templates (item 7).
+6. Fold `trustTemplateMarkup` into the typed host contract, and tell template
+   authors what their markup will do (item 7). The boundary itself is enforced;
+   what remains is making it discoverable from both sides.
 
 ## Out of scope
 
