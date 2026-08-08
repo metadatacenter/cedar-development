@@ -260,7 +260,12 @@ model libraries — where their JSON and YAML serializations diverge — is in
   it runs a forward-only Liquibase schema migration on the existing user store, the custom themes will
   need re-porting, the `keycloak-admin-client-jakarta` coordinate it uses was discontinued after
   21.1.2, and `cedar-keycloak-event-listener` is compiled against the current SPI. Rehearse each on a
-  copy of production data and gate on the end-to-end smoke. Locked for now, so parked at the end.
+  copy of production data and gate on the end-to-end smoke.
+
+  No longer parked at the end. Containerizing the data stores needs each image pin moved up to the
+  version already running, because an older engine cannot open existing data files, so this item is
+  what unblocks the last step of item 14 rather than something to take up afterwards. Mongo and
+  Keycloak are patch-level and a non-event; MySQL, Redis and OpenSearch are the real decisions here.
 
 - **10. Move the build and runtime to Java 21.** The stack is locked to Java 17 — the zsh profile pins it
   and the build enforces it. 21 is the next LTS and the natural target, but the lock exists for a
@@ -310,12 +315,13 @@ model libraries — where their JSON and YAML serializations diverge — is in
   (`/api-keys/{keyId}`), keeping the secret out of the path. Breaking change: cedar-cli and the profile
   UI call these routes, so it needs a coordinated client update.
 
-- **14. Modernize the Docker deployment that already exists.** The local stack runs as native processes
-  brought up by hand — JDK 17 pinned, infra services started, fifteen service jars and the frontends
-  launched through `cedar-services.sh`. It works but it is assembled, not reproducible. A containerized
-  path is not missing, though: it is built, complete, and released on every version bump. What it needs
-  is modernization, not a design. Its role is settled at the end of this item: containerized
-  infrastructure becomes the development environment, the full stack stays an evaluation target.
+- **14. Modernize the Docker deployment, and make it how CEDAR is deployed.** Development runs as
+  native processes brought up by hand — JDK 17 pinned, infra services started, fifteen service jars and
+  the frontends launched through `cedar-services.sh` — and a deploy to staging or production rebuilds
+  all of it on the target. Both work, and neither is reproducible. A containerized path is not missing,
+  though: it is built, complete, and released on every version bump. What it needs is modernization and
+  a route into the environments that matter, not a design. Its role is settled below: containers become
+  the deployment artifact, starting with the services and following with the data stores.
 
   `cedar-docker-build` holds 34 image definitions and two shell scripts that build every image and push
   it to `cedar-dockerhub.bmir.stanford.edu`. `cedar-docker-deploy` holds four compose files —
@@ -397,41 +403,68 @@ model libraries — where their JSON and YAML serializations diverge — is in
   server — works. The client sends a request, the older server answers, and a structured error comes
   back parsed. That risk is retired.
 
-  **The role is settled. Containerized infrastructure becomes the local development environment, the
-  full containerized stack stays evaluation-only, and staging and production are out of scope.** The
-  question had been bundling two independent decisions with different costs.
+  **The role is settled. The containerized path is how CEDAR is deployed, not an evaluation
+  install.** Staging and production move to containerized services over native data stores, with the
+  data stores following later. Development moves to containerized infrastructure under native
+  servers. Both converge on a fully containerized stack.
 
-  Production is not a packaging problem. The prod runbook describes a build-on-the-server,
-  mutate-in-place deploy whose migration step is hand-run SQL in a root shell, so containerizing it is
-  a re-architecture rather than a repackaging. The version measurement below points the wrong way for
-  it too: the Docker pins are older than what production runs, so a containerized production means
-  moving the pins first, which is item 9. Not ripe, and treating it as open is what made this item look
-  heavier than it is. Orchestration beyond compose is further out still. There is no Kubernetes
-  anywhere in the estate, the production app tier is a single host, and `cedarnet`'s pinned
-  `192.168.17.x` addressing is the opposite of how Kubernetes wants services to find each other, so
-  adopting it would be a redesign rather than a translation. Revisit only on a second node, a hard
-  zero-downtime requirement, or a hosting mandate.
+  The two splits are opposites, deliberately. Development wants the edit-compile-run loop on the
+  servers and reproducibility underneath them, so the infrastructure goes into containers and the
+  fifteen JVMs stay native. Deployment wants the reverse: the services are the artifact that needs an
+  immutable tag and a rollback, while the data carries migration risk that containerizing does not
+  reduce. Each split containerizes the half that benefits first, and sequences the other half rather
+  than abandoning it.
 
-  Containerized infrastructure under native servers, by contrast, costs nothing to adopt.
-  `set-env-generic.sh` derives every infrastructure host from `CEDAR_NET_GATEWAY` and fixes the ports;
-  the native profile sets that gateway to `127.0.0.1` and overrides none of them; the
-  `cedar-infrastructure` stack publishes every service to the host on those same variables. The
-  containers' `192.168.17.x` addresses stay internal to `cedarnet`, the native servers connect to
-  `127.0.0.1` on the ports they already use, and no configuration changes. Start the stack under the
-  docker-eval profile in one shell, run `cedar-services.sh` under the native profile in another.
+  **What a deploy becomes.** Today it builds on the target: connect over SSH, revert hot-patches,
+  pull onto `main`, rebuild all Java in place, migrate by hand, restart. The target is a pull and a
+  recreate, with no JDK, Maven or checkout on the box. Two things put it within reach. The
+  `cedar-microservices` compose passes every infrastructure host through as a bare environment name,
+  so the values come from whichever profile is sourced at `up` time, and `set-env-generic.sh` derives
+  all of them from `CEDAR_NET_GATEWAY`. A per-environment Docker profile is therefore the docker-eval
+  profile with the seven infrastructure host overrides removed and the gateway pointed at the Docker
+  bridge instead of `127.0.0.1`. Server-to-server traffic stays on `cedarnet` at its pinned
+  addresses; the `extra_hosts` entry for `auth.<host>`, the healthchecks and the restart policies are
+  unchanged. Avoid `network_mode: host`. It would let the existing profile work untouched, at the
+  cost of the address plan, the port mapping, and any chance of standing a second version beside the
+  first.
 
-  That also targets the actual complaint. What is assembled rather than reproducible is the
-  infrastructure, not the servers: the fifteen JVMs are managed, and `cedar-services.sh status` carries
-  a BINARY column so a stale jar cannot hide behind a green health check. Homebrew is the drift, and
-  this takes it out of the path. Containerizing the servers as well would cost the edit-compile-run
-  loop to fix something that is not broken.
+  Migrations do not containerize and do not need to. They run against the data stores as they do now,
+  as a human gate ordered before the new containers start. The automated part is the pull and the
+  recreate. The downtime window shortens anyway, because an image pull completes while the old
+  containers are still serving, where today the build must finish before Java stops.
 
-  **What remains,** in the order it should be done. The first three are the development path and
-  carry the weight. The two frontend items stay open but stop being blockers: they serve the
-  full-stack path, which is now a verified evaluation target rather than something a person runs
-  daily.
+  **Rollback is the real prize, and it rests on tag discipline.** `IMAGE_VERSION` is a mutable
+  snapshot tag. Deploy that and neither "what is running" nor "roll back to what" has an answer.
+  Every deployable tag has to be immutable: the release version for production, and a
+  build-identified tag such as `<version>-<short-sha>`, or a digest, for staging. A floating
+  `-SNAPSHOT` tag can stay as a convenience pointer, but nothing deploys it.
 
-  1. **Decide what the version lock actually locks, then hold both paths to it.** This is not a
+  **Containerizing the data stores is wanted too, and it is a separate project.** The performance
+  question is not the obstacle. On Linux there is no CPU penalty and no memory penalty, and the
+  compose stack already declares a named data volume for every store, so nothing writes through the
+  container's writable layer, which is where a real I/O cost would have come from. What is left is
+  bridge NAT on the network path, measurable on chatty service-to-database traffic and removable with
+  host networking, and cache sizing: WiredTiger, the Neo4j heap and page cache, and the OpenSearch
+  heap all size themselves from observed RAM and need explicit limits rather than autodetection. On
+  this machine Docker Desktop's VM makes bind mounts slow, which named volumes already avoid. The
+  estate can measure its own answer instead of borrowing benchmarks, by running `ops/e2e/rest`
+  against containerized and native infrastructure and comparing.
+
+  The obstacle is the pins. The Docker images are older than what runs live, and an older engine
+  cannot open existing data files: Mongo and Neo4j stamp storage formats and do not support a
+  downgrade. So containerizing a data store means moving its pin up to what is running, then
+  migrating that store into a volume. Never both at once.
+
+  Orchestration beyond compose stays out of scope. There is no Kubernetes anywhere in the estate,
+  each environment is a single host, and `cedarnet`'s pinned addressing is the opposite of how
+  Kubernetes wants services to find each other, so adopting it would be a redesign rather than a
+  translation. Revisit on a second node, a hard zero-downtime requirement, or a hosting mandate.
+
+  **What remains,** in the order it should be done. The first three are prerequisites for any
+  automated deploy. The frontend and TLS items gate production specifically, and were deferrable only
+  while the containerized path was evaluation-only.
+
+  1. **Decide what the version lock actually locks, then move the pins to it.** This is not a
      catch-Docker-up item, which is how it read before it was measured.
 
      The lock is stated in two places and neither records a version. CLAUDE.md and the runbook both
@@ -472,36 +505,46 @@ model libraries — where their JSON and YAML serializations diverge — is in
      already lives. `check_docker_env.py` is the pattern, asking the code what it declares rather
      than reading a descriptor by eye.
 
-     Decide one thing first, because it is why the drift happened. The policy states one lock for two
-     paths that cannot pin equally. Docker pins exactly. Homebrew mostly cannot: versioned formulae
-     exist for some of the six and not others, and `brew pin` only prevents an upgrade rather than
-     installing a chosen version. The settled role above collapses the problem: containerized
-     infrastructure under native servers takes Homebrew out of the path, so the Docker pins become the
-     only pins and the ones actually in use. That is why this comes first — the pins have to be right
-     before development adopts them, and today's would be a downgrade, OpenSearch 2.19.1 to 1.3.6 most
-     of all.
+     Then move the pins **up** to what is running. This is the direction that matters and the reason
+     this item comes first: every later item adopts these pins, and an image older than the live
+     server cannot open its data files. The corollary is a rule for everything downstream — never
+     containerize and upgrade in the same step. Mongo and Keycloak are patch-level and a non-event.
+     MySQL, Redis and OpenSearch are major-version decisions and belong with the persistence-upgrade
+     item near the top of this roadmap, which is parked on this one, since it defers to a lock that
+     records nothing.
 
-     Then move the versions. Mongo and Keycloak are patch-level and a non-event. MySQL, Redis and
-     OpenSearch are major-version decisions and belong with the persistence-upgrade item (9) above.
-     That item is parked on this one, since it defers to a lock that currently records nothing.
+     One thing to decide alongside it. The policy states one lock for two paths that cannot pin
+     equally. Docker pins exactly. Homebrew mostly cannot: versioned formulae exist for some of the
+     six and not others, and `brew pin` only prevents an upgrade rather than installing a chosen
+     version. Containerized infrastructure takes Homebrew out of the development path and makes the
+     Docker pins the only pins, which is the cleanest resolution and the reason item 4 below follows
+     this one closely.
 
-  2. **Adopt containerized infrastructure for development.** Run the `cedar-infrastructure` compose
-     stack in place of the Homebrew services, keeping the fifteen servers native. Phase one is the
-     five data stores — Mongo, MySQL, Neo4j, Redis and OpenSearch — with nginx and Keycloak left
-     native: the infra nginx collides with the native one on 80/443 (`docker stop infra-nginx`, already
-     in the runbook), and Keycloak holds user state that would have to migrate. Nothing needs
-     reconfiguring, since the hosts and ports already line up. What it needs is the bring-up written
-     into the runbook and a decision on whether the two-profile split grates enough to smooth: the
-     stack starts under the docker-eval profile while the servers run under the native one. Gated on
-     item 1.
+  2. **Publish immutable image tags from CI.** Building is covered; releasing is not. Tagging and
+     pushing to `cedar-dockerhub.bmir.stanford.edu` is `bin/release-all-images.sh`, run by hand: it
+     does not build, it loops the image list and tags and pushes whatever is in the local daemon.
+     Neither Docker workflow references a registry credential. This was a small chore while the
+     containerized path was evaluation-only. An automated deploy makes it a prerequisite, because
+     nothing can be deployed that CI has not published.
 
-  3. **Verify the containerized stack on a cadence, and keep publishing an explicit release step.**
-     Both Docker CIs verify statically. `cedar-docker-build` asks whether the Dockerfiles build: it
-     resolves every Nexus coordinate, builds the Java chain sequentially and the rest as matrices,
-     and discards the images. `cedar-docker-deploy` asks whether the configuration coheres:
-     `docker compose config` parses all four stacks, `check_docker_env.py` asks the code what each
-     server declares rather than reading the descriptor by eye, and a third step greps the resolved
-     YAML for duplicate container addresses and host ports. Nothing starts a container.
+     Two tag streams, both immutable. A release publishes the release version. Every build of develop
+     publishes a build-identified tag for staging, `<version>-<short-sha>` or a digest. The floating
+     `-SNAPSHOT` tag may remain as a pointer for local convenience and is never deployed. That is
+     what makes "which build is staging running" and "roll back to what" answerable.
+
+     Fold `release-all-images.sh` into `cedarcli docker release` the way `build-all-images.sh` was
+     already folded into `cedarcli docker build`, so one behaviour has one implementation. Settle the
+     architecture while moving it: the script has no `--platform` and no buildx, so it publishes
+     whichever architecture the operator's machine has, and local verification was arm64 while hosted
+     runners are amd64. A deploy target's architecture is not something to decide by accident.
+
+  3. **Verify the containerized stack on a cadence.** Both Docker CIs verify statically.
+     `cedar-docker-build` asks whether the Dockerfiles build: it resolves every Nexus coordinate,
+     builds the Java chain sequentially and the rest as matrices, and discards the images.
+     `cedar-docker-deploy` asks whether the configuration coheres: `docker compose config` parses all
+     four stacks, `check_docker_env.py` asks the code what each server declares rather than reading
+     the descriptor by eye, and a third step greps the resolved YAML for duplicate container
+     addresses and host ports. Nothing starts a container.
 
      That is the gap, and the bring-up above measures it. Not one of the three defects it found was
      visible to any static check. The images built, compose parsed, every variable was defined and
@@ -512,46 +555,49 @@ model libraries — where their JSON and YAML serializations diverge — is in
      `repository_dispatch` or `workflow_run` anywhere in the estate.
 
      The work is to automate what was done by hand. Bring up infrastructure and microservices, wait
-     on the healthchecks already declared on all 28 services, run `ops/e2e/rest`, tear down. It does
-     not wait on the frontend question below, since the verified bring-up was backend-only, with
-     native frontends against containerized services. Where it runs is the open question: seven
-     infrastructure containers and fifteen Dropwizard JVMs alongside OpenSearch, Neo4j, Mongo, MySQL
-     and Keycloak may not fit a 4-CPU, 16 GB hosted runner, and the alternatives are capping the
-     server heaps, a self-hosted runner (there is none today), or a scheduled run on this machine.
-     Cadence follows from cost. It is a schedule either way and not a per-push trigger, because the
-     check catches drift rather than gating a commit.
+     on the healthchecks already declared on all 28 services, run `ops/e2e/rest`, tear down. Where it
+     runs is the open question: seven infrastructure containers and fifteen Dropwizard JVMs alongside
+     OpenSearch, Neo4j, Mongo, MySQL and Keycloak may not fit a 4-CPU, 16 GB hosted runner, and the
+     alternatives are capping the server heaps, a self-hosted runner (there is none today), or a
+     scheduled run on this machine. Cadence follows from cost. It is a schedule either way and not a
+     per-push trigger, because the check catches drift rather than gating a commit. Under the settled
+     role this stops being hygiene: it is what earns the confidence to deploy an image nobody built
+     by hand.
 
-     Publishing is the smaller half, and it should not be a push trigger for the same reason.
-     `IMAGE_VERSION` is a mutable snapshot tag, so publishing on every jar merge would silently
-     change what it resolves to under anyone running the eval stack. It would also carry no
-     information the Nexus coordinate did not, since a server image contributes only a name, three
-     ports, a log volume and a call to `install_deps.sh`. Keep it release-time and explicit, and
-     give it the treatment `build-all-images.sh` already had: `bin/release-all-images.sh` becomes
-     `cedarcli docker release`, so one behaviour has one implementation. Settle the architecture
-     while moving it. The script has no `--platform` and no buildx, so it publishes whichever
-     architecture the operator's machine has; local verification was arm64 and hosted runners are
-     amd64.
+  4. **Adopt containerized infrastructure for development.** Run the `cedar-infrastructure` compose
+     stack in place of the Homebrew services, keeping the fifteen servers native. Phase one is the
+     five data stores — Mongo, MySQL, Neo4j, Redis and OpenSearch — with nginx and Keycloak left
+     native: the infra nginx collides with the native one on 80/443 (`docker stop infra-nginx`,
+     already in the runbook), and Keycloak holds user state that would have to migrate. Nothing needs
+     reconfiguring, since the hosts and ports already line up: `set-env-generic.sh` derives every
+     infrastructure host from `CEDAR_NET_GATEWAY`, the native profile sets it to `127.0.0.1`, and the
+     stack publishes every service to the host on those same variables. What it needs is the bring-up
+     written into the runbook and a decision on whether the two-profile split grates enough to smooth:
+     the stack starts under the docker-eval profile while the servers run under the native one. Gated
+     on item 1, and worth doing early — it is the cheapest rehearsal for the data-store migrations at
+     the end of this list.
 
-  4. **Decide which frontends there are, then settle their publishing.** Publishing is the visible
+  5. **Decide which frontends there are, then settle their publishing.** Publishing is the visible
      half and probably not the first question. The estate builds six frontend images — the template
      editor at `cedar.<host>`, plus openview, monitoring, artifacts, bridging and content — and the
      working view is that only three are really needed: the template editor, openview and monitoring.
      If that holds, artifacts, bridging and content are candidates for removal rather than things to
-     fix, and how much of the rest of this item matters shrinks accordingly. Parked pending that call.
+     fix. This was deferrable while the containerized path was evaluation-only. It is now on the
+     critical path, because production serves the frontends: either their images publish, or a
+     production deploy keeps a native frontend build on the box and is a hybrid.
 
      `cedar-template-editor` is also badly named. It is not a component but very nearly the whole
      CEDAR frontend, which is why `cedar-frontend-main` is the structural outlier among the images:
      it installs Node and runs `gulp`, where the other five unpack a published tarball into nginx.
 
-     The publishing state, for whenever the shape is settled: all eighteen Java artifacts resolve at
-     the current snapshot and none of the six frontend tarballs do. `npm-cedar` holds `2.9.1-SNAPSHOT`
-     for five of them — all five stopped at the same release, which reads as publishing happening at
-     release time rather than any one repository falling behind — and has never held
-     `cedar-content-distribution` at any version, which release timing does not explain and which is
-     itself evidence about whether that one is wanted. Either those repositories publish snapshots the
-     way the Java repositories do, or image builds are release-time only and should say so. Until
-     then the frontend half of the estate cannot be built from develop and no full bring-up is
-     possible.
+     The publishing state: all eighteen Java artifacts resolve at the current snapshot and none of
+     the six frontend tarballs do. `npm-cedar` holds `2.9.1-SNAPSHOT` for five of them — all five
+     stopped at the same release, which reads as publishing happening at release time rather than any
+     one repository falling behind — and has never held `cedar-content-distribution` at any version,
+     which release timing does not explain and which is itself evidence about whether that one is
+     wanted. Either those repositories publish snapshots the way the Java repositories do, or image
+     builds are release-time only and should say so. Until then the frontend half of the estate
+     cannot be built from develop and no full bring-up is possible.
 
      Those build jobs carry `continue-on-error`, which does less than it sounds like: it stops a
      failure blocking dependent jobs, but the run's own conclusion still counts it, so
@@ -566,14 +612,47 @@ model libraries — where their JSON and YAML serializations diverge — is in
      artefact of a natively-built frontend against a containerized backend, and the comparison that
      would settle it is the same browser smoke against the native backend.
 
-  5. **Give the frontends a local-build path.** The other half of the Nexus decoupling. The six
-     frontend images download a tarball with no local equivalent, so an edit-compile-run loop works for
-     the backend and not the UI.
+  6. **Give the frontends a local-build path.** The other half of the Nexus decoupling. The six
+     frontend images download a tarball with no local equivalent, so an edit-compile-run loop works
+     for the backend and not the UI.
 
-  6. **Decide the TLS story.** The leaves bundled in `cedar-assets` expired 2026-04-20.
+  7. **Decide the TLS story.** The leaves bundled in `cedar-assets` expired 2026-04-20.
      `copy_certificates` prefers `$CEDAR_HOME/CEDAR_CA`, whose 28 hosts run to 2028, so this bites a
      fresh clone rather than this machine. The question is whether the repo should carry certificates
-     at all rather than issue them at setup.
+     at all rather than issue them at setup, and a production deploy is what forces it: prod nginx
+     serves real certificates that cannot come from a checked-in bundle.
+
+  8. **Deploy containerized services to staging, then production.** The goal the items above serve.
+     Services and nginx as containers, data stores native and untouched, on both existing hosts.
+
+     Staging first, as the rehearsal. It is where the per-environment profile gets shaken out, and
+     where the piece of work that is not yet anywhere on this roadmap gets done: turning the shell
+     profiles into compose env files per environment, including how secrets reach the box. They live
+     in `set-env-external.sh` on the host today. Containerizing does not make that worse, and it is
+     the natural moment to decide whether it stays that way.
+
+     Keep the mechanism dumb. `cedarcli deploy <env> <tag>` doing a pull and `docker compose up -d`
+     over SSH, or a GitHub Actions job with a deploy key. Each environment is a single host, so
+     nothing here justifies more machinery than that. Production additionally needs items 5 and 7
+     settled; staging can run with a native frontend build until then.
+
+  9. **Containerize the data stores.** The end state, and a separate project from item 8 — it must
+     not gate it. Each store moves at the version already running, per the rule in item 1, and each
+     needs its own migration into a volume rehearsed on a copy. Take them in the order the
+     persistence-upgrade item near the top of this roadmap sets — Redis, MySQL, OpenSearch, Mongo,
+     Neo4j, with Keycloak separately and last — since the pin move and the containerization are the
+     same piece of work per store. Two notes on that order. Redis is the right start either way:
+     queue data, the smallest loss surface, the easiest to rebuild if it goes wrong. OpenSearch can
+     move earlier than its position suggests, because its data is an index reconstructible from the
+     source of truth, so a failed migration costs a reindex rather than data; against that, it is the
+     largest version jump of the six and wants its upgrade taken on its own.
+
+     Two configuration points apply to all of them. Give each container an explicit memory limit and
+     size its cache explicitly, since WiredTiger, the Neo4j heap and page cache and the OpenSearch
+     heap otherwise size themselves from the host's RAM and can collectively over-commit. And decide
+     the network mode: default bridge NAT is measurable on service-to-database traffic, and host
+     networking removes it.
+
   One estate difference is worth a decision rather than a fix. The Docker nginx now serves 24 virtual
   hosts against the native stack's 28; the four that remain are CEE's — `demo.cee`, `demo-dist.cee`,
   `docs.cee`, `docs-dist.cee`. CEE itself is not a candidate for a container: it is a web component,
@@ -583,6 +662,7 @@ model libraries — where their JSON and YAML serializations diverge — is in
   non-essential and not started by default, and the `cedar-component-demo` checkout they are built from
   is absent from this machine, so the native server blocks point at directories that do not exist. The
   other two proxy a live `ng serve` and belong to development only.
+
 
 ## Testing
 
