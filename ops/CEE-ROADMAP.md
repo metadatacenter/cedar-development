@@ -61,6 +61,34 @@ This roadmap tracks open work only.
   `angular.json` had `aot: false` in the build target's base options, so `ng build`
   and `ng serve` compiled no template at all — a binding to a property that does
   not exist built clean.
+- **CEE builds on `@angular/build:application`**, not the deprecated webpack
+  `browser` builder. `ng update @angular/cli --migrate-only
+  --name=use-application-builder` does the workspace edit; the shipped artifact
+  is still one classic script and is **190,309 bytes smaller**, at 3,207,044 raw
+  and 754,371 gzip, leaving 392,956 of raw headroom.
+
+  The open question this carried — whether the artifact still *runs* — had the
+  answer no, until packaging was fixed. The new builder emits `polyfills.js` and
+  `main.js` as ES modules under `browser/`. Neither imports the other, so
+  `resolve-build-output.mjs` judged them concatenable, and they are not: their
+  minified top-level names are kept apart only by module scope, and joining them
+  into one classic script makes those names global, where they collide. It
+  failed as `Cannot read properties of undefined (reading 'lFrame')` — an
+  Angular-shaped error from a packaging cause, after a green build and a green
+  size check. Each file loaded alone works perfectly, which is what made it
+  confusing.
+
+  The predicate now runs the other way: `concat` requires positive proof that
+  every input wraps itself, and anything else falls to `bundle`, which is always
+  correct. `bundle` is only slower, while a wrong `concat` ships a file that
+  fails when something runs it. `make-bundle.mjs` also minifies whitespace when
+  flattening, because esbuild re-prints what it parses and printing
+  already-minified input added 543,029 bytes.
+
+  The packaging suite passed throughout, because its esbuild fixture modelled an
+  entry importing siblings — the shape that was predicted rather than the one
+  that shipped. It now carries the real shape, and both new cases fail if the
+  old predicate returns.
 - **Vitest is 4.1.10** in the root and the harness, up from 1.6.1, which clears
   the critical advisory against a listening Vitest UI server. The two must move
   together: the harness points its Vite root at the repository, so a split
@@ -246,69 +274,11 @@ or restyles the form is a hop whose failures cannot be attributed.
   package, but never wired into `angular.json`; its script tag is already
   commented out. Decide whether it is live or dead, and then make the repository
   say so.
-- **Move to the `@angular/build:application` builder.** CEE still builds through
-  `@angular-devkit/build-angular:browser`, which prints a deprecation on every
-  build: webpack support is being withdrawn, so this is a question of when rather
-  than whether.
-
-  Prototyped and then reverted, so the numbers are measured rather than estimated.
-  `ng update @angular/cli --migrate-only --name=use-application-builder` does the
-  whole edit — swaps the three builders, moves `main` to `browser`, makes
-  `polyfills` an array, drops `vendorChunk` and `buildOptimizer`, and replaces
-  `@angular-devkit/build-angular` with `@angular/build`. The production build then
-  succeeds unchanged.
-
-  **The bundle dropped from 3,493,042 to 3,292,228 bytes — 200,814 smaller, 5.7%.**
-  That is the reason to do it: more than the raw ceiling currently leaves free.
-  Both figures predate the `BrowserAnimationsModule` removal and the control-flow
-  migration, which have since taken the baseline to 3,411,031. Expect a smaller
-  saving than 200,814, by whatever share of those 82,011 bytes esbuild would have
-  shed anyway. Measure it again rather than subtracting.
-
-  Packaging needs no work. `visual/resolve-build-output.mjs` was written for this:
-  it finds the `browser/` subdirectory the new builder nests output in, tolerates
-  hashed filenames, and decides between concatenating and re-bundling by reading
-  the entry's bytes rather than inferring from a version. It selected `concat`
-  correctly, because the esbuild entry imports no siblings, and `make-bundle.mjs`
-  already implements the `bundle` path for the day one does.
-
-  What is **not** established is whether the artifact still runs. The prototype was
-  stopped before the browser suite, so the only claim measured is that it builds
-  and packages smaller. A bundle that builds and a bundle that boots are different
-  claims — the suite loads this file with a plain `<script>`, and the new builder
-  emits ES modules, so `import.meta` or top-level `await` anywhere in the output
-  would break it in a way no build error shows. Run `npm run test:ci` first; that
-  is the whole remaining question.
-
-  The migration also writes `compilerOptions` into the solution-style
-  `tsconfig.json`, which holds no files. That is understood now, and it is the
-  same trap as the Angular 15 `useDefineForClassFields` migration recorded in
-  `tsconfig.base.json`: the schematic hard-codes the path `tsconfig.json`, while
-  CEE keeps its options in `tsconfig.base.json`. All four of its edits land on
-  the wrong file. It writes `esModuleInterop: true` and
-  `moduleResolution: "bundler"` there, and tries to delete `downlevelIteration`
-  and `allowSyntheticDefaultImports` — CEE has no `downlevelIteration`, and its
-  `allowSyntheticDefaultImports` survives untouched in the base config.
-
-  Nothing extends `tsconfig.json` and it compiles nothing, so the block it adds
-  is inert. The cost is not the block; it is that the change the migration meant
-  to make was skipped in silence. That change is to replace
-  `allowSyntheticDefaultImports`, which only relaxes type-checking, with
-  `esModuleInterop`, which also fixes interop at emit.
-
-  Make it by hand in `tsconfig.base.json` and delete the inert block. It is
-  measured as safe: with `esModuleInterop` swapped in, the app type-checks
-  clean, builds, and passes all 356 bundle-level checks including every
-  snapshot — tested despite the emit change reaching `import * as _ from
-  'lodash-es'` and the two JSON language-map imports, which are what would have
-  broken. The `moduleResolution: "bundler"` it wants is already set.
-
 Material 3 theming was also held out of the march. It belongs with the rest of the
 styling questions rather than here — item 4.
 
-Done when the `any` sites are gone, the scroll bug is diagnosed,
-`cedar-artifact-viewer` is either wired in or deleted, and the build no longer runs
-through a deprecated builder.
+Done when the `any` sites are gone, the scroll bug is diagnosed, and
+`cedar-artifact-viewer` is either wired in or deleted.
 
 #### What the march cost, and what it taught
 

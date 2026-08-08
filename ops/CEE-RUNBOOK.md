@@ -102,6 +102,19 @@ emitting that set, so the command silently produced a truncated or empty bundle
 rather than failing. `visual/resolve-build-output.mjs` decides what the build
 actually emitted, and whether joining is even the right operation for it.
 
+Joining is no longer the right operation. On the `application` builder the output
+is `dist/cedar-embeddable-editor/browser/`, holding `polyfills.js` and `main.js`
+as ES modules. Neither imports the other, so they look joinable and are not:
+their minified top-level names are only kept apart by module scope, and
+concatenating them into one classic script makes those names global, where they
+collide. The symptom is not a load error. The file loads, runs, and fails inside
+Angular with `Cannot read properties of undefined (reading 'lFrame')`, which
+reads like an Angular bug rather than a packaging one.
+
+`make-bundle.mjs` therefore flattens each entry through esbuild into a single
+`iife`, with whitespace minification on — esbuild re-prints what it parses, and
+printing already-minified input with default formatting added 543,029 bytes.
+
 ## Running the complete test gate
 
 The canonical, non-interactive verification command is run from the CEE
