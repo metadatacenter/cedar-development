@@ -5,8 +5,7 @@ to be read by a human or an LLM agent. It covers the architecture, the bring-up 
 non-obvious gotchas that will otherwise cost hours, and the two helper scripts in this folder.
 
 Scope: the **native-develop** setup (infrastructure as local binaries, microservices as native
-Dropwizard JVMs, frontends via `gulp`). The all-Docker deployment is a separate path and is not
-covered here.
+Dropwizard JVMs, frontends via `gulp`). The containerized alternative has its own section below.
 
 Known backend work items, and the decisions about what is deliberately not being done, are tracked
 in [BACKEND-ROADMAP.md](./BACKEND-ROADMAP.md).
@@ -67,6 +66,74 @@ open https://cedar.metadatacenter.orgx    # test1@test.com / test1   (also test2
 
 `cedarcli start all` does the same thing but opens ~15 Terminal tabs (one foreground process per
 tab, by design — see below). The controller replaces that with background processes + one status view.
+
+## The containerized stack
+
+An alternative to the native bring-up: the same fifteen microservices and the same infrastructure,
+as containers. It is the `cedar-docker-build` images driven by the `cedar-docker-deploy` compose
+stacks. Proven on 2026-08-07 — infrastructure and all fifteen microservices healthy, and the whole
+REST estate green against it (635 assertions, 0 failures).
+
+**It cannot run beside the native stack.** Both want 80/443, 3306, 27017, 6379, 9200, 7474/7687,
+8080 and the 9xxx range. Take the native one down first with `cedarcli stop all`, which unlike
+`cedar-services.sh stop` also stops the infrastructure. Storage is separate — the containers use
+their own named volumes and never touch `/opt/homebrew/var/*`, so the two estates keep independent
+data.
+
+It needs its own profile. The native profile sets `CEDAR_NET_GATEWAY=127.0.0.1`, which cannot be a
+Docker bridge gateway; the Docker one pins every container to an address on `192.168.17.0/24`.
+
+```bash
+export CEDAR_HOME=$HOME/CEDAR
+source $CEDAR_HOME/cedar-development/bin/templates/cedar-profile-docker-eval.sh
+
+cedarcli docker validate                    # every stack parses, every variable is defined
+cedarcli docker build infrastructure        # and microservices, if the images are not built
+cedarcli docker one-time-setup              # network + certificate volumes
+cedarcli docker start infrastructure -d
+cedarcli docker start microservices -d
+```
+
+Certificates come from `$CEDAR_HOME/CEDAR_CA` when it exists, and only fall back to the expired set
+bundled in `cedar-docker-deploy/cedar-assets` when it does not.
+
+**The frontends are not part of this yet.** Their npm tarballs are not published at the current
+snapshot, so those six images do not build; the API hosts work and the UI hosts answer 502. Running
+the REST estate against the containers therefore needs the two services that have no vhost addressed
+directly, and Keycloak addressed on its published port, because container addresses are not routable
+from macOS:
+
+```bash
+cd ops/e2e
+export CEDAR_KEYCLOAK_BASE=http://127.0.0.1:8080 CEDAR_OPENVIEW_BASE=http://127.0.0.1:9013
+export NODE_TLS_REJECT_UNAUTHORIZED=0
+npm run smoke:rest
+```
+
+To get back to the native stack, `cedarcli docker stop microservices` and `stop infrastructure`,
+then bring up native as above.
+
+### Building an image against your own code
+
+By default every image fetches its jar from Nexus while it builds, so an image can only run code
+that has already been published. `--local` builds against the checkout instead:
+
+```bash
+cd $CEDAR_HOME/cedar-artifact-server && cedarcli build this
+cedarcli docker build artifact-server --local
+```
+
+The image name is the source repository minus its `cedar-` prefix, for all fifteen servers and the
+admin tool. `cedarcli docker build` also takes `all`, a group (`infrastructure`, `microservices`,
+`frontends`, `admin`), or any image name, and always builds the CEDAR bases an image is built `FROM`
+first — which a bare `docker build` does not, and which is how a stale base silently gets used.
+
+**Build clean when a library changed.** `mvn install` without `clean` can re-shade a fat jar around
+a cached assembly and leave an old copy of a dependency class inside it. The jar is newer than the
+library it should contain, so no timestamp check catches this, and every downstream step reports
+success: staging copies the jar faithfully, the image hash matches, and the container runs the old
+code. If you changed a shared library, `mvn clean install` in the consuming server before staging.
+
 
 ## The controller: `ops/cedar-services.sh`
 
