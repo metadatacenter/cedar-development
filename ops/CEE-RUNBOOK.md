@@ -87,16 +87,20 @@ This is the real deliverable — a single JS file embeddable in any page.
 
 ```bash
 export PATH="/opt/homebrew/opt/node@24/bin:$PATH"
-npx ng build --configuration=production
+npm run build:production
+npm --prefix visual run bundle
 ```
 
-```bash
-cat dist/cedar-embeddable-editor/{runtime,polyfills,main}.js > cedar-embeddable-editor.js
-```
+The second step writes `visual/public/cedar-embeddable-editor.js` and a sidecar
+manifest recording its sha256 and byte count, which the freshness guard and the
+size gate both read rather than re-deriving.
 
-The concat order matters and the filenames are Angular 14's. **This step changes
-shape at Angular 17**, when the build moves to esbuild/vite and stops emitting
-these three files — see [CEE-ROADMAP.md](./CEE-ROADMAP.md) Phase 3.
+Do not join the build's output by hand. This used to read
+`cat dist/cedar-embeddable-editor/{runtime,polyfills,main}.js`, and those are
+Angular 14's filenames: the esbuild builder that arrived at Angular 17 stopped
+emitting that set, so the command silently produced a truncated or empty bundle
+rather than failing. `visual/resolve-build-output.mjs` decides what the build
+actually emitted, and whether joining is even the right operation for it.
 
 ## Running the complete test gate
 
