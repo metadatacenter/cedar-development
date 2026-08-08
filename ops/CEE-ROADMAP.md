@@ -367,11 +367,40 @@ claim: a single `$applied-theme` built from a primary and an accent palette, all
 of it in `_cee-material-theme.scss`, which exists so that exactly this kind of
 change touches one file. The M2 helpers it builds on — `m2-define-palette`,
 `m2-define-light-theme`, `m2-define-typography-config` — are the compatibility
-path, already renamed once at Material 18 and slated to go in favour of M3's
-token-based API. That is a different model rather than a renamed one: a rewrite of
-the `$applied-theme` construction, not a search-and-replace, and it will change
-what CEE looks like. Doing it at the same time as the brand question above is
-probably right, since both rewrite the same construction.
+path, already renamed once at Material 18, and M3's token-based API is the
+supported model. They are not deprecated in Material 22 — nothing in the Sass
+says so, and they are still forwarded from `core/m2` — so the pressure here is
+drift rather than a removal date. That is a different model rather than a
+renamed one: a rewrite of the `$applied-theme` construction, not a
+search-and-replace, and it will change what CEE looks like.
+
+What makes it a rewrite is the palette shape, and that is measured rather than
+predicted. `mat.define-theme` rejects CEE's palettes outright:
+
+> Expected `$config.color.primary` to be a valid M3 palette.
+
+M2 palettes are 50–900 plus A100–A700 and a contrast map, which is what
+`_cee-tokens.scss` holds. M3 palettes are tonal — 0 to 100 — and each carries
+`secondary`, `neutral`, `neutral-variant` and `error` sub-maps. So the note in
+`_cee-tokens.scss` that the 14-step shape is "a convention, not a dependency"
+stops being true under M3: it becomes the wrong shape, and the adapter cannot
+paper over it.
+
+The supported way to produce the right shape is
+`ng generate @angular/material:theme-color`, which derives a full M3 palette set
+from source hex colours — `primaryColor`, and optionally secondary, tertiary,
+neutral and error. Note there is no accent in M3; CEE's primary-and-accent pair
+maps onto primary and tertiary.
+
+That generator is also why this and the brand question above cannot be separated:
+its input *is* the brand decision. Whoever runs it types a hex, and typing
+CEDAR's `#0f7686` rather than Angular's stock teal is precisely the choice that
+has been waiting. There is no version of this migration that leaves the palette
+question open.
+
+Material 22 offers no `mat.theme()` one-liner; the M3 route here is
+`mat.define-theme` feeding the same `mat.all-component-themes` already in use, so
+the emission points in `core()` and `component-themes()` survive the change.
 
 The `TODO(v15)` block the `core()` mixin carried is answered and gone. It asked
 whether `all-component-typographies()` was needed, and set out two conditions
