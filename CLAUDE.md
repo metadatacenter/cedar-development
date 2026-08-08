@@ -46,11 +46,12 @@ The backend — the microservices, the shared Java libraries, the stack itself:
   microservices, the shared libraries, and the test and ops tooling.
 
 The embeddable editor (CEE) and the TypeScript model library it consumes:
-- [CEE-RUNBOOK.md](ops/CEE-RUNBOOK.md) — Node versions (they differ per task, read that first),
+- [CEE-RUNBOOK.md](ops/CEE-RUNBOOK.md) — the Node version (one now, 24.19.0, read that first),
   running the app, the test gate and what CI runs, checking output against the CEDAR model,
   building the model library, and cutting and publishing an npm release.
-- [CEE-ROADMAP.md](ops/CEE-ROADMAP.md) — CEE's open work including the Angular 14 → 22 upgrade and
-  the preparation already landed for it, plus the model library's own items and adoption status.
+- [CEE-ROADMAP.md](ops/CEE-ROADMAP.md) — CEE's open work: what the finished Angular 14 → 22 march
+  left behind, styling and theming, the host contract, plus the model library's own items and
+  adoption status.
 - [MODEL-LIBRARY-PARITY.md](ops/MODEL-LIBRARY-PARITY.md) — measured divergences between the
   TypeScript and Java model libraries over the shared corpus.
 

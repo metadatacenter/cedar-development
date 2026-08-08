@@ -30,9 +30,9 @@ This roadmap tracks open work only.
   that used to is gone, and its replacement is blocked — item 6.
 - The obsolete datetime-picker dependency has been replaced by CEE's in-house
   time picker.
-- Lint is the first stage of `test:ci` and runs clean: 0 errors against 32
-  baselined `no-explicit-any` warnings across 22 files. What is left is the plugin
-  versions, item 5.
+- Lint is the first stage of `test:ci` and runs clean: 0 errors against 41
+  baselined `no-explicit-any` warnings across 25 files, on `angular-eslint` 22,
+  `typescript-eslint` 8 and ESLint 9 with a flat config.
 
 ## Features
 
@@ -119,12 +119,14 @@ or restyles the form is a hop whose failures cannot be attributed.
   decision rather than an inherited default — but it is a decision to defer, not
   to decline. `strict` also stops the next TypeScript major moving it again
   without anyone choosing.
-- **Clear the 32 baselined `no-explicit-any` warnings.** Down from 77 across 44
-  files to 32 across 22. The largest clusters are the timezone picker (4), the ROR
-  `groupBy` helper (3) and `callbackOwnerObject` (3). Typing them is not cosmetic:
-  doing the same to the ROR and ORCID parsers surfaced two live bugs, a call
-  reading `rawResponse` off a type that has no such property, and keywords typed
-  `string[]` that are `string[][]`.
+- **Clear the 41 baselined `no-explicit-any` warnings.** Down from 77 across 44
+  files to 41 across 25 — 41 and not 32 because the lint toolchain upgrade found
+  three files suppressing nine of them behind a blanket file-level disable. The
+  largest clusters are the timezone picker (4), the model-library boundary casts
+  (9), the ROR `groupBy` helper (3) and `callbackOwnerObject` (3). Typing them is
+  not cosmetic: doing the same to the ROR and ORCID parsers surfaced two live bugs,
+  a call reading `rawResponse` off a type that has no such property, and keywords
+  typed `string[]` that are `string[][]`.
 - **The Metadata Editor scroll bug.** Scrolling past the end of the form and back
   makes the bottom disappear. Confirmed pre-existing on Angular 14, so the march
   neither caused nor fixed it. The suspects are the two nested
@@ -228,29 +230,38 @@ gone down rather than up.
 
 ### 5. Enforce the lint gate that already runs
 
-Most of this item is done. `npm run lint` is the first stage of `test:ci`, in
-`package.json` rather than as a separate CI step, so the gate has one definition
-locally and on the runner. The formatting drift is cleared. Lint reports 0 errors
-against a curated `no-explicit-any` baseline — 22 named files hold the rule at
-`warn` while it stays an error everywhere else, so new code cannot add to it.
-Emptying that baseline is tracked with the rest of the march's leavings, item 3.
+**Done.** `npm run lint` is the first stage of `test:ci`, the formatting drift is
+cleared, and the toolchain now matches the framework: one `angular-eslint` 22 in
+place of four `@angular-eslint/*` at 14, one `typescript-eslint` 8 in place of two
+at 6.10, ESLint 9, and `eslint.config.mjs` in place of `.eslintrc.json`. Lint
+reports 0 errors against a curated `no-explicit-any` baseline that new code cannot
+add to.
 
-**What remains is the plugin versions, and the march made that worse rather than
-better.** `@angular-eslint/*` is still pinned at `~14.4.0` against Angular 22 —
-eight majors of drift, where the packages are meant to follow the Angular major.
-It has kept working, which is the only reason it survived the march unnoticed, but
-it means the template rules being enforced are the ones Angular 14 shipped and
-nothing is checking CEE against anything newer.
+Kept here because the next person will want the reasoning rather than the diff.
 
-Not a bare version bump. 18 through 20 need `@typescript-eslint/utils >= 7.11` and
-the repo is on `@typescript-eslint` 6.10, so typescript-eslint moves to 7 or 8 with
-it. ESLint itself may be able to stay on 8 — those majors accept
-`^8.57.0 || ^9.0.0`, and the current pin is 8.53 — but that wants rechecking at
-whatever version actually pairs with Angular 22, rather than assuming the range
-that held at 20.
+**The count is 41, not the 32 this file claimed.** Three files carried a blanket
+file-level `eslint-disable` for `no-explicit-any` while the baseline comment said
+the debt was curated rather than blanket-suppressed. It was not, in those three.
+Their nine `any`s are in the baseline now, counted as warnings. Emptying it is
+tracked with the rest of the march's leavings, item 3.
 
-Done when the plugins match the Angular version in use and `test:ci` still fails
-on a new TypeScript or template violation.
+**Four rules are off, and three of them are decisions rather than debt.** Angular
+22's rule set reported 413 errors; 411 were `prefer-control-flow` (203),
+`prefer-inject` (118), `prefer-standalone` (47) and
+`prefer-on-push-component-change-detection` (43). Each asks for an architectural
+rewrite this roadmap already places elsewhere or out of scope, and a gate nobody
+can pass gets ignored rather than fixed. The OnPush one is not deferred but wrong
+for CEE: it renders from `DoCheck` and mutates model objects in place, so OnPush
+would stop the view updating, and obeying the rule would undo by hand the Angular
+22 migration that stamped `Eager` onto all 46 components. Moving to OnPush means
+moving to immutable updates or signals first.
+
+**The old setup was working, and that was worth checking rather than assuming.**
+Deliberate violations of `eqeqeq`, `banana-in-box`, `no-unused-vars` and
+`prettier/prettier` were all caught under `@angular-eslint` 14 — it was enforcing
+Angular 14's rules, correctly, on a TypeScript three majors past what its parser
+declared support for. The same four probes pass now. A lint upgrade that cannot
+demonstrate the gate still fails on a real violation has proved nothing.
 
 ### 6. Land the instance-conformance spec
 
@@ -401,8 +412,8 @@ a test that can fail.
    the branch that moved rather than the branch that ships.
 2. Land the conformance spec as soon as the library publishes (item 6). It is
    written and waiting, and until it runs CEE has no check on its own output.
-3. Move `@angular-eslint/*` onto the Angular version in use (item 5). Eight majors
-   of drift means the template rules being enforced are Angular 14's.
+3. Empty the `no-explicit-any` baseline (item 3). 41 warnings across 25 files, and
+   typing them has surfaced live bugs twice.
 4. Keep the production bundle and Playwright checks working throughout.
 5. Complete the public host contract before the stable `1.6.0` release (item 1);
    the stable model-library release lands as an aside of that work.

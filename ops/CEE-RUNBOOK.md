@@ -164,7 +164,7 @@ hop, and the dist that ships is now produced on the same Node that exercised it.
 
 Lint runs first, as the opening stage of `test:ci` rather than as a separate CI
 step, so the gate has one definition locally and in CI. Warnings do not fail the
-build: the pre-existing `any` debt is baselined per file in `.eslintrc.json`.
+build: the pre-existing `any` debt is baselined per file in `eslint.config.mjs`.
 
 Nothing is published from CI. Releasing the npm package is a separate, manual
 procedure — see [Release](#release) below.
