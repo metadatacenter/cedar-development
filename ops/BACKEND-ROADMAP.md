@@ -714,26 +714,74 @@ model libraries — where their JSON and YAML serializations diverge — is in
 Coverage and test-infrastructure work. The active REST integration suites live in
 `ops/e2e/rest/suites/`; the JUnit matrices and boot-smoke live in the per-server modules.
 
-- **15. Promote the skip-tests switch to a command-line option, and stop the output loop
-  busy-polling.** The Java build runs its tests: `mvn clean install`, with `CEDAR_DEV_SKIP_TESTS=true`
-  for a fast build when they have already been run, following the `CEDAR_DEV_BUILD_FRONTENDS`
-  precedent. The policy reaches every Java repo in the generated plan, since `build this`, `build
-  parent`, `build libraries`, `build project`, `build clients` and `build java` all expand through
-  `BuildOperator`. What remains is to promote the environment variable to real `--tests` /
-  `--skip-tests` options with one documented default.
+- **15. Decide whether the build runs the tests, and give the answer a command-line option. Stop the
+  output loop busy-polling.** The Java build skips its tests again: every Java repo is built with
+  `mvn clean install -DskipTests`, and the `CEDAR_DEV_SKIP_TESTS` escape hatch is gone with the
+  default it modified. That restores the behaviour the build had before, and it means a green
+  `cedarcli build` says the stack compiles and nothing more. Whichever way it settles reaches every
+  Java repo in the generated plan, since `build this`, `build parent`, `build libraries`, `build
+  project`, `build clients` and `build java` all expand through `BuildOperator`.
 
-  The log flood that made an all-tests build unusable is gone. It was one ~105-line Jedis stack trace
-  per HTTP request: the suites point Redis at a dead port because queue writes are best-effort, and
-  every expected failure logged its full cause. A recurring queue failure now logs the trace once and
-  thereafter its type, message and a running total, so the drop stays visible and countable while the
-  frames are printed once. The resource-server application tests fell from 400,192 lines (36 MB) to
-  13,555, and the queue services carry assertions that an unavailable queue drops and counts without
-  failing the caller.
+  **The default is the decision.** Running them is defensible: every suite is backend-free — in-memory
+  auth and embedded Neo4j, Mongo, MariaDB and Redis — so a build needs nothing up, a full run is 3,749
+  tests in under seven minutes, and a green build would then mean what CI means by it. Against it: the
+  build is the inner loop, and seven minutes on every rebuild of a repo whose tests were green ten
+  minutes ago is the cost that made the switch worth having in the first place. The default has flipped
+  four times in the CLI's history, which is the argument for settling it as a documented default with a
+  visible flag rather than as an environment variable somebody exports once and forgets.
 
-  What remains beyond the command-line option: replace cedar-cli's nonblocking `while proc.poll() is
-  None` output loop. It busy-polls at 100% CPU and Rich continually redraws the terminal, making
-  progress hard to distinguish from a hang. Acceptance means the build stays monitorable and finishes
-  with a trustworthy non-zero exit code on failure.
+  One obstacle to running them is already gone. The log flood that made an all-tests build unusable was
+  one ~105-line Jedis stack trace per HTTP request: the suites point Redis at a dead port because queue
+  writes are best-effort, and every expected failure logged its full cause. A recurring queue failure
+  now logs the trace once and thereafter its type, message and a running total, so the drop stays
+  visible and countable while the frames are printed once. The resource-server application tests fell
+  from 400,192 lines (36 MB) to 13,555, and the queue services carry assertions that an unavailable
+  queue drops and counts without failing the caller.
+
+  **The option shape.** Typer offers a paired boolean, which is the right primitive: one option, one
+  default, no way to pass both halves.
+
+  ```python
+  tests: bool = typer.Option(False, "--tests/--skip-tests",
+                             help="Run the Java test suites. Default: skip.")
+  ```
+
+  It belongs on the seven `build` commands that can reach a Java repo — `this`, `parent`, `libraries`,
+  `project`, `clients`, `java`, `all` — and not on `frontends`, where it would be inert and so a lie in
+  `--help`. `BuildOperator.expand` is static and reached through the operator registry, so the value
+  travels as a setting rather than a parameter: put `skip_tests` on `CedarCliSettings` beside
+  `do_fail_on_error`, marked from the command through a `GlobalContext` classmethod, which is the
+  pattern `mark_do_not_fail` already establishes. Carrying it on the plan instead would be cleaner and
+  is only worth it if the value ever needs to vary per repo. The plan dump needs no work: the task is
+  already named `Maven clean install` or `Maven clean install skip tests`, so `--dump-plan` and the
+  saved plan script record which mode ran.
+
+  Two places the flag must not silently reach. `ReleasePrepareShellTaskFactory` hardcodes
+  `mvn clean install -DskipTests` and `DeployShellTaskFactory` hardcodes `mvn deploy -DskipTests`, so
+  release and deploy builds never run tests whatever the flag says. Extend them deliberately or state
+  it; do not leave `--tests` looking as though it covers them.
+
+  Worth doing in the same pass: `CEDAR_DEV_BUILD_FRONTENDS` is the precedent this item invokes, and it
+  has the same shape. Promoting it to `--frontends` / `--no-frontends` costs little extra and gives the
+  CLI one convention rather than two — the skipped tasks are currently named
+  `"… skipped because of CEDAR_DEV_BUILD_FRONTENDS"`, so their titles have to move with it either way.
+
+  **The output loop.** `ShellTaskExecutor.execute_shell_command` sets `O_NONBLOCK` on the subprocess
+  pipe and spins on `while proc.poll() is None`, which is the 100% CPU, while Rich redraws under a
+  `Live` at ten frames a second, which is what makes progress hard to distinguish from a hang.
+  `worker/Worker.py` carries the same three lines for the commands that run outside a plan, so fix both
+  or the CPU burn survives in `git`, `dev` and `start`. The cheap fix is a net deletion: drop the `fcntl` call and iterate the pipe, then `proc.wait()` — stderr
+  is already merged into stdout, so there is one stream and no deadlock to avoid. `select` with a
+  timeout is the alternative if a periodic tick during silence is wanted, and a reader thread only if
+  the tick should report how long the silence has lasted. Separately, every line calls both
+  `job_progress.print` and `job_progress.update`; teeing full output to a per-repo log file and
+  echoing only under `--verbose` would suit a build whose logs already must not be piped through
+  `head` or `grep`.
+
+  One more thing belongs in the acceptance criterion. On failure with `fail_on_error` set,
+  `PlanExecutor` exits 1 correctly. With it unset the error is disregarded and the run still prints
+  "Execution succeeded!" and exits 0. A build that continued past a failure must record it, say so in
+  the closing panel, and exit non-zero.
 
 - **16. Deepen the core-workflow tests instead of growing the headline count.** The JUnit matrices and the
   REST suites now give the system respectable horizontal coverage: routes boot, authentication and

@@ -483,14 +483,11 @@ stack in dependency order: `cedar-parent`, then `cedar-microservice-libraries`, 
 servers. Inside a single repo, `cedarcli build this` builds just that repo. Both need the profile
 sourced and `JAVA_HOME` pinned to 17.
 
-The build runs the tests. Every suite is backend-free, so nothing needs to be up for it, and a green
-build means what CI means by it. For a fast build when the tests have already been run:
-
-```bash
-CEDAR_DEV_SKIP_TESTS=true cedarcli build java
-```
-
-Any other value, or none, runs them.
+The build skips the tests: every Java repo is built with `mvn clean install -DskipTests`, so a green
+`cedarcli build` means the stack compiles, not that it passes. Run a suite separately, with `mvn` in
+the repo. Every suite is backend-free, so nothing needs to be up for it. Making the build run the
+tests, with `--tests` / `--skip-tests` to choose, is an open item on
+[BACKEND-ROADMAP.md](./BACKEND-ROADMAP.md).
 
 Order is not optional. A server compiled against a stale `cedar-parent` picks up the parent's old
 managed versions and plugin configuration, which fails silently rather than loudly (see the
