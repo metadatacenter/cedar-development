@@ -26,6 +26,11 @@ This roadmap tracks open work only.
   unit-spec files, and 348 bundle-level Playwright checks across desktop, narrow
   and smoke projects on Chromium, Firefox and WebKit, with 102 committed
   snapshots.
+- One visual check is flaky at roughly one run in four: `external authority
+  endpoints › a returned authority term can be selected and reaches the host
+  metadata`. Measured across four runs either side of an unrelated commit, so it
+  is the test and not a regression — it was misread as one once already. Until it
+  is fixed, a single red run of that name means re-run before investigating.
 - Nothing checks CEE's own instance output against its template. The `ajv` check
   that used to is gone, and its replacement is blocked — item 5.
 - The obsolete datetime-picker dependency has been replaced by CEE's in-house
