@@ -312,16 +312,28 @@ rather than documenting the loss.
   `index.txt` reset makes `openssl ca` fail with "There is already a certificate for …". The reload is
   the only step that needs your password (the master is a root process; there is no passwordless sudo).
 
-- **MongoDB will not start under `brew services`** → `brew services start mongodb-community@5.0`
-  fails with `launchctl bootstrap gui/<uid> ... exited with 5`, and there is no stale agent to boot
-  out. The daemon itself is fine; only the launch agent is broken. Start it directly:
+- **`brew services start mongodb-community@5.0` breaks MongoDB** → it fails with
+  `launchctl bootstrap gui/<uid> ... exited with 5`, and running it again keeps failing because it
+  is the cause, not the victim. The formula ships its own `macos_mongodb.plist` and its `service`
+  block only names it, which is the old Homebrew convention; current `brew services` ignores that
+  and *generates* a plist from the `service` block instead. That block defines no `run`, so the
+  generated plist has an empty `ProgramArguments` and launchd has nothing to start. Each attempt
+  overwrites the good plist with the empty one.
+
+  Reinstall the formula's own plist and load it:
   ```bash
-  /opt/homebrew/opt/mongodb-community@5.0/bin/mongod --config /opt/homebrew/etc/mongod.conf \
-      --fork --logpath /opt/homebrew/var/log/mongodb/mongo.log
+  cp /opt/homebrew/opt/mongodb-community@5.0/homebrew.mxcl.mongodb-community@5.0.plist \
+     ~/Library/LaunchAgents/
+  launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/homebrew.mxcl.mongodb-community@5.0.plist
   ```
-  Started this way it is outside `brew services`, so it does not survive a reboot and
-  `services-generic/startinfra.sh` still fails at that step until the plist is repaired. Unrelated
-  to the containerized path — it shows up whenever the native infrastructure is restarted.
+  It then runs under launchd with `RunAtLoad`, survives a reboot, and `brew services list` reports
+  it started. To restart it afterwards use
+  `launchctl kickstart -k gui/$(id -u)/homebrew.mxcl.mongodb-community@5.0` rather than
+  `brew services`, which would regenerate the empty plist.
+
+  The underlying cause is the pinned version: the tap has moved to MongoDB 8.x while the deployment
+  is locked to 5.0, so the 5.0 formula carries a convention Homebrew no longer honours. Expect this
+  to return after a Homebrew upgrade.
 
   Two `mongod` processes from `~/.embedmongo` may also be running: those are embedded MongoDBs left
   by a test run using `cedar-test-support-library`. They hold no ports and are harmless, but
