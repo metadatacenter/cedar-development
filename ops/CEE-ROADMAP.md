@@ -112,6 +112,30 @@ by accident in the meantime.
 
 Complete this before declaring `1.6.0` stable.
 
+#### What describing the contract turned up
+
+Kept because each was a decision that could reasonably have gone the other way, and
+each would be re-decided the same wrong way without the reason written down.
+
+- **The package cannot publish a value.** The bundle is an IIFE that registers a
+  custom element and exports nothing, so the declarations are types only — not a
+  style choice. The first draft exported the config keys as constants, which would
+  have satisfied a host's compiler and been `undefined` at runtime. A test now
+  asserts the public API declares no runtime values. This is the constraint that
+  makes the packaging question (app bundle versus library) a prerequisite rather
+  than a preference: key names as constants and a machine-readable schema both wait
+  on it.
+- **The key list lives in three places and only one exists at runtime** — the
+  component's constants, the published `CeeConfig` interface, and the validator's
+  `CONFIG_SCHEMA`. Two are compile-time only, which is why a test reads them from
+  source and holds all three together. A key missing from the schema is not a silent
+  gap: the boundary check reports it to the host as unknown, which is the loudest
+  possible way for the three to disagree.
+- **The authority endpoint keys are enumerated, not matched.** They come from
+  `AUTHORITY_DESCRIPTORS`, so `orkidIntegratedExtAuthUrl` is rejected. A pattern like
+  `/Integrated(ExtAuth|Details)Url$/` reads as the obvious implementation and would
+  have accepted precisely the typo the check exists to catch.
+
 ### 2. Fix and modernize the datetime field
 
 The date/time/timezone control needs work on three fronts, from the cheap near-term fix
