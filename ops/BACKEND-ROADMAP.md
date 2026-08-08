@@ -461,18 +461,34 @@ model libraries — where their JSON and YAML serializations diverge — is in
      users — behind a flag on the `resource_state` volume, buried under six lines of waits. Anything
      folding those scripts together has to keep it.
 
-     That bootstrap has a latent problem worth its own look. The `cedarat.sh` calls are not checked
-     and the flag is written unconditionally, so a first run against a half-ready Neo4j marks the
-     system initialised without having initialised it, and never retries; recovering means deleting
-     the flag from the volume by hand. Observed while testing the split, not introduced by it.
+     That bootstrap no longer writes its flag unconditionally. It did, so a first run against a
+     half-ready Neo4j marked the system initialised without having initialised it and never retried;
+     recovery meant deleting the flag from the volume by hand. Each `cedarat.sh` step is now checked,
+     and a failure refuses the flag and refuses to start, which lets the restart policy try again.
 
      The entrypoint now also honours the pre-entrypoint's exit status. It did not before, which never
      mattered because every wait script blocks until its backend answers rather than giving up — but
      it meant a misconfigured server would have started anyway. A server asked to wait for a peer
      whose admin port is not set now exits 1 instead of starting into a failure it cannot explain.
 
-     What remains is bridge's surplus Mongo coordinates, and the same treatment for the frontends,
-     which have no waits at all.
+     Two things this item assumed were wrong. The frontends need no waits: the five static images do
+     nothing before nginx, and `cedar-frontend-main` only runs `gulp` locally. And bridge's Mongo
+     coordinates are not surplus — the configuration sandbox requires them, so removing them stops the
+     server booting even though no bridge code touches Mongo.
+
+     **What a server needs is declared in code, and four compose entries did not supply it.**
+     `CedarConfigEnvironmentDescriptor` names the variables each `SystemComponent` needs and
+     `CedarEnvironmentVariableProvider` builds the sandbox from it: a needed variable that is unset is
+     fatal, while an unneeded one is defaulted (`0` for numerics, `false` for booleans) or held back
+     entirely — which is why most absent variables are harmless and a few are not. Running each
+     server's jar against exactly the environment its compose entry supplies found four that could not
+     have started at all: bridge missing nine (ROR, four ORCID, two CompTox, RRID, PubMed), and group,
+     resource and user each missing `CEDAR_TEST_USER1_ID` and `CEDAR_TEST_USER2_ID`. All eleven were
+     already defined by the profile and simply not passed through. Added; all four now boot.
+
+     What remains is automating that comparison. Booting fifteen jars against fifteen environments is
+     the only way found so far to check a compose entry against the descriptor, and it should run on a
+     release rather than be rediscovered by hand.
 
   One estate difference is worth a decision rather than a fix. The Docker nginx now serves 24 virtual
   hosts against the native stack's 28; the four that remain are CEE's — `demo.cee`, `demo-dist.cee`,
