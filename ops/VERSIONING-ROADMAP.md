@@ -153,7 +153,95 @@ response.
    as subsumption, and EHDAA is configured as a `part_of` partonomy; re-ingested and re-allowlisted), DDSS
    was already healthy (807k labelled classes), and EO1 stays BioPortal-served (its SKOS source is broken —
    `skos:broader` values are string literals, not IRIs).
-- **8. Ingest ontologies from more sources.** *Shipped:* `--source url` (`DirectUrlSubmissionSource` —
+- **8. Term ordering in search: what BioPortal does, and what the local store can do instead
+   (replace-BioPortal track).** Ordering is the one part of lookup the local store does not model.
+   Inside a snapshot, `SnapshotStore.labelSearch` orders by `length(pref_label), pref_label, iri`;
+   across sources, `Util.sortByClosestMatch` puts preferred labels containing the query first and then
+   sorts by Levenshtein distance to it (`SearchResultComparator`). Both are label-only: a hit found
+   through a synonym or a non-English label is ordered by its *preferred* label's length or edit
+   distance, and nothing considers which ontology a hit came from.
+
+   BioPortal's model, documented only in its source, has two halves. Solr edismax field boosts — ids
+   at `^100`, `prefLabelExact^90`, `prefLabel^70`, `synonymExact^50`, `synonym^10`, plus an additive
+   `bq=idAcronymMatch:true^80` — and a multiplicative ontology-level prior, `boost=sum(ontologyRank,1)`,
+   where `ontologyRank` is `0.5 × log10-normalised BioPortal page visits over a trailing 12 months
+   + 0.5 × (1 if the ontology is in the UMLS group)`, recomputed by cron into Redis and pushed into the
+   term index (`ontologies_api/helpers/search_helper.rb`, `ontologies_linked_data` `Ontology.rank`,
+   `ncbo_cron/lib/ncbo_cron/ontology_rank.rb`). Neither the `/search` API documentation nor the 2025
+   NAR BioPortal paper mentions any of it.
+
+   **Measured 2026-08-08** — `ops/bp_search_ordering.py` over 8 common terms ("melanoma", "diabetes
+   mellitus", "kidney", "blood pressure", "aspirin", "water", "temperature", "cell membrane"). Each term
+   is scored against BioPortal's *own* 200-hit result set, so recall is fixed and only the ordering
+   function varies: 1,600 hits, 221 ontologies, 209 of them in the served catalog. The script also
+   reconstructs the real `ontologyRank` from `/analytics` plus UMLS group membership, which makes
+   BioPortal's own prior a measurable reference rather than a guess. Re-run with:
+
+   ```bash
+   source $CEDAR_HOME/set-env-external.sh
+   python3 $CEDAR_HOME/cedar-development/ops/bp_search_ordering.py
+   ```
+
+   Agreement with BioPortal's ordering, mean over the 8 terms. Ties break on the concept IRI, never on
+   BioPortal's own position, or a tie-preserving sort would silently score the input order as skill:
+
+   | ordering | rho over the pool | of BP's top 10 | order within BP's top 10 |
+   |---|---|---|---|
+   | field boosts only | 0.616 | 3.8 | all tied |
+   | × real `ontologyRank` (BioPortal's own) | **0.727** | **9.1** | **0.877** |
+   | × size (classes) | 0.462 | 5.4 | 0.251 |
+   | × depth (median ancestors) | 0.499 | 2.6 | -0.312 |
+   | × uploads (submissions) | 0.512 | 4.1 | 0.436 |
+   | × recency of upload | 0.484 | 4.2 | 0.217 |
+   | × all four, equal weights | 0.487 | 4.2 | -0.001 |
+   | today's contains + Levenshtein | 0.549 | 3.9 | all tied |
+
+   *The field half decides the shape of the list, not its head.* Replicating the boosts from
+   `prefLabel`/`synonym`/`matchType` reaches rho 0.616 over the whole pool but recovers only 3.8 of
+   BioPortal's top ten, because a common term has far more exact preferred-label matches than a page can
+   hold — 56 for "melanoma", 100 for "kidney", 115 for "water", within the 200-hit pool alone — and the
+   field score cannot tell them apart. *The prior is what picks and orders the visible ten, and it is
+   pure usage.* The cleanest cut is a single query's exact-preferred-label group: same string, different
+   ontologies, so the field boosts are equal by construction and only the prior can be ordering them.
+   Correlation of BioPortal's rank against each signal over those groups (-1.000 would predict the order
+   exactly; the UMLS flag is constant, so undefined, where every member is a UMLS ontology):
+
+   | signal | mean | melanoma | diabetes mellitus | kidney | blood pressure |
+   |---|---|---|---|---|---|
+   | real `ontologyRank` | **-0.680** | -0.756 | -0.998 | -0.671 | -0.988 |
+   | 12-month visits alone | -0.651 | -0.666 | -0.998 | -0.668 | -0.988 |
+   | UMLS-group flag alone | -0.608 | -0.606 | — | -0.496 | — |
+   | size | -0.255 | -0.409 | -0.405 | -0.497 | -0.180 |
+   | uploads | -0.175 | -0.048 | -0.789 | -0.099 | -0.517 |
+   | recency | -0.155 | 0.098 | -0.774 | -0.052 | -0.276 |
+   | depth | **+0.212** | 0.223 | -0.066 | 0.111 | 0.190 |
+
+   *Structural metadata does not substitute for it.* Depth is inverted, and a grid search over all four
+   weights peaks at rho 0.520 recovering 4.2 of the top ten, with *zero* weight on size and depth (best:
+   uploads 0.75, recency 0.25). Today's contains-plus-Levenshtein ordering leaves BioPortal's entire top
+   ten tied — every one of those hits is distance 0 — so which ten CEDAR shows, and in what order, is
+   effectively arbitrary.
+
+   **Why the proxies fail, concretely.** Size looks strong corpus-wide (rho 0.809 against real
+   `ontologyRank` across the 1,204 catalog acronyms BioPortal also knows) but that is a range artifact
+   of the many small, unvisited ontologies; among the ontologies that actually compete for a common
+   term it carries almost nothing. Depth is inverted because the most-used ontologies are the flattest:
+   MESH (9.6M visits, rank 1.000) holds 355,402 classes with 42,643 edges — 0.12 per class, median
+   ancestor count 0 — while low-traffic OBO ontologies are deep (UPHENO 1.66 edges per class, UBERON
+   1.83). Uploads misfire the same way: NCIT has 150 submissions and sits between 5th and 9th, RCD has
+   one and sits 7th. And the ontologies BioPortal ranks highest are disproportionately the UMLS-licensed
+   ones the local store cannot hold at all — SNOMEDCT, MEDDRA, RCD and ICPC2P are absent from the
+   catalog — so a local ranking cannot mirror BioPortal's head of list even with a perfect prior.
+
+   **What to do.** Implement the field half properly and make it synonym-aware: exact preferred label,
+   then preferred label, then exact synonym, then synonym, each with a length norm, so a hit's *match
+   reason* orders it rather than its preferred label's edit distance. Give the result a deterministic
+   total order. Do not invent a structural prior — it is worse than none on the head of the list. If a
+   prior is wanted it has to be a *demand* signal, the local analogue of page visits: per-ontology usage
+   counts harvested from production templates with `ops/cedar_ontology_usage.py`, or per-term pick counts
+   recorded at fill time. Two facts BioPortal's own prior uses are cheap to capture at ingest and worth
+   storing either way: UMLS-group membership and the source's submission count.
+- **9. Ingest ontologies from more sources.** *Shipped:* `--source url` (`DirectUrlSubmissionSource` —
    any URL) and `--source bioportal --base-url` (any OntoPortal instance: AgroPortal, EcoPortal, …).
    Proven across five serializations (RDF/XML, OBO, Turtle, gzipped OWL, SKOS) and nine authorities, with
    source-, serialization-, and host-independent content-hash identity confirmed on real data (BFO
@@ -167,7 +255,7 @@ response.
    2026-08-06 (82 min at 40g, server stopped — a 3.7× expansion, see the tracker). *Remaining:*
    bulk-harvest OLS `fileLocation`s; OGG, whose PURL still 404s upstream (the 2026-07-29 snapshot stands);
    label the OntoPortal authority on the snapshot (backend records `bioportal` regardless of instance).
-- **9. Backfill `iri`/`sourceSystem` onto existing stored constraints.** A data migration over published
+- **10. Backfill `iri`/`sourceSystem` onto existing stored constraints.** A data migration over published
    CEDAR templates, not a code change — and not required for function, since tolerant readers already
    default a constraint with no `sourceSystem`/`iri` to BioPortal + acronym-derived resolution. Two halves:
    `sourceSystem` is a no-op (absent already means BioPortal everywhere it is read, including the router);
@@ -178,21 +266,21 @@ response.
    canonical identity explicitly, immune to acronym ambiguity and future cross-source resolution), not a
    functional gap. Do a zero-mutation dry-run first (report coverage and non-derivable acronyms) before any
    run against the live template store.
-- **10. Remaining multilingual read-side options (deferred by decision).** Done and in the "Built" list:
+- **11. Remaining multilingual read-side options (deferred by decision).** Done and in the "Built" list:
    capture, serving (search recall, synonyms, `lang=<code>` on the class and integrated-search endpoints),
    and the label backfill — `--backfill-labels-from-raw` (re-extract from the retained local raw matched by
    `file_hash`, no version-id gate since labels key by IRI) added +5.6M labels across the served catalog.
-   Residual data gap is item 13 (9 raw-less ontologies). Still open here, *by decision not blockers:*
+   Residual data gap is item 14 (9 raw-less ontologies). Still open here, *by decision not blockers:*
    `lang=all` (the `{lang:value}` hash), `lang=` on the public `search`/tree output, and honoring the
    submission's `naturalLanguage` for the default (stays English-preferred).
-- **11. Extend the value-constraint YAML to express a term's language.** A controlled-term constraint
+- **12. Extend the value-constraint YAML to express a term's language.** A controlled-term constraint
    currently says nothing about language; a field always renders (and searches) labels in the served
    default. Add a key naming the language the field should present its terms in — `termLanguage`, or
    `termDefaultLanguage` if a field may hold values in several languages and the key only sets the default
    (name to be decided). On the read side it maps to the `lang=` the editor/CEE already sends to the
-   terminology server (item 10); mostly a spec + editor addition, orthogonal to the identity question
+   terminology server (item 11); mostly a spec + editor addition, orthogonal to the identity question
    (item 4).
-- **12. Name the title-less ontologies in the picker (low priority, cosmetic).** The ingest now takes an
+- **13. Name the title-less ontologies in the picker (low priority, cosmetic).** The ingest now takes an
    ontology's display name from BioPortal's metadata, then from its own `owl:Ontology` header title, then
    the acronym — and never downgrades a set name back to the acronym on re-ingest. That leaves the
    ontologies whose source declares no header title at all still showing the bare acronym in the picker:
@@ -200,8 +288,8 @@ response.
    OCDARWN, OCDARWNE, OCDO, RDL, REGN_BRO, STY1 (mostly VODAN/OCDAR/test/project artifacts). No automatic
    source exists, so each needs a hand-assigned title written to `ontology_source.name`. Cosmetic — the
    picker also shows the acronym — and cheap once the correct names are supplied; low priority.
-- **13. Give FLOPO its labels without costing it its hierarchy (the last of ten).** Nine served ontologies
-   had real labels but could not be multilingual-backfilled (item 10): no retained local raw matched their
+- **14. Give FLOPO its labels without costing it its hierarchy (the last of ten).** Nine served ontologies
+   had real labels but could not be multilingual-backfilled (item 11): no retained local raw matched their
    snapshot `file_hash`, and BioPortal had drifted, so neither `--backfill-labels` (source refetch) nor
    `--backfill-labels-from-raw` could fill them — NCIT, MS, DOVES, FLOPO, MIXS, MOLSIM, NAMO, RS, SSTIM
    (plus NCBITaxon, deferred for size). Their primary English `pref_label` serves fine; only the
@@ -227,7 +315,7 @@ response.
    moved back to the dated BioPortal snapshot and the new one is retained but unserved. Check roots and
    edges, not just class count, before letting a PURL refresh stand on an import-heavy ontology.
 
-- **14. Investigate storing caDSR CDE value sets.** The enumerated caDSR CDEs — those whose value domain
+- **15. Investigate storing caDSR CDE value sets.** The enumerated caDSR CDEs — those whose value domain
    is a permissible-value list — already resolve to value sets, packaged today as the hand-built CADSR-VS
    value-set ontology and served through BioPortal; [cedar-cadsr-tools](https://github.com/metadatacenter/cedar-cadsr-tools)
    builds them (`ValueSetsOntologyManager`) as part of its CDE→CEDAR-field mapping. Investigate storing
@@ -241,16 +329,16 @@ response.
 
 ### Open questions (authorities that don't fit the version model)
 
-- **15. ORCID / ROR / RRID (and DOI): not versionable per se.** A constraint names the *authority*; the
+- **16. ORCID / ROR / RRID (and DOI): not versionable per se.** A constraint names the *authority*; the
    value is a stable identifier captured in the instance — no snapshot, no current-version. The spec
    already covers the shape (`sourceSystem` set, `version` omitted). Open question: how the editor and
    instance model represent authority-typed, value-captured, unversioned fields distinctly from a
    versioned controlled term. (The instance is where these land — see item 5.)
-- **16. CompTox / PFAS (release-based databases): possibly versionable.** Content with releases, so they
+- **17. CompTox / PFAS (release-based databases): possibly versionable.** Content with releases, so they
    could fit the content-hash snapshot model *if* they expose retrievable content and release identifiers,
    and *if* a content hash of a flat set (a chemical list, not a hierarchy) is meaningful across
    serializations. Worth a spike.
-- **17. Cache the CompTox substance registry locally (bridge server, infra).** On every start the bridge
+- **18. Cache the CompTox substance registry locally (bridge server, infra).** On every start the bridge
    server rebuilds its registry by fetching roughly 14,700 substances from the external CompTox API in
    batches of a thousand, holding the result in a `ConcurrentHashMap` that dies with the process
    (`SubstanceRegistry`, driven by the `Managed` `SubstanceRegistryLoader`). Three costs follow: the load
@@ -260,12 +348,12 @@ response.
    refreshing on a schedule or when the local copy is stale rather than on every boot, so the server
    serves from the cache immediately. SQLite fits and is already in the stack (`org.xerial:sqlite-jdbc`,
    pinned in `cedar-parent` for the terminology local store). Split readiness from liveness in the health
-   check alongside, so a warming server reports as such rather than as failed. Related to item 16: both
+   check alongside, so a warming server reports as such rather than as failed. Related to item 17: both
    concern how CompTox content enters and is held by the stack.
 
 ## Ingestion tracker (ongoing)
 
-An **iterative** task: updated each time more ontologies are ingested from other repositories (item 8).
+An **iterative** task: updated each time more ontologies are ingested from other repositories (item 9).
 Identity is the content hash, so the same release from multiple sources/serializations collapses to one
 snapshot — the distinct-hash count is the true store size. Method/findings under
 [Ingesting from other repositories](#ingesting-from-other-repositories).
@@ -303,8 +391,8 @@ ontology, distinct content hashes): GO-basic (2024-01-17 vs 2025-06-01), PATO (2
   deferred to a giant-run with the server stopped). New `latest` snapshots serve after a terminology restart.
 - 2026-08-04 — GAZ ingested (download timeout raised to 90 min, commit `f66b1bb`), and the served catalog's
   multilingual labels were backfilled from retained local raws (`--backfill-labels-from-raw`, +5.6M labels
-  across 77 snapshots incl. giants MESH/BERO/DDSS/LOINC/EFO — item 10). Residual re-fetch tracked as item 13.
-- 2026-08-06 — targeted pass over the served prod catalog: item 13's label re-fetch (all ten, closing it)
+  across 77 snapshots incl. giants MESH/BERO/DDSS/LOINC/EFO — item 11). Residual re-fetch tracked as item 14.
+- 2026-08-06 — targeted pass over the served prod catalog: item 14's label re-fetch (all ten, closing it)
   plus the ingests deferred from the 2026-08-03 OBO pass (prod 1332→1343 snapshots, 1309→1320 hashes,
   1214→1215 acronyms).
   **NCBITaxon is the headline** — the refresh that was deferred as too RAM/time-heavy ran in 82 min at
@@ -314,8 +402,8 @@ ontology, distinct content hashes): GO-basic (2024-01-17 vs 2025-06-01), PATO (2
   from BioPortal (206,628 → 206,860 classes, roots unchanged at 18, +206,860 labels), **MS** and **RS**
   (structure unchanged or marginally better, +4,619 and +14,611 labels), and **GEMET** newly ingested
   (5,609 concepts via `skos:broader`, +202,276 labels — its 2026-08-01 failure is resolved, see below), and
-  item 13's five non-OBO stragglers from BioPortal (DOVES, MIXS, MOLSIM, NAMO, SSTIM — 81 s for all five).
-  **FLOPO refreshed and reverted** — see item 13; the store keeps both snapshots.
+  item 14's five non-OBO stragglers from BioPortal (DOVES, MIXS, MOLSIM, NAMO, SSTIM — 81 s for all five).
+  **FLOPO refreshed and reverted** — see item 14; the store keeps both snapshots.
   *GEMET's failure was never the remote end.* It fails under Java with `SSLHandshakeException: PKIX path
   building failed` because `eionet.europa.eu` serves a chain JDK 17's truststore will not build a path to.
   `curl` succeeds against the same URL using the system trust store, so a curl reachability check does not
@@ -344,7 +432,7 @@ Ordered for the next unattended run, cheapest and most certain first. The catalo
 `$CEDAR_HOME/cedar-term/prod/catalog.sqlite`; back it up before any write, and re-check roots and edges
 after every refresh rather than class count alone (this is what caught FLOPO).
 
-1. **Give FLOPO its labels back.** The only item-13 ontology still without a label side-table. It needs a
+1. **Give FLOPO its labels back.** The only item-14 ontology still without a label side-table. It needs a
    source carrying its import closure, which the bare OBO PURL is not — try BioPortal, the route that
    worked for the other six, and keep the reverted `latest` if the tree does not come back at ~23 roots.
 2. **Settle DDSS.** The catalog shows 807,061 classes and 800,850 edges as of 2026-07-29, contradicting
@@ -706,7 +794,7 @@ same artifact.
 
 - **Two ingestion modes cover the field.** `--source url` for anything with a stable file URL (OLS
   `fileLocation`s, W3C, SKOS dumps, LOV dated versions); `--source bioportal --base-url` for OntoPortal
-  instances, which additionally give real submission history. These map onto roadmap item 14.
+  instances, which additionally give real submission history. These map onto roadmap item 9.
 - **Harvest OLS as a catalogue**: read `fileLocation` from `/api/ontologies?size=300` and feed each to
   `--source url`. (Skip the two `file:///nfs/...` entries; they are not downloadable.)
 - **SKOS is fully supported** end to end, including serialization-independent identity — the thesaurus
