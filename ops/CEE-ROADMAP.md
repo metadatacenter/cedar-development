@@ -373,13 +373,20 @@ the `$applied-theme` construction, not a search-and-replace, and it will change
 what CEE looks like. Doing it at the same time as the brand question above is
 probably right, since both rewrite the same construction.
 
-While in there, the `core()` mixin still carries a `TODO(v15)` block advising what
-to do about typography "as of v15". CEE is on 22. Either act on it or delete it —
-a stale instruction in the one file the next person will open to make this change
-is worse than none.
+The `TODO(v15)` block the `core()` mixin carried is answered and gone. It asked
+whether `all-component-typographies()` was needed, and set out two conditions
+for dropping it; both hold. CEE specifies typography in `$_typography`, which
+`$applied-theme` carries and `all-component-themes` emits, so component
+typography was written twice, and the hierarchy classes the call also brings are
+used nowhere — the only mention of `.mat-headline-1` in the repository was inside
+that note. Removing it takes 13,678 bytes out of the bundle with all 356
+bundle-level checks passing, every pixel snapshot among them. Carried unanswered
+from 15 to 22, it cost bytes on every build in the meantime.
 
-**Reduce what CEE reaches into.** 24 distinct `.mat-*` and `.mdc-*` selectors
-across 11 stylesheets, plus 15 `!important` declarations in `styles-own.scss`
+**Reduce what CEE reaches into.** 18 distinct `.mat-*` and `.mdc-*` selectors
+across 10 stylesheets — the 24 across 11 recorded here before counted six that
+appear only inside comments, which is what `visual/tests/material-selectors.spec.ts`
+strips before it checks anything. Plus 15 `!important` declarations in `styles-own.scss`
 alone, several of them overriding MDC's own three-class selectors. Each is a bet
 that Material's internal DOM will not move, and the march collected the receipts:
 the form-field infix compression had to be rewritten for MDC because height moved
@@ -387,6 +394,18 @@ from padding to `min-height`, and the notched outline needed three selectors whe
 legacy needed one. `visual/tests/material-selectors.spec.ts` at least reports when
 one of these stops matching anything, which is how two dead rules were found — but
 reporting is not reducing.
+
+The rule for deciding which of the 18 to keep: take Material for behaviour —
+focus management, overlay positioning, keyboard interaction, the accessibility
+work that is expensive to reproduce and easy to get wrong — and let
+`_cee-tokens.scss` decide appearance. A selector reached into for a colour, a
+font or a spacing is one CEE should be able to express as a token; one reached
+into to correct a layout Material computes, like the form-field infix, is
+harder to give up and worth keeping deliberately. Half of that split already
+holds: `_cee-tokens.scss` names CEDAR's values and imports no Material, and
+`_cee-material-theme.scss` is the only file that does. What is missing is the
+tokens reaching the components without going through Material's internal class
+names.
 
 Done when the palette question has an answer that someone chose, the theme is
 built on supported APIs, and the count of Material internals CEE depends on has
