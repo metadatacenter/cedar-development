@@ -280,8 +280,28 @@ or restyles the form is a hop whose failures cannot be attributed.
   would break it in a way no build error shows. Run `npm run test:ci` first; that
   is the whole remaining question.
 
-  The migration also adds `compilerOptions` to the solution-style `tsconfig.json`,
-  which holds no files. Worth understanding rather than accepting.
+  The migration also writes `compilerOptions` into the solution-style
+  `tsconfig.json`, which holds no files. That is understood now, and it is the
+  same trap as the Angular 15 `useDefineForClassFields` migration recorded in
+  `tsconfig.base.json`: the schematic hard-codes the path `tsconfig.json`, while
+  CEE keeps its options in `tsconfig.base.json`. All four of its edits land on
+  the wrong file. It writes `esModuleInterop: true` and
+  `moduleResolution: "bundler"` there, and tries to delete `downlevelIteration`
+  and `allowSyntheticDefaultImports` — CEE has no `downlevelIteration`, and its
+  `allowSyntheticDefaultImports` survives untouched in the base config.
+
+  Nothing extends `tsconfig.json` and it compiles nothing, so the block it adds
+  is inert. The cost is not the block; it is that the change the migration meant
+  to make was skipped in silence. That change is to replace
+  `allowSyntheticDefaultImports`, which only relaxes type-checking, with
+  `esModuleInterop`, which also fixes interop at emit.
+
+  Make it by hand in `tsconfig.base.json` and delete the inert block. It is
+  measured as safe: with `esModuleInterop` swapped in, the app type-checks
+  clean, builds, and passes all 356 bundle-level checks including every
+  snapshot — tested despite the emit change reaching `import * as _ from
+  'lodash-es'` and the two JSON language-map imports, which are what would have
+  broken. The `moduleResolution: "bundler"` it wants is already set.
 
 Material 3 theming was also held out of the march. It belongs with the rest of the
 styling questions rather than here — item 4.
