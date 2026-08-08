@@ -483,6 +483,15 @@ stack in dependency order: `cedar-parent`, then `cedar-microservice-libraries`, 
 servers. Inside a single repo, `cedarcli build this` builds just that repo. Both need the profile
 sourced and `JAVA_HOME` pinned to 17.
 
+The build runs the tests. Every suite is backend-free, so nothing needs to be up for it, and a green
+build means what CI means by it. For a fast build when the tests have already been run:
+
+```bash
+CEDAR_DEV_SKIP_TESTS=true cedarcli build java
+```
+
+Any other value, or none, runs them.
+
 Order is not optional. A server compiled against a stale `cedar-parent` picks up the parent's old
 managed versions and plugin configuration, which fails silently rather than loudly (see the
 stale-parent gotcha above). When bumping a dependency or changing shared build configuration, always

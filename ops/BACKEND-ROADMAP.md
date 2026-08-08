@@ -493,24 +493,26 @@ model libraries — where their JSON and YAML serializations diverge — is in
 Coverage and test-infrastructure work. The active REST integration suites live in
 `ops/e2e/rest/suites/`; the JUnit matrices and boot-smoke live in the per-server modules.
 
-- **15. Make test execution an explicit, usable option in `cedarcli build`.** The Java build currently
-  uses `mvn clean install -DskipTests`; this restores the historically fast and predictable developer
-  build after briefly enabling every JUnit suite made `cedarcli build java` appear to run forever.
-  Investigate whether tests should eventually become the default again, but at minimum give `build
-  this`, `build parent`, `build libraries`, `build project`, `build clients` and `build java` clear
-  `--tests` / `--skip-tests` options with one documented default. The selected policy must apply
-  consistently to every Maven task in the generated plan and preserve Maven's failure status.
+- **15. Promote the skip-tests switch to a command-line option, and stop the output loop
+  busy-polling.** The Java build runs its tests: `mvn clean install`, with `CEDAR_DEV_SKIP_TESTS=true`
+  for a fast build when they have already been run, following the `CEDAR_DEV_BUILD_FRONTENDS`
+  precedent. The policy reaches every Java repo in the generated plan, since `build this`, `build
+  parent`, `build libraries`, `build project`, `build clients` and `build java` all expand through
+  `BuildOperator`. What remains is to promote the environment variable to real `--tests` /
+  `--skip-tests` options with one documented default.
 
-  Enabling tests is not only a command-line switch. The backend-free suites deliberately point Redis
-  at dead port 1 because queue writes are best-effort; each expected failed write currently emits a
-  full Jedis connection stack trace. In one captured `cedarcli build java` run this produced 1.17
-  million lines (49 MB) in 1 minute 39 seconds while the tests were still advancing. Give tests a
-  quiet queue substitute or suppress the expected queue/Jedis exceptions in test logging, while
-  retaining a focused assertion that an unavailable queue does not fail the request. Also replace
-  cedar-cli's nonblocking `while proc.poll() is None` output loop: it busy-polls at 100% CPU and Rich
-  continually redraws the terminal, magnifying the log flood and making progress hard to distinguish
-  from a hang. Acceptance means the default build remains monitorable, the opt-in full test build has
-  bounded useful output, and both modes finish with a trustworthy non-zero exit code on failure.
+  The log flood that made an all-tests build unusable is gone. It was one ~105-line Jedis stack trace
+  per HTTP request: the suites point Redis at a dead port because queue writes are best-effort, and
+  every expected failure logged its full cause. A recurring queue failure now logs the trace once and
+  thereafter its type, message and a running total, so the drop stays visible and countable while the
+  frames are printed once. The resource-server application tests fell from 400,192 lines (36 MB) to
+  13,555, and the queue services carry assertions that an unavailable queue drops and counts without
+  failing the caller.
+
+  What remains beyond the command-line option: replace cedar-cli's nonblocking `while proc.poll() is
+  None` output loop. It busy-polls at 100% CPU and Rich continually redraws the terminal, making
+  progress hard to distinguish from a hang. Acceptance means the build stays monitorable and finishes
+  with a trustworthy non-zero exit code on failure.
 
 - **16. Deepen the core-workflow tests instead of growing the headline count.** The JUnit matrices and the
   REST suites now give the system respectable horizontal coverage: routes boot, authentication and
