@@ -144,6 +144,33 @@ which is the hazard of writing counts down at all.)
 Use the complete gate before pushing or opening a pull request. The focused
 commands below are faster feedback while working on one layer.
 
+### Auditing what ships
+
+```bash
+npm run audit:prod
+```
+
+`npm audit --omit=dev --audit-level=high`, and CI runs it as its own step after the
+gate. `--omit=dev` because only runtime dependencies reach the bundle an embedder
+downloads — the Angular CLI's tree is a hazard to a developer's machine, not to a
+consumer. `--audit-level=high` because a moderate advisory against build tooling is
+not worth stopping a release for, and the value of the step is that a failure means
+something.
+
+Deliberately **not** part of `test:ci`. It is the one check that can start failing
+without anyone having changed anything, because it fails on a disclosure rather than
+on a commit. Inside the gate it would break an unrelated pull request with an error
+its author cannot fix there, and would teach people to expect a red gate for reasons
+that are not theirs.
+
+That is also why a failure here is not automatically a release blocker. Read the
+advisory and ask whether CEE reaches the vulnerable path — when `lodash-es` 4.17.21
+was flagged for `_.template`, `_.unset` and `_.omit`, CEE called only `cloneDeep`
+and no advisory described anything it could reach. Upgrade anyway if a fix exists,
+because a flagged package is one every embedder would otherwise have to reason about
+alone; but the reasoning belongs in the commit message, not in a version bump made
+on reflex.
+
 ### What CI runs
 
 `.github/workflows/test.yml` runs the same gate on every pull request and on
