@@ -20,14 +20,14 @@ This roadmap tracks open work only.
   and OpenView both serve.
 - The model dependency is the Nexus-only prerelease
   `@org.metadatacenter/cedar-model-typescript-library@0.9.2-dev.20260805.50ef2b3`.
-  That build carries `InstanceValidator`, so item 6 is no longer blocked on the
+  That build carries `InstanceValidator`, so item 5 is no longer blocked on the
   library having shipped — only on it having shipped *stably*.
 - The safety net is 2,132 domain tests, 102 unit tests across nine Angular
   unit-spec files, and 346 bundle-level Playwright checks across desktop, narrow
   and smoke projects on Chromium, Firefox and WebKit, with 100 committed
   snapshots.
 - Nothing checks CEE's own instance output against its template. The `ajv` check
-  that used to is gone, and its replacement is blocked — item 6.
+  that used to is gone, and its replacement is blocked — item 5.
 - The obsolete datetime-picker dependency has been replaced by CEE's in-house
   time picker.
 - Lint is the first stage of `test:ci` and runs clean: 0 errors against 41
@@ -228,42 +228,7 @@ gone down rather than up.
 
 ## Testing
 
-### 5. Enforce the lint gate that already runs
-
-**Done.** `npm run lint` is the first stage of `test:ci`, the formatting drift is
-cleared, and the toolchain now matches the framework: one `angular-eslint` 22 in
-place of four `@angular-eslint/*` at 14, one `typescript-eslint` 8 in place of two
-at 6.10, ESLint 9, and `eslint.config.mjs` in place of `.eslintrc.json`. Lint
-reports 0 errors against a curated `no-explicit-any` baseline that new code cannot
-add to.
-
-Kept here because the next person will want the reasoning rather than the diff.
-
-**The count is 41, not the 32 this file claimed.** Three files carried a blanket
-file-level `eslint-disable` for `no-explicit-any` while the baseline comment said
-the debt was curated rather than blanket-suppressed. It was not, in those three.
-Their nine `any`s are in the baseline now, counted as warnings. Emptying it is
-tracked with the rest of the march's leavings, item 3.
-
-**Four rules are off, and three of them are decisions rather than debt.** Angular
-22's rule set reported 413 errors; 411 were `prefer-control-flow` (203),
-`prefer-inject` (118), `prefer-standalone` (47) and
-`prefer-on-push-component-change-detection` (43). Each asks for an architectural
-rewrite this roadmap already places elsewhere or out of scope, and a gate nobody
-can pass gets ignored rather than fixed. The OnPush one is not deferred but wrong
-for CEE: it renders from `DoCheck` and mutates model objects in place, so OnPush
-would stop the view updating, and obeying the rule would undo by hand the Angular
-22 migration that stamped `Eager` onto all 46 components. Moving to OnPush means
-moving to immutable updates or signals first.
-
-**The old setup was working, and that was worth checking rather than assuming.**
-Deliberate violations of `eqeqeq`, `banana-in-box`, `no-unused-vars` and
-`prettier/prettier` were all caught under `@angular-eslint` 14 — it was enforcing
-Angular 14's rules, correctly, on a TypeScript three majors past what its parser
-declared support for. The same four probes pass now. A lint upgrade that cannot
-demonstrate the gate still fails on a real violation has proved nothing.
-
-### 6. Land the instance-conformance spec
+### 5. Land the instance-conformance spec
 
 CEE used to check its own output against each template with `ajv`, which meant
 carrying a second validator and restating rules CEDAR already defines. That was
@@ -281,7 +246,7 @@ Blocked until the model library publishes a stable version.
 Done when the spec runs in `test:ci` against a published library version and CEE
 output that drops a required key fails the suite.
 
-### 7. Reach the two config flags nothing exercises
+### 6. Reach the two config flags nothing exercises
 
 The browser suite asserts that every config key changes what renders, because a
 key that is silently ignored looks exactly like one that works. Two keys cannot
@@ -324,7 +289,7 @@ or is removed with the reason recorded.
 
 ## Security
 
-### 8. Define and enforce the trust boundary for template-authored rich text
+### 7. Define and enforce the trust boundary for template-authored rich text
 
 Instance-authored HTML is sanitized, but template-authored static rich text is
 rendered through `bypassSecurityTrustHtml` in `keep-html.pipe.ts`. This is safe
@@ -366,7 +331,7 @@ ever return true before and can now return false, and `adheresToBlueprint()` has
 stopped being a second name for it, so a consumer branching on either sees new
 behaviour.
 
-### 9. Settle the temporal `required` judgement
+### 8. Settle the temporal `required` judgement
 
 A judgement about what the corpus means, rather than a code change; it needs
 someone who knows CEDAR's version history. 28 templates require `@type` on a
@@ -410,7 +375,7 @@ a test that can fail.
 1. Land the march on `develop` (item 3). It is 170 commits behind, on a version
    nothing else in CEE still targets, and every other item here is written against
    the branch that moved rather than the branch that ships.
-2. Land the conformance spec as soon as the library publishes (item 6). It is
+2. Land the conformance spec as soon as the library publishes (item 5). It is
    written and waiting, and until it runs CEE has no check on its own output.
 3. Empty the `no-explicit-any` baseline (item 3). 41 warnings across 25 files, and
    typing them has surfaced live bugs twice.
@@ -421,7 +386,7 @@ a test that can fail.
    stock Material teal decides it by default, which is the one way of deciding it
    nobody chose.
 7. Define and enforce the template-rich-text trust contract before allowing
-   untrusted users to supply templates (item 8).
+   untrusted users to supply templates (item 7).
 
 ## Out of scope
 

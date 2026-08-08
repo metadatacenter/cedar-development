@@ -165,6 +165,26 @@ hop, and the dist that ships is now produced on the same Node that exercised it.
 Lint runs first, as the opening stage of `test:ci` rather than as a separate CI
 step, so the gate has one definition locally and in CI. Warnings do not fail the
 build: the pre-existing `any` debt is baselined per file in `eslint.config.mjs`.
+The toolchain matches the framework — `angular-eslint` 22, `typescript-eslint` 8,
+ESLint 9, flat config in `eslint.config.mjs`.
+
+**Four Angular rules are off, and three of them are decisions rather than debt.**
+Angular 22's rule set reported 413 errors, of which 411 were `prefer-control-flow`
+(203), `prefer-inject` (118), `prefer-standalone` (47) and
+`prefer-on-push-component-change-detection` (43). Each asks for an architectural
+rewrite that is tracked elsewhere or placed out of scope, and a gate nobody can
+pass gets ignored rather than fixed. The OnPush one is not deferred but wrong for
+CEE: it renders from `DoCheck` and mutates model objects in place, so OnPush would
+stop the view updating, and obeying it would undo by hand the Angular 22 migration
+that stamped `Eager` onto all 46 components. Moving to OnPush means moving to
+immutable updates or signals first.
+
+**A lint upgrade proves nothing until the gate is shown to still fail.** Before the
+toolchain moved, deliberate violations of `eqeqeq`, `banana-in-box`,
+`no-unused-vars` and `prettier/prettier` were each confirmed caught under the old
+`@angular-eslint` 14 — which was enforcing Angular 14's rules correctly on a
+TypeScript three majors past what its parser declared support for. The same four
+probes pass now. Re-run them after any future toolchain move.
 
 Nothing is published from CI. Releasing the npm package is a separate, manual
 procedure — see [Release](#release) below.

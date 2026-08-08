@@ -200,7 +200,7 @@ response.
    OCDARWN, OCDARWNE, OCDO, RDL, REGN_BRO, STY1 (mostly VODAN/OCDAR/test/project artifacts). No automatic
    source exists, so each needs a hand-assigned title written to `ontology_source.name`. Cosmetic — the
    picker also shows the acronym — and cheap once the correct names are supplied; low priority.
-- **13. Re-fetch labels for the drifted, raw-less ontologies (done — one caveat).** Nine served ontologies
+- **13. Give FLOPO its labels without costing it its hierarchy (the last of ten).** Nine served ontologies
    had real labels but could not be multilingual-backfilled (item 10): no retained local raw matched their
    snapshot `file_hash`, and BioPortal had drifted, so neither `--backfill-labels` (source refetch) nor
    `--backfill-labels-from-raw` could fill them — NCIT, MS, DOVES, FLOPO, MIXS, MOLSIM, NAMO, RS, SSTIM

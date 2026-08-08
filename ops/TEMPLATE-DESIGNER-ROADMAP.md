@@ -34,18 +34,15 @@ render, and exactly NIH Grant ID and DOI are missing, with the header left as ra
 two-level-nested template exercising every other field type at single and multiple
 cardinality, which comes up clean with the header intact.
 
+This also accounts for what looked like a separate performance problem. A
+~133-child template that failed to render was first recorded as a size or digest
+cliff; it is not one. That template carried both types in every field group, about
+ten copies in all, so the render-abort fired repeatedly and looked like a hang.
+A 123-child, two-level-nested template with every *other* field type renders
+cleanly. Treat a stall as a size problem only if it is shown on a template free of
+these two types.
+
 Add designer renderer support for `ext-nih-grant-id-field` and `ext-doi-field`,
 mirroring the existing external-authority field renderers (ROR/ORCID/PFAS/RRID/
 PubMed). Done when a template containing both types renders every field and the
 header title interpolates.
-
-## Performance
-
-### 2. ~~The designer stalls on large templates~~ — withdrawn (same cause as item 1)
-
-First recorded as a size/digest cliff after a ~133-child template failed to render.
-It is not a size problem: that template carried `ext-nih-grant-id-field` and
-`ext-doi-field` in every field group (about ten copies in all), so item 1's
-render-abort fired repeatedly and looked like a hang. A 123-child, two-level-nested
-template with every *other* field type renders cleanly, header intact. Folded into
-item 1. Reopen only if a template free of the item-1 types is shown to stall.
