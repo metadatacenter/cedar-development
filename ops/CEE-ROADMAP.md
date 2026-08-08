@@ -55,6 +55,18 @@ This roadmap tracks open work only.
   `angular.json` had `aot: false` in the build target's base options, so `ng build`
   and `ng serve` compiled no template at all — a binding to a property that does
   not exist built clean.
+- **Templates are on block control flow.** All 203 `*ngIf` and `*ngFor` sites
+  across 33 templates — 184 and 19 — are `@if` and `@for`, rewritten by
+  `ng generate @angular/core:control-flow`. The migration was declined once, at
+  Angular 21, on the advice not to combine a framework hop with a control-flow
+  rewrite; the reason recorded beside it, that the directives were not deprecated,
+  was wrong even then. Angular marked `NgIf`, `NgFor` and the `NgSwitch` family
+  `@deprecated 20.0`. `@angular-eslint/template/prefer-control-flow` is now an
+  error, so the old syntax cannot return a template at a time. Nothing renders
+  differently — all 108 snapshots match — and the bundle lost a further 17,912
+  bytes. `CommonModule` stays: `ngClass` and the `async`, `json`, `keyvalue` and
+  `titlecase` pipes are still used. The migration also reformatted the templates,
+  which had never been prettier-clean because lint does not cover HTML formatting.
 - **`BrowserAnimationsModule` is gone** from both application modules, and
   `@angular/animations` is no longer a dependency of any kind. Angular deprecated
   the module at 20.2 and intends to remove it at 23. CEE never used it: no
@@ -219,8 +231,9 @@ or restyles the form is a hop whose failures cannot be attributed.
 
   **The bundle dropped from 3,493,042 to 3,292,228 bytes — 200,814 smaller, 5.7%.**
   That is the reason to do it: more than the raw ceiling currently leaves free.
-  Both figures predate the `BrowserAnimationsModule` removal, so the saving to
-  expect now is smaller by whatever share of those 64,099 bytes esbuild would have
+  Both figures predate the `BrowserAnimationsModule` removal and the control-flow
+  migration, which have since taken the baseline to 3,411,031. Expect a smaller
+  saving than 200,814, by whatever share of those 82,011 bytes esbuild would have
   shed anyway. Measure it again rather than subtracting.
 
   Packaging needs no work. `visual/resolve-build-output.mjs` was written for this:
