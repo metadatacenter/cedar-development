@@ -13,9 +13,9 @@ This roadmap tracks open work only.
 - The version march is **done**: `cee-with-model-library` is on Angular 22.1,
   TypeScript 6.0, RxJS 7.8 and Node 24.19.0, reached one branch per hop through
   `cee-angular-15` … `cee-angular-22` and fast-forwarded onto it. `develop` and
-  `main` are still on Angular 14.3, TypeScript 4.8 and RxJS 6.6 — 170 commits
-  behind — so both readings of "where CEE is" remain true and the distinction
-  still matters, item 3.
+  `main` are still on Angular 14.3, TypeScript 4.8 and RxJS 6.6, so both readings
+  of "where CEE is" remain true and it is worth saying which one is meant. Landing
+  the branch is not tracked here: it happens as a matter of course.
 - The package is staged as `1.6.0-ng22`, which is what the local Template Designer
   and OpenView both serve.
 - The model dependency is the Nexus-only prerelease
@@ -125,10 +125,6 @@ The march itself is done — 14 → 22, a branch per hop, `cee-angular-15` throu
 absorb is collected here, because a framework hop that also rewrites null handling
 or restyles the form is a hop whose failures cannot be attributed.
 
-- **Land it on `develop`.** `develop` and `main` are still on Angular 14.3,
-  TypeScript 4.8 and RxJS 6.6 — 170 commits behind `cee-with-model-library` and
-  none of the preparation. This is the item's substance: everything else here is
-  small beside a branch that has not moved in eight major versions.
 - **Clear the 42 remaining `any` sites.** Down from 77 across 44 files, and now
   errors with individual disable comments rather than a baseline, so the count
   cannot drift upward unnoticed. The largest cluster by far is
@@ -151,9 +147,8 @@ or restyles the form is a hop whose failures cannot be attributed.
 Material 3 theming was also held out of the march. It belongs with the rest of the
 styling questions rather than here — item 4.
 
-Done when `develop` builds and tests on Angular 22, the `any` sites are gone, the
-scroll bug is diagnosed, and `cedar-artifact-viewer` is either wired in or
-deleted.
+Done when the `any` sites are gone, the scroll bug is diagnosed, and
+`cedar-artifact-viewer` is either wired in or deleted.
 
 #### What the march cost, and what it taught
 
@@ -383,20 +378,17 @@ a test that can fail.
 
 ## Delivery order
 
-1. Land the march on `develop` (item 3). It is 170 commits behind, on a version
-   nothing else in CEE still targets, and every other item here is written against
-   the branch that moved rather than the branch that ships.
-2. Land the conformance spec as soon as the library publishes (item 5). It is
+1. Land the conformance spec as soon as the library publishes (item 5). It is
    written and waiting, and until it runs CEE has no check on its own output.
-3. Clear the remaining `any` sites (item 3). 42 across 10 files, and typing them
+2. Clear the remaining `any` sites (item 3). 42 across 10 files, and typing them
    has surfaced live bugs three times now.
-4. Keep the production bundle and Playwright checks working throughout.
-5. Complete the public host contract before the stable `1.6.0` release (item 1);
+3. Keep the production bundle and Playwright checks working throughout.
+4. Complete the public host contract before the stable `1.6.0` release (item 1);
    the stable model-library release lands as an aside of that work.
-6. Answer the palette question before that release too (item 4). Shipping 1.6.0 in
+5. Answer the palette question before that release too (item 4). Shipping 1.6.0 in
    stock Material teal decides it by default, which is the one way of deciding it
    nobody chose.
-7. Define and enforce the template-rich-text trust contract before allowing
+6. Define and enforce the template-rich-text trust contract before allowing
    untrusted users to supply templates (item 7).
 
 ## Out of scope
