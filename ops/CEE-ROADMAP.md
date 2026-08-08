@@ -60,15 +60,21 @@ This roadmap tracks open work only.
 
 ### 1. Give the custom element a typed and validated host contract
 
-CEE currently exposes Angular component inputs directly through
-`createCustomElement`. Public inputs are mostly `object` or `any`; configuration
-uses private string keys; the npm package ships no declarations or runtime
-schema.
+CEE exposes Angular component inputs directly through `createCustomElement`. The
+package now ships declarations describing that surface, so a TypeScript host has a
+checked configuration object and a typed element — but describing it is not the same
+as enforcing it. Nothing validates a value crossing the boundary at runtime, so a
+JavaScript host, or a configuration fetched through `loadConfigFromURL`, still gets
+silence for an unknown key or a wrong type. The component's own inputs remain
+`object`, since narrowing them is a change to the element rather than to its
+description.
 
-Configuration reassignment also mixes replacement and patch behavior. Omitted
-values can retain old parser, endpoint, prefix or language state, while output
-serialization reads the replacement object. Read-only mode and empty-field
-hiding can be enabled but not cleanly disabled.
+The behaviour underneath is the larger part, and none of it has moved.
+Configuration reassignment mixes replacement and patch: omitted values can retain
+old parser, endpoint, prefix or language state, while output serialization reads the
+replacement object. Read-only mode and empty-field hiding can be enabled but not
+cleanly disabled. Three inputs supply an artifact and none of them says what happens
+when two are set.
 
 Deliver:
 
