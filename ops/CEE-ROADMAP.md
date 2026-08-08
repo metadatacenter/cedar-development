@@ -62,12 +62,11 @@ This roadmap tracks open work only.
 
 CEE exposes Angular component inputs directly through `createCustomElement`. The
 package now ships declarations describing that surface, so a TypeScript host has a
-checked configuration object and a typed element — but describing it is not the same
-as enforcing it. Nothing validates a value crossing the boundary at runtime, so a
-JavaScript host, or a configuration fetched through `loadConfigFromURL`, still gets
-silence for an unknown key or a wrong type. The component's own inputs remain
-`object`, since narrowing them is a change to the element rather than to its
-description.
+checked configuration object and a typed element, and a configuration is checked
+again at runtime where it crosses the boundary — which is what covers a JavaScript
+host and `loadConfigFromURL`, the two routes a compiler cannot see. The component's
+own inputs remain `object`, since narrowing them is a change to the element rather
+than to its description.
 
 The behaviour underneath is the larger part, and none of it has moved.
 Configuration reassignment mixes replacement and patch: omitted values can retain
@@ -89,11 +88,12 @@ Deliver:
   as values, or a machine-readable runtime schema, waits on the package exporting
   anything at all — which is a packaging decision (app bundle versus library) that
   belongs with the rest of this item.
-- Validate and normalize values crossing the custom-element boundary; report
-  unknown keys, wrong types and invalid combinations to the host. The declarations
-  now catch a wrong type at compile time for a TypeScript host, which is not the
-  same thing: a JavaScript host, or a config fetched through `loadConfigFromURL`,
-  still gets silence.
+- ~~Report unknown keys, wrong types and invalid combinations to the host.~~ Done,
+  in `shared/util/config-validation.ts`, called from the wrapper's `config` setter —
+  the one point both a host assignment and `loadConfigFromURL` pass through.
+  Normalizing values is not done and is not separable from the assignment-semantics
+  decision below: what a missing key normalizes *to* depends on whether omitting one
+  resets it.
 - Define configuration assignment as either initialization-only or dynamic.
   If dynamic, use complete replacement semantics and apply changes atomically.
 - Define the lifecycle, reversibility and reset behavior of every setting.
