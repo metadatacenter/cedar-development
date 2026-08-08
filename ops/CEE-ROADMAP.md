@@ -61,34 +61,9 @@ This roadmap tracks open work only.
   `angular.json` had `aot: false` in the build target's base options, so `ng build`
   and `ng serve` compiled no template at all — a binding to a property that does
   not exist built clean.
-- **CEE builds on `@angular/build:application`**, not the deprecated webpack
-  `browser` builder. `ng update @angular/cli --migrate-only
-  --name=use-application-builder` does the workspace edit; the shipped artifact
-  is still one classic script and is **190,309 bytes smaller**, at 3,207,044 raw
-  and 754,371 gzip, leaving 392,956 of raw headroom.
-
-  The open question this carried — whether the artifact still *runs* — had the
-  answer no, until packaging was fixed. The new builder emits `polyfills.js` and
-  `main.js` as ES modules under `browser/`. Neither imports the other, so
-  `resolve-build-output.mjs` judged them concatenable, and they are not: their
-  minified top-level names are kept apart only by module scope, and joining them
-  into one classic script makes those names global, where they collide. It
-  failed as `Cannot read properties of undefined (reading 'lFrame')` — an
-  Angular-shaped error from a packaging cause, after a green build and a green
-  size check. Each file loaded alone works perfectly, which is what made it
-  confusing.
-
-  The predicate now runs the other way: `concat` requires positive proof that
-  every input wraps itself, and anything else falls to `bundle`, which is always
-  correct. `bundle` is only slower, while a wrong `concat` ships a file that
-  fails when something runs it. `make-bundle.mjs` also minifies whitespace when
-  flattening, because esbuild re-prints what it parses and printing
-  already-minified input added 543,029 bytes.
-
-  The packaging suite passed throughout, because its esbuild fixture modelled an
-  entry importing siblings — the shape that was predicted rather than the one
-  that shipped. It now carries the real shape, and both new cases fail if the
-  old predicate returns.
+- **CEE still builds on the deprecated webpack `browser` builder.** The move to
+  `@angular/build:application` was done, measured and then reverted, because
+  openview cannot consume the result — item 3.
 - **Vitest is 4.1.10** in the root and the harness, up from 1.6.1, which clears
   the critical advisory against a listening Vitest UI server. The two must move
   together: the harness points its Vite root at the repository, so a split
@@ -265,6 +240,39 @@ or restyles the form is a hop whose failures cannot be attributed.
   "possibly undefined" on generated fixtures. That is the same shape of work the
   `strictNullChecks` pass did in `src/`, where it surfaced real defects rather
   than only noise, and it is too large to carry inside an unrelated change.
+- **Move to the `@angular/build:application` builder.** Done once and reverted,
+  so what follows is measured rather than estimated.
+  `ng update @angular/cli --migrate-only --name=use-application-builder` makes
+  the workspace edit; `esModuleInterop` has to be swapped into
+  `tsconfig.base.json` by hand, because the schematic hard-codes the path
+  `tsconfig.json` where CEE keeps no compilerOptions. The artifact then builds
+  at **3,207,044 bytes, 190,309 smaller**, and passes all 356 bundle-level
+  checks.
+
+  It was reverted because **openview cannot load it**. openview is on Angular
+  16.2 and takes CEE through its own build rather than serving the file; that
+  build re-minifies it, 3,207,044 down to 3,183,588, and the result throws
+  `ReferenceError: TO is not defined` before the custom element registers. The
+  previous artifact survives the same treatment and reports version
+  `1.6.0-ng22`. Confirmed by A/B with openview's `.angular/cache` cleared each
+  time and the script loaded into a blank page, so neither a stale build nor
+  openview's own page explains it.
+
+  The mechanism is **not** syntax: both artifacts carry the same static class
+  fields, named class expressions and modern operators. The failure is in
+  openview's optimizer, on code CEE's bundle contains as
+  `var WN = class t extends Error { static IDLE = new t("IDLE") … }`, which
+  comes out as `new TO("IDLE")` with no `TO` in scope.
+
+  So this is blocked on openview rather than on CEE, and the cheapest route is
+  probably to stop openview re-minifying a bundle that is already minified, or
+  to move it off Angular 16. Whichever is chosen, the check that matters is not
+  CEE's gate — it passed throughout — but loading openview's own `scripts.js`
+  and asking whether `customElements.get('cedar-embeddable-editor')` is defined.
+
+  Packaging is ready either way. `resolve-build-output.mjs` selects `bundle` for
+  this output and `concat` for webpack's, and the packaging suite covers both
+  shapes.
 - **The Metadata Editor scroll bug.** Scrolling past the end of the form and back
   makes the bottom disappear. Confirmed pre-existing on Angular 14, so the march
   neither caused nor fixed it. The suspects are the two nested
@@ -277,8 +285,9 @@ or restyles the form is a hop whose failures cannot be attributed.
 Material 3 theming was also held out of the march. It belongs with the rest of the
 styling questions rather than here — item 4.
 
-Done when the `any` sites are gone, the scroll bug is diagnosed, and
-`cedar-artifact-viewer` is either wired in or deleted.
+Done when the `any` sites are gone, the scroll bug is diagnosed,
+`cedar-artifact-viewer` is either wired in or deleted, and the build no longer
+runs through a deprecated builder.
 
 #### What the march cost, and what it taught
 
