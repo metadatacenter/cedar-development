@@ -421,6 +421,15 @@ model libraries — where their JSON and YAML serializations diverge — is in
      failure blocking dependent jobs, but the run's own conclusion still counts it, so
      `cedar-docker-build` stays red while any frontend fails. With the nginx images fixed these five
      are the only remaining failures, so settling publishing is also what turns that build green.
+     One observation for whenever this is picked up. Running the native frontends against the
+     containerized backend, everything up to populate passes — login, the REST round-trip, and a
+     Disease field constrained to the DOID branch through live BioPortal. The populate-time term
+     suggestion does not: the field renders as a plain input instead of a controlled-term picker.
+     The backend is not at fault, since the template carries the constraint and the containerized
+     terminology server answers the query. It is unresolved whether that is a real defect or an
+     artefact of a natively-built frontend against a containerized backend, and the comparison that
+     would settle it is the same browser smoke against the native backend.
+
   2. **Give the frontends a local-build path.** The other half of the Nexus decoupling. The six
      frontend images download a tarball with no local equivalent, so an edit-compile-run loop works for
      the backend and not the UI.
