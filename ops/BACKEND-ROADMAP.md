@@ -377,12 +377,26 @@ model libraries — where their JSON and YAML serializations diverge — is in
      8080/8443, 80/443 and 9001–9015 with their admin and stop ports — so the two cannot run side by
      side, and a bring-up means stopping the native stack or remapping. Nothing else on this list is
      well-ordered until this has been tried once.
-  2. **Settle frontend publishing.** All eighteen Java artifacts resolve at the current snapshot; none
-     of the six frontend npm tarballs do. `npm-cedar` holds `2.9.1-SNAPSHOT` for five of them and has
-     never held `cedar-content-distribution` at any version. Either the frontend repositories publish
-     snapshots the way the Java repositories do, or image builds are release-time only and should say
-     so. Until then the frontend half of the estate cannot be built from develop and no full bring-up
-     is possible.
+  2. **Decide which frontends there are, then settle their publishing.** Publishing is the visible
+     half and probably not the first question. The estate builds six frontend images — the template
+     editor at `cedar.<host>`, plus openview, monitoring, artifacts, bridging and content — and the
+     working view is that only three are really needed: the template editor, openview and monitoring.
+     If that holds, artifacts, bridging and content are candidates for removal rather than things to
+     fix, and how much of the rest of this item matters shrinks accordingly. Parked pending that call.
+
+     `cedar-template-editor` is also badly named. It is not a component but very nearly the whole
+     CEDAR frontend, which is why `cedar-frontend-main` is the structural outlier among the images:
+     it installs Node and runs `gulp`, where the other five unpack a published tarball into nginx.
+
+     The publishing state, for whenever the shape is settled: all eighteen Java artifacts resolve at
+     the current snapshot and none of the six frontend tarballs do. `npm-cedar` holds `2.9.1-SNAPSHOT`
+     for five of them — all five stopped at the same release, which reads as publishing happening at
+     release time rather than any one repository falling behind — and has never held
+     `cedar-content-distribution` at any version, which release timing does not explain and which is
+     itself evidence about whether that one is wanted. Either those repositories publish snapshots the
+     way the Java repositories do, or image builds are release-time only and should say so. Until
+     then the frontend half of the estate cannot be built from develop and no full bring-up is
+     possible.
 
      Those build jobs carry `continue-on-error`, which does less than it sounds like: it stops a
      failure blocking dependent jobs, but the run's own conclusion still counts it, so
