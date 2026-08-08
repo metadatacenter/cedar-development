@@ -23,7 +23,7 @@ This roadmap tracks open work only.
   `@org.metadatacenter/cedar-model-typescript-library@0.9.2-dev.20260805.50ef2b3`.
   That build carries `InstanceValidator`, so item 5 is no longer blocked on the
   library having shipped — only on it having shipped *stably*.
-- The safety net is 2,190 domain tests, 121 unit tests across eleven Angular
+- The safety net is 2,200 domain tests, 121 unit tests across eleven Angular
   unit-spec files, and 356 bundle-level Playwright checks across desktop, narrow
   and smoke projects on Chromium, Firefox and WebKit, with 108 committed
   snapshots.
