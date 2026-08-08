@@ -370,14 +370,33 @@ model libraries — where their JSON and YAML serializations diverge — is in
   `include`, so a one-command combined bring-up remains available if it is ever wanted for its own
   sake, but it should not be adopted as an ordering mechanism.
 
+  **It runs.** Brought up on 2026-08-07: seven infrastructure containers and all fifteen
+  microservices healthy, and the whole REST estate green against them — 635 assertions, 0 failures.
+  The runbook has the sequence. Three defects only a real bring-up could have found:
+
+  - **Hibernate 6 was generating `tinytext` for every `@Lob String`.** Five columns on the two
+    application-log entities. Hibernate 5 gave `longtext` regardless; Hibernate 6 sizes the column
+    from its length, and the default 255 makes the MySQL dialect pick `tinytext`. Existing databases
+    never showed it — their columns predate the migration and auto-update does not narrow a column —
+    so the native stack and production keep working while every schema created from scratch since
+    2026-07-26 silently rejects every log entry over 255 bytes. Fixed in
+    `cedar-microservice-libraries` with an explicit `Length.LONG32`; no migration is needed anywhere.
+  - **Twelve of fifteen servers could not verify a bearer token.** Only user, resource and monitor
+    carried the `extra_hosts` entry mapping `auth.<host>` to the nginx container; everywhere else the
+    name resolved to the container itself. Every server builds a Keycloak deployment in the shared
+    bootstrap, so every server needs it. This alone took the REST run from 126 passed and 51 failed
+    to 633 and 1.
+  - **The container nginx never served the Swagger UI.** `/api` is aliased to a checkout on four API
+    vhosts natively and was simply absent from the container configs — the same drift as the
+    `shared.<host>` vhost.
+
+  The OpenSearch pairing that had been the standing worry — a 2.19 client against the pinned 1.3.6
+  server — works. The client sends a request, the older server answers, and a structured error comes
+  back parsed. That risk is retired.
+
   **What remains.**
 
-  1. **Bring the stack up.** Everything so far is static verification: no CEDAR container has been run.
-     The estate publishes the same host ports as the native stack — 3306, 27017, 6379, 9200, 7474/7687,
-     8080/8443, 80/443 and 9001–9015 with their admin and stop ports — so the two cannot run side by
-     side, and a bring-up means stopping the native stack or remapping. Nothing else on this list is
-     well-ordered until this has been tried once.
-  2. **Decide which frontends there are, then settle their publishing.** Publishing is the visible
+  1. **Decide which frontends there are, then settle their publishing.** Publishing is the visible
      half and probably not the first question. The estate builds six frontend images — the template
      editor at `cedar.<host>`, plus openview, monitoring, artifacts, bridging and content — and the
      working view is that only three are really needed: the template editor, openview and monitoring.
@@ -402,13 +421,13 @@ model libraries — where their JSON and YAML serializations diverge — is in
      failure blocking dependent jobs, but the run's own conclusion still counts it, so
      `cedar-docker-build` stays red while any frontend fails. With the nginx images fixed these five
      are the only remaining failures, so settling publishing is also what turns that build green.
-  3. **Give the frontends a local-build path.** The other half of the Nexus decoupling. The six
+  2. **Give the frontends a local-build path.** The other half of the Nexus decoupling. The six
      frontend images download a tarball with no local equivalent, so an edit-compile-run loop works for
      the backend and not the UI.
-  4. **Publish images from CI.** Building is covered; releasing is not. Tagging and pushing to
+  3. **Publish images from CI.** Building is covered; releasing is not. Tagging and pushing to
      `cedar-dockerhub.bmir.stanford.edu` is still `bin/release-all-images.sh`, run by hand. The open
      question is whether a merge to develop publishes snapshot tags or publishing stays explicit.
-  5. **Decide what the version lock actually locks, then hold both paths to it.** This is not a
+  4. **Decide what the version lock actually locks, then hold both paths to it.** This is not a
      catch-Docker-up item, which is how it read before it was measured.
 
      The lock is stated in two places and neither records a version. CLAUDE.md and the runbook both
@@ -440,70 +459,10 @@ model libraries — where their JSON and YAML serializations diverge — is in
      stack to it so Homebrew stops drifting, and move the Docker pins to it. Mongo and Keycloak are
      already close enough to be a non-event. MySQL, Redis and OpenSearch are major-version decisions
      and belong with the persistence-upgrade item (9) above.
-  6. **Decide the TLS story.** The leaves bundled in `cedar-assets` expired 2026-04-20.
+  5. **Decide the TLS story.** The leaves bundled in `cedar-assets` expired 2026-04-20.
      `copy_certificates` prefers `$CEDAR_HOME/CEDAR_CA`, whose 28 hosts run to 2028, so this bites a
      fresh clone rather than this machine. The question is whether the repo should carry certificates
      at all rather than issue them at setup.
-  7. **Derive the wait coverage instead of maintaining it by hand.** The audit came out better than
-     expected and is worth recording, because the reasoning is not obvious. `cedar-main.yml` is one
-     shared file naming about 120 variables, and the substitutor runs non-strict: a variable a
-     container is not given stays a literal `${VAR}` and only matters if that component is used. So
-     each compose `environment:` list is a curated per-server subset, not a statement of what the
-     server opens, and comparing the two overstates the gaps. What the servers actually do at startup:
-     Neo4j is initialised eagerly for every one of them, and all fifteen waited for it; the persistent
-     Redis pool is constructed for every one of them by `AppLoggerQueueService`, but `JedisPool` is
-     lazy and `enqueueEvent` catches and counts failures, so an absent Redis drops log events rather
-     than failing startup. Five servers were not waiting for Redis and now do — cheap insurance
-     against a silent hole. The apparent Mongo gap on bridge is not one: bridge references Mongo
-     nowhere. The MySQL gaps on impex and monitor are not either: they log through the Redis queue
-     that worker drains, and never open MySQL themselves.
-
-     So no server was missing a wait for something it opens eagerly, and the one real hole was schema.
-
-     The waits are now one script in the base image, `wait-for-dependencies.sh`, driven by the
-     environment: a container waits for a backend when it is handed that backend's coordinates.
-     Fourteen of the fifteen derive byte-identical behaviour to what they had; only bridge changes,
-     gaining a Mongo wait because it is given Mongo coordinates it does not use — harmless, and a sign
-     the compose entry is what is wrong. Two things stay explicit because no host variable implies
-     them: the MySQL step creates databases and users, so `wait-and-init-mysql.py` keeps deciding for
-     itself from `CEDAR_SERVER_NAME`, and waiting on another CEDAR server is declared per image as
-     `CEDAR_WAIT_FOR_SERVERS`.
-
-     `pre-docker-entrypoint.sh` survives as an optional per-server hook for work that is not a
-     dependency wait, and exactly one server still has one. The resource server's carried the
-     first-run bootstrap of the whole system — Neo4j indices, global and caDSR objects, the initial
-     users — behind a flag on the `resource_state` volume, buried under six lines of waits. Anything
-     folding those scripts together has to keep it.
-
-     That bootstrap no longer writes its flag unconditionally. It did, so a first run against a
-     half-ready Neo4j marked the system initialised without having initialised it and never retried;
-     recovery meant deleting the flag from the volume by hand. Each `cedarat.sh` step is now checked,
-     and a failure refuses the flag and refuses to start, which lets the restart policy try again.
-
-     The entrypoint now also honours the pre-entrypoint's exit status. It did not before, which never
-     mattered because every wait script blocks until its backend answers rather than giving up — but
-     it meant a misconfigured server would have started anyway. A server asked to wait for a peer
-     whose admin port is not set now exits 1 instead of starting into a failure it cannot explain.
-
-     Two things this item assumed were wrong. The frontends need no waits: the five static images do
-     nothing before nginx, and `cedar-frontend-main` only runs `gulp` locally. And bridge's Mongo
-     coordinates are not surplus — the configuration sandbox requires them, so removing them stops the
-     server booting even though no bridge code touches Mongo.
-
-     **What a server needs is declared in code, and four compose entries did not supply it.**
-     `CedarConfigEnvironmentDescriptor` names the variables each `SystemComponent` needs and
-     `CedarEnvironmentVariableProvider` builds the sandbox from it: a needed variable that is unset is
-     fatal, while an unneeded one is defaulted (`0` for numerics, `false` for booleans) or held back
-     entirely — which is why most absent variables are harmless and a few are not. Running each
-     server's jar against exactly the environment its compose entry supplies found four that could not
-     have started at all: bridge missing nine (ROR, four ORCID, two CompTox, RRID, PubMed), and group,
-     resource and user each missing `CEDAR_TEST_USER1_ID` and `CEDAR_TEST_USER2_ID`. All eleven were
-     already defined by the profile and simply not passed through. Added; all four now boot.
-
-     What remains is automating that comparison. Booting fifteen jars against fifteen environments is
-     the only way found so far to check a compose entry against the descriptor, and it should run on a
-     release rather than be rediscovered by hand.
-
   One estate difference is worth a decision rather than a fix. The Docker nginx now serves 24 virtual
   hosts against the native stack's 28; the four that remain are CEE's — `demo.cee`, `demo-dist.cee`,
   `docs.cee`, `docs-dist.cee`. CEE itself is not a candidate for a container: it is a web component,
