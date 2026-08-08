@@ -107,10 +107,14 @@ Run the official migrations one major version at a time and keep the build and
 test gates green after every migration. Do not combine this with a standalone
 component, signals or control-flow rewrite.
 
-**14 → 19 is done**, a branch per hop (`cee-angular-15` … `cee-angular-19`), which
+**14 → 21 is done**, a branch per hop (`cee-angular-15` … `cee-angular-21`), which
 means the Material 15 MDC restyle — the hop this item was most worried about — is
-behind rather than ahead. Three hops remain, 19 → 22, and then landing the march
-on `develop`, which has not moved.
+behind rather than ahead. One hop remains, 21 → 22, and then landing the march on
+`develop`, which has not moved.
+
+Angular 22 needs a Node this machine does not have. It requires `^22.22.3 ||
+^24.15.0 || >=26`, and only 20, 23 and 25 are installed, so `brew install node@22`
+comes before `ng update`. TypeScript 6.0 goes with it.
 
 Known work:
 
@@ -198,6 +202,32 @@ Current gate baseline on that branch:
 | Packaging | 8 tests |
 | Lint | 0 errors; 77 baselined `no-explicit-any` warnings |
 | Bundle | 3,131,159 raw / 743,467 gzip-9 bytes, within the enforced budgets |
+
+#### What the march has cost so far
+
+At Angular 21 the same gate reads 102 unit, 2,132 domain, 346 visual and 100
+snapshots, lint 0 errors against 32 baselined warnings, and 3,471,865 raw /
+798,253 gzip bytes.
+
+The bundle is the number that moved most: up 340KB raw and 55KB gzip, and its
+limits have been raised three times. MDC accounts for 190,966 raw and 19,620 gzip
+of that, measured either side of the migration commit; Angular 16 → 17 added
+42,632; Angular 18 gave 78,423 back; 20 and 21 together took 84,748. Gzip is now
+the binding figure rather than raw, and CI measures it larger than a developer
+machine does — at 21 the margin was 1,747 bytes while raw still had 43KB spare.
+Letting the framework cost bytes has been a decision taken three times on the
+evidence each time; whether a 3.4MB single-file bundle is still the right artifact
+is worth asking separately from the march.
+
+Two recurring shapes are worth carrying into 22. **Libraries assume they are
+styling a document, not a shadow root** — four separate times: Material 16 tokens
+emitted under `html{}`, and at CDK 19 the visually-hidden class, the autosize
+measuring styles and the textarea line-height cache. Each was invisible to the
+build and to every unit test, and showed up only as pixels. And **tests that pin an
+implementation rather than the guarantee fail on upgrades that broke nothing** —
+the two overlay tests at Angular 21 asserted that `mat-select` options live inside
+`.cee-overlay-container`, which stopped being how Material delivers them while the
+guarantee itself held.
 
 Deliberately left alone. **Nothing was upgraded toward 22** — no Angular package
 moved. **The stock-teal question stays open**: the component theme uses
