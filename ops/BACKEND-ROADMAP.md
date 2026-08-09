@@ -992,8 +992,10 @@ model libraries — where their JSON and YAML serializations diverge — is in
   request leaves the VM to reach the host. Measured over the Template Designer's 175 script files, six
   concurrent, four rounds: direct to gulp, 17–50 ms in total with the worst single request at 2–19 ms;
   through the container nginx, 48–76 ms on three rounds and **60,104 ms on the fourth, with one
-  request stalling 60,059 ms** — nginx's default `proxy_read_timeout`. Median stayed at 2 ms, so the
-  cost is entirely in the tail.
+  request stalling 60,059 ms** — nginx's default `proxy_read_timeout`. Median stayed at 2 ms either
+  way, which is why this hid: nothing read as slow, and the entire cost sat in a tail that fired
+  perhaps one request in a thousand. One in a thousand is frequent enough when a page load asks for
+  two hundred of them.
 
   A tail that long is fatal rather than slow, because of what the page asks for: a dashboard load
   fetches 258 requests, 200 of them scripts, and RequireJS is left at its default seven-second
@@ -1004,10 +1006,24 @@ model libraries — where their JSON and YAML serializations diverge — is in
   than the one they served earlier the same day. It also is not a test-only fault — a person browsing
   `cedar.metadatacenter.orgx` in that mode gets the same blank dashboard.
 
+  **Confirmed by removing the cause.** `infra-nginx` was stopped and the native nginx started in its
+  place on 2026-08-09, leaving the other twenty-one containers up. The same burst over the same URL
+  then had a worst single request of **29 ms** against the 60,059 ms before it, and the two whole-stack
+  suites went green together: 635 REST checks, and the browser smoke passing three consecutive runs
+  where it had been failing almost every run, at a different step each time. Each of those runs also
+  reached its own teardown, so it left nothing behind — a partial teardown had been the other visible
+  symptom. Cause removed, symptom gone, which is the only test that settles a diagnosis this indirect.
+
   So this is a reason to finish the frontend images rather than a bug to chase: once the frontends are
   containers, nothing crosses `host.docker.internal` and the cliff is gone. Until then the documented
   swap is the mode to be in, and raising `waitSeconds` would only widen the window that a 60-second
   stall still closes.
+
+  Two things this hunt did not fix, and both are the Template Designer's. RequireJS still sits at its
+  default `waitSeconds`, and a dashboard load still refetches two hundred scripts whose `?v=` argument
+  is stable per build and could therefore be cached. Neither was a problem before a VM hop existed and
+  neither is one now, but together they are why a transport hiccup escalates into a blank page rather
+  than a slow one, so they are worth knowing about before the next thing perturbs request latency.
 
 
 - **15. Adopt Renovate, so a version that falls behind says so.** Every pin in this estate is
