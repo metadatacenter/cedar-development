@@ -105,9 +105,10 @@ suggestion, ~30 s): `cd cedar-development/ops/e2e && npm run smoke` — details 
 ## Building and testing
 
 - `cedarcli build java` is the authoritative full build (dependency order: parent → libraries →
-  servers). Build `cedar-parent` before consumers, or they pick up stale managed versions and fail
-  quietly. Never pipe `mvn` through `head`/`grep -m`: SIGPIPE can kill the reactor mid-build under a
-  clean exit. Redirect to a file.
+  servers). It builds every repo with `-DskipTests`, so a green build says the stack compiles and
+  nothing more. Run a suite separately, with `mvn` in the repo. Build `cedar-parent` before
+  consumers, or they pick up stale managed versions and fail quietly. Never pipe `mvn` through
+  `head`/`grep -m`: SIGPIPE can kill the reactor mid-build under a clean exit. Redirect to a file.
 - Every server suite runs backend-free (in-memory auth + embedded Neo4j/Mongo/MariaDB from
   `cedar-test-support-library`). No suite needs an external service: the tests that do call one are
   tagged and excluded by default, terminology's under `bioportal` and bridge's under `datacite`.
