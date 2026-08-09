@@ -28,12 +28,13 @@ it says the rest.
   staged copy from disk; re-stage rather than debugging the dangling symlink.
 - The model dependency is the Nexus-only prerelease
   `@org.metadatacenter/cedar-model-typescript-library@0.9.2-dev.20260805.50ef2b3`.
-  That build carries `InstanceValidator`, so item 5 is no longer blocked on the
-  library having shipped — only on it having shipped *stably*. A fix CEE is
-  waiting on is committed there but unpublished: static image `_ui._size`, which
-  the library used to drop — see [MODEL-LIBRARY-PARITY.md](./MODEL-LIBRARY-PARITY.md).
-- The safety net is 2,242 domain tests across 47 harness spec files, 125 unit
-  tests across twelve, and 394 bundle-level Playwright checks on Chromium,
+  That build carries `InstanceValidator`, which is what the conformance spec
+  needed, so the spec runs against it today. A fix CEE is still waiting on is
+  committed to the library but unpublished: static image `_ui._size`, which the
+  library used to drop — see
+  [MODEL-LIBRARY-PARITY.md](./MODEL-LIBRARY-PARITY.md).
+- The safety net is 2,359 domain tests across 48 harness spec files, 125 unit
+  tests across twelve, and 404 bundle-level Playwright checks on Chromium,
   Firefox and WebKit, with 108 committed snapshots. No test is known to be
   flaky. The one that was recorded as flaky for months turned out to be a real
   defect — see *Selection races*, below.
@@ -62,7 +63,9 @@ it says the rest.
   the deprecated directives cannot come back a template at a time.
 - Template-authored rich text is **sanitized by default**; verbatim rendering is
   available only to a host that sets `trustTemplateMarkup` — item 7.
-- Nothing checks CEE's own instance output against its template — item 5.
+- **CEE's output is checked against the template it came from**, by
+  `InstanceValidator` through `instance-conformance.spec.ts` — 117 of the
+  domain suite's tests. A dropped `@type` or a missing property fails the gate.
 - A root `npm audit` reports 11 findings, all of them reached through
   `@angular-devkit/build-angular` or `@angular/cli`. `npm run audit:prod`, which
   is what describes the shipped artifact, reports 0. Do not run
@@ -312,25 +315,29 @@ Three shapes recurred, none of which the build or the unit tests could see:
   refused to choose, both applied and drew a 64x48 rounded rectangle that was
   neither. Nothing reported it, because nothing was failing.
 
+### 5. Drop `@angular-devkit/build-angular`
+
+Nothing references it. `build`, `serve` and `extract-i18n` all resolve through
+`@angular/build` now, and `lint` through `@angular-eslint/builder:lint`, so the
+webpack toolchain is a direct devDependency no target names.
+
+It is also the whole audit surface: every one of the 11 findings a root
+`npm audit` reports is reached through it or through `@angular/cli`, against
+build tooling an embedder never downloads. `npm run audit:prod` already reports
+0, which is the number that describes what ships — but the root number is the one
+a newcomer sees first, and it should stop being noise.
+
+Remove it carefully rather than confidently. `@angular/build` currently resolves
+*nested inside* it in `node_modules`, so a naive removal can take the working
+builder with it. Remove, reinstall, then run the whole gate on Node 24.19.0
+before believing it. Record the new `npm audit` count in the runbook, whose
+"Audit what ships" section names both packages today.
+
+Done when the dependency is gone, the gate is green, and the runbook says what
+the root audit reports now.
+
+
 ## Testing
-
-### 5. Land the instance-conformance spec
-
-CEE used to check its own output against each template with `ajv`, which meant
-carrying a second validator and restating rules CEDAR already defines. That was
-removed. The model library now answers the question through
-`InstanceValidator.validate` — so until the library ships, **nothing catches a
-dropped `@type` or a missing property in CEE's output**.
-
-The spec is written and proven: 117 tests, which would take the domain suite from
-2,242 to 2,359. It is parked at `harness/test/instance-conformance.spec.ts.pending`
-because it cannot run against the published library. Rename it to `.ts` once the
-dependency in `package.json` and `harness/package.json` moves off the prerelease.
-
-Blocked until the model library publishes a stable version.
-
-Done when the spec runs in `test:ci` against a published library version and CEE
-output that drops a required key fails the suite.
 
 ### 6. Reach the two config flags nothing exercises
 
@@ -497,20 +504,48 @@ instance missing a field in both formats is consistent with itself. Format
 independence and correctness are different properties, and only one of them has
 a test that can fail.
 
+### 9. Give the key constants literal types
+
+`JsonSchema` declares `static atId: string`, `static rdfsLabel: string` and the
+rest as plain strings rather than as the literals they are. A consumer writing
+`{ [JsonSchema.atId]: string; [JsonSchema.rdfsLabel]: string; ... }` therefore
+gets an *index signature over every string key* instead of two named properties,
+every other member of that interface has to be assignable to the signature's
+type, and reading through the constant yields the union of all of them.
+
+Not theoretical. Adding a typed `details?: AuthorityDetailResponse` to CEE's
+`AuthoritySearchResponseItem` fails to compile with
+`'string' index signatures are incompatible` against both
+`OrcidSearchResponseItem` and `RorSearchResponseItem` — the three are only
+interchangeable while that member stays `any`. Two of CEE's model files carry a
+paragraph explaining the problem and casting around it, and a third now records
+it.
+
+What it has already cost: `AuthoritySearchResponseItem.details` and
+`.researcherDetails` could only be `any`, so when the `any` sites were cleared
+they were deleted rather than typed. Both turned out to be dead, which is the
+only reason deleting them was available. Measured across CEE: 59 occurrences of
+`JsonSchema.atId` or `JsonSchema.rdfsLabel` in 15 files, of which 16 are
+declarations or object-literal keys and 4 are in templates; 20 lines carry an
+`as string` cast.
+
+`static readonly atId = '@id'` infers the literal type on its own — no `as const`
+needed. Check the library's own consumers first: narrowing a public type is
+breaking for anything that assigns to these.
+
+
 ## Delivery order
 
-1. Land the conformance spec as soon as the library publishes (item 5). It is
-   written and waiting, and until it runs CEE has no check on its own output.
-2. Ship openview's asset change before any CEE release carrying the new builder.
+1. Ship openview's asset change before any CEE release carrying the new builder.
    openview resolves CEE from npm, so the wrong order breaks it on deploy, and
    the breakage is a `ReferenceError` at load rather than a build failure.
-3. Keep the production bundle and Playwright checks working throughout.
-4. Complete the public host contract before the stable `1.6.0` release (item 1);
+2. Keep the production bundle and Playwright checks working throughout.
+3. Complete the public host contract before the stable `1.6.0` release (item 1);
    the stable model-library release lands as an aside of that work.
-5. Answer the palette question before that release too (item 4). Shipping 1.6.0 in
+4. Answer the palette question before that release too (item 4). Shipping 1.6.0 in
    stock Material teal decides it by default, which is the one way of deciding it
    nobody chose.
-6. Fold `trustTemplateMarkup` into the typed host contract, and tell template
+5. Fold `trustTemplateMarkup` into the typed host contract, and tell template
    authors what their markup will do (item 7). The boundary itself is enforced;
    what remains is making it discoverable from both sides.
 
