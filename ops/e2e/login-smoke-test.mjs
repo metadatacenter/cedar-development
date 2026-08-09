@@ -470,6 +470,20 @@ const context = await browser.newContext({
   viewport: { width: 1280, height: 900 },
   ...(existsSync(AUTH_STATE) ? { storageState: AUTH_STATE } : {}),
 });
+// Block gulp's livereload script, which is the reason navigations used to stall.
+//
+// `connect-livereload` writes `<script src="//HOST:35729/livereload.js">` into every HTML
+// response, so on an https page the URL becomes `https://cedar…:35729/…` while gulp serves
+// that port as plain HTTP. The request therefore cannot complete, and because it arrives
+// through `document.write` it is a blocking script — when the browser sat on it,
+// DOMContentLoaded never fired and the navigation timed out. It was intermittent, which is
+// what made it read as a different flake each run. Measured: 11 of 12 dashboard loads took
+// ~265 ms and one hung past 30 s with that script and three queued behind it.
+//
+// Aborting it is not papering over a product bug: livereload is a dev-loop convenience that
+// cannot work over TLS at all, and nothing here tests it. Reloads are explicit in this suite.
+await context.route('**://*:35729/**', route => route.abort());
+
 const page = await context.newPage();
 let step = 'init';
 
