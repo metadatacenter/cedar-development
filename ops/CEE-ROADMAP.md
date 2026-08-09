@@ -24,14 +24,31 @@ This roadmap tracks open work only.
   That build carries `InstanceValidator`, so item 5 is no longer blocked on the
   library having shipped — only on it having shipped *stably*.
 - The safety net is 2,202 domain tests, 125 unit tests across twelve Angular
-  unit-spec files, and 356 bundle-level Playwright checks across desktop, narrow
+  unit-spec files, and 370 bundle-level Playwright checks across desktop, narrow
   and smoke projects on Chromium, Firefox and WebKit, with 108 committed
   snapshots.
-- One visual check is flaky at roughly one run in four: `external authority
-  endpoints › a returned authority term can be selected and reaches the host
-  metadata`. Measured across four runs either side of an unrelated commit, so it
-  is the test and not a regression — it was misread as one once already. Until it
-  is fixed, a single red run of that name means re-run before investigating.
+- **The check recorded here for months as a flaky test was a real bug**, and is
+  fixed. Clicking an authority suggestion blurs the input, and the blur arrives
+  before Material reports the selection — so the blur handler read no selection,
+  decided the typed text named no term, and cleared the value being chosen,
+  emptying the field and pushing null to the host. Measured at 7 failures in 24
+  clicks; the ~1-in-4 rate is exactly why it read as flakiness. ORCID and ROR
+  already guarded against it with a `selectionInProgress` flag set on the
+  option's `mousedown`; the five widgets sharing the extracted template did not.
+  After the fix, 24 of 24 clicks keep the selection and the test passed 24
+  consecutive executions.
+
+  Worth keeping as a lesson about coverage rather than about a race. The blur
+  assertion beside it always ran over all seven authorities, while the selection
+  assertion covered PFAS alone — so a defect in five widgets surfaced as one
+  intermittent test, and "re-run before investigating" was written down as
+  advice. Both assertions are parameterised now, over the seven authorities and
+  BioPortal.
+- **The BioPortal term field discards free text on blur**, like the authority
+  widgets. It had no blur handling at all, so text naming no term stayed in the
+  box over an instance holding nothing — the same defect the seven were fixed
+  for, in a component that was never part of that pass. It reconciles through
+  the same shared rule, and took the `mousedown` guard in the same change.
 - Template-authored rich text is **sanitized by default**; verbatim rendering is
   available only to a host that sets `trustTemplateMarkup`. Instance-authored markup
   was always sanitized and still is. The README's *Embedding security* section is
@@ -438,7 +455,7 @@ removed. The model library now answers the question through
 dropped `@type` or a missing property in CEE's output**.
 
 The spec is written and proven: 117 tests, which would take the domain suite from
-2,132 to 2,249. It is parked at `harness/test/instance-conformance.spec.ts.pending`
+2,202 to 2,319. It is parked at `harness/test/instance-conformance.spec.ts.pending`
 because it cannot run against the published library. Rename it to `.ts` once the
 dependency in `package.json` and `harness/package.json` moves off the prerelease.
 

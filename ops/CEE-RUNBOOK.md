@@ -125,7 +125,7 @@ npm run test:ci
 
 It runs these stages in order and stops at the first failure:
 
-1. Angular/Karma unit tests in headless Chrome (`test:unit:ci`).
+1. Vitest unit specs under `src/`, in jsdom (`test:unit:ci`).
 2. The Vitest domain harness with V8 coverage (`test:domain:coverage`).
 3. A production build of the web component.
 4. Fixture preparation and the Playwright browser suite at desktop and narrow
@@ -151,10 +151,10 @@ npm --prefix visual ci
 ```
 
 The current gate should report 0 lint problems, 125 unit tests, 2,202 domain tests
-and 356 Playwright tests. Treat these as useful smoke checks, not permanent
-constants: new tests should make the counts rise. (The unit tests run under vitest;
-the Karma figure this line used to carry predates that move by several versions,
-which is the hazard of writing counts down at all.)
+and 370 Playwright tests. Treat these as useful smoke checks, not permanent
+constants: new tests should make the counts rise. (This line once carried a Karma
+figure, years after the move to Vitest — which is the hazard of writing counts
+down at all.)
 
 Use the complete gate before pushing or opening a pull request. The focused
 commands below are faster feedback while working on one layer.
@@ -501,10 +501,10 @@ rendering is correct.
 npm run test:unit:ci
 ```
 
-This is the headless, single-run form included in `npm run test:ci`. The legacy
-root `npm test` command starts Karma in watch mode and is intended only for
-interactive development. The unit layer is small; do not treat it as a
-substitute for the domain and browser stages.
+This is the headless, single-run form included in `npm run test:ci`. The root
+`npm test` runs the same specs through Vitest, and `test:watch` is the
+interactive form. The unit layer is small; do not treat it as a substitute for
+the domain and browser stages.
 
 ---
 
