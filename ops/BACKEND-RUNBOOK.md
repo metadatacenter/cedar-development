@@ -16,8 +16,9 @@ Three tiers:
 
 - **Infrastructure** — Keycloak (auth), MongoDB, MySQL, Neo4j, Redis, OpenSearch (search index),
   and nginx (TLS termination + reverse proxy for `*.metadatacenter.orgx`). In native-develop these
-  run as **local binaries / Homebrew services**, except Redis and OpenSearch, which are now
-  containers — see "Running the native servers against containerized infrastructure".
+  run as **local binaries / Homebrew services**, except the four data stores — Redis, OpenSearch,
+  Mongo and Neo4j — which are now containers. Keycloak, MySQL and nginx are still native. See
+  "Running the native servers against containerized infrastructure".
 - **Microservices** — 15 Dropwizard JVMs, one per `cedar-<name>-server` repo. Each is launched as
   `java -jar cedar-<name>-server-application-<version>.jar server .../config.yml`.
 - **Frontends** — the main one is the Angular template editor (`cedar-template-editor`), served by
@@ -53,9 +54,9 @@ cedarcli docker one-time-setup
 
 # 1. infrastructure (local binaries + Homebrew services)
 bash $CEDAR_UTIL_BIN/services-generic/startinfra.sh     # mongo, mysql, opensearch, neo4j, redis, keycloak, nginx
-# startinfra.sh still calls startredis and startopensearch, which now lose 6379 and 9200 to the
-# containers. Harmless — those are already serving — but the failures it prints are not a problem
-# to chase.
+# startinfra.sh still starts all seven natively, and the four now in containers lose their ports.
+# Redis and OpenSearch fail outright, which is harmless. Mongo is the one to watch: it binds
+# 127.0.0.1 where Docker binds the wildcard, so it starts, wins every connection, and nothing warns.
 
 # 2. app tier — use the controller here instead of 15 Terminal tabs
 bash $CEDAR_HOME/cedar-development/ops/cedar-services.sh start
@@ -203,11 +204,59 @@ Expect to see them, and expect the regenerate log to say it is not touching them
 inflates. Count root documents with a `match_all` search instead, and compare that against the
 `FileSystemResource` nodes in Neo4j.
 
-**The remaining stores are the expensive ones.** Redis moved with an empty keyspace and OpenSearch
-was rebuilt from its source of truth, so neither migrated data in the way Mongo and Neo4j will have
-to. Those two stamp their storage format and do not support a downgrade, so an image older than the
-running server cannot open its data files at all. Move the pin up to what is live, then migrate the
-store, and never both in one step.
+**Mongo and Neo4j have moved as well,** at 5.0.31 and 5.26.0, the versions running natively. These
+are the two that carry the source of truth, so each is a real migration rather than a rebuild.
+
+Mongo goes through `mongodump` and `mongorestore`. Restore only the `cedar` database: the container
+creates its own users in `admin` on first start, native runs without auth, and restoring native's
+`admin` over the container's would take those users away.
+
+```bash
+mongodump --db cedar --out /tmp/cedardump                    # while native is still up
+# stop native (see the note below), then start the container
+docker compose up -d mongo
+mongorestore --uri "mongodb://${CEDAR_MONGO_ROOT_USER_NAME}:${CEDAR_MONGO_ROOT_USER_PASSWORD}@127.0.0.1:27017/?authSource=admin" \
+  --drop --db cedar /tmp/cedardump/cedar
+```
+
+Neo4j goes through `neo4j-admin`, which dumps offline, so the database has to be stopped first. Load
+into the volume with a one-off container before starting the service:
+
+```bash
+$CEDAR_HOME/neo4j/bin/neo4j stop
+$CEDAR_HOME/neo4j/bin/neo4j-admin database dump neo4j --to-path=/tmp/neodump
+docker run --rm -v neo4j_data:/data -v /tmp/neodump:/dump --entrypoint sh \
+  metadatacenter/cedar-infra-neo4j:${CEDAR_DOCKER_VERSION} \
+  -c 'neo4j-admin database load neo4j --from-path=/dump --overwrite-destination=true'
+docker compose up -d neo4j
+```
+
+Load only the `neo4j` database. Neo4j 5 keeps authentication in `system`, so the container's own
+credentials survive, which is what you want since both sides use the same ones.
+
+**Stopping native Mongo needs `db.shutdownServer()`, not the Homebrew service.** Two things bite
+here. `brew services start mongodb-community@5.0` now fails: Homebrew refuses the `mongodb/brew` tap
+as untrusted, cannot read the formula, and writes a launch agent with no `ProgramArguments`. Run
+native Mongo directly instead, and shut it down through the shell:
+
+```bash
+/opt/homebrew/opt/mongodb-community@5.0/bin/mongod --config /opt/homebrew/etc/mongod.conf --fork
+mongosh --quiet --eval 'db.getSiblingDB("admin").shutdownServer()'
+```
+
+`brew trust mongodb/brew` followed by `brew services start` restores the launchd path, at the cost of
+trusting that tap. `mongod --shutdown` is not available in this build.
+
+**A native store and its container can both hold port 27017 and nothing warns you.** Native binds
+`127.0.0.1` specifically while Docker binds the wildcard, so both listen, the more specific bind wins,
+and every client silently keeps talking to the native server. `docker ps` says healthy throughout.
+Check with `lsof -nP -iTCP:27017 -sTCP:LISTEN` and confirm only Docker is there before believing a
+swap took.
+
+**What is verified.** Migration is exact both times: Mongo restored 62 documents with collection
+counts matching the source, and the graph came across at 18 nodes and 29 relationships with the same
+folder and template counts. `npm run smoke:rest` passes at 641 assertions against all four
+containerized stores.
 
 ### Building an image against your own code
 
@@ -628,6 +677,16 @@ from, because they answer very different questions:
 | Content negotiation | 2 | YAML and JSON transcode both ways |
 | REST smoke | 1 | The real stack, no browser: 15 suites, ~350 checks |
 | End-to-end smoke | 1 | The real stack, through a browser |
+
+**The browser smoke is red as of 2026-08-08, for a reason in front of the backend.** It fails at
+`serialization-config`: the post-save re-edit never lands, so the editor still shows the value it was
+saved with and the assertion reports both getters missing it. This is not infrastructure. The same
+failure reproduces with the stores native and containerized alike, and driving the same update over
+REST persists correctly, so the write path is sound end to end. `cedar-embeddable-editor` has recent
+commits on field-value behaviour and a dirty tree, which is where to look. Until it is fixed, gate
+backend changes on `npm run smoke:rest`, and note that a run failing here stops before its teardown
+and leaves its folder, template, field and instance behind —
+`ops/e2e/cleanup-smoke-leftovers.mjs` removes them.
 
 `ops/e2e` holds the two whole-stack tests, and they answer different questions. `npm run smoke:rest`
 drives the REST API directly, in about twenty seconds, and reaches what no unit suite can: the artifact

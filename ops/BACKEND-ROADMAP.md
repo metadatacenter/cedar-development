@@ -256,9 +256,9 @@ model libraries — where their JSON and YAML serializations diverge — is in
   they are pinned *to* does not exist yet; establishing it is part of item 14, and this item is parked
   behind it, since it defers to a lock that currently names six servers and no versions. Order them by
   risk, lowest first:
-  Redis and OpenSearch are **done** — 6.2.7 → 7.2.7 and 1.3.6 → 2.19.1 on 2026-08-08, each taken
-  together with containerizing that store. That leaves MySQL, then MongoDB, then Neo4j. Take
-  **Keycloak separately and last**:
+  Four are **done** on 2026-08-08, each taken together with containerizing that store: Redis
+  6.2.7 → 7.2.7, OpenSearch 1.3.6 → 2.19.1, Mongo 5.0.14 → 5.0.31 and Neo4j 5.3.0 → 5.26.0. That
+  leaves MySQL. Take **Keycloak separately and last**:
   it runs a forward-only Liquibase schema migration on the existing user store, the custom themes will
   need re-porting, the `keycloak-admin-client-jakarta` coordinate it uses was discontinued after
   21.1.2, and `cedar-keycloak-event-listener` is compiled against the current SPI. Rehearse each on a
@@ -266,13 +266,13 @@ model libraries — where their JSON and YAML serializations diverge — is in
 
   No longer parked at the end. Containerizing the data stores needs each image pin moved up to the
   version already running, because an older engine cannot open existing data files, so this item is
-  what unblocks the last step of item 14 rather than something to take up afterwards. Mongo and
-  Keycloak are patch-level and a non-event; MySQL is the real decision left.
+  what unblocks the last step of item 14 rather than something to take up afterwards. Keycloak is
+  patch-level and a non-event; MySQL is the real decision left.
 
-  The order above is upgrade risk alone. Containerizing takes them in a different order, for reasons
-  that are about migration cost and about Keycloak's realm living in a MySQL schema; item 14 has it,
-  and where the two orders disagree, that one governs, since the upgrade and the containerization
-  are one piece of work per store.
+  The four that are done moved in development only, where the pin move and the containerization were
+  one piece of work per store. Production is the part this item still owns: the same versions, but
+  rehearsed on a copy of production data and gated on the end-to-end smoke. Where the order above and
+  item 14's disagree, item 14 governs, since it is what sequences the remaining work.
 
 - **10. Move the build and runtime to Java 21.** The stack is locked to Java 17 — the zsh profile pins it
   and the build enforces it. 21 is the next LTS and the natural target, but the lock exists for a
@@ -481,9 +481,9 @@ model libraries — where their JSON and YAML serializations diverge — is in
      against the running native services rather than what Homebrew has installed:
 
          server       native (live)   Docker pin
-         Mongo        5.0.31          5.0.14
+         Mongo        5.0.31          5.0.31     (moved 2026-08-08, was 5.0.14)
          MySQL        9.6.0           8.0.32
-         Neo4j        5.26.0          5.3.0
+         Neo4j        5.26.0          5.26.0     (moved 2026-08-08, was 5.3.0)
          Redis        7.2.7           7.2.7      (moved 2026-08-08, was 6.2.7)
          OpenSearch   2.19.1          2.19.1     (moved 2026-08-08, was 1.3.6)
          Keycloak     22.0.5          22.0.4
@@ -516,15 +516,16 @@ model libraries — where their JSON and YAML serializations diverge — is in
      Then move the pins **up** to what is running. This is the direction that matters and the reason
      this item comes first: every later item adopts these pins, and an image older than the live
      server cannot open its data files. The corollary is a rule for everything downstream — never
-     containerize and upgrade in the same step. Mongo and Keycloak are patch-level and a non-event.
-     MySQL is the one major-version decision left, and it belongs with the persistence-upgrade item
-     near the top of this roadmap, which is parked on this one, since it defers to a lock that
-     records nothing.
+     containerize and upgrade in the same step. Keycloak is patch-level and a non-event. MySQL is the
+     one major-version decision left, and it belongs with the persistence-upgrade item near the top
+     of this roadmap, which is parked on this one, since it defers to a lock that records nothing.
 
-     Redis and OpenSearch are already done, moved to 7.2.7 and 2.19.1 to containerize them below.
-     Each cost one edited `FROM` line, which is precisely what this item exists to stop: those
-     numbers now live in Dockerfiles because there is nowhere else to put them. Treat them as
-     placeholders the record file absorbs, not as the pattern for the remaining four.
+     Four are already done — Redis at 7.2.7, OpenSearch at 2.19.1, Mongo at 5.0.31 and Neo4j at
+     5.26.0 — each moved to containerize that store below. Every one cost a hand-edited `FROM` or
+     `ENV` line, which is precisely what this item exists to stop: those numbers now live in
+     Dockerfiles because there is nowhere else to put them. Treat them as placeholders the record
+     file absorbs. Only MySQL and Keycloak are left to move, which makes the record cheaper to
+     introduce now than it has ever been.
 
      One thing to decide alongside it. The policy states one lock for two paths that cannot pin
      equally. Docker pins exactly. Homebrew mostly cannot: versioned formulae exist for some of the
@@ -680,6 +681,31 @@ model libraries — where their JSON and YAML serializations diverge — is in
      OpenSearch container took the image's default 1 GB heap, which is fine at this size, but nothing
      caps the container itself.
 
+     **Mongo and Neo4j have moved too,** on the same day, at 5.0.31 and 5.26.0. These are the two
+     that carry the source of truth, so each was a migration rather than a rebuild, and both came
+     across exactly: 62 documents restored with matching collection counts, and a graph of 18 nodes
+     and 29 relationships with the same folder and template counts. `mongodump`/`mongorestore` and
+     `neo4j-admin database dump`/`load` are the mechanisms; neither needed anything clever, because
+     the pins were moved to the running versions first. What they found:
+
+     - **A native store and its container can both hold a port, and nothing warns you.** Native Mongo
+       binds `127.0.0.1` while Docker binds the wildcard, so both listen, the more specific bind wins
+       every connection, and `docker ps` reports the container healthy the whole time. For a few
+       minutes the servers were talking to a native Mongo that a swap was supposed to have replaced.
+       This is the one that would quietly invalidate a measurement, and it applies to every store.
+     - **The Homebrew rollback path for Mongo is broken, independently of any of this.** Homebrew now
+       refuses the `mongodb/brew` tap as untrusted, so `brew services start mongodb-community@5.0`
+       cannot read the formula and writes a launch agent with an empty `ProgramArguments`. The
+       runbook has the direct `mongod` invocation instead. Worth deciding whether to `brew trust` that
+       tap, since until then the native fallback needs a command nobody has memorised.
+     - **The Neo4j image hardcoded its APOC jar version,** `apoc-5.3.0-core.jar`, so the version bump
+       broke the build until it was matched by glob. A pin that has to be restated in a second place
+       is a pin that will drift; the record file should feed both.
+
+     Restore only what the store owns. Mongo's container creates its own users in `admin` and native
+     runs without auth, so restoring native's `admin` would remove them; Neo4j 5 keeps authentication
+     in `system`, so loading `neo4j` alone leaves credentials intact.
+
      **The phase-one grouping was wrong, and the runbook now reflects the corrected one.** It read
      as the five data stores together with Keycloak left native, on the grounds that Keycloak holds
      user state. But Keycloak's state *is* a MySQL schema: `cedar-infra-keycloak` creates the
@@ -688,9 +714,8 @@ model libraries — where their JSON and YAML serializations diverge — is in
      move together, or MySQL moves with a dump of the Keycloak, messaging and log schemas. nginx is
      unaffected and still stays native for the 80/443 collision.
 
-     Order the rest by what a failed migration costs. Mongo and Neo4j next, which hold the artifacts
-     and the folder graph, have no rebuild-from-source path, and need their migrations rehearsed on a
-     copy. Then MySQL with Keycloak, last.
+     That leaves MySQL with Keycloak, which is the whole of what remains here and the one grouping
+     that cannot be split.
 
      Still open: whether the two-profile split grates enough to smooth. The stack starts under the
      docker-eval profile while the servers run under the native one, which is a second shell rather
@@ -762,12 +787,12 @@ model libraries — where their JSON and YAML serializations diverge — is in
      containerization are the same piece of work per store, so this runs against the
      persistence-upgrade item near the top of this roadmap rather than after it.
 
-     Redis and OpenSearch are done, and the corrected order for the rest is in the
-     development-infrastructure item above: Mongo and Neo4j, then MySQL together with Keycloak, since
-     Keycloak's realm lives in a MySQL schema. Those three are where this item gets hard. Redis moved
-     with an empty keyspace and OpenSearch was rebuilt from Mongo and Neo4j rather than migrated, so
-     neither exercised the part that carries risk. Mongo and Neo4j have no equivalent path: they are
-     the source of truth, and their data has to cross intact.
+     Four of the six are done — Redis, OpenSearch, Mongo and Neo4j — leaving MySQL together with
+     Keycloak, since Keycloak's realm lives in a MySQL schema. Development proved the mechanism on
+     all four, including the two migrations that carry real risk, so what remains here is less about
+     whether stores can be containerized and more about doing it where the data matters. Production
+     still needs each migration rehearsed on a copy of its own data, at its own scale; a 42 MB
+     development graph is not evidence about a production one.
 
      Two configuration points apply to all of them. Give each container an explicit memory limit and
      size its cache explicitly, since WiredTiger, the Neo4j heap and page cache and the OpenSearch
