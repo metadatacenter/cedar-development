@@ -22,6 +22,29 @@ captures and serves for multilingual labels is part of the model rather than a p
 [VERSIONING-DESIGN.md](VERSIONING-DESIGN.md#10-multilingual-labels); item 4 below is the open
 question about it.
 
+## Where the code is, and how it is switched on
+
+All of the above **merged to `develop` on 2026-08-09** — twenty-seven commits, previously on
+`versioned-terminology-server`. CI published the snapshot, and the containerized terminology server
+was rebuilt and redeployed on it, with the REST estate green afterwards. The feature branch is no
+longer the place to read this work.
+
+**The store is off unless something turns it on, and BioPortal is the shipped default.**
+`cedar-main.yml` carries an empty `catalogPath`, so the local store serves nothing until the
+`terminologyStore.*` system properties supply one, and the server logs which mode it is in at
+startup. Two levers govern it — whether the store is used at all, and whether a locally-served
+ontology may fall back to BioPortal when it cannot answer. Both are described in
+[BACKEND-RUNBOOK.md](BACKEND-RUNBOOK.md), under the local terminology store; they are operational
+rather than plan, so they are not restated here.
+
+One consequence belongs with the plan rather than the runbook. Fallback is on in normal operation,
+so a gap in the local store is quietly covered by BioPortal. That is the right default for serving
+and the wrong one for measuring: it means a green suite says nothing about how complete the store
+is, and the reconciliation and equivalence work below is what does.
+
+**Currently the containerized server runs on BioPortal**, with the catalog mounted read-only and the
+path left blank, so switching back is one profile line.
+
 ## Goal
 
 Replace BioPortal for lookup wherever we can, and make every published template and filled instance

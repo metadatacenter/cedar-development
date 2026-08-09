@@ -1106,7 +1106,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
 
 - **16. Decide whether the build runs the tests, and give the answer a command-line option. Stop the
   output loop busy-polling.** The Java build skips its tests again: every Java repo is built with
-  `mvn clean install -DskipTests`, and the `CEDAR_DEV_SKIP_TESTS` escape hatch is gone with the
+  `./mvnw clean install -DskipTests`, and the `CEDAR_DEV_SKIP_TESTS` escape hatch is gone with the
   default it modified. That restores the behaviour the build had before, and it means a green
   `cedarcli build` says the stack compiles and nothing more. Whichever way it settles reaches every
   Java repo in the generated plan, since `build this`, `build parent`, `build libraries`, `build
@@ -1147,7 +1147,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   saved plan script record which mode ran.
 
   Two places the flag must not silently reach. `ReleasePrepareShellTaskFactory` hardcodes
-  `mvn clean install -DskipTests` and `DeployShellTaskFactory` hardcodes `mvn deploy -DskipTests`, so
+  `./mvnw clean install -DskipTests` and `DeployShellTaskFactory` hardcodes `./mvnw deploy -DskipTests`, so
   release and deploy builds never run tests whatever the flag says. Extend them deliberately or state
   it; do not leave `--tests` looking as though it covers them.
 

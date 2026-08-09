@@ -374,11 +374,11 @@ admin tool. `cedarcli docker build` also takes `all`, a group (`infrastructure`,
 `frontends`, `admin`), or any image name, and always builds the CEDAR bases an image is built `FROM`
 first — which a bare `docker build` does not, and which is how a stale base silently gets used.
 
-**Build clean when a library changed.** `mvn install` without `clean` can re-shade a fat jar around
+**Build clean when a library changed.** `./mvnw install` without `clean` can re-shade a fat jar around
 a cached assembly and leave an old copy of a dependency class inside it. The jar is newer than the
 library it should contain, so no timestamp check catches this, and every downstream step reports
 success: staging copies the jar faithfully, the image hash matches, and the container runs the old
-code. If you changed a shared library, `mvn clean install` in the consuming server before staging.
+code. If you changed a shared library, `./mvnw clean install` in the consuming server before staging.
 
 
 ## The controller: `ops/cedar-services.sh`
@@ -700,7 +700,19 @@ stack in dependency order: `cedar-parent`, then `cedar-microservice-libraries`, 
 servers. Inside a single repo, `cedarcli build this` builds just that repo. Both need the profile
 sourced and `JAVA_HOME` pinned to 17.
 
-The build skips the tests: every Java repo is built with `mvn clean install -DskipTests`, so a green
+**Maven comes from the wrapper, not from the machine.** Every Java repository carries `mvnw` pinned
+to 3.9.14, CI invokes it, and `cedarcli` does too, so the build tool is the same everywhere instead
+of whatever each developer and each runner happens to have installed. It is script-only — no jar is
+committed — and fetches its distribution into `~/.m2/wrapper` on first use. Run `./mvnw` rather than
+`mvn` from inside a repository; the exceptions in this document are the commands that pass `-f` with
+an absolute path from outside one, where a wrapper cannot be resolved. The build images are the one
+place Maven still floats: they install it with `microdnf` unversioned.
+
+Java is not pinned this tightly. The enforcer requires `[17,18)` and CI asks for `17`, both major
+only, while the runtime image ships an exact Temurin build — so the thing that runs the servers is
+pinned harder than the thing that compiles them. The roadmap carries that, with the Java 21 move.
+
+The build skips the tests: every Java repo is built with `./mvnw clean install -DskipTests`, so a green
 `cedarcli build` means the stack compiles, not that it passes. Run a suite separately, with `mvn` in
 the repo. Every suite is backend-free, so nothing needs to be up for it. Making the build run the
 tests, with `--tests` / `--skip-tests` to choose, is an open item on
@@ -990,7 +1002,7 @@ authenticated surface, so excluding the tagged tests does not silently drop a ro
 Every Java repository builds in GitHub Actions from `.github/workflows/ci.yml`, on each push and
 pull request to `develop` and on manual dispatch. The workflow is the same everywhere: Java 17 from
 temurin with the Maven cache, the BMIR Nexus credentials from the `BMIR_NEXUS_USERNAME` and
-`BMIR_NEXUS_PASSWORD` repository secrets, `mvn --update-snapshots verify`, and the surefire reports
+`BMIR_NEXUS_PASSWORD` repository secrets, `./mvnw --update-snapshots verify`, and the surefire reports
 uploaded whatever the outcome. Jobs carry a hard timeout: twenty minutes for a component,
 forty-five for `cedar-project`, which builds nineteen repositories in one reactor.
 
@@ -1032,7 +1044,7 @@ Publishing by hand is still occasionally needed — to seed a layer Nexus never 
 that bypassed CI:
 
 ```bash
-cd $CEDAR_HOME/cedar-<name> && mvn --batch-mode deploy --settings .m2/travis-settings.xml
+cd $CEDAR_HOME/cedar-<name> && ./mvnw --batch-mode deploy --settings .m2/travis-settings.xml
 # needs BMIR_NEXUS_USERNAME and BMIR_NEXUS_PASSWORD in the environment
 ```
 

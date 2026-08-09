@@ -21,7 +21,7 @@ CEDAR is a ~53-repo monorepo; a release touches ~48 of them. `all-in-one` runs e
 4. **Commit** — per repo: merge the tag into `main` + push, merge the post-branch into `develop` + push.
 5. **Cleanup** — delete the temporary `release/pre|post` branches.
 6. **Checkout main** — release repos onto `main`.
-7. **Deploy develop** — publish `<NEXT>` snapshots (rebuild frontends + `mvn deploy` + `npm publish`).
+7. **Deploy develop** — publish `<NEXT>` snapshots (rebuild frontends + `./mvnw deploy` + `npm publish`).
 8. **Deploy main** — publish the `<VER>` release to Nexus + npm.
 
 It runs **~1h50m–2h30m** (a clean run is ~1:48). It is **not atomic** — failures cluster in the
@@ -138,7 +138,7 @@ then resume.
 
 | Signature | Meaning | Recovery |
 |-----------|---------|----------|
-| `status code: 5xx … BUILD FAILURE` on `mvn deploy` | transient Nexus 5xx | retry |
+| `status code: 5xx … BUILD FAILURE` on `./mvnw deploy` | transient Nexus 5xx | retry |
 | `git pull` hangs at `Username:` | expired PAT + empty credential store | refresh PAT, re-cache; keep `GIT_TERMINAL_PROMPT=0` set |
 | `RPC failed; curl 92 Stream error in the HTTP/2 framing layer` | transient push | retry (or `git config http.version HTTP/1.1`) |
 | `remote: fatal error in commit_refs` / `remote rejected main -> main` | transient GitHub backend | retry the push, then `release commit` |

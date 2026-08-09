@@ -381,11 +381,11 @@ disagree, it wins.
 
 It needs **JDK 17** — the POM enforces `[17,18)` and will refuse 21 or 23 with
 `RequireJavaVersion` — and its parent POM `org.metadatacenter:cedar-parent`,
-which resolves only against the CEDAR nexus. Clone and `mvn install`
+which resolves only against the CEDAR nexus. Clone and `./mvnw install`
 `cedar-parent` first if you have not; the public repos return 402 for it.
 
 ```bash
-cd ../cedar-model-validation-library && export JAVA_HOME=$(/usr/libexec/java_home -v 17) && mvn test
+cd ../cedar-model-validation-library && export JAVA_HOME=$(/usr/libexec/java_home -v 17) && ./mvnw test
 ```
 
 Expect **210 passing, 7 skipped**.
