@@ -1,11 +1,10 @@
 # CEDAR Embeddable Editor (CEE) — Development Runbook
 
 Building, running and testing **CEE** (`cedar-embeddable-editor`) locally.
-Everything here has been run on macOS (Apple silicon), against
-`cee-with-model-library` @ CEE 1.6.0-e2 — the Angular 22 branch, which is what
-the local Template Designer and OpenView serve. `develop` and `main` are still
-on Angular 14.3, so a command that behaves differently there is describing the
-branch, not a fault.
+Everything here has been run on macOS (Apple silicon), against `develop` @ CEE
+1.6.0-dev.20260809.8127503, which is Angular 22 and is what the local frontends
+serve. `main` is still on Angular 14.3, so a command that behaves differently
+there is describing that branch, not a fault.
 
 Sibling runbooks:
 - [CEE-ROADMAP.md](./CEE-ROADMAP.md) — where CEE currently is, and the open
@@ -133,22 +132,29 @@ It runs these stages in order and stops at the first failure:
 3. A production build of the web component.
 4. Fixture preparation and the Playwright browser suite at desktop and narrow
    viewport sizes (`test:visual`).
-5. The staged npm package, checked against the bundle stage 4 just built
-   (`check:staged`).
+5. The npm package, staged from the bundle stage 4 just built and then verified
+   byte-for-byte against the source each file came from
+   (`package:npm:prebuilt`).
 
-Stage 5 exists because `dist-npm/` is a committed deployment artifact that
-nothing regenerates: it goes stale the moment source changes and only catches up
-when somebody deploys. It had drifted three commits behind before one deploy and
-two before the next, and the frontends read that file directly, so a stale one
-means they run code nobody has looked at. **A source change now fails the gate
-until `npm run package:npm:prebuilt` has been run** — which is the cost of
-committing a build output, and cheaper than the alternative of not knowing.
+Stage 5 leaves `dist-npm/` present and current, which is what the local frontends
+consume: each symlinks `node_modules/cedar-embeddable-editor` at that directory. A
+fresh clone has no `dist-npm/` until something stages it, so **run the gate, or
+`npm run package:npm:prebuilt` alone, before expecting a consumer to serve CEE.**
 
-The check is a byte comparison, which needs the build to be reproducible: two
-clean builds of the same source were verified byte-identical before this was
-wired in. It also needed the manifest to stop carrying a build timestamp — that
-field made every rebuild differ even when the bundle did not, which is precisely
-what let the drift hide.
+`dist-npm/` used to be committed, and the stage used to be a drift check
+(`check:staged`) rather than a staging step. That arrangement cost more than it
+paid: the committed copy went stale the moment source changed and only caught up
+when somebody deployed — three commits behind before one deploy, two before the
+next — and once the label was bumped without a rebuild, one version named two
+different bundles. Since the files are generated and the build is reproducible,
+the copy in git was a second source of truth that could disagree with the first.
+It is now ignored, and staging is what the gate runs.
+
+Verification is still a byte comparison, which needs the build to be
+reproducible: two clean builds of the same source were verified byte-identical
+before this was wired in. It also needed the manifest to stop carrying a build
+timestamp — that field made every rebuild differ even when the bundle did not,
+which is precisely what let the old drift hide.
 
 The domain fixtures are vendored under `harness/fixtures/`. Neither
 `cedar-artifact-library` nor `cedar-test-artifacts` needs to be cloned or
@@ -169,8 +175,8 @@ npm --prefix visual ci
 ./visual/node_modules/.bin/playwright install chromium
 ```
 
-The current gate should report 0 lint problems, 125 unit tests, 2,202 domain tests
-and 376 Playwright tests. Treat these as useful smoke checks, not permanent
+The current gate should report 0 lint problems, 125 unit tests, 2,242 domain tests
+and 394 Playwright tests. Treat these as useful smoke checks, not permanent
 constants: new tests should make the counts rise. (This line once carried a Karma
 figure, years after the move to Vitest — which is the hazard of writing counts
 down at all.)
@@ -217,8 +223,8 @@ on reflex.
 ### What CI runs
 
 `.github/workflows/test.yml` runs the same gate on every pull request and on
-pushes to `main`, `develop` and `cee-with-model-library`, with a thirty-minute
-ceiling. Two of its choices are deliberate and expensive to rediscover.
+pushes to `main`, `develop` and the `cee-angular-**` branches, with a
+thirty-minute ceiling. Two of its choices are deliberate and expensive to rediscover.
 
 **The runner is pinned to `macos-15`, not `macos-latest`.** The committed
 Playwright snapshots are macOS baselines, so a runner bump would move them
@@ -271,7 +277,7 @@ export PATH="/opt/homebrew/opt/node@24/bin:$PATH"
 npm run test:domain
 ```
 
-Expect **2,260 passing** on `cee-with-model-library`. For watch mode, run
+Expect **2,242 passing** on `develop`. For watch mode, run
 `npm --prefix harness run test:watch`.
 
 A green run here means CEE agrees with itself. For whether its output is
@@ -709,9 +715,11 @@ Only **two** files hold the version by hand:
 | `package.json` | 1 (`"version"`) |
 | `package-lock.json` | 2 (top-level `"version"` + the root `""` package entry) |
 
-The `dist-npm/cedar-embeddable-editor/` manifests are **generated** — `scripts/npm-package.mjs`
-derives them from the root `package.json`. Do not hand-edit them; staging overwrites them. (Older
-notes describing "six version spots" predate that script.)
+Everything under `dist-npm/cedar-embeddable-editor/` is **generated** and git-ignored —
+`scripts/npm-package.mjs` derives the manifests from the root `package.json`, `types:public` emits
+the declarations, and the README and changelog are copied from the root. Do not hand-edit any of
+them; staging overwrites them. (Older notes describing "six version spots", or the directory as a
+committed artifact, predate that script and the ignore.)
 
 Then add a `## [X.Y.Z] - <date>` section to `CHANGELOG.md`, and bump the load-trace stamp in
 `src/app/modules/shared/components/cedar-embeddable-metadata-editor/cedar-embeddable-metadata-editor.component.ts`
