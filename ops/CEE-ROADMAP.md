@@ -14,11 +14,8 @@ Where CEE is, not how it got there. Anything with work left points at its item;
 anything settled is here in one line or not at all, because the commit that did
 it says the rest.
 
-- The version march is **done and landed**: `develop` is on Angular 22.1,
-  TypeScript 6.0, RxJS 7.8 and Node 24.19.0, reached one branch per hop through
-  `cee-angular-15` … `cee-angular-22`, gathered on a feature branch and
-  fast-forwarded onto `develop` in 230 commits. `main` is still on Angular 14.3,
-  TypeScript 4.8 and RxJS 6.6.
+- `develop` is on **Angular 22.1, TypeScript 6.0, RxJS 7.8 and Node 24.19.0**.
+  `main` is still on Angular 14.3, TypeScript 4.8 and RxJS 6.6.
 - The published dev build is `1.6.0-dev.20260809.8127503`, on Nexus as the scoped
   package under the `dev` tag. It ships TypeScript declarations for the host
   contract — item 1. The same bundle is what all four local frontends serve: the
@@ -41,16 +38,26 @@ it says the rest.
   flaky. The one that was recorded as flaky for months turned out to be a real
   defect — see *Selection races*, below.
 - The gate is lint → typecheck → unit → domain → visual → stage the npm package.
-  **TypeScript `strict`
-  is on** in `tsconfig.base.json` and every project extending it type-checks
-  clean; the harness is checked in the gate but stands outside `strict` —
-  item 3. Lint runs clean with `no-explicit-any` as an error, and the 42
-  remaining `any` sites across 10 files each carry their own disable comment —
-  item 3. Templates are type-checked on every build, not only the production
-  one.
-- **The build still runs through the deprecated webpack `browser` builder.** The
-  move to `@angular/build:application` was done, measured and reverted, because
-  openview cannot load the result — item 3.
+  **TypeScript `strict` is on everywhere**, in `tsconfig.base.json` and, since
+  the harness stopped declaring `strict: false`, in the one project that does not
+  extend it. Lint runs clean with `no-explicit-any` as an error and **no
+  suppressions left in `src/`**; the harness holds 44, which its own `strict`
+  pass did not require and which lint does not see. Templates are type-checked on
+  every build, not only the production one.
+- **The build runs through `@angular/build:application`.** The webpack `browser`
+  builder is gone, along with the dev-server and extract-i18n ones beside it. It
+  costs 130,032 bytes raw over what webpack produced — the reverse of an earlier
+  measurement, and inside budget either way.
+
+  **openview must ship its paired change first.** It resolves CEE from npm, and a
+  release carrying this builder breaks it on deploy unless CEE is copied as an
+  asset rather than listed in `angular.json`'s `scripts`. esbuild writes the class
+  as a named expression, `var x1 = class t extends Error { static IDLE = new t("IDLE") }`;
+  Terser drops the binding as side-effect-free, keeps the static initializers and
+  renames the inner self-reference to the name it deleted, so `scripts.js` throws
+  `ReferenceError` before the element registers. The check that settles it is
+  loading openview's own page and asking whether
+  `customElements.get('cedar-embeddable-editor')` is defined.
 - Templates use block control flow, and `prefer-control-flow` is an error, so
   the deprecated directives cannot come back a template at a time.
 - Template-authored rich text is **sanitized by default**; verbatim rendering is
@@ -141,146 +148,38 @@ each would be re-decided the same wrong way without the reason written down.
   `/Integrated(ExtAuth|Details)Url$/` reads as the obvious implementation and would
   have accepted precisely the typo the check exists to catch.
 
-### 2. Fix and modernize the datetime field
-
-The date/time/timezone control needs work on three fronts, from the cheap near-term fix
-to the deeper rework the Angular upgrade unlocks.
-
-The immediate one is layout. The widget renders with spacing or alignment that looks wrong
-next to the other input types. Not a data defect — the value is read and written correctly
-(`cedar-input-datetime`, and the temporal value now carries its `@type`) — but a visual one.
-Reproduce against the running editor, identify whether it is the component's own
-template/styles or how the surrounding field row wraps the three sub-controls, and bring it
-into line with the other fields.
-
-The deeper rework waits on the framework. Angular Material 19 added an official `MatTimepicker`
-that can share a value with `MatDatepicker`, use locale-driven 12/24-hour display, parse
-seconds, and generate options at second intervals. Now that the Angular 14→22 upgrade has
-landed, prototype replacing only the in-house `app-time-picker` with it. Do not replace the
-CEDAR-level temporal wrapper: Material still does not provide year/month-only values, decimal
-seconds, a timezone selector, or CEDAR's XSD serialization and granularity rules (the "Out of
-scope" note below). Keep the custom control if matching those rules through Material formats
-and options is more complex or less usable than the small component already owned here.
-
-Treat the timezone selector as a separate design correction. It currently offers city-labelled
-"timezones" but stores only fixed offsets such as `-08:00`; it also guesses an IANA browser zone
-and immediately reduces it to the offset *now*, which can be wrong for the selected date across a
-DST boundary. Decide which value the field means. If it means an XSD offset, label choices
-neutrally as `UTC−08:00` rather than Pacific Time and derive any default for the selected instant.
-If it means a civil timezone, preserve an IANA identifier such as `America/Los_Angeles` separately
-and derive the applicable offset from the selected date and time, including ambiguous and
-nonexistent DST times. While touching the component, remove the duplicate `valueChanges`
-subscriptions in `ngOnInit` and `ngAfterViewInit`, which currently propagate each selection twice.
-
 ## Infrastructure
 
-### 3. Finish what the Angular march left behind
+### 2. The Metadata Editor scroll bug
 
-The march itself is done — 14 → 22, a branch per hop, `cee-angular-15` through
-`cee-angular-22`, each landed against a green gate. What it deliberately did not
-absorb is collected here, because a framework hop that also rewrites null handling
-or restyles the form is a hop whose failures cannot be attributed.
+Scrolling past the end of the form and back makes the bottom of it disappear. The
+only open item here that costs a user something they can see, and the only one
+that needs a browser and a reproduction rather than a decision.
 
-- **Clear the 42 remaining `any` sites.** Down from 77 across 44 files, and now
-  errors with individual disable comments rather than a baseline, so the count
-  cannot drift upward unnoticed. The largest cluster by far is
-  `model-library-template-parser` (14), where the library's `valueConstraints` is
-  read as `any`; the two editor spec files hold 16 more between them. Typing them
-  is not cosmetic: doing the same elsewhere surfaced a call reading `rawResponse`
-  off a type with no such property, keywords typed `string[]` that are
-  `string[][]`, and an ORCID resolve typed as the parsed researcher rather than
-  the document parsed into one.
-- **Put the harness under `strict`.** `harness/tsconfig.json` does not extend
-  `tsconfig.base.json`; it declares its own options and sets `strict: false` and
-  `noImplicitAny: false`. So the claim that the repository is strict throughout
-  has a hole in the one project written to outlive framework upgrades. Turning it
-  on reports 77 errors, 57 of them `TS18047` and `TS2531` — "possibly null" and
-  "possibly undefined" on generated fixtures. That is the same shape of work the
-  `strictNullChecks` pass did in `src/`, where it surfaced real defects rather
-  than only noise, and it is too large to carry inside an unrelated change.
-- **Move to the `@angular/build:application` builder.** Done once and reverted,
-  so what follows is measured rather than estimated.
-  `ng update @angular/cli --migrate-only --name=use-application-builder` makes
-  the workspace edit; `esModuleInterop` has to be swapped into
-  `tsconfig.base.json` by hand, because the schematic hard-codes the path
-  `tsconfig.json` where CEE keeps no compilerOptions. The artifact then builds
-  at **3,207,044 bytes, 190,309 smaller**, and passed the whole bundle-level
-  suite — 356 checks at the time it was measured.
+Pre-existing: it reproduces on Angular 14, so no upgrade caused it and none fixed
+it. The suspects are the two nested `height: 100%; overflow-y: auto` containers in
+`create-instance.html` — which is in the **Template Designer**, not CEE, so the
+fix probably lands in `cedar-template-editor` even though the symptom is CEE's
+form. Confirm which container is clipping before touching either.
 
-  It was reverted because **openview cannot load it**. openview is on Angular
-  16.2 and takes CEE through its own build rather than serving the file; that
-  build re-minifies it, 3,207,044 down to 3,183,588, and the result throws
-  `ReferenceError: TO is not defined` before the custom element registers. The
-  previous artifact survives the same treatment and reports version
-  `1.6.0-ng22`. Confirmed by A/B with openview's `.angular/cache` cleared each
-  time and the script loaded into a blank page, so neither a stale build nor
-  openview's own page explains it.
+Done when the bottom of a long form survives a scroll to the end and back, in the
+Template Designer and in the standalone harness, with a regression test at
+whichever layer turns out to own the containers.
 
-  The mechanism is **not** syntax: both artifacts carry the same static class
-  fields, named class expressions and modern operators. The failure is in
-  openview's optimizer, on code CEE's bundle contains as
-  `var WN = class t extends Error { static IDLE = new t("IDLE") … }`, which
-  comes out as `new TO("IDLE")` with no `TO` in scope.
+### 3. Decide whether `cedar-artifact-viewer` is live
 
-  So this is blocked on openview rather than on CEE, and the cheapest route is
-  probably to stop openview re-minifying a bundle that is already minified, or
-  to move it off Angular 16. Whichever is chosen, the check that matters is not
-  CEE's gate — it passed throughout — but loading openview's own `scripts.js`
-  and asking whether `customElements.get('cedar-embeddable-editor')` is defined.
+Three copies of one unanswered question, and they do not agree:
 
-  Packaging is ready either way. `resolve-build-output.mjs` selects `bundle` for
-  this output and `concat` for webpack's, and the packaging suite covers both
-  shapes.
-- **The Metadata Editor scroll bug.** Scrolling past the end of the form and back
-  makes the bottom disappear. Confirmed pre-existing on Angular 14, so the march
-  neither caused nor fixed it. The suspects are the two nested
-  `height: 100%; overflow-y: auto` containers in `create-instance.html`, in the
-  Template Designer rather than in CEE.
-- **`cedar-artifact-viewer`.** Used on two OpenView pages and installed as an npm
-  package, but never wired into `angular.json`; its script tag is already
-  commented out. Decide whether it is live or dead, and then make the repository
-  say so.
-Material 3 theming was also held out of the march. It belongs with the rest of the
-styling questions rather than here — item 4.
+- openview installs `cedar-artifact-viewer` as an npm dependency.
+- Its `index.html` carries a commented-out `<script>` tag pointing not at that
+  package but at a remote `https://component.metadatacenter.org/...-2.9.2-SNAPSHOT.js`.
+- It is named in `angular.json` nowhere at all, so nothing builds or serves it,
+  while two OpenView pages are described as using it.
 
-Done when the `any` sites are gone, the scroll bug is diagnosed,
-`cedar-artifact-viewer` is either wired in or deleted, and the build no longer
-runs through a deprecated builder.
-
-#### What the march cost, and what it taught
-
-Kept because it is measured rather than remembered, and because the next framework
-upgrade will meet the same shapes.
-
-The gate went from 64 unit tests in 8 files, 2,125 domain and 335 visual with 98
-snapshots, to 102 unit, 2,132 domain and 346 visual with 100 snapshots. Lint went
-from 77 baselined warnings across 44 files to 32 across 22, and from running
-beside the build to being the first stage of `test:ci`.
-
-The bundle moved most: 3,131,159 → 3,515,983 raw and 743,467 → 807,197 gzip, up
-385KB and 64KB, with its limits raised three times. MDC accounts for 190,966 raw
-and 19,620 gzip of that, measured either side of the migration commit; 16 → 17
-added 42,632; 18 gave 78,423 back; 20 and 21 together took 84,748. Gzip is the
-binding figure now, not raw, and CI measures it larger than a developer machine
-does. Letting the framework cost bytes was a decision taken three times on the
-evidence each time; whether a 3.5MB single-file bundle is still the right artifact
-is a question worth asking on its own.
-
-Three shapes recurred, none of which the build or the unit tests could see:
-
-- **Libraries assume they are styling a document, not a shadow root.** Four times:
-  Material 16 emitting theme tokens under `html{}`, and at CDK 19 the
-  visually-hidden class, the autosize measuring styles and the textarea
-  line-height cache. Each showed up only as pixels.
-- **Tests that pin an implementation rather than the guarantee fail on upgrades
-  that broke nothing.** Two overlay tests asserted that `mat-select` options live
-  inside `.cee-overlay-container`; Material 21 stopped delivering them that way
-  while the guarantee — inside the shadow root, never in the host document — held
-  throughout.
-- **A framework that stops guessing exposes markup that was always wrong.** 15
-  buttons carried both `mat-button` and `mat-icon-button`. Until Angular 22
-  refused to choose, both applied and drew a 64x48 rounded rectangle that was
-  neither. Nothing reported it, because nothing was failing.
+Decide whether the viewer is still part of the product. If it is, wire it in from
+the installed package and delete the remote tag; if it is not, drop the
+dependency, the tag and the pages that claim it. Either way the repository should
+stop holding all three answers at once.
 
 ### 4. CEE styling
 
@@ -354,9 +253,10 @@ across 10 stylesheets — the 24 across 11 recorded here before counted six that
 appear only inside comments, which is what `visual/tests/material-selectors.spec.ts`
 strips before it checks anything. Plus 15 `!important` declarations in `styles-own.scss`
 alone, several of them overriding MDC's own three-class selectors. Each is a bet
-that Material's internal DOM will not move, and the march collected the receipts:
-the form-field infix compression had to be rewritten for MDC because height moved
-from padding to `min-height`, and the notched outline needed three selectors where
+that Material's internal DOM will not move, and the upgrades collected the
+receipts: the form-field infix compression had to be rewritten for MDC because
+height moved from padding to `min-height`, and the notched outline needed three
+selectors where
 legacy needed one. `visual/tests/material-selectors.spec.ts` at least reports when
 one of these stops matching anything, which is how two dead rules were found — but
 reporting is not reducing.
@@ -376,6 +276,41 @@ names.
 Done when the palette question has an answer that someone chose, the theme is
 built on supported APIs, and the count of Material internals CEE depends on has
 gone down rather than up.
+
+### What the Angular 14 → 22 march cost, and what it taught
+
+A record, not open work. Kept because it is measured rather than remembered, and
+because the next framework upgrade will meet the same shapes.
+
+The gate went from 64 unit tests in 8 files, 2,125 domain and 335 visual with 98
+snapshots, to 102 unit, 2,132 domain and 346 visual with 100 snapshots. Lint went
+from 77 baselined warnings across 44 files to 32 across 22, and from running
+beside the build to being the first stage of `test:ci`.
+
+The bundle moved most: 3,131,159 → 3,515,983 raw and 743,467 → 807,197 gzip, up
+385KB and 64KB, with its limits raised three times. MDC accounts for 190,966 raw
+and 19,620 gzip of that, measured either side of the migration commit; 16 → 17
+added 42,632; 18 gave 78,423 back; 20 and 21 together took 84,748. Gzip is the
+binding figure now, not raw, and CI measures it larger than a developer machine
+does. Letting the framework cost bytes was a decision taken three times on the
+evidence each time; whether a 3.5MB single-file bundle is still the right artifact
+is a question worth asking on its own.
+
+Three shapes recurred, none of which the build or the unit tests could see:
+
+- **Libraries assume they are styling a document, not a shadow root.** Four times:
+  Material 16 emitting theme tokens under `html{}`, and at CDK 19 the
+  visually-hidden class, the autosize measuring styles and the textarea
+  line-height cache. Each showed up only as pixels.
+- **Tests that pin an implementation rather than the guarantee fail on upgrades
+  that broke nothing.** Two overlay tests asserted that `mat-select` options live
+  inside `.cee-overlay-container`; Material 21 stopped delivering them that way
+  while the guarantee — inside the shadow root, never in the host document — held
+  throughout.
+- **A framework that stops guessing exposes markup that was always wrong.** 15
+  buttons carried both `mat-button` and `mat-icon-button`. Until Angular 22
+  refused to choose, both applied and drew a 64x48 rounded rectangle that was
+  neither. Nothing reported it, because nothing was failing.
 
 ## Testing
 
@@ -566,8 +501,9 @@ a test that can fail.
 
 1. Land the conformance spec as soon as the library publishes (item 5). It is
    written and waiting, and until it runs CEE has no check on its own output.
-2. Clear the remaining `any` sites (item 3). 42 across 10 files, and typing them
-   has surfaced live bugs three times now.
+2. Ship openview's asset change before any CEE release carrying the new builder.
+   openview resolves CEE from npm, so the wrong order breaks it on deploy, and
+   the breakage is a `ReferenceError` at load rather than a build failure.
 3. Keep the production bundle and Playwright checks working throughout.
 4. Complete the public host contract before the stable `1.6.0` release (item 1);
    the stable model-library release lands as an aside of that work.
