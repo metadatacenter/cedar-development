@@ -527,8 +527,8 @@ model libraries — where their JSON and YAML serializations diverge — is in
      `cedar-docker-build` CI, where a bump is checked on the pull request that makes it. Verified by
      building all seven infrastructure images through the CLI and confirming each carries the
      declared version, and by checking that a bare `docker build` and a deliberately mismatched pair
-     both fail. What remains of this item is the Renovate app being enabled on the repository, which
-     needs someone with admin rights, and extending the same treatment to the Java repositories.
+     both fail. What remains is turning the bot on and extending it to the Java repositories, which
+     the Renovate item in this section carries.
 
      The lock is stated in two places and neither records a version. CLAUDE.md and the runbook both
      say Mongo, MySQL, Neo4j, Redis, OpenSearch and Keycloak must not move; nothing in `os-mirror`,
@@ -597,19 +597,13 @@ model libraries — where their JSON and YAML serializations diverge — is in
        the only reason the declaration would have had to be readable by Compose.
 
      **Then let a bot hold it current, because the defect this item names is drift nobody noticed.**
-     A record that a human updates has the same failure mode as the one it replaces. Renovate is the
-     standard tool for this and there is none anywhere in the estate — no Renovate, no Dependabot, in
-     any repository. It reads Dockerfile `FROM`, Compose `image:`, Maven properties and Actions
-     natively, and covers a manifest like the one above through a custom manager keyed on
-     `# renovate:` annotation comments, which is its documented pattern for exactly this. That the
-     manifest is checked in beside the Dockerfiles is what makes this work at all: a bot can raise a
-     pull request against a file in the repository, and cannot against an environment.
+     A record that a human updates has the same failure mode as the one it replaces. That the manifest
+     is checked in beside the Dockerfiles is what makes a bot possible at all: it can raise a pull
+     request against a file in the repository, and cannot against an environment. The Renovate item
+     in this section carries that work and the decisions it needs; the config it describes is already
+     committed here.
 
-     It pays for itself twice, because it is also most of the next item: Renovate pins to digests, and
-     the two floating bases that item lists — `registry.access.redhat.com/ubi9` with no tag at all and
-     `node:20-bookworm` — are precisely what it flags. Adopt it once, against both items.
-
-     The one thing it cannot do is Homebrew, which has no Renovate manager. The native side stays
+     The one thing no bot can do is Homebrew, which has no Renovate manager. The native side stays
      unwatched however this is built, which is a further argument for finishing containerization and
      making the Docker pins the only pins.
 
@@ -680,11 +674,12 @@ model libraries — where their JSON and YAML serializations diverge — is in
      tarball. Then drop the blanket `microdnf -y update` from the images that get deployed and install
      what is needed at explicit versions.
 
-     Adopt Renovate here rather than separately. The item above wants it to hold the server
-     declaration current; this one wants floating bases found and third-party bases pinned by digest
-     rather than by a tag that can be re-pushed. That is the same tool doing both, so the two floating
-     bases named above should be its first pull requests rather than a hand-edit that a check later
-     rediscovers.
+     The Renovate item in this section covers most of this half. A bot pins bases by digest rather
+     than by a tag that can be re-pushed, and the two floating bases named above are exactly what it
+     flags, so they should be its first pull requests rather than a hand-edit that a check later
+     rediscovers. What stays here is the part no bot can supply: the check that fails a build on an
+     untagged or floating `FROM`,
+     and on a SNAPSHOT in a release.
 
      The environment wants a floor rather than a pin. Each target needs a minimum Docker engine and
      Compose version, since the stacks use healthcheck conditions and `include` arrived in Compose
@@ -923,12 +918,75 @@ model libraries — where their JSON and YAML serializations diverge — is in
   other two proxy a live `ng serve` and belong to development only.
 
 
+- **15. Adopt Renovate, so a version that falls behind says so.** Every pin in this estate is
+  maintained by someone remembering to look at it, and the measurement above is what that produces:
+  the Docker OpenSearch image sat at 1.3.6 while the servers shipped the 2.19 client, for about two
+  years, and nothing anywhere reported it. Renovate is a bot that reads the files a repository
+  already has — `pom.xml`, `Dockerfile`, workflow files — works out what each dependency is pinned
+  to, compares that against what upstream has published, and opens a pull request for each one that
+  is behind, with the changelog in the body. It decides nothing and merges nothing. The point is
+  that drift becomes visible the week it happens rather than whenever somebody next measures.
+
+  **What is in place.** `cedar-docker-build/renovate.json`, committed 2026-08-08 and validated
+  against Renovate's own config validator. It watches the six locked server versions in
+  `bin/cedar-images-base.sh` through a custom manager keyed on the `# renovate:` comments above each
+  one, groups them so they arrive as a single reviewable decision, sets a fourteen-day minimum
+  release age, disables automerge everywhere, and holds Keycloak behind dashboard approval because
+  what pins Keycloak is CEDAR's own code rather than the lock. It is inert: a config file is read by
+  Renovate and does not cause Renovate to run.
+
+  **Decide how it runs.** Two routes, and the difference is who holds write access.
+
+  - The **Mend-hosted GitHub App**, installed on the `metadatacenter` org. Free, since these
+    repositories are public. Installing it is a browser flow with an owner's approval — there is no
+    API for it — and it grants a third party standing write access to org repositories. The org
+    already runs `travis-ci`, `sonarqubecloud` and `gitguardian` on the same terms.
+  - **Self-hosted in Actions**: a scheduled workflow running `renovatebot/github-action` with a token
+    that can open pull requests. Nobody external gets standing access; the cost is a token to manage
+    and some runner minutes.
+
+  Expect a burst on the first run, whichever route: it opens pull requests for everything currently
+  behind, and a dependency-dashboard issue. The concurrency limit and release age in the config exist
+  to blunt that.
+
+  **Then extend it to the Java repositories, where it is cheaper than it looks.** Renovate reads
+  Maven natively — versions declared in `<properties>` and referenced as `${...}` in the same POM —
+  so no custom manager and no annotation comments are needed, unlike the shell manifest. And the
+  parent-POM rule pays off again: `cedar-parent` holds 93 version properties and is where every
+  dependency version in the estate is declared, while the roughly thirty child POMs name
+  dependencies without versions and so have nothing for a bot to update. One repository configured,
+  the whole Java estate covered.
+
+  Three things to settle before turning it on there, or the first run is worse than useless. The
+  framework baseline moves as a set — Dropwizard, Jetty, Jersey and Hibernate hold together, and a
+  lone Jetty bump breaks it — so those want grouping. Java 17 is locked and must not be offered.
+  And `keycloak.version` would be offered 26.7.1, which cannot build, because
+  `keycloak-adapter-core` stops at 25.0.3; it needs the same dashboard approval the Docker side
+  already gives it.
+
+  **One gap this opens.** `ops/check_version_pairing.py` runs in `cedar-docker-build` CI, so it
+  guards the server half of each pair. A Renovate pull request that moved `opensearch.version` in
+  `cedar-parent` would not be checked against the image — the same drift, arriving from the other
+  direction. Run the check on `cedar-parent` pull requests as well, as part of configuring the Java
+  side.
+
+  **What it does not do,** and what therefore stays elsewhere: it does not know invariants. Nothing
+  tells it that an OpenSearch server must match the client `cedar-parent` ships, which is why that
+  lives in a check rather than in any bot's configuration.
+
+  Worth recording one consequence of the declaration this item follows. Centralizing the six server
+  versions into a shell manifest put them somewhere **Dependabot cannot see**: it reads `pom.xml` and
+  `Dockerfile`, and the Dockerfiles now carry `ARG` rather than literal versions. Renovate's custom
+  manager is what makes them watchable again. Adopting no bot at all remains a coherent choice — the
+  versions are at least in one place now — but it means those six are watched by nobody, as before.
+
+
 ## Testing
 
 Coverage and test-infrastructure work. The active REST integration suites live in
 `ops/e2e/rest/suites/`; the JUnit matrices and boot-smoke live in the per-server modules.
 
-- **15. Decide whether the build runs the tests, and give the answer a command-line option. Stop the
+- **16. Decide whether the build runs the tests, and give the answer a command-line option. Stop the
   output loop busy-polling.** The Java build skips its tests again: every Java repo is built with
   `mvn clean install -DskipTests`, and the `CEDAR_DEV_SKIP_TESTS` escape hatch is gone with the
   default it modified. That restores the behaviour the build had before, and it means a green
@@ -997,7 +1055,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   "Execution succeeded!" and exits 0. A build that continued past a failure must record it, say so in
   the closing panel, and exit non-zero.
 
-- **16. Deepen the core-workflow tests instead of growing the headline count.** The JUnit matrices and the
+- **17. Deepen the core-workflow tests instead of growing the headline count.** The JUnit matrices and the
   REST suites now give the system respectable horizontal coverage: routes boot, authentication and
   permission boundaries are pinned, and create/read/update/delete, sharing, search, versioning and the
   cross-service hop all execute against the real stack. Much of that is deliberately
@@ -1036,7 +1094,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   versions or search projection disagreeing. The present suite protects the behavioural skeleton; this
   item protects the integrity of state when operations fail or are repeated.
 
-- **17. Add degradation tests.** Nothing asserts how a service behaves when a dependency it needs is
+- **18. Add degradation tests.** Nothing asserts how a service behaves when a dependency it needs is
   unavailable. The cost of that gap is known: reading any folder whose creator could not be resolved
   returned 500 for as long as the defect existed, because `UserSummaryCache` let Guava's
   "loader returned null" signal escape instead of degrading to the no-display-name path the callers
@@ -1044,7 +1102,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   asserts the API degrades rather than 500s. Bear in mind that queue writes are already best-effort
   by design (`AppLoggerQueueService`, the worker and NCBI queues), so those are the pattern to match.
 
-- **18. Retry the ontology-list load in the term picker (frontend, `cedar-template-editor`).** This is a
+- **19. Retry the ontology-list load in the term picker (frontend, `cedar-template-editor`).** This is a
   change to the Angular frontend, not to any microservice or test suite — it lands in
   `cedar-template-editor`, and so needs a frontend owner to review and push it (see the note below).
   It is the last piece of this defect still outstanding, and the fix is already written: it is open as
