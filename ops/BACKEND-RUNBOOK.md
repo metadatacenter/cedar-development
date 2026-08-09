@@ -954,6 +954,18 @@ Two things are locked and must not move: **Java 17**, and the **persistence and 
 server versions** (Mongo, MySQL, Neo4j, Redis, OpenSearch, Keycloak). Client libraries that talk to
 those servers may move; the servers themselves may not.
 
+Four of those six moved on 2026-08-08, deliberately and as part of containerizing them for
+development: Redis to 7.2.7, OpenSearch to 2.19.1, Mongo to 5.0.31 and Neo4j to 5.26.0, each set to
+the version already running natively. MySQL and Keycloak have not moved.
+
+**Keycloak is held at 22 by CEDAR's own code, not by the lock.** The current release is 26.7.1, and
+the one thing in the way is `keycloak-adapter-core` — the legacy Java OIDC adapter, last published at
+25.0.3 in August 2024 — which the bearer-token path of all fifteen servers is built on. Everything
+else that was thought to block it does not: the admin client, the event-listener SPI and the login
+theme are a coordinate change, no change at all, and two FreeMarker files respectively. The evidence
+and the two routes forward are on the roadmap under upgrading the persistence and infrastructure
+servers; do not restate them here.
+
 Current framework baseline (all jakarta-namespace, all on Java 17): Dropwizard 4.0.17, Jetty
 11.0.26, Jersey 3.0.18, Hibernate 6.1.7, jackson 2.17. Recently modernized client libraries: jedis
 5.2, Apache HttpClient 5 (the exceptions are the OpenSearch low-level REST client and the Keycloak

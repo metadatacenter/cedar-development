@@ -258,16 +258,60 @@ model libraries — where their JSON and YAML serializations diverge — is in
   risk, lowest first:
   Four are **done** on 2026-08-08, each taken together with containerizing that store: Redis
   6.2.7 → 7.2.7, OpenSearch 1.3.6 → 2.19.1, Mongo 5.0.14 → 5.0.31 and Neo4j 5.3.0 → 5.26.0. That
-  leaves MySQL. Take **Keycloak separately and last**:
-  it runs a forward-only Liquibase schema migration on the existing user store, the custom themes will
-  need re-porting, the `keycloak-admin-client-jakarta` coordinate it uses was discontinued after
-  21.1.2, and `cedar-keycloak-event-listener` is compiled against the current SPI. Rehearse each on a
-  copy of production data and gate on the end-to-end smoke.
+  leaves MySQL. Take **Keycloak separately and last**: it runs a forward-only Liquibase schema
+  migration on the existing user store, and it is the only one of the six where CEDAR's own code, not
+  just a pin, decides how far the server can go. What that amounts to is measured below. Rehearse each
+  on a copy of production data and gate on the end-to-end smoke.
 
   No longer parked at the end. Containerizing the data stores needs each image pin moved up to the
   version already running, because an older engine cannot open existing data files, so this item is
-  what unblocks the last step of item 14 rather than something to take up afterwards. Keycloak is
-  patch-level and a non-event; MySQL is the real decision left.
+  what unblocks the last step of item 14 rather than something to take up afterwards. MySQL is the
+  real decision left among the data stores; Keycloak is its own piece of work.
+
+  **What actually holds Keycloak at 22.** Measured 2026-08-08 against Maven Central and the code, and
+  it is one thing rather than the four this item used to list. The estate runs server 22.0.5 native
+  and 22.0.4 in the image, `cedar-parent` sets `keycloak.version` to 22.0.4, and the current Keycloak
+  is **26.7.1**.
+
+  - **The blocker is `keycloak-adapter-core`,** the legacy Java OIDC adapter, whose last release is
+    **25.0.3 in August 2024**. CEDAR uses it in exactly three files in
+    `cedar-auth-operations-keycloak-library`: `KeycloakDeploymentProvider` builds an `AdapterConfig`
+    into a `KeycloakDeployment`, `KeycloakUtils` makes a single
+    `AdapterTokenVerifier.verifyToken(token, deployment)` call, and
+    `AuthorizationKeycloakAndApiKeyResolver` passes the deployment along. Every server builds one of
+    these in the shared bootstrap, so this is the bearer-token path for all fifteen.
+
+    The replacement stays inside Keycloak's own supported artifacts: `TokenVerifier`,
+    `RSATokenVerifier` and `JWKSUtils` are all present in `keycloak-core` 26.7.1. What the adapter
+    supplied for free, and what would have to be written, is the rotating public-key locator and the
+    HTTP client that fetches the realm's JWKS. That is the whole of the work, and it is small.
+
+  - **`keycloak-admin-client-jakarta` is not a blocker,** which is how this item read before it was
+    checked. It stopped at 21.1.2 because it was a transitional variant, not because it was abandoned:
+    from Keycloak 22 the main `keycloak-admin-client` is itself Jakarta-based, and it is published at
+    26.0.12. This is a coordinate change.
+
+  - **The event listener is not a blocker either.** `EventListenerProvider.onEvent(AdminEvent,
+    boolean)` — the signature `cedar-keycloak-event-listener` overrides — still exists verbatim in
+    26.7.1, and `keycloak-server-spi`, `keycloak-server-spi-private` and `keycloak-services` all
+    publish at that version. Its imports are the stable event and model SPI throughout.
+
+  - **The theme is small rather than structural.** `cedar-03` is a login theme with `parent=keycloak`
+    that overrides two FreeMarker templates, `login.ftl` and `template.ftl`, plus a stylesheet and
+    three images. The stock login theme was superseded by `keycloak.v2` in 24, so those two templates
+    need re-porting against the new base. Two files, not a theme.
+
+  Two routes follow. The clean one moves the server to 26.7.1 and replaces the adapter usage in the
+  same step. The other moves the server first and keeps the 25.0.3 adapter, betting that token
+  verification is plain OIDC over JWKS and will keep working against a 26 realm. It probably would.
+  It is also exactly the shape of the 2.19-client-against-1.3.6-server pairing this estate carried in
+  Docker for years and was right to be uneasy about, on a library that has had no release since 2024.
+
+  One thing still to confirm: the Java floor of the 26.x **server** distribution. It is not a
+  client-side question — `keycloak-core` 26.7.1 is Java 8 bytecode and imposes nothing — and the
+  Keycloak image installs `java-17-openjdk-headless` unpinned. Worth settling alongside this, since
+  the reason the estate pins Java 17 at all is that newer JDKs crash *this* Keycloak on the removed
+  security manager. Moving Keycloak forward is the thing most likely to retire that constraint.
 
   The four that are done moved in development only, where the pin move and the containerization were
   one piece of work per store. Production is the part this item still owns: the same versions, but
@@ -486,7 +530,7 @@ model libraries — where their JSON and YAML serializations diverge — is in
          Neo4j        5.26.0          5.26.0     (moved 2026-08-08, was 5.3.0)
          Redis        7.2.7           7.2.7      (moved 2026-08-08, was 6.2.7)
          OpenSearch   2.19.1          2.19.1     (moved 2026-08-08, was 1.3.6)
-         Keycloak     22.0.5          22.0.4
+         Keycloak     22.0.5          22.0.4     (upstream is 26.7.1; see item 9 for what holds it)
 
      The direction is the surprise. The Docker images are the only place any of these versions is
      written down; the native stack is Homebrew, so `brew upgrade` moves four of the six with nobody
