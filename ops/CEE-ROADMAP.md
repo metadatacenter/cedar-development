@@ -23,7 +23,7 @@ This roadmap tracks open work only.
   `@org.metadatacenter/cedar-model-typescript-library@0.9.2-dev.20260805.50ef2b3`.
   That build carries `InstanceValidator`, so item 5 is no longer blocked on the
   library having shipped — only on it having shipped *stably*.
-- The safety net is 2,200 domain tests, 121 unit tests across eleven Angular
+- The safety net is 2,202 domain tests, 125 unit tests across twelve Angular
   unit-spec files, and 356 bundle-level Playwright checks across desktop, narrow
   and smoke projects on Chromium, Firefox and WebKit, with 108 committed
   snapshots.
@@ -61,6 +61,14 @@ This roadmap tracks open work only.
   `angular.json` had `aot: false` in the build target's base options, so `ng build`
   and `ng serve` compiled no template at all — a binding to a property that does
   not exist built clean.
+- **A static YouTube field renders at the size its template asks for.**
+  `_ui._size` was read by nobody: the component carried 640 × 390 as two fixed
+  values, so every video was that size whatever the template said. The corpus
+  uses the setting 16 times. Images still cannot honour it, and not by choice —
+  the model library models `width`/`height` on its YouTube field and not on its
+  image field, so an image's size is gone before the parser sees it. Worse than
+  a hole in CEE: a template round-tripped through that library loses the key
+  outright, which `MODEL-LIBRARY-PARITY.md` now records as data loss.
 - **CEE still builds on the deprecated webpack `browser` builder.** The move to
   `@angular/build:application` was done, measured and then reverted, because
   openview cannot consume the result — item 3.

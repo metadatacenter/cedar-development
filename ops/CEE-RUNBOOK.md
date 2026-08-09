@@ -150,7 +150,7 @@ npm --prefix visual ci
 ./visual/node_modules/.bin/playwright install chromium
 ```
 
-The current gate should report 0 lint problems, 121 unit tests, 2,200 domain tests
+The current gate should report 0 lint problems, 125 unit tests, 2,202 domain tests
 and 356 Playwright tests. Treat these as useful smoke checks, not permanent
 constants: new tests should make the counts rise. (The unit tests run under vitest;
 the Karma figure this line used to carry predates that move by several versions,

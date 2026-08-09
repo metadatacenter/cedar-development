@@ -116,7 +116,33 @@ still a serialization difference.
 
 See the table below.
 
-### ~~TypeScript loses data that Java preserves~~ — both fixed
+### TypeScript loses data that Java preserves
+
+**7. Static *image* `_ui._size` — width and height** — **open**
+
+The mirror of item 1, and found the other way round: there, Java dropped
+`_ui._size` from a YouTube field and TypeScript kept it. Here TypeScript drops it
+from an **image** field.
+
+`StaticImageField` in `cedar-model-typescript-library` exposes `content` and
+nothing else, while `StaticYoutubeField` exposes `content`, `width` and `height`.
+So the size is not merely hidden from readers — it does not survive a round trip.
+Reading a template that declares
+`_ui._size: {"width": 300, "height": 200}` on an image and writing it back with
+`CedarWriters.json().getFebruary2024()` yields `_ui` with no `_size` at all, while
+the YouTube field beside it keeps its `{"width": 400, "height": 300}`. Measured on
+`templates/ce8a4f66` from the local stack; the same shape appears six times across
+the 579 corpus templates.
+
+That makes it data loss rather than a modelling preference: anything that reads
+and rewrites a template through this library silently deletes an author's image
+sizing. It also blocks CEE from honouring the setting — CEE now renders a
+YouTube field at the size its template asks for and cannot do the same for an
+image, because the number never arrives.
+`harness/test/static-content-size.spec.ts` asserts the gap, so it fails when the
+library grows the property.
+
+### ~~TypeScript's instance round-trip losses~~ — both fixed
 
 Fixed in `cedar-model-typescript-library` @ `09fb69a`, corpus regenerated in
 `cedar-test-artifacts` @ `235c60c`. Verified across all 21 corpus instances:
