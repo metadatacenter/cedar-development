@@ -88,7 +88,12 @@ async function confirmDelete(page) {
 // and wait until it is interactive.
 async function gotoListing(page, folderId) {
   const url = folderId ? `${BASE}/dashboard?folderId=${enc(folderId)}` : `${BASE}/dashboard`;
-  await page.goto(url);
+  // `domcontentloaded`, not the default `load`. Keycloak's session check renders a
+  // `3p-cookies/step1.html` iframe, and an iframe holds the load event open, so a stall in that
+  // probe timed out navigations that had otherwise finished — intermittently, at whichever
+  // dashboard visit happened to hit it. The wait below is the real readiness signal, and every
+  // other navigation here is followed by one too.
+  await page.goto(url, { waitUntil: 'domcontentloaded' });
   await page.getByRole('button', { name: 'New' }).waitFor();
   await page.waitForTimeout(500);
 }
@@ -473,7 +478,8 @@ try {
   //    Keycloak and save the state for the next run. Unauthenticated visitors are redirected to the
   //    Keycloak form, so the form's presence (vs the "New" button) tells the two paths apart.
   step = 'login';
-  await page.goto(`${BASE}/dashboard`);
+  // `domcontentloaded` for the same reason as `gotoListing`; the race below is the readiness wait.
+  await page.goto(`${BASE}/dashboard`, { waitUntil: 'domcontentloaded' });
   const loginForm = page.locator(S.KC_USERNAME).first();
   const newButton = page.getByRole('button', { name: 'New' });
   // A reused session lands on the dashboard; a missing/stale one is redirected to the Keycloak form.
@@ -530,7 +536,9 @@ try {
   for (let attempt = 1; attempt <= CONSTRAIN_ATTEMPTS; attempt++) {
     try {
       step = 'create-template';
-      await page.goto(`${BASE}/templates/create?folderId=${enc(folderId)}`);
+      // `domcontentloaded` for the same reason as `gotoListing`; filling the Name box below waits
+      // for it. This navigation had been retried by the surrounding loop for the same stall.
+      await page.goto(`${BASE}/templates/create?folderId=${enc(folderId)}`, { waitUntil: 'domcontentloaded' });
       await page.getByRole('textbox', { name: 'Name' }).fill(TEMPLATE_NAME);
       await page.waitForTimeout(1100); // flush the debounced name edit
 

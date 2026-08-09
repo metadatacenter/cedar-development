@@ -6,12 +6,22 @@ const { user1 } = await actors();
 const PATHS = {
   instance: '/template-instances',
   template: '/templates',
+  element: '/template-elements',
   field: '/template-fields',
   folder: '/folders',
 };
 
 const items = JSON.parse(process.argv[2] ?? '[]'); // [[type, name, id], ...]
-const order = ['instance', 'template', 'field', 'folder'];
+// Elements come after the templates that embed them and before the folders that
+// hold them. Leaving them out did not skip three deletes quietly — a folder still
+// holding an element cannot be removed, so every folder above one survived too.
+const order = ['instance', 'template', 'element', 'field', 'folder'];
+
+const unknown = items.filter(([t]) => !PATHS[t]).map(([t]) => t);
+if (unknown.length) {
+  console.log(`refusing to run: no path for type(s) ${[...new Set(unknown)].join(', ')}`);
+  process.exit(1);
+}
 
 for (const type of order) {
   for (const [t, name, id] of items) {
