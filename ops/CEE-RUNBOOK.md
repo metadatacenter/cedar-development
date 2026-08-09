@@ -1,12 +1,15 @@
 # CEDAR Embeddable Editor (CEE) — Development Runbook
 
 Building, running and testing **CEE** (`cedar-embeddable-editor`) locally.
-Everything here has been run on macOS (Apple silicon) against `develop` @ CEE
-1.5.2.
+Everything here has been run on macOS (Apple silicon), against
+`cee-with-model-library` @ CEE 1.6.0-ng22 — the Angular 22 branch, which is what
+the local Template Designer and OpenView serve. `develop` and `main` are still
+on Angular 14.3, so a command that behaves differently there is describing the
+branch, not a fault.
 
 Sibling runbooks:
-- [CEE-ROADMAP.md](./CEE-ROADMAP.md) — the framework-upgrade programme, open
-  findings and known defects.
+- [CEE-ROADMAP.md](./CEE-ROADMAP.md) — where CEE currently is, and the open
+  work.
 - [BACKEND-RUNBOOK.md](./BACKEND-RUNBOOK.md) — running the full CEDAR
   stack locally.
 
@@ -272,10 +275,16 @@ and pipes, which the harness does not load and should not, so the headline
 number for all of `shared/` is meaningless.
 
 Coverage is enforced by directory rather than against that misleading
-aggregate. `factory` has 90% statement and branch floors; `handler`, `util` and
-`validation` have 90% statement and 85% branch floors. These grouped thresholds
-are part of `npm run test:ci`, so a domain regression fails CI even when every
-test assertion still passes.
+aggregate. All four carry a 90% statement and 85% branch floor. These grouped
+thresholds are part of `npm run test:ci`, so a domain regression fails CI even
+when every test assertion still passes.
+
+Branches sit below statements because Vitest 4 counts them differently, not
+because the suite is weaker: it replaced the old V8 mapping with AST-aware
+remapping and offers no way back, and source that cleared 90% everywhere under
+Vitest 1 measures 86.6 to 91.5 under 4. No test was removed and no branch
+stopped being exercised — branches the old mapping never counted are now in the
+denominator.
 
 Read the *never-called-function* list rather than the percentage. That is what
 found the attribute-value hole in August 2026 — three functions no test had ever
@@ -481,7 +490,7 @@ cd visual
 npm run prepare:all && npm test
 ```
 
-Expect **294 passing** in about 40 seconds. `prepare:all` re-concatenates the
+Expect **370 passing** in about 55 seconds. `prepare:all` re-concatenates the
 bundle from `../dist` and regenerates the template fixtures; run it after any
 rebuild.
 
@@ -490,10 +499,13 @@ to run when `../dist` is newer than the copy in `public/`. That guard exists
 because the suite did exactly that, reporting green against the previous build,
 and a real fix was briefly believed not to work on the strength of such a run.
 
-Not all screenshots any more: the external-authority tests assert behaviour —
-that a keystroke raises no error, that free text is discarded on blur — because
+Not all screenshots any more: the external-authority and BioPortal tests assert
+behaviour — that a keystroke raises no error, that free text is discarded on
+blur, that clicking a suggestion actually keeps the term it selects — because
 that is a class of defect the domain harness cannot see and a baseline image
-would not describe.
+would not describe. Each of those iterates every widget rather than sampling
+one; the last of them is there because sampling one hid a defect in five for
+months.
 
 To accept an intentional visual change:
 

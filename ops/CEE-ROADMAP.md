@@ -10,6 +10,10 @@ This roadmap tracks open work only.
 
 ## Current position
 
+Where CEE is, not how it got there. Anything with work left points at its item;
+anything settled is here in one line or not at all, because the commit that did
+it says the rest.
+
 - The version march is **done**: `cee-with-model-library` is on Angular 22.1,
   TypeScript 6.0, RxJS 7.8 and Node 24.19.0, reached one branch per hop through
   `cee-angular-15` … `cee-angular-22` and fast-forwarded onto it. `develop` and
@@ -17,116 +21,38 @@ This roadmap tracks open work only.
   of "where CEE is" remain true and it is worth saying which one is meant. Landing
   the branch is not tracked here: it happens as a matter of course.
 - The package is staged as `1.6.0-ng22`, which is what the local Template Designer
-  and OpenView both serve. It now ships TypeScript declarations for the host
+  and OpenView both serve. It ships TypeScript declarations for the host
   contract — item 1.
 - The model dependency is the Nexus-only prerelease
   `@org.metadatacenter/cedar-model-typescript-library@0.9.2-dev.20260805.50ef2b3`.
   That build carries `InstanceValidator`, so item 5 is no longer blocked on the
-  library having shipped — only on it having shipped *stably*.
-- The safety net is 2,202 domain tests, 125 unit tests across twelve Angular
-  unit-spec files, and 370 bundle-level Playwright checks across desktop, narrow
-  and smoke projects on Chromium, Firefox and WebKit, with 108 committed
-  snapshots.
-- **The check recorded here for months as a flaky test was a real bug**, and is
-  fixed. Clicking an authority suggestion blurs the input, and the blur arrives
-  before Material reports the selection — so the blur handler read no selection,
-  decided the typed text named no term, and cleared the value being chosen,
-  emptying the field and pushing null to the host. Measured at 7 failures in 24
-  clicks; the ~1-in-4 rate is exactly why it read as flakiness. ORCID and ROR
-  already guarded against it with a `selectionInProgress` flag set on the
-  option's `mousedown`; the five widgets sharing the extracted template did not.
-  After the fix, 24 of 24 clicks keep the selection and the test passed 24
-  consecutive executions.
-
-  Worth keeping as a lesson about coverage rather than about a race. The blur
-  assertion beside it always ran over all seven authorities, while the selection
-  assertion covered PFAS alone — so a defect in five widgets surfaced as one
-  intermittent test, and "re-run before investigating" was written down as
-  advice. Both assertions are parameterised now, over the seven authorities and
-  BioPortal.
-- **The BioPortal term field discards free text on blur**, like the authority
-  widgets. It had no blur handling at all, so text naming no term stayed in the
-  box over an instance holding nothing — the same defect the seven were fixed
-  for, in a component that was never part of that pass. It reconciles through
-  the same shared rule, and took the `mousedown` guard in the same change.
+  library having shipped — only on it having shipped *stably*. A fix CEE is
+  waiting on is committed there but unpublished: static image `_ui._size`, which
+  the library used to drop — see [MODEL-LIBRARY-PARITY.md](./MODEL-LIBRARY-PARITY.md).
+- The safety net is 2,202 domain tests across 46 harness spec files, 125 unit
+  tests across twelve, and 370 bundle-level Playwright checks on Chromium,
+  Firefox and WebKit, with 108 committed snapshots. No test is known to be
+  flaky. The one that was recorded as flaky for months turned out to be a real
+  defect — see *Selection races*, below.
+- The gate is lint → typecheck → unit → domain → visual. **TypeScript `strict`
+  is on** in `tsconfig.base.json` and every project extending it type-checks
+  clean; the harness is checked in the gate but stands outside `strict` —
+  item 3. Lint runs clean with `no-explicit-any` as an error, and the 42
+  remaining `any` sites across 10 files each carry their own disable comment —
+  item 3. Templates are type-checked on every build, not only the production
+  one.
+- **The build still runs through the deprecated webpack `browser` builder.** The
+  move to `@angular/build:application` was done, measured and reverted, because
+  openview cannot load the result — item 3.
+- Templates use block control flow, and `prefer-control-flow` is an error, so
+  the deprecated directives cannot come back a template at a time.
 - Template-authored rich text is **sanitized by default**; verbatim rendering is
-  available only to a host that sets `trustTemplateMarkup`. Instance-authored markup
-  was always sanitized and still is. The README's *Embedding security* section is
-  the first place this has been written down for embedders — item 7.
-- Nothing checks CEE's own instance output against its template. The `ajv` check
-  that used to is gone, and its replacement is blocked — item 5.
-- The obsolete datetime-picker dependency has been replaced by CEE's in-house
-  time picker.
-- Lint is the first stage of `test:ci` and runs clean, on `angular-eslint` 22,
-  `typescript-eslint` 8 and ESLint 9 with a flat config. `no-explicit-any` is an
-  error rather than a baselined warning; the 42 remaining `any` sites across 10
-  files each carry their own disable comment, so each is a decision on record
-  rather than a number in a budget — item 3.
-- **TypeScript `strict` is on**, whole, in `tsconfig.base.json`, and every project
-  that extends it type-checks clean. `npm run typecheck` covers every source file
-  plus the harness and runs in the gate between lint and the unit tests, with one
-  compiler for both: the build only checks what the app reaches and vitest checks
-  nothing, so without it a file that is neither reachable from `main.ts` nor
-  executed by a test goes unchecked. The harness type-checks in the gate but
-  **not under `strict`** — `harness/tsconfig.json` stands alone rather than
-  extending the base, and sets `strict: false` — item 3.
-  `skipLibCheck` is gone from both root projects, so library declarations are
-  checked rather than trusted; the harness keeps it, because `paths` aims
-  `@angular/core` at a local stub and every `.d.ts` importing Angular would
-  otherwise be measured against that stub.
-- Templates are type-checked on every build, not only the production one.
-  `angular.json` had `aot: false` in the build target's base options, so `ng build`
-  and `ng serve` compiled no template at all — a binding to a property that does
-  not exist built clean.
-- **A static YouTube field renders at the size its template asks for.**
-  `_ui._size` was read by nobody: the component carried 640 × 390 as two fixed
-  values, so every video was that size whatever the template said. The corpus
-  uses the setting 16 times. Images still cannot honour it, and not by choice —
-  the model library models `width`/`height` on its YouTube field and not on its
-  image field, so an image's size is gone before the parser sees it. Worse than
-  a hole in CEE: a template round-tripped through that library loses the key
-  outright, which `MODEL-LIBRARY-PARITY.md` now records as data loss.
-- **CEE still builds on the deprecated webpack `browser` builder.** The move to
-  `@angular/build:application` was done, measured and then reverted, because
-  openview cannot consume the result — item 3.
-- **Vitest is 4.1.10** in the root and the harness, up from 1.6.1, which clears
-  the critical advisory against a listening Vitest UI server. The two must move
-  together: the harness points its Vite root at the repository, so a split
-  version loads the root's worker and every spec dies with `No handler function
-  exported`. Vitest 4 brings Vite 8, which transforms with oxc and **silently
-  ignores an `esbuild` config block** — both configs stated
-  `experimentalDecorators` there, so every spec touching a decorated class failed
-  until they were rewritten as `oxc`. Coverage changed twice over: spec files are
-  no longer excluded by default, and the AST-aware remapping that replaced the
-  old V8 mapping counts more branches, so the same source that cleared a 90%
-  branch floor everywhere now measures 86.6 to 91.5. The floors are 85 for
-  branches, 90 for statements, and the drop is a measurement change rather than a
-  regression. A root audit is down from 19 findings to 11, both criticals gone;
-  the eleven left are the Angular CLI and webpack-dev-server chain, five of which
-  the application-builder migration would take with it.
-- **Templates are on block control flow.** All 203 `*ngIf` and `*ngFor` sites
-  across 33 templates — 184 and 19 — are `@if` and `@for`, rewritten by
-  `ng generate @angular/core:control-flow`. The migration was declined once, at
-  Angular 21, on the advice not to combine a framework hop with a control-flow
-  rewrite; the reason recorded beside it, that the directives were not deprecated,
-  was wrong even then. Angular marked `NgIf`, `NgFor` and the `NgSwitch` family
-  `@deprecated 20.0`. `@angular-eslint/template/prefer-control-flow` is now an
-  error, so the old syntax cannot return a template at a time. Nothing renders
-  differently — all 108 snapshots match — and the bundle lost a further 17,912
-  bytes. `CommonModule` stays: `ngClass` and the `async`, `json`, `keyvalue` and
-  `titlecase` pipes are still used. The migration also reformatted the templates,
-  which had never been prettier-clean because lint does not cover HTML formatting.
-- **`BrowserAnimationsModule` is gone** from both application modules, and
-  `@angular/animations` is no longer a dependency of any kind. Angular deprecated
-  the module at 20.2 and intends to remove it at 23. CEE never used it: no
-  `trigger`, no `[@…]` binding and no `animations:` metadata anywhere in the
-  source. Material 22 does not need it either — it dropped `@angular/animations`
-  from its peer dependencies and animates in CSS, consulting
-  `ANIMATION_MODULE_TYPE` only to ask whether it is `'NoopAnimations'`, which
-  `BrowserAnimationsModule` never provided. Removing it therefore changes no
-  behaviour, and the visual suite agrees across all 356 checks, overlays, select
-  panels and expansion panels included. The bundle drops 64,099 bytes to
-  3,428,943 raw and 802,561 gzip.
+  available only to a host that sets `trustTemplateMarkup` — item 7.
+- Nothing checks CEE's own instance output against its template — item 5.
+- A root `npm audit` reports 11 findings, all of them reached through
+  `@angular-devkit/build-angular` or `@angular/cli`. `npm run audit:prod`, which
+  is what describes the shipped artifact, reports 0. Do not run
+  `npm audit fix --force` — see the runbook.
 
 ## Features
 
@@ -271,8 +197,8 @@ or restyles the form is a hop whose failures cannot be attributed.
   the workspace edit; `esModuleInterop` has to be swapped into
   `tsconfig.base.json` by hand, because the schematic hard-codes the path
   `tsconfig.json` where CEE keeps no compilerOptions. The artifact then builds
-  at **3,207,044 bytes, 190,309 smaller**, and passes all 356 bundle-level
-  checks.
+  at **3,207,044 bytes, 190,309 smaller**, and passed the whole bundle-level
+  suite — 356 checks at the time it was measured.
 
   It was reverted because **openview cannot load it**. openview is on Angular
   16.2 and takes CEE through its own build rather than serving the file; that
@@ -504,6 +430,38 @@ That belongs with the host-contract work in item 1.
 
 Done when each flag either has a fixture that reaches it and a passing assertion,
 or is removed with the reason recorded.
+
+### Selection races, and what the coverage taught
+
+Not open work. Kept because it is measured, and because the mistake is easy to
+repeat.
+
+One browser check was recorded here for months as flaky at roughly one run in
+four, with the advice to re-run it before investigating. It was a real defect,
+at exactly that rate. Clicking a suggestion in an external-authority field blurs
+the input, and the blur arrives *before* Material reports the selection — so the
+blur handler saw no selection, judged the typed text to name no term, and
+cleared the value being chosen, emptying the field and pushing null to the host.
+Measured at 7 failures in 24 clicks before the fix and 0 in 24 after.
+
+Two things made it invisible for so long, and neither was the race.
+
+The rate was the tell and was read backwards. An intermittent failure looks like
+a flaky test, and "measured across four runs" was taken as evidence of that
+rather than as evidence of a defect firing at a stable rate. A test that fails a
+quarter of the time is describing something.
+
+And the coverage was asymmetric. The blur assertion beside it ran over all seven
+authority widgets; the selection assertion covered one. The defect sat in a base
+class behind five of them, so a bug in five surfaced as one flaky test. Where a
+table of widgets exists and one assertion iterates it, ask why its neighbour
+does not — both iterate now, over the seven authorities and BioPortal.
+
+The fix itself is causal rather than timed: a press on a suggestion sets a flag
+on `mousedown`, which precedes the blur it causes, so the blur handler knows the
+blur was not the user leaving. ORCID and ROR already had it; the widgets folded
+into the shared template did not, and neither did the BioPortal field, which had
+no blur reconciliation at all.
 
 ## Security
 
