@@ -302,6 +302,32 @@ smoke:rest` passes at 641 assertions against all six containerized servers, with
 resuming into the new MySQL — confirm that by checking `SELECT VERSION()` on 3306 reports the
 container's, not by trusting a green run.
 
+### The local terminology store in a container
+
+The store is a read-mostly SQLite catalog of about 31 GB at `$CEDAR_HOME/cedar-term`. It is shared
+rather than copied — a read-only bind mount, the same shape as the static content nginx already
+mounts — because copying it into a named volume would be absurd and nothing writes to it while the
+server reads.
+
+Sharing the file is only half of it. **The server reads `terminologyStore.*` JVM system properties,
+not the environment.** `cedar-services.sh` builds those `-D` flags for the native path; the
+containerized half is `CEDAR_JAVA_OPTS`, which `cedar-microservice`'s entrypoint passes to the JVM,
+set by the `server-terminology` compose entry. Passing the four `CEDAR_TERMINOLOGY_*` variables into
+a container without that hook does nothing at all, which is worth knowing before debugging a 404.
+
+Which vocabularies the store serves, and whether exclusively, are declared once in
+`set-env-generic.sh` and inherited by both profiles. Only the catalog path differs, since it is a
+filesystem path and the host's is not the container's, so each profile sets that itself.
+
+Confirm it took by asking the terminology server directly, rather than trusting a green suite:
+
+```bash
+curl -sk -H "Authorization: Bearer $TOKEN" \
+  https://terminology.$CEDAR_HOST/bioportal/ontologies/DOID/versions/current
+```
+
+A 404 means the store is not wired; a content-hash version id means it is.
+
 ### Building an image against your own code
 
 By default every image fetches its jar from Nexus while it builds, so an image can only run code

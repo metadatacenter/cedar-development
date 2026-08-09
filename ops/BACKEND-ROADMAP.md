@@ -706,6 +706,18 @@ model libraries — where their JSON and YAML serializations diverge — is in
      whichever architecture the operator's machine has, and local verification was arm64 while hosted
      runners are amd64. A deploy target's architecture is not something to decide by accident.
 
+     A fourth defect, found 2026-08-09 by standing the whole estate up in Docker: the resource
+     server was never given `CEDAR_TERMINOLOGY_SERVER_HOST` or `CEDAR_TERMINOLOGY_HTTP_PORT`, so the
+     publish hook had no terminology server to ask and pinned every controlled-term constraint to
+     `null` rather than failing. A published artifact then carries unpinned constraints, silently.
+     Static checking could not see it, because the code did not declare those variables needed and a
+     variable nothing declares is simply held back. That is now fixed at the declaration —
+     `CedarConfigEnvironmentDescriptor` adds both to `SERVER_RESOURCE`, which makes the absence fatal
+     at startup and visible to `check_docker_env.py`; verified by removing them again and watching
+     the checker report `resource MISSING 2`. The lesson generalises: a check that asks the code what
+     it needs is only as good as what the code bothers to declare, and the gap shows up as wrong
+     behaviour rather than a missing variable.
+
   4. **Verify the containerized stack on a cadence.** Both Docker CIs verify statically.
      `cedar-docker-build` asks whether the Dockerfiles build: it resolves every Nexus coordinate,
      builds the Java chain sequentially and the rest as matrices, and discards the images.

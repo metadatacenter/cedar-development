@@ -37,6 +37,12 @@ export CEDAR_NEO4J_HOST=192.168.17.205
 export CEDAR_KEYCLOAK_HOST=192.168.17.206
 export CEDAR_NGINX_HOST=192.168.17.207
 
+#------------------------------------------------------
+# The terminology store is read where it is mounted inside the container, not where it lives on the
+# host. Everything else about the store — which vocabularies it serves, and whether exclusively — is
+# inherited from set-env-generic.sh, because only the path differs between the two paths.
+export CEDAR_TERMINOLOGY_STORE_CATALOG=/cedar/term/prod/catalog.sqlite
+
 export CEDAR_ARTIFACT_SERVER_HOST=192.168.17.101
 export CEDAR_BRIDGE_SERVER_HOST=192.168.17.115
 export CEDAR_GROUP_SERVER_HOST=192.168.17.109
