@@ -133,6 +133,22 @@ It runs these stages in order and stops at the first failure:
 3. A production build of the web component.
 4. Fixture preparation and the Playwright browser suite at desktop and narrow
    viewport sizes (`test:visual`).
+5. The staged npm package, checked against the bundle stage 4 just built
+   (`check:staged`).
+
+Stage 5 exists because `dist-npm/` is a committed deployment artifact that
+nothing regenerates: it goes stale the moment source changes and only catches up
+when somebody deploys. It had drifted three commits behind before one deploy and
+two before the next, and the frontends read that file directly, so a stale one
+means they run code nobody has looked at. **A source change now fails the gate
+until `npm run package:npm:prebuilt` has been run** — which is the cost of
+committing a build output, and cheaper than the alternative of not knowing.
+
+The check is a byte comparison, which needs the build to be reproducible: two
+clean builds of the same source were verified byte-identical before this was
+wired in. It also needed the manifest to stop carrying a build timestamp — that
+field made every rebuild differ even when the bundle did not, which is precisely
+what let the drift hide.
 
 The domain fixtures are vendored under `harness/fixtures/`. Neither
 `cedar-artifact-library` nor `cedar-test-artifacts` needs to be cloned or
