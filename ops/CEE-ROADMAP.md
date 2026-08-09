@@ -42,7 +42,7 @@ it says the rest.
   right — a video is an `iframe` with no intrinsic size, so it falls back to
   `640 × 390`; an image has its own dimensions, so no attribute is set and the
   browser uses them.
-- The safety net is 2,359 domain tests across 48 harness spec files, 132 unit
+- The safety net is 2,359 domain tests across 48 harness spec files, 134 unit
   tests across thirteen, and 404 bundle-level Playwright checks on Chromium,
   Firefox and WebKit, with 108 committed snapshots. No test is known to be
   flaky. The one that was recorded as flaky for months turned out to be a real
@@ -71,14 +71,15 @@ it says the rest.
 - Templates use block control flow, and `prefer-control-flow` is an error, so
   the deprecated directives cannot come back a template at a time.
 - Template-authored rich text is **sanitized by default**; verbatim rendering is
-  available only to a host that sets `trustTemplateMarkup` — item 7.
+  available only to a host that sets `trustTemplateMarkup` — item 6.
 - **CEE's output is checked against the template it came from**, by
   `InstanceValidator` through `instance-conformance.spec.ts` — 117 of the
   domain suite's tests. A dropped `@type` or a missing property fails the gate.
-- A root `npm audit` reports 11 findings, all of them reached through
-  `@angular-devkit/build-angular` or `@angular/cli`. `npm run audit:prod`, which
-  is what describes the shipped artifact, reports 0. Do not run
-  `npm audit fix --force` — see the runbook.
+- A root `npm audit` reports 3, all moderate, all reached through
+  `@angular/cli`. It was 11 until the webpack toolchain went; the four `high`
+  findings went with it. `npm run audit:prod`, which is what describes the
+  shipped artifact, reports 0. Do not run `npm audit fix --force` — see the
+  runbook.
 
 ## Features
 
@@ -324,31 +325,9 @@ Three shapes recurred, none of which the build or the unit tests could see:
   refused to choose, both applied and drew a 64x48 rounded rectangle that was
   neither. Nothing reported it, because nothing was failing.
 
-### 5. Drop `@angular-devkit/build-angular`
-
-Nothing references it. `build`, `serve` and `extract-i18n` all resolve through
-`@angular/build` now, and `lint` through `@angular-eslint/builder:lint`, so the
-webpack toolchain is a direct devDependency no target names.
-
-It is also the whole audit surface: every one of the 11 findings a root
-`npm audit` reports is reached through it or through `@angular/cli`, against
-build tooling an embedder never downloads. `npm run audit:prod` already reports
-0, which is the number that describes what ships — but the root number is the one
-a newcomer sees first, and it should stop being noise.
-
-Remove it carefully rather than confidently. `@angular/build` currently resolves
-*nested inside* it in `node_modules`, so a naive removal can take the working
-builder with it. Remove, reinstall, then run the whole gate on Node 24.19.0
-before believing it. Record the new `npm audit` count in the runbook, whose
-"Audit what ships" section names both packages today.
-
-Done when the dependency is gone, the gate is green, and the runbook says what
-the root audit reports now.
-
-
 ## Testing
 
-### 6. Reach the two config flags nothing exercises
+### 5. Reach the two config flags nothing exercises
 
 The browser suite asserts that every config key changes what renders, because a
 key that is silently ignored looks exactly like one that works. Two keys cannot
@@ -423,7 +402,7 @@ no blur reconciliation at all.
 
 ## Security
 
-### 7. Finish the rich-text trust boundary
+### 6. Finish the rich-text trust boundary
 
 The boundary is drawn and enforced. Static rich text is sanitized unless the host
 sets `trustTemplateMarkup`, the README's *Embedding security* section says who
@@ -474,7 +453,7 @@ ever return true before and can now return false, and `adheresToBlueprint()` has
 stopped being a second name for it, so a consumer branching on either sees new
 behaviour.
 
-### 8. Settle the temporal `required` judgement
+### 7. Settle the temporal `required` judgement
 
 A judgement about what the corpus means, rather than a code change; it needs
 someone who knows CEDAR's version history. 28 templates require `@type` on a
@@ -513,7 +492,7 @@ instance missing a field in both formats is consistent with itself. Format
 independence and correctness are different properties, and only one of them has
 a test that can fail.
 
-### 9. Give the key constants literal types
+### 8. Give the key constants literal types
 
 `JsonSchema` declares `static atId: string`, `static rdfsLabel: string` and the
 rest as plain strings rather than as the literals they are. A consumer writing
@@ -555,7 +534,7 @@ breaking for anything that assigns to these.
    stock Material teal decides it by default, which is the one way of deciding it
    nobody chose.
 5. Fold `trustTemplateMarkup` into the typed host contract, and tell template
-   authors what their markup will do (item 7). The boundary itself is enforced;
+   authors what their markup will do (item 6). The boundary itself is enforced;
    what remains is making it discoverable from both sides.
 
 ## Out of scope
