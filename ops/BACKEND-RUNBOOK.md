@@ -16,7 +16,8 @@ Three tiers:
 
 - **Infrastructure** — Keycloak (auth), MongoDB, MySQL, Neo4j, Redis, OpenSearch (search index),
   and nginx (TLS termination + reverse proxy for `*.metadatacenter.orgx`). In native-develop these
-  run as **local binaries / Homebrew services**, not Docker containers.
+  run as **local binaries / Homebrew services**, except Redis, which is now a container — see
+  "Running the native servers against containerized infrastructure".
 - **Microservices** — 15 Dropwizard JVMs, one per `cedar-<name>-server` repo. Each is launched as
   `java -jar cedar-<name>-server-application-<version>.jar server .../config.yml`.
 - **Frontends** — the main one is the Angular template editor (`cedar-template-editor`), served by
@@ -52,6 +53,8 @@ cedarcli docker one-time-setup
 
 # 1. infrastructure (local binaries + Homebrew services)
 bash $CEDAR_UTIL_BIN/services-generic/startinfra.sh     # mongo, mysql, opensearch, neo4j, redis, keycloak, nginx
+# startinfra.sh still calls startredis, which now loses 6379 to the Redis container. Harmless —
+# the container is already serving — but the failure it prints is not a problem to chase.
 
 # 2. app tier — use the controller here instead of 15 Terminal tabs
 bash $CEDAR_HOME/cedar-development/ops/cedar-services.sh start
@@ -141,6 +144,45 @@ the template carries the branch constraint and the containerized terminology ser
 query. Whether that is a real defect or an artefact of a natively-built frontend against a
 containerized backend is unresolved; the comparison that would settle it is the same browser smoke
 against the native backend.
+
+### Running the native servers against containerized infrastructure
+
+The opposite split, and the one development wants: the data stores in containers, the fifteen JVMs
+native, so the edit-compile-run loop survives and the versions underneath it stop drifting with
+`brew upgrade`. Nothing needs reconfiguring. `set-env-generic.sh` derives every infrastructure host
+from `CEDAR_NET_GATEWAY`, the native profile sets it to `127.0.0.1`, and the stack publishes every
+store to the host on the same `CEDAR_*_PORT` variables the servers already read.
+
+**Redis has moved.** Swap it with the native stack running, from a second shell — the stack needs
+the docker-eval profile for the container's pinned address, and the servers keep running under the
+native one:
+
+```bash
+brew services stop redis                      # frees 6379
+export CEDAR_HOME=$HOME/CEDAR
+source $CEDAR_HOME/cedar-development/bin/templates/cedar-profile-docker-eval.sh
+cd $CEDAR_HOME/cedar-docker-deploy/cedar-infrastructure
+docker compose up -d redis-persistent
+```
+
+To go back, `docker stop infra-redis-persistent && brew services start redis`. `brew services stop`
+unloads the launch agent, and the container carries `restart: unless-stopped`, so after the swap
+Redis returns on reboot as a container rather than as a Homebrew service.
+
+**Expect about ten seconds of queue errors, then silence.** Three servers poll Redis and log the
+outage: the worker's value-recommender reindex, the messaging server's pool validation, and the
+submission server's NCBI queue consumer. All three recover on their own retry interval once the
+container answers. No restart is needed, and a server that is still logging Redis failures a minute
+later is a real problem rather than the swap.
+
+Verify with `cd ops/e2e && npm run smoke`, then `redis-cli -p 6379 info stats`. The smoke run drives
+a few thousand commands through the store, so a counter still near zero means the servers are
+talking to something else. `redis-cli -p 6379 info server` should report `redis_version:7.2.7`.
+
+**The remaining stores are not this cheap.** Redis moved with an empty keyspace, so nothing was
+migrated. Mongo and Neo4j stamp their storage format and do not support a downgrade, so an image
+older than the running server cannot open its data files at all. Move the pin up to what is live,
+then migrate the store, and never both in one step.
 
 ### Building an image against your own code
 
