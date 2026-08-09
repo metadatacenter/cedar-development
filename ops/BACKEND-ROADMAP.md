@@ -545,17 +545,53 @@ model libraries — where their JSON and YAML serializations diverge — is in
      it: a client version and a server version are locked to each other, and only the client half is
      written anywhere a check could read.
 
-     Record the locked versions once, as data rather than prose. A sourceable `KEY=value` file under
-     `cedar-development/bin` holding one entry per server, plus the client coordinate each is paired
-     with, with the runbook linking to it instead of restating it. `cedar-parent` is the wrong home:
-     it is the right master for the client half and already is, but it is released on the Java
-     estate's cycle, a Dockerfile cannot read it, and a POM's job is the artifact graph rather than
-     the deployment topology. A shell-sourceable file every consumer can already read is the
-     pragmatic single record. Then nothing restates a version: shell sources it, `cedarcli docker
-     build` passes it to the Dockerfiles as build args so no `FROM` tag or `ENV` carries its own
-     number, and a check compares both paths against it. Put that check where the static Docker CI
-     already lives. `check_docker_env.py` is the pattern, asking the code what it declares rather
-     than reading a descriptor by eye.
+     **Give the images what `cedar-parent` gives the Java estate.** The rule there is settled and
+     worth restating because this is the same rule: a child names the dependency, never the version.
+     `cedar-parent` declares the version once and every consumer inherits it, which is why the Java
+     half of this pairing is already written somewhere a check could read. The images have no
+     equivalent, so each one restates its own number in a `FROM` tag or an `ENV`, and four of them
+     were moved this week by hand-editing exactly those lines.
+
+     The Docker equivalent is a declaration the image builds inherit from, plus `ARG` in place of the
+     literal:
+
+     - **One declaration.** A single `KEY=value` file of server versions — `MONGO_VERSION`,
+       `NEO4J_VERSION`, `OPENSEARCH_VERSION`, `REDIS_VERSION`, `MYSQL_VERSION`, `KEYCLOAK_VERSION`.
+       The format is not a matter of taste: it is the only one all three consumers read natively.
+       Compose interpolates it as an env file and already does for `CEDAR_DOCKER_VERSION`, the shell
+       sources it, and `cedarcli docker build` forwards it as `--build-arg`. A `docker buildx bake`
+       HCL file is the more fashionable choice, but Compose cannot read one, and Compose is a
+       consumer here.
+     - **No `FROM` tag carries a number.** `ARG NEO4J_VERSION` ahead of
+       `FROM neo4j:${NEO4J_VERSION}-community`, and the same for the `ENV MONGO_VERSION` and
+       `ENV KEYCLOAK_VERSION` cases. Declare no default, so a build that was not given a version fails
+       instead of quietly picking one. A bare `docker build` stops working, which is consistent with
+       what the runbook already says about bypassing `cedarcli docker build`.
+     - **Compose passes it too.** The stacks carry `build:` sections with no `args`, so add them there
+       as well, or the same image builds one way through the CLI and another through Compose.
+
+     **Then let a bot hold it current, because the defect this item names is drift nobody noticed.**
+     A record that a human updates has the same failure mode as the one it replaces. Renovate is the
+     standard tool for this and there is none anywhere in the estate — no Renovate, no Dependabot, in
+     any repository. It reads Dockerfile `FROM`, Compose `image:`, Maven properties and Actions
+     natively, and covers a declaration file like the one above through a custom manager keyed on
+     `# renovate:` annotation comments, which is its documented pattern for exactly this. Drift then
+     arrives as a pull request rather than as a measurement taken a year later.
+
+     It pays for itself twice, because it is also most of the next item: Renovate pins to digests, and
+     the two floating bases that item lists — `registry.access.redhat.com/ubi9` with no tag at all and
+     `node:20-bookworm` — are precisely what it flags. Adopt it once, against both items.
+
+     The one thing it cannot do is Homebrew, which has no Renovate manager. The native side stays
+     unwatched however this is built, which is a further argument for finishing containerization and
+     making the Docker pins the only pins.
+
+     **The pairing stays a check, not a record.** "The OpenSearch server must match the 2.19 client
+     `cedar-parent` ships" is a project invariant, and no dependency bot can know it. Invariants belong
+     in executable form: a CI step that reads the declaration and the POM property and fails when they
+     part company. Put it where the static Docker CI already lives, next to `check_docker_env.py`,
+     which is the pattern — ask the code what it declares rather than reading a descriptor by eye.
+     Prose says only *why* a pairing is locked, in the runbook beside the lock.
 
      Then move the pins **up** to what is running. This is the direction that matters and the reason
      this item comes first: every later item adopts these pins, and an image older than the live
@@ -567,9 +603,9 @@ model libraries — where their JSON and YAML serializations diverge — is in
      Four are already done — Redis at 7.2.7, OpenSearch at 2.19.1, Mongo at 5.0.31 and Neo4j at
      5.26.0 — each moved to containerize that store below. Every one cost a hand-edited `FROM` or
      `ENV` line, which is precisely what this item exists to stop: those numbers now live in
-     Dockerfiles because there is nowhere else to put them. Treat them as placeholders the record
-     file absorbs. Only MySQL and Keycloak are left to move, which makes the record cheaper to
-     introduce now than it has ever been.
+     Dockerfiles because there is nowhere else to put them. Treat them as placeholders the declaration
+     absorbs. Only MySQL and Keycloak are left to move, and all six values are currently known to be
+     correct, so the declaration is cheaper to introduce now than it will be again.
 
      One thing to decide alongside it. The policy states one lock for two paths that cannot pin
      equally. Docker pins exactly. Homebrew mostly cannot: versioned formulae exist for some of the
@@ -614,9 +650,14 @@ model libraries — where their JSON and YAML serializations diverge — is in
      The work is mostly a check rather than a rewrite, and it belongs with the static Docker CI
      alongside `check_docker_env.py`: fail on a `FROM` with no tag or a floating one, and fail on any
      SNAPSHOT reference in a release build, whether in a base, in `CEDAR_VERSION`, or in a frontend
-     tarball. Pinning third-party bases by digest rather than tag is worth considering too, since a
-     tag can be re-pushed. Then drop the blanket `microdnf -y update` from the images that get
-     deployed and install what is needed at explicit versions.
+     tarball. Then drop the blanket `microdnf -y update` from the images that get deployed and install
+     what is needed at explicit versions.
+
+     Adopt Renovate here rather than separately. The item above wants it to hold the server
+     declaration current; this one wants floating bases found and third-party bases pinned by digest
+     rather than by a tag that can be re-pushed. That is the same tool doing both, so the two floating
+     bases named above should be its first pull requests rather than a hand-edit that a check later
+     rediscovers.
 
      The environment wants a floor rather than a pin. Each target needs a minimum Docker engine and
      Compose version, since the stacks use healthcheck conditions and `include` arrived in Compose
