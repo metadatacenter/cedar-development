@@ -36,13 +36,13 @@ it says the rest.
   between them would mean the domain tests and the bundle disagreed about what the
   model is. That build carries `InstanceValidator`, which is what the conformance
   spec needed, so the spec runs against it today. It also carries the static image
-  `_ui._size` fix, so the library no longer drops the size — but CEE cannot see it
-  yet: the parser reads `width` and `height` only on the YouTube branch, because
-  until now there was nothing to read on the image one. Wiring the image branch up
-  is its own change — see
-  [MODEL-LIBRARY-PARITY.md](./MODEL-LIBRARY-PARITY.md).
-- The safety net is 2,359 domain tests across 48 harness spec files, 125 unit
-  tests across twelve, and 404 bundle-level Playwright checks on Chromium,
+  `_ui._size` fix, and CEE now reads it: both sizeable static kinds honour the
+  size a template asks for. They answer an absent one differently, and both are
+  right — a video is an `iframe` with no intrinsic size, so it falls back to
+  `640 × 390`; an image has its own dimensions, so no attribute is set and the
+  browser uses them.
+- The safety net is 2,359 domain tests across 48 harness spec files, 132 unit
+  tests across thirteen, and 404 bundle-level Playwright checks on Chromium,
   Firefox and WebKit, with 108 committed snapshots. No test is known to be
   flaky. The one that was recorded as flaky for months turned out to be a real
   defect — see *Selection races*, below.
