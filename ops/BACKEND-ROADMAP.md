@@ -670,9 +670,18 @@ model libraries — where their JSON and YAML serializations diverge — is in
      The pip packages in `cedar-microservice` are pinned too, at `wheel==0.40.0`, `pymongo==3.6.1` and
      `redis==2.10.6`. The habit exists. It stops in four specific places.
 
-     - **Two floating bases.** `cedar-infra-keycloak` is `FROM registry.access.redhat.com/ubi9` with
-       no tag at all, and `cedar-admin-redis-commander` is `node:20-bookworm`, floating within the
-       Node 20 line.
+     - **The floating bases are done,** on 2026-08-09. `registry.access.redhat.com/ubi9` carried no
+       tag at all, `node:20-bookworm` floated within the Node 20 line, and `ubuntu:focal` is a
+       rolling alias; all three are now declared in the build manifest at what they already resolved
+       to — 9.8, 20.20.2 and 20.04 — and taken as build arguments. nginx went the same way: seven
+       images restated `1.23.4` in their own `FROM` lines, and now inherit one declaration. They are
+       still tags rather than digests, which is what remains of this bullet.
+     - **A pairing no check could have caught, found while doing it.** `cedar-admin-kibana` sat at
+       `opensearch-dashboards:1.3.6` while the OpenSearch server moved to 2.19.1, and its compose
+       entry points straight at that server. Dashboards has to track its server, so it now takes
+       `OPENSEARCH_VERSION` itself rather than carrying a version of its own: the pair is structural
+       and cannot drift. Worth generalising — where two images must agree, share the declaration
+       rather than add a check.
      - **SNAPSHOT inside the build graph.** Fifteen server images build `FROM
        metadatacenter/cedar-microservice:2.9.2-SNAPSHOT`; that image and the admin tool build `FROM
        cedar-java:2.9.2-SNAPSHOT`; and `CEDAR_VERSION=2.9.2-SNAPSHOT` is baked in, so
@@ -684,7 +693,8 @@ model libraries — where their JSON and YAML serializations diverge — is in
        python3-pip` at whatever version the repositories hold that day. `maven` is what
        `install_deps.sh` runs, and `python3` runs every `wait-for-*.py` readiness script, so neither
        is a convenience. The blanket update also defeats the base pin: the base is named exactly and
-       then mutated.
+       then mutated. Maven is now pinned everywhere else — every Java repository carries a wrapper at
+       3.9.14 and CI invokes `./mvnw` — so the build images are the one place it still floats.
      - **A third JVM, pinned only to its family.** `cedar-infra-keycloak` installs
        `java-17-openjdk-headless` unpinned, so Keycloak runs a different vendor and a looser pin than
        the servers do. The family is what matters for the crash on newer JDKs, and the image forces it
