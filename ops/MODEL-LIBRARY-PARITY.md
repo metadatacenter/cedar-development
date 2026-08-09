@@ -86,7 +86,7 @@ of gap that `ext-pfas` had until recently.
 ## Divergences on the 77 shared artifacts
 
 One diff is reported by the library's own comparator
-(`DIFF FOUND: template-9`). Structural comparison of the JSON finds six classes.
+(`DIFF FOUND: template-9`). Structural comparison of the JSON finds seven classes.
 
 ### Java loses data that TypeScript preserves
 
@@ -118,29 +118,46 @@ See the table below.
 
 ### TypeScript loses data that Java preserves
 
-**7. Static *image* `_ui._size` — width and height** — **open**
+**5. ~~Static *image* `_ui._size` — width and height~~** — **fixed in source,
+awaiting publication**
 
 The mirror of item 1, and found the other way round: there, Java dropped
-`_ui._size` from a YouTube field and TypeScript kept it. Here TypeScript drops it
-from an **image** field.
+`_ui._size` from a YouTube field and TypeScript kept it. Here TypeScript dropped
+it from an **image** field.
 
-`StaticImageField` in `cedar-model-typescript-library` exposes `content` and
-nothing else, while `StaticYoutubeField` exposes `content`, `width` and `height`.
-So the size is not merely hidden from readers — it does not survive a round trip.
-Reading a template that declares
-`_ui._size: {"width": 300, "height": 200}` on an image and writing it back with
-`CedarWriters.json().getFebruary2024()` yields `_ui` with no `_size` at all, while
-the YouTube field beside it keeps its `{"width": 400, "height": 300}`. Measured on
-`templates/ce8a4f66` from the local stack; the same shape appears six times across
-the 579 corpus templates.
+`StaticImageField` modelled `content` and nothing else, so the size did not
+survive a round trip: reading a template declaring
+`_ui._size: {"width": 300, "height": 200}` on an image and writing it back
+yielded `_ui` with no `_size`, while the YouTube field beside it kept its
+`{"width": 400, "height": 300}`. Data loss rather than a modelling preference —
+anything reading and rewriting a template silently deleted an author's image
+sizing.
 
-That makes it data loss rather than a modelling preference: anything that reads
-and rewrites a template through this library silently deletes an author's image
-sizing. It also blocks CEE from honouring the setting — CEE now renders a
-YouTube field at the size its template asks for and cannot do the same for an
-image, because the number never arrives.
-`harness/test/static-content-size.spec.ts` asserts the gap, so it fails when the
-library grows the property.
+Fixed in `cedar-model-typescript-library` @ `92f3412`: the image path now
+mirrors the YouTube one across the interface, impl, builder, and both the JSON
+and YAML readers and writers.
+
+**Java needs no change.** It reads and renders `_size` generically for any field
+UI rather than per input type, models `width`/`height` on `StaticFieldUi`
+including `ImageFieldUiBuilder`, and already covered it in
+`staticDimensionsRenderAsUiSizeAndRoundTrip` — which additionally validates the
+rendered field against the canonical CEDAR validator. Verified by running
+`FieldSchemaArtifactBuilderTest` on JDK 17: 52 tests, 0 failures.
+
+*Why nothing caught it.* Two independent blind spots. The builder specs cover
+both field types and passed either way, because a builder can only be asked for
+properties the model already has — a missing property yields an absent
+assertion, not a failing one. And **no test artifact anywhere carries an image
+with a size**: `_ui._size` on a *YouTube* field is in `template-009`, held by
+both libraries' test resources, which is exactly why the comparison caught Java
+dropping it there. The image case had no such artifact, so the question was
+never asked. The new
+`test/org/metadatacenter/roundtrip/StaticFieldSizeRoundTrip.spec.ts` closes it
+by starting from source JSON rather than a builder, covering both field types.
+
+Still to do: publish the library, then CEE can render a static image at the size
+its template asks for. `harness/test/static-content-size.spec.ts` in CEE asserts
+the gap today and will fail on the upgrade, which is its purpose.
 
 ### ~~TypeScript's instance round-trip losses~~ — both fixed
 
@@ -150,7 +167,7 @@ zero source keys dropped, zero keys Java emits that TypeScript does not.
 Regression tests in
 `test/.../template-instance/InstanceRoundTripFidelity.spec.ts`.
 
-**5. ~~Empty controlled-term objects are dropped from instances~~** (was 18
+**6. ~~Empty controlled-term objects are dropped from instances~~** (was 18
 occurrences)
 
 The reader classified `{}` correctly as an empty atom; the writer's
@@ -158,7 +175,7 @@ The reader classified `{}` correctly as an empty atom; the writer's
 null`, and the caller then skipped the key. The field vanished. A branch
 returning `{}` fixes it.
 
-**6. ~~`@context` entries for children with no data~~** (`instances/005`)
+**7. ~~`@context` entries for children with no data~~** (`instances/005`)
 
 The source `@context` maps both `Element` and `Element1` to property IRIs.
 Neither appears in the instance body. Java preserves both entries; TypeScript
@@ -193,7 +210,7 @@ data. Someone has to say which.
 
 ### Both diverge from the source
 
-**7. `propertyLabels` and `propertyDescriptions` with orphan keys**
+**8. `propertyLabels` and `propertyDescriptions` with orphan keys**
 (`templates/003`)
 
 The source declares entries keyed `TextfieldLabel` and `TextfieldChildExtra`,
