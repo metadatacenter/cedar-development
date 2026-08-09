@@ -101,8 +101,8 @@ This roadmap tracks open work only.
   old V8 mapping counts more branches, so the same source that cleared a 90%
   branch floor everywhere now measures 86.6 to 91.5. The floors are 85 for
   branches, 90 for statements, and the drop is a measurement change rather than a
-  regression. A root audit is down from 19 findings to 12, both criticals gone;
-  the twelve left are the Angular CLI and webpack-dev-server chain, five of which
+  regression. A root audit is down from 19 findings to 11, both criticals gone;
+  the eleven left are the Angular CLI and webpack-dev-server chain, five of which
   the application-builder migration would take with it.
 - **Templates are on block control flow.** All 203 `*ngIf` and `*ngFor` sites
   across 33 templates — 184 and 19 — are `@if` and `@for`, rewritten by
