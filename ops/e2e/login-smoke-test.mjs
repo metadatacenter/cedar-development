@@ -43,7 +43,11 @@ const PASSWORD = process.env.CEDAR_FRONTEND_local_USER1_PASSWORD ?? 'test1';
 const HEADED = !!process.env.HEADED;
 
 const RUN_ID = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-const FOLDER_NAME = `E2E Smoke ${RUN_ID}`;
+// One stable working folder in the caller's home folder, reused by every run and created on first
+// use, rather than a fresh `E2E Smoke <timestamp>` each time. A run that died before its teardown
+// used to strand its folder in the home folder, and nine of them had accumulated there. The
+// artifacts inside stay timestamped, so successive runs still cannot collide.
+const FOLDER_NAME = 'Smoke Tests';
 const TEMPLATE_NAME = `E2E Smoke Template ${RUN_ID}`;
 const FIELD_NAME = `E2E Standalone Field ${RUN_ID}`;
 const TEXT_FIELD_NAME = 'Notes';
@@ -51,6 +55,51 @@ const TEXT_FIELD_NAME = 'Notes';
 // automatically when missing or stale. Gitignored — it holds live tokens.
 const AUTH_DIR = resolve(__dirname, '.auth');
 const AUTH_STATE = resolve(AUTH_DIR, 'storage-state.json');
+
+// ── working folder ─────────────────────────────────────────────────────────
+
+// Resolve the run's working folder, creating it the first time.
+//
+// There is no lookup by path — `/folders?path=…` answers 405 — so the home folder's contents are
+// listed and matched by name. That is also the only reliable way to ask: the search index can be
+// stale in both directions, listing artifacts that were deleted and omitting ones that exist.
+async function findOrCreateWorkingFolder(user) {
+  const home = user.profile?.homeFolderId;
+  if (!home) throw new Error('the first user has no homeFolderId');
+  const listed = await restCall(user.auth, 'GET', `/folders/${enc(home)}/contents?limit=500`);
+  if (listed.status !== 200) throw new Error(`could not list the home folder: ${listed.status} ${listed.text}`);
+  const existing = (listed.body?.resources ?? []).find(r => r.resourceType === 'folder'
+      && (r.schema_name ?? r['schema:name']) === FOLDER_NAME);
+  if (existing) return { id: existing['@id'], created: false };
+  const made = await restCall(user.auth, 'POST', '/folders',
+      { folderId: home, name: FOLDER_NAME, description: 'Working folder for the UI smoke' });
+  if (made.status !== 201) throw new Error(`could not create the "${FOLDER_NAME}" folder: ${made.status} ${made.text}`);
+  return { id: made.body['@id'], created: true };
+}
+
+// Report what the run left in the working folder.
+//
+// The folder itself now outlives the run, which costs a check the old flow got for free: it deleted
+// the folder last, and a non-empty folder cannot be deleted, so teardown was proven complete by that
+// delete succeeding. This restores the guarantee explicitly — this run's own artifacts must be gone,
+// and anything else still in there is named rather than asserted on, since it belongs to an earlier
+// run that died and is not this one's failure to report.
+async function assertWorkingFolderCleared(user, folderId, ownIds) {
+  const listed = await restCall(user.auth, 'GET', `/folders/${enc(folderId)}/contents?limit=500`);
+  if (listed.status !== 200) throw new Error(`could not list "${FOLDER_NAME}": ${listed.status} ${listed.text}`);
+  const rows = listed.body?.resources ?? [];
+  const own = new Set(ownIds);
+  const survived = rows.filter(r => own.has(r['@id']));
+  if (survived.length > 0) {
+    const names = survived.map(r => `${r.resourceType} ${r.schema_name ?? r['schema:name']}`).join(', ');
+    throw new Error(`teardown left this run's artifacts behind: ${names}`);
+  }
+  const older = rows.filter(r => !own.has(r['@id']));
+  if (older.length > 0) {
+    console.log(`  note: "${FOLDER_NAME}" also holds ${older.length} artifact(s) from earlier runs:`);
+    for (const r of older) console.log(`        ${r.resourceType} ${r.schema_name ?? r['schema:name'] ?? '(unnamed)'}`);
+  }
+}
 
 // ── dashboard helpers ──────────────────────────────────────────────────────
 const enc = iri => encodeURIComponent(iri);
@@ -523,15 +572,12 @@ try {
   //    and leaves it available for later use. The same REST token tears both down at the end.
   step = 'seed';
   const { user1 } = await actors();
-  const folderResp = await restCall(user1.auth, 'POST', '/folders',
-      { folderId: user1.profile.homeFolderId, name: FOLDER_NAME, description: 'Created by the UI smoke' });
-  if (folderResp.status !== 201) throw new Error(`could not seed folder: ${folderResp.status} ${folderResp.text}`);
-  const folderId = folderResp.body['@id'];
+  const { id: folderId, created } = await findOrCreateWorkingFolder(user1);
   const fieldResp = await restCall(user1.auth, 'POST', `/template-fields?folder_id=${enc(folderId)}`,
       artifactBody('field', FIELD_NAME));
   if (fieldResp.status !== 201) throw new Error(`could not seed standalone field: ${fieldResp.status} ${fieldResp.text}`);
   const standaloneFieldId = fieldResp.body['@id'];
-  console.log(`✓ seeded folder + standalone field over REST`);
+  console.log(`✓ ${created ? 'created' : 'reused'} the "${FOLDER_NAME}" folder, seeded a standalone field over REST`);
 
   // 3. Create a template inside the folder via the designer deep link, name it, add
   //    a Disease field and constrain it to the DOID "disease" branch through the
@@ -649,18 +695,17 @@ try {
   await deleteRow(page, TEMPLATE_NAME, folderId);
   console.log('✓ template deleted');
 
-  // The standalone field and the working folder were seeded over REST, so tear them down the same
-  // way. The field goes before the folder — a non-empty folder cannot be deleted.
+  // The standalone field was seeded over REST, so tear it down the same way. The working folder
+  // stays: it is `Smoke Tests` in the home folder and every run shares it.
   step = 'delete-standalone-field';
   await restCall(user1.auth, 'DELETE', `/template-fields/${enc(standaloneFieldId)}`);
   console.log('✓ standalone field deleted');
 
-  step = 'delete-folder';
-  const delFolder = await restCall(user1.auth, 'DELETE', `/folders/${enc(folderId)}`);
-  if (![200, 204].includes(delFolder.status)) throw new Error(`folder delete answered ${delFolder.status}: ${delFolder.text}`);
-  console.log('✓ folder deleted');
+  step = 'verify-folder-cleared';
+  await assertWorkingFolderCleared(user1, folderId, [savedInstance.id, templateId, standaloneFieldId]);
+  console.log(`✓ "${FOLDER_NAME}" holds none of this run's artifacts`);
 
-  console.log('\nPASS: login (reusable session) → seed folder+field → template w/ DOID + text field → populate + fill → save instance → re-edit (update) → serialization config (JSON/YAML) → OpenView presented anonymously → delete');
+  console.log(`\nPASS: login (reusable session) → "${FOLDER_NAME}" folder + seeded field → template w/ DOID + text field → populate + fill → save instance → re-edit (update) → serialization config (JSON/YAML) → OpenView presented anonymously → delete → folder cleared`);
   await browser.close();
   process.exit(0);
 } catch (e) {
