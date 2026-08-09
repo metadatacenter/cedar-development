@@ -41,7 +41,12 @@ export CEDAR_NGINX_HOST=192.168.17.207
 # The terminology store is read where it is mounted inside the container, not where it lives on the
 # host. Everything else about the store — which vocabularies it serves, and whether exclusively — is
 # inherited from set-env-generic.sh, because only the path differs between the two paths.
-export CEDAR_TERMINOLOGY_STORE_CATALOG=/cedar/term/prod/catalog.sqlite
+#
+# Blank means the local store is off and every ontology is served through BioPortal, which is what
+# cedar-main.yml ships as the default. Set it to the mount point to turn the store back on:
+#   export CEDAR_TERMINOLOGY_STORE_CATALOG=/cedar/term/prod/catalog.sqlite
+# The read-only bind mount stays either way, so switching is this line and a container recreate.
+export CEDAR_TERMINOLOGY_STORE_CATALOG=""
 
 export CEDAR_ARTIFACT_SERVER_HOST=192.168.17.101
 export CEDAR_BRIDGE_SERVER_HOST=192.168.17.115

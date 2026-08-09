@@ -302,7 +302,7 @@ smoke:rest` passes at 641 assertions against all six containerized servers, with
 resuming into the new MySQL — confirm that by checking `SELECT VERSION()` on 3306 reports the
 container's, not by trusting a green run.
 
-### The local terminology store in a container
+### The local terminology store, and the two levers that govern it
 
 The store is a read-mostly SQLite catalog of about 31 GB at `$CEDAR_HOME/cedar-term`. It is shared
 rather than copied — a read-only bind mount, the same shape as the static content nginx already
@@ -315,18 +315,39 @@ containerized half is `CEDAR_JAVA_OPTS`, which `cedar-microservice`'s entrypoint
 set by the `server-terminology` compose entry. Passing the four `CEDAR_TERMINOLOGY_*` variables into
 a container without that hook does nothing at all, which is worth knowing before debugging a 404.
 
-Which vocabularies the store serves, and whether exclusively, are declared once in
-`set-env-generic.sh` and inherited by both profiles. Only the catalog path differs, since it is a
-filesystem path and the host's is not the container's, so each profile sets that itself.
+**Lever one: on or off.** The server disables the store entirely when either the catalog path or the
+ontology allowlist is blank, and serves everything through BioPortal instead:
 
-Confirm it took by asking the terminology server directly, rather than trusting a green suite:
-
-```bash
-curl -sk -H "Authorization: Bearer $TOKEN" \
-  https://terminology.$CEDAR_HOST/bioportal/ontologies/DOID/versions/current
+```java
+if (catalogPath == null || catalogPath.isBlank() || localOntologies.isEmpty()) {
+  log.info("Local terminology store disabled; serving all ontologies via BioPortal");
 ```
 
-A 404 means the store is not wired; a content-hash version id means it is.
+`cedar-main.yml` ships `catalogPath: ""`, so **BioPortal is the shipped default** and the system
+properties are the only thing that turns the store on. Which makes the switch one line in the
+profile — `CEDAR_TERMINOLOGY_STORE_CATALOG`, empty for BioPortal, the mount point for the store —
+plus a container recreate. The bind mount can stay either way; it is inert when the path is blank.
+Confirm which mode you are in from the server's own log rather than by inference, and check the
+observable consequence: `bioportal/ontologies/DOID/versions/current` answers 200 with a content-hash
+version id when the store is on, and 404 when it is off.
+
+**Lever two: strict or fail-soft.** `terminologyStore.localOnly` decides whether a locally-served
+ontology may fall back to BioPortal when the local store cannot answer. It is `false` normally, so a
+local gap is silently covered by BioPortal — safe, and worth remembering, because **it means a green
+suite does not prove the local store is complete**. Strict mode exists for the equivalence harness,
+where a gap should fail loudly instead of being masked.
+
+A third setting is not a lever so much as a distinction. `localRootsOntologies` is a subset of
+`localOntologies`: the ontologies whose roots are proven BioPortal-equivalent. One in the allowlist
+but not in that subset is served locally for search and integrated-search but **browses from
+BioPortal**, because its local roots still diverge. So the split is per-operation, not per-ontology.
+
+Which vocabularies the store serves, and whether exclusively, are declared once in
+`set-env-generic.sh` and inherited by both profiles. Only the catalog path differs, since it is a
+filesystem path and the host's is not the container's.
+
+**Currently: off.** The containerized terminology server serves everything through BioPortal, with
+the mount left in place so turning it back on is the one profile line.
 
 ### Building an image against your own code
 
