@@ -552,31 +552,46 @@ model libraries — where their JSON and YAML serializations diverge — is in
      equivalent, so each one restates its own number in a `FROM` tag or an `ENV`, and four of them
      were moved this week by hand-editing exactly those lines.
 
-     The Docker equivalent is a declaration the image builds inherit from, plus `ARG` in place of the
-     literal:
+     **A version pin is a build input, not environment configuration.** This is the distinction that
+     decides where the declaration goes, and it is easy to get wrong because both end up as
+     `KEY=value` shell. `set-env-external.sh`, `set-env-internal.sh` and the Compose `.env` files are
+     the per-environment layer: hosts, ports, passwords, `CEDAR_HOST`, the things that are *supposed*
+     to differ between development, staging and production. A Mongo version is not one of those.
+     Staging and production must run the same Mongo, and putting the version in the environment layer
+     makes divergence expressible — which is how native and Docker came apart in the first place.
+     `cedar-parent` does not keep `opensearch.version` in an env file. It is a POM property, checked
+     in, versioned with the code, and identical everywhere it is consumed.
 
-     - **One declaration.** A single `KEY=value` file of server versions — `MONGO_VERSION`,
-       `NEO4J_VERSION`, `OPENSEARCH_VERSION`, `REDIS_VERSION`, `MYSQL_VERSION`, `KEYCLOAK_VERSION`.
-       The format is not a matter of taste: it is the only one all three consumers read natively.
-       Compose interpolates it as an env file and already does for `CEDAR_DOCKER_VERSION`, the shell
-       sources it, and `cedarcli docker build` forwards it as `--build-arg`. A `docker buildx bake`
-       HCL file is the more fashionable choice, but Compose cannot read one, and Compose is a
-       consumer here.
+     The Docker equivalent is therefore a **build manifest in `cedar-docker-build`, versioned beside
+     the Dockerfiles it feeds**, and that file already exists. `bin/cedar-images-base.sh` holds
+     `IMAGE_VERSION` and the image list, `release-all-images.sh` and `stage-local-jar.sh` source it,
+     and `DockerImages.manifest()` parses it. Six more entries — `MONGO_VERSION`, `NEO4J_VERSION`,
+     `OPENSEARCH_VERSION`, `REDIS_VERSION`, `MYSQL_VERSION`, `KEYCLOAK_VERSION` — extend an existing
+     idiom rather than introducing one. Shell syntax because that file is already shell, not because
+     anything needs it in an environment.
+
      - **No `FROM` tag carries a number.** `ARG NEO4J_VERSION` ahead of
        `FROM neo4j:${NEO4J_VERSION}-community`, and the same for the `ENV MONGO_VERSION` and
        `ENV KEYCLOAK_VERSION` cases. Declare no default, so a build that was not given a version fails
-       instead of quietly picking one. A bare `docker build` stops working, which is consistent with
-       what the runbook already says about bypassing `cedarcli docker build`.
-     - **Compose passes it too.** The stacks carry `build:` sections with no `args`, so add them there
-       as well, or the same image builds one way through the CLI and another through Compose.
+       instead of quietly picking one.
+     - **`cedarcli docker build` becomes the only builder,** forwarding each value as `--build-arg`.
+       It nearly is already: it alone builds the CEDAR bases an image is built `FROM` first, which a
+       bare `docker build` does not, and that is how a stale base silently gets used.
+     - **Drop the `build:` stanzas from the Compose stacks.** Every infrastructure and microservice
+       service carries `build:` next to `image:`, so a `docker compose up` with the image absent
+       builds it — skipping base ordering, and once versions are `ARG`s with no default, either
+       failing or, if defaults were added to placate it, producing a differently-built image under the
+       same tag. That second builder is a liability whichever way this lands. Removing it also removes
+       the only reason the declaration would have had to be readable by Compose.
 
      **Then let a bot hold it current, because the defect this item names is drift nobody noticed.**
      A record that a human updates has the same failure mode as the one it replaces. Renovate is the
      standard tool for this and there is none anywhere in the estate — no Renovate, no Dependabot, in
      any repository. It reads Dockerfile `FROM`, Compose `image:`, Maven properties and Actions
-     natively, and covers a declaration file like the one above through a custom manager keyed on
-     `# renovate:` annotation comments, which is its documented pattern for exactly this. Drift then
-     arrives as a pull request rather than as a measurement taken a year later.
+     natively, and covers a manifest like the one above through a custom manager keyed on
+     `# renovate:` annotation comments, which is its documented pattern for exactly this. That the
+     manifest is checked in beside the Dockerfiles is what makes this work at all: a bot can raise a
+     pull request against a file in the repository, and cannot against an environment.
 
      It pays for itself twice, because it is also most of the next item: Renovate pins to digests, and
      the two floating bases that item lists — `registry.access.redhat.com/ubi9` with no tag at all and
