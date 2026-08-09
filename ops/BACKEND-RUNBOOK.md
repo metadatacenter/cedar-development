@@ -268,6 +268,16 @@ cd $CEDAR_HOME/cedar-artifact-server && cedarcli build this
 cedarcli docker build artifact-server --local
 ```
 
+**`cedarcli docker build` is the only builder.** The compose stacks carry no `build:` stanzas, so
+`docker compose up` runs images and never makes them. Two reasons: only the CLI builds the CEDAR
+base images a target is built `FROM` first, and only the CLI supplies the locked server versions.
+Those live in `cedar-docker-build/bin/cedar-images-base.sh` — one `export <SERVER>_VERSION=` each —
+and the Dockerfiles declare them as build arguments with **no default**, so a build that was not
+given a version fails instead of quietly choosing one. A bare `docker build` therefore no longer
+works on the infrastructure images, which is deliberate. To change a server version, change it there
+and nowhere else; `ops/check_version_pairing.py` then checks it still pairs with the client
+`cedar-parent` ships.
+
 The image name is the source repository minus its `cedar-` prefix, for all fifteen servers and the
 admin tool. `cedarcli docker build` also takes `all`, a group (`infrastructure`, `microservices`,
 `frontends`, `admin`), or any image name, and always builds the CEDAR bases an image is built `FROM`

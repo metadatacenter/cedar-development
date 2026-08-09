@@ -518,6 +518,18 @@ model libraries — where their JSON and YAML serializations diverge — is in
   1. **Decide what the version lock actually locks, then move the pins to it.** This is not a
      catch-Docker-up item, which is how it read before it was measured.
 
+     **Built on 2026-08-08.** The six versions are declared in
+     `cedar-docker-build/bin/cedar-images-base.sh`; the six Dockerfiles take them as build arguments
+     with no default, so a build not given one fails rather than choosing; `cedarcli docker build`
+     supplies them and is now the only builder, the 32 `build:` stanzas having been removed from the
+     four compose stacks; `renovate.json` watches the manifest through a custom manager keyed on the
+     `# renovate:` comments; and `ops/check_version_pairing.py` asserts the client-server pairing in
+     `cedar-docker-build` CI, where a bump is checked on the pull request that makes it. Verified by
+     building all seven infrastructure images through the CLI and confirming each carries the
+     declared version, and by checking that a bare `docker build` and a deliberately mismatched pair
+     both fail. What remains of this item is the Renovate app being enabled on the repository, which
+     needs someone with admin rights, and extending the same treatment to the Java repositories.
+
      The lock is stated in two places and neither records a version. CLAUDE.md and the runbook both
      say Mongo, MySQL, Neo4j, Redis, OpenSearch and Keycloak must not move; nothing in `os-mirror`,
      the install scripts or the production runbook says what they must not move *from*. So it cannot
