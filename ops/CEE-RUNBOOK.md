@@ -178,6 +178,15 @@ on a commit. Inside the gate it would break an unrelated pull request with an er
 its author cannot fix there, and would teach people to expect a red gate for reasons
 that are not theirs.
 
+**Never run `npm audit fix --force` here.** Every advisory a root `npm audit`
+reports comes from one place — `@angular-devkit/build-angular` and `@angular/cli`,
+both direct devDependencies — and npm's idea of fixing that is to walk the
+toolchain backwards. It proposes `@angular/cli@21.0.4` and
+`@angular-devkit/build-angular@0.1002.1`, which is the *Angular 10* numbering:
+adding 1,253 packages, removing 302, and undoing the 14 → 22 march to silence
+warnings about build tooling an embedder never downloads. `npm run audit:prod`
+reports 0, and that is the number that describes what ships.
+
 That is also why a failure here is not automatically a release blocker. Read the
 advisory and ask whether CEE reaches the vulnerable path — when `lodash-es` 4.17.21
 was flagged for `_.template`, `_.unset` and `_.omit`, CEE called only `cloneDeep`
