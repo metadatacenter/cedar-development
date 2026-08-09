@@ -984,6 +984,31 @@ model libraries — where their JSON and YAML serializations diverge — is in
   is absent from this machine, so the native server blocks point at directories that do not exist. The
   other two proxy a live `ng serve` and belong to development only.
 
+  **Only one of the two hybrids is safe, and the other has a latency cliff.** The runbook's supported
+  mixture — container nginx stopped, native nginx up, native frontends against containerized services
+  — works because the native nginx proxies to `127.0.0.1:900x` and does not care whether a port
+  belongs to a JVM or a container. The inverse, leaving `infra-nginx` up in front of native
+  frontends, is not equivalent: its `cedar-frontend` upstream is `host.docker.internal:4200`, so every
+  request leaves the VM to reach the host. Measured over the Template Designer's 175 script files, six
+  concurrent, four rounds: direct to gulp, 17–50 ms in total with the worst single request at 2–19 ms;
+  through the container nginx, 48–76 ms on three rounds and **60,104 ms on the fourth, with one
+  request stalling 60,059 ms** — nginx's default `proxy_read_timeout`. Median stayed at 2 ms, so the
+  cost is entirely in the tail.
+
+  A tail that long is fatal rather than slow, because of what the page asks for: a dashboard load
+  fetches 258 requests, 200 of them scripts, and RequireJS is left at its default seven-second
+  `waitSeconds`. One stalled module therefore aborts the bootstrap — `Load timeout for modules:
+  cedar/template-editor/service/rich-text-config.service` — and the dashboard renders blank with no
+  "New" button; a *blocking* script stalling instead times out the navigation. Neither is CEE's doing
+  and neither came from the Angular 14 → 22 march: the bundle the frontends serve today is smaller
+  than the one they served earlier the same day. It also is not a test-only fault — a person browsing
+  `cedar.metadatacenter.orgx` in that mode gets the same blank dashboard.
+
+  So this is a reason to finish the frontend images rather than a bug to chase: once the frontends are
+  containers, nothing crosses `host.docker.internal` and the cliff is gone. Until then the documented
+  swap is the mode to be in, and raising `waitSeconds` would only widen the window that a 60-second
+  stall still closes.
+
 
 - **15. Adopt Renovate, so a version that falls behind says so.** Every pin in this estate is
   maintained by someone remembering to look at it, and the measurement above is what that produces:
