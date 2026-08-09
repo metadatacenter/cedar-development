@@ -30,7 +30,7 @@ it says the rest.
   waiting on is committed there but unpublished: static image `_ui._size`, which
   the library used to drop — see [MODEL-LIBRARY-PARITY.md](./MODEL-LIBRARY-PARITY.md).
 - The safety net is 2,202 domain tests across 46 harness spec files, 125 unit
-  tests across twelve, and 370 bundle-level Playwright checks on Chromium,
+  tests across twelve, and 376 bundle-level Playwright checks on Chromium,
   Firefox and WebKit, with 108 committed snapshots. No test is known to be
   flaky. The one that was recorded as flaky for months turned out to be a real
   defect — see *Selection races*, below.

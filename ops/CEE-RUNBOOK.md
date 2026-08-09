@@ -2,7 +2,7 @@
 
 Building, running and testing **CEE** (`cedar-embeddable-editor`) locally.
 Everything here has been run on macOS (Apple silicon), against
-`cee-with-model-library` @ CEE 1.6.0-ng22 — the Angular 22 branch, which is what
+`cee-with-model-library` @ CEE 1.6.0-e2 — the Angular 22 branch, which is what
 the local Template Designer and OpenView serve. `develop` and `main` are still
 on Angular 14.3, so a command that behaves differently there is describing the
 branch, not a fault.
@@ -170,7 +170,7 @@ npm --prefix visual ci
 ```
 
 The current gate should report 0 lint problems, 125 unit tests, 2,202 domain tests
-and 370 Playwright tests. Treat these as useful smoke checks, not permanent
+and 376 Playwright tests. Treat these as useful smoke checks, not permanent
 constants: new tests should make the counts rise. (This line once carried a Karma
 figure, years after the move to Vitest — which is the hazard of writing counts
 down at all.)
