@@ -327,6 +327,28 @@ model libraries — where their JSON and YAML serializations diverge — is in
   move the toolchain, the profile pins, and the build enforcement together, gated on the end-to-end
   smoke. Low urgency while 17 is supported; parked at the end of the list for that reason.
 
+  **Tighten the pins as part of it, because there are three of them and they disagree.** The estate
+  pins Java in three places at three different strengths, and nothing compares them:
+
+  - the **build JVM**, `[17,18)` in `cedar-parent`'s enforcer — major only;
+  - **CI**, `distribution: temurin` with `java-version: "17"` — major only, so whatever 17 the
+    runner has that week;
+  - the **CEDAR runtime JRE**, `eclipse-temurin:17.0.8_7-jre-ubi9-minimal` — exact, to the build
+    number, and the most precisely pinned thing in the estate;
+  - **Keycloak's own JVM**, `dnf install java-17-openjdk-headless` in its image — major only, and a
+    different vendor from everything else.
+
+  So the thing that runs the servers is pinned harder than the thing that compiles them, which is
+  backwards. Measured 2026-08-09 while adding the Maven wrapper: the build JVM on this machine is
+  **Oracle 17.0.14** against a runtime image on **Temurin 17.0.8_7** — a different vendor, six
+  patches apart, and both are "17" as far as every check in the estate is concerned.
+
+  Moving to 21 touches all four, so it is the natural moment to make them agree rather than merely
+  move together: pin the enforcer and CI to the same exact version the runtime image ships, and give
+  Keycloak's JVM the same treatment when its own upgrade lands. Maven is no longer part of this
+  problem — every Java repository now carries a wrapper at 3.9.14 and CI invokes `./mvnw` — except
+  inside the build images, which still `microdnf -y install maven` unversioned.
+
 - **11. Point the token-verification client at a truststore in production.** Token-signature verification
   fetches the realm's signing keys over HTTPS; on the local stack that client trusts the self-signed
   `.orgx` certificate (`disableTrustManager` in `KeycloakDeploymentProvider`, matching the admin

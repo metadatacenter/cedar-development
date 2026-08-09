@@ -966,7 +966,12 @@ authenticated surface, so excluding the tagged tests does not silently drop a ro
 
 ## Continuous integration
 
-Every Java repository builds in GitHub Actions from `.github/workflows/ci.yml`, on each push and
+**`cedar-terminology-server` is the exception, and has no `.github` directory at all** — nothing
+builds it on push or pull request, and nothing publishes its snapshot on merge. Whatever is in
+Nexus for it arrived by another route. Found 2026-08-09; it wants the same workflow the other
+seventeen have.
+
+Every other Java repository builds in GitHub Actions from `.github/workflows/ci.yml`, on each push and
 pull request to `develop` and on manual dispatch. The workflow is the same everywhere: Java 17 from
 temurin with the Maven cache, the BMIR Nexus credentials from the `BMIR_NEXUS_USERNAME` and
 `BMIR_NEXUS_PASSWORD` repository secrets, `mvn --update-snapshots verify`, and the surefire reports
