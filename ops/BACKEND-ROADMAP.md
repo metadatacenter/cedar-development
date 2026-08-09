@@ -1099,12 +1099,60 @@ model libraries — where their JSON and YAML serializations diverge — is in
   versions are at least in one place now — but it means those six are watched by nobody, as before.
 
 
+
+- **16. Verify what the images download at build time.** Audited 2026-08-09 across all 34 images.
+  The estate pins versions well and verifies downloads badly, and the two are not the same property:
+  a pin says *which* bytes you meant to fetch, a signature or a digest says you got them.
+
+  - **A plain-HTTP package repository with signature checking switched off.** `cedar-microservice`'s
+    `install_deps.sh` adds `http://repo.mysql.com/...` — not HTTPS — points its `gpgkey` at another
+    plain-HTTP URL, and then sets `gpgcheck=0`. So RPMs are installed into the base image of all
+    fifteen servers with no verification at all, over a channel anyone on the path can rewrite.
+    Fetching the key over HTTP would already be self-defeating; disabling the check makes the key
+    moot. This is the one to fix first.
+
+    It exists to compile `mysqlclient` for `MySQLdb`, which one readiness script imports. The
+    Keycloak image does the same job with `python3-PyMySQL`, a pure-Python driver needing no
+    repository and no compiler. Porting `wait-and-init-mysql.py` to PyMySQL deletes the repository,
+    the `mysql-community-devel` install and the build toolchain behind it.
+
+  - **A remote script piped straight into a shell,** in `cedar-frontend-main`:
+    `curl -sL https://deb.nodesource.com/setup_16.x | bash -`. Whatever that URL returns runs as root
+    at build time, unverified. It also installs **Node 16**, which left support in September 2023, in
+    the image that builds the Template Designer.
+
+  - **The Keycloak distribution is fetched by `ADD` from a URL** and never checked. `ADD <url>`
+    cannot verify anything, and Keycloak publishes checksums beside the tarball. Fetching with
+    `curl` and checking the digest is a three-line change.
+
+  - **js-yaml is downloaded unverified — and is not used.** `cedar-infra-mongo` fetches
+    `js-yaml.js` from a raw GitHub URL with a literal `# TODO some sort of download verification
+    here` beside it, immediately below a `gosu` download that *is* GPG-verified, so the contrast is
+    deliberate rather than accidental. It is loaded only by the entrypoint's `_parse_config`, which
+    is reached only when mongod is invoked with `--config`; CEDAR's `run.sh` passes flags and never
+    a config file, so the file is dead weight. Delete it rather than verify it.
+
+  - **Two apt/gpg keyservers, which is the failure that already cost a day.** The Mongo image
+    fetches keys from `keys.openpgp.org` and `keyserver.ubuntu.com` by fingerprint. That is how
+    `cedar-infra-nginx` and `cedar-frontend-main` broke when nginx rotated its signing key: pinning a
+    key the upstream rotates is a build that fails on somebody else's schedule.
+
+  - **Python dependencies are pinned but ancient and unhashed.** `pymongo==3.6.1` (2018),
+    `redis==2.10.6` (2016), `mysqlclient==2.1.1`, and an unpinned `pip install --upgrade pip` ahead
+    of them. Pinning without hashes stops drift but not substitution. Low stakes, since these serve
+    only the readiness scripts, but they are the easiest thing on this list to bring current.
+
+  What is already right is worth stating, so the fix does not regress it: `gosu` is GPG-verified
+  against a pinned fingerprint, the server jars come from Nexus over HTTPS through Maven, which
+  checks the checksums it publishes, and every third-party base image now carries an exact tag.
+
+
 ## Testing
 
 Coverage and test-infrastructure work. The active REST integration suites live in
 `ops/e2e/rest/suites/`; the JUnit matrices and boot-smoke live in the per-server modules.
 
-- **16. Decide whether the build runs the tests, and give the answer a command-line option. Stop the
+- **17. Decide whether the build runs the tests, and give the answer a command-line option. Stop the
   output loop busy-polling.** The Java build skips its tests again: every Java repo is built with
   `./mvnw clean install -DskipTests`, and the `CEDAR_DEV_SKIP_TESTS` escape hatch is gone with the
   default it modified. That restores the behaviour the build had before, and it means a green
@@ -1173,7 +1221,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   "Execution succeeded!" and exits 0. A build that continued past a failure must record it, say so in
   the closing panel, and exit non-zero.
 
-- **17. Deepen the core-workflow tests instead of growing the headline count.** The JUnit matrices and the
+- **18. Deepen the core-workflow tests instead of growing the headline count.** The JUnit matrices and the
   REST suites now give the system respectable horizontal coverage: routes boot, authentication and
   permission boundaries are pinned, and create/read/update/delete, sharing, search, versioning and the
   cross-service hop all execute against the real stack. Much of that is deliberately
@@ -1212,7 +1260,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   versions or search projection disagreeing. The present suite protects the behavioural skeleton; this
   item protects the integrity of state when operations fail or are repeated.
 
-- **18. Add degradation tests.** Nothing asserts how a service behaves when a dependency it needs is
+- **19. Add degradation tests.** Nothing asserts how a service behaves when a dependency it needs is
   unavailable. The cost of that gap is known: reading any folder whose creator could not be resolved
   returned 500 for as long as the defect existed, because `UserSummaryCache` let Guava's
   "loader returned null" signal escape instead of degrading to the no-display-name path the callers
@@ -1220,7 +1268,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   asserts the API degrades rather than 500s. Bear in mind that queue writes are already best-effort
   by design (`AppLoggerQueueService`, the worker and NCBI queues), so those are the pattern to match.
 
-- **19. Retry the ontology-list load in the term picker (frontend, `cedar-template-editor`).** This is a
+- **20. Retry the ontology-list load in the term picker (frontend, `cedar-template-editor`).** This is a
   change to the Angular frontend, not to any microservice or test suite — it lands in
   `cedar-template-editor`, and so needs a frontend owner to review and push it (see the note below).
   It is the last piece of this defect still outstanding, and the fix is already written: it is open as
