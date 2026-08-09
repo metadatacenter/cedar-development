@@ -659,10 +659,58 @@ unlike the CEE gate.
 Nothing is published from CI. CEE resolves the package from the BMIR Nexus npm
 registry (`https://nexus.bmir.stanford.edu/repository/npm-cedar/`) through its
 own `.npmrc`, pinned to an exact version whose suffix carries the build date
-and commit. The publish step itself is written down nowhere — not in
-[RELEASE-RUNBOOK.md](./RELEASE-RUNBOOK.md), not in
-[Release](#release) below, and the repository records
-no target registry of its own. Whoever publishes next should capture it here.
+and commit.
+
+### Publishing a model library dev build
+
+Version is `0.9.2-dev.<YYYYMMDD>.<sha>`, naming the commit whose content is
+published and *that commit's* date — so the bump commit carries a version naming
+its parent, as CEE's own dev versions do. Three files hold it by hand:
+`package.json`, `package-lock.json` (two spots) and `package-dist.json`.
+`package-dist.json` is also synchronised from `package.json` by
+`sync-package-version.js`, which `npm run build` runs first, so editing it is
+belt and braces rather than required.
+
+On **Node 20**, from the library repository:
+
+```bash
+npm run lint && npm run typecheck && npm run test:coverage
+npm run test:package   # builds dist/ and installs the real tarball as a consumer
+cd dist && npm publish --tag dev
+```
+
+`npm publish` is run **from `dist/`**, not the repository root: `npm run build`
+writes `package-dist.json` to `dist/package.json`, and that is the manifest
+carrying the published scoped name
+`@org.metadatacenter/cedar-model-typescript-library`. The root manifest is named
+`cedar-model-typescript-library` and is not what publishes.
+
+Neither manifest declares a registry. The target comes from the **scope**:
+`@org.metadatacenter:registry` in `~/.npmrc` points at Nexus, so npm routes the
+scoped name there. Confirm it before publishing, and check the dry run names the
+registry you expect:
+
+```bash
+npm config get @org.metadatacenter:registry
+cd dist && npm publish --dry-run --tag dev
+```
+
+`--tag dev` matters. Without it npm would move `latest`, and the dev tag is what
+identifies the current dev build; consumers pin exact versions regardless, so a
+tag move reaches nobody by itself. What is on Nexus can be read without
+authentication, which is the quickest way to confirm a publish landed —
+`npm view` against this registry returns nothing useful, so query it directly:
+
+```bash
+curl -s "https://nexus.bmir.stanford.edu/repository/npm-cedar/@org.metadatacenter%2Fcedar-model-typescript-library" \
+  | python3 -c "import json,sys; d=json.load(sys.stdin); print(sorted(d['versions'])); print(d['dist-tags'])"
+```
+
+A published version cannot be replaced, so the dry run is the check that matters.
+Then bump the dependency in **all three** CEE manifests — `package.json`,
+`harness/package.json` and `visual/package.json` — and run the full gate. A skew
+between them means the domain tests and the bundle disagree about what the model
+is.
 
 ## Release
 
