@@ -2,7 +2,7 @@
 
 Building, running and testing **CEE** (`cedar-embeddable-editor`) locally.
 Everything here has been run on macOS (Apple silicon), against `develop` @ CEE
-1.6.0-dev.20260809.f93a844, which is Angular 22 and is what the local frontends
+1.6.0-dev.20260809.3b0d307, which is Angular 22 and is what the local frontends
 serve. What is published to Nexus under the `dev` tag is older —
 1.6.0-dev.20260809.8127503 — because the builder change since then needs openview
 to move first. `main` is still on Angular 14.3, so a command that behaves differently
