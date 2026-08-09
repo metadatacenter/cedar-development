@@ -16,8 +16,8 @@ Three tiers:
 
 - **Infrastructure** — Keycloak (auth), MongoDB, MySQL, Neo4j, Redis, OpenSearch (search index),
   and nginx (TLS termination + reverse proxy for `*.metadatacenter.orgx`). In native-develop these
-  run as **local binaries / Homebrew services**, except the four data stores — Redis, OpenSearch,
-  Mongo and Neo4j — which are now containers. Keycloak, MySQL and nginx are still native. See
+  run as containers, except **nginx**, which is still native and still owns 80/443. All six locked
+  servers — Redis, OpenSearch, Mongo, Neo4j, MySQL and Keycloak — moved on 2026-08-08. See
   "Running the native servers against containerized infrastructure".
 - **Microservices** — 15 Dropwizard JVMs, one per `cedar-<name>-server` repo. Each is launched as
   `java -jar cedar-<name>-server-application-<version>.jar server .../config.yml`.
@@ -234,6 +234,48 @@ docker compose up -d neo4j
 Load only the `neo4j` database. Neo4j 5 keeps authentication in `system`, so the container's own
 credentials survive, which is what you want since both sides use the same ones.
 
+**MySQL and Keycloak have moved as a pair,** because Keycloak's realm is the `cedar_keycloak`
+schema. MySQL is now the Docker Official `mysql` image at **8.4 LTS**, not Oracle's
+`mysql/mysql-server`, which was abandoned in January 2023 with 8.0.32 as its last tag — that is why
+this pin never moved. LTS deliberately, rather than the 9.x innovation line the native install
+drifted onto: an innovation release is superseded roughly quarterly, which is the opposite of a
+locked version.
+
+Only what matters crosses. `cedar_keycloak` and `cedar_messaging` are 3.2 MB together; `cedar_log`
+held 2.4 GB of request and cypher logging and was dropped, its five tables restored empty so logging
+resumes. A dump from native 9.6 restores into 8.4 cleanly — rehearse it on a throwaway container
+first, and strip `GTID_PURGED` from the dump or the restore aborts before it creates anything.
+
+```bash
+mysqldump -u root -p --databases cedar_keycloak cedar_messaging --single-transaction > cedar.sql
+mysqldump -u root -p --no-data --databases cedar_log | grep -v GTID_PURGED > log-schema.sql
+brew services stop mysql            # see the warning below — mysqladmin shutdown is not enough
+docker compose up -d mysql keycloak
+docker exec -i infra-mysql mysql -u root -p"$CEDAR_MYSQL_ROOT_PASSWORD" < cedar.sql
+```
+
+**Provision the databases and users by hand in this hybrid.** The containerized estate provisions
+itself: `cedar-microservice` carries a `wait-and-init-mysql.py` that creates each server's database
+and user from `CEDAR_SERVER_NAME`, and the Keycloak image has its own for the realm database. Native
+servers never run either. So a containerized MySQL under native servers gets only what Keycloak's
+container creates, and `cedar_log` and `cedar_messaging` need their databases, users and grants
+created explicitly — at `@'%'`, since the connection now arrives from outside the container rather
+than from `localhost` as it did natively.
+
+**Stopping native MySQL needs `brew services stop mysql`.** `mysqladmin shutdown` is not enough:
+launchd restarts `mysqld_safe`, which restarts `mysqld`, within seconds. Combined with the port trap
+below this is genuinely dangerous — native rebinds `127.0.0.1:3306`, wins every connection back from
+the container, and nothing reports it. Two full REST runs passed against native MySQL while the
+container sat idle and healthy before this was noticed. Check `lsof` and `SELECT VERSION()` after
+stopping, not just that the container says healthy.
+
+**The Keycloak container cannot reach a native resource server.** Its event listener posts user
+lifecycle events to `CEDAR_RESOURCE_SERVER_HOST`, which under the docker-eval profile is a
+`192.168.17.x` container address that does not exist when the servers are native, so the log fills
+with `NoRouteToHostException`. Login, token verification and the whole REST estate are unaffected —
+only event propagation is, so new-user provisioning is the thing to watch. Point it at
+`host.docker.internal` if that matters to you.
+
 **Stopping native Mongo needs `db.shutdownServer()`, not the Homebrew service.** Two things bite
 here. `brew services start mongodb-community@5.0` now fails: Homebrew refuses the `mongodb/brew` tap
 as untrusted, cannot read the formula, and writes a launch agent with no `ProgramArguments`. Run
@@ -253,10 +295,12 @@ and every client silently keeps talking to the native server. `docker ps` says h
 Check with `lsof -nP -iTCP:27017 -sTCP:LISTEN` and confirm only Docker is there before believing a
 swap took.
 
-**What is verified.** Migration is exact both times: Mongo restored 62 documents with collection
-counts matching the source, and the graph came across at 18 nodes and 29 relationships with the same
-folder and template counts. `npm run smoke:rest` passes at 641 assertions against all four
-containerized stores.
+**What is verified.** Every migration is exact: Mongo restored 62 documents with collection counts
+matching the source, the graph came across at 18 nodes and 29 relationships with the same folder and
+template counts, and MySQL carried 92 Keycloak tables, six users and 17 messages. `npm run
+smoke:rest` passes at 641 assertions against all six containerized servers, with request logging
+resuming into the new MySQL — confirm that by checking `SELECT VERSION()` on 3306 reports the
+container's, not by trusting a green run.
 
 ### Building an image against your own code
 

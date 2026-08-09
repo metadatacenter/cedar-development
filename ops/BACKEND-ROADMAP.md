@@ -256,9 +256,11 @@ model libraries — where their JSON and YAML serializations diverge — is in
   they are pinned *to* does not exist yet; establishing it is part of item 14, and this item is parked
   behind it, since it defers to a lock that currently names six servers and no versions. Order them by
   risk, lowest first:
-  Four are **done** on 2026-08-08, each taken together with containerizing that store: Redis
-  6.2.7 → 7.2.7, OpenSearch 1.3.6 → 2.19.1, Mongo 5.0.14 → 5.0.31 and Neo4j 5.3.0 → 5.26.0. That
-  leaves MySQL. Take **Keycloak separately and last**: it runs a forward-only Liquibase schema
+  Five are **done** on 2026-08-08, each taken together with containerizing that store: Redis
+  6.2.7 → 7.2.7, OpenSearch 1.3.6 → 2.19.1, Mongo 5.0.14 → 5.0.31, Neo4j 5.3.0 → 5.26.0 and MySQL
+  8.0.32 → 8.4.11, the last of those also moving off Oracle's abandoned `mysql/mysql-server` base
+  onto the Docker Official image. **Keycloak is the exception and is still at 22**, held there by
+  CEDAR's own code rather than by this lock: it runs a forward-only Liquibase schema
   migration on the existing user store, and it is the only one of the six where CEDAR's own code, not
   just a pin, decides how far the server can go. What that amounts to is measured below. Rehearse each
   on a copy of production data and gate on the end-to-end smoke.
@@ -538,7 +540,7 @@ model libraries — where their JSON and YAML serializations diverge — is in
 
          server       native (live)   Docker pin
          Mongo        5.0.31          5.0.31     (moved 2026-08-08, was 5.0.14)
-         MySQL        9.6.0           8.0.32
+         MySQL        9.6.0           8.4.11     (moved 2026-08-08, was 8.0.32 on an abandoned base)
          Neo4j        5.26.0          5.26.0     (moved 2026-08-08, was 5.3.0)
          Redis        7.2.7           7.2.7      (moved 2026-08-08, was 6.2.7)
          OpenSearch   2.19.1          2.19.1     (moved 2026-08-08, was 1.3.6)
@@ -821,8 +823,39 @@ model libraries — where their JSON and YAML serializations diverge — is in
      move together, or MySQL moves with a dump of the Keycloak, messaging and log schemas. nginx is
      unaffected and still stays native for the 80/443 collision.
 
-     That leaves MySQL with Keycloak, which is the whole of what remains here and the one grouping
-     that cannot be split.
+     **MySQL and Keycloak moved together on 2026-08-08, which completes this item.** All six locked
+     servers now run as containers under the native JVMs; only nginx is still native, for the 80/443
+     collision. What that pair found:
+
+     - **The MySQL pin could not move at all, and that was the real reason it never had.** The image
+       was built `FROM mysql/mysql-server`, Oracle's own repository, which was abandoned in January
+       2023 with 8.0.32 as its final tag. Moving the pin meant changing repository, to the Docker
+       Official `mysql` image. Pinned at **8.4 LTS** rather than the 9.x innovation line the native
+       install drifted onto, since an innovation release is superseded roughly quarterly and a locked
+       version should not be.
+     - **Two things in the compose stack were Oracle-image-specific and would not have been found
+       without running it.** The healthcheck invoked `/healthcheck.sh`, which only Oracle's image
+       ships, and the CEDAR entrypoint wrapper exec'd `/entrypoint.sh`, which the official image
+       installs on PATH as `docker-entrypoint.sh` instead.
+     - **Provisioning lives in the container images, so the hybrid has none of it.**
+       `cedar-microservice` carries a `wait-and-init-mysql.py` that creates each server's database
+       and user from `CEDAR_SERVER_NAME`, and the Keycloak image has its own. Native servers run
+       neither, so `cedar_log` and `cedar_messaging` needed their databases, users and grants created
+       by hand, at `@'%'` rather than the `@localhost` native uses.
+     - **The Keycloak container cannot reach a native resource server.** Its event listener posts to
+       `CEDAR_RESOURCE_SERVER_HOST`, a container address that does not exist when the servers are
+       native, so the log fills with `NoRouteToHostException`. Login and the whole REST estate are
+       unaffected; user lifecycle events are not propagated. It is a property of the hybrid rather
+       than a defect, and it disappears once the servers are containers too.
+
+     **And the port trap caught the person who documented it.** `mysqladmin shutdown` does not stop
+     native MySQL — launchd restarts `mysqld_safe`, which restarts `mysqld`, in seconds. It rebinds
+     `127.0.0.1:3306` while Docker holds only the wildcard, so every client silently went back to
+     native. Two full REST runs passed that way, against a native MySQL, while the container sat idle
+     and healthy. That is twice this shape of failure has appeared in one day, and it is the argument
+     for making it a check rather than a paragraph: nothing in the estate asserts that the server
+     answering a port is the one that is supposed to be. Worth adding to the containerized-stack
+     verification item, which is the only place that could run it.
 
      Still open: whether the two-profile split grates enough to smooth. The stack starts under the
      docker-eval profile while the servers run under the native one, which is a second shell rather
@@ -894,12 +927,12 @@ model libraries — where their JSON and YAML serializations diverge — is in
      containerization are the same piece of work per store, so this runs against the
      persistence-upgrade item near the top of this roadmap rather than after it.
 
-     Four of the six are done — Redis, OpenSearch, Mongo and Neo4j — leaving MySQL together with
-     Keycloak, since Keycloak's realm lives in a MySQL schema. Development proved the mechanism on
-     all four, including the two migrations that carry real risk, so what remains here is less about
-     whether stores can be containerized and more about doing it where the data matters. Production
-     still needs each migration rehearsed on a copy of its own data, at its own scale; a 42 MB
-     development graph is not evidence about a production one.
+     All six are done in development, as of 2026-08-08. What remains here is doing it where the data
+     matters. Production still needs each migration rehearsed on a copy of its own data, at its own
+     scale; a 42 MB development graph and a 3.2 MB Keycloak schema are not evidence about production
+     ones. The MySQL move also carries a decision development could take lightly and production
+     cannot: 2.4 GB of request and cypher logging was dropped rather than migrated, which is only
+     available where the logs are disposable.
 
      Two configuration points apply to all of them. Give each container an explicit memory limit and
      size its cache explicitly, since WiredTiger, the Neo4j heap and page cache and the OpenSearch
