@@ -2,8 +2,10 @@
 
 Building, running and testing **CEE** (`cedar-embeddable-editor`) locally.
 Everything here has been run on macOS (Apple silicon), against `develop` @ CEE
-1.6.0-dev.20260809.8127503, which is Angular 22 and is what the local frontends
-serve. `main` is still on Angular 14.3, so a command that behaves differently
+1.6.0-dev.20260809.f93a844, which is Angular 22 and is what the local frontends
+serve. What is published to Nexus under the `dev` tag is older —
+1.6.0-dev.20260809.8127503 — because the builder change since then needs openview
+to move first. `main` is still on Angular 14.3, so a command that behaves differently
 there is describing that branch, not a fault.
 
 Sibling runbooks:
@@ -175,8 +177,8 @@ npm --prefix visual ci
 ./visual/node_modules/.bin/playwright install chromium
 ```
 
-The current gate should report 0 lint problems, 125 unit tests, 2,242 domain tests
-and 394 Playwright tests. Treat these as useful smoke checks, not permanent
+The current gate should report 0 lint problems, 125 unit tests, 2,359 domain tests
+and 404 Playwright tests. Treat these as useful smoke checks, not permanent
 constants: new tests should make the counts rise. (This line once carried a Karma
 figure, years after the move to Vitest — which is the hazard of writing counts
 down at all.)
@@ -277,7 +279,7 @@ export PATH="/opt/homebrew/opt/node@24/bin:$PATH"
 npm run test:domain
 ```
 
-Expect **2,242 passing** on `develop`. For watch mode, run
+Expect **2,359 passing** on `develop`. For watch mode, run
 `npm --prefix harness run test:watch`.
 
 A green run here means CEE agrees with itself. For whether its output is
