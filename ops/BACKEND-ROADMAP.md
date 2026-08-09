@@ -256,8 +256,9 @@ model libraries — where their JSON and YAML serializations diverge — is in
   they are pinned *to* does not exist yet; establishing it is part of item 14, and this item is parked
   behind it, since it defers to a lock that currently names six servers and no versions. Order them by
   risk, lowest first:
-  Redis (**done** — 6.2.7 → 7.2.7 on 2026-08-08, taken together with containerizing it), then MySQL,
-  then OpenSearch, then MongoDB, then Neo4j. Take **Keycloak separately and last**:
+  Redis and OpenSearch are **done** — 6.2.7 → 7.2.7 and 1.3.6 → 2.19.1 on 2026-08-08, each taken
+  together with containerizing that store. That leaves MySQL, then MongoDB, then Neo4j. Take
+  **Keycloak separately and last**:
   it runs a forward-only Liquibase schema migration on the existing user store, the custom themes will
   need re-porting, the `keycloak-admin-client-jakarta` coordinate it uses was discontinued after
   21.1.2, and `cedar-keycloak-event-listener` is compiled against the current SPI. Rehearse each on a
@@ -266,7 +267,7 @@ model libraries — where their JSON and YAML serializations diverge — is in
   No longer parked at the end. Containerizing the data stores needs each image pin moved up to the
   version already running, because an older engine cannot open existing data files, so this item is
   what unblocks the last step of item 14 rather than something to take up afterwards. Mongo and
-  Keycloak are patch-level and a non-event; MySQL and OpenSearch are the real decisions left.
+  Keycloak are patch-level and a non-event; MySQL is the real decision left.
 
   The order above is upgrade risk alone. Containerizing takes them in a different order, for reasons
   that are about migration cost and about Keycloak's realm living in a MySQL schema; item 14 has it,
@@ -407,7 +408,7 @@ model libraries — where their JSON and YAML serializations diverge — is in
 
   The OpenSearch pairing that had been the standing worry — a 2.19 client against the pinned 1.3.6
   server — works. The client sends a request, the older server answers, and a structured error comes
-  back parsed. That risk is retired.
+  back parsed. The pairing no longer exists in any case: the image moved to 2.19.1 on 2026-08-08.
 
   **The role is settled. The containerized path is how CEDAR is deployed, not an evaluation
   install.** Staging and production move to containerized services over native data stores, with the
@@ -484,7 +485,7 @@ model libraries — where their JSON and YAML serializations diverge — is in
          MySQL        9.6.0           8.0.32
          Neo4j        5.26.0          5.3.0
          Redis        7.2.7           7.2.7      (moved 2026-08-08, was 6.2.7)
-         OpenSearch   2.19.1          1.3.6
+         OpenSearch   2.19.1          2.19.1     (moved 2026-08-08, was 1.3.6)
          Keycloak     22.0.5          22.0.4
 
      The direction is the surprise. The Docker images are the only place any of these versions is
@@ -493,11 +494,12 @@ model libraries — where their JSON and YAML serializations diverge — is in
 
      The lock is really a pairing constraint, and any single record has to capture both sides.
      `cedar-parent` pins `opensearch.version` at 2.19.2, so the servers ship the OpenSearch 2.19
-     high-level REST client, alongside a legacy `org.opensearch.client:transport` at 1.3.20. Native
-     pairs that client with server 2.19.1 and is coherent; Docker pairs it with 1.3.6, which is not a
-     supported combination. It works. The bring-up above exercised it and that risk is retired.
-     Retired is not resolved: a client version and a server version are locked to each other, and
-     only the client half is written anywhere a check could read.
+     high-level REST client, alongside a legacy `org.opensearch.client:transport` at 1.3.20. Docker
+     paired that client with a 1.3.6 server, which is not a supported combination; it worked, and the
+     2026-08-07 bring-up retired the risk. The mismatch is now gone outright — the image moved to
+     2.19.1 on 2026-08-08, so both paths pair the 2.19 client with a 2.19 server. The lesson survives
+     it: a client version and a server version are locked to each other, and only the client half is
+     written anywhere a check could read.
 
      Record the locked versions once, as data rather than prose. A sourceable `KEY=value` file under
      `cedar-development/bin` holding one entry per server, plus the client coordinate each is paired
@@ -515,14 +517,14 @@ model libraries — where their JSON and YAML serializations diverge — is in
      this item comes first: every later item adopts these pins, and an image older than the live
      server cannot open its data files. The corollary is a rule for everything downstream — never
      containerize and upgrade in the same step. Mongo and Keycloak are patch-level and a non-event.
-     MySQL and OpenSearch are major-version decisions and belong with the persistence-upgrade
-     item near the top of this roadmap, which is parked on this one, since it defers to a lock that
+     MySQL is the one major-version decision left, and it belongs with the persistence-upgrade item
+     near the top of this roadmap, which is parked on this one, since it defers to a lock that
      records nothing.
 
-     Redis is already done, moved 6.2.7 → 7.2.7 to containerize it below. It cost one edited `FROM`
-     line, which is precisely what this item exists to stop: the number now lives in a Dockerfile
-     because there is nowhere else to put it. Treat it as a placeholder that the record file
-     absorbs, not as the pattern for the other five.
+     Redis and OpenSearch are already done, moved to 7.2.7 and 2.19.1 to containerize them below.
+     Each cost one edited `FROM` line, which is precisely what this item exists to stop: those
+     numbers now live in Dockerfiles because there is nowhere else to put them. Treat them as
+     placeholders the record file absorbs, not as the pattern for the remaining four.
 
      One thing to decide alongside it. The policy states one lock for two paths that cannot pin
      equally. Docker pins exactly. Homebrew mostly cannot: versioned formulae exist for some of the
@@ -647,6 +649,37 @@ model libraries — where their JSON and YAML serializations diverge — is in
 
      What it did not test is migration. Redis moved with an empty keyspace, so no data crossed.
 
+     **OpenSearch has moved too,** on the same day, 1.3.6 → 2.19.1, which is the largest version jump
+     of the six and the first one to carry data. What it found:
+
+     - **The 2.x image does not boot on this compose stack without a second switch.** From 2.12 the
+       entrypoint runs the security demo installer and exits unless `OPENSEARCH_INITIAL_ADMIN_PASSWORD`
+       is set. The stack already passes `plugins.security.disabled=true`, but that is a setting, and
+       the installer runs before settings apply and reads `DISABLE_INSTALL_DEMO_CONFIG` instead. The
+       image now carries that switch, so the fix travels with it rather than with whoever writes a
+       compose file. Nothing static would have caught this: the image built and compose parsed.
+     - **An in-place 1.x → 2.x upgrade works,** tested on a copy of the `opensearch_data` volume
+       before anything real was touched. The 2.19.1 engine opened the indices the 1.3.6 container had
+       written and served queries against them; the index settings show `created` at the 1.3.6 build
+       and `upgraded` at 2.19.1. Worth knowing, but not the path taken.
+     - **Regenerating from the source of truth is the better migration, and it is also a test.** The
+       index is derived from Mongo and Neo4j, so `cedarat search-regenerateIndex` rebuilds it into
+       the new store and proves the store works in the same step. It completed in under a second and
+       moved the alias.
+     - **`IndexUtils` already handles the plugin indices 2.x brings.** The 2.x image ships plugins
+       1.3.6 did not, which create `.plugins-ml-config` and a `top_queries-*` index. The regenerate
+       log shows it deleting the indices it owns and explicitly not touching those.
+
+     One measurement that is about the estate rather than the container. The native index held 3,206
+     documents dated 2025-03-27; the regenerated one holds 208, and both numbers are inflated by
+     nested documents. Counting root documents instead gives two, which is exactly the two templates
+     Neo4j holds. The old index had drifted from the graph for sixteen months. Read `docs.count` as a
+     resource count and this looks like catastrophic loss; it is not.
+
+     Still unset, and it applies to every store from here: the containers have no memory limit. The
+     OpenSearch container took the image's default 1 GB heap, which is fine at this size, but nothing
+     caps the container itself.
+
      **The phase-one grouping was wrong, and the runbook now reflects the corrected one.** It read
      as the five data stores together with Keycloak left native, on the grounds that Keycloak holds
      user state. But Keycloak's state *is* a MySQL schema: `cedar-infra-keycloak` creates the
@@ -655,11 +688,9 @@ model libraries — where their JSON and YAML serializations diverge — is in
      move together, or MySQL moves with a dump of the Keycloak, messaging and log schemas. nginx is
      unaffected and still stays native for the 80/443 collision.
 
-     Order the rest by what a failed migration costs, which is not the order the stores appear in
-     above. OpenSearch next: its index is reconstructible from the source of truth, so a bad
-     migration costs a reindex, but 1.3.6 → 2.19.1 is the largest version jump of the six and wants
-     its own step. Then Mongo and Neo4j, which hold the artifacts and the folder graph and need
-     migrations rehearsed on a copy. Then MySQL with Keycloak, last.
+     Order the rest by what a failed migration costs. Mongo and Neo4j next, which hold the artifacts
+     and the folder graph, have no rebuild-from-source path, and need their migrations rehearsed on a
+     copy. Then MySQL with Keycloak, last.
 
      Still open: whether the two-profile split grates enough to smooth. The stack starts under the
      docker-eval profile while the servers run under the native one, which is a second shell rather
@@ -731,13 +762,12 @@ model libraries — where their JSON and YAML serializations diverge — is in
      containerization are the same piece of work per store, so this runs against the
      persistence-upgrade item near the top of this roadmap rather than after it.
 
-     Redis is done, and the corrected order for the rest is in the development-infrastructure item
-     above: OpenSearch, then Mongo and Neo4j, then MySQL together with Keycloak, since Keycloak's
-     realm lives in a MySQL schema. OpenSearch moves earlier than risk-order alone suggests, because
-     its data is an index reconstructible from the source of truth, so a failed migration costs a
-     reindex rather than data; against that, it is the largest version jump of the six and wants its
-     upgrade taken on its own. It is also the first real test of the migration half, which the Redis
-     move could not provide — that store had an empty keyspace, so nothing crossed.
+     Redis and OpenSearch are done, and the corrected order for the rest is in the
+     development-infrastructure item above: Mongo and Neo4j, then MySQL together with Keycloak, since
+     Keycloak's realm lives in a MySQL schema. Those three are where this item gets hard. Redis moved
+     with an empty keyspace and OpenSearch was rebuilt from Mongo and Neo4j rather than migrated, so
+     neither exercised the part that carries risk. Mongo and Neo4j have no equivalent path: they are
+     the source of truth, and their data has to cross intact.
 
      Two configuration points apply to all of them. Give each container an explicit memory limit and
      size its cache explicitly, since WiredTiger, the Neo4j heap and page cache and the OpenSearch

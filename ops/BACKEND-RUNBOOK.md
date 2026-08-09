@@ -16,8 +16,8 @@ Three tiers:
 
 - **Infrastructure** — Keycloak (auth), MongoDB, MySQL, Neo4j, Redis, OpenSearch (search index),
   and nginx (TLS termination + reverse proxy for `*.metadatacenter.orgx`). In native-develop these
-  run as **local binaries / Homebrew services**, except Redis, which is now a container — see
-  "Running the native servers against containerized infrastructure".
+  run as **local binaries / Homebrew services**, except Redis and OpenSearch, which are now
+  containers — see "Running the native servers against containerized infrastructure".
 - **Microservices** — 15 Dropwizard JVMs, one per `cedar-<name>-server` repo. Each is launched as
   `java -jar cedar-<name>-server-application-<version>.jar server .../config.yml`.
 - **Frontends** — the main one is the Angular template editor (`cedar-template-editor`), served by
@@ -53,8 +53,9 @@ cedarcli docker one-time-setup
 
 # 1. infrastructure (local binaries + Homebrew services)
 bash $CEDAR_UTIL_BIN/services-generic/startinfra.sh     # mongo, mysql, opensearch, neo4j, redis, keycloak, nginx
-# startinfra.sh still calls startredis, which now loses 6379 to the Redis container. Harmless —
-# the container is already serving — but the failure it prints is not a problem to chase.
+# startinfra.sh still calls startredis and startopensearch, which now lose 6379 and 9200 to the
+# containers. Harmless — those are already serving — but the failures it prints are not a problem
+# to chase.
 
 # 2. app tier — use the controller here instead of 15 Terminal tabs
 bash $CEDAR_HOME/cedar-development/ops/cedar-services.sh start
@@ -179,10 +180,34 @@ Verify with `cd ops/e2e && npm run smoke`, then `redis-cli -p 6379 info stats`. 
 a few thousand commands through the store, so a counter still near zero means the servers are
 talking to something else. `redis-cli -p 6379 info server` should report `redis_version:7.2.7`.
 
-**The remaining stores are not this cheap.** Redis moved with an empty keyspace, so nothing was
-migrated. Mongo and Neo4j stamp their storage format and do not support a downgrade, so an image
-older than the running server cannot open its data files at all. Move the pin up to what is live,
-then migrate the store, and never both in one step.
+**OpenSearch has moved too,** at 2.19.1, the version already running natively. Same shape:
+
+```bash
+brew services stop opensearch                 # frees 9200
+docker compose up -d opensearch               # from cedar-infrastructure, docker-eval profile
+cedarat search-regenerateIndex                # native profile; rebuilds from Mongo + Neo4j
+cedarat rules-regenerateIndex
+```
+
+Rolling back is `docker stop infra-opensearch && brew services start opensearch`. The native data
+directory under `/opt/homebrew/var/opensearch` is never touched by any of this, so the native index
+is still there when you go back.
+
+**Regenerate rather than migrate.** The index is derived from Mongo and Neo4j, so rebuilding it is
+both the cheapest migration and a correctness check on the store you just stood up. `IndexUtils`
+deletes the indices it owns and leaves everything else alone, which matters on 2.x: that image ships
+plugins 1.3.6 did not, and they create `.plugins-ml-config` and a `top_queries-*` index of their own.
+Expect to see them, and expect the regenerate log to say it is not touching them.
+
+**Do not read `docs.count` as a resource count.** CEDAR indexes nested documents, so `_cat/indices`
+inflates. Count root documents with a `match_all` search instead, and compare that against the
+`FileSystemResource` nodes in Neo4j.
+
+**The remaining stores are the expensive ones.** Redis moved with an empty keyspace and OpenSearch
+was rebuilt from its source of truth, so neither migrated data in the way Mongo and Neo4j will have
+to. Those two stamp their storage format and do not support a downgrade, so an image older than the
+running server cannot open its data files at all. Move the pin up to what is live, then migrate the
+store, and never both in one step.
 
 ### Building an image against your own code
 
