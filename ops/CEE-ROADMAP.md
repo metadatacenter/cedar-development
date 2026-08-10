@@ -110,7 +110,7 @@ it says the rest.
   value inside it are both 14px where they used to be 14 and 16. Angular
   Material's own stylesheet still carries rem, which is why the test guarding this
   is scoped to what CEE states; an embedder cannot yet reach the scale at all,
-  which is item 4.
+  which is item 5.
 - **A field box is 36px, in every template.** It was 36px or 48px depending on
   whether the template contained a timezone-enabled temporal field, because the
   timezone picker's `::ng-deep` rule was emitted unscoped and injected only once
@@ -152,7 +152,7 @@ it says the rest.
 - Templates use block control flow, and `prefer-control-flow` is an error, so
   the deprecated directives cannot come back a template at a time.
 - Template-authored rich text is **sanitized by default**; verbatim rendering is
-  available only to a host that sets `trustTemplateMarkup` — item 6.
+  available only to a host that sets `trustTemplateMarkup` — item 7.
 - **CEE's output is checked against the template it came from**, by
   `InstanceValidator` through `instance-conformance.spec.ts` — 117 of the
   domain suite's tests. A dropped `@type` or a missing property fails the gate.
@@ -249,9 +249,72 @@ each would be re-decided the same wrong way without the reason written down.
   `/Integrated(ExtAuth|Details)Url$/` reads as the obvious implementation and would
   have accepted precisely the typo the check exists to catch.
 
+### 2. Accept elements and fields, not only templates
+
+CEDAR has three schema artifacts and CEE names one of them. The question is
+whether the other two become first-class inputs, and it is worth answering
+because most of the work is already done by accident.
+
+An element already renders. Setting `templateObject` to element JSON produces the
+right tree with no errors, because `ModelLibraryTemplateParser.wrap` takes an
+`AbstractContainerArtifact` and a `TemplateElement` is one; the reader returns a
+`Template`-shaped object whatever JSON went in, so no type widens. The 26
+blueprint findings are all traced rather than reported, since only an `_ui.order`
+entry naming a missing property is promoted to an error. Read-only needs nothing:
+`readOnlyMode` lives per widget on `CedarUIComponent` and has no idea what the
+root is.
+
+A field renders an empty form. Its `properties` holds the declarations for its
+own value node rather than children, so the child walk finds nothing. Wrapping it
+in a synthetic one-child container is a few lines, and a host can do it today
+without CEE changing at all.
+
+What stops this being useful is the output rather than the input. CEE emits
+`schema:isBasedOn` pointing at the element, which makes the document a template
+instance claiming to be based on something that is not a template, and CEDAR has
+nowhere to put it: `CedarResourceType` lists `ELEMENT_INSTANCE` with a null
+`@type` and a null id class, and no REST resource answers for it.
+`template-element-instances` is the namespace nested occurrences are minted in,
+not a stored artifact type. So the first question is not CEE's — decide whether
+element and field instances are things CEDAR stores. If they are not, this is a
+rendering feature and should say so.
+
+The host contract is where it becomes breaking. All three inputs are named for
+templates while one of them already accepts an element, and making the kinds
+first-class means renaming to the words both model libraries use —
+`AbstractSchemaArtifact` and `AbstractInstanceArtifact` in TypeScript,
+`SchemaArtifact` and `InstanceArtifact` in Java:
+
+```js
+cee.schemaArtifactObject = artifactJson;          // template, element, or field
+cee.instanceArtifactObject = instanceJson;
+cee.schemaAndInstanceObject = { schemaArtifact, instanceArtifact };
+const doc = cee.currentInstanceArtifact;
+```
+
+Three inputs, mirroring the three that exist, none naming a kind. Kind-agnostic
+rather than a `templateAndInstanceObject`/`elementAndInstanceObject`/`fieldAndInstanceObject`
+family, for four reasons: the artifact's `@type` already says the kind, so a key
+that repeats it is a second source of truth that can disagree with the first;
+"which input wins when two are set" is undefined today and six inputs make the
+undefined thing larger; adding a kind later should change behaviour rather than
+surface; and a per-kind input advertises that kind by name, which a field input
+cannot honestly do while a field root renders nothing.
+
+**Likely 2.0.0.** Renaming the inputs breaks every host that compiles against the
+published declarations. The old names can survive a major as deprecated aliases,
+since the wrapper's setters are one-line delegations, but the rename itself is the
+breaking change and should travel with the other host-contract decisions in
+item 1 rather than arriving separately.
+
+Done when the answer to the storage question is written down, and either CEE
+accepts all three kinds with the renamed inputs and a host can round-trip what it
+gets back, or the element path is documented as rendering-only and the field path
+is closed off deliberately rather than by an empty form.
+
 ## Infrastructure
 
-### 2. The Metadata Editor scroll bug
+### 3. The Metadata Editor scroll bug
 
 Scrolling past the end of the form and back makes the bottom of it disappear. The
 only open item here that costs a user something they can see, and the only one
@@ -267,7 +330,7 @@ Done when the bottom of a long form survives a scroll to the end and back, in th
 Template Designer and in the standalone harness, with a regression test at
 whichever layer turns out to own the containers.
 
-### 3. Styling
+### 4. Styling
 
 One decision and one cleanup, and they are the same piece of work. `THEMING.md`
 in the CEE repository is the standing record of what CEE's appearance is
@@ -376,7 +439,7 @@ Done when the palette carries a colour someone chose, the theme is built on
 `mat.define-theme`, and the count of Material internals CEE depends on has gone
 down rather than up.
 
-### 4. Settle what an embedder controls about CEE's appearance, and write it down
+### 5. Settle what an embedder controls about CEE's appearance, and write it down
 
 An embedding application has no document saying what it may change about how CEE
 looks, what it may not, and what happens if it tries. `THEMING.md` is the closest
@@ -472,7 +535,7 @@ Three shapes recurred, none of which the build or the unit tests could see:
 
 ## Testing
 
-### 5. Reach the two config flags nothing exercises
+### 6. Reach the two config flags nothing exercises
 
 The browser suite asserts that every config key changes what renders, because a
 key that is silently ignored looks exactly like one that works. Two keys cannot
@@ -547,7 +610,7 @@ no blur reconciliation at all.
 
 ## Security
 
-### 6. Finish the rich-text trust boundary
+### 7. Finish the rich-text trust boundary
 
 The boundary is drawn and enforced. Static rich text is sanitized unless the host
 sets `trustTemplateMarkup`, the README's *Embedding security* section says who
@@ -611,7 +674,7 @@ ever return true before and can now return false, and `adheresToBlueprint()` has
 stopped being a second name for it, so a consumer branching on either sees new
 behaviour.
 
-### 7. Settle the temporal `required` judgement, and the untyped fields under it
+### 8. Settle the temporal `required` judgement, and the untyped fields under it
 
 Two questions sit here, and only the first is a judgement.
 
@@ -686,15 +749,21 @@ a test that can fail.
 2. Keep the production bundle and Playwright checks working throughout.
 3. Complete the public host contract before the stable `1.6.0` release (item 1);
    the stable model-library release lands as an aside of that work.
-4. Tell template authors what their markup will do (item 6). The boundary is
+4. Tell template authors what their markup will do (item 7). The boundary is
    enforced and the trust key is declared; what remains is discoverability on the
    authoring side, which is a change to the Template Designer rather than to CEE.
 
-The palette (item 3) is not sequenced here. It is a decision rather than a
+The kinds beyond templates (item 2) come after the stable `1.6.0` release rather
+than in it. What a host notices is the rename, and spending a major version on it
+before the contract's own decisions are settled would buy half an answer. It also
+waits on something that is not CEE's to decide: whether CEDAR stores element and
+field instances at all.
+
+The palette (item 4) is not sequenced here. It is a decision rather than a
 dependency, and nothing else waits on it — but every build that ships without it
 made the decision by shipping stock teal.
 
-The embedder's styling contract (item 4) is not sequenced either, and for the
+The embedder's styling contract (item 5) is not sequenced either, and for the
 opposite reason: it is not blocked, it blocks. Publishing anything new about the
 appearance — a type-size property, a field-height property — is API the moment a
 host page reads it, so the decisions it holds are cheaper before the stable
