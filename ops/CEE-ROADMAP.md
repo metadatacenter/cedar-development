@@ -71,7 +71,7 @@ it says the rest.
 - Templates use block control flow, and `prefer-control-flow` is an error, so
   the deprecated directives cannot come back a template at a time.
 - Template-authored rich text is **sanitized by default**; verbatim rendering is
-  available only to a host that sets `trustTemplateMarkup` — item 8.
+  available only to a host that sets `trustTemplateMarkup` — item 7.
 - **CEE's output is checked against the template it came from**, by
   `InstanceValidator` through `instance-conformance.spec.ts` — 117 of the
   domain suite's tests. A dropped `@type` or a missing property fails the gate.
@@ -338,57 +338,7 @@ Three shapes recurred, none of which the build or the unit tests could see:
   refused to choose, both applied and drew a 64x48 rounded rectangle that was
   neither. Nothing reported it, because nothing was failing.
 
-### 5. Stop borrowing CEDAR's key constants for third-party responses
-
-`JsonSchema.atId` and `JsonSchema.rdfsLabel` are used 70 times across CEE, and
-**65 of those are in the authority layer** — `AuthoritySearchResponseItem`,
-`OrcidSearchResponseItem`, `RorSearchResponseItem`,
-`IntegratedSearchResponseItem` and the widgets around them. Those types describe
-HTTP responses from BioPortal, ORCID, ROR and the terminology server. They are
-not CEDAR artifacts, and their key names are not CEDAR's to define.
-
-The keys coincide, which is why it went unnoticed: those payloads happen to spell
-their identifier `@id` and their label `rdfs:label`, the same strings CEDAR's JSON
-serialization uses. A coincidence of spelling is not a shared vocabulary. If ORCID
-renames a field, the constant that has to change belongs to CEE's authority layer;
-if CEDAR changes its serialization, `JsonSchema` changes and drags the authority
-code with it for no reason.
-
-It also costs typing, and that is the part with a measurement behind it. Because
-`JsonSchema.atId` is typed `string` rather than `'@id'`, an interface keyed by it
-gets an index signature over every string key instead of a named property — so
-every other member joins that signature's type, reads come back as the union of
-all of them, and 20 lines carry an `as string`. `AuthoritySearchResponseItem`
-could not hold a typed `details` at all for that reason; the member was `any`
-until it was deleted. CEE's own literal constants remove this without waiting for
-anything upstream, because a literal key declares a property rather than a
-signature.
-
-The rest of the uses are on the instance path, and they are **not** a second
-legitimate case — they are item 6, which is a much larger piece of work. Nothing
-here should wait for it: the authority layer's coupling is wrong on its own
-terms, and fixing it is a rename plus a constants file.
-
-The keys are JSON-specific, which is what makes the authority use a coupling
-rather than a convention, and it is checkable rather than asserted. The same
-instance through the library's two writers:
-
-| JSON | YAML |
-|---|---|
-| `@value` | `value` |
-| `@id` | `id` |
-| `rdfs:label` | `label` |
-| `@context` | absent |
-
-So `@id` is not "what CEDAR calls an identifier". It is what CEDAR's JSON
-serialization calls one, and the authority payloads that share the spelling do so
-by coincidence.
-
-Done when the authority and REST types are keyed by CEE's own constants and the
-`as string` casts they forced are gone.
-
-
-### 6. Finish serialization independence for instances
+### 5. Finish serialization independence for instances
 
 The template path reached it and the instance path did not. A template read from
 YAML gives the same `Template` and so the same component tree —
@@ -529,7 +479,7 @@ JSON-LD key, and a YAML-only consumer costs CEE no JSON knowledge.
 
 ## Testing
 
-### 7. Reach the two config flags nothing exercises
+### 6. Reach the two config flags nothing exercises
 
 The browser suite asserts that every config key changes what renders, because a
 key that is silently ignored looks exactly like one that works. Two keys cannot
@@ -604,7 +554,7 @@ no blur reconciliation at all.
 
 ## Security
 
-### 8. Finish the rich-text trust boundary
+### 7. Finish the rich-text trust boundary
 
 The boundary is drawn and enforced. Static rich text is sanitized unless the host
 sets `trustTemplateMarkup`, the README's *Embedding security* section says who
@@ -612,6 +562,15 @@ should set it and who should not, and the browser suite asserts both that a
 malicious template cannot execute and that the formatting survives — the second
 being what stops a later "hardening" through Angular's sanitizer, which would pass
 every security assertion and flatten every inline style.
+
+The trust key is also declared rather than merely documented: it is typed on
+`CeeConfig` in `cee-public-api.ts`, carries its warning as a doc comment there, and
+sits in `CONFIG_SCHEMA` in `config-validation.ts` so a JavaScript host or a
+`loadConfigFromURL` payload is told when it misspells the key. `cee-public-api.spec.ts`
+holds the interface, the runtime schema and the component's key constants together.
+What item 1 still owes this key is only what it owes every other one — whether
+reassigning `config` patches or replaces, and whether passing `false` turns the flag
+back off.
 
 The policy is DOMPurify with an allowlist taken from an inventory of the 271 static
 content blocks in the CEDAR, HuBMAP and test-artifact corpora, not from CKEditor's
@@ -631,17 +590,21 @@ What is left:
   editor has a `Source` button, so an author can type any markup at all and get no
   indication that some of it will not render for an embedder. The editor should say
   what survives, or refuse what will not.
-- **Decide whether `trustTemplateMarkup` belongs in the host contract.** It is a
-  plain boolean config key today, which is enough to be usable and not enough to be
-  discoverable — it should be part of the typed contract and the runtime schema in
-  item 1 rather than a key a host learns about from the README.
 - **Sweep the other template-authored strings.** Rich text was the one path
   rendering as HTML, but section-break, image and YouTube content all come from the
-  same author through the same route. They are treated as text or as URLs today, and
-  that is a property worth a test rather than an observation.
+  same author through the same route. They are treated as text or as URLs today —
+  section break interpolates, `resolveStaticImageView` gates the URL on a scheme
+  allowlist, and the YouTube field builds an embed URL from a fixed origin around an
+  extracted video id — and that is a property worth a test at render level rather
+  than an observation. The resolvers already have unit coverage for hostile input;
+  what is missing is a fixture in the shape of `19-template-markup` carrying markup
+  in a section-break label and description alongside an unusable image and video
+  URL. One inconsistency to settle while there: the image field allows `data:`
+  wholesale, where the rich-text policy allows raster types and refuses
+  `image/svg+xml`. An SVG in an `img` cannot execute, so this is not a hole, but the
+  two paths disagree about the same input and should either agree or say why not.
 
-Done when a template author is told what their markup will do, and the trust key is
-part of the declared host contract rather than a README footnote.
+Done when a template author is told what their markup will do.
 
 ## Model library
 
@@ -655,7 +618,7 @@ ever return true before and can now return false, and `adheresToBlueprint()` has
 stopped being a second name for it, so a consumer branching on either sees new
 behaviour.
 
-### 9. Settle the temporal `required` judgement
+### 8. Settle the temporal `required` judgement
 
 A judgement about what the corpus means, rather than a code change; it needs
 someone who knows CEDAR's version history. 28 templates require `@type` on a
@@ -694,7 +657,7 @@ instance missing a field in both formats is consistent with itself. Format
 independence and correctness are different properties, and only one of them has
 a test that can fail.
 
-### 10. Give the key constants literal types
+### 9. Give the key constants literal types
 
 `JsonSchema` declares `static atId: string = '@id'` and 28 more like it. The
 explicit `: string` widens the literal away, so a consumer writing
@@ -725,27 +688,47 @@ source or tests, not in CEE, not in the roundtrip, demo or Python consumers — 
 `readonly` breaks nothing that exists. The compatibility risk is theoretical
 rather than measured, which is the reverse of how this item read before.
 
-What it does *not* do on its own is make CEE's `details` typeable. With the
-literals in place, adding `details?: AuthorityDetailResponse` to
-`AuthoritySearchResponseItem` produces a different error — a genuine one, that
-the base declares a wider `details` than `RorSearchResponseItem` narrows it to.
-The index signature was obstructing the compiler before it could reach the real
-conflict. So this converts an untypeable situation into an ordinary typing
-problem; it does not resolve it.
+CEE no longer waits on it. The authority layer keyed its own term on those
+constants and could not type a `details` member for exactly this reason; it now
+has named properties of its own, so the index signature is gone from that side
+without anything changing upstream. What remains is what a literal type buys
+every *other* consumer, and CEE's two wire adapters, which name their keys as the
+wire formats they are.
 
 One more thing belongs upstream beside it, found while closing the value-node
-half of item 6: `JsonTemplateInstanceReader.VALUE_ATOM_KEYS` is private, so a
+half of item 5: `JsonTemplateInstanceReader.VALUE_ATOM_KEYS` is private, so a
 consumer that needs to know which keys a value node may carry has to restate the
 set. CEE does, and cannot derive it — writing one of each atom yields four of the
 five, because none carries a `skos:notation` although the reader accepts one.
 Making it public is a smaller change than the literal types and independent of
 them.
 
-Smaller than it looks, and smaller than it was written, because items 5 and 6
-between them take every CEE call site out of `JsonSchema`'s hands — 5 because
-those keys were never CEDAR's to define, 6 because CEE should not be naming them
-at all. What is left for this item is every *other* consumer of the library,
-which is where the value of doing it upstream sits, and CEE in the meantime.
+Smaller than it looks, and smaller than it was written. The authority layer is
+already out of `JsonSchema`'s hands, and item 5 takes the instance path out of it
+too, so what is left here is every other consumer of the library — which is where
+the value of doing it upstream sits.
+
+### 10. Refuse to build an invalid artifact
+
+The library will write a value node that is not a value. `new
+InstanceDataControlledAtom(null, 'Some Term')` builds without complaint and the
+JSON writer emits `{"@id": null, "rdfs:label": "Some Term"}` — a label with
+nothing to label, which is neither a literal nor an IRI and which the reader then
+discards on the way back in. The same holds for a link atom with no IRI.
+
+A builder that accepts this leaves every consumer to decide for itself what an
+invalid artifact means, which is the situation the builders exist to end. It
+should refuse at construction, where the caller still knows what it was trying to
+say.
+
+Found from CEE's side: the harness needed a half-written controlled term to check
+that an injected instance reports what it dropped, could not get one from the
+library, and had been writing the JSON by hand instead. Those tests are gone —
+what the reader makes of an invalid document is the library's question — and they
+should come back in the library's own suite alongside the refusal.
+
+Done when the instance atoms reject an IRI-less construction, and the reader's
+treatment of an invalid value node is covered where the reader lives.
 
 ## Delivery order
 
@@ -755,9 +738,9 @@ which is where the value of doing it upstream sits, and CEE in the meantime.
 2. Keep the production bundle and Playwright checks working throughout.
 3. Complete the public host contract before the stable `1.6.0` release (item 1);
    the stable model-library release lands as an aside of that work.
-4. Fold `trustTemplateMarkup` into the typed host contract, and tell template
-   authors what their markup will do (item 8). The boundary itself is enforced;
-   what remains is making it discoverable from both sides.
+4. Tell template authors what their markup will do (item 7). The boundary is
+   enforced and the trust key is declared; what remains is discoverability on the
+   authoring side, which is a change to the Template Designer rather than to CEE.
 
 The palette (item 4) is not sequenced here. It is a decision rather than a
 dependency, and nothing else waits on it — but every build that ships without it
