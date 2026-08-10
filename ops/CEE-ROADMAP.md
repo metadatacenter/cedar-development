@@ -545,16 +545,44 @@ ever return true before and can now return false, and `adheresToBlueprint()` has
 stopped being a second name for it, so a consumer branching on either sees new
 behaviour.
 
-### 7. Settle the temporal `required` judgement
+### 7. Settle the temporal `required` judgement, and the untyped fields under it
 
-A judgement about what the corpus means, rather than a code change; it needs
-someone who knows CEDAR's version history. 28 templates require `@type` on a
-temporal value, 27 do not, and 12 require nothing. The blueprint comparison does
-not check field-level `required`, so it flags none of them. `InstanceValidator`
-requires `@type` always — stricter than roughly half the corpus, on the grounds
-that the field declares a `temporalType` and so the value is a typed literal.
-That was a judgement, and it should be an explicit one. It does not block the
-release.
+Two questions sit here, and only the first is a judgement.
+
+The first question is the split: 28 templates require `@type` on a temporal
+value, 27 do not, and 12 require nothing. The blueprint comparison does not check
+field-level `required`, so it flags none of them. `InstanceValidator` requires
+`@type` always — stricter than roughly half the corpus, on the grounds that the
+field declares a `temporalType` and so the value is a typed literal. That was a
+judgement, and it should be an explicit one. It needs someone who knows CEDAR's
+version history.
+
+The split is not stable, which was not known when the judgement was made.
+`JsonFieldWriterTemporal.expandRequiredNode` writes `required: ["@value",
+"@type"]` unconditionally, so every temporal field the library writes comes out
+on the strict side whichever side it went in on. The library is not merely
+stricter than half the corpus. It moves the corpus as it rewrites it.
+
+The second question is a defect rather than a judgement, and it came out of
+walking production. Production carries temporal fields that declare no
+`temporalType` at all, with `_valueConstraints` absent, empty, or holding only
+`requiredValue`. No test artifact does, which is why nothing caught it. Such a
+field is inert in CEE: `CedarTemporalValue.parse` and `serialize` both branch on
+the three `xsd` types and return null for anything else, so the field can neither
+show a stored value nor produce a new one, and the value it would write carries
+no `@type`. Where the same template requires `@type`, the field cannot be filled
+and the instance cannot be saved. Nothing warns, because `TemporalType.forValue`
+answers NULL for an absent value and a misspelled one alike.
+
+`ops/cedar_temporal_types.py` walks every template, element and field a key can
+see on a given server and reports both questions: what each temporal field
+declares, what it requires, and what the untyped ones carry instead.
+`--dump-untyped` writes those fields out verbatim, and `--version` chooses
+whether a template is counted once or once per version. Settle the summary's
+`requires a type, declares none` count first, which names the fields that are
+broken rather than the ones that are merely lax.
+
+Neither question blocks the release.
 
 ### Adoption status
 
@@ -616,7 +644,10 @@ made the decision by shipping stock teal.
   template-aware checks live.
 - Widening instance validation to each field's own value-node `required` array.
   What it would add is nearly all covered already: the `["@value", "@type"]` that
-  temporal and numeric fields declare is what `validateTypedValue` enforces, and
-  the `@id`-valued kinds declare no `required` at all. The residue is a literal
+  numeric fields declare, and that roughly half the temporal ones do, is what
+  `validateTypedValue` enforces, and the `@id`-valued kinds declare no `required`
+  at all. The temporal fields declaring less than that are the temporal
+  `required` split, where `InstanceValidator` is the stricter of the two already,
+  so reading their array would add no check. The residue is a literal
   node omitting `@value` — which is `{}`, one of the spellings of an unfilled
   slot, and emptiness is valid by policy. Revisit only if a consumer asks.
