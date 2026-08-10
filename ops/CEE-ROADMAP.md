@@ -396,22 +396,40 @@ YAML gives the same `Template` and so the same component tree —
 serialisations, and the template path names no serialization key at all. The
 instance path still authors CEDAR JSON by hand.
 
-What CEE knows that it should not have to:
+The value-node half is done. `InstanceValueNode` is the one place that knows
+what a value looks like, and it answers by asking the library's `writeValueNode`
+and `readValueNode` — the pair that cannot drift from each other. Three places
+went round it and no longer do: the attribute-value handler built `{'@value': …}`
+by hand, the checkbox widget read `@value` off loaded nodes, and
+`data-object-util` wrote `@type` onto an array rather than its elements, where
+`JSON.stringify` dropped it so it never reached an emitted instance at all. Both
+of the first two files stopped importing `JsonSchema` entirely.
+
+What remains is the document half, and it is the larger one:
 
 - `DataObjectBuilderHandler.addContext` writes the JSON-LD `@context` block,
   from `contextEntries` the template parser generates for the purpose.
 - `addEnvelope` knows all nine envelope keys by name — `@context`, `@id`,
   `schema:isBasedOn`, `schema:name`, `schema:description` and the four
   provenance fields.
-- `DataObjectDataValueHandler` writes `obj['@value'] = value`.
-- `instance-value-node.ts` carries the vocabulary outright:
-  `const VALUE_KEYS = ['@value', '@id', 'rdfs:label', '@type', 'skos:notation']`.
+- `DataObjectStructureHandler` deletes the minted `@id` when copying an
+  occurrence.
+- The attribute-value handler reads `@context` to keep it in step as attributes
+  are named and renamed.
 
-25 uses of `JsonSchema` across 11 of its constants, plus that array, which does
-not go through `JsonSchema` at all. `InstanceSerializer.parse` then reads the
-working tree back with `CedarReaders.json()`, which is the proof rather than the
-symptom: the tree is not an internal shape of CEE's choosing, it is CEDAR JSON,
-and it has to stay valid CEDAR JSON or the reader rejects it.
+Five files named a JSON-LD key before; three do now, and one of those is the
+boundary module itself. `InstanceSerializer.parse` reads the working tree back
+with `CedarReaders.json()`, which is the proof rather than the symptom: the tree
+is not an internal shape of CEE's choosing, it is CEDAR JSON, and it has to stay
+valid CEDAR JSON or the reader rejects it.
+
+One thing the value-node pass turned up that belongs upstream. The library holds
+the authoritative set of keys a value may carry as
+`JsonTemplateInstanceReader.VALUE_ATOM_KEYS` and keeps it **private**, so CEE
+cannot ask for it and restates it instead. Deriving it from the writers gets four
+of the five: no atom carries a `skos:notation` although the reader accepts one,
+and a derivation that silently dropped it would stop `overwrite` clearing a stale
+notation. Exposing that constant removes the last list CEE maintains here.
 
 So the library is doing output formatting rather than owning the encoding. YAML
 output is produced by converting *from* the JSON CEE built, which means a host
@@ -646,6 +664,14 @@ the base declares a wider `details` than `RorSearchResponseItem` narrows it to.
 The index signature was obstructing the compiler before it could reach the real
 conflict. So this converts an untypeable situation into an ordinary typing
 problem; it does not resolve it.
+
+One more thing belongs upstream beside it, found while closing the value-node
+half of item 6: `JsonTemplateInstanceReader.VALUE_ATOM_KEYS` is private, so a
+consumer that needs to know which keys a value node may carry has to restate the
+set. CEE does, and cannot derive it — writing one of each atom yields four of the
+five, because none carries a `skos:notation` although the reader accepts one.
+Making it public is a smaller change than the literal types and independent of
+them.
 
 Smaller than it looks, and smaller than it was written, because items 5 and 6
 between them take every CEE call site out of `JsonSchema`'s hands — 5 because
