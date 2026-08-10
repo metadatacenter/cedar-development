@@ -110,7 +110,7 @@ it says the rest.
   value inside it are both 14px where they used to be 14 and 16. Angular
   Material's own stylesheet still carries rem, which is why the test guarding this
   is scoped to what CEE states; an embedder cannot yet reach the scale at all,
-  which is item 5.
+  which is item 4.
 - **A field box is 36px, in every template.** It was 36px or 48px depending on
   whether the template contained a timezone-enabled temporal field, because the
   timezone picker's `::ng-deep` rule was emitted unscoped and injected only once
@@ -152,10 +152,17 @@ it says the rest.
 - Templates use block control flow, and `prefer-control-flow` is an error, so
   the deprecated directives cannot come back a template at a time.
 - Template-authored rich text is **sanitized by default**; verbatim rendering is
-  available only to a host that sets `trustTemplateMarkup` — item 7.
+  available only to a host that sets `trustTemplateMarkup` — item 6.
 - **CEE's output is checked against the template it came from**, by
   `InstanceValidator` through `instance-conformance.spec.ts` — 117 of the
   domain suite's tests. A dropped `@type` or a missing property fails the gate.
+- **`cedar-artifact-viewer` is gone from the product.** It had not rendered
+  anything since November 2023: the migration to the npm package added the
+  dependency and never loaded it, and the remote script it replaced now answers
+  with the CEDAR catch-all page rather than JavaScript, so production has been
+  loading HTML as a script. `CUSTOM_ELEMENTS_SCHEMA` is why nothing complained.
+  Removed from openview, from the CLI's repo registry and release stamping, and
+  from the demo app that existed to show it. The repository itself is untouched.
 - A root `npm audit` reports 3, all moderate, all reached through
   `@angular/cli`. It was 11 until the webpack toolchain went; the four `high`
   findings went with it. `npm run audit:prod`, which is what describes the
@@ -260,22 +267,7 @@ Done when the bottom of a long form survives a scroll to the end and back, in th
 Template Designer and in the standalone harness, with a regression test at
 whichever layer turns out to own the containers.
 
-### 3. Decide whether `cedar-artifact-viewer` is live
-
-Three copies of one unanswered question, and they do not agree:
-
-- openview installs `cedar-artifact-viewer` as an npm dependency.
-- Its `index.html` carries a commented-out `<script>` tag pointing not at that
-  package but at a remote `https://component.metadatacenter.org/...-2.9.2-SNAPSHOT.js`.
-- It is named in `angular.json` nowhere at all, so nothing builds or serves it,
-  while two OpenView pages are described as using it.
-
-Decide whether the viewer is still part of the product. If it is, wire it in from
-the installed package and delete the remote tag; if it is not, drop the
-dependency, the tag and the pages that claim it. Either way the repository should
-stop holding all three answers at once.
-
-### 4. Styling
+### 3. Styling
 
 One decision and one cleanup, and they are the same piece of work. `THEMING.md`
 in the CEE repository is the standing record of what CEE's appearance is
@@ -384,7 +376,7 @@ Done when the palette carries a colour someone chose, the theme is built on
 `mat.define-theme`, and the count of Material internals CEE depends on has gone
 down rather than up.
 
-### 5. Settle what an embedder controls about CEE's appearance, and write it down
+### 4. Settle what an embedder controls about CEE's appearance, and write it down
 
 An embedding application has no document saying what it may change about how CEE
 looks, what it may not, and what happens if it tries. `THEMING.md` is the closest
@@ -480,7 +472,7 @@ Three shapes recurred, none of which the build or the unit tests could see:
 
 ## Testing
 
-### 6. Reach the two config flags nothing exercises
+### 5. Reach the two config flags nothing exercises
 
 The browser suite asserts that every config key changes what renders, because a
 key that is silently ignored looks exactly like one that works. Two keys cannot
@@ -555,7 +547,7 @@ no blur reconciliation at all.
 
 ## Security
 
-### 7. Finish the rich-text trust boundary
+### 6. Finish the rich-text trust boundary
 
 The boundary is drawn and enforced. Static rich text is sanitized unless the host
 sets `trustTemplateMarkup`, the README's *Embedding security* section says who
@@ -619,7 +611,7 @@ ever return true before and can now return false, and `adheresToBlueprint()` has
 stopped being a second name for it, so a consumer branching on either sees new
 behaviour.
 
-### 8. Settle the temporal `required` judgement, and the untyped fields under it
+### 7. Settle the temporal `required` judgement, and the untyped fields under it
 
 Two questions sit here, and only the first is a judgement.
 
@@ -694,15 +686,15 @@ a test that can fail.
 2. Keep the production bundle and Playwright checks working throughout.
 3. Complete the public host contract before the stable `1.6.0` release (item 1);
    the stable model-library release lands as an aside of that work.
-4. Tell template authors what their markup will do (item 7). The boundary is
+4. Tell template authors what their markup will do (item 6). The boundary is
    enforced and the trust key is declared; what remains is discoverability on the
    authoring side, which is a change to the Template Designer rather than to CEE.
 
-The palette (item 4) is not sequenced here. It is a decision rather than a
+The palette (item 3) is not sequenced here. It is a decision rather than a
 dependency, and nothing else waits on it — but every build that ships without it
 made the decision by shipping stock teal.
 
-The embedder's styling contract (item 5) is not sequenced either, and for the
+The embedder's styling contract (item 4) is not sequenced either, and for the
 opposite reason: it is not blocked, it blocks. Publishing anything new about the
 appearance — a type-size property, a field-height property — is API the moment a
 host page reads it, so the decisions it holds are cheaper before the stable
