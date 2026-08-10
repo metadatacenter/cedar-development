@@ -486,14 +486,42 @@ express. One case keeps the older behaviour and is meant to stand out: a value a
 the root of the walk has no parent to be replaced within, and is exactly what the
 model cannot represent.
 
-What remains is the tree itself. Path resolution walks `dataContainer.values` and
-its lists instead of plain objects; the cursor logic is unchanged, since it is
-about which occurrence rather than about what a node looks like. Attribute-value
-fields already have model types — `InstanceDataAttributeValueField` and
-`InstanceDataAttributeValueFieldName` — so their name/value bookkeeping and the
-`@context` maintenance beside it go with the rest. And `addContext` and
-`addEnvelope` are deleted rather than ported, because `InstanceInflater` and the
-writer already do what they do.
+The `@context` is the library's answer now. `InstanceSerializer` inflates against
+the template before writing, so the property IRIs come from the template's own
+child IRI map; CEE still assembles a copy into its working tree, but that copy no
+longer decides what leaves. `addContext` and `addEnvelope` are therefore
+deletable rather than needing a port — `InstanceInflater` and the writer already
+do what they do.
+
+**What blocks the rest is the test oracle, not the code.** 21 harness specs
+assert against the working tree — `driver.fullData` and the JSON copy of it —
+and 19 of them pin envelope or `@context` keys in that tree. Only 8 assert
+against the emitted document. So the tree cannot lose a key piecemeal: deleting
+`addEnvelope` alone fails specs that are, on inspection, testing the *document*
+and reaching through the tree to do it.
+
+That makes a single-pass swap the worst shape a refactor can have — **the tests
+that would catch a mistake are the tests being changed**. The oracle has to stop
+moving before the tree does.
+
+So the order is:
+
+1. Migrate every spec whose claim is about the emitted instance to assert on
+   `InstanceSerializer.toJson`. Each migration is green the moment it is made,
+   because the document does not change, and each one is a spec that will not
+   have to move later. The 78 cases added with the inflater are the start of it.
+2. Delete `addEnvelope` and `addContext`, which the remaining tree-shape specs no
+   longer contest.
+3. Swap `DataContext.instanceFullData` to `TemplateInstance` and rewrite the
+   handlers against it. Path resolution walks `dataContainer.values` and its
+   lists; the cursor logic is unchanged, since it is about which occurrence
+   rather than about what a node looks like. Attribute-value fields already have
+   model types — `InstanceDataAttributeValueField` and
+   `InstanceDataAttributeValueFieldName` — so their name/value bookkeeping and
+   the `@context` maintenance beside it go with the rest.
+
+Only the third step is large, and by then it is checked by an oracle that does
+not move underneath it.
 
 Done when no file outside `InstanceSerializer` and `InstanceDeserializer` names a
 JSON-LD key, and a YAML-only consumer costs CEE no JSON knowledge.
