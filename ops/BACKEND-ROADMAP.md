@@ -1129,13 +1129,48 @@ model libraries — where their JSON and YAML serializations diverge — is in
   manager is what makes them watchable again. Adopting no bot at all remains a coherent choice — the
   versions are at least in one place now — but it means those six are watched by nobody, as before.
 
+- **15. Build the MCP servers with everything else.** Four of them live under `$CEDAR_HOME/mcp`:
+  `cedar-artifact-mcp`, `cedar-artifact-rest-mcp` and `cedar-cee-mcp` are Maven projects,
+  `bioportal-term-mcp` is Python. Each is its own repository, none is part of `cedarcli build java`,
+  none has a GitHub Actions workflow, and neither [BACKEND-RUNBOOK.md](./BACKEND-RUNBOOK.md) nor
+  [RELEASE-RUNBOOK.md](./RELEASE-RUNBOOK.md) mentions them. They are built by hand, which means they
+  are built when somebody remembers.
+
+  The three Maven servers are currently unbuildable on this machine, and nothing said so. All three
+  pin `cedar-artifact-library:2.8.4-SNAPSHOT`; `~/.m2/settings.xml` reaches `oss.sonatype.org` for
+  releases, that repository answers `402 Payment Required`, and the hard failure aborts resolution
+  before the BMIR Nexus is tried — where the artifact is present and answers 200. Neither `-U` nor
+  clearing the `.lastUpdated` markers helps, because the abort happens on the way to the repository
+  that has it.
+
+  A stale MCP jar is worse than a stale service jar. **An MCP's tool descriptions are the only
+  documentation the calling LLM ever sees, and they ship inside the jar.** `cedar-artifact-rest-mcp`
+  was running a 30 July jar while its descriptions were rewritten on 9 August, so a client kept
+  reading a surface that no longer described the tools — and a description that disagrees with
+  behaviour is worse than no description, since it is followed rather than ignored.
+
+  Deliver:
+
+  - Make the dependency resolvable: pin a version the BMIR Nexus holds, or order the repositories so
+    a 402 from one that never holds CEDAR artifacts cannot end the search.
+  - Build the three Maven servers with the rest, after `cedar-artifact-library`, so a library change
+    that breaks a tool signature fails in the build rather than at a client's first call.
+  - Give each repository the workflow every other Java repository already has.
+  - Make a running server state which build it is and which CEDAR server it talks to. `ping` reports
+    the version and deliberately contacts nothing, so the target is invisible — and it is fixed when
+    the process spawns, so editing a client's configuration changes nothing until the server
+    restarts. That combination let a server keep writing to whatever it was started against after its
+    configuration had been pointed elsewhere, which is a hazard when one of the two is production.
+  - Decide whether they join the release or stay outside it, as CEE and the TypeScript model library
+    do.
+
 
 ## Testing
 
 Coverage and test-infrastructure work. The active REST integration suites live in
 `ops/e2e/rest/suites/`; the JUnit matrices and boot-smoke live in the per-server modules.
 
-- **15. Decide whether the build runs the tests, and give the answer a command-line option. Stop the
+- **16. Decide whether the build runs the tests, and give the answer a command-line option. Stop the
   output loop busy-polling.** The Java build skips its tests again: every Java repo is built with
   `./mvnw clean install -DskipTests`, and the `CEDAR_DEV_SKIP_TESTS` escape hatch is gone with the
   default it modified. That restores the behaviour the build had before, and it means a green
@@ -1204,7 +1239,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   "Execution succeeded!" and exits 0. A build that continued past a failure must record it, say so in
   the closing panel, and exit non-zero.
 
-- **16. Deepen the core-workflow tests instead of growing the headline count.** The JUnit matrices and the
+- **17. Deepen the core-workflow tests instead of growing the headline count.** The JUnit matrices and the
   REST suites now give the system respectable horizontal coverage: routes boot, authentication and
   permission boundaries are pinned, and create/read/update/delete, sharing, search, versioning and the
   cross-service hop all execute against the real stack. Much of that is deliberately
@@ -1243,7 +1278,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   versions or search projection disagreeing. The present suite protects the behavioural skeleton; this
   item protects the integrity of state when operations fail or are repeated.
 
-- **17. Add degradation tests.** Nothing asserts how a service behaves when a dependency it needs is
+- **18. Add degradation tests.** Nothing asserts how a service behaves when a dependency it needs is
   unavailable. The cost of that gap is known: reading any folder whose creator could not be resolved
   returned 500 for as long as the defect existed, because `UserSummaryCache` let Guava's
   "loader returned null" signal escape instead of degrading to the no-display-name path the callers
@@ -1251,7 +1286,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   asserts the API degrades rather than 500s. Bear in mind that queue writes are already best-effort
   by design (`AppLoggerQueueService`, the worker and NCBI queues), so those are the pattern to match.
 
-- **18. Retry the ontology-list load in the term picker (frontend, `cedar-template-editor`).** This is a
+- **19. Retry the ontology-list load in the term picker (frontend, `cedar-template-editor`).** This is a
   change to the Angular frontend, not to any microservice or test suite — it lands in
   `cedar-template-editor`, and so needs a frontend owner to review and push it (see the note below).
   It is the last piece of this defect still outstanding, and the fix is already written: it is open as
@@ -1295,38 +1330,3 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   service a fresh attempt; re-running the ontology search inside the picker reads the same empty cache
   and never could succeed. Nothing is saved server-side until after the block, so a failed attempt
   leaves no orphan template.
-
-- **19. Build the MCP servers with everything else.** Four of them live under `$CEDAR_HOME/mcp`:
-  `cedar-artifact-mcp`, `cedar-artifact-rest-mcp` and `cedar-cee-mcp` are Maven projects,
-  `bioportal-term-mcp` is Python. Each is its own repository, none is part of `cedarcli build java`,
-  none has a GitHub Actions workflow, and neither [BACKEND-RUNBOOK.md](./BACKEND-RUNBOOK.md) nor
-  [RELEASE-RUNBOOK.md](./RELEASE-RUNBOOK.md) mentions them. They are built by hand, which means they
-  are built when somebody remembers.
-
-  The three Maven servers are currently unbuildable on this machine, and nothing said so. All three
-  pin `cedar-artifact-library:2.8.4-SNAPSHOT`; `~/.m2/settings.xml` reaches `oss.sonatype.org` for
-  releases, that repository answers `402 Payment Required`, and the hard failure aborts resolution
-  before the BMIR Nexus is tried — where the artifact is present and answers 200. Neither `-U` nor
-  clearing the `.lastUpdated` markers helps, because the abort happens on the way to the repository
-  that has it.
-
-  A stale MCP jar is worse than a stale service jar. **An MCP's tool descriptions are the only
-  documentation the calling LLM ever sees, and they ship inside the jar.** `cedar-artifact-rest-mcp`
-  was running a 30 July jar while its descriptions were rewritten on 9 August, so a client kept
-  reading a surface that no longer described the tools — and a description that disagrees with
-  behaviour is worse than no description, since it is followed rather than ignored.
-
-  Deliver:
-
-  - Make the dependency resolvable: pin a version the BMIR Nexus holds, or order the repositories so
-    a 402 from one that never holds CEDAR artifacts cannot end the search.
-  - Build the three Maven servers with the rest, after `cedar-artifact-library`, so a library change
-    that breaks a tool signature fails in the build rather than at a client's first call.
-  - Give each repository the workflow every other Java repository already has.
-  - Make a running server state which build it is and which CEDAR server it talks to. `ping` reports
-    the version and deliberately contacts nothing, so the target is invisible — and it is fixed when
-    the process spawns, so editing a client's configuration changes nothing until the server
-    restarts. That combination let a server keep writing to whatever it was started against after its
-    configuration had been pointed elsewhere, which is a hazard when one of the two is production.
-  - Decide whether they join the release or stay outside it, as CEE and the TypeScript model library
-    do.
