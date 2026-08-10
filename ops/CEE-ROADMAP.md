@@ -68,10 +68,12 @@ it says the rest.
   *short identifier* under `id` — different values, from
   `ObjectConverter.toSearchResult`, so reading `id` would put a fragment where an
   IRI belongs. It is converted to `{iri, label}` in the service that makes the
-  call. A fourth pair went with a branch that read an authority response shape no
-  authority sends: it came from a guard in the widget downstream, where the value
-  tested was the service's own output, and typing it had meant inventing the keys
-  such a term would carry.
+  call. The authority layer holds the same `{iri, label}` and borrows nothing:
+  keying its terms on the library's constants is what had made a `details` member
+  untypeable and forced 20 `as string` casts. A fourth key pair went with a branch
+  that read an authority response shape no authority sends — it came from a guard
+  in the widget downstream, where the value tested was the service's own output,
+  and typing it had meant inventing the keys such a term would carry.
 - **The instance CEE edits is a `TemplateInstance`, not a CEDAR document.** It was
   the document a host sent, mutated in place and handed back, so CEE wrote the
   `@context` block, the nine envelope keys and a minted `@id` per occurrence, and
@@ -90,14 +92,6 @@ it says the rest.
   document that arrives malformed has to be preserved and reported rather than
   repaired. CEE needed none of it: `changeControlledValue` already wrote `{}` for
   an empty IRI, and every constraint CEE builds was already complete.
-- **CEE names no serialization key outside its wire adapters.** The authority
-  layer holds its own `AuthorityTerm` — `{iri, label}` — rather than borrowing
-  `JsonSchema.atId` and `JsonSchema.rdfsLabel`, which is what had made `details`
-  untypeable and forced 20 `as string` casts. Three literal keys are left in
-  `src/`, all in the two services that read an external HTTP response: the
-  terminology server sends a term's IRI under `@id`, and its `id` alongside is a
-  short identifier rather than the same value. The harness names none at all, and
-  builds its fixtures through the library.
 - The safety net is 2,067 domain tests across 46 harness spec files, 134 unit
   tests across thirteen, and 404 bundle-level Playwright checks on Chromium,
   Firefox and WebKit, with 108 committed snapshots. No test is known to be
@@ -589,44 +583,6 @@ every instance CEE had ever produced while both passed throughout, because an
 instance missing a field in both formats is consistent with itself. Format
 independence and correctness are different properties, and only one of them has
 a test that can fail.
-
-### 8. Give the key constants literal types
-
-**A model library change, unstarted, and much smaller than it was.**
-
-`JsonSchema` declares `static atId: string = '@id'` and 28 more like it. The
-explicit `: string` widens the literal away, so keying an interface by one gives
-an index signature over every string key rather than a named property — every
-other member joins the signature's type, and reading through the constant returns
-the union of all of them.
-
-Demonstrated rather than described. Two classes differing only in the
-declaration, each keyed into an interface that also carries `count: number`:
-
-| declaration | type of `obj[C.atId]` |
-|---|---|
-| `static atId: string = '@id'` | `string \| number` |
-| `static readonly atId = '@id'` | `string` |
-
-The `number` is the sibling member leaking into the type of reading `@id`.
-`readonly` is load-bearing: dropping the annotation alone still widens, because a
-mutable class property is assumed reassignable.
-
-**What this was for is gone.** The item existed because consumers were hurt by
-the widening — CEE keyed its authority terms on those constants, could not type a
-`details` member, and carried 20 `as string` casts. Those constants are no longer
-exported at all, so no consumer can be hurt by them again, and CEE reads none.
-
-What is left is inside the library: 35 files index documents through these
-constants and would type better for it, and a `static` without `readonly` is
-reassignable, so today any code in the library could change how every document is
-written by assigning to one. Worth doing, and no longer worth sequencing.
-
-Measured with the change applied, before the export was removed: typecheck clean,
-lint clean, 693 tests across 71 suites passing, declarations emitted as
-`static readonly atId = "@id"`. Nothing assigns to any of the seven constants
-classes. Re-run the suite when applying it — the library has moved since, and is
-now at 717 tests across 74.
 
 ## Delivery order
 
