@@ -92,8 +92,8 @@ it says the rest.
   document that arrives malformed has to be preserved and reported rather than
   repaired. CEE needed none of it: `changeControlledValue` already wrote `{}` for
   an empty IRI, and every constraint CEE builds was already complete.
-- The safety net is 2,067 domain tests across 46 harness spec files, 135 unit
-  tests across thirteen, and 430 bundle-level Playwright checks on Chromium,
+- The safety net is 2,067 domain tests across 46 harness spec files, 142 unit
+  tests across fourteen, and 434 bundle-level Playwright checks on Chromium,
   Firefox and WebKit, with 108 committed snapshots. No test is known to be
   flaky. The count fell because tests went, not coverage: what the reader makes
   of a malformed document, whether an injected instance keeps its envelope and
@@ -107,10 +107,25 @@ it says the rest.
   size no longer resizes the editor — it did, and a section-break heading declared
   at `1.25rem` rendered at 12.5px under `html { font-size: 62.5% }`. Material's
   typography config is built from `$cee-font-size` too, so a field's label and the
-  value inside it are both 14px where they used to be 14 and 16. Angular
+  value inside it are both 14px where they used to be 14 and 16. What renders is
+  14px body, 12px hints, 20px section break and 26px template title — the last
+  size belonging to no scale was the temporal field's 18px decimal point, beside
+  14px colons. Angular
   Material's own stylesheet still carries rem, which is why the test guarding this
-  is scoped to what CEE states; an embedder cannot yet reach the scale at all,
-  which is item 5.
+  is scoped to what CEE states. An embedder cannot reach the scale, and under M2
+  cannot be given a route to it — the bundle emits no Material token custom
+  properties for one to override — which is stated on the appearance page rather
+  than left as a gap. Item 5.
+- **An application can read what it may change, and the properties are bounded.**
+  The appearance page on the docs site lists all eight published properties, their
+  defaults and their ranges, and names what is not an application's to change — the
+  body type size, the field height and the form controls' colours, all of which come
+  from a theme compiled into the bundle. Two of its eight defaults had been wrong,
+  and its example recommended `rem`. The three numeric properties are clamped where
+  they are consumed and registered with a `syntax`, so `100px` no longer clips a
+  heading across the fields below it and `banana` falls back to the published default
+  rather than to the 14px body size. Registration is in JS: `@property` inside a
+  shadow root is ignored silently.
 - **A field box is 48px, always, and Material is asked for it.** It had varied on
   two axes. Across templates, because the timezone picker's `::ng-deep` rule was
   emitted unscoped and injected only once such a field existed — 36px on one
@@ -446,115 +461,92 @@ Done when the palette carries a colour someone chose, the theme is built on
 `mat.define-theme`, and the count of Material internals CEE depends on has gone
 down rather than up.
 
-### 5. Settle what an embedder controls about CEE's appearance, and write it down
+### 5. Finish the appearance contract: the type scale, and a guard on the boundary
 
-An embedding application has no document saying what it may change about how CEE
-looks, what it may not, and what happens if it tries. `THEMING.md` is the closest
-thing, and it is aimed inward: it tells a CEE developer which diffs are
-regressions. Nothing tells the author of a host page which knobs exist.
+An embedding application can now read what it may change about how CEE looks. The
+[appearance page](https://metadatacenter.readthedocs.io/en/latest/cedar-embeddable-editor/appearance/)
+lists every property, its default and its range, states what happens to a value
+outside that range, and names what is not an application's to change. What is left
+is one decision and one guard.
 
-Four surfaces exist today, and only the first is deliberate.
+Worth recording where that document turned out to belong. This item asked for it in
+the CEE repository, beside `THEMING.md`; it went to `cedar-mkdocs` instead, because
+`THEMING.md` is aimed inward — it tells a CEE developer which diffs are regressions
+— and an application author never opens the repository. The two documents answer
+different questions and both are needed. What the published page had wrong was
+worse than its being hard to find: two of the eight defaults were stale, and its
+example recommended `rem`, which resolves against the host page's root and steers an
+application into the dependence CEE had just removed from its own sizing.
 
-**The `--cee-*` custom properties**, published on `:host` and already treated as
-versioned API: four colours, and three element-hierarchy values whose defaults are
-now `18px`, `600` and `12px`. Two of the colours have no internal consumer, which
-is intentional. This is the surface an embedder is meant to use, and the set is
-small enough that its gaps are the interesting part — there is no property for the
-body type size, for the field height, or for the brand beyond primary and accent.
+Four surfaces exist. Three are now bounded; the fourth is the guard.
 
-**The type scale in `_cee-tokens.scss`**, which is not reachable from a host page
-at all. It is compiled in. An embedder wanting 16px body text has no route to it
-short of overriding CEE's internal selectors, and whether it should have one is
-the decision this item exists to make: publishing `--cee-font-size` costs nothing
-and answers the commonest request, but the Material theme is built from the Sass
-value, so a custom property would only reach CEE's own chrome and would leave the
-two disagreeing — which is exactly the defect that put every field's label and its
-value on different sizes.
+**The `--cee-*` custom properties**, published on `:host` and treated as versioned
+API: five colours and three element-hierarchy values, defaulting to `18px`, `600`
+and `12px`. The three numeric ones are clamped at their consumption sites and
+registered with a `syntax`, so a value that is ruinous is bounded and a value of the
+wrong kind falls back to the published default. Both halves were needed and neither
+covers the other: `100px` used to clip a heading mid-word and draw a nested heading
+over the fields, while `banana` used to render at the 14px body size — the worse of
+the two, because 14px looks like a decision. Registration is in JS rather than an
+`@property` rule, because `@property` inside a shadow root is ignored silently.
 
-**Ambient inheritance**, which is neither documented nor prevented. The shadow
-boundary stops a host's selectors, and a test asserts that. It does not stop
-inherited properties, and it does not stop `rem`: until this cycle every rem in
-CEE resolved against the host's root element, so `html { font-size: 62.5% }`
-resized the editor and a section-break heading declared at `1.25rem` rendered at
-12.5px. Those are absolute now, and a test holds them, but Angular Material's own
-stylesheet still carries rem — an `Expand All` button narrows from 121px to 114px
-under the same host rule. The honest statement is that CEE's own sizes are
-host-independent and its dependency's are not yet, and an embedder should be told
-which.
+Two of the colours have no consumer and are now documented as reserved rather than
+described as published for embedders, which read as an oversight. Keeping them costs
+nothing, growing into them later breaks nobody, and naming the gap is what makes
+the set honest.
 
-**Whatever leaks.** A `::ng-deep` with nothing before it is emitted with no
-scoping attribute, and the timezone picker's stylesheet carried one naming a bare
-Material class — so it set the height of every form field in the editor. Worse, it
-was injected only when a timezone picker was first instantiated, so field height
-depended on whether the template happened to contain a timezone-enabled temporal
-field: 36px on one fixture, 48px on another. That is fixed, guarded by a test
-comparing two fixtures, and the height it was fighting over is now asked for
-through Material's density API instead — so no CEE stylesheet names that class at
-all. The general risk remains: nine other `::ng-deep` selectors are scoped only by
-convention, each by a class its own component emits, and nothing checks that a new
-one is.
+**The type scale in `_cee-tokens.scss`**, which is the open decision. It is compiled
+in, and an application wanting 16px body text has no route to it. Publishing
+`--cee-font-size` sounds like a small favour and is not one: measured, the bundle
+emits **zero** Material token custom properties — not
+`--mat-form-field-container-text-size`, not one of its siblings — because M2's
+`all-component-themes` writes px literals. So a
+custom property would move CEE's own text and leave Material's controls behind,
+which is precisely the label-at-14px-value-at-16px defect this cycle removed,
+reintroduced from outside and on purpose. The same measurement applies to
+`--cee-color-primary` reaching the form's controls rather than only CEE's accents.
 
-One question left to answer before writing anything, because the document depends
-on it: whether the type scale becomes public, in whole or in part.
+That makes the decision conditional rather than open-ended. In M2 the answer is no,
+and the honest thing is the sentence now in the published page: those sizes and
+colours come from a theme compiled into the bundle, and making them settable is
+open work. After M3, whose tokens *are* custom properties, the answer can be yes and
+costs little. So this is sequenced behind the palette work in item 4 rather than
+waiting on a preference.
 
-The field height is answered. It is 48px, and it is asked for as
-`mat.form-field-density(-2)` rather than computed by hand — which is the shape the
-rest of this section is arguing for, so it is worth naming as the precedent.
-Material's density scale already named both heights CEE had rendered, so the
-override was reproducing an API it was reaching past; going through it retired
-four rules and seventeen `!important` declarations at once. What decided the number
+**Ambient inheritance**, now documented rather than prevented. `font-size` and
+`font-family` inherit across the shadow boundary, so they reach CEE's own text and
+stop at Material's controls — an application that sets one gets a form whose labels
+have moved and whose values have not, which reads as a CEE bug rather than a limit
+of the contract. `rem` no longer resizes the editor and a test holds that, but
+Material's own stylesheet still carries rem: an `Expand All` button narrows from
+121px to 114px under `html { font-size: 62.5% }`. CEE's own sizes are
+host-independent and its dependency's are not, and the page now says so.
+
+**Whatever leaks**, which is the guard, and the only part of this with no work done.
+A `::ng-deep` with nothing before it is emitted with no scoping attribute. The
+timezone picker's stylesheet carried one naming a bare Material class, so it set the
+height of every form field in the editor — and because component styles are injected
+on first instantiation, it only existed once a timezone picker did, making field
+height depend on whether the template contained a timezone-enabled temporal field.
+That one is fixed, guarded by a test comparing two fixtures, and the height it was
+fighting over is asked for through Material's density API now, so no CEE stylesheet
+names that class at all. The class of bug is not fixed: nine `::ng-deep` selectors
+remain, each scoped only by convention, and nothing reports a new one that is not.
+`visual/tests/material-selectors.spec.ts` already parses the stylesheets to find
+Material internals, so it is where the check belongs rather than a new harness.
+
+The field height, for the record, is settled and is the precedent this section
+argues for generally. 48px, asked for as `mat.form-field-density(-2)` rather than
+computed by hand — Material's scale already named both heights CEE had rendered, so
+the override was reproducing an API it was reaching past, and going through it
+retired four rules and seventeen `!important` declarations. What decided the number
 was not a preference for 48 over 36 but that 36 was never a height a *populated*
-field had: CEE draws a 48px clear action as soon as a field holds a value, so the
-compact form existed only while the form was empty and a form in use held both
-heights at once.
+field had.
 
-Whether an embedder may change it is a different question, and it belongs with the
-type scale's. Both are one-line answers once someone decides whether CEE's
-dimensions are its own or the host's — and density, unlike the old override, is a
-value CEE could expose without inviting anyone to name a Material internal.
-
-Done when a host-page author can read one document, in the CEE repository, that
-lists every property they may set and says plainly which parts of the appearance
-are not theirs to change; when the type scale's status is decided rather than
-implicit; and when a check reports an unscoped `::ng-deep`, so the fourth surface
+Done when the type scale's status is decided rather than implicit — which in M2
+means the published page's "open work" sentence is the answer, and after M3 means a
+property — and when a check reports an unscoped `::ng-deep`, so the fourth surface
 stops being a surface.
-
-### What the Angular 14 → 22 march cost, and what it taught
-
-A record, not open work. Kept because it is measured rather than remembered, and
-because the next framework upgrade will meet the same shapes.
-
-The gate went from 64 unit tests in 8 files, 2,125 domain and 335 visual with 98
-snapshots, to 102 unit, 2,132 domain and 346 visual with 100 snapshots. Lint went
-from 77 baselined warnings across 44 files to 32 across 22, and from running
-beside the build to being the first stage of `test:ci`.
-
-The bundle moved most: 3,131,159 → 3,515,983 raw and 743,467 → 807,197 gzip, up
-385KB and 64KB, with its limits raised three times. MDC accounts for 190,966 raw
-and 19,620 gzip of that, measured either side of the migration commit; 16 → 17
-added 42,632; 18 gave 78,423 back; 20 and 21 together took 84,748. Gzip is the
-binding figure now, not raw, and CI measures it larger than a developer machine
-does. Letting the framework cost bytes was a decision taken three times on the
-evidence each time; whether a 3.5MB single-file bundle is still the right artifact
-is a question worth asking on its own.
-
-Three shapes recurred, none of which the build or the unit tests could see:
-
-- **Libraries assume they are styling a document, not a shadow root.** Four times:
-  Material 16 emitting theme tokens under `html{}`, and at CDK 19 the
-  visually-hidden class, the autosize measuring styles and the textarea
-  line-height cache. Each showed up only as pixels.
-- **Tests that pin an implementation rather than the guarantee fail on upgrades
-  that broke nothing.** Two overlay tests asserted that `mat-select` options live
-  inside `.cee-overlay-container`; Material 21 stopped delivering them that way
-  while the guarantee — inside the shadow root, never in the host document — held
-  throughout.
-- **A framework that stops guessing exposes markup that was always wrong.** 15
-  buttons carried both `mat-button` and `mat-icon-button`. Until Angular 22
-  refused to choose, both applied and drew a 64x48 rounded rectangle that was
-  neither. Nothing reported it, because nothing was failing.
-
-## Testing
 
 ### 6. Reach the two config flags nothing exercises
 
@@ -784,13 +776,12 @@ The palette (item 4) is not sequenced here. It is a decision rather than a
 dependency, and nothing else waits on it — but every build that ships without it
 made the decision by shipping stock teal.
 
-The embedder's styling contract (item 5) is not sequenced either, and for the
-opposite reason: it is not blocked, it blocks. Publishing anything new about the
-appearance — a type-size property, a field-height property — is API the moment a
-host page reads it, so the decisions it holds are cheaper before the stable
-`1.6.0` release than after. Documenting what already exists can happen at any
-time and is worth doing first, since the four surfaces it describes are the
-current behaviour whether or not anyone writes them down.
+The appearance contract (item 5) has swapped places with it. Writing down what
+already exists was the unblocked half and is done; what remains is a type-scale
+property, and that turns out to be gated on the palette work rather than on a
+preference, because M2 emits no component tokens for a property to override. So it
+follows item 4 rather than leading. The `::ng-deep` guard in the same item is
+independent of both and can land at any time.
 
 ## Out of scope
 
