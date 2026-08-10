@@ -470,25 +470,30 @@ inflating it against a corpus template, setting one child with
 `{"@value": "…"}` — with no JSON-LD key named anywhere in the calling code. So
 `addContext` and `addEnvelope` do not need replacing, they need deleting.
 
-What the change actually costs is on CEE's side, and it is one structural thing
-rather than a translation. **The atoms are read-only** — `InstanceDataStringAtom`
-and `InstanceDataControlledAtom` expose getters and no setters — so a value is
-*replaced* rather than mutated. CEE's widgets currently hold a reference to a
-value node and edit it in place, which is why the working tree is plain mutable
-objects at all. Against the model a widget needs its parent container and its key
-so it can call `setValue`, not a node reference. That is the work: every widget
-and every data handler stops holding a node and starts holding a place.
+**The atoms are read-only** — `InstanceDataStringAtom` and
+`InstanceDataControlledAtom` expose getters and no setters — so a value is
+*replaced* by calling `setValue` on the container that holds it, never mutated
+where it stands. Every write has to name a place rather than a node.
 
-The rest follows from it. Path resolution walks `dataContainer.values` and its
-lists instead of plain objects; the cursor logic is unchanged, since it is about
-which occurrence rather than about what a node looks like. Attribute-value fields
-already have model types — `InstanceDataAttributeValueField` and
+**That part is done, and it cost less than expected because the widgets were
+never the problem.** They pass a component and a value to `changeValue`, and are
+handed a value back through `setCurrentValue`; nothing outside the data handlers
+ever held a node. The in-place requirement recorded on
+`InstanceValueNode.overwrite` was about the handlers' own walk. That walk now
+carries the key that got from a parent to a child and writes to parent-and-key,
+which is the same edit against today's tree and the only one the model can
+express. One case keeps the older behaviour and is meant to stand out: a value at
+the root of the walk has no parent to be replaced within, and is exactly what the
+model cannot represent.
+
+What remains is the tree itself. Path resolution walks `dataContainer.values` and
+its lists instead of plain objects; the cursor logic is unchanged, since it is
+about which occurrence rather than about what a node looks like. Attribute-value
+fields already have model types — `InstanceDataAttributeValueField` and
 `InstanceDataAttributeValueFieldName` — so their name/value bookkeeping and the
-`@context` maintenance beside it go with the rest.
-
-Do it in that order: the widget-side change to holding a place is what unblocks
-everything, and it can be made against the current plain-object tree first, which
-keeps the two halves separable and the suite green throughout.
+`@context` maintenance beside it go with the rest. And `addContext` and
+`addEnvelope` are deleted rather than ported, because `InstanceInflater` and the
+writer already do what they do.
 
 Done when no file outside `InstanceSerializer` and `InstanceDeserializer` names a
 JSON-LD key, and a YAML-only consumer costs CEE no JSON knowledge.
