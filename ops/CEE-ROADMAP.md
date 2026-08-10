@@ -92,8 +92,8 @@ it says the rest.
   document that arrives malformed has to be preserved and reported rather than
   repaired. CEE needed none of it: `changeControlledValue` already wrote `{}` for
   an empty IRI, and every constraint CEE builds was already complete.
-- The safety net is 2,067 domain tests across 46 harness spec files, 134 unit
-  tests across thirteen, and 404 bundle-level Playwright checks on Chromium,
+- The safety net is 2,067 domain tests across 46 harness spec files, 135 unit
+  tests across thirteen, and 428 bundle-level Playwright checks on Chromium,
   Firefox and WebKit, with 108 committed snapshots. No test is known to be
   flaky. The count fell because tests went, not coverage: what the reader makes
   of a malformed document, whether an injected instance keeps its envelope and
@@ -102,6 +102,21 @@ it says the rest.
   objects: that the envelope-free view agreed with the full one after each edit,
   when it is now the same object, and that a resolved node can be written
   through, when a value is replaced rather than edited.
+- **CEE's own sizes are absolute, and one scale.** All 49 rem declarations are px
+  or come off the type scale in `_cee-tokens.scss`, so a host page's root font
+  size no longer resizes the editor — it did, and a section-break heading declared
+  at `1.25rem` rendered at 12.5px under `html { font-size: 62.5% }`. Material's
+  typography config is built from `$cee-font-size` too, so a field's label and the
+  value inside it are both 14px where they used to be 14 and 16. Angular
+  Material's own stylesheet still carries rem, which is why the test guarding this
+  is scoped to what CEE states; an embedder cannot yet reach the scale at all,
+  which is item 5.
+- **A field box is 36px, in every template.** It was 36px or 48px depending on
+  whether the template contained a timezone-enabled temporal field, because the
+  timezone picker's `::ng-deep` rule was emitted unscoped and injected only once
+  such a field existed. The compact height `styles-own.scss` describes is what
+  renders now; the temporal row states its own 48px rather than inheriting it from
+  a calendar toggle that read-only mode does not draw.
 - **The harness loads one copy of the model library**, aliased to the app's. Two
   copies are two `InstanceDataContainer` classes, and the guards ask `instanceof`,
   so a second copy makes every container in the tree answer "not a container".
@@ -137,7 +152,7 @@ it says the rest.
 - Templates use block control flow, and `prefer-control-flow` is an error, so
   the deprecated directives cannot come back a template at a time.
 - Template-authored rich text is **sanitized by default**; verbatim rendering is
-  available only to a host that sets `trustTemplateMarkup` — item 6.
+  available only to a host that sets `trustTemplateMarkup` — item 7.
 - **CEE's output is checked against the template it came from**, by
   `InstanceValidator` through `instance-conformance.spec.ts` — 117 of the
   domain suite's tests. A dropped `@type` or a missing property fails the gate.
@@ -369,6 +384,65 @@ Done when the palette carries a colour someone chose, the theme is built on
 `mat.define-theme`, and the count of Material internals CEE depends on has gone
 down rather than up.
 
+### 5. Settle what an embedder controls about CEE's appearance, and write it down
+
+An embedding application has no document saying what it may change about how CEE
+looks, what it may not, and what happens if it tries. `THEMING.md` is the closest
+thing, and it is aimed inward: it tells a CEE developer which diffs are
+regressions. Nothing tells the author of a host page which knobs exist.
+
+Four surfaces exist today, and only the first is deliberate.
+
+**The `--cee-*` custom properties**, published on `:host` and already treated as
+versioned API: four colours, and three element-hierarchy values whose defaults are
+now `18px`, `600` and `12px`. Two of the colours have no internal consumer, which
+is intentional. This is the surface an embedder is meant to use, and the set is
+small enough that its gaps are the interesting part — there is no property for the
+body type size, for the field height, or for the brand beyond primary and accent.
+
+**The type scale in `_cee-tokens.scss`**, which is not reachable from a host page
+at all. It is compiled in. An embedder wanting 16px body text has no route to it
+short of overriding CEE's internal selectors, and whether it should have one is
+the decision this item exists to make: publishing `--cee-font-size` costs nothing
+and answers the commonest request, but the Material theme is built from the Sass
+value, so a custom property would only reach CEE's own chrome and would leave the
+two disagreeing — which is exactly the defect that put every field's label and its
+value on different sizes.
+
+**Ambient inheritance**, which is neither documented nor prevented. The shadow
+boundary stops a host's selectors, and a test asserts that. It does not stop
+inherited properties, and it does not stop `rem`: until this cycle every rem in
+CEE resolved against the host's root element, so `html { font-size: 62.5% }`
+resized the editor and a section-break heading declared at `1.25rem` rendered at
+12.5px. Those are absolute now, and a test holds them, but Angular Material's own
+stylesheet still carries rem — an `Expand All` button narrows from 121px to 114px
+under the same host rule. The honest statement is that CEE's own sizes are
+host-independent and its dependency's are not yet, and an embedder should be told
+which.
+
+**Whatever leaks.** A `::ng-deep` with nothing before it is emitted with no
+scoping attribute, and the timezone picker's stylesheet carried one naming a bare
+Material class — so it set the height of every form field in the editor. Worse, it
+was injected only when a timezone picker was first instantiated, so field height
+depended on whether the template happened to contain a timezone-enabled temporal
+field: 36px on one fixture, 48px on another. That is fixed and guarded by a test
+comparing two fixtures. The general risk is not: nine other `::ng-deep` selectors
+are scoped only by convention, each by a class its own component emits, and
+nothing checks that a new one is.
+
+Two questions to answer before writing anything, because the document depends on
+them. Whether the type scale becomes public, in whole or in part. And whether the
+compact 36px field height is CEE's answer for forms that run to dozens of fields
+— it is what `styles-own.scss` has always described and now finally renders, and
+if it stays it should be a property an embedder can raise for a short form rather
+than a number three stylesheets restate.
+
+Done when a host-page author can read one document, in the CEE repository, that
+lists every property they may set and says plainly which parts of the appearance
+are not theirs to change; when the type scale's status is decided rather than
+implicit; and when a check reports an unscoped `::ng-deep`, so the fourth surface
+stops being a surface.
+
 ### What the Angular 14 → 22 march cost, and what it taught
 
 A record, not open work. Kept because it is measured rather than remembered, and
@@ -406,7 +480,7 @@ Three shapes recurred, none of which the build or the unit tests could see:
 
 ## Testing
 
-### 5. Reach the two config flags nothing exercises
+### 6. Reach the two config flags nothing exercises
 
 The browser suite asserts that every config key changes what renders, because a
 key that is silently ignored looks exactly like one that works. Two keys cannot
@@ -481,7 +555,7 @@ no blur reconciliation at all.
 
 ## Security
 
-### 6. Finish the rich-text trust boundary
+### 7. Finish the rich-text trust boundary
 
 The boundary is drawn and enforced. Static rich text is sanitized unless the host
 sets `trustTemplateMarkup`, the README's *Embedding security* section says who
@@ -545,7 +619,7 @@ ever return true before and can now return false, and `adheresToBlueprint()` has
 stopped being a second name for it, so a consumer branching on either sees new
 behaviour.
 
-### 7. Settle the temporal `required` judgement, and the untyped fields under it
+### 8. Settle the temporal `required` judgement, and the untyped fields under it
 
 Two questions sit here, and only the first is a judgement.
 
@@ -620,13 +694,21 @@ a test that can fail.
 2. Keep the production bundle and Playwright checks working throughout.
 3. Complete the public host contract before the stable `1.6.0` release (item 1);
    the stable model-library release lands as an aside of that work.
-4. Tell template authors what their markup will do (item 6). The boundary is
+4. Tell template authors what their markup will do (item 7). The boundary is
    enforced and the trust key is declared; what remains is discoverability on the
    authoring side, which is a change to the Template Designer rather than to CEE.
 
 The palette (item 4) is not sequenced here. It is a decision rather than a
 dependency, and nothing else waits on it — but every build that ships without it
 made the decision by shipping stock teal.
+
+The embedder's styling contract (item 5) is not sequenced either, and for the
+opposite reason: it is not blocked, it blocks. Publishing anything new about the
+appearance — a type-size property, a field-height property — is API the moment a
+host page reads it, so the decisions it holds are cheaper before the stable
+`1.6.0` release than after. Documenting what already exists can happen at any
+time and is worth doing first, since the four surfaces it describes are the
+current behaviour whether or not anyone writes them down.
 
 ## Out of scope
 
