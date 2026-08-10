@@ -38,6 +38,17 @@ export CEDAR_KEYCLOAK_HOST=192.168.17.206
 export CEDAR_NGINX_HOST=192.168.17.207
 
 #------------------------------------------------------
+# Where a container resolves auth.<host>, which is how every server reaches the realm to verify a
+# bearer token. This is deliberately not CEDAR_NGINX_HOST: that is the nginx *container's* address on
+# cedarnet, and the two are only the same when nginx runs as a container. Native nginx owns 80/443
+# here, so the servers must reach the host instead, and `host-gateway` is how a container names it.
+#
+# Set it to ${CEDAR_NGINX_HOST} when the whole estate runs in Docker and infra-nginx serves 443.
+# Getting this wrong is silent until a token is verified: the request reaches the server, the server
+# cannot fetch the realm's signing keys, and a valid token comes back 500.
+export CEDAR_AUTH_HOST_TARGET=host-gateway
+
+#------------------------------------------------------
 # The terminology store is read where it is mounted inside the container, not where it lives on the
 # host. Everything else about the store — which vocabularies it serves, and whether exclusively — is
 # inherited from set-env-generic.sh, because only the path differs between the two paths.

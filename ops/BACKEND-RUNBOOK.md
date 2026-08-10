@@ -269,6 +269,21 @@ the container, and nothing reports it. Two full REST runs passed against native 
 container sat idle and healthy before this was noticed. Check `lsof` and `SELECT VERSION()` after
 stopping, not just that the container says healthy.
 
+**Which nginx serves 443 decides what the containers must resolve `auth.<host>` to.** Every server
+verifies bearer tokens against the realm behind that name, so `extra_hosts` has to point at whichever
+nginx is actually listening — and that is not the same thing as the nginx container's address on
+cedarnet. They have separate variables for that reason:
+
+| serving 443 | `CEDAR_AUTH_HOST_TARGET` |
+|---|---|
+| native nginx (the resting state here) | `host-gateway` |
+| the `infra-nginx` container | `${CEDAR_NGINX_HOST}` |
+
+Getting it wrong is silent until a token is verified. The request reaches the server, the server
+cannot fetch the realm's signing keys, and a **valid** token comes back `500` while an invalid one
+still correctly returns `401` — so the failure looks like a server bug rather than a routing one.
+The log says `java.net.NoRouteToHostException`.
+
 **The Keycloak container cannot reach a native resource server.** Its event listener posts user
 lifecycle events to `CEDAR_RESOURCE_SERVER_HOST`, which under the docker-eval profile is a
 `192.168.17.x` container address that does not exist when the servers are native, so the log fills
