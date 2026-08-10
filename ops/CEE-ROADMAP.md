@@ -16,7 +16,7 @@ it says the rest.
 
 - `develop` is on **Angular 22.1, TypeScript 6.0, RxJS 7.8 and Node 24.19.0**.
   `main` is still on Angular 14.3, TypeScript 4.8 and RxJS 6.6.
-- The published dev build is `1.6.0-dev.20260810.e4b63f4`, on Nexus as the scoped
+- The published dev build is `1.6.0-dev.20260810.ab37f62`, on Nexus as the scoped
   package under the `dev` tag. It ships TypeScript declarations for the host
   contract — item 1.
 - **The local frontends and the dev build agree.** All four — the Template
@@ -39,7 +39,7 @@ it says the rest.
   still track those files, and checking one out then returning will delete the
   staged copy from disk; re-stage rather than debugging the dangling symlink.
 - The model dependency is the Nexus-only prerelease
-  `@org.metadatacenter/cedar-model-typescript-library@0.9.2-dev.20260810.cc9ff84`,
+  `@org.metadatacenter/cedar-model-typescript-library@0.9.2-dev.20260810.b48728a`,
   resolved identically by the app, the harness and the visual suite. The app and
   the visual suite pin it; the harness has no dependency of its own and resolves
   the app's, because two copies are two `InstanceDataContainer` classes and the
@@ -53,6 +53,25 @@ it says the rest.
   refuses to construct a value that is not a value or a controlled-term constraint
   that points at nothing, and lets a container be edited through its own methods
   rather than through the two dictionaries it exposes for reading.
+- **CEE reads no key constant from the model library.** `JsonSchema`, `YamlKeys`
+  and `CedarModel` are not exported any more: they are the spelling tables the
+  library's readers and writers describe a document with, and nothing outside it
+  read them for a model reason. The two things consumers actually needed were
+  filed in among the keys — the namespace property IRIs are minted in, now
+  `PropertyIri` and carrying both ways one is arrived at, and a default name for a
+  duplicate attribute, which was CEE's product decision and has come back to CEE.
+  The harness names document keys itself, in `harness/src/document-keys.ts`,
+  because a test asserting what an emitted document carries is the thing making
+  that claim.
+- **Three serialization keys are left in `src/`, and they are one service's.** The
+  terminology server's integrated search sends a term's IRI under `@id` and a
+  *short identifier* under `id` — different values, from
+  `ObjectConverter.toSearchResult`, so reading `id` would put a fragment where an
+  IRI belongs. It is converted to `{iri, label}` in the service that makes the
+  call. A fourth pair went with a branch that read an authority response shape no
+  authority sends: it came from a guard in the widget downstream, where the value
+  tested was the service's own output, and typing it had meant inventing the keys
+  such a term would carry.
 - **The instance CEE edits is a `TemplateInstance`, not a CEDAR document.** It was
   the document a host sent, mutated in place and handed back, so CEE wrote the
   `@context` block, the nine envelope keys and a minted `@id` per occurrence, and
@@ -573,14 +592,13 @@ a test that can fail.
 
 ### 8. Give the key constants literal types
 
-**A model library change, unstarted, and no longer blocking anything in CEE.**
+**A model library change, unstarted, and much smaller than it was.**
 
 `JsonSchema` declares `static atId: string = '@id'` and 28 more like it. The
-explicit `: string` widens the literal away, so a consumer writing
-`{ [JsonSchema.atId]: string }` gets an index signature over every string key
-rather than a named property — every other member of that interface joins the
-signature's type, and reading through the constant returns the union of all of
-them.
+explicit `: string` widens the literal away, so keying an interface by one gives
+an index signature over every string key rather than a named property — every
+other member joins the signature's type, and reading through the constant returns
+the union of all of them.
 
 Demonstrated rather than described. Two classes differing only in the
 declaration, each keyed into an interface that also carries `count: number`:
@@ -591,34 +609,24 @@ declaration, each keyed into an interface that also carries `count: number`:
 | `static readonly atId = '@id'` | `string` |
 
 The `number` is the sibling member leaking into the type of reading `@id`.
+`readonly` is load-bearing: dropping the annotation alone still widens, because a
+mutable class property is assumed reassignable.
 
-`readonly` is load-bearing and the obvious smaller edit does not work: dropping
-the annotation alone still widens, because a mutable class property is assumed
-reassignable. Only `static readonly atId = '@id'` keeps the literal.
+**What this was for is gone.** The item existed because consumers were hurt by
+the widening — CEE keyed its authority terms on those constants, could not type a
+`details` member, and carried 20 `as string` casts. Those constants are no longer
+exported at all, so no consumer can be hurt by them again, and CEE reads none.
 
-Measured on the library, with the change applied: **typecheck clean, lint clean,
-693 tests across 71 suites passing**, declarations emitted as
-`static readonly atId = "@id"`, and CEE compiling against the result unchanged.
-Nothing assigns to any of the seven constants classes — not in the library's own
-source or tests, not in CEE, not in the roundtrip, demo or Python consumers — so
-`readonly` breaks nothing that exists. The compatibility risk is theoretical
-rather than measured, which is the reverse of how this item read before.
+What is left is inside the library: 35 files index documents through these
+constants and would type better for it, and a `static` without `readonly` is
+reassignable, so today any code in the library could change how every document is
+written by assigning to one. Worth doing, and no longer worth sequencing.
 
-CEE no longer waits on it. The authority layer keyed its own term on those
-constants and could not type a `details` member for exactly this reason; it now
-has named properties of its own, so the index signature is gone from that side
-without anything changing upstream. What remains is what a literal type buys
-every *other* consumer, and CEE's two wire adapters, which name their keys as the
-wire formats they are.
-
-`JsonTemplateInstanceReader.VALUE_ATOM_KEYS` was to be made public beside this,
-because CEE restated the set of keys a value node may carry and could not derive
-it. It has no consumer now: CEE kept that list in order to clear a stale key when
-a field changed kind, and a value is replaced rather than edited.
-
-Smaller than it looks, and smaller than it was written. Nothing in CEE waits on
-it — what is left is every other consumer of the library, which is where the
-value of doing it upstream sits.
+Measured with the change applied, before the export was removed: typecheck clean,
+lint clean, 693 tests across 71 suites passing, declarations emitted as
+`static readonly atId = "@id"`. Nothing assigns to any of the seven constants
+classes. Re-run the suite when applying it — the library has moved since, and is
+now at 717 tests across 74.
 
 ## Delivery order
 
