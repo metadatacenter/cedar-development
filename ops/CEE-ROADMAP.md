@@ -367,6 +367,13 @@ Three shapes recurred, none of which the build or the unit tests could see:
 
 ### 5. Finish serialization independence for instances
 
+**Not started, and now unblocked.** `addContext` and `addEnvelope` still stand,
+across seven call sites, and `DataContext.instanceFullData` is still an
+`InstanceObject` — a CEDAR JSON document CEE builds and mutates itself. What
+changed is the obstacle: 21 harness specs used to assert the shape of that tree,
+so it could not move without moving them first, and they no longer name a
+serialization key at all. The oracle has stopped moving; the work has not begun.
+
 The template path reached it and the instance path did not. A template read from
 YAML gives the same `Template` and so the same component tree —
 `format-independence.spec.ts` holds that across 37 corpus templates in both
@@ -685,6 +692,8 @@ independence and correctness are different properties, and only one of them has
 a test that can fail.
 
 ### 9. Give the key constants literal types
+
+**A model library change, unstarted, and no longer blocking anything in CEE.**
 
 `JsonSchema` declares `static atId: string = '@id'` and 28 more like it. The
 explicit `: string` widens the literal away, so a consumer writing
