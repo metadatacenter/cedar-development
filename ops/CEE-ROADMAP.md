@@ -93,7 +93,7 @@ it says the rest.
   repaired. CEE needed none of it: `changeControlledValue` already wrote `{}` for
   an empty IRI, and every constraint CEE builds was already complete.
 - The safety net is 2,067 domain tests across 46 harness spec files, 135 unit
-  tests across thirteen, and 428 bundle-level Playwright checks on Chromium,
+  tests across thirteen, and 430 bundle-level Playwright checks on Chromium,
   Firefox and WebKit, with 108 committed snapshots. No test is known to be
   flaky. The count fell because tests went, not coverage: what the reader makes
   of a malformed document, whether an injected instance keeps its envelope and
@@ -111,12 +111,19 @@ it says the rest.
   Material's own stylesheet still carries rem, which is why the test guarding this
   is scoped to what CEE states; an embedder cannot yet reach the scale at all,
   which is item 5.
-- **A field box is 36px, in every template.** It was 36px or 48px depending on
-  whether the template contained a timezone-enabled temporal field, because the
-  timezone picker's `::ng-deep` rule was emitted unscoped and injected only once
-  such a field existed. The compact height `styles-own.scss` describes is what
-  renders now; the temporal row states its own 48px rather than inheriting it from
-  a calendar toggle that read-only mode does not draw.
+- **A field box is 48px, always, and Material is asked for it.** It had varied on
+  two axes. Across templates, because the timezone picker's `::ng-deep` rule was
+  emitted unscoped and injected only once such a field existed — 36px on one
+  fixture, 48px on another. And within a template as the form was filled in:
+  Material's clear action is a 48px icon button and CEE draws one as soon as a
+  field holds a value, so text, email, link and phone each measured 36px empty and
+  48px filled, while numeric stayed 36px because its suffix is a unit label. The
+  compact height was only ever the height of a blank form. 48px is
+  `mat.form-field-density(-2)` now — a level Material's own scale names, as -5
+  names 36px — which retired four hand-rolled rules and seventeen `!important`
+  declarations and took `.mat-mdc-form-field-infix` out of CEE's stylesheets
+  entirely. Two tests hold it: same height across templates, same height empty and
+  filled.
 - **The harness loads one copy of the model library**, aliased to the app's. Two
   copies are two `InstanceDataContainer` classes, and the guards ask `instanceof`,
   so a second copy makes every container in the tree answer "not a container".
@@ -480,17 +487,31 @@ scoping attribute, and the timezone picker's stylesheet carried one naming a bar
 Material class — so it set the height of every form field in the editor. Worse, it
 was injected only when a timezone picker was first instantiated, so field height
 depended on whether the template happened to contain a timezone-enabled temporal
-field: 36px on one fixture, 48px on another. That is fixed and guarded by a test
-comparing two fixtures. The general risk is not: nine other `::ng-deep` selectors
-are scoped only by convention, each by a class its own component emits, and
-nothing checks that a new one is.
+field: 36px on one fixture, 48px on another. That is fixed, guarded by a test
+comparing two fixtures, and the height it was fighting over is now asked for
+through Material's density API instead — so no CEE stylesheet names that class at
+all. The general risk remains: nine other `::ng-deep` selectors are scoped only by
+convention, each by a class its own component emits, and nothing checks that a new
+one is.
 
-Two questions to answer before writing anything, because the document depends on
-them. Whether the type scale becomes public, in whole or in part. And whether the
-compact 36px field height is CEE's answer for forms that run to dozens of fields
-— it is what `styles-own.scss` has always described and now finally renders, and
-if it stays it should be a property an embedder can raise for a short form rather
-than a number three stylesheets restate.
+One question left to answer before writing anything, because the document depends
+on it: whether the type scale becomes public, in whole or in part.
+
+The field height is answered. It is 48px, and it is asked for as
+`mat.form-field-density(-2)` rather than computed by hand — which is the shape the
+rest of this section is arguing for, so it is worth naming as the precedent.
+Material's density scale already named both heights CEE had rendered, so the
+override was reproducing an API it was reaching past; going through it retired
+four rules and seventeen `!important` declarations at once. What decided the number
+was not a preference for 48 over 36 but that 36 was never a height a *populated*
+field had: CEE draws a 48px clear action as soon as a field holds a value, so the
+compact form existed only while the form was empty and a form in use held both
+heights at once.
+
+Whether an embedder may change it is a different question, and it belongs with the
+type scale's. Both are one-line answers once someone decides whether CEE's
+dimensions are its own or the host's — and density, unlike the old override, is a
+value CEE could expose without inviting anyone to name a Material internal.
 
 Done when a host-page author can read one document, in the CEE repository, that
 lists every property they may set and says plainly which parts of the appearance
