@@ -71,7 +71,7 @@ it says the rest.
 - Templates use block control flow, and `prefer-control-flow` is an error, so
   the deprecated directives cannot come back a template at a time.
 - Template-authored rich text is **sanitized by default**; verbatim rendering is
-  available only to a host that sets `trustTemplateMarkup` — item 7.
+  available only to a host that sets `trustTemplateMarkup` — item 8.
 - **CEE's output is checked against the template it came from**, by
   `InstanceValidator` through `instance-conformance.spec.ts` — 117 of the
   domain suite's tests. A dropped `@type` or a missing property fails the gate.
@@ -364,19 +364,14 @@ until it was deleted. CEE's own literal constants remove this without waiting fo
 anything upstream, because a literal key declares a property rather than a
 signature.
 
-The five remaining uses are CEDAR instance data — `@value`, `@id`, `@context`,
-`rdfs:label` and the attribute-value markers in the data handlers — and those are
-legitimate: CEE's working tree is CEDAR JSON, read back by `CedarReaders.json()`
-on the way out, so it is keyed by CEDAR's JSON vocabulary by construction.
+The rest of the uses are on the instance path, and they are **not** a second
+legitimate case — they are item 6, which is a much larger piece of work. Nothing
+here should wait for it: the authority layer's coupling is wrong on its own
+terms, and fixing it is a rename plus a constants file.
 
-Worth being exact about why that is not a format-independence violation, since it
-looks like one. Format independence is a claim about *template input*: a template
-read from YAML gives the same `Template` and so the same component tree, which
-`format-independence.spec.ts` holds across 37 corpus templates in both
-serialisations. The template path has no live use of these constants at all. The
-instance working tree is a different thing — one internal shape, converted at the
-boundary by `InstanceSerializer`, which is why YAML output can and does use
-entirely different keys:
+The keys are JSON-specific, which is what makes the authority use a coupling
+rather than a convention, and it is checkable rather than asserted. The same
+instance through the library's two writers:
 
 | JSON | YAML |
 |---|---|
@@ -385,18 +380,70 @@ entirely different keys:
 | `rdfs:label` | `label` |
 | `@context` | absent |
 
-That table is also the proof that these keys are JSON-specific rather than
-CEDAR-wide, which is what makes the authority layer's use of them a coupling
-rather than a convention.
+So `@id` is not "what CEDAR calls an identifier". It is what CEDAR's JSON
+serialization calls one, and the authority payloads that share the spelling do so
+by coincidence.
 
-Done when the authority and REST types are keyed by CEE's own constants, the
-`as string` casts they forced are gone, and `JsonSchema` is reached for only
-where CEDAR JSON is genuinely being read or written.
+Done when the authority and REST types are keyed by CEE's own constants and the
+`as string` casts they forced are gone.
+
+
+### 6. Finish serialization independence for instances
+
+The template path reached it and the instance path did not. A template read from
+YAML gives the same `Template` and so the same component tree —
+`format-independence.spec.ts` holds that across 37 corpus templates in both
+serialisations, and the template path names no serialization key at all. The
+instance path still authors CEDAR JSON by hand.
+
+What CEE knows that it should not have to:
+
+- `DataObjectBuilderHandler.addContext` writes the JSON-LD `@context` block,
+  from `contextEntries` the template parser generates for the purpose.
+- `addEnvelope` knows all nine envelope keys by name — `@context`, `@id`,
+  `schema:isBasedOn`, `schema:name`, `schema:description` and the four
+  provenance fields.
+- `DataObjectDataValueHandler` writes `obj['@value'] = value`.
+- `instance-value-node.ts` carries the vocabulary outright:
+  `const VALUE_KEYS = ['@value', '@id', 'rdfs:label', '@type', 'skos:notation']`.
+
+25 uses of `JsonSchema` across 11 of its constants, plus that array, which does
+not go through `JsonSchema` at all. `InstanceSerializer.parse` then reads the
+working tree back with `CedarReaders.json()`, which is the proof rather than the
+symptom: the tree is not an internal shape of CEE's choosing, it is CEDAR JSON,
+and it has to stay valid CEDAR JSON or the reader rejects it.
+
+So the library is doing output formatting rather than owning the encoding. YAML
+output is produced by converting *from* the JSON CEE built, which means a host
+asking for YAML still pays for CEE's knowledge of the JSON form.
+
+Why it stopped here is the interesting part, and it is not an oversight. The
+library has an instance model — `TemplateInstance`, `InstanceDataContainer` and
+the atom types — and CEE already reads into it: `InstanceDeserializer` on the way
+in, `ModelLibraryInstanceReader` for cardinality. Both then project straight back
+out to plain mutable objects, because the widgets hold references into the tree
+and edit it in place, and the library's model is not built for that. The
+projection is where the encoding knowledge collected.
+
+That names the decision this item turns on: either the widgets edit something the
+library owns, which means the library growing a mutable instance model, or CEE's
+working tree becomes a neutral shape the library converts both ways, which means
+CEE defining that shape and the conversion. The first puts the vocabulary where
+the template path already put it. The second keeps the change inside CEE and
+leaves two definitions of what an instance is.
+
+The largest item here by a distance — every data handler and every widget touches
+this tree — and the least urgent, because nothing is broken. What it buys is that
+a change to CEDAR's JSON encoding stops being a change to CEE, which is exactly
+what the template path bought and is now the only half still paying.
+
+Done when no file outside `InstanceSerializer` and `InstanceDeserializer` names a
+JSON-LD key, and a YAML-only consumer costs CEE no JSON knowledge.
 
 
 ## Testing
 
-### 6. Reach the two config flags nothing exercises
+### 7. Reach the two config flags nothing exercises
 
 The browser suite asserts that every config key changes what renders, because a
 key that is silently ignored looks exactly like one that works. Two keys cannot
@@ -471,7 +518,7 @@ no blur reconciliation at all.
 
 ## Security
 
-### 7. Finish the rich-text trust boundary
+### 8. Finish the rich-text trust boundary
 
 The boundary is drawn and enforced. Static rich text is sanitized unless the host
 sets `trustTemplateMarkup`, the README's *Embedding security* section says who
@@ -522,7 +569,7 @@ ever return true before and can now return false, and `adheresToBlueprint()` has
 stopped being a second name for it, so a consumer branching on either sees new
 behaviour.
 
-### 8. Settle the temporal `required` judgement
+### 9. Settle the temporal `required` judgement
 
 A judgement about what the corpus means, rather than a code change; it needs
 someone who knows CEDAR's version history. 28 templates require `@type` on a
@@ -561,7 +608,7 @@ instance missing a field in both formats is consistent with itself. Format
 independence and correctness are different properties, and only one of them has
 a test that can fail.
 
-### 9. Give the key constants literal types
+### 10. Give the key constants literal types
 
 `JsonSchema` declares `static atId: string = '@id'` and 28 more like it. The
 explicit `: string` widens the literal away, so a consumer writing
@@ -600,10 +647,11 @@ The index signature was obstructing the compiler before it could reach the real
 conflict. So this converts an untypeable situation into an ordinary typing
 problem; it does not resolve it.
 
-Smaller than it looks, and smaller than it was written, because item 5 takes most
-of the call sites out of `JsonSchema`'s hands. What remains after that is the
-handful of places CEE genuinely reads CEDAR JSON, plus every other consumer of the
-library, which is where the value of doing it upstream actually sits.
+Smaller than it looks, and smaller than it was written, because items 5 and 6
+between them take every CEE call site out of `JsonSchema`'s hands — 5 because
+those keys were never CEDAR's to define, 6 because CEE should not be naming them
+at all. What is left for this item is every *other* consumer of the library,
+which is where the value of doing it upstream sits, and CEE in the meantime.
 
 ## Delivery order
 
@@ -614,7 +662,7 @@ library, which is where the value of doing it upstream actually sits.
 3. Complete the public host contract before the stable `1.6.0` release (item 1);
    the stable model-library release lands as an aside of that work.
 4. Fold `trustTemplateMarkup` into the typed host contract, and tell template
-   authors what their markup will do (item 7). The boundary itself is enforced;
+   authors what their markup will do (item 8). The boundary itself is enforced;
    what remains is making it discoverable from both sides.
 
 The palette (item 4) is not sequenced here. It is a decision rather than a
