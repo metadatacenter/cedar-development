@@ -443,17 +443,52 @@ out to plain mutable objects, because the widgets hold references into the tree
 and edit it in place, and the library's model is not built for that. The
 projection is where the encoding knowledge collected.
 
-That names the decision this item turns on: either the widgets edit something the
-library owns, which means the library growing a mutable instance model, or CEE's
-working tree becomes a neutral shape the library converts both ways, which means
-CEE defining that shape and the conversion. The first puts the vocabulary where
-the template path already put it. The second keeps the change inside CEE and
-leaves two definitions of what an instance is.
+**The decision is taken: CEE holds no knowledge of JSON-LD or JSON Schema beyond
+asking for a serialization, and the model library owns mutable instances.** What
+follows is what that costs, measured rather than estimated, because most of the
+library side turns out to exist already.
 
-The largest item here by a distance — every data handler and every widget touches
-this tree — and the least urgent, because nothing is broken. What it buys is that
-a change to CEDAR's JSON encoding stops being a change to CEE, which is exactly
-what the template path bought and is now the only half still paying.
+Builders are not the mechanism, and nothing needs adding for mutability. The
+model is already mutable: `InstanceDataContainer` has `setValue`, `setIri` and a
+`values` setter, and `TemplateInstance.dataContainer` is a public field.
+`TemplateInstanceBuilder` is for construction from nothing, which is not what a
+form editing a live document does.
+
+More importantly, the library already does the two things CEE hand-builds.
+`InstanceInflater.inflate(instance, template)` copies each child's property IRI
+onto the container, re-adds a slot for every child the instance omits, and orders
+children as the template declares them — and the JSON writer builds `@context`
+from those IRIs. The envelope is not keys to be written either: `at_id`,
+`schema_name`, `schema_description`, `schema_isBasedOn` and the provenance fields
+are model properties the writer emits. `InstanceInflater`, `InstanceDataContainer`
+and the atom types are all exported.
+
+Demonstrated end to end. Building an instance with `TemplateInstanceBuilder`,
+inflating it against a corpus template, setting one child with
+`setValue(name, new InstanceDataStringAtom('…'))` and writing it as JSON yields
+`@context` with 17 entries, the envelope, and the edited child as
+`{"@value": "…"}` — with no JSON-LD key named anywhere in the calling code. So
+`addContext` and `addEnvelope` do not need replacing, they need deleting.
+
+What the change actually costs is on CEE's side, and it is one structural thing
+rather than a translation. **The atoms are read-only** — `InstanceDataStringAtom`
+and `InstanceDataControlledAtom` expose getters and no setters — so a value is
+*replaced* rather than mutated. CEE's widgets currently hold a reference to a
+value node and edit it in place, which is why the working tree is plain mutable
+objects at all. Against the model a widget needs its parent container and its key
+so it can call `setValue`, not a node reference. That is the work: every widget
+and every data handler stops holding a node and starts holding a place.
+
+The rest follows from it. Path resolution walks `dataContainer.values` and its
+lists instead of plain objects; the cursor logic is unchanged, since it is about
+which occurrence rather than about what a node looks like. Attribute-value fields
+already have model types — `InstanceDataAttributeValueField` and
+`InstanceDataAttributeValueFieldName` — so their name/value bookkeeping and the
+`@context` maintenance beside it go with the rest.
+
+Do it in that order: the widget-side change to holding a place is what unblocks
+everything, and it can be made against the current plain-object tree first, which
+keeps the two halves separable and the suite green throughout.
 
 Done when no file outside `InstanceSerializer` and `InstanceDeserializer` names a
 JSON-LD key, and a YAML-only consumer costs CEE no JSON knowledge.
