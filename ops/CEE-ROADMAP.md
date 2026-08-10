@@ -71,7 +71,7 @@ it says the rest.
 - Templates use block control flow, and `prefer-control-flow` is an error, so
   the deprecated directives cannot come back a template at a time.
 - Template-authored rich text is **sanitized by default**; verbatim rendering is
-  available only to a host that sets `trustTemplateMarkup` — item 6.
+  available only to a host that sets `trustTemplateMarkup` — item 7.
 - **CEE's output is checked against the template it came from**, by
   `InstanceValidator` through `instance-conformance.spec.ts` — 117 of the
   domain suite's tests. A dropped `@type` or a missing property fails the gate.
@@ -338,9 +338,65 @@ Three shapes recurred, none of which the build or the unit tests could see:
   refused to choose, both applied and drew a 64x48 rounded rectangle that was
   neither. Nothing reported it, because nothing was failing.
 
+### 5. Stop borrowing CEDAR's key constants for third-party responses
+
+`JsonSchema.atId` and `JsonSchema.rdfsLabel` are used 70 times across CEE, and
+**65 of those are in the authority layer** — `AuthoritySearchResponseItem`,
+`OrcidSearchResponseItem`, `RorSearchResponseItem`,
+`IntegratedSearchResponseItem` and the widgets around them. Those types describe
+HTTP responses from BioPortal, ORCID, ROR and the terminology server. They are
+not CEDAR artifacts, and their key names are not CEDAR's to define.
+
+The keys coincide, which is why it went unnoticed: those payloads happen to spell
+their identifier `@id` and their label `rdfs:label`, the same strings CEDAR's JSON
+serialization uses. A coincidence of spelling is not a shared vocabulary. If ORCID
+renames a field, the constant that has to change belongs to CEE's authority layer;
+if CEDAR changes its serialization, `JsonSchema` changes and drags the authority
+code with it for no reason.
+
+It also costs typing, and that is the part with a measurement behind it. Because
+`JsonSchema.atId` is typed `string` rather than `'@id'`, an interface keyed by it
+gets an index signature over every string key instead of a named property — so
+every other member joins that signature's type, reads come back as the union of
+all of them, and 20 lines carry an `as string`. `AuthoritySearchResponseItem`
+could not hold a typed `details` at all for that reason; the member was `any`
+until it was deleted. CEE's own literal constants remove this without waiting for
+anything upstream, because a literal key declares a property rather than a
+signature.
+
+The five remaining uses are CEDAR instance data — `@value`, `@id`, `@context`,
+`rdfs:label` and the attribute-value markers in the data handlers — and those are
+legitimate: CEE's working tree is CEDAR JSON, read back by `CedarReaders.json()`
+on the way out, so it is keyed by CEDAR's JSON vocabulary by construction.
+
+Worth being exact about why that is not a format-independence violation, since it
+looks like one. Format independence is a claim about *template input*: a template
+read from YAML gives the same `Template` and so the same component tree, which
+`format-independence.spec.ts` holds across 37 corpus templates in both
+serialisations. The template path has no live use of these constants at all. The
+instance working tree is a different thing — one internal shape, converted at the
+boundary by `InstanceSerializer`, which is why YAML output can and does use
+entirely different keys:
+
+| JSON | YAML |
+|---|---|
+| `@value` | `value` |
+| `@id` | `id` |
+| `rdfs:label` | `label` |
+| `@context` | absent |
+
+That table is also the proof that these keys are JSON-specific rather than
+CEDAR-wide, which is what makes the authority layer's use of them a coupling
+rather than a convention.
+
+Done when the authority and REST types are keyed by CEE's own constants, the
+`as string` casts they forced are gone, and `JsonSchema` is reached for only
+where CEDAR JSON is genuinely being read or written.
+
+
 ## Testing
 
-### 5. Reach the two config flags nothing exercises
+### 6. Reach the two config flags nothing exercises
 
 The browser suite asserts that every config key changes what renders, because a
 key that is silently ignored looks exactly like one that works. Two keys cannot
@@ -415,7 +471,7 @@ no blur reconciliation at all.
 
 ## Security
 
-### 6. Finish the rich-text trust boundary
+### 7. Finish the rich-text trust boundary
 
 The boundary is drawn and enforced. Static rich text is sanitized unless the host
 sets `trustTemplateMarkup`, the README's *Embedding security* section says who
@@ -466,7 +522,7 @@ ever return true before and can now return false, and `adheresToBlueprint()` has
 stopped being a second name for it, so a consumer branching on either sees new
 behaviour.
 
-### 7. Settle the temporal `required` judgement
+### 8. Settle the temporal `required` judgement
 
 A judgement about what the corpus means, rather than a code change; it needs
 someone who knows CEDAR's version history. 28 templates require `@type` on a
@@ -505,35 +561,49 @@ instance missing a field in both formats is consistent with itself. Format
 independence and correctness are different properties, and only one of them has
 a test that can fail.
 
-### 8. Give the key constants literal types
+### 9. Give the key constants literal types
 
-`JsonSchema` declares `static atId: string`, `static rdfsLabel: string` and the
-rest as plain strings rather than as the literals they are. A consumer writing
-`{ [JsonSchema.atId]: string; [JsonSchema.rdfsLabel]: string; ... }` therefore
-gets an *index signature over every string key* instead of two named properties,
-every other member of that interface has to be assignable to the signature's
-type, and reading through the constant yields the union of all of them.
+`JsonSchema` declares `static atId: string = '@id'` and 28 more like it. The
+explicit `: string` widens the literal away, so a consumer writing
+`{ [JsonSchema.atId]: string }` gets an index signature over every string key
+rather than a named property — every other member of that interface joins the
+signature's type, and reading through the constant returns the union of all of
+them.
 
-Not theoretical. Adding a typed `details?: AuthorityDetailResponse` to CEE's
-`AuthoritySearchResponseItem` fails to compile with
-`'string' index signatures are incompatible` against both
-`OrcidSearchResponseItem` and `RorSearchResponseItem` — the three are only
-interchangeable while that member stays `any`. Two of CEE's model files carry a
-paragraph explaining the problem and casting around it, and a third now records
-it.
+Demonstrated rather than described. Two classes differing only in the
+declaration, each keyed into an interface that also carries `count: number`:
 
-What it has already cost: `AuthoritySearchResponseItem.details` and
-`.researcherDetails` could only be `any`, so when the `any` sites were cleared
-they were deleted rather than typed. Both turned out to be dead, which is the
-only reason deleting them was available. Measured across CEE: 59 occurrences of
-`JsonSchema.atId` or `JsonSchema.rdfsLabel` in 15 files, of which 16 are
-declarations or object-literal keys and 4 are in templates; 20 lines carry an
-`as string` cast.
+| declaration | type of `obj[C.atId]` |
+|---|---|
+| `static atId: string = '@id'` | `string \| number` |
+| `static readonly atId = '@id'` | `string` |
 
-`static readonly atId = '@id'` infers the literal type on its own — no `as const`
-needed. Check the library's own consumers first: narrowing a public type is
-breaking for anything that assigns to these.
+The `number` is the sibling member leaking into the type of reading `@id`.
 
+`readonly` is load-bearing and the obvious smaller edit does not work: dropping
+the annotation alone still widens, because a mutable class property is assumed
+reassignable. Only `static readonly atId = '@id'` keeps the literal.
+
+Measured on the library, with the change applied: **typecheck clean, lint clean,
+693 tests across 71 suites passing**, declarations emitted as
+`static readonly atId = "@id"`, and CEE compiling against the result unchanged.
+Nothing assigns to any of the seven constants classes — not in the library's own
+source or tests, not in CEE, not in the roundtrip, demo or Python consumers — so
+`readonly` breaks nothing that exists. The compatibility risk is theoretical
+rather than measured, which is the reverse of how this item read before.
+
+What it does *not* do on its own is make CEE's `details` typeable. With the
+literals in place, adding `details?: AuthorityDetailResponse` to
+`AuthoritySearchResponseItem` produces a different error — a genuine one, that
+the base declares a wider `details` than `RorSearchResponseItem` narrows it to.
+The index signature was obstructing the compiler before it could reach the real
+conflict. So this converts an untypeable situation into an ordinary typing
+problem; it does not resolve it.
+
+Smaller than it looks, and smaller than it was written, because item 5 takes most
+of the call sites out of `JsonSchema`'s hands. What remains after that is the
+handful of places CEE genuinely reads CEDAR JSON, plus every other consumer of the
+library, which is where the value of doing it upstream actually sits.
 
 ## Delivery order
 
@@ -544,7 +614,7 @@ breaking for anything that assigns to these.
 3. Complete the public host contract before the stable `1.6.0` release (item 1);
    the stable model-library release lands as an aside of that work.
 4. Fold `trustTemplateMarkup` into the typed host contract, and tell template
-   authors what their markup will do (item 6). The boundary itself is enforced;
+   authors what their markup will do (item 7). The boundary itself is enforced;
    what remains is making it discoverable from both sides.
 
 The palette (item 4) is not sequenced here. It is a decision rather than a
