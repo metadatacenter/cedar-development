@@ -196,101 +196,112 @@ stop holding all three answers at once.
 
 ### 4. Styling
 
-Three separate questions that all live in the same few files, kept together
-because answering one changes the answers to the others. `THEMING.md` in the CEE
-repository is the standing record of what CEE's appearance is committed to, what
-is incidental, and the five-step order for judging a failing baseline.
+One decision and one cleanup, and they are the same piece of work. `THEMING.md`
+in the CEE repository is the standing record of what CEE's appearance is
+committed to, what is incidental, and the five-step order for judging a failing
+baseline.
 
-**CEE does not render CEDAR's brand.** `_cee-tokens.scss` specifies
-`$cee-brand-primary` and `$cee-brand-accent` in full, and then applies them to
+Before either, the thing that decides how much of this matters: **Material's
+theme controls less of CEE's appearance than its prominence suggests.**
+`_cee-material-theme.scss` is 105 lines of which 12 are configuration — a primary
+palette, an accent palette, a font family and `density: 0`. Beside it sit 517
+lines of `styles-own.scss`, some 1,600 lines of per-component SCSS, 27
+`!important` declarations and 18 Material internal-DOM selectors. Work on CEE's
+own chrome — the cards, the header, the footer, the field rows — never reaches
+the theming API and gains nothing from changing it. What follows is about the
+Material components and the brand, and is not a prerequisite for restyling
+anything else.
+
+**Which hex CEE renders, and the theme model, are one question.** They read as
+two and cannot be answered separately.
+
+CEE does not render CEDAR's brand. `_cee-tokens.scss` specifies
+`$cee-brand-primary` and `$cee-brand-accent` in full and then applies them to
 nothing but three custom properties. What ships is Angular's stock teal 600
 (#00897b) and deep-orange, because that is what `$applied-theme` is built from.
 Stock teal accounts for 35 of the colour values in the bundle; CEDAR's own
 #0f7686 appears twice, both times outside the Material theme. This reads as an
 accident rather than a decision, and it has been left alone through eight hops
-precisely because correcting it is a visible change and an upgrade is not the
-place to make one quietly. It is a decision for someone, and it is still waiting.
-Nothing forces it — it is worth deciding because it is currently decided by
-default, not because anything is waiting on it.
+because correcting it is a visible change and an upgrade is not the place to make
+one quietly.
 
-**Migrate the theme to Material 3.** One theme, not the two this roadmap used to
-claim: a single `$applied-theme` built from a primary and an accent palette, all
-of it in `_cee-material-theme.scss`, which exists so that exactly this kind of
-change touches one file. The M2 helpers it builds on — `m2-define-palette`,
-`m2-define-light-theme`, `m2-define-typography-config` — are the compatibility
-path, already renamed once at Material 18, and M3's token-based API is the
-supported model. They are not deprecated in Material 22 — nothing in the Sass
-says so, and they are still forwarded from `core/m2` — so the pressure here is
-drift rather than a removal date. That is a different model rather than a
-renamed one: a rewrite of the `$applied-theme` construction, not a
-search-and-replace, and it will change what CEE looks like.
-
-What makes it a rewrite is the palette shape, and that is measured rather than
-predicted. `mat.define-theme` rejects CEE's palettes outright:
+Answering it means moving to M3, because the two theme models take different
+inputs and only one of them takes a brand colour. The supported way to produce an
+M3 palette is `ng generate @angular/material:theme-color`, which derives the full
+set from source hex colours — `primaryColor`, and optionally secondary, tertiary,
+neutral and error. Its input *is* the brand decision: whoever runs it types a
+hex, and typing `#0f7686` rather than stock teal is the choice that has been
+waiting. M2 offers no such route. Its palettes are hand-authored 50–900 plus
+A100–A700 with a contrast map, so answering the brand question in M2 means
+writing that shape by hand from the same hex — and then discarding it, because
+`mat.define-theme` rejects an M2 palette outright:
 
 > Expected `$config.color.primary` to be a valid M3 palette.
 
-M2 palettes are 50–900 plus A100–A700 and a contrast map, which is what
-`_cee-tokens.scss` holds. M3 palettes are tonal — 0 to 100 — and each carries
-`secondary`, `neutral`, `neutral-variant` and `error` sub-maps. So the note in
-`_cee-tokens.scss` that the 14-step shape is "a convention, not a dependency"
-stops being true under M3: it becomes the wrong shape, and the adapter cannot
-paper over it.
+M3 palettes are tonal, 0 to 100, each carrying `secondary`, `neutral`,
+`neutral-variant` and `error` sub-maps. The two shapes are not convertible, which
+is what makes this a rewrite of the `$applied-theme` construction rather than a
+search-and-replace, and why the note in `_cee-tokens.scss` that the 14-step shape
+is "a convention, not a dependency" stops being true under M3. There is no
+version of this that leaves the palette question open, and no version that
+answers the palette question durably in M2.
 
-The supported way to produce the right shape is
-`ng generate @angular/material:theme-color`, which derives a full M3 palette set
-from source hex colours — `primaryColor`, and optionally secondary, tertiary,
-neutral and error. Note there is no accent in M3; CEE's primary-and-accent pair
-maps onto primary and tertiary.
-
-That generator is also why this and the brand question above cannot be separated:
-its input *is* the brand decision. Whoever runs it types a hex, and typing
-CEDAR's `#0f7686` rather than Angular's stock teal is precisely the choice that
-has been waiting. There is no version of this migration that leaves the palette
-question open.
+Nothing forces the timing. The M2 helpers are **not deprecated in Material 22** —
+`m2-define-palette`, `m2-define-light-theme` and `m2-define-typography-config`
+carry no deprecation marker, and they are still forwarded from `core/m2`. The
+pressure is drift rather than a removal date. What the delay costs is that every
+build shipping stock teal decides the brand question by default, and any brand
+palette authored in M2 in the meantime is written twice.
 
 Material 22 offers no `mat.theme()` one-liner; the M3 route here is
 `mat.define-theme` feeding the same `mat.all-component-themes` already in use, so
 the emission points in `core()` and `component-themes()` survive the change.
 
-The `TODO(v15)` block the `core()` mixin carried is answered and gone. It asked
-whether `all-component-typographies()` was needed, and set out two conditions
-for dropping it; both hold. CEE specifies typography in `$_typography`, which
-`$applied-theme` carries and `all-component-themes` emits, so component
-typography was written twice, and the hierarchy classes the call also brings are
-used nowhere — the only mention of `.mat-headline-1` in the repository was inside
-that note. Removing it takes 13,678 bytes out of the bundle with all 356
-bundle-level checks passing, every pixel snapshot among them. Carried unanswered
-from 15 to 22, it cost bytes on every build in the meantime.
-
-**Reduce what CEE reaches into.** 18 distinct `.mat-*` and `.mdc-*` selectors
+**Reduce what CEE reaches into**, which is the cleanup, and it belongs with the
+decision rather than beside it. 18 distinct `.mat-*` and `.mdc-*` selectors
 across 10 stylesheets — the 24 across 11 recorded here before counted six that
 appear only inside comments, which is what `visual/tests/material-selectors.spec.ts`
-strips before it checks anything. Plus 15 `!important` declarations in `styles-own.scss`
-alone, several of them overriding MDC's own three-class selectors. Each is a bet
-that Material's internal DOM will not move, and the upgrades collected the
-receipts: the form-field infix compression had to be rewritten for MDC because
-height moved from padding to `min-height`, and the notched outline needed three
-selectors where
-legacy needed one. `visual/tests/material-selectors.spec.ts` at least reports when
-one of these stops matching anything, which is how two dead rules were found — but
-reporting is not reducing.
+strips before it checks anything. Plus 15 `!important` declarations in
+`styles-own.scss` alone, several of them overriding MDC's own three-class
+selectors. Each is a bet that Material's internal DOM will not move, and the
+upgrades collected the receipts: the form-field infix compression had to be
+rewritten for MDC because height moved from padding to `min-height`, and the
+notched outline needed three selectors where legacy needed one.
+`visual/tests/material-selectors.spec.ts` at least reports when one of these
+stops matching anything, which is how two dead rules were found — but reporting
+is not reducing.
+
+These exist because M2 offers no supported way to change a component's appearance
+beyond the palette, so CEE reaches past the API into the DOM behind it. M3's
+tokens are the sanctioned replacement, which is the second reason the migration
+and this cleanup are one job: migrating without reducing the overrides carries
+the bets forward onto a DOM that has just moved again.
 
 The rule for deciding which of the 18 to keep: take Material for behaviour —
 focus management, overlay positioning, keyboard interaction, the accessibility
 work that is expensive to reproduce and easy to get wrong — and let
 `_cee-tokens.scss` decide appearance. A selector reached into for a colour, a
 font or a spacing is one CEE should be able to express as a token; one reached
-into to correct a layout Material computes, like the form-field infix, is
-harder to give up and worth keeping deliberately. Half of that split already
-holds: `_cee-tokens.scss` names CEDAR's values and imports no Material, and
+into to correct a layout Material computes, like the form-field infix, is harder
+to give up and worth keeping deliberately. Half of that split already holds:
+`_cee-tokens.scss` names CEDAR's values and imports no Material, and
 `_cee-material-theme.scss` is the only file that does. What is missing is the
 tokens reaching the components without going through Material's internal class
 names.
 
-Done when the palette question has an answer that someone chose, the theme is
-built on supported APIs, and the count of Material internals CEE depends on has
-gone down rather than up.
+The `TODO(v15)` block the `core()` mixin carried is answered and gone. It asked
+whether `all-component-typographies()` was needed and set out two conditions for
+dropping it; both hold. CEE specifies typography in `$_typography`, which
+`$applied-theme` carries and `all-component-themes` emits, so component typography
+was written twice, and the hierarchy classes the call also brings are used nowhere
+— the only mention of `.mat-headline-1` in the repository was inside that note.
+Removing it takes 13,678 bytes out of the bundle with all 356 bundle-level checks
+passing, every pixel snapshot among them. Carried unanswered from 15 to 22, it
+cost bytes on every build in the meantime.
+
+Done when the palette carries a colour someone chose, the theme is built on
+`mat.define-theme`, and the count of Material internals CEE depends on has gone
+down rather than up.
 
 ### What the Angular 14 → 22 march cost, and what it taught
 
