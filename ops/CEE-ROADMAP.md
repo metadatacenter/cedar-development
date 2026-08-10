@@ -194,7 +194,7 @@ the installed package and delete the remote tag; if it is not, drop the
 dependency, the tag and the pages that claim it. Either way the repository should
 stop holding all three answers at once.
 
-### 4. CEE styling
+### 4. Styling
 
 Three separate questions that all live in the same few files, kept together
 because answering one changes the answers to the others. `THEMING.md` in the CEE
@@ -210,6 +210,8 @@ Stock teal accounts for 35 of the colour values in the bundle; CEDAR's own
 accident rather than a decision, and it has been left alone through eight hops
 precisely because correcting it is a visible change and an upgrade is not the
 place to make one quietly. It is a decision for someone, and it is still waiting.
+Nothing forces it — it is worth deciding because it is currently decided by
+default, not because anything is waiting on it.
 
 **Migrate the theme to Material 3.** One theme, not the two this roadmap used to
 claim: a single `$applied-theme` built from a primary and an accent palette, all
@@ -530,12 +532,13 @@ breaking for anything that assigns to these.
 2. Keep the production bundle and Playwright checks working throughout.
 3. Complete the public host contract before the stable `1.6.0` release (item 1);
    the stable model-library release lands as an aside of that work.
-4. Answer the palette question before that release too (item 4). Shipping 1.6.0 in
-   stock Material teal decides it by default, which is the one way of deciding it
-   nobody chose.
-5. Fold `trustTemplateMarkup` into the typed host contract, and tell template
+4. Fold `trustTemplateMarkup` into the typed host contract, and tell template
    authors what their markup will do (item 6). The boundary itself is enforced;
    what remains is making it discoverable from both sides.
+
+The palette (item 4) is not sequenced here. It is a decision rather than a
+dependency, and nothing else waits on it — but every build that ships without it
+made the decision by shipping stock teal.
 
 ## Out of scope
 
