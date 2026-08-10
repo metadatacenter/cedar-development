@@ -46,3 +46,34 @@ Add designer renderer support for `ext-nih-grant-id-field` and `ext-doi-field`,
 mirroring the existing external-authority field renderers (ROR/ORCID/PFAS/RRID/
 PubMed). Done when a template containing both types renders every field and the
 header title interpolates.
+
+### 2. Saving a template fails validation when GAZ is constrained as a whole ontology
+
+Adding the GAZ (Gazetteer) ontology to a field as an *entire-ontology* controlled-term value
+makes the template fail validation on save (`POST /templates` → 400); a branch or specific-class
+constraint on the same ontology does not. Reproduced in the editor, root cause confirmed from
+the artifact server's validation report — it is **not** the scale/timeout issue first assumed.
+The determining error is:
+
+```
+/properties/<field>/_valueConstraints/ontologies/0/numTerms: must have a minimum value of 1
+```
+
+The chain: GAZ's term count comes back `n/a` (the terminology server reports no count for it — the
+picker even shows "Number Terms: n/a" and "Tree browsing not supported for this ontology"), the
+editor then serializes the ontology constraint with `numTerms: 0`, and the meta-schema requires
+`_valueConstraints.ontologies[].numTerms` to be an integer with `minimum: 1`
+(`literal-field-meta-schema.json`, `iri-field-meta-schema.json`). `0 < 1` fails, and the
+JSON-Schema `oneOf` over field kinds turns that one failure into a cascade of unrelated-looking
+errors in the report. Pick a fix: (a) have the terminology layer return a real `numTerms` for GAZ
+(an `iri-field` `numTerms` already allows `minimum: 0` elsewhere, so the count path is the anomaly);
+(b) stop the editor emitting `numTerms: 0` when the count is unknown; or (c) relax the `ontologies`
+`numTerms` minimum to `0` so a whole-ontology constraint with an unknown count validates. Also worth
+a look: the interactive `POST /command/validate` returned 200 while the create 400'd, so the
+editor's live check does not exercise the same constraint.
+
+Only option (b) is the designer's to make alone. The other two are backend changes — a real count
+from the terminology layer, or a relaxed minimum in the meta-schema — so whichever is chosen needs a
+counterpart there. The `maxItems: 0` item on [BACKEND-ROADMAP.md](./BACKEND-ROADMAP.md) is the same
+mistake in a second place, the editor using zero as a sentinel where the schema reads zero as a
+quantity, and the two are worth deciding together.

@@ -197,30 +197,7 @@ model libraries — where their JSON and YAML serializations diverge — is in
   library's `YamlTitleDerivation` / `YamlJsonConstraintParity` specs; this item is the design decision
   those tests currently encode by default.
 
-- **7. Saving a template fails validation when GAZ is constrained as a whole ontology.** Adding the GAZ
-  (Gazetteer) ontology to a field as an *entire-ontology* controlled-term value makes the template
-  fail validation on save (`POST /templates` → 400); a branch or specific-class constraint on the
-  same ontology does not. Reproduced in the editor, root cause confirmed from the artifact server's
-  validation report — it is **not** the scale/timeout issue first assumed. The determining error is:
-
-  ```
-  /properties/<field>/_valueConstraints/ontologies/0/numTerms: must have a minimum value of 1
-  ```
-
-  The chain: GAZ's term count comes back `n/a` (the terminology server reports no count for it — the
-  picker even shows "Number Terms: n/a" and "Tree browsing not supported for this ontology"), the
-  editor then serializes the ontology constraint with `numTerms: 0`, and the meta-schema requires
-  `_valueConstraints.ontologies[].numTerms` to be an integer with `minimum: 1`
-  (`literal-field-meta-schema.json`, `iri-field-meta-schema.json`). `0 < 1` fails, and the
-  JSON-Schema `oneOf` over field kinds turns that one failure into a cascade of unrelated-looking
-  errors in the report. Pick a fix: (a) have the terminology layer return a real `numTerms` for GAZ
-  (an `iri-field` `numTerms` already allows `minimum: 0` elsewhere, so the count path is the anomaly);
-  (b) stop the editor emitting `numTerms: 0` when the count is unknown; or (c) relax the `ontologies`
-  `numTerms` minimum to `0` so a whole-ontology constraint with an unknown count validates. Also worth
-  a look: the interactive `POST /command/validate` returned 200 while the create 400'd, so the
-  editor's live check does not exercise the same constraint.
-
-- **8. Decide whether `maxItems: 0` should mean unlimited, or the key should simply be absent.** The
+- **7. Decide whether `maxItems: 0` should mean unlimited, or the key should simply be absent.** The
   Template Designer emits `maxItems: 0` for an unbounded multi-instance field. Its cardinality
   selector labels the zero "unlimited" (`cardinality-selector.directive.js`, `zeros = {'min': 'none',
   'max': 'unlimited'}`), `defaultMinMax` in `cedar-template-element.directive.js` sets it on every new
@@ -244,16 +221,17 @@ model libraries — where their JSON and YAML serializations diverge — is in
   whether the frontend writes those or whether they are residue from a field that was once
   multi-instance.
 
-  This is the same shape as the GAZ `numTerms: 0` item (7) — the editor using zero as a sentinel where
-  the schema gives zero a different meaning — so the two are worth deciding together. The frontend change
-  belongs to [TEMPLATE-DESIGNER-ROADMAP.md](./TEMPLATE-DESIGNER-ROADMAP.md); it is tracked here because
-  the decision binds the meta-schema and both model libraries as well.
+  This is the same shape as the GAZ `numTerms: 0` bug, which the Template Designer's roadmap carries —
+  the editor using zero as a sentinel where the schema gives zero a different meaning — so the two are
+  worth deciding together. The frontend change belongs to
+  [TEMPLATE-DESIGNER-ROADMAP.md](./TEMPLATE-DESIGNER-ROADMAP.md); this one is tracked here because the
+  decision binds the meta-schema and both model libraries as well.
 
 ### Infrastructure
 
-- **9. Upgrade the persistence and infrastructure servers.** These versions are pinned in the Docker
+- **8. Upgrade the persistence and infrastructure servers.** These versions are pinned in the Docker
   images and nowhere else, while the client libraries have moved on. The record that would say what
-  they are pinned *to* does not exist yet; establishing it is part of item 14, and this item is parked
+  they are pinned *to* does not exist yet; establishing it is part of item 13, and this item is parked
   behind it, since it defers to a lock that currently names six servers and no versions. Order them by
   risk, lowest first:
   Five are **done** on 2026-08-08, each taken together with containerizing that store: Redis
@@ -267,7 +245,7 @@ model libraries — where their JSON and YAML serializations diverge — is in
 
   No longer parked at the end. Containerizing the data stores needs each image pin moved up to the
   version already running, because an older engine cannot open existing data files, so this item is
-  what unblocks the last step of item 14 rather than something to take up afterwards. MySQL is the
+  what unblocks the last step of item 13 rather than something to take up afterwards. MySQL is the
   real decision left among the data stores; Keycloak is its own piece of work.
 
   **What actually holds Keycloak at 22.** Measured 2026-08-08 against Maven Central and the code, and
@@ -318,9 +296,9 @@ model libraries — where their JSON and YAML serializations diverge — is in
   The four that are done moved in development only, where the pin move and the containerization were
   one piece of work per store. Production is the part this item still owns: the same versions, but
   rehearsed on a copy of production data and gated on the end-to-end smoke. Where the order above and
-  item 14's disagree, item 14 governs, since it is what sequences the remaining work.
+  item 13's disagree, item 13 governs, since it is what sequences the remaining work.
 
-- **10. Move the build and runtime to Java 21.** The stack is locked to Java 17 — the zsh profile pins it
+- **9. Move the build and runtime to Java 21.** The stack is locked to Java 17 — the zsh profile pins it
   and the build enforces it. 21 is the next LTS and the natural target, but the lock exists for a
   reason: newer JDKs (23/25) crash Keycloak (`getSubject … security manager`) and OpenSearch will not
   start under them. So this is not a blind bump — verify Keycloak and OpenSearch run on 21 first, then
@@ -349,13 +327,13 @@ model libraries — where their JSON and YAML serializations diverge — is in
   problem — every Java repository now carries a wrapper at 3.9.14 and CI invokes `./mvnw` — except
   inside the build images, which still `microdnf -y install maven` unversioned.
 
-- **11. Point the token-verification client at a truststore in production.** Token-signature verification
+- **10. Point the token-verification client at a truststore in production.** Token-signature verification
   fetches the realm's signing keys over HTTPS; on the local stack that client trusts the self-signed
   `.orgx` certificate (`disableTrustManager` in `KeycloakDeploymentProvider`, matching the admin
   client). A real deployment should instead trust a truststore holding the realm CA. Small, and only
   matters outside local dev.
 
-- **12. Stop using the hardcoded BioPortal key, and rotate it.** `Constants.BP_PUBLIC_API_KEY` in
+- **11. Stop using the hardcoded BioPortal key, and rotate it.** `Constants.BP_PUBLIC_API_KEY` in
   `cedar-terminology-server` holds a literal BioPortal key, and `Cache` sends it on the four calls
   that populate the ontology and value-set caches (`findOntology` twice, `findAllOntologies`,
   `findAllValueSets`). Those are the server's own calls rather than calls made for a signed-in user,
@@ -381,7 +359,7 @@ model libraries — where their JSON and YAML serializations diverge — is in
   here is the *cause*: read `CEDAR_BIOPORTAL_API_KEY` from config, delete the constant, and rotate the
   exposed key so the partial loads stop happening in the first place.
 
-- **13. Identify API keys by a non-secret id, not the secret in the URL.** The API-key management routes
+- **12. Identify API keys by a non-secret id, not the secret in the URL.** The API-key management routes
   carry the full secret in the path — `POST /{id}/api-keys/{key}/regenerate` and
   `DELETE /{id}/api-keys/{key}` — so the key lands in nginx access logs, request traces, monitoring and
   browser history. The cheap leaks are already closed (the not-found error no longer echoes the key and
@@ -390,7 +368,7 @@ model libraries — where their JSON and YAML serializations diverge — is in
   (`/api-keys/{keyId}`), keeping the secret out of the path. Breaking change: cedar-cli and the profile
   UI call these routes, so it needs a coordinated client update.
 
-- **14. Deploy CEDAR from containers. The stack builds and runs locally; no environment deploys from
+- **13. Deploy CEDAR from containers. The stack builds and runs locally; no environment deploys from
   it.** Development runs as native processes brought up by hand — JDK 17 pinned, infra services
   started, fifteen service jars and the frontends launched through `cedar-services.sh` — and a deploy
   to staging or production rebuilds all of it on the target. Both work, and neither is reproducible. A
@@ -568,7 +546,7 @@ model libraries — where their JSON and YAML serializations diverge — is in
          Neo4j        5.26.0          5.26.0     (moved 2026-08-08, was 5.3.0)
          Redis        7.2.7           7.2.7      (moved 2026-08-08, was 6.2.7)
          OpenSearch   2.19.1          2.19.1     (moved 2026-08-08, was 1.3.6)
-         Keycloak     22.0.5          22.0.4     (upstream is 26.7.1; see item 9 for what holds it)
+         Keycloak     22.0.5          22.0.4     (upstream is 26.7.1; see item 8 for what holds it)
 
      The direction is the surprise. The Docker images are the only place any of these versions is
      written down; the native stack is Homebrew, so `brew upgrade` moves four of the six with nobody
@@ -658,8 +636,8 @@ model libraries — where their JSON and YAML serializations diverge — is in
      equally. Docker pins exactly. Homebrew mostly cannot: versioned formulae exist for some of the
      six and not others, and `brew pin` only prevents an upgrade rather than installing a chosen
      version. Containerized infrastructure takes Homebrew out of the development path and makes the
-     Docker pins the only pins, which is the cleanest resolution and the reason item 5 below follows
-     this one closely.
+     Docker pins the only pins, which is the cleanest resolution and the reason the
+     containerized-infrastructure step below follows this one closely.
 
   2. **Pin every image input, and check it mechanically.** The lock above answers one question: what
      must not move because something else depends on it working. A deployable image raises a second:
@@ -1013,8 +991,9 @@ model libraries — where their JSON and YAML serializations diverge — is in
 
      Keep the mechanism dumb. `cedarcli deploy <env> <tag>` doing a pull and `docker compose up -d`
      over SSH, or a GitHub Actions job with a deploy key. Each environment is a single host, so
-     nothing here justifies more machinery than that. Production additionally needs items 6 and 8
-     settled; staging can run with a native frontend build until then.
+     nothing here justifies more machinery than that. Production additionally needs the
+     frontend-publishing and TLS steps settled; staging can run with a native frontend build until
+     then.
 
   11. **Containerize the data stores.** The end state, and a separate project from the
      staging-then-production step above — it must not gate it. Each store moves at the version
@@ -1088,7 +1067,7 @@ model libraries — where their JSON and YAML serializations diverge — is in
   than a slow one, so they are worth knowing about before the next thing perturbs request latency.
 
 
-- **15. Adopt Renovate, so a version that falls behind says so.** Every pin in this estate is
+- **14. Adopt Renovate, so a version that falls behind says so.** Every pin in this estate is
   maintained by someone remembering to look at it, and the measurement above is what that produces:
   the Docker OpenSearch image sat at 1.3.6 while the servers shipped the 2.19 client, for about two
   years, and nothing anywhere reported it. Renovate is a bot that reads the files a repository
@@ -1156,7 +1135,7 @@ model libraries — where their JSON and YAML serializations diverge — is in
 Coverage and test-infrastructure work. The active REST integration suites live in
 `ops/e2e/rest/suites/`; the JUnit matrices and boot-smoke live in the per-server modules.
 
-- **16. Decide whether the build runs the tests, and give the answer a command-line option. Stop the
+- **15. Decide whether the build runs the tests, and give the answer a command-line option. Stop the
   output loop busy-polling.** The Java build skips its tests again: every Java repo is built with
   `./mvnw clean install -DskipTests`, and the `CEDAR_DEV_SKIP_TESTS` escape hatch is gone with the
   default it modified. That restores the behaviour the build had before, and it means a green
@@ -1225,7 +1204,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   "Execution succeeded!" and exits 0. A build that continued past a failure must record it, say so in
   the closing panel, and exit non-zero.
 
-- **17. Deepen the core-workflow tests instead of growing the headline count.** The JUnit matrices and the
+- **16. Deepen the core-workflow tests instead of growing the headline count.** The JUnit matrices and the
   REST suites now give the system respectable horizontal coverage: routes boot, authentication and
   permission boundaries are pinned, and create/read/update/delete, sharing, search, versioning and the
   cross-service hop all execute against the real stack. Much of that is deliberately
@@ -1264,7 +1243,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   versions or search projection disagreeing. The present suite protects the behavioural skeleton; this
   item protects the integrity of state when operations fail or are repeated.
 
-- **18. Add degradation tests.** Nothing asserts how a service behaves when a dependency it needs is
+- **17. Add degradation tests.** Nothing asserts how a service behaves when a dependency it needs is
   unavailable. The cost of that gap is known: reading any folder whose creator could not be resolved
   returned 500 for as long as the defect existed, because `UserSummaryCache` let Guava's
   "loader returned null" signal escape instead of degrading to the no-display-name path the callers
@@ -1272,7 +1251,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   asserts the API degrades rather than 500s. Bear in mind that queue writes are already best-effort
   by design (`AppLoggerQueueService`, the worker and NCBI queues), so those are the pattern to match.
 
-- **19. Retry the ontology-list load in the term picker (frontend, `cedar-template-editor`).** This is a
+- **18. Retry the ontology-list load in the term picker (frontend, `cedar-template-editor`).** This is a
   change to the Angular frontend, not to any microservice or test suite — it lands in
   `cedar-template-editor`, and so needs a frontend owner to review and push it (see the note below).
   It is the last piece of this defect still outstanding, and the fix is already written: it is open as
@@ -1317,7 +1296,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   and never could succeed. Nothing is saved server-side until after the block, so a failed attempt
   leaves no orphan template.
 
-- **20. Build the MCP servers with everything else.** Four of them live under `$CEDAR_HOME/mcp`:
+- **19. Build the MCP servers with everything else.** Four of them live under `$CEDAR_HOME/mcp`:
   `cedar-artifact-mcp`, `cedar-artifact-rest-mcp` and `cedar-cee-mcp` are Maven projects,
   `bioportal-term-mcp` is Python. Each is its own repository, none is part of `cedarcli build java`,
   none has a GitHub Actions workflow, and neither [BACKEND-RUNBOOK.md](./BACKEND-RUNBOOK.md) nor
