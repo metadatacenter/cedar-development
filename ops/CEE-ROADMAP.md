@@ -32,20 +32,47 @@ it says the rest.
   still track those files, and checking one out then returning will delete the
   staged copy from disk; re-stage rather than debugging the dangling symlink.
 - The model dependency is the Nexus-only prerelease
-  `@org.metadatacenter/cedar-model-typescript-library@0.9.2-dev.20260808.92f3412`,
+  `@org.metadatacenter/cedar-model-typescript-library@0.9.2-dev.20260809.1594545`,
   resolved identically by the app, the harness and the visual suite, since a skew
   between them would mean the domain tests and the bundle disagreed about what the
-  model is. That build carries `InstanceValidator`, which is what the conformance
-  spec needed, so the spec runs against it today. It also carries the static image
-  `_ui._size` fix, and CEE now reads it: both sizeable static kinds honour the
-  size a template asks for. They answer an absent one differently, and both are
-  right — a video is an `iframe` with no intrinsic size, so it falls back to
-  `640 × 390`; an image has its own dimensions, so no attribute is set and the
-  browser uses them.
-- The safety net is 2,359 domain tests across 48 harness spec files, 134 unit
+  model is. Three manifests pin it, one per project, and the harness keeps its own
+  `node_modules`: two copies of the library are two nominally distinct sets of
+  types, so a half-done bump fails typecheck rather than passing quietly. That
+  build carries `InstanceValidator`, which is what the conformance spec needed, so
+  the spec runs against it today. It also carries the static image `_ui._size`
+  fix, and CEE now reads it: both sizeable static kinds honour the size a template
+  asks for. They answer an absent one differently, and both are right — a video is
+  an `iframe` with no intrinsic size, so it falls back to `640 × 390`; an image has
+  its own dimensions, so no attribute is set and the browser uses them.
+- **The library refuses to build an invalid artifact**, as of that same version. A
+  value atom with no IRI where one is required, and a controlled-term constraint
+  pointing at nothing, now throw at construction instead of serializing. The
+  readers keep their permissiveness through a named `fromParsedNode`, because a
+  document that arrives malformed has to be preserved and reported rather than
+  repaired. CEE needed none of it: `changeControlledValue` already wrote `{}` for
+  an empty IRI, and every constraint CEE builds was already complete.
+- **CEE names no serialization key outside its wire adapters.** The authority
+  layer holds its own `AuthorityTerm` — `{iri, label}` — rather than borrowing
+  `JsonSchema.atId` and `JsonSchema.rdfsLabel`, which is what had made `details`
+  untypeable and forced 20 `as string` casts. Three literal keys are left in
+  `src/`, all in the two services that read an external HTTP response: the
+  terminology server sends a term's IRI under `@id`, and its `id` alongside is a
+  short identifier rather than the same value. The harness names none at all, and
+  builds its fixtures through the library.
+- The safety net is 2,426 domain tests across 47 harness spec files, 134 unit
   tests across thirteen, and 404 bundle-level Playwright checks on Chromium,
   Firefox and WebKit, with 108 committed snapshots. No test is known to be
-  flaky. The one that was recorded as flaky for months turned out to be a real
+  flaky. Eight went when the model library learned to refuse an invalid
+  artifact: six whose subject was what the reader makes of a document the
+  library will not build, which is the library's question and is covered in its
+  suite, and two that described CEE's behaviour on an IRI-bearing node that was
+  empty — a shape nothing can now produce, since a field holding no IRI is
+  written `{}`.
+- **An unnamed attribute-value slot stays unnamed.** Adding one, or copying an
+  occurrence, used to manufacture `Attribute Value Field1` on the next sync, so a
+  user who clicked "+" and stopped had a property in their instance they never
+  named and could not tell from one they had. Both now leave the slot empty until
+  the user types. The one that was recorded as flaky for months turned out to be a real
   defect — see *Selection races*, below.
 - The gate is lint → typecheck → unit → domain → visual → stage the npm package.
   **TypeScript `strict` is on everywhere**, in `tsconfig.base.json` and, since
@@ -707,28 +734,6 @@ Smaller than it looks, and smaller than it was written. The authority layer is
 already out of `JsonSchema`'s hands, and item 5 takes the instance path out of it
 too, so what is left here is every other consumer of the library — which is where
 the value of doing it upstream sits.
-
-### 10. Refuse to build an invalid artifact
-
-The library will write a value node that is not a value. `new
-InstanceDataControlledAtom(null, 'Some Term')` builds without complaint and the
-JSON writer emits `{"@id": null, "rdfs:label": "Some Term"}` — a label with
-nothing to label, which is neither a literal nor an IRI and which the reader then
-discards on the way back in. The same holds for a link atom with no IRI.
-
-A builder that accepts this leaves every consumer to decide for itself what an
-invalid artifact means, which is the situation the builders exist to end. It
-should refuse at construction, where the caller still knows what it was trying to
-say.
-
-Found from CEE's side: the harness needed a half-written controlled term to check
-that an injected instance reports what it dropped, could not get one from the
-library, and had been writing the JSON by hand instead. Those tests are gone —
-what the reader makes of an invalid document is the library's question — and they
-should come back in the library's own suite alongside the refusal.
-
-Done when the instance atoms reject an IRI-less construction, and the reader's
-treatment of an invalid value node is covered where the reader lives.
 
 ## Delivery order
 
