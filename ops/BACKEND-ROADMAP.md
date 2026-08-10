@@ -1312,3 +1312,38 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   service a fresh attempt; re-running the ontology search inside the picker reads the same empty cache
   and never could succeed. Nothing is saved server-side until after the block, so a failed attempt
   leaves no orphan template.
+
+- **21. Build the MCP servers with everything else.** Four of them live under `$CEDAR_HOME/mcp`:
+  `cedar-artifact-mcp`, `cedar-artifact-rest-mcp` and `cedar-cee-mcp` are Maven projects,
+  `bioportal-term-mcp` is Python. Each is its own repository, none is part of `cedarcli build java`,
+  none has a GitHub Actions workflow, and neither [BACKEND-RUNBOOK.md](./BACKEND-RUNBOOK.md) nor
+  [RELEASE-RUNBOOK.md](./RELEASE-RUNBOOK.md) mentions them. They are built by hand, which means they
+  are built when somebody remembers.
+
+  The three Maven servers are currently unbuildable on this machine, and nothing said so. All three
+  pin `cedar-artifact-library:2.8.4-SNAPSHOT`; `~/.m2/settings.xml` reaches `oss.sonatype.org` for
+  releases, that repository answers `402 Payment Required`, and the hard failure aborts resolution
+  before the BMIR Nexus is tried — where the artifact is present and answers 200. Neither `-U` nor
+  clearing the `.lastUpdated` markers helps, because the abort happens on the way to the repository
+  that has it.
+
+  A stale MCP jar is worse than a stale service jar. **An MCP's tool descriptions are the only
+  documentation the calling LLM ever sees, and they ship inside the jar.** `cedar-artifact-rest-mcp`
+  was running a 30 July jar while its descriptions were rewritten on 9 August, so a client kept
+  reading a surface that no longer described the tools — and a description that disagrees with
+  behaviour is worse than no description, since it is followed rather than ignored.
+
+  Deliver:
+
+  - Make the dependency resolvable: pin a version the BMIR Nexus holds, or order the repositories so
+    a 402 from one that never holds CEDAR artifacts cannot end the search.
+  - Build the three Maven servers with the rest, after `cedar-artifact-library`, so a library change
+    that breaks a tool signature fails in the build rather than at a client's first call.
+  - Give each repository the workflow every other Java repository already has.
+  - Make a running server state which build it is and which CEDAR server it talks to. `ping` reports
+    the version and deliberately contacts nothing, so the target is invisible — and it is fixed when
+    the process spawns, so editing a client's configuration changes nothing until the server
+    restarts. That combination let a server keep writing to whatever it was started against after its
+    configuration had been pointed elsewhere, which is a hazard when one of the two is production.
+  - Decide whether they join the release or stay outside it, as CEE and the TypeScript model library
+    do.
