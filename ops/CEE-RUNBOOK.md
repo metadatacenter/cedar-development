@@ -777,12 +777,18 @@ committed artifact, predate that script and the ignore.)
 
 Then add a `## [X.Y.Z] - <date>` section to `CHANGELOG.md`, and bump the load-trace stamp in
 `src/app/modules/shared/components/cedar-embeddable-metadata-editor/cedar-embeddable-metadata-editor.component.ts`
-→ `private static INNER_VERSION = '<YYYY-MM-DD HH:MM>';`.
+→ `private static INNER_VERSION = '<YYYY-MM-DD HH:MM> <sha>';`, where the commit is the one the
+version names. The time is when the bump was written and is not compared to anything; the commit is.
 
 > `ceeVersion` derives from `package.json` and is exposed as `window.cedarEmbeddableEditorVersion`,
 > so bumping `package.json` is what drives the visible version. `INNER_VERSION` is only the stamp
 > logged at load. `README.md` and `CHANGELOG.md` are copied into the package by staging — no manual
 > `cp` step.
+
+`check:npm-package` compares the stamp's commit against `package.json` and fails the gate when they
+disagree, naming both values and the line to change. It is the only version spot nothing derives —
+every other copy is generated from `package.json`, so a forgotten stamp used to ship a bundle that
+passed everything and then reported the previous release to anyone reading the console.
 
 ### 2 · Build and browser-test
 
