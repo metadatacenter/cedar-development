@@ -208,6 +208,49 @@ occurrences. If `{}` and `{"@value": null}` are meant to be the same thing,
 TypeScript is over-faithful and Java is right; if they are not, Java is losing
 data. Someone has to say which.
 
+### An empty attribute-value field — resolved on both sides, by opposite routes
+
+An attribute-value field is written as the list of attribute names it holds, so a
+field naming none is `[]`. An instance is read without its template, and an empty
+array names no kind — it could be that field, an empty multi-instance field, or an
+empty multi-instance element. Both libraries face the ambiguity and both record the
+choice they made; the choices are opposite, and each was benign until something
+asked the two to agree.
+
+| | classifies `[]` as | inflating a child that is absent |
+|---|---|---|
+| Java | an empty multi-instance field | `[]` |
+| TypeScript | an empty list | `[]` |
+
+Java's choice cost nothing at read or render, because both classifications emit an
+empty array — but `InstanceInflater` then treated the misfiled child as absent and
+added a group over a key the misreading still held, which the builder refuses:
+`IllegalArgumentException: child <key> already present in instance`. Inflating threw
+on any instance with an unfilled attribute-value field. It now withdraws the
+provisional choice first, using the schema it holds and the reader does not, and only
+where the misfiled child carries nothing.
+
+TypeScript's reader was already right — an empty array is the empty list it looks
+like — but its inflater had no branch for the field at all, so an omitted child became
+the empty node every other omitted child gets, which writes as `{}`. That is a shape
+neither library's reader produces for the field, and it reads back as itself, so the
+wrong shape survived once written. It now fills `[]`, agreeing with what reading the
+result produces.
+
+The classification difference remains and is worth knowing rather than fixing: the
+two disagree about what an empty array *is* while agreeing on every byte they emit
+for it.
+
+### Java refuses a child artifact carrying no `$schema`
+
+`JsonArtifactReader` throws `ArtifactParseException: No text value present for field
+$schema` on a template whose nested fields omit `$schema`; the TypeScript reader
+records it as a blueprint departure and carries on. Templates in the wild carry the
+omission — one local template had it on 204 artifact nodes — so this is the difference
+between a template that renders in CEE and a template no Java-side tool can read at
+all. Which side is right is a model question; that they differ is a portability
+problem either way.
+
 ### Both diverge from the source
 
 **8. `propertyLabels` and `propertyDescriptions` with orphan keys**

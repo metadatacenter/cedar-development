@@ -16,7 +16,7 @@ it says the rest.
 
 - `develop` is on **Angular 22.1, TypeScript 6.0, RxJS 7.8 and Node 24.19.0**.
   `main` is still on Angular 14.3, TypeScript 4.8 and RxJS 6.6.
-- The published dev build is `1.6.0-dev.20260810.ab37f62`, on Nexus as the scoped
+- The published dev build is `1.6.0-dev.20260810.d579449`, on Nexus as the scoped
   package under the `dev` tag. It ships TypeScript declarations for the host
   contract — item 1.
 - **The local frontends and the dev build agree.** All four — the Template
@@ -38,9 +38,24 @@ it says the rest.
   clone must stage once before a consumer can serve CEE. Branches cut before this
   still track those files, and checking one out then returning will delete the
   staged copy from disk; re-stage rather than debugging the dangling symlink.
+- **An attribute-value field the instance says nothing about can be filled in.** A
+  template declares the property and an instance need not carry a slot for it, which
+  is what CEDAR writes for a field nobody has filled in. CEE read the absent node as
+  data missing rather than as an unfilled field: the add had no list to put an
+  occurrence into and turned the click away, so the button did nothing and said so
+  only in the console, while the pager reported the same node from `ngDoCheck` — once
+  per change-detection pass for as long as the form stayed open. The list the
+  template implies is created on demand now; a node holding something other than a
+  list is left alone, since that is a disagreement between template and document
+  rather than an empty slot.
 - The model dependency is the Nexus-only prerelease
-  `@org.metadatacenter/cedar-model-typescript-library@0.9.2-dev.20260810.b48728a`,
-  resolved identically by the app, the harness and the visual suite. The app and
+  `@org.metadatacenter/cedar-model-typescript-library@0.9.2-dev.20260810.38cb9a1`,
+  resolved identically by the app, the harness and the visual suite. It inflates an
+  omitted attribute-value child to an empty list rather than to the empty node every
+  other omitted child gets, which is the other way a document used to reach CEE with
+  nothing usable at that path — an empty node writes as `{}`, a shape no reader of a
+  CEDAR instance produces for that field and which reads back as itself, so the wrong
+  shape survived once written. The app and
   the visual suite pin it; the harness has no dependency of its own and resolves
   the app's, because two copies are two `InstanceDataContainer` classes and the
   tree's guards ask `instanceof`. That
@@ -92,8 +107,14 @@ it says the rest.
   document that arrives malformed has to be preserved and reported rather than
   repaired. CEE needed none of it: `changeControlledValue` already wrote `{}` for
   an empty IRI, and every constraint CEE builds was already complete.
-- The safety net is 2,067 domain tests across 46 harness spec files, 142 unit
-  tests across fourteen, and 434 bundle-level Playwright checks on Chromium,
+- **Every screenshot is judged by an absolute pixel budget**, not a ratio of the
+  page it came from. A ratio forgives in proportion to height, so it hid exactly
+  what mattered: a localised change to a tall page. Four went green against a stale
+  full-page baseline in one day, two of them sitting in `17-real-flat` for two
+  commits at 0.06% of a 1280×4418 page. The clipped widget shots had already been
+  given an absolute budget for that reason; the full pages now share it.
+- The safety net is 2,046 domain tests across 46 harness spec files, 149 unit
+  tests across fourteen, and 446 bundle-level Playwright checks on Chromium,
   Firefox and WebKit, with 108 committed snapshots. No test is known to be
   flaky. The count fell because tests went, not coverage: what the reader makes
   of a malformed document, whether an injected instance keeps its envelope and
