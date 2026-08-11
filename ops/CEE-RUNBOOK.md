@@ -2,7 +2,7 @@
 
 Building, running and testing **CEE** (`cedar-embeddable-editor`) locally.
 Everything here has been run on macOS (Apple silicon), against `develop` @ CEE
-1.6.0-dev.20260811.feaebdb, which is Angular 22. That is also what the `dev` tag on
+1.6.0-dev.20260811.c67ccae, which is Angular 22. That is also what the `dev` tag on
 Nexus points at and what the local frontends serve, all three verified by the sha256
 of the bundle rather than by the version each reports. `main` is still on Angular
 14.3, so a command that behaves differently there is describing that branch, not a
