@@ -647,31 +647,39 @@ toolbar. Two findings from that inventory are worth keeping, because both correc
 a reasonable guess:
 
 - All twenty `data:` URLs in the corpus are inline PNGs on an `<img>`. Refusing
-  `data:` outright would have blanked every one. Raster types are allowed on images;
-  `image/svg+xml` is not, because an SVG can carry script.
+  `data:` outright would have blanked every one. Raster types are allowed on images,
+  and `image/svg+xml` is not.
 - Corpus template 009 already carries `ng-click` and `ng-class`, pasted from CEDAR's
   own interface. Inert in CEE, which is Angular; executable in the AngularJS Template
   Designer that embeds it.
 
-What is left:
+The strings a template author writes that are not rich text have been swept, and
+rich text is the only one of them that renders as HTML. The rest reach the page as
+interpolated text or as a URL — a section break's label and help text, an image
+field's `src`, a video field's link, and the messages the two resolvers produce when
+they refuse one — and `20-static-markup` now holds each of them hostile, so what was
+an observation about the code is a property two render-level tests assert.
 
-- **Say it where a template author will see it.** The Template Designer's rich-text
-  editor has a `Source` button, so an author can type any markup at all and get no
-  indication that some of it will not render for an embedder. The editor should say
-  what survives, or refuse what will not.
-- **Sweep the other template-authored strings.** Rich text was the one path
-  rendering as HTML, but section-break, image and YouTube content all come from the
-  same author through the same route. They are treated as text or as URLs today —
-  section break interpolates, `resolveStaticImageView` gates the URL on a scheme
-  allowlist, and the YouTube field builds an embed URL from a fixed origin around an
-  extracted video id — and that is a property worth a test at render level rather
-  than an observation. The resolvers already have unit coverage for hostile input;
-  what is missing is a fixture in the shape of `19-template-markup` carrying markup
-  in a section-break label and description alongside an unusable image and video
-  URL. One inconsistency to settle while there: the image field allows `data:`
-  wholesale, where the rich-text policy allows raster types and refuses
-  `image/svg+xml`. An SVG in an `img` cannot execute, so this is not a hole, but the
-  two paths disagree about the same input and should either agree or say why not.
+That sweep settled the `data:` disagreement by keeping it and writing down why. The
+image field now requires a `data:` URL to declare an image, where it used to admit
+any payload on the strength of the scheme; the subtype is unconstrained, so an SVG
+diagram still renders. The rich-text policy still refuses `image/svg+xml`, and not
+because an SVG in an `img` can execute — it cannot. It is that the policy's `img` is
+one entry in an allowlist over markup the author controls wholesale, so keeping the
+list as narrow as the corpus justifies means a later edit widening `ALLOWED_TAGS`
+cannot inherit a scripting context from a payload already admitted. The image field
+has no element list to widen: CEE writes that `img` itself.
+
+What is left is on the authoring side, and is a change to the Template Designer
+rather than to CEE. The rich-text editor has a `Source` button, so an author can type
+any markup at all and get no indication that some of it will not render for an
+embedder. The editor should say what survives, or refuse what will not — CKEditor 4's
+`allowedContent` filter is declared in `rich-text-config-service.conf.json` and
+applies on paste and on leaving source mode, so this needs no new interface on either
+side. It does mean a second copy of the allowlist: CEE's shipped bundle is an IIFE
+that exports nothing at runtime, so the Template Designer cannot read
+`TEMPLATE_MARKUP_POLICY` from it, and the Designer is AngularJS on RequireJS with
+CKEditor as a global, which would need the list translated on arrival in any case.
 
 Done when a template author is told what their markup will do.
 
