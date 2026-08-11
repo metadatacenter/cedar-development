@@ -21,11 +21,20 @@ commit that opened it.
 4. **Scroll bug.** Scrolling past the end of a long form and back leaves the bottom of it
    blank, most likely in the Template Designer's nested scroll containers rather than in
    CEE.
-5. **Palette.** Choose a brand colour, which means migrating the theme to M3 and cutting
-   back the eighteen Material internal selectors that exist only because M2 offers no
-   supported way to restyle a component.
-6. **Appearance contract.** Decide the type scale's status, which is gated on item 5, and
-   add a check that reports an unscoped `::ng-deep`.
+5. **M3 theme adapter and palette.** Replace the M2 compatibility theme with M3 inside
+   `_cee-material-theme.scss` as a deliberate visual migration, not a mechanical upgrade:
+   choose the CEDAR and neutral palettes, preserve CEE-owned layout, typography, status,
+   focus and accessibility invariants, use supported theme and component override mixins,
+   review incidental Material-chrome diffs separately, and never expose `--mat-*` tokens as
+   host API. Cut back the Material internal selectors made unnecessary by the adapter.
+6. **Appearance contract.** Keep Shadow DOM and CEE ownership of control geometry, layout,
+   validation colours and Material internals; give embedders a small versioned API for
+   `cedar`/`neutral` theme, `light`/`dark`/`auto` colour scheme and
+   `comfortable`/`compact` density, with only a few advanced `--cee-*` overrides. Preserve
+   the existing heading properties for compatibility, expose a font only if it can apply
+   consistently to every control, deprecate the inert text-primary and accent properties,
+   forbid arbitrary CSS and Material selectors, test every preset for contrast, focus,
+   narrow layout and edit/read-only rendering, and report any unscoped `::ng-deep`.
 7. **Two untested config flags.** `showAllMultiInstanceValues` needs one instance file for
    `17-real-flat`; `showStaticText` needs a decision on whether it is dead configuration.
 8. **Markup discoverability.** Have the Template Designer's rich-text editor declare or
