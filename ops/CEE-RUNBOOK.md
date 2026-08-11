@@ -575,7 +575,8 @@ cd visual
 npm run prepare:all && npm test
 ```
 
-Expect **370 passing** in about 55 seconds. `prepare:all` re-concatenates the
+Expect **446 passing** in about four minutes. The count grows as tests are added;
+treat a *fall* as something to explain. `prepare:all` re-concatenates the
 bundle from `../dist` and regenerates the template fixtures; run it after any
 rebuild.
 
@@ -600,6 +601,50 @@ npm run update
 
 Review every changed PNG before committing — a baseline update asserts the new
 rendering is correct.
+
+### When a Baseline Passes and Is Still Wrong
+
+Every screenshot is judged against an absolute budget of **120 differing pixels**,
+not a proportion of its own area. That distinction is worth understanding before
+trusting a green run.
+
+A proportional budget forgives in step with image size, so a localised change to a
+tall page cannot move enough pixels to fail it: 1% of a 1280x4418 corpus page is
+some 56,000 pixels. Six intended changes went green against stale baselines in a
+single day that way — a decimal separator's colour and size, a placeholder from
+`000` to `sss`, `AM` losing 100 of font weight, an occurrence chip going 32px to
+26px, the UTC offset's alignment, and the type scale. Adopting the absolute budget
+failed fourteen baselines at once, between 557 and 8,837 differing pixels each, none
+of it rasterisation noise.
+
+So a passing screenshot does not prove the baseline matches what CEE renders. It
+proves the difference is under budget. The two were the same thing only after the
+budget stopped scaling.
+
+**`npm run update` cannot fix such a baseline.** Playwright rewrites a snapshot only
+when its comparison failed, so one that passes while depicting the previous
+rendering stays as it is, however many times you run the update. Delete it and let
+the suite write it fresh:
+
+```bash
+rm visual/tests/render.spec.ts-snapshots/07-timezone-*.png
+npm --prefix visual test   # writes what is missing, and fails while doing so
+npm --prefix visual test   # confirm it passes against what it just wrote
+```
+
+Then find out what actually moved, rather than accepting the new image because it is
+new. Extract the committed version and compare scanlines:
+
+```bash
+git show HEAD:visual/tests/render.spec.ts-snapshots/07-timezone-desktop-darwin.png > /tmp/old.png
+```
+
+Decode both and list the rows that differ, then group them into bands and look at
+each one. A band the change in hand does not explain is a change some earlier commit
+left behind — which is how the offset alignment was found still sitting in
+`07-timezone` two commits after it shipped. Reading the bands takes a minute and is
+the difference between re-recording a baseline and laundering an unexplained diff
+into it.
 
 ## Running the Angular unit tests
 
