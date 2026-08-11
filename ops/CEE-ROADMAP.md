@@ -50,15 +50,14 @@ it says the rest.
   rather than an empty slot.
 - The model dependency is the Nexus-only prerelease
   `@org.metadatacenter/cedar-model-typescript-library@0.9.2-dev.20260810.38cb9a1`,
-  resolved identically by the app, the harness and the visual suite. It inflates an
-  omitted attribute-value child to an empty list rather than to the empty node every
-  other omitted child gets, which is the other way a document used to reach CEE with
-  nothing usable at that path — an empty node writes as `{}`, a shape no reader of a
-  CEDAR instance produces for that field and which reads back as itself, so the wrong
-  shape survived once written. The app and
+  resolved identically by the app, the harness and the visual suite. The app and
   the visual suite pin it; the harness has no dependency of its own and resolves
   the app's, because two copies are two `InstanceDataContainer` classes and the
-  tree's guards ask `instanceof`. That
+  tree's guards ask `instanceof`. It inflates an omitted attribute-value child to an
+  empty list rather than to the empty node every other omitted child gets, which is
+  the other way a document used to reach CEE with nothing usable at that path: an
+  empty node writes as `{}`, a shape no reader of a CEDAR instance produces for that
+  field and which reads back as itself, so the wrong shape survived once written. That
   build carries `InstanceValidator`, which is what the conformance spec needed, so
   the spec runs against it today. It also carries the static image `_ui._size`
   fix, and CEE now reads it: both sizeable static kinds honour the size a template
