@@ -744,13 +744,12 @@ no `@type`. Where the same template requires `@type`, the field cannot be filled
 and the instance cannot be saved. Nothing warns, because `TemporalType.forValue`
 answers NULL for an absent value and a misspelled one alike.
 
-`ops/cedar_temporal_types.py` walks every template, element and field a key can
-see on a given server and reports both questions: what each temporal field
-declares, what it requires, and what the untyped ones carry instead.
-`--dump-untyped` writes those fields out verbatim, and `--version` chooses
-whether a template is counted once or once per version. Settle the summary's
-`requires a type, declares none` count first, which names the fields that are
-broken rather than the ones that are merely lax.
+Neither question can be answered from the corpus, because production is where the
+untyped fields are. Both need a walk over every template, element and field a key
+can see on a server, reporting what each temporal field declares, what it requires,
+and what the untyped ones carry instead — and counting a template once, or once per
+version, changes the answer. Settle the count of fields that require a type and
+declare none before the rest: those are broken, where the others are merely lax.
 
 Neither question blocks the release.
 
