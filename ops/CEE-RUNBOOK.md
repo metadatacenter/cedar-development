@@ -162,6 +162,54 @@ The domain fixtures are vendored under `harness/fixtures/`. Neither
 `cedar-artifact-library` nor `cedar-test-artifacts` needs to be cloned or
 checked out.
 
+### Getting a Local Build Into the Frontends
+
+Staging is necessary and not sufficient. The symlink means a consumer *resolves*
+the freshly staged bundle, but every consumer **copies** it into its own served
+output, so each needs a second step:
+
+```bash
+# Template Designer — needs the CEDAR profile sourced, or the gulpfile refuses to start
+cd $CEDAR_HOME/cedar-template-editor && npx gulp copy:cee
+
+# openview, artifacts, bridging — the copy happens during the Angular build
+cd $CEDAR_HOME/cedar-openview/cedar-openview-src && npx ng build
+```
+
+**A running `ng serve` will not pick a new bundle up.** It copies assets when it
+starts, and it does not notice the file changing underneath it — still less the
+symlink being created after it started. Restart it:
+
+```bash
+bash $CEDAR_HOME/cedar-development/ops/cedar-services.sh restart ui-openview
+```
+
+This is worth knowing because of how it presents. A dev server started before the
+symlink existed went on serving the **1.5.2** it had installed from npmjs, for a
+day, while the Template Designer served `1.6.0-dev` from the same symlink. The
+symptoms were smaller type, a different typeface and no field-type icons in
+openview alone — which reads as a CEE styling bug in one host, and sends you
+looking at stylesheets and the shadow boundary rather than at which file is being
+served. 1.5.2 predates the private font names, the unified type scale and the icon
+slot, so all three symptoms came from the version and none from CSS.
+
+Ask what each host actually serves before believing anything about appearance:
+
+```bash
+curl -s http://localhost:4220/node_modules/cedar-embeddable-editor/cedar-embeddable-editor.js | shasum -a 256
+curl -s http://localhost:4200/third_party_components/cedar-embeddable-editor/cedar-embeddable-editor.js | shasum -a 256
+shasum -a 256 $CEDAR_HOME/cedar-embeddable-editor/dist-npm/cedar-embeddable-editor/cedar-embeddable-editor.js
+```
+
+Three matching hashes mean the hosts agree and any remaining difference is theirs
+rather than CEE's — configuration, or something the host page sets. openview sets
+`readOnlyMode: true`, for instance, so it legitimately shows no bound hints and no
+clear buttons. `window.cedarEmbeddableEditorVersion` names the build in a page
+that is already open, but it reports the label rather than the contents: a staged
+bundle keeps the version from its last release until one is cut, so two different
+builds can both call themselves the same dev version. The hash is what
+distinguishes them.
+
 ### First-time setup
 
 CEE resolves the model library from
