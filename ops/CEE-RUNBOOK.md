@@ -176,13 +176,22 @@ cd $CEDAR_HOME/cedar-template-editor && npx gulp copy:cee
 cd $CEDAR_HOME/cedar-openview/cedar-openview-src && npx ng build
 ```
 
-**A running `ng serve` will not pick a new bundle up.** It copies assets when it
-starts, and it does not notice the file changing underneath it — still less the
-symlink being created after it started. Restart it:
+**A running `ng serve` will not pick a new bundle up, and restarting it is not
+always enough.** It copies assets when it starts, and it does not notice the file
+changing underneath it — still less the symlink being created after it started.
+Worse, openview is on Angular 16 and its webpack build cache snapshots the
+*symlink* rather than what the symlink points at, so a restart alone can replay a
+cached copy of a bundle that is no longer there. Observed: a restart served a
+bundle matching neither the symlink target nor any file in `dist/`, and went on
+doing so for two minutes of polling. Clear the cache and restart:
 
 ```bash
+cd $CEDAR_HOME/cedar-openview/cedar-openview-src && rm -rf .angular/cache
 bash $CEDAR_HOME/cedar-development/ops/cedar-services.sh restart ui-openview
 ```
+
+The cache is gitignored and rebuilds itself, so deleting it costs a slower first
+compile and nothing else. Do not trust the restart on its own: check the hash.
 
 This is worth knowing because of how it presents. A dev server started before the
 symlink existed went on serving the **1.5.2** it had installed from npmjs, for a
