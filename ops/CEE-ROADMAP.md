@@ -54,3 +54,11 @@ commit that opened it.
    the template lands, and on the two-input route nothing has read the instance by then, so
    no field is known to be empty. Three of the six consumers use the two-input route, where
    the key silently does nothing. Asserted in the visual suite as it stands, and documented.
+11. **The screenshot budget still hides a small removal.** `maxDiffPixels: 120` is sized for
+   a couple of glyphs' worth of rasterisation variance, which on one machine is zero; it
+   was already tightened from a ratio after four changes in a day went green against a
+   stale baseline. It is still enough to absorb a control disappearing — removing the
+   preferences menu left `preset-chrome` depicting a trigger that no longer renders, and
+   the suite passed. Decide whether the budget can go to zero, since the baselines are
+   keyed to the platform and re-recording is already the stated answer to an OS font
+   shift, or whether a budget survives only on the shots whose variance is real.
