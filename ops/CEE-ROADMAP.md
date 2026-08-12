@@ -21,13 +21,22 @@ commit that opened it.
 4. **Scroll bug.** Scrolling past the end of a long form and back leaves the bottom of it
    blank, most likely in the Template Designer's nested scroll containers rather than in
    CEE.
-5. **M3 theme adapter and palette.** Replace the M2 compatibility theme with M3 inside
+5. **Keystrokes lost to the calendar's focus restore.** Material hands focus back to the
+   toggle when the datepicker closes, and does it asynchronously, so a date picked and a
+   time typed straight afterwards can land while focus is still moving: the box takes
+   focus, loses it a moment later, and the characters reach nothing — no input event, so
+   the picker is never told and the instance keeps the older time while the box looks
+   filled. Reproduced under load in all three engines. Turning `restoreFocus` off gives up
+   an accessibility behaviour, so the question is what replaces it. The browser suite waits
+   for the restore rather than racing it, which keeps the suite honest but leaves the
+   window open for a fast user.
+6. **M3 theme adapter and palette.** Replace the M2 compatibility theme with M3 inside
    `_cee-material-theme.scss` as a deliberate visual migration, not a mechanical upgrade:
    choose the CEDAR and neutral palettes, preserve CEE-owned layout, typography, status,
    focus and accessibility invariants, use supported theme and component override mixins,
    review incidental Material-chrome diffs separately, and never expose `--mat-*` tokens as
    host API. Cut back the Material internal selectors made unnecessary by the adapter.
-6. **Appearance contract.** Keep Shadow DOM and CEE ownership of control geometry, layout,
+7. **Appearance contract.** Keep Shadow DOM and CEE ownership of control geometry, layout,
    validation colours and Material internals; give embedders a small versioned API for
    `cedar`/`neutral` theme, `light`/`dark`/`auto` colour scheme and
    `comfortable`/`compact` density, with only a few advanced `--cee-*` overrides. Preserve
@@ -35,11 +44,11 @@ commit that opened it.
    consistently to every control, deprecate the inert text-primary and accent properties,
    forbid arbitrary CSS and Material selectors, test every preset for contrast, focus,
    narrow layout and edit/read-only rendering, and report any unscoped `::ng-deep`.
-7. **Two untested config flags.** `showAllMultiInstanceValues` needs one instance file for
+8. **Two untested config flags.** `showAllMultiInstanceValues` needs one instance file for
    `17-real-flat`; `showStaticText` needs a decision on whether it is dead configuration.
-8. **Markup discoverability.** Have the Template Designer's rich-text editor declare or
+9. **Markup discoverability.** Have the Template Designer's rich-text editor declare or
    enforce what an embedder will actually render, since its `Source` button accepts markup
    CEE will strip.
-9. **Temporal `required`.** Settle whether `InstanceValidator` should require `@type` on
+10. **Temporal `required`.** Settle whether `InstanceValidator` should require `@type` on
    every temporal value, and fix the production temporal fields that declare no
    `temporalType` and so cannot be filled in at all.
