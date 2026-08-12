@@ -829,12 +829,12 @@ There are two publish targets, and they are not two ways of doing one thing:
 - **Dev builds → Stanford Nexus**, as the scoped `@org.metadatacenter/cedar-embeddable-editor`
   under the `dev` tag. This is what the repo's tooling produces today, and what the steps below
   describe. Nothing picks a dev build up implicitly.
-- **Stable releases → public npmjs**, as the unscoped `cedar-embeddable-editor`. All eight
-  embedding manifests still depend on this (`^1.5.2`), and 1.5.1 was the last one published this
-  way. **The current tooling does not produce it** — read "Stable releases" below before
-  attempting one.
+- **Stable releases → public npmjs**, as the unscoped `cedar-embeddable-editor`. 1.5.1 was the last
+  one published this way. **The current tooling does not produce it** — read "Stable releases" below
+  before attempting one.
 
-They are two different package names, so a dev build reaches no consumer by itself.
+The two names identify different packages. The eight embedding manifests reach the scoped one
+through an npm alias that pins an exact dev version, described under "Propagate".
 `scripts/npm-package.mjs` generates the published manifest: it hardcodes the scoped name and takes
 the registry from the root `package.json`'s `publishConfig`, so the root manifest's own `name` is
 not what publishes.
@@ -941,30 +941,55 @@ without the flag.
 
 ### 5 · Propagate
 
-Eight manifests across six repos depend on CEE, all on the unscoped `cedar-embeddable-editor`:
+Eight manifests across six repos depend on CEE. Each reaches the scoped Nexus package through an
+npm alias that pins one exact dev version:
 
-| Repo | Manifest |
-|---|---|
-| `cedar-template-editor` | `package.json` |
-| `cedar-artifacts` | `cedar-artifacts-src/package.json` |
-| `cedar-bridging` | `cedar-bridging-src/package.json` |
-| `cedar-openview` | `cedar-openview-src/package.json` |
-| `cedar-component-demo` | `cedar-cee-demo-angular-src`, `cedar-cee-demo-ember-src`, `cedar-cee-demo-react`, `cedar-cee-docs-angular-src` |
+```json
+"cedar-embeddable-editor": "npm:@org.metadatacenter/cedar-embeddable-editor@1.6.0-dev.20260812.b953153"
+```
 
-**A Nexus dev build reaches none of them**, because it is a different package name. To try one in a
-consumer, install the scoped package there deliberately; don't expect a reinstall to find it.
+The alias installs the scoped package into `node_modules/cedar-embeddable-editor/`, keeping the
+folder every consumer already refers to. No import, `gulp.src` path, Angular asset glob or script
+tag changes when a consumer moves between the two registries — only the manifest line does. The
+lockfile records the Nexus tarball and its integrity hash, so the resolved build is reproducible.
 
-For a stable npmjs release, each repo takes the new version in its `package.json`, then reinstall,
-rebuild, commit, push. `cedar-template-editor` uses a caret and picks it up on the next
-`npm install` + `gulp`, which happens during a prod deploy
-([PROD-DEPLOY-RUNBOOK.md](./PROD-DEPLOY-RUNBOOK.md) step 6).
+Each repo also carries an `.npmrc` holding the scope-to-registry line, because a fresh clone and a
+CI runner have no `~/.npmrc`:
+
+```
+@org.metadatacenter:registry=https://nexus.bmir.stanford.edu/repository/npm-cedar/
+```
+
+Nexus serves reads anonymously. Installing needs no credential; only publishing does.
+
+| Repo | Manifest | Install |
+|---|---|---|
+| `cedar-template-editor` | `package.json` | plain |
+| `cedar-artifacts` | `cedar-artifacts-src/package.json` | plain |
+| `cedar-bridging` | `cedar-bridging-src/package.json` | plain |
+| `cedar-openview` | `cedar-openview-src/package.json` | `--legacy-peer-deps` |
+| `cedar-component-demo` | `cedar-cee-demo-angular-src` | `--legacy-peer-deps` |
+| `cedar-component-demo` | `cedar-cee-demo-ember-src`, `cedar-cee-demo-react`, `cedar-cee-docs-angular-src` | plain |
+
+Two repos fail a plain `npm install` on a peer conflict that has nothing to do with CEE:
+`ngx-youtube-player-14` demands `@angular/common@^14.1.3` from projects on Angular 15 and 16. Both
+predate this wiring and both need `--legacy-peer-deps`.
+
+Propagating a new dev build means editing the pinned version in each manifest, reinstalling, and
+rebuilding. Confirm the bytes rather than the version string: the sha256 that `package:npm:prebuilt`
+prints should appear in each consumer's `node_modules`, and again wherever that consumer stages the
+bundle — `app/third_party_components/` for the Template Designer, `dist/cedar-openview/node_modules/`
+for OpenView.
 
 ```bash
 goartifacts && npm install && cd .. && cedarcli build this
 gobridging  && npm install && cd .. && cedarcli build this
 ```
 
-> `cedar-cee-demo-angular-src` needs `npm install --legacy-peer-deps`; the others do not.
+A stable npmjs release takes the unscoped name instead, so its manifest line drops the alias and
+names a plain version (`"cedar-embeddable-editor": "1.6.0"`). Then reinstall, rebuild, commit, push.
+`cedar-template-editor` picks a caret range up on the next `npm install` + `gulp`, which happens
+during a prod deploy ([PROD-DEPLOY-RUNBOOK.md](./PROD-DEPLOY-RUNBOOK.md) step 6).
 
 ### Stable releases to public npmjs
 

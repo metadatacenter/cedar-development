@@ -7,14 +7,15 @@ one line each. How to build, test and release is in
 [BACKEND-ROADMAP.md](./BACKEND-ROADMAP.md). The reasoning behind an item is in the
 commit that opened it.
 
-1. **Distribution.** Decide where CEE is published, since the eight embedding manifests
-   name an unscoped npmjs package the tooling cannot produce and no consumer can install
-   what the frontends serve.
-2. **Wiring into OpenView and the Template Designer.** A new build reaches either host only
-   through the symlink into `dist-npm/`, a copy step run by hand — `gulp copy:cee` for the
-   Template Designer, the Angular asset copy for OpenView — a cleared build cache, and a
-   sha256 comparison to prove which bytes are served. Give them a dependency that resolves
-   the published package, so a release propagates by installing it; gated on item 1.
+1. **Stable distribution.** Dev builds now resolve from Nexus, pinned by an npm alias in all
+   eight embedding manifests. Stable releases still name the unscoped npmjs package that
+   `scripts/npm-package.mjs` cannot produce, so decide whether it learns to emit both, and
+   whether an external embedder installs from npmjs or from Nexus.
+2. **The docs page loads CEE twice.** `cedar-cee-docs-angular-src` imports the bundle from
+   `node_modules` and its `index.html` also fetches
+   `component.metadatacenter.org/cedar-embeddable-editor/cedar-embeddable-editor-2.9.2-SNAPSHOT.js`
+   by URL, so the version its manifest names is not the version the page demonstrates, and
+   the hosted file answers to no manifest at all.
 3. **Scroll bug.** Scrolling past the end of a long form and back leaves the bottom of it
    blank, most likely in the Template Designer's nested scroll containers rather than in
    CEE.
