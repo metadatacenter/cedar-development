@@ -390,15 +390,18 @@ async function reEditInstance(page, newValue) {
 //      A genuine value-carriage regression still fails — the wait just times out and the
 //      assertions run against the (still value-less) metadata, reporting exactly what is
 //      missing.
-//   2. `outputSerialization` is then checked for the one thing only it decides: the
-//      *format* `currentMetadataSerialized` returns — a JSON object by default, a YAML
-//      string once flipped — with `currentMetadata` left JSON either way (the save-path
-//      contract). This step reads only the *type*, never the value, so flipping the
-//      config (which re-runs the editor's init) can't make it depend on timing.
+//   2. `outputSerialization` is checked for the one thing only it decides: the *format*
+//      `currentMetadataSerialized` returns — a JSON object by default, a YAML string when
+//      configured — with `currentMetadata` left JSON either way (the save-path contract).
+//      Every input on the element takes one assignment and keeps it, so a host chooses the
+//      format when it builds an element rather than by re-assigning `config` on a live one.
+//      This check therefore builds two throwaway elements from the template under test, one
+//      default and one configured for YAML, and reads only the *type* each returns, never
+//      the value.
 //
-// Runs last on this page; OpenView uses a fresh browser, so re-configuring the element
-// here disturbs nothing after it.
-async function verifySerializationConfig(page, expectedValue) {
+// Runs last on this page. The throwaway elements are hidden and removed again, and the live
+// editor is only read from, so nothing after this is disturbed.
+async function verifySerializationConfig(page, expectedValue, templateObject) {
   // Wait for the re-edited value to propagate into both getters before asserting.
   // Reading a getter is side-effect-free, so polling cannot disturb the instance.
   // On timeout we fall through: the assertions below then report precisely which
@@ -421,15 +424,9 @@ async function verifySerializationConfig(page, expectedValue) {
     const cee = document.querySelector('cedar-embeddable-editor');
     const str = (v) => (typeof v === 'string' ? v : '');
 
-    // (1) Value, through the always-on getters — no config change.
+    // Value, through the always-on getters — no config involved.
     const json = cee.currentMetadata; // JSON object
     const yaml = cee.currentMetadataYaml; // YAML string
-
-    // (2) Format selection. Default first (JSON object), then flip to YAML (string).
-    const defaultSerialized = cee.currentMetadataSerialized;
-    cee.config = { outputSerialization: 'yaml' };
-    const configuredSerialized = cee.currentMetadataSerialized;
-    const jsonStill = cee.currentMetadata;
 
     return {
       jsonIsObject: json !== null && typeof json === 'object' && !Array.isArray(json),
@@ -437,11 +434,44 @@ async function verifySerializationConfig(page, expectedValue) {
       yamlIsString: typeof yaml === 'string' && yaml.length > 0,
       yamlIsNotJson: !str(yaml).trim().startsWith('{') && str(yaml).includes('type:'),
       yamlCarriesValue: str(yaml).includes(needle),
+    };
+  }, expectedValue);
+
+  // Format selection, on elements built for it. Each is configured before it receives the
+  // template, hidden while it renders, and removed once read.
+  const formats = await page.evaluate(async (template) => {
+    const build = async (config) => {
+      const el = document.createElement('cedar-embeddable-editor');
+      el.style.display = 'none';
+      if (config) el.config = config;
+      document.body.appendChild(el);
+      el.templateObject = template;
+      // The form is built asynchronously; a populated `currentMetadata` says it is up.
+      const deadline = Date.now() + 15_000;
+      while (Date.now() < deadline) {
+        const m = el.currentMetadata;
+        if (m !== null && typeof m === 'object' && Object.keys(m).length > 0) break;
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      return el;
+    };
+
+    const byDefault = await build(null);
+    const asYaml = await build({ outputSerialization: 'yaml' });
+    const defaultSerialized = byDefault.currentMetadataSerialized;
+    const configuredSerialized = asYaml.currentMetadataSerialized;
+    const jsonStill = asYaml.currentMetadata;
+    byDefault.remove();
+    asYaml.remove();
+
+    return {
       defaultSerializedIsJson: defaultSerialized !== null && typeof defaultSerialized === 'object',
       configuredSerializedIsYamlString: typeof configuredSerialized === 'string' && configuredSerialized.length > 0,
       jsonContractPreserved: jsonStill !== null && typeof jsonStill === 'object' && !Array.isArray(jsonStill),
     };
-  }, expectedValue);
+  }, templateObject);
+
+  Object.assign(r, formats);
   const failed = Object.entries(r).filter(([, ok]) => !ok).map(([k]) => k);
   if (failed.length > 0) {
     throw new Error(`serialization-config check failed [${failed.join(', ')}] — ${JSON.stringify(r)}`);
@@ -663,9 +693,17 @@ try {
 
   // 3b-iv. The deployed CEE honours the serialization config: default output is JSON,
   //        outputSerialization:'yaml' makes currentMetadataSerialized YAML, and
-  //        currentMetadata stays JSON so the host's save path is unchanged.
+  //        currentMetadata stays JSON so the host's save path is unchanged. The format
+  //        half builds its own elements, so it needs the template this instance is based
+  //        on: the live editor names it, and the REST token already in hand fetches it.
   step = 'serialization-config';
-  await verifySerializationConfig(page, 'edited notes');
+  const basedOn = await page.evaluate(
+    () => document.querySelector('cedar-embeddable-editor').currentMetadata['schema:isBasedOn']);
+  const templateResp = await restCall(user1.auth, 'GET', `/templates/${enc(basedOn)}`);
+  if (templateResp.status !== 200) {
+    throw new Error(`could not fetch the template under test: ${templateResp.status} ${templateResp.text}`);
+  }
+  await verifySerializationConfig(page, 'edited notes', templateResp.body);
   console.log('✓ deployed CEE honours serialization config (JSON by default; YAML on request; currentMetadata stays JSON)');
 
   // 3c. Publish the template to OpenView, then confirm an anonymous visitor — a
