@@ -953,7 +953,7 @@ without the flag.
 
 ### 5 · Propagate
 
-Eight manifests across six repos depend on CEE. Each reaches the scoped Nexus package through an
+Eight manifests across five repos depend on CEE. Each reaches the scoped Nexus package through an
 npm alias that pins one exact dev version:
 
 ```json
