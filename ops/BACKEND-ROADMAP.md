@@ -1164,38 +1164,12 @@ model libraries — where their JSON and YAML serializations diverge — is in
   - Decide whether they join the release or stay outside it, as CEE and the TypeScript model library
     do.
 
-- **16. Stop `cedar-config-library` shading the other shared libraries, so a change to one reaches its
-  consumers.** Its jar bundles the classes of `cedar-core-library`, `cedar-rest-library` and
-  `cedar-model-library` alongside its own, so `CedarResourceType`, `CedarErrorKey` and
-  `CedarQueryParameters` each exist in more than one published artifact. Consumers resolve whichever
-  copy the classpath reaches first, which is not necessarily the one changed last, and the winner is
-  the stale one often enough to matter.
-
-  What that costs is a build failure in a repository that did not change. Adding a constant to
-  `cedar-core-library` broke `cedar-microservice-libraries` on `develop` with `cannot find symbol:
-  STATIC_FIELD` while the constant sat correctly published in `cedar-core-library`, because the copy
-  inside `cedar-config-library` predated it. The same shape cost two local builds the same day, once
-  in each direction: building the changed repository alone was not enough, and building the libraries
-  in the wrong order was not either, since `cedar-config-library` must be built after what it shades.
-
-  Nothing detects the staleness. A repository's snapshot publishes only when that repository is
-  pushed, so a library whose shaded copies have gone stale is never rebuilt on its own, and
-  `workflow_dispatch` cannot stand in: the publish step is gated on `github.event_name == 'push'`, so
-  a dispatched run verifies and republishes nothing. The present workaround is a commit whose purpose
-  is to make CI republish.
-
-  Exclude the CEDAR artifacts from the shaded set and let consumers depend on them directly. Weigh it
-  against what the shading spares them today: anything resolving one of those classes out of
-  `cedar-config-library` needs its own declared dependency afterwards, so the change is wider than the
-  pom it starts in. Until it is done, a change to a shaded library needs `cedar-config-library`
-  published before any consumer merges, and the pom records that where someone will find it.
-
 ## Testing
 
 Coverage and test-infrastructure work. The active REST integration suites live in
 `ops/e2e/rest/suites/`; the JUnit matrices and boot-smoke live in the per-server modules.
 
-- **17. Decide whether the build runs the tests, and give the answer a command-line option. Stop the
+- **16. Decide whether the build runs the tests, and give the answer a command-line option. Stop the
   output loop busy-polling.** The Java build skips its tests again: every Java repo is built with
   `./mvnw clean install -DskipTests`, and the `CEDAR_DEV_SKIP_TESTS` escape hatch is gone with the
   default it modified. That restores the behaviour the build had before, and it means a green
@@ -1264,7 +1238,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   "Execution succeeded!" and exits 0. A build that continued past a failure must record it, say so in
   the closing panel, and exit non-zero.
 
-- **18. Deepen the core-workflow tests instead of growing the headline count.** The JUnit matrices and the
+- **17. Deepen the core-workflow tests instead of growing the headline count.** The JUnit matrices and the
   REST suites now give the system respectable horizontal coverage: routes boot, authentication and
   permission boundaries are pinned, and create/read/update/delete, sharing, search, versioning and the
   cross-service hop all execute against the real stack. Much of that is deliberately
@@ -1303,7 +1277,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   versions or search projection disagreeing. The present suite protects the behavioural skeleton; this
   item protects the integrity of state when operations fail or are repeated.
 
-- **19. Add degradation tests.** Nothing asserts how a service behaves when a dependency it needs is
+- **18. Add degradation tests.** Nothing asserts how a service behaves when a dependency it needs is
   unavailable. The cost of that gap is known: reading any folder whose creator could not be resolved
   returned 500 for as long as the defect existed, because `UserSummaryCache` let Guava's
   "loader returned null" signal escape instead of degrading to the no-display-name path the callers
@@ -1311,7 +1285,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   asserts the API degrades rather than 500s. Bear in mind that queue writes are already best-effort
   by design (`AppLoggerQueueService`, the worker and NCBI queues), so those are the pattern to match.
 
-- **20. Retry the ontology-list load in the term picker (frontend, `cedar-template-editor`).** This is a
+- **19. Retry the ontology-list load in the term picker (frontend, `cedar-template-editor`).** This is a
   change to the Angular frontend, not to any microservice or test suite — it lands in
   `cedar-template-editor`, and so needs a frontend owner to review and push it (see the note below).
   It is the last piece of this defect still outstanding, and the fix is already written: it is open as

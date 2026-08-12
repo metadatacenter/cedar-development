@@ -756,6 +756,15 @@ shaded jar is sound: it holds exactly one merged `META-INF/.../Log4j2Plugins.dat
 ~700-byte single-artifact version), a `Main-Class` in its manifest, and `java -jar <jar>` boots with
 no `StatusLogger` "Unrecognized format specifier" errors.
 
+Only the deployable modules shade. The shared libraries publish thin jars — as of 2026-08-11
+`cedar-model-library` holds 18 classes, `cedar-rest-library` 2, `cedar-config-library` 90 and
+`cedar-core-library` 149, each its own and nothing else. Until then all four declared the shade
+plugin themselves, so `cedar-config-library` shipped 12,516 classes, and `createDependencyReducedPom`
+dropped the bundled dependencies from the published pom, leaving a consumer to resolve Jackson, Guava
+or another CEDAR library out of whichever jar its classpath reached first. Keep a library thin: its
+pom should declare what it uses and publish that, so every consumer resolves each dependency from the
+artifact that owns it.
+
 ## Testing CEDAR
 
 Every server's test suite runs backend-free: no live Keycloak, Neo4j, Mongo, MySQL, or Redis. The
