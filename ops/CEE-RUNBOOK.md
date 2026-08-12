@@ -106,6 +106,18 @@ emitting that set, so the command silently produced a truncated or empty bundle
 rather than failing. `visual/resolve-build-output.mjs` decides what the build
 actually emitted, and whether joining is even the right operation for it.
 
+`cedarcli build this` and `cedarcli build frontends` run this same pipeline, plus
+the two installs and the staging step, from `build_command_list` on CEE's entry in
+`cedar-cli/org/metadatacenter/config/ReposFactory.py`. Until August 2026 the CLI
+instead reassembled the output itself with that hardcoded `cat`, which by then
+truncated `dist-npm/cedar-embeddable-editor/cedar-embeddable-editor.js` to zero
+bytes on every run — the redirection emptied the staged file before `cat` failed
+on the missing inputs. The CLI has no separate copy of the packaging rules now,
+so that class of drift cannot recur.
+
+Note that `cedarcli` builds CEE on whatever Node the login shell offers, which is
+not necessarily the 24.19.0 this repo declares.
+
 `resolve-build-output.mjs` decides between two operations, and the difference is
 scope rather than filenames. Webpack wraps each chunk in an IIFE, so joining them
 shares nothing — note that `polyfills.js` alone carries a `"use strict"` prologue
