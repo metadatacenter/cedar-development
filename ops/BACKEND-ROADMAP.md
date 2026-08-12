@@ -1164,12 +1164,39 @@ model libraries — where their JSON and YAML serializations diverge — is in
   - Decide whether they join the release or stay outside it, as CEE and the TypeScript model library
     do.
 
+- **16. Manage the transitive artifacts that still split on the test classpath.** Thirty-four
+  artifacts that resolved to several versions across the estate are now managed in `cedar-parent`,
+  which also repaired six integration classes that had been dying in `oneTimeSetUp` on
+  `NoClassDefFound org/eclipse/jetty/http/UriCompliance`, the Neo4j harness's Jetty 9.4.49 beating
+  the Jetty 11 the code compiles against. That pass measured the runtime classpath. Measuring the
+  test classpath afterwards, on 2026-08-12, found eleven more: `checker-qual` (3.31.0 / 3.53.0), the
+  three `apache-mime4j` artifacts (0.8.3 / 0.8.9), `resteasy-jaxb-provider` and
+  `resteasy-multipart-provider` (6.0.0.Final / 6.2.4.Final), `jaxb-core` and `txw2` (4.0.2 / 4.0.9),
+  `jackson-dataformat-cbor` (2.14.2 / 2.18.2), `jakarta.transaction-api` (2.0.0 / 2.0.1) and
+  `commons-collections4` (4.4 / 4.5.0).
+
+  Give them the same treatment, one at a time rather than as a block. Check each against whatever
+  wants the older version before pinning it, since the Jetty case cuts both ways: a stale transitive
+  can be what breaks a suite, and forcing a newer one on a consumer built against the old can break a
+  suite that passes today. The whole estate's suites, 7,814 tests, are the check.
+
+- **17. Upgrade Mockito so byte-buddy converges, and then manage it too.** `byte-buddy` is the one
+  artifact deliberately left unmanaged, and the pom says why: `dropwizard-hibernate` 4.0.17 brings
+  1.18.4 at compile scope for Hibernate's bytecode enhancer, and Mockito 5.7.0 brings 1.14.9 at test
+  scope. That is a scope boundary rather than drift, and forcing either version onto the other side
+  is wrong — Hibernate's version under Mockito leaves stubbing silently inert, so mocks return
+  defaults and the failures read as logic bugs in whatever was being tested.
+
+  A Mockito built against a 1.18.x byte-buddy closes the gap and lets the artifact join the managed
+  set. Move `byte-buddy-agent` with it, since Mockito needs the two to match, and confirm the mock
+  matrix still passes rather than trusting a green compile.
+
 ## Testing
 
 Coverage and test-infrastructure work. The active REST integration suites live in
 `ops/e2e/rest/suites/`; the JUnit matrices and boot-smoke live in the per-server modules.
 
-- **16. Decide whether the build runs the tests, and give the answer a command-line option. Stop the
+- **18. Decide whether the build runs the tests, and give the answer a command-line option. Stop the
   output loop busy-polling.** The Java build skips its tests again: every Java repo is built with
   `./mvnw clean install -DskipTests`, and the `CEDAR_DEV_SKIP_TESTS` escape hatch is gone with the
   default it modified. That restores the behaviour the build had before, and it means a green
@@ -1238,7 +1265,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   "Execution succeeded!" and exits 0. A build that continued past a failure must record it, say so in
   the closing panel, and exit non-zero.
 
-- **17. Deepen the core-workflow tests instead of growing the headline count.** The JUnit matrices and the
+- **19. Deepen the core-workflow tests instead of growing the headline count.** The JUnit matrices and the
   REST suites now give the system respectable horizontal coverage: routes boot, authentication and
   permission boundaries are pinned, and create/read/update/delete, sharing, search, versioning and the
   cross-service hop all execute against the real stack. Much of that is deliberately
@@ -1277,7 +1304,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   versions or search projection disagreeing. The present suite protects the behavioural skeleton; this
   item protects the integrity of state when operations fail or are repeated.
 
-- **18. Add degradation tests.** Nothing asserts how a service behaves when a dependency it needs is
+- **20. Add degradation tests.** Nothing asserts how a service behaves when a dependency it needs is
   unavailable. The cost of that gap is known: reading any folder whose creator could not be resolved
   returned 500 for as long as the defect existed, because `UserSummaryCache` let Guava's
   "loader returned null" signal escape instead of degrading to the no-display-name path the callers
@@ -1285,7 +1312,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   asserts the API degrades rather than 500s. Bear in mind that queue writes are already best-effort
   by design (`AppLoggerQueueService`, the worker and NCBI queues), so those are the pattern to match.
 
-- **19. Retry the ontology-list load in the term picker (frontend, `cedar-template-editor`).** This is a
+- **21. Retry the ontology-list load in the term picker (frontend, `cedar-template-editor`).** This is a
   change to the Angular frontend, not to any microservice or test suite — it lands in
   `cedar-template-editor`, and so needs a frontend owner to review and push it (see the note below).
   It is the last piece of this defect still outstanding, and the fix is already written: it is open as
