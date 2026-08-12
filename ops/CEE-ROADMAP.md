@@ -41,8 +41,13 @@ commit that opened it.
    consistently to every control, deprecate the inert text-primary and accent properties,
    forbid arbitrary CSS and Material selectors, test every preset for contrast, focus,
    narrow layout and edit/read-only rendering, and report any unscoped `::ng-deep`.
-7. **Two untested config flags.** `showAllMultiInstanceValues` needs one instance file for
-   `17-real-flat`; `showStaticText` needs a decision on whether it is dead configuration.
+7. **Two untested config flags.** Both reach only the sweeps that prove a flag is wired to
+   something — the config key reaches its field, and the DOM differs off versus on — which
+   cannot say either does the right thing. `showAllMultiInstanceValues` gates the summary of
+   every value in a repeating group, so testing it needs a multi-instance template with an
+   instance carrying several values: one instance file for `17-real-flat`. It defaults to
+   true, so every embedder gets it. `showStaticText` needs a decision on whether it is dead
+   configuration.
 8. **Markup discoverability.** Have the Template Designer's rich-text editor declare or
    enforce what an embedder will actually render, since its `Source` button accepts markup
    CEE will strip.
@@ -62,3 +67,14 @@ commit that opened it.
    the suite passed. Decide whether the budget can go to zero, since the baselines are
    keyed to the platform and re-recording is already the stated answer to an OS font
    shift, or whether a budget survives only on the shots whose variance is real.
+12. **Audit the configuration surface.** Fifty-five keys, and several are stranger than their
+   names. The four prefixes do three unrelated jobs: `iriPrefix` mints IRIs into the
+   instance, `bioPortalPrefix` builds a link out to BioPortal's web UI, and `orcidPrefix`
+   and `rorPrefix` are value-recognition patterns interpolated raw into `new RegExp('^' +
+   prefix)` — so the `.` in every URL matches any character and the check is looser than it
+   reads. Seven authorities have endpoint keys but only two have prefixes. Two panel keys
+   are on by default because CEE began as a developer tool. Decide for each key whether it
+   is host API, developer chrome or a discriminator wearing a URL's name, then rename,
+   scope or retire accordingly. `showTemplateYaml`, `showInstanceYaml` and their `expanded`
+   partners are also missing from the documented panel table, which lists seven panels
+   where the code renders nine.
