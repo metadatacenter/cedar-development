@@ -1356,3 +1356,24 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   service a fresh attempt; re-running the ontology search inside the picker reads the same empty cache
   and never could succeed. Nothing is saved server-side until after the block, so a failed attempt
   leaves no orphan template.
+
+- **22. Give `UserSummaryCache` a seam a test can reach.** The class resolves the display names that
+  decorate every resource read, and nothing tests it. `cedar-cache-operations-library` has no test
+  sources at all. Reaching it needs a seam that does not exist today: the class is static throughout,
+  its `init` takes a `CedarConfig`, and its loader calls the user server over HTTP.
+
+  That gap has cost twice, both times in the same few lines. Guava's "loader returned null" signal
+  escaping as a 500 is recorded in item 20. The second is what a failure costs when it repeats. Guava
+  caches a value and never a failure, so an unresolvable id was fetched again on every lookup and each
+  attempt waited out the 20-second socket timeout, while `ProvenanceNameUtil` asks for three ids per
+  resource and repeats that for every ancestor on a path and every entry of a listing. The
+  resource-server suite ran for hours and had to be killed by hand, leaving a JVM holding 19047, 19147
+  and 19247. Remembering a failed id for sixty seconds fixed it: the folder suite went from finishing
+  none of its six tests inside ten minutes to passing in 49 seconds, and the resource-server suite from
+  never completing to 154 seconds with 60 tests green.
+
+  What guards that now is only that the suite finishes, so a regression shows up as a CI timeout rather
+  than a failing assertion. Three properties are worth asserting directly, and none can be today: that
+  a failed lookup is not retried inside the retention window, that `put` clears the record for an id
+  before it expires, and that the record does expire. Putting the loader behind an interface the test
+  can supply is most of the work; the assertions are small once it is there.
