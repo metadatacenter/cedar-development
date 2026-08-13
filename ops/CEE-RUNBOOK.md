@@ -1,12 +1,11 @@
 # CEDAR Embeddable Editor (CEE) — Development Runbook
 
 Building, running and testing **CEE** (`cedar-embeddable-editor`) locally.
-Everything here has been run on macOS (Apple silicon), against `develop` @ CEE
-1.6.0-dev.20260811.c67ccae, which is Angular 22. That is also what the `dev` tag on
-Nexus points at and what the local frontends serve, all three verified by the sha256
-of the bundle rather than by the version each reports. `main` is still on Angular
-14.3, so a command that behaves differently there is describing that branch, not a
-fault.
+Everything here has been run on macOS (Apple silicon), against CEE 1.6.0, which is
+Angular 22. That release is what npmjs serves as `latest`, what all seven embedding
+manifests name, and what the local frontends resolve, verified by the sha256 of the
+bundle rather than by the version each reports. `main` and `develop` both carry it:
+the Angular 14.3 `main` the older notes warn about is behind the release.
 
 Sibling runbooks:
 - [CEE-ROADMAP.md](./CEE-ROADMAP.md) — where CEE currently is, and the open
@@ -150,10 +149,13 @@ It runs these stages in order and stops at the first failure:
    byte-for-byte against the source each file came from
    (`package:npm:prebuilt`).
 
-Stage 5 leaves `dist-npm/` present and current, which is what the local frontends
-consume: each symlinks `node_modules/cedar-embeddable-editor` at that directory. A
-fresh clone has no `dist-npm/` until something stages it, so **run the gate, or
-`npm run package:npm:prebuilt` alone, before expecting a consumer to serve CEE.**
+Stage 5 leaves `dist-npm/` present and current. That directory is what a consumer
+can be pointed at to try an unpublished build, by symlinking its
+`node_modules/cedar-embeddable-editor` at it — described under "Getting a Local
+Build Into the Frontends". A fresh clone has no `dist-npm/` until something stages
+it, so **run the gate, or `npm run package:npm:prebuilt` alone, before expecting a
+symlinked consumer to serve CEE.** Nothing is symlinked at present: every consumer
+holds the installed 1.6.0 from npmjs.
 
 `dist-npm/` used to be committed, and the stage used to be a drift check
 (`check:staged`) rather than a staging step. That arrangement cost more than it
@@ -176,9 +178,11 @@ checked out.
 
 ### Getting a Local Build Into the Frontends
 
-Staging is necessary and not sufficient. The symlink means a consumer *resolves*
-the freshly staged bundle, but every consumer **copies** it into its own served
-output, so each needs a second step:
+Point the consumer at `dist-npm/cedar-embeddable-editor` — `ln -s` over its
+`node_modules/cedar-embeddable-editor` — and staging is then necessary but not
+sufficient. The symlink means a consumer *resolves* the freshly staged bundle, but
+every consumer **copies** it into its own served output, so each needs a second
+step:
 
 ```bash
 # Template Designer — needs the CEDAR profile sourced, or the gulpfile refuses to start
@@ -836,20 +840,18 @@ is.
 
 `main` is owned by the release process. Work lands on `develop`.
 
-There are two publish targets, and they are not two ways of doing one thing:
+There is one publish target: the unscoped `cedar-embeddable-editor` on public npmjs, under the
+default `latest` tag. 1.6.0 is the current release, and the seven embedding manifests name it as a
+plain version. `scripts/npm-package.mjs` generates the published manifest, hardcoding that name and
+writing no `publishConfig`, so the package goes to `registry.npmjs.org` and the root manifest's own
+`name` and `publishConfig` are not what publishes.
 
-- **Dev builds → Stanford Nexus**, as the scoped `@org.metadatacenter/cedar-embeddable-editor`
-  under the `dev` tag. This is what the repo's tooling produces today, and what the steps below
-  describe. Nothing picks a dev build up implicitly.
-- **Stable releases → public npmjs**, as the unscoped `cedar-embeddable-editor`. 1.5.1 was the last
-  one published this way. **The current tooling does not produce it** — read "Stable releases" below
-  before attempting one.
-
-The two names identify different packages. The seven embedding manifests reach the scoped one
-through an npm alias that pins an exact dev version, described under "Propagate".
-`scripts/npm-package.mjs` generates the published manifest: it hardcodes the scoped name and takes
-the registry from the root `package.json`'s `publishConfig`, so the root manifest's own `name` is
-not what publishes.
+Dev snapshots used to be a second channel — the scoped `@org.metadatacenter/cedar-embeddable-editor`
+on Stanford Nexus under a `dev` tag, reached through an npm alias that pinned
+`1.6.0-dev.<date>.<sha>`. That channel is retired: the script no longer emits the scoped name, and no
+manifest pins an alias. Older notes describing two targets, `--tag dev`, or a Nexus credential for
+publishing CEE describe that arrangement. The model library still publishes to Nexus that way, which
+is a different package.
 
 Version is surfaced at runtime as `window.cedarEmbeddableEditorVersion`.
 
@@ -858,25 +860,20 @@ Version is surfaced at runtime as `window.cedarEmbeddableEditorVersion`.
 
 ### Prerequisites — registry auth
 
-A dev publish needs a Nexus credential, already present on a configured machine as
-`//nexus.bmir.stanford.edu/repository/npm-cedar/:_authToken` in `~/.npmrc`, together with
-`@org.metadatacenter:registry` pointing at the same Nexus repository. Confirm both without printing
-the token:
+Publishing needs rights on `cedar-embeddable-editor` at npmjs, and npm requires a second factor:
+pass `--otp=<code>`, or hold a granular access token with "Bypass 2FA" in `~/.npmrc`. An `E404` on
+publish means unauthenticated rather than missing — check `npm whoami` before believing the package
+disappeared. Confirm the account without printing any credential:
 
 ```bash
-npm config get @org.metadatacenter:registry
+npm whoami
 ```
 
-That should print the Nexus URL. A token is a credential — keep it in `~/.npmrc` only, never in a
-repo or these notes.
+A token is a credential — keep it in `~/.npmrc` only, never in a repo or these notes.
 
 ### 1 · Bump the version
 
-The dev version names the commit whose content is being published:
-`1.6.0-dev.<YYYYMMDD>.<sha>`, where the date is that commit's date. So the bump commit itself
-carries a version naming its *parent*, which is expected.
-
-Only **two** files hold the version by hand:
+A release version is plain semver — `1.6.0`. Only **two** files hold it by hand:
 
 | File | Occurrences |
 |---|---|
@@ -891,18 +888,20 @@ committed artifact, predate that script and the ignore.)
 
 Then add a `## [X.Y.Z] - <date>` section to `CHANGELOG.md`, and bump the load-trace stamp in
 `src/app/modules/shared/components/cedar-embeddable-metadata-editor/cedar-embeddable-metadata-editor.component.ts`
-→ `private static INNER_VERSION = '<YYYY-MM-DD HH:MM> <sha>';`, where the commit is the one the
-version names. The time is when the bump was written and is not compared to anything; the commit is.
+→ `private static INNER_VERSION = '<YYYY-MM-DD HH:MM>';`, the time the bump was written. 1.6.0 stamps
+`'2026-08-12 17:12'`.
 
 > `ceeVersion` derives from `package.json` and is exposed as `window.cedarEmbeddableEditorVersion`,
 > so bumping `package.json` is what drives the visible version. `INNER_VERSION` is only the stamp
 > logged at load. `README.md` and `CHANGELOG.md` are copied into the package by staging — no manual
 > `cp` step.
 
-`check:npm-package` compares the stamp's commit against `package.json` and fails the gate when they
-disagree, naming both values and the line to change. It is the only version spot nothing derives —
-every other copy is generated from `package.json`, so a forgotten stamp used to ship a bundle that
-passed everything and then reported the previous release to anyone reading the console.
+The stamp is the only version spot nothing derives — every other copy is generated from
+`package.json`, so a forgotten stamp used to ship a bundle that passed everything and then reported
+the previous release to anyone reading the console. `check:npm-package` guards that only for a dev
+version, where the version's trailing sha and the stamp's must name the same commit; a stable version
+carries no commit, so the check reports `(stable, no load-trace commit to check)` and passes whatever
+the stamp says. Read it yourself before publishing a release.
 
 ### 2 · Build and browser-test
 
@@ -926,53 +925,42 @@ Checks the bundle is fresh and within its size budget, writes the five-file pack
 `dist-npm/cedar-embeddable-editor/`, then re-verifies every staged byte against its source. It
 prints the version, size and sha256 it staged — read them.
 
-### 4 · Publish to Nexus
+### 4 · Publish to npmjs
 
 ```bash
-cd dist-npm/cedar-embeddable-editor && npm publish --tag dev
+cd dist-npm/cedar-embeddable-editor && npm publish
 ```
 
-> **Pass `--tag dev` explicitly.** The staged manifest carries `publishConfig.tag: "dev"`, and on
-> npm 10.8.2 that is *not* enough: a dry run reports "Publishing to … **with tag latest**" and only
-> honours `dev` when the flag is on the command line. Without it a dev build becomes the default
-> install for the scoped package. Verify with a dry run first — it names both the registry and the
-> tag, which is the cheapest way to catch a wrong target before it is permanent:
+> Dry-run it first. A published version cannot be replaced, and the dry run names the registry and
+> the tag it would use — the cheapest way to catch a wrong target while it is still reversible:
 >
 > ```bash
-> npm publish --dry-run --tag dev
+> npm publish --dry-run
 > ```
 
 Then confirm what moved:
 
 ```bash
-npm dist-tag ls @org.metadatacenter/cedar-embeddable-editor
+npm dist-tag ls cedar-embeddable-editor
 ```
 
-Only `dev` should point at the new version. If a `latest` appears, a dev build was published
-without the flag.
+`latest` should point at the version just published, and it should be the only tag.
 
 ### 5 · Propagate
 
-Seven manifests across five repos depend on CEE. Each reaches the scoped Nexus package through an
-npm alias that pins one exact dev version:
+Seven manifests across five repos depend on CEE. Each names one exact version, resolved from npmjs:
 
 ```json
-"cedar-embeddable-editor": "npm:@org.metadatacenter/cedar-embeddable-editor@1.6.0-dev.20260812.b953153"
+"cedar-embeddable-editor": "1.6.0"
 ```
 
-The alias installs the scoped package into `node_modules/cedar-embeddable-editor/`, keeping the
-folder every consumer already refers to. No import, `gulp.src` path, Angular asset glob or script
-tag changes when a consumer moves between the two registries — only the manifest line does. The
-lockfile records the Nexus tarball and its integrity hash, so the resolved build is reproducible.
+All seven are pinned to `1.6.0`, and their lockfiles record the npmjs tarball
+(`registry.npmjs.org/cedar-embeddable-editor/-/cedar-embeddable-editor-1.6.0.tgz`) with its integrity
+hash, so what installs is reproducible. Installing needs no credential; only publishing does.
 
-Each repo also carries an `.npmrc` holding the scope-to-registry line, because a fresh clone and a
-CI runner have no `~/.npmrc`:
-
-```
-@org.metadatacenter:registry=https://nexus.bmir.stanford.edu/repository/npm-cedar/
-```
-
-Nexus serves reads anonymously. Installing needs no credential; only publishing does.
+Each repo still carries an `.npmrc` holding `@org.metadatacenter:registry` against Nexus. No consumer
+depends on a scoped package any more, so those lines do nothing today; they are what an alias pin
+would need if a dev channel ever returns.
 
 | Repo | Manifest | Install |
 |---|---|---|
@@ -987,39 +975,23 @@ Two repos fail a plain `npm install` on a peer conflict that has nothing to do w
 `ngx-youtube-player-14` demands `@angular/common@^14.1.3` from projects on Angular 15 and 16. Both
 predate this wiring and both need `--legacy-peer-deps`.
 
-Propagating a new dev build means editing the pinned version in each manifest, reinstalling, and
-rebuilding. Confirm the bytes rather than the version string: the sha256 that `package:npm:prebuilt`
-prints should appear in each consumer's `node_modules`, and again wherever that consumer stages the
-bundle — `app/third_party_components/` for the Template Designer, `dist/cedar-openview/node_modules/`
-for OpenView.
+Propagating a release means editing the version in each manifest, reinstalling, and rebuilding.
+Confirm the bytes rather than the version string: the sha256 that `package:npm:prebuilt` prints should
+appear in each consumer's `node_modules`, and again wherever that consumer stages the bundle —
+`app/third_party_components/` for the Template Designer, `dist/cedar-openview/node_modules/` for
+OpenView.
 
 ```bash
 goartifacts && npm install && cd .. && cedarcli build this
 gobridging  && npm install && cd .. && cedarcli build this
 ```
 
-A stable npmjs release takes the unscoped name instead, so its manifest line drops the alias and
-names a plain version (`"cedar-embeddable-editor": "1.6.0"`). Then reinstall, rebuild, commit, push.
-`cedar-template-editor` picks a caret range up on the next `npm install` + `gulp`, which happens
-during a prod deploy ([PROD-DEPLOY-RUNBOOK.md](./PROD-DEPLOY-RUNBOOK.md) step 6).
-
-### Stable releases to public npmjs
-
-Read this before cutting one. The tooling in `scripts/npm-package.mjs` hardcodes the scoped name and
-takes its registry from the root `package.json`'s `publishConfig`, which points at Nexus. So there
-is currently **no supported path that produces the unscoped npmjs package** the embedding repos
-depend on — publishing one means either changing that script or hand-assembling a package, and it is
-a decision about where CEE is distributed rather than a command to run. Raise it before improvising.
-
-What the older notes said about npmjs auth still applies if that decision is taken: publishing needs
-rights on `cedar-embeddable-editor`, npm requires 2FA (`npm publish --otp=<code>`, or a granular
-access token with "Bypass 2FA" in `~/.npmrc`), and an `E404` on publish means unauthenticated rather
-than missing — check `npm whoami`.
+A rebuild is what reaches a running frontend; the manifest edit and the install only change what
+resolves. `cedar-template-editor` also picks the version up on the `npm install` + `gulp` that a prod
+deploy runs ([PROD-DEPLOY-RUNBOOK.md](./PROD-DEPLOY-RUNBOOK.md) step 6).
 
 ### Gotchas
 
-- **`publishConfig.tag` is not honoured on npm 10.8.2.** Pass `--tag dev`. A dry run tells you which
-  tag will actually be used.
 - **Publish only from `dist-npm/cedar-embeddable-editor/`.** From the repo root, `npm publish` uses
   the root manifest and packs the whole source tree.
 - **Staging refuses a stale bundle** rather than shipping one. `browser bundle does not match its
