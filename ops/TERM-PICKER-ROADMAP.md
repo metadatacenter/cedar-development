@@ -213,8 +213,9 @@ defect rather than as recall.
 
 **Ontologies — which vocabulary this field draws from.** Name and acronym matching over the
 cached list, ordered by how well the name matches, with the ontology's size and its current
-version on the row. The tab is often empty by construction: no ontology is named "melanoma".
-Its empty state therefore has to do real work — say that nothing is named this, and point at
+version on the row. The tab answers a different question from the others and returns far less:
+"melanoma" finds one ontology, MELO, against 90 DOID terms (measured 2026-08-13), and a query
+naming no vocabulary finds none. Its empty state therefore has to do real work — say that nothing is named this, and point at
 where the query did find something — or the tab reads as broken on exactly the queries the
 picker is best at.
 
@@ -279,9 +280,11 @@ author can usually decide without opening anything, which is not true of the oth
    cannot be computed and a click before an author learns what a branch holds, which is worse
    than the tab arriving a release later.
 7. **Set the badge threshold, and get the numbers behind it right.** Measured on 2026-08-13
-   against the local server, `q=disease&scope=classes` reports `totalCount` 238,163 while the
-   Workbench displays "500 results" — the 500 is a frontend cap rather than a total. Value
-   sets return 13 for the same query, which is a count worth showing exactly. The threshold
+   through the dev server, which was proxying: `q=disease&scope=classes` reports `totalCount`
+   238,163 and value sets 13, both BioPortal's figures rather than the local store's, while the
+   Workbench displays "500 results" — the 500 is a frontend cap rather than a total. Scope changes
+   the numbers a great deal and the problem not at all: the same query against DOID alone in the
+   local store returns 90 classes and 14 branches. The threshold
    between the two cases is a judgement about how many hits an author will scan, and it
    should be set against real queries rather than picked.
 8. **Offer version selection natively, latest by default.** An author constraining a field

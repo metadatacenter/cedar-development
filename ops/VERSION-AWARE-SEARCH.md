@@ -49,6 +49,10 @@ POST /search
 }
 ```
 
+A source may be named once. A hit carries the addressing pair and no version of its own, so the
+same acronym at two versions would leave every hit from it unable to say which one answered; the
+request is refused rather than collapsed.
+
 `sources` does two jobs at once, which is why it is one list rather than a scope and a pin. It
 narrows the search to the named sources, and it says which version each is searched at. Omit it
 and the whole served corpus is searched at latest. Omit `version` on an entry, or write
@@ -253,10 +257,13 @@ writing the constraint; a search has no view on how deep the field should reach.
 }
 ```
 
-Thin, because everything else about an ontology is already in its source block. `matchType` is
-`sourceAcronym` or `sourceName`: the ontology results are name matching over the served
-catalogue rather than a facet over the class results, so this tab is empty for a query like
-"melanoma", where no vocabulary is named that.
+Thin, because everything else about an ontology is in its source block — which the response
+carries for every ontology hit, or the acronym would arrive with no way to learn its name.
+`matchType` is `sourceAcronym` or `sourceName`: the ontology results are name matching over the
+served catalogue rather than a facet over the class results, so they answer a different question
+from the terms. Measured against the served catalogue on 2026-08-13, "melanoma" returns one
+ontology, MELO (Melanoma Ontology), against 90 DOID terms — and a query for a term no vocabulary
+is named after returns none at all.
 
 ### `valueSet` — a curated list
 
