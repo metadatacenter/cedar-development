@@ -1190,12 +1190,31 @@ model libraries — where their JSON and YAML serializations diverge — is in
   set. Move `byte-buddy-agent` with it, since Mockito needs the two to match, and confirm the mock
   matrix still passes rather than trusting a green compile.
 
+- **18. Let the rebuilt search index become searchable before `regenerate-search-index` swaps the
+  alias onto it.** `RegenerateSearchIndexTask` orders its steps correctly: it indexes every batch,
+  including the final partial one, then points the `cedar-search` alias at the new index, then deletes
+  the old one. What it does not do is wait for what it just wrote to become visible. `addBatch` issues
+  its bulk request with no refresh policy, so the documents are written but stay invisible to queries
+  until OpenSearch's next scheduled refresh, a second by default. The alias moves immediately after
+  the last bulk write, and the old index is deleted in the same breath — locally, 35 ms later.
+
+  For about that second, a search through the alias reaches the new index and finds less than is
+  there. The window is set by the refresh interval rather than by how much was reindexed, so it stays
+  around a second whatever the corpus size, and a caller cannot tell a short answer from a complete
+  one. Deleting the old index straight after the swap also gives up the one copy that could have
+  answered during the gap, and the only thing to fall back to if the new index turns out wrong.
+
+  Refresh the new index and confirm its document count before swapping the alias, and delete the old
+  index once the swap is known good rather than as part of the same step. An alias swap is atomic, so
+  the sequence costs nothing beyond the wait. Worth doing before the command is run against
+  production, where the fallback matters more than the second does.
+
 ## Testing
 
 Coverage and test-infrastructure work. The active REST integration suites live in
 `ops/e2e/rest/suites/`; the JUnit matrices and boot-smoke live in the per-server modules.
 
-- **18. Decide whether the build runs the tests, and give the answer a command-line option. Stop the
+- **19. Decide whether the build runs the tests, and give the answer a command-line option. Stop the
   output loop busy-polling.** The Java build skips its tests again: every Java repo is built with
   `./mvnw clean install -DskipTests`, and the `CEDAR_DEV_SKIP_TESTS` escape hatch is gone with the
   default it modified. That restores the behaviour the build had before, and it means a green
@@ -1264,7 +1283,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   "Execution succeeded!" and exits 0. A build that continued past a failure must record it, say so in
   the closing panel, and exit non-zero.
 
-- **19. Deepen the core-workflow tests instead of growing the headline count.** The JUnit matrices and the
+- **20. Deepen the core-workflow tests instead of growing the headline count.** The JUnit matrices and the
   REST suites now give the system respectable horizontal coverage: routes boot, authentication and
   permission boundaries are pinned, and create/read/update/delete, sharing, search, versioning and the
   cross-service hop all execute against the real stack. Much of that is deliberately
@@ -1303,7 +1322,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   versions or search projection disagreeing. The present suite protects the behavioural skeleton; this
   item protects the integrity of state when operations fail or are repeated.
 
-- **20. Add degradation tests.** Nothing asserts how a service behaves when a dependency it needs is
+- **21. Add degradation tests.** Nothing asserts how a service behaves when a dependency it needs is
   unavailable. The cost of that gap is known: reading any folder whose creator could not be resolved
   returned 500 for as long as the defect existed, because `UserSummaryCache` let Guava's
   "loader returned null" signal escape instead of degrading to the no-display-name path the callers
@@ -1311,7 +1330,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   asserts the API degrades rather than 500s. Bear in mind that queue writes are already best-effort
   by design (`AppLoggerQueueService`, the worker and NCBI queues), so those are the pattern to match.
 
-- **21. Retry the ontology-list load in the term picker (frontend, `cedar-template-editor`).** This is a
+- **22. Retry the ontology-list load in the term picker (frontend, `cedar-template-editor`).** This is a
   change to the Angular frontend, not to any microservice or test suite — it lands in
   `cedar-template-editor`, and so needs a frontend owner to review and push it (see the note below).
   It is the last piece of this defect still outstanding, and the fix is already written: it is open as
@@ -1356,13 +1375,13 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   and never could succeed. Nothing is saved server-side until after the block, so a failed attempt
   leaves no orphan template.
 
-- **22. Give `UserSummaryCache` a seam a test can reach.** The class resolves the display names that
+- **23. Give `UserSummaryCache` a seam a test can reach.** The class resolves the display names that
   decorate every resource read, and nothing tests it. `cedar-cache-operations-library` has no test
   sources at all. Reaching it needs a seam that does not exist today: the class is static throughout,
   its `init` takes a `CedarConfig`, and its loader calls the user server over HTTP.
 
   That gap has cost twice, both times in the same few lines. Guava's "loader returned null" signal
-  escaping as a 500 is recorded in item 20. The second is what a failure costs when it repeats. Guava
+  escaping as a 500 is recorded in item 21. The second is what a failure costs when it repeats. Guava
   caches a value and never a failure, so an unresolvable id was fetched again on every lookup and each
   attempt waited out the 20-second socket timeout, while `ProvenanceNameUtil` asks for three ids per
   resource and repeats that for every ancestor on a path and every entry of a listing. The

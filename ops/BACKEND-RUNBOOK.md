@@ -464,6 +464,71 @@ Auxiliary frontends (Angular `ng serve`, port-only health): `ui-openview` 4220, 
 `ui-monitoring` 4300, `ui-artifacts` 4320, `ui-bridging` 4340. Non-essential CEE demos (not started by
 default): `demo.cee` 4260, `cee-dev` 4400.
 
+## The Redis queues, and where failed permission events go
+
+Five persistent queues carry work between services. Their names are set in
+`cedar-config-library/src/main/resources/cedar-main.yml` under `queueNames`, and all five live in
+the persistent Redis on 6379:
+
+| Queue | Redis key | Carries |
+|---|---|---|
+| searchPermission | `CEDAR-QUEUE-search-permission` | permission and move events that the search index must follow |
+| ncbiSubmission | `CEDAR-QUEUE-ncbi-submission` | submissions bound for NCBI |
+| appLog | `CEDAR-QUEUE-app-log` | application log events |
+| valuerecommender | `CEDAR-QUEUE-valuerecommender` | templates whose recommender rules need regenerating |
+| cloneInstances | `CEDAR-QUEUE-cloneInstances` | bulk instance-clone requests |
+
+The search-permission queue is the one worth watching. The worker server consumes it with `BLPOP`,
+which removes an event before the event is processed, so an event the worker cannot apply is already
+off the queue by the time it fails. The consumer retries three times a second apart — enough to ride
+out a brief Neo4j or OpenSearch blip — and then moves the raw message to a dead-letter queue named
+after the queue it came from:
+
+```bash
+redis-cli llen CEDAR-QUEUE-search-permission-dead-letter
+```
+
+Zero is the expected reading. Anything above zero means the search index's permissions are behind the
+graph for the resources those events name: the graph is authoritative and correct, and search will
+show the wrong people the wrong things until the events are applied. Nothing retries them on its own.
+
+Read what is parked before deciding anything. Each entry is the original JSON event, carrying the
+resource id, the event type and the time it was created:
+
+```bash
+redis-cli lrange CEDAR-QUEUE-search-permission-dead-letter 0 -1
+```
+
+The worker log says why each one was parked. Fix that cause first — replaying into a broken
+dependency simply parks the events again. Then move them back, oldest first, appending behind
+whatever is already queued rather than jumping ahead of it:
+
+```bash
+while [ "$(redis-cli llen CEDAR-QUEUE-search-permission-dead-letter)" -gt 0 ]; do redis-cli lmove CEDAR-QUEUE-search-permission-dead-letter CEDAR-QUEUE-search-permission LEFT RIGHT > /dev/null; done
+```
+
+A message that cannot be parsed is parked on its first failure rather than retried, since retrying
+will not make it parse. Such a message will never apply, so drop it once the log has been read
+rather than replaying it.
+
+When the dead-letter queue itself cannot be reached — Redis is down, which is often why the event
+failed in the first place — the worker logs that the message is lost and says so plainly. That is the
+one case where an event disappears, and the log is the only record of it.
+
+Rebuilding the index from the graph fixes permission drift whatever its cause, since the graph is the
+source of truth. It reads the resources from the folder server, indexes them into a new index, then
+points the `cedar-search` alias at it and deletes the old one:
+
+```bash
+curl -s -X POST http://localhost:9007/command/regenerate-search-index -H "Authorization: apiKey $CEDAR_ADMIN_USER_API_KEY" -H "Content-Type: application/json" -d '{"force": true}'
+```
+
+Call the resource server directly rather than through nginx, which answers an unmatched path with a
+200 and an HTML body, so a mistyped route looks like success. The command returns immediately and
+does the work in the background; the resource server log reports progress. It is the heavier
+instrument, and it discards the index the alias is serving, so prefer a replay when the dead-letter
+queue explains the drift.
+
 ## YAML is a native artifact format
 
 YAML is a first-class CEDAR representation, not a side format you convert to. Both the resource
