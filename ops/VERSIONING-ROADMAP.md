@@ -32,7 +32,9 @@ longer the place to read this work.
 **The store is off unless something turns it on, and BioPortal is the shipped default.**
 `cedar-main.yml` carries an empty `catalogPath`, so the local store serves nothing until the
 `terminologyStore.*` system properties supply one, and the server logs which mode it is in at
-startup. Two levers govern it — whether the store is used at all, and whether a locally-served
+startup. The catalog path is the switch, and as of 2026-08-12 it is set only by a profile: the
+generic environment used to declare it, which turned the store on in every environment that
+inherited it, including ones carrying no catalog at all. Two levers govern it — whether the store is used at all, and whether a locally-served
 ontology may fall back to BioPortal when it cannot answer. Both are described in
 [BACKEND-RUNBOOK.md](BACKEND-RUNBOOK.md), under the local terminology store; they are operational
 rather than plan, so they are not restated here.
@@ -373,6 +375,30 @@ response.
    pinned in `cedar-parent` for the terminology local store). Split readiness from liveness in the health
    check alongside, so a warming server reports as such rather than as failed. Related to item 17: both
    concern how CompTox content enters and is held by the stack.
+
+- **19. Make a missing catalog say so, instead of reporting a store that serves nothing.** The server
+   does not check that the catalog file is there. `CatalogStore.openFile` hands the path straight to
+   the SQLite driver, so a path into a directory that exists but holds no catalog creates the file,
+   `initSchema` builds the tables, and startup logs the store *enabled* for its full allowlist while
+   holding nothing. Every lookup then finds the ontology unavailable and proxies, so with fallback on
+   it looks like a working store and behaves like BioPortal; under `localOnly` it would refuse
+   everything while claiming to be ready. A path into a *missing* directory is the well-behaved case:
+   opening fails, the failure is caught, and the server logs an error and serves via BioPortal.
+   Measured on 2026-08-12 across all three shapes. Check the file exists and carries the schema before
+   opening it, and log the store as enabled only once it can name what it serves.
+
+- **20. Decide whether production ships with a catalog, because freeze-on-publish is inert without
+   one.** Publishing pins a controlled-term constraint by resolving the vocabulary's current version
+   through `ontologies/{acronym}/versions/current` and `vs-collections/version-current`, and only the
+   local store answers those. With no catalog the endpoints do not resolve, publishing pins nothing,
+   and the reproducibility the Goal above describes is not in force — quietly, since publishing still
+   succeeds. The REST suite already declares this rather than hiding it: the freeze checks skip with
+   "the local terminology store does not serve DOID/CEDARVS (freeze is inert here)", which is the
+   difference between a 652-check and a 646-check run.
+
+   So "ship without SQLite" and "publish reproducibly" are the same decision, and it is a product one
+   rather than a deployment detail. Either production carries a catalog, or freeze is understood to be
+   dormant there and the roadmap says by when it will not be.
 
 ## Ingestion tracker (ongoing)
 

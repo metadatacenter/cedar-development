@@ -1209,12 +1209,32 @@ model libraries — where their JSON and YAML serializations diverge — is in
   the sequence costs nothing beyond the wait. Worth doing before the command is run against
   production, where the fallback matters more than the second does.
 
+- **19. Decide the fate of `/command/regenerate-rules-index`, which empties the rules index rather
+  than rebuilding it.** The command creates an empty index, points the alias at it and deletes the
+  old one; the loop that would have populated it is commented out, as is the comparison that would
+  let `force=false` decline to run. So it does exactly what `/command/generate-empty-rules-index`
+  does, while its name and its description promised a rebuild. It is now marked deprecated on the
+  endpoint, in the OpenAPI spec and in the admin tool, and it logs a warning when invoked, but it
+  still runs and still wipes.
+
+  Restoring the commented loop is not the fix. That loop indexes folder-server resources, copied from
+  the search index task, and the rules index holds association rules mined by the value recommender
+  from template instances. The resource server cannot produce those documents at all.
+
+  Two ways to close it. Delete the command, the `/command/regenerate-rules-index` route and the admin
+  tool task, leaving the honest empty-index command as the only way to clear the rules — cheapest,
+  and it removes an admin surface someone may have scripted against. Or make it mean what it says:
+  keep the create-swap-delete, then drive regeneration through `ValuerecommenderReindexQueueService`,
+  which already drains into per-template `generate-rules` calls with thread-count and in-flight
+  throttling, and make the `force=false` comparison meaningful again by comparing template ids in
+  Neo4j against the distinct template ids present in the rules index.
+
 ## Testing
 
 Coverage and test-infrastructure work. The active REST integration suites live in
 `ops/e2e/rest/suites/`; the JUnit matrices and boot-smoke live in the per-server modules.
 
-- **19. Decide whether the build runs the tests, and give the answer a command-line option. Stop the
+- **20. Decide whether the build runs the tests, and give the answer a command-line option. Stop the
   output loop busy-polling.** The Java build skips its tests again: every Java repo is built with
   `./mvnw clean install -DskipTests`, and the `CEDAR_DEV_SKIP_TESTS` escape hatch is gone with the
   default it modified. That restores the behaviour the build had before, and it means a green
@@ -1283,7 +1303,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   "Execution succeeded!" and exits 0. A build that continued past a failure must record it, say so in
   the closing panel, and exit non-zero.
 
-- **20. Deepen the core-workflow tests instead of growing the headline count.** The JUnit matrices and the
+- **21. Deepen the core-workflow tests instead of growing the headline count.** The JUnit matrices and the
   REST suites now give the system respectable horizontal coverage: routes boot, authentication and
   permission boundaries are pinned, and create/read/update/delete, sharing, search, versioning and the
   cross-service hop all execute against the real stack. Much of that is deliberately
@@ -1322,7 +1342,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   versions or search projection disagreeing. The present suite protects the behavioural skeleton; this
   item protects the integrity of state when operations fail or are repeated.
 
-- **21. Add degradation tests.** Nothing asserts how a service behaves when a dependency it needs is
+- **22. Add degradation tests.** Nothing asserts how a service behaves when a dependency it needs is
   unavailable. The cost of that gap is known: reading any folder whose creator could not be resolved
   returned 500 for as long as the defect existed, because `UserSummaryCache` let Guava's
   "loader returned null" signal escape instead of degrading to the no-display-name path the callers
@@ -1330,7 +1350,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   asserts the API degrades rather than 500s. Bear in mind that queue writes are already best-effort
   by design (`AppLoggerQueueService`, the worker and NCBI queues), so those are the pattern to match.
 
-- **22. Retry the ontology-list load in the term picker (frontend, `cedar-template-editor`).** This is a
+- **23. Retry the ontology-list load in the term picker (frontend, `cedar-template-editor`).** This is a
   change to the Angular frontend, not to any microservice or test suite — it lands in
   `cedar-template-editor`, and so needs a frontend owner to review and push it (see the note below).
   It is the last piece of this defect still outstanding, and the fix is already written: it is open as
@@ -1375,13 +1395,13 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   and never could succeed. Nothing is saved server-side until after the block, so a failed attempt
   leaves no orphan template.
 
-- **23. Give `UserSummaryCache` a seam a test can reach.** The class resolves the display names that
+- **24. Give `UserSummaryCache` a seam a test can reach.** The class resolves the display names that
   decorate every resource read, and nothing tests it. `cedar-cache-operations-library` has no test
   sources at all. Reaching it needs a seam that does not exist today: the class is static throughout,
   its `init` takes a `CedarConfig`, and its loader calls the user server over HTTP.
 
   That gap has cost twice, both times in the same few lines. Guava's "loader returned null" signal
-  escaping as a 500 is recorded in item 21. The second is what a failure costs when it repeats. Guava
+  escaping as a 500 is recorded in item 22. The second is what a failure costs when it repeats. Guava
   caches a value and never a failure, so an unresolvable id was fetched again on every lookup and each
   attempt waited out the 20-second socket timeout, while `ProvenanceNameUtil` asks for three ids per
   resource and repeats that for every ancestor on a path and every entry of a listing. The
