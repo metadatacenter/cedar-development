@@ -845,7 +845,7 @@ There are two publish targets, and they are not two ways of doing one thing:
   one published this way. **The current tooling does not produce it** — read "Stable releases" below
   before attempting one.
 
-The two names identify different packages. The eight embedding manifests reach the scoped one
+The two names identify different packages. The seven embedding manifests reach the scoped one
 through an npm alias that pins an exact dev version, described under "Propagate".
 `scripts/npm-package.mjs` generates the published manifest: it hardcodes the scoped name and takes
 the registry from the root `package.json`'s `publishConfig`, so the root manifest's own `name` is
@@ -953,7 +953,7 @@ without the flag.
 
 ### 5 · Propagate
 
-Eight manifests across five repos depend on CEE. Each reaches the scoped Nexus package through an
+Seven manifests across five repos depend on CEE. Each reaches the scoped Nexus package through an
 npm alias that pins one exact dev version:
 
 ```json
@@ -981,7 +981,7 @@ Nexus serves reads anonymously. Installing needs no credential; only publishing 
 | `cedar-bridging` | `cedar-bridging-src/package.json` | plain |
 | `cedar-openview` | `cedar-openview-src/package.json` | `--legacy-peer-deps` |
 | `cedar-component-demo` | `cedar-cee-demo-angular-src` | `--legacy-peer-deps` |
-| `cedar-component-demo` | `cedar-cee-demo-ember-src`, `cedar-cee-demo-react`, `cedar-cee-docs-angular-src` | plain |
+| `cedar-component-demo` | `cedar-cee-demo-ember-src`, `cedar-cee-demo-react` | plain |
 
 Two repos fail a plain `npm install` on a peer conflict that has nothing to do with CEE:
 `ngx-youtube-player-14` demands `@angular/common@^14.1.3` from projects on Angular 15 and 16. Both

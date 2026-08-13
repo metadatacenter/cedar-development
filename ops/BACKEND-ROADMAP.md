@@ -1016,14 +1016,13 @@ model libraries — where their JSON and YAML serializations diverge — is in
      networking removes it.
 
   One estate difference is worth a decision rather than a fix. The Docker nginx now serves 24 virtual
-  hosts against the native stack's 28; the four that remain are CEE's — `demo.cee`, `demo-dist.cee`,
-  `docs.cee`, `docs-dist.cee`. CEE itself is not a candidate for a container: it is a web component,
-  built to a single JS file and embedded in a host page, with no process to run. The `-dist` pair is
-  plain nginx over a built directory, the same shape as the six frontend images, so those two are one
-  more image if the sites are meant to be hosted at all — the runbook classes the demos as
-  non-essential and not started by default, and the `cedar-component-demo` checkout they are built from
-  is absent from this machine, so the native server blocks point at directories that do not exist. The
-  other two proxy a live `ng serve` and belong to development only.
+  hosts against the native stack's 26; the two that remain are CEE's — `demo.cee` and `demo-dist.cee`.
+  CEE itself is not a candidate for a container: it is a web component, built to a single JS file and
+  embedded in a host page, with no process to run. `demo-dist.cee` is plain nginx over a built
+  directory, the same shape as the six frontend images, so it is one more image if the site is meant to
+  be hosted at all — the runbook classes the demos as non-essential and not started by default, and its
+  native server block still names `cedar-cee-demo`, the checkout's old directory name, so it serves a
+  path that does not exist. `demo.cee` proxies a live `ng serve` and belongs to development only.
 
   **Only one of the two hybrids is safe, and the other has a latency cliff.** The runbook's supported
   mixture — container nginx stopped, native nginx up, native frontends against containerized services

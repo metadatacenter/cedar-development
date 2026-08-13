@@ -8,7 +8,7 @@ one line each. How to build, test and release is in
 commit that opened it.
 
 1. **Stable distribution.** Dev builds now resolve from Nexus, pinned by an npm alias in all
-   eight embedding manifests. Stable releases still name the unscoped npmjs package that
+   seven embedding manifests. Stable releases still name the unscoped npmjs package that
    `scripts/npm-package.mjs` cannot produce, so decide whether it learns to emit both, and
    whether an external embedder installs from npmjs or from Nexus.
 2. **Scroll bug.** Scrolling past the end of a long form and back leaves the bottom of it

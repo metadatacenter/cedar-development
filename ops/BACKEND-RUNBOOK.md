@@ -408,8 +408,8 @@ The auxiliary frontends are the `ui-*` entries — `ui-openview` (4220), `ui-con
 `cedar-<name>[-src]` source dir (see `fe_dir()`). They are named `ui-*` because `openview`/`monitor`/
 `bridge` are already microservice names. Their health is **port-only** (no Dropwizard `/healthcheck`).
 `cedarcli start frontends` starts the same set but opens a macOS Terminal tab per app; this controller
-runs them headless instead. The non-essential CEE demos (`cee-dev`/`demo.cee`/`docs.cee`) are not
-managed here — `cedarcli` doesn't start them by default either.
+runs them headless instead. The non-essential CEE demos (`cee-dev`/`demo.cee`) are not managed here —
+`cedarcli` doesn't start them by default either.
 
 ```bash
 cedar-services.sh start [name...]     # start all, or only the named services
@@ -462,7 +462,7 @@ Admin port = app port + 100; health check at `http://127.0.0.1:<admin>/healthche
 
 Auxiliary frontends (Angular `ng serve`, port-only health): `ui-openview` 4220, `ui-content` 4240,
 `ui-monitoring` 4300, `ui-artifacts` 4320, `ui-bridging` 4340. Non-essential CEE demos (not started by
-default): `demo.cee` 4260, `docs.cee` 4280, `cee-dev` 4400.
+default): `demo.cee` 4260, `cee-dev` 4400.
 
 ## YAML is a native artifact format
 

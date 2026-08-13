@@ -7,7 +7,7 @@
 # as background processes (nohup), each logging to $CEDAR_HOME/log/, PIDs in
 # $CEDAR_HOME/log/run/. One `status` view shows PID / port / health / error-count.
 # Frontend health is port-only (no Dropwizard /healthcheck). The non-essential CEE
-# demos (cee-dev/demo.cee/docs.cee) are NOT managed here — cedarcli doesn't start them
+# demos (cee-dev/demo.cee) are NOT managed here — cedarcli doesn't start them
 # by default either.
 #
 # Infra (Keycloak, Mongo, Neo4j, MySQL, Redis, OpenSearch, nginx) is NOT managed here —
