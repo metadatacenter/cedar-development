@@ -149,10 +149,35 @@ spec.
 **`ng test` is the Angular CLI's own Vitest builder**, not a hand-written `vitest.config`.
 CEE predates it and carries its own; nothing here needs to.
 
-**The production bundle is unhashed**, because a host page loads it by name. It was 122.85 kB
-raw and 36.85 kB transferred when the scaffold landed, against a budget that warns at 300 kB
-and fails at 500 kB. That budget exists to make the cost of a UI component library a decision
-rather than a discovery.
+**The production bundle is unhashed**, because a host page loads it by name. It is 310.07 kB raw
+and 172.22 kB transferred, of which about 184 kB is the three embedded Roboto weights. That part
+is fixed and does not compress — base64 of an already-compressed woff2 — so the transfer figure
+is close to the raw one and stays that way. The remaining ~126 kB is the application.
+
+The budgets are set around that: `initial` warns at 400 kB and fails at 550 kB, leaving roughly
+90 kB of growth before anyone is told. `anyComponentStyle` had to go to 190/200 kB, because the
+font registrar's stylesheet *is* those 184 kB, and Angular's budgets cannot exempt one file. The
+consequence is worth knowing rather than discovering: that budget no longer says anything useful
+about an ordinary component stylesheet, since another one would have to reach 190 kB to trip it.
+
+## Fonts, and Why There Is a Component That Renders Nothing
+
+Browsers do not register `@font-face` from inside a shadow root, so the picker cannot simply put
+the faces in its own encapsulated stylesheet. `FontRegistrar` is the answer CEE also arrived at:
+a component with `ViewEncapsulation.None` and an empty template, whose stylesheet holds the
+font faces and no selectors at all. Angular sends an unencapsulated component's styles to the
+document head, which is what registers the fonts; it also copies them into the shadow root, so
+the base64 exists twice in the DOM at runtime. That is a memory cost rather than a transfer one.
+
+The selectors matter: an unencapsulated stylesheet reaches the host page, so anything beyond a
+`@font-face` in that file would leak out of the component.
+
+Verified in a browser rather than assumed — `document.fonts` carries `CEE Roboto` at 400 and 500
+and `document.fonts.check('14px "CEE Roboto"')` returns true.
+
+A global stylesheet in `angular.json` would be the ordinary way to reach the document, and it
+does not work here: the CLI emits it as a separate `styles.css` that a host page never loads.
+`"styles": []` is deliberate, in this repository and in CEE.
 
 ## Releasing
 
