@@ -368,13 +368,18 @@ author can usually decide without opening anything, which is not true of the oth
     the version it was searched at, whether it was served locally or proxied, and therefore
     whether a constraint on it can be pinned.
 
-    One thing that block leaves open. When a request pins a source to a version the store does
-    not hold, `integrated-search` fails the whole request loud, and deliberately so: it resolves
-    one constraint for filling, where silently serving latest would corrupt an instance. A
-    search spanning many sources is a different shape, and failing everything because one source
-    cannot be pinned would be poor. Reporting that source as unavailable in its own block, and
-    returning the rest, holds the same principle — never serve latest as though it were pinned —
-    without discarding the answer. Decide it deliberately rather than by inheriting the 422.
+    When a request pins a source to a version the store does not hold, that source is reported
+    unavailable in its own block and the rest of the results are returned. The whole request
+    does not fail. `integrated-search` does fail loud in the same situation, and the difference
+    is deliberate rather than an inconsistency to tidy away later: it resolves one constraint so
+    a field can be filled, where serving latest in place of a pin would corrupt an instance and
+    there is no partial answer worth having. A search spanning many sources has one, and
+    discarding it because a single source could not be pinned would serve nobody. Both obey the
+    same rule — latest is never served as though it were pinned.
+
+    The client inherits an obligation from this. A source reported unavailable has to be shown
+    as such, or its absence reads as "this ontology has no matches" when it means "this ontology
+    could not be searched at the version you asked for".
 
     Keep it a general capability rather than a picker API. Collapsing identical labels and the
     match-reason chip belong to the client; an endpoint shaped around one UI is a liability the
