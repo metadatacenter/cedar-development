@@ -241,7 +241,7 @@ author can usually decide without opening anything, which is not true of the oth
    class, value set — produce a value constraint, so the component emits one shape
    discriminated by kind rather than a union of unrelated things. Give every kind
    `sourceSystem`, the canonical `sourceIri` alongside the acronym, and a version, and the
-   provenance shape the versioning work needs (items 1 and 5 of
+   provenance shape the versioning work needs (items 2 and 6 of
    [VERSIONING-ROADMAP.md](./VERSIONING-ROADMAP.md)) follows from the contract rather than
    being retrofitted onto it. The four kinds are not uniform underneath — a class constraint
    takes no version, a branch names a class and an ontology — so what the contract has to
