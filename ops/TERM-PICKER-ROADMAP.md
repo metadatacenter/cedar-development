@@ -148,10 +148,19 @@ Four things settled about it:
   instead of falling back to BioPortal for everything.
 - **Per-ontology proxying survives, at latest only.** An ontology the store cannot hold — the
   UMLS-licensed ones, SNOMEDCT, MEDDRA, RCD, ICPC2P — is still served from BioPortal, and can
-  never be pinned. **So a hit has to carry whether it is pinnable**, and the picker hides the
-  version control on the ones that are not. Without that, an author pins a SNOMEDCT constraint
+  never be pinned. Without somewhere for that to be said, an author pins a SNOMEDCT constraint
   and finds out at publish time, when freeze raises `PinnedVersionUnavailableException` as a 422
   — the failure landing a long way from the mistake.
+- **That is said once per source, in the response envelope, not on every hit.** The fact is a
+  property of an ontology within a request, not of an individual term: every SNOMEDCT hit is
+  unpinnable for the same reason, and repeating it a hundred times would state it a hundred
+  times and let the copies disagree. Hits already carry `source`, so the client joins.
+
+  The block earns its place beyond pinnability, because it is the natural home for what a
+  version-aware search has to report and today's has no way to say: **which version each source
+  was actually searched at.** Served locally at a named version, or proxied at whatever
+  BioPortal currently holds — an author who pinned a version needs the answer confirmed rather
+  than assumed, and a client cannot derive it from the hits.
 
 Work on it is on the `version-aware-search` branch of `cedar-terminology-server`.
 
@@ -354,7 +363,18 @@ author can usually decide without opening anything, which is not true of the oth
       not display an English one with no explanation. `lang=` is ignored on
       `/bioportal/search` today — measured 2026-08-13, GEMET returns identical labels with and
       without it — which the versioning roadmap records as deferred by decision.
-    - whether the hit is pinnable, since a proxied ontology has no snapshot.
+
+    Alongside the hits, a per-source block in the envelope: for each source the results touch,
+    the version it was searched at, whether it was served locally or proxied, and therefore
+    whether a constraint on it can be pinned.
+
+    One thing that block leaves open. When a request pins a source to a version the store does
+    not hold, `integrated-search` fails the whole request loud, and deliberately so: it resolves
+    one constraint for filling, where silently serving latest would corrupt an instance. A
+    search spanning many sources is a different shape, and failing everything because one source
+    cannot be pinned would be poor. Reporting that source as unavailable in its own block, and
+    returning the rest, holds the same principle — never serve latest as though it were pinned —
+    without discarding the answer. Decide it deliberately rather than by inheriting the 422.
 
     Keep it a general capability rather than a picker API. Collapsing identical labels and the
     match-reason chip belong to the client; an endpoint shaped around one UI is a liability the
