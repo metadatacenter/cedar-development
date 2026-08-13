@@ -11,11 +11,10 @@ Sibling runbooks:
 - [BACKEND-RUNBOOK.md](./BACKEND-RUNBOOK.md) — running the CEDAR stack, including the
   terminology server this component reads from.
 
-> **State of the repository.** `cedar-term-picker` holds its license, conventions and
-> README. There is no `package.json`, no application and no test gate yet, so the sections
-> on building, testing and releasing describe the intended shape rather than commands that
-> run today. What the component reads is real and can be exercised now, and those commands
-> are marked as verified with the date they were run.
+> **State of the repository.** The Angular 22 project is scaffolded and its gate is green,
+> but the component itself is a placeholder: it renders a search box, the four tab names and
+> nothing else. No search is wired up. Every command below runs today; the ones that read
+> from the terminology server are marked with the date they were verified.
 
 ---
 
@@ -112,11 +111,52 @@ versioned store answers these; with no catalog configured they do not resolve. W
 server is in is in [BACKEND-RUNBOOK.md](./BACKEND-RUNBOOK.md) under the local terminology
 store.
 
-## Building, Testing and Releasing
+## Running It
 
-Not yet true — the repository has no build. The intended shape, once the scaffold lands, is
-CEE's: `npm start` for the standalone development app, `npm run build:production` for the
-custom element, Vitest for unit tests, Playwright for behaviour and appearance, and a GitHub
-Actions gate that builds the production bundle and then tests that artifact rather than a
-development one. This section gets real commands when they exist, and the roadmap's scaffold
-item is what puts them here.
+`npm start` serves the development host on port 4500 — `src/index.html`, a page standing in
+for the Template Designer, which sets the element's `query` attribute and listens for its
+`cancelled` event. Nothing on that page ships.
+
+```bash
+npm --prefix $CEDAR_HOME/cedar-term-picker start
+```
+
+Nothing here needs the CEDAR stack until the component starts reading from it.
+
+## Building and Testing
+
+| Command | What it does |
+|---|---|
+| `npm run build:production` | the custom-element bundle, into `dist/cedar-term-picker` |
+| `npm test` | unit tests, through the Angular CLI's Vitest builder |
+| `npm run lint` | ESLint over TypeScript and templates, Prettier included |
+| `npm run typecheck` | `tsc` over every file under `src/`, including ones no build or test reaches |
+| `npm run test:ci` | the gate: lint, typecheck, tests, then the production build |
+| `npm run audit:prod` | advisories against what actually ships |
+
+`.github/workflows/test.yml` runs the gate on push and pull request, on the Node version
+`.nvmrc` pins, with the audit as a separate step so a disclosure does not fail somebody's
+unrelated pull request with an error they cannot fix there.
+
+Three details of the setup are worth knowing before they surprise you.
+
+**The build is zoneless.** Angular 22 generates a project without `zone.js`, and this one
+keeps it that way. Change detection runs on signals, so a view updates on a microtask after
+the signal is set rather than synchronously: a test or a console probe that reads the DOM in
+the same tick as the change sees the old value. `await fixture.whenStable()` is the fix in a
+spec.
+
+**`ng test` is the Angular CLI's own Vitest builder**, not a hand-written `vitest.config`.
+CEE predates it and carries its own; nothing here needs to.
+
+**The production bundle is unhashed**, because a host page loads it by name. It was 122.85 kB
+raw and 36.85 kB transferred when the scaffold landed, against a budget that warns at 300 kB
+and fails at 500 kB. That budget exists to make the cost of a UI component library a decision
+rather than a discovery.
+
+## Releasing
+
+Nothing has been released. The repository will publish itself to npm rather than moving with
+the platform release run, and `cedar-cli` has no entry for it — see
+[TERM-PICKER-ROADMAP.md](./TERM-PICKER-ROADMAP.md). This section gets its commands when the
+first release is cut.
