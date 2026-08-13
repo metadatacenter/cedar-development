@@ -55,7 +55,8 @@ request is refused rather than collapsed.
 
 `sources` does two jobs at once, which is why it is one list rather than a scope and a pin. It
 narrows the search to the named sources, and it says which version each is searched at. Omit it
-and the whole served corpus is searched at latest. Omit `version` on an entry, or write
+and the whole served corpus is searched at latest, through the index described below. Omit
+`version` on an entry, or write
 `"version": "latest"`, and that source is searched at latest — the same spelling the constraint
 spec uses for an unpinned entry.
 
@@ -167,6 +168,37 @@ ontology has no matches" when it means "this ontology was not searched".
 **The endpoint requires the local store.** With no catalog configured it reports unavailable
 rather than falling back to BioPortal for everything, so a caller is never handed unpinnable
 results in the belief that pinning was available.
+
+## Searching Everything
+
+A snapshot is a self-contained file, which is what makes a version reproducible and what makes a
+corpus-wide query impossible to serve by iteration: 1,215 current snapshots, 13.9 million concepts,
+24.3 million captured names, 8.2 GB, measured 2026-08-13. A query naming no source is answered from
+a cross-snapshot index instead — one SQLite file, 5.4 GB, built in 196 seconds by `SearchIndexJob`
+and rebuilt per ontology as each is re-ingested.
+
+**It holds the current version of each ontology and no other**, which is a property of the question
+rather than a limitation of the answer. A corpus-wide search cannot be pinned: there is no one
+version to pin it to, only a version per ontology. So searching everything is searching what is
+current, and a search that pins names its sources and reads their snapshots directly.
+
+The source blocks then report **the version the index holds**, which is not always the catalog's
+current one. An ontology re-ingested since the index was last built was searched at the older
+snapshot, and saying otherwise would credit results to a version that did not produce them.
+
+Three things differ from a source-scoped search, and a client can tell which it got:
+
+- **Matching is by token prefix, not substring.** The index is FTS5, so "melano" reaches melanoma
+  while it is still being typed, and "elanoma" reaches nothing. A snapshot's `LIKE` does the
+  opposite. Reconciling the two belongs with the search-ordering work.
+- **Diacritics are folded**, so `aquifere` finds `aquifère` — which the snapshot cannot do, since
+  SQLite folds ASCII case only.
+- **A branch row carries its descendant count but no path or examples**, and `lang` does not choose
+  the label. Both need the snapshot. Absent rather than wrong, and narrowing to the source returns
+  them.
+
+Value sets are not searched corpus-wide, and the request is refused rather than answered with
+nothing: the index does not record which value set holds a value, so it cannot tell.
 
 ## Hits
 

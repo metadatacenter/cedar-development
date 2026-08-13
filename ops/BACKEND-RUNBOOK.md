@@ -1306,6 +1306,37 @@ curl -s -X POST 'http://localhost:9004/bioportal/integrated-search?lang=fr' \
 # -> professionnel / accident du travail / ergothérapie  (English by default)
 ```
 
+### Building the cross-snapshot search index
+
+A corpus-wide term search — a query naming no ontology — is answered from one index rather than by
+opening every snapshot in the catalog. `SearchIndexJob` builds it, and the terminology server reads
+it when `terminologyStore.searchIndexPath` points at one. Without that property a search must name
+its sources, and the startup log says so.
+
+```bash
+cd $CEDAR_HOME/cedar-terminology-server
+mvn -q -pl cedar-terminology-server-ingest -am install -DskipTests
+java -Xmx24g -cp "cedar-terminology-server-ingest/target/classes:cedar-terminology-server-store/target/classes:\
+$HOME/.m2/repository/org/xerial/sqlite-jdbc/3.53.2.1/sqlite-jdbc-3.53.2.1.jar" \
+  org.metadatacenter.terms.ingest.SearchIndexJob \
+  $CEDAR_HOME/cedar-term/prod/catalog.sqlite $CEDAR_HOME/cedar-term/prod/search-index.sqlite
+```
+
+Measured 2026-08-13 over the served prod catalog: **1,215 ontologies, 13,939,470 terms, 24,278,806
+names, 196 seconds, 5.44 GB**. The heap is what NCBITaxon needs — an ontology is loaded one at a
+time, and that one is 2.85M concepts. `--skip-larger-than N` leaves the giants for a separate run
+with a bigger heap; whatever is skipped is printed, because an index silently missing an ontology
+answers "no matches" for it.
+
+The job is idempotent and incremental: an ontology already indexed at the catalog's current version
+is skipped, so a rebuild after a few re-ingests costs a few ontologies rather than the corpus.
+`--force` reindexes anyway, `--acronyms A,B` limits it to named ones.
+
+The index holds each ontology's **current** version and no other, and records which. A corpus-wide
+search cannot be pinned — there is no one version to pin it to — so it searches what is current,
+and a pinned search names its sources and reads their snapshots. Full design in
+[VERSION-AWARE-SEARCH.md](VERSION-AWARE-SEARCH.md).
+
 ### Re-ingesting an ontology
 
 Ingest is `IngestJob <catalogPath> <snapshotDir> <ACRONYM>…`, `BIOPORTAL_API_KEY` in the env. OWLAPI

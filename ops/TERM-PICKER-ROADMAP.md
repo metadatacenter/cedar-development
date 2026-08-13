@@ -180,8 +180,8 @@ Ranking by CEDAR's own use of an ontology — how many templates already referen
 shown either. It would have entrenched what authors already chose, and it would have made the
 tab depend on a number somebody has to keep current.
 
-**Identical labels collapse into one row.** A query for "melanoma" returns the same string from
-MESH, MEDDRA, LOINC and thirty more; the author's question at that point is which vocabulary,
+**Identical labels collapse into one row.** A corpus-wide query for "melanoma" leads with the exact
+string from VALUESETS, IRAEO, MDM, NCIT, CSEO and RH-MESH, measured against the index on 2026-08-13; the author's question at that point is which vocabulary,
 not which of thirty near-identical rows. One row per distinct label, expanding to the
 vocabularies offering it.
 
@@ -386,6 +386,14 @@ author can usually decide without opening anything, which is not true of the oth
     The client inherits an obligation from this. A source reported unavailable has to be shown
     as such, or its absence reads as "this ontology has no matches" when it means "this ontology
     could not be searched at the version you asked for".
+
+    Corpus-wide search is served: a query naming no source is answered from a cross-snapshot index
+    holding each ontology's current version — 1,215 ontologies, 13.9M terms, built in 196 seconds
+    into 5.4 GB, and answering a broad query in about half a second. What it cannot do is pin, and
+    that is the question rather than the index: there is no one version to pin a corpus-wide search
+    to. Its remaining differences from a source-scoped search — prefix matching rather than
+    substring, no branch path, no `lang` — are in
+    [VERSION-AWARE-SEARCH.md](./VERSION-AWARE-SEARCH.md).
 
     Keep it a general capability rather than a picker API. Collapsing identical labels and the
     match-reason chip belong to the client; an endpoint shaped around one UI is a liability the
