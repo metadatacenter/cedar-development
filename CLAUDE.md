@@ -26,7 +26,7 @@ Helper scripts are in `cedar-development/ops/`:
 
 ## Ops docs: roadmaps and runbooks
 
-Thirteen documents under `cedar-development/ops/`, paired by area: a runbook says how to run, build,
+Fourteen documents under `cedar-development/ops/`, paired by area: a runbook says how to run, build,
 release and deploy; a roadmap tracks open work. Findings and measurements sit with whichever of the
 pair they belong to rather than in files of their own, so start from the pair for your area and
 search within it.
@@ -69,6 +69,9 @@ controlled-term picker:
   endpoints the component reads, and the build and test gate once it exists.
 - [TERM-PICKER-ROADMAP.md](ops/TERM-PICKER-ROADMAP.md) — everything still open, from the
   result contract and the host decision through to retiring the picker it replaces.
+- [VERSION-AWARE-SEARCH.md](ops/VERSION-AWARE-SEARCH.md) — the request and response shapes of
+  `POST /search`, the terminology server endpoint the picker is built against, keyed to the
+  versioned value-constraint naming.
 
 The rest:
 - [RELEASE-RUNBOOK.md](ops/RELEASE-RUNBOOK.md) — `cedarcli release all-in-one` across the ~48

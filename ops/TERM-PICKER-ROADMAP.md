@@ -350,12 +350,15 @@ author can usually decide without opening anything, which is not true of the oth
     `/bioportal/search`, which is what makes it safe: a route with no consumers yet cannot
     change results underneath CEE or the Template Designer.
 15. **Build `POST /search`, the version-aware authoring search.** The one backend dependency
-    the picker cannot start without, on the `version-aware-search` branch. What it answers, in
-    one call: a query at a named version or the current one, across the kinds, with per-kind
-    counts and each kind's first page, saying when a count is capped rather than computed. What
-    a hit carries beyond today's `prefLabel`/`definition`/`source`/`matchType`/`matchedSynonyms`
-    is the part that unblocks the tabs — all of it data the store already holds, so this is one
-    change to a hit shape rather than several endpoints:
+    the picker cannot start without, on the `version-aware-search` branch. Its request and
+    response shapes are designed in [VERSION-AWARE-SEARCH.md](./VERSION-AWARE-SEARCH.md), keyed
+    throughout to the versioned value-constraint naming so that a hit is a constraint entry plus
+    the evidence for choosing it. What it answers, in one call: a query at a named version or the
+    current one, across the kinds, with per-kind counts and each kind's first page, saying when a
+    count is capped rather than computed. What a hit carries beyond today's
+    `prefLabel`/`definition`/`source`/`matchType`/`matchedSynonyms` is the part that unblocks the
+    tabs — all of it data the store already holds, so this is one change to a hit shape rather
+    than several endpoints:
     - `hasChildren` and a descendant count, without which the branch tab cannot be built at all;
     - obsolete, and the replacement IRI the store records beside it, without which "shown,
       marked and demoted" cannot be implemented;
