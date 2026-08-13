@@ -402,6 +402,12 @@ response.
    rather than a deployment detail. Either production carries a catalog, or freeze is understood to be
    dormant there and the roadmap says by when it will not be.
 
+   The term picker sharpens this rather than adding to it. Its search endpoint assumes the local store
+   and reports unavailable without one, and the picker tells the author so, so a catalog-less production
+   loses the way constraints are authored rather than quietly publishing unpinned ones. The decision is
+   the same decision; what changes is that it stops being silent. See
+   [TERM-PICKER-ROADMAP.md](TERM-PICKER-ROADMAP.md).
+
 ## Ingestion tracker (ongoing)
 
 An **iterative** task: updated each time more ontologies are ingested from other repositories (item 9).

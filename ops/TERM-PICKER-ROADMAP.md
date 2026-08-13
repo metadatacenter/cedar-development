@@ -94,6 +94,26 @@ list, and the entry would carry `skip_from_release` to stay out of the release r
 **The component renders in shadow DOM** and exposes a small set of CSS custom properties for
 the host to theme it through, which is the contract CEE arrived at.
 
+**It takes CEE's design values, by copying them.** `_cee-tokens.scss` and the three embedded
+Roboto weights are copied into the picker verbatim, under CEE's filenames and with its `$cee-`
+prefixes, so a `diff` against the original is one command. CEE publishes only a built bundle to
+npm, so consuming the values from the package is not available, and a shared package is the
+thing to consider the first time a value has to change in both rather than work to do now. The
+controls themselves stay ours: Angular Material would make the two genuinely match, at the cost
+of a large dependency, and CEE's own M2-to-M3 migration is still open.
+
+**The neutrals are gathered rather than copied.** CEE has no neutral palette: its greys are
+literals written where each is used. So `_cedar-neutrals.scss` collects the recurring ones from
+what CEE renders — `#777` for a control border, `#555` for secondary text, `#f5f5f5` for a panel,
+`#d7e0df` for the tinted rule under its header — with each value's source noted. Body text is
+`rgba(0, 0, 0, 0.87)`, which CEE renders by inheriting Material's default rather than by stating
+it. That file is picker-owned and has nothing upstream to diff against. Consolidating these back
+into CEE would improve both and is not this repository's to do.
+
+Still open is spacing, which neither repository has as a scale. Embedding all three font weights
+also costs about 184 kB, most of the bundle; what that does to the budget is in
+[TERM-PICKER-RUNBOOK.md](./TERM-PICKER-RUNBOOK.md).
+
 **Terms is the tab the picker opens on**, every time, so the landing place never moves under
 an author who is typing.
 
@@ -101,12 +121,39 @@ an author who is typing.
 reading the first handful of hits and recognizing one, so it does not ship on ordering that
 leaves the head of the list arbitrary.
 
-**Without a local catalog the picker degrades rather than fails.** Search and browse work
-through BioPortal and the version controls do not appear at all, since nothing can answer
-the versions endpoints.
+**The picker requires the local store, and says so when it is missing.** An earlier decision
+had it degrade instead — searching through BioPortal with the version controls simply absent —
+and the endpoint below supersedes that: it reports unavailable when no catalog is configured,
+and the picker tells the author the search service is unavailable rather than quietly serving
+unpinnable results. This forces the open production question rather than working around it:
+either production carries a catalog or it has no term picker.
 
-**The terminology server gains one call that answers all four tabs**, returning per-kind
-counts and each kind's first page, rather than the component making several.
+**The terminology server gains a version-aware authoring search**, and the picker is built
+against it rather than against `/bioportal/search`. Being able to search *at a version* is the
+reason, and it is a correctness matter rather than a feature: `/bioportal/search` takes no
+version, so an author who steps back to an older DOID would be searching the current one and
+could pin a constraint to a term that does not exist in the version they pinned — manufacturing
+the irreproducibility this whole effort exists to remove. `integrated-search` is version-aware
+and shaped for the wrong moment, since it takes a constraint and asks what may fill it.
+
+Four things settled about it:
+- **A new root path, `POST /search`**, the first resource in the service outside `/bioportal`.
+  That namespace exists because CEDAR proxied BioPortal, and this is not a BioPortal client.
+  POST rather than GET because the request carries a version per source alongside the kinds and
+  the scoping, which is the same reason `integrated-search` is a POST.
+- **It replaces `/bioportal/search` once its consumers move.** The old route stays while CEE and
+  the Template Designer still use it, and then goes. Ordering, obsolete and language work land
+  once, in the new endpoint, rather than being maintained in two places that quietly diverge.
+- **The local store is assumed.** No catalog, no answer — the endpoint reports unavailable
+  instead of falling back to BioPortal for everything.
+- **Per-ontology proxying survives, at latest only.** An ontology the store cannot hold — the
+  UMLS-licensed ones, SNOMEDCT, MEDDRA, RCD, ICPC2P — is still served from BioPortal, and can
+  never be pinned. **So a hit has to carry whether it is pinnable**, and the picker hides the
+  version control on the ones that are not. Without that, an author pins a SNOMEDCT constraint
+  and finds out at publish time, when freeze raises `PinnedVersionUnavailableException` as a 422
+  — the failure landing a long way from the mistake.
+
+Work on it is on the `version-aware-search` branch of `cedar-terminology-server`.
 
 **The picker holds the author's own credentials and uses them everywhere.** One credential
 for terminology search and for the ontology list, which means the terminology server has to
@@ -115,10 +162,63 @@ accept a user credential where it expects an API key today.
 **Property search and relation-type selection are retired**, on the same terms as
 provisional creation: the picker keeps to the four kinds it advertises.
 
+**Ontologies are found by name, and ordered by how well the name matches.** The tab filters the
+ontology list by name and acronym rather than asking which ontologies answer the query, so it
+is independent of the class search. Ties break on match quality and then alphabetically: an
+exact acronym, then a name starting with the query, then a name containing it, then A–Z.
+Ranking by CEDAR's own use of an ontology — how many templates already reference it, which
+`ops/cedar_ontology_usage.py` can harvest — was considered and dropped, and the count is not
+shown either. It would have entrenched what authors already chose, and it would have made the
+tab depend on a number somebody has to keep current.
+
+**Identical labels collapse into one row.** A query for "melanoma" returns the same string from
+MESH, MEDDRA, LOINC and thirty more; the author's question at that point is which vocabulary,
+not which of thirty near-identical rows. One row per distinct label, expanding to the
+vocabularies offering it.
+
+**Obsolete terms are shown, marked and demoted**, never hidden and never excluded. An author
+sometimes needs a deprecated term deliberately, to match data that already uses it.
+
 **Constraints written by the old picker are not migrated.** An absent `sourceSystem` already
 means BioPortal, and the acronym derives the rest, which is how the backend reads them
 today. The canonical-IRI backfill on the versioning roadmap stays a robustness improvement
 rather than something this work depends on.
+
+## What Each Tab Shows
+
+The four kinds are one question at three scales plus a fourth thing. How much of a vocabulary
+may this field draw from — all of it, a subtree, a single concept? A value set answers
+something else: whether somebody has already written the list by hand.
+
+Two of the tabs are views over one search. Terms and branches come from a single class query,
+branches being the hits that have descendants, so their counts are related rather than
+independent. Ontologies filter a list cached once per session, and value sets are their own
+corpus.
+
+**Terms — which concept, and whose.** One row per distinct preferred label, expanding to the
+vocabularies that offer it. A row carries the label, the ontology, a definition snippet, and a
+match-reason chip wherever the reason is not the label on screen: *matched synonym "cutaneous
+melanoma"*, *matched French label*. The search response already carries `matchType` and
+`matchedSynonyms`, so the chip needs no new backend work. Without it a synonym hit reads as a
+defect rather than as recall.
+
+**Ontologies — which vocabulary this field draws from.** Name and acronym matching over the
+cached list, ordered by how well the name matches, with the ontology's size and its current
+version on the row. The tab is often empty by construction: no ontology is named "melanoma".
+Its empty state therefore has to do real work — say that nothing is named this, and point at
+where the query did find something — or the tab reads as broken on exactly the queries the
+picker is best at.
+
+**Branches — which part of a vocabulary.** Only hits with descendants, and the row has to
+answer what an author would be capturing: the class label, its ontology, its path from the
+root as a breadcrumb, the descendant count, and two or three example descendants inline. The
+breadcrumb is what separates *disease* in DOID from *disease* in an upper ontology, and the
+examples are what tell an author whether the subtree is the one they pictured.
+
+**Value sets — whether the list already exists.** The one tab where showing contents is cheap,
+because value sets are small and enumerable. The row gives the name, its collection, how many
+values it holds, which of its values matched the query, and the first few values inline. An
+author can usually decide without opening anything, which is not true of the other three.
 
 ## Decide Before Writing Component Code
 
@@ -165,7 +265,10 @@ rather than something this work depends on.
    author.
 6. **Show a branch hit's reach.** A branch hit is a class hit with descendants, so the row
    has to carry the descendant count and enough of the surrounding tree for an author to see
-   what they would be constraining to. Needs the signal in item 16.
+   what they would be constraining to. Sequenced behind items 15 and 16, and deliberately not
+   built lazily in the meantime: resolving each row's reach on expand means a tab whose badge
+   cannot be computed and a click before an author learns what a branch holds, which is worse
+   than the tab arriving a release later.
 7. **Set the badge threshold, and get the numbers behind it right.** Measured on 2026-08-13
    against the local server, `q=disease&scope=classes` reports `totalCount` 238,163 while the
    Workbench displays "500 results" — the 500 is a frontend cap rather than a total. Value
@@ -189,9 +292,8 @@ rather than something this work depends on.
    - **Nothing written while the author stays on latest**, per the decision above, so the
      component has to distinguish "the author accepted the default" from "the author stepped
      back and then forward again to the newest version". The second pins; the first does not.
-   - **A way to tell that no catalog is configured**, since the controls are hidden entirely
-     in that case. Treating a failed `/versions` call as the signal works but conflates a
-     missing store with a broken one; the server knows which mode it is in and could say so.
+   - **Nothing to offer on a proxied ontology**, since a hit BioPortal served has no snapshot
+     to step through. The control is absent rather than disabled, and the row says why.
 9. **Make one credential work across the terminology server.** It does not agree with itself
    today about what a caller must hold: `/bioportal/search` builds an anonymous request
    context and answers without a header, while `/bioportal/ontologies` returns
@@ -234,21 +336,35 @@ rather than something this work depends on.
     entire top ten tied at edit distance zero, so which ten CEDAR shows is effectively
     arbitrary — measured and written up as the term-ordering item in
     [VERSIONING-ROADMAP.md](./VERSIONING-ROADMAP.md). A count of 238,163 advertises a
-    haystack the ordering cannot search. This is the one backend item the picker cannot ship
-    without, so it belongs on the critical path and should start before the component does.
-15. **Build the one call that answers four tabs.** Terms and value sets need separate
-    `/bioportal/search` calls to get separate totals, because one call with
-    `scope=classes,value_sets` returns a combined total that cannot be split. The replacement
-    returns per-kind counts and each kind's first page in one response, and it has to say
-    when a count is capped rather than computed. Dropping the fields tab thinned the case for
-    this: with the ontology list cached per session and branches riding on the class results,
-    a settled keystroke now costs two calls rather than four. It is worth building because
-    every tab then agrees about one query, and because the count and the ordering are decided
-    in the same place — not because two calls are expensive.
-16. **A descendant signal on class hits.** Item 6's branch tab needs to know whether a class
-    has descendants, and how many, without a second call per row. The local store can compute
-    it at ingest; BioPortal does not offer it.
+    haystack the ordering cannot search, so this belongs on the critical path and should start
+    before the component does. It lands in item 15's new endpoint rather than in
+    `/bioportal/search`, which is what makes it safe: a route with no consumers yet cannot
+    change results underneath CEE or the Template Designer.
+15. **Build `POST /search`, the version-aware authoring search.** The one backend dependency
+    the picker cannot start without, on the `version-aware-search` branch. What it answers, in
+    one call: a query at a named version or the current one, across the kinds, with per-kind
+    counts and each kind's first page, saying when a count is capped rather than computed. What
+    a hit carries beyond today's `prefLabel`/`definition`/`source`/`matchType`/`matchedSynonyms`
+    is the part that unblocks the tabs — all of it data the store already holds, so this is one
+    change to a hit shape rather than several endpoints:
+    - `hasChildren` and a descendant count, without which the branch tab cannot be built at all;
+    - obsolete, and the replacement IRI the store records beside it, without which "shown,
+      marked and demoted" cannot be implemented;
+    - the matched label in the language it matched, so a hit found through a French label does
+      not display an English one with no explanation. `lang=` is ignored on
+      `/bioportal/search` today — measured 2026-08-13, GEMET returns identical labels with and
+      without it — which the versioning roadmap records as deferred by decision.
+    - whether the hit is pinnable, since a proxied ontology has no snapshot.
 
+    Keep it a general capability rather than a picker API. Collapsing identical labels and the
+    match-reason chip belong to the client; an endpoint shaped around one UI is a liability the
+    first time a second consumer wants it.
+16. **Compute the descendant signal the hit carries.** Item 15 serves it; this is producing it.
+    A branch row needs whether a class has descendants, how many, and its path from the root,
+    none of which the store materializes today — `hasChildren` appears on class detail, and a
+    direct-child count needs its own call, measured at 197 for DOID_4 on 2026-08-13. Cheap to
+    compute at ingest, and BioPortal offers none of it, which is another reason the branch tab
+    cannot be built against a proxy.
 ## Cutover
 
 17. **Ship behind a flag for one release, then delete what it replaces.** The new component
