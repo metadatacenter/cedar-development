@@ -39,8 +39,9 @@ POST /search
   "query": "melanoma",
   "types": ["ontology", "branch", "class", "valueSet"],
   "sources": [
-    { "sourceAcronym": "DOID", "version": { "id": "63ef56df1a…" } },
-    { "sourceAcronym": "NCIT" }
+    { "sourceSystem": "bioportal", "sourceAcronym": "DOID", "version": { "id": "63ef56df1a…" } },
+    { "sourceAcronym": "NCIT" },
+    { "sourceSystem": "agroportal", "sourceAcronym": "AGROVOC" }
   ],
   "lang": "fr",
   "page": 1,
@@ -53,6 +54,12 @@ narrows the search to the named sources, and it says which version each is searc
 and the whole served corpus is searched at latest. Omit `version` on an entry, or write
 `"version": "latest"`, and that source is searched at latest — the same spelling the constraint
 spec uses for an unpinned entry.
+
+**An acronym only means something inside a system.** `sourceSystem` and `sourceAcronym` are the
+pair that addresses a source, and BioPortal is one system among several: the store ingests from
+any OntoPortal instance, from OBO PURLs and from any URL. An absent or blank `sourceSystem`
+means BioPortal, which is both the constraint spec's default and what
+`RoutingTerminologyService` already implements.
 
 `types` omitted means all four. `lang` is the preferred display language and does not narrow the
 search: recall already spans every language and synonym the store holds, and `lang` chooses which
@@ -82,10 +89,10 @@ the server's behalf.
 
 ## Sources Are Described Once
 
-The envelope describes sources; hits describe matches and name their source with
-`sourceAcronym`. Whether a term can be pinned is a property of its ontology within a request —
-every SNOMEDCT hit is unpinnable for one reason — so saying it on each hit would state one fact
-a hundred times and let the copies disagree.
+The envelope describes sources; hits describe matches and name their source with the
+`sourceSystem` and `sourceAcronym` pair. Whether a term can be pinned is a property of its
+ontology within a request — every SNOMEDCT hit is unpinnable for one reason — so saying it on
+each hit would state one fact a hundred times and let the copies disagree.
 
 ```json
 {
@@ -102,6 +109,19 @@ a hundred times and let the copies disagree.
 `served` is `local`, `proxied` or `unavailable`, and `pinnable` follows from it. A locally served
 source reports the exact snapshot it was searched at, which is the answer an author who pinned a
 version needs confirmed rather than assumed, and which no client can derive from the hits.
+
+**Which of the three a source can be depends on its system.** Proxying means falling back to
+BioPortal, so only a BioPortal source has it available: anything else is served from the local
+store or reported unavailable, never answered with another system's content. That rule is not
+new here — `RoutingTerminologyService` already refuses to proxy a non-BioPortal source. What is
+new is saying so. Today that path returns an empty result set, which a caller cannot tell apart
+from an honest absence of matches, and ending exactly that confusion is what the source block is
+for.
+
+| `sourceSystem` | `served` can be |
+|---|---|
+| `bioportal`, or absent | `local`, `proxied`, `unavailable` |
+| anything else | `local`, `unavailable` |
 
 A proxied source is one the store cannot hold — the UMLS-licensed ontologies, SNOMEDCT, MEDDRA,
 RCD and ICPC2P among them. It is served from BioPortal at whatever BioPortal currently holds, so
@@ -122,7 +142,8 @@ An unavailable source is reported in its own block and the rest of the results a
 
 ```json
 {
-  "sourceAcronym": "DOID",
+  "sourceSystem": "agroportal",
+  "sourceAcronym": "AGROVOC",
   "served": "unavailable",
   "pinnable": false,
   "reason": "versionNotHeld",
@@ -147,14 +168,20 @@ results in the belief that pinning was available.
 
 One shape per constraint type. In each, the keys the constraint spec defines for that type come
 first; everything after them is evidence, which a client uses to choose and drops when it writes
-the constraint. `sourceSystem`, `sourceName`, `sourceIri` and `version` are not repeated on hits
-— they are joined from the source block.
+the constraint.
+
+A hit carries the pair that addresses its source, `sourceSystem` and `sourceAcronym`, and joins
+the rest from the source block. The split is between a key and an attribute rather than between
+short values and long ones: `sourceSystem` and `sourceAcronym` are how a hit says which source
+it came from, while `sourceName`, `sourceIri` and `version` are things that source has, stated
+once and copied by a client when it writes the constraint.
 
 ### `class` — a specific term
 
 ```json
 {
   "type": "class",
+  "sourceSystem": "bioportal",
   "sourceAcronym": "DOID",
   "termIri": "http://purl.obolibrary.org/obo/DOID_1909",
   "termType": "class",
@@ -187,6 +214,7 @@ per row.
 ```json
 {
   "type": "branch",
+  "sourceSystem": "bioportal",
   "sourceAcronym": "DOID",
   "termBaseIri": "http://purl.obolibrary.org/obo/DOID_1909",
   "termBaseLabel": "melanoma",
@@ -217,6 +245,7 @@ writing the constraint; a search has no view on how deep the field should reach.
 ```json
 {
   "type": "ontology",
+  "sourceSystem": "bioportal",
   "sourceAcronym": "DOID",
   "termCount": 14203,
 
@@ -234,6 +263,7 @@ catalogue rather than a facet over the class results, so this tab is empty for a
 ```json
 {
   "type": "valueSet",
+  "sourceSystem": "bioportal",
   "sourceAcronym": "HRAVS",
   "termBaseIri": "https://…/analyte-class",
   "termBaseLabel": "Analyte class",
@@ -257,10 +287,19 @@ one consumer of a general capability.
 
 ## Open
 
-**The join key.** Hits name their source by `sourceAcronym`, which the server guarantees unique
-within a response. Acronyms are not globally unique — the whole reason `sourceIri` is the
-canonical identity — so a request that could span two portals serving the same acronym needs an
-explicit key. Not a problem to solve before it exists, and worth knowing it is there.
+**`sourceSystem` is not yet truthful for OntoPortal instances.** The ingest reaches any
+OntoPortal — AgroPortal, EcoPortal — through `--source bioportal --base-url`, and the backend
+records `bioportal` for all of them regardless of which instance answered. So the pair that
+addresses a source cannot currently distinguish AgroPortal's AGROVOC from a BioPortal ontology
+of the same acronym, and this endpoint can only report what the store recorded. Labelling the
+authority on the snapshot is already an open item on
+[VERSIONING-ROADMAP.md](./VERSIONING-ROADMAP.md), and it is a dependency of this design rather
+than an improvement to it: until it lands, `sourceSystem` distinguishes BioPortal from a direct
+URL ingest and no finer.
+
+`sourceIri` remains the canonical, source-independent identity and stays in the source block.
+The addressing pair is what a hit carries because it is short and stable; if two systems ever
+collide within one response despite the above, the block is where an explicit key would go.
 
 **Ordering.** The results are only as good as the order they arrive in, and today's ordering
 leaves the head of the list arbitrary. That work lands here rather than in `/bioportal/search`,
