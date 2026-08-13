@@ -26,7 +26,7 @@ Helper scripts are in `cedar-development/ops/`:
 
 ## Ops docs: roadmaps and runbooks
 
-Eleven documents under `cedar-development/ops/`, paired by area: a runbook says how to run, build,
+Thirteen documents under `cedar-development/ops/`, paired by area: a runbook says how to run, build,
 release and deploy; a roadmap tracks open work. Findings and measurements sit with whichever of the
 pair they belong to rather than in files of their own, so start from the pair for your area and
 search within it.
@@ -62,6 +62,13 @@ Terminology versioning:
 - [VERSIONING-ROADMAP.md](ops/VERSIONING-ROADMAP.md) — what remains, plus the findings behind it:
   the ingestion tracker, the BioPortal reconciliation log, and the survey of ingesting from other
   repositories.
+
+The term picker (`cedar-term-picker`), the Web Component replacing the Workbench's
+controlled-term picker:
+- [TERM-PICKER-RUNBOOK.md](ops/TERM-PICKER-RUNBOOK.md) — the repository's conventions, the
+  endpoints the component reads, and the build and test gate once it exists.
+- [TERM-PICKER-ROADMAP.md](ops/TERM-PICKER-ROADMAP.md) — everything still open, from the
+  result contract and the host decision through to retiring the picker it replaces.
 
 The rest:
 - [RELEASE-RUNBOOK.md](ops/RELEASE-RUNBOOK.md) — `cedarcli release all-in-one` across the ~48

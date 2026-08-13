@@ -52,8 +52,8 @@ path left blank, so switching back is one profile line.
 Replace BioPortal for lookup wherever we can, and make every published template and filled instance
 reproducible against pinned vocabulary versions. The versioning **backend (freeze-on-publish, catalog,
 resolution) and the compact-YAML dialect are code-complete** — the version-aware YAML is published as a
-preview only, pending production. The remaining gaps: the frontend (CEE sending the pin, the Workbench
-version picker) and instance-level capture (item 5).
+preview only, pending production. The remaining gaps: the frontend (CEE sending the pin, and version
+selection in the new term picker) and instance-level capture (item 5).
 
 ## Pending
 
@@ -68,16 +68,18 @@ version picker) and instance-level capture (item 5).
    a pinned request **fails loud** (`PinnedVersionUnavailableException`; mapped to HTTP 422) rather than
    silently serving latest from BioPortal. Enumerated `classes` cannot be pinned (no snapshot, by design).
    A non-BioPortal source that is not served locally is reported unavailable, not proxied to BioPortal.
-- **2. Author-facing version picker in the Workbench (frontend-only).** The picker lives in the old
-   AngularJS Workbench (`cedar-template-editor/app/scripts/controlled-term/`), where constraints are
-   authored. **No backend work:** `GET /ontologies/{acronym}/versions` (and `/versions/current`, `/diff`)
-   already exist and hit the version-aware store. Frontend work: add a `controlledTermDataService` method
-   to fetch the version list, drop a version `<select>` into the picker across the four parallel staging
-   builders (ontology/branch/class/valueSet) plus the staging and summary tables, plumb the selected
-   ontology's version list across the search/controller directive boundary, and persist `version` on each
-   constraint object (the write path is permissive, so the key sticks). Offer version for
-   ontology/branch/valueSet only — not individual classes. Moderate-to-nasty by breadth (four parallel
-   paths, ~5 duplicated modal hosts), not depth.
+- **2. Author-facing version selection, in the new term picker (frontend-only).** Constraints are
+   authored where the picker lives, and that picker is being replaced rather than amended: `cedar-term-picker`
+   is a new Web Component with one query across ontologies, branches, terms, value sets and reusable
+   fields, tracked in [TERM-PICKER-ROADMAP.md](TERM-PICKER-ROADMAP.md). Version selection ships as part
+   of it. Retrofitting the old AngularJS picker (`cedar-template-editor/app/scripts/controlled-term/`) was
+   scoped and dropped: it meant a version `<select>` across four parallel staged-constraint builders and
+   ~5 duplicated modal hosts, all of which the replacement deletes. What survives the replacement is the
+   field's configuration panel, which lists a field's constraints and gains a version alongside each.
+   **No backend
+   work either way:** `GET /ontologies/{acronym}/versions` (and `/versions/current`, `/diff`) already exist
+   and hit the version-aware store, and the constraint write path is permissive, so a `version` key sticks.
+   Offer version for ontology/branch/valueSet only — not individual classes, which have no snapshot.
 
 ## Testing
 
