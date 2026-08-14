@@ -67,8 +67,14 @@ query answers every tab.
 **Every settled keystroke queries all four kinds**, debounced and with superseded requests
 cancelled, so a badge never describes a query the author has moved on from.
 
-**A tab badge shows an exact count when it is small and a capped one when it is not.** The
-shape is `500+` above the threshold; the threshold itself is still to be set.
+**A tab badge shows an exact count when it is small and a capped one when it is not**, and for the
+terms tab the count is of distinct labels rather than of hits. Measured 2026-08-13, a hit count is
+not a badge: every query anyone types saturates any cap on terms, so it would read the same for
+"melanoma" as for "aspirin". The collapsed count is what the author will actually see once identical
+labels are folded into one row, and it varies — melanoma 2,552, blood pressure 1,601, diabetes
+3,107, aspirin 1,720, against hit counts of 5,439, 3,019, 5,824 and 3,122. Counting stops at ten
+thousand and says "more than" above it, which is where a broad query lands and where no number is
+actionable anyway.
 
 **A query matches preferred labels, synonyms and labels in any language.** The local store
 already serves that recall, and taking it is the difference between an author finding a
@@ -171,14 +177,22 @@ accept a user credential where it expects an API key today.
 **Property search and relation-type selection are retired**, on the same terms as
 provisional creation: the picker keeps to the four kinds it advertises.
 
-**Ontologies are found by name, and ordered by how well the name matches.** The tab filters the
-ontology list by name and acronym rather than asking which ontologies answer the query, so it
-is independent of the class search. Ties break on match quality and then alphabetically: an
-exact acronym, then a name starting with the query, then a name containing it, then A–Z.
+**Ontologies are found by name first, then by the vocabularies the query landed in.** Name and
+acronym matches lead, ordered by match quality and then alphabetically. After them come the
+vocabularies whose terms the query actually matched, each with how many — which is a group-by over
+the same search, not a tally of the page.
+
+This revises an earlier decision to match on names alone, and the evidence is what revised it.
+Measured against the built index on 2026-08-13: "melanoma" finds MELO by name and then NCIT (950
+terms), BERO (782), PR (238); "blood pressure" and "aspirin" name no vocabulary at all while
+matching terms in 164 and 97 of them. A name-only tab is empty for most of what a picker sees, and
+"which vocabulary should this field draw from" is the authoring question that the same query already
+answers.
+
 Ranking by CEDAR's own use of an ontology — how many templates already reference it, which
-`ops/cedar_ontology_usage.py` can harvest — was considered and dropped, and the count is not
-shown either. It would have entrenched what authors already chose, and it would have made the
-tab depend on a number somebody has to keep current.
+`ops/cedar_ontology_usage.py` can harvest — remains dropped, and the count is not shown. It would
+have entrenched what authors already chose, and it would have made the tab depend on a number
+somebody has to keep current.
 
 **Identical labels collapse into one row.** A corpus-wide query for "melanoma" leads with the exact
 string from VALUESETS, IRAEO, MDM, NCIT, CSEO and RH-MESH, measured against the index on 2026-08-13; the author's question at that point is which vocabulary,
@@ -225,7 +239,13 @@ root as a breadcrumb, the descendant count, and two or three example descendants
 breadcrumb is what separates *disease* in DOID from *disease* in an upper ontology, and the
 examples are what tell an author whether the subtree is the one they pictured.
 
-**Value sets — whether the list already exists.** The one tab where showing contents is cheap,
+**Value sets — whether the list already exists.** The tab stays, though CEDARVS is the only
+value-set collection in the served catalog: a value set is a distinct constraint kind with its own
+shape, and more collections are expected — storing caDSR's is already on the versioning roadmap. A
+search naming no source looks in every collection the catalog knows, so an author is shown what is
+there without having to name it.
+
+It is the one tab where showing contents is cheap,
 because value sets are small and enumerable. The row gives the name, its collection, how many
 values it holds, which of its values matched the query, and the first few values inline. An
 author can usually decide without opening anything, which is not true of the other three.

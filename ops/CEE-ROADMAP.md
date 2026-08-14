@@ -33,13 +33,12 @@ commit that opened it.
    consistently to every control, deprecate the inert text-primary and accent properties,
    forbid arbitrary CSS and Material selectors, test every preset for contrast, focus,
    narrow layout and edit/read-only rendering, and report any unscoped `::ng-deep`.
-5. **Two untested config flags.** Both reach only the sweeps that prove a flag is wired to
-   something — the config key reaches its field, and the DOM differs off versus on — which
-   cannot say either does the right thing. `showAllMultiInstanceValues` gates the summary of
-   every value in a repeating group, so testing it needs a multi-instance template with an
-   instance carrying several values: one instance file for `17-real-flat`. It defaults to
-   true, so every embedder gets it. `showStaticText` needs a decision on whether it is dead
-   configuration.
+5. **`showAllMultiInstanceValues` is untested.** It reaches only the sweeps that prove a flag
+   is wired to something — the config key reaches its field, and the DOM differs off versus
+   on — which cannot say it does the right thing. It gates the summary of every value in a
+   repeating group, so testing it needs a multi-instance template with an instance carrying
+   several values: one instance file for `17-real-flat`. It defaults to true, so every
+   embedder gets it.
 6. **Markup discoverability.** Have the Template Designer's rich-text editor declare or
    enforce what an embedder will actually render, since its `Source` button accepts markup
    CEE will strip.
@@ -59,7 +58,7 @@ commit that opened it.
    the suite passed. Decide whether the budget can go to zero, since the baselines are
    keyed to the platform and re-recording is already the stated answer to an OS font
    shift, or whether a budget survives only on the shots whose variance is real.
-10. **Audit the configuration surface.** Fifty-five keys, and several are stranger than their
+10. **Audit the configuration surface.** Fifty-three keys, and several are stranger than their
    names. The four prefixes do three unrelated jobs: `iriPrefix` mints IRIs into the
    instance, `bioPortalPrefix` builds a link out to BioPortal's web UI, and `orcidPrefix`
    and `rorPrefix` are value-recognition patterns interpolated raw into `new RegExp('^' +
@@ -70,3 +69,17 @@ commit that opened it.
    scope or retire accordingly. `showTemplateYaml`, `showInstanceYaml` and their `expanded`
    partners are also missing from the documented panel table, which lists seven panels
    where the code renders nine.
+11. **`showHeader` and `showFooter` name a position and deliver CEDAR's identity.** Both gate
+   CEDAR's own chrome rather than the host's. `showHeader` renders a `mat-toolbar` carrying the
+   CEDAR logo and the title "CEDAR Embeddable Editor"; `showFooter` renders the Stanford
+   Division of Computational Medicine logo, the maintainer line, and a "Contact CEDAR" link
+   pointing at `more.metadatacenter.org`. Every string and every destination is hardcoded, so
+   an embedder can take CEDAR's branding or nothing, and the names do not say that.
+   `showCedarHeader` and `showCedarFooter` would. Neither key covers the header an embedder is
+   most likely to mean: the template card's own title block, holding the avatar, the version
+   stamp, the template name, its description and the expand controls, renders whenever a
+   template does and no key suppresses it. The sample-template picker is a child of the CEDAR
+   toolbar, so `showSampleTemplateLinks` is inert while `showHeader` is false — one key
+   silently governing another. Decide whether the pair is host API, developer chrome or
+   something to retire, whether a host needs its own way to suppress the card's title block,
+   and what an embedder that wants no CEDAR branding at all is supposed to set.

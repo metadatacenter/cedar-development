@@ -612,8 +612,11 @@ months.
 To accept an intentional visual change:
 
 ```bash
-npm run update
+npm --prefix visual run update
 ```
+
+The script lives in `visual/package.json`, so from the repository root it needs the
+prefix — plain `npm run update` fails with `Missing script: "update"`.
 
 Review every changed PNG before committing — a baseline update asserts the new
 rendering is correct.
@@ -637,7 +640,7 @@ So a passing screenshot does not prove the baseline matches what CEE renders. It
 proves the difference is under budget. The two were the same thing only after the
 budget stopped scaling.
 
-**`npm run update` cannot fix such a baseline.** Playwright rewrites a snapshot only
+**`npm --prefix visual run update` cannot fix such a baseline.** Playwright rewrites a snapshot only
 when its comparison failed, so one that passes while depicting the previous
 rendering stays as it is, however many times you run the update. Delete it and let
 the suite write it fresh:

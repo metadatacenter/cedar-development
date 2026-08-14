@@ -197,8 +197,31 @@ Three things differ from a source-scoped search, and a client can tell which it 
   the label. Both need the snapshot. Absent rather than wrong, and narrowing to the source returns
   them.
 
-Value sets are not searched corpus-wide, and the request is refused rather than answered with
-nothing: the index does not record which value set holds a value, so it cannot tell.
+Value sets are reached through the collection that holds them, which the index does not record, so
+a corpus-wide request searches every collection the catalog knows instead. That is one, CEDARVS,
+across the whole served catalog — a bounded set, and not something an author should have to name to
+be shown what is in it.
+
+**A corpus-wide query needs at least two characters.** A single character matches a large fraction
+of 24 million names, and the cost is in reaching the cap rather than in the cap itself: "a" took
+18.6 seconds where "melanoma" takes 0.16. Naming a source lifts the limit, because that path reads
+one snapshot.
+
+### Counts Come From Facets, Not From the Page
+
+A page is capped before it is counted, so counting it reports the cap. The counts are separate
+aggregate queries over the same match, exact below ten thousand and "more than" above it:
+
+| query | terms | distinct labels | branches | whole response |
+|---|---|---|---|---|
+| melanoma | 5,439 | 2,552 | 1,313 | 0.16s |
+| blood pressure | 3,019 | 1,601 | 912 | 0.09s |
+| cell | 10000+ | 10000+ | 10000+ | 1.03s |
+
+`distinctLabelCount` is the second count, and it exists because the first is not a usable badge: a
+query anyone types saturates any cap on terms, while the collapsed count varies — 2,552 against
+1,601 — and is the number of rows a client that collapses identical labels will actually render. It
+is computed for the terms results only, since each facet is another pass over the match.
 
 ## Hits
 
@@ -291,11 +314,19 @@ writing the constraint; a search has no view on how deep the field should reach.
 
 Thin, because everything else about an ontology is in its source block — which the response
 carries for every ontology hit, or the acronym would arrive with no way to learn its name.
-`matchType` is `sourceAcronym` or `sourceName`: the ontology results are name matching over the
-served catalogue rather than a facet over the class results, so they answer a different question
-from the terms. Measured against the served catalogue on 2026-08-13, "melanoma" returns one
-ontology, MELO (Melanoma Ontology), against 90 DOID terms — and a query for a term no vocabulary
-is named after returns none at all.
+`matchType` says why it surfaced, and the tab answers two questions in one list. A name match comes
+first — `sourceAcronym` or `sourceName` — and then, for a corpus-wide query, the vocabularies the
+query actually landed in, `matchType: terms`, each carrying `matchCount`: how many of its terms
+matched. `termCount` remains the vocabulary's size as the constraint spec defines it; `matchCount`
+is evidence about this query and never becomes part of a constraint.
+
+Both halves are needed because most queries answer only one. Measured 2026-08-13: "melanoma" finds
+MELO by name and then NCIT (950 terms), BERO (782), PR (238); "blood pressure" and "aspirin" name no
+vocabulary at all, and answer with LOINC (790) and with DDSS (861), DRON (858), RXNORM (663). A tab
+that only matched names would be empty for the second kind, which is most of what a picker sees.
+
+The vocabulary half is a group-by over the match rather than a tally of the page, and the difference
+is not small: "melanoma" is in 113 vocabularies where its first thousand hits come from 88.
 
 ### `valueSet` — a curated list
 
