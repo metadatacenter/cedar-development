@@ -11,10 +11,15 @@ Sibling runbooks:
 - [BACKEND-RUNBOOK.md](./BACKEND-RUNBOOK.md) — running the CEDAR stack, including the
   terminology server this component reads from.
 
-> **State of the repository.** The Angular 22 project is scaffolded and its gate is green,
-> but the component itself is a placeholder: it renders a search box, the four tab names and
-> nothing else. No search is wired up. Every command below runs today; the ones that read
-> from the terminology server are marked with the date they were verified.
+> **State of the repository.** The picker searches. It runs against `POST /search` on the
+> terminology server, renders the four tabs with live counts, folds repeated labels, and steps a
+> constraint back through an ontology's releases. What is left is on
+> [TERM-PICKER-ROADMAP.md](./TERM-PICKER-ROADMAP.md) — chiefly paging past the first page, the
+> ontology narrowing filter, and embedding it in the Template Designer.
+>
+> It needs a terminology server carrying a catalog and a cross-snapshot index. The dev stack's
+> server on 9004 has the local store disabled and proxies everything to BioPortal, so the picker
+> cannot use it; run a second instance as below.
 
 ---
 
@@ -122,6 +127,32 @@ npm --prefix $CEDAR_HOME/cedar-term-picker start
 ```
 
 Nothing here needs the CEDAR stack until the component starts reading from it.
+
+## Running the Picker Against a Store
+
+The picker needs a terminology server with both a catalog and a search index, and the dev stack's
+does not carry either. Run a second instance on its own ports, leaving 9004 alone:
+
+```bash
+export CEDAR_HOME=/Users/martin/CEDAR
+source $CEDAR_HOME/cedar-profile-native-develop.sh
+export JAVA_HOME=$(/usr/libexec/java_home -v 17)
+export CEDAR_TERMINOLOGY_HTTP_PORT=29004 CEDAR_TERMINOLOGY_ADMIN_PORT=29104 CEDAR_TERMINOLOGY_STOP_PORT=29204
+java -DterminologyStore.catalogPath=$CEDAR_HOME/cedar-term/prod/catalog.sqlite \
+     -DterminologyStore.searchIndexPath=$CEDAR_HOME/cedar-term/prod/search-index.sqlite \
+     -DterminologyStore.localOntologies="$CEDAR_TERMINOLOGY_LOCAL_ONTOLOGIES" \
+     -DterminologyStore.localRootsOntologies="$CEDAR_TERMINOLOGY_LOCAL_ROOTS_ONTOLOGIES" \
+     -jar $CEDAR_HOME/cedar-terminology-server/cedar-terminology-server-application/target/\
+cedar-terminology-server-application-$CEDAR_VERSION.jar \
+     server $CEDAR_HOME/cedar-terminology-server/cedar-terminology-server-application/src/main/resources/config.yml
+```
+
+The startup log says which mode it is in — "Cross-snapshot search index opened from …" and "Local
+terminology store enabled from …". Not 19004: the application tests bind those ports, and a server
+sitting on them fails the suite with a bind error that reads like a code fault.
+
+`npm start` then serves the picker on 4500 and proxies `/search` to 29004 through
+`proxy.conf.json`, which is what keeps the call same-origin and CORS out of the picture.
 
 ## Building and Testing
 

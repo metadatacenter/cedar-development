@@ -7,8 +7,8 @@ in [VERSIONING-ROADMAP.md](./VERSIONING-ROADMAP.md) and
 [BACKEND-RUNBOOK.md](./BACKEND-RUNBOOK.md); the other Angular Web Component in the estate,
 whose setup this one follows, is in [CEE-RUNBOOK.md](./CEE-RUNBOOK.md).
 
-The repository exists and carries its license, conventions and README. No component code
-has been written, so every item below is open.
+The picker searches. What that took, and what it measured on the way, is below; the numbered
+items are what is left.
 
 ## What It Replaces, and Why
 
@@ -250,186 +250,126 @@ because value sets are small and enumerable. The row gives the name, its collect
 values it holds, which of its values matched the query, and the first few values inline. An
 author can usually decide without opening anything, which is not true of the other three.
 
-## Decide Before Writing Component Code
+## What Is Built
 
-1. **Inventory what the old picker does.** The line count is not the feature count.
-   Provisional term and value-set creation, narrowing a search to named ontologies,
-   class-tree browsing, property search and relation types all live in those files, as does
-   the merge that folds a new constraint into the ones a field already carries. Write the
-   inventory down before deleting anything, so what the replacement drops is dropped on
-   purpose rather than discovered missing after cutover.
-2. **Design the result contract first, before any UI.** All four kinds — ontology, branch,
-   class, value set — produce a value constraint, so the component emits one shape
-   discriminated by kind rather than a union of unrelated things. Give every kind
-   `sourceSystem`, the canonical `sourceIri` alongside the acronym, and a version, and the
-   provenance shape the versioning work needs (items 2 and 6 of
-   [VERSIONING-ROADMAP.md](./VERSIONING-ROADMAP.md)) follows from the contract rather than
-   being retrofitted onto it. The four kinds are not uniform underneath — a class constraint
-   takes no version, a branch names a class and an ontology — so what the contract has to
-   settle is which fields each kind carries and which are common to all of them. Publish it
-   as TypeScript declarations, as CEE now does for its host contract.
-3. **Keep the terminology client framework-free.** Search, paging, cancellation, caching,
-   count aggregation and version resolution belong in a plain TypeScript module with no
-   Angular in it. Sharing it with CEE is no longer a reason, since CEE is not a consumer, so
-   what remains is that it can be tested without a DOM and that it keeps the framework
-   choice reversible. Both still hold, but this is a preference now rather than a
-   requirement, and it should not be allowed to cost more than it returns.
-4. **Scaffold the repository on CEE's setup.** Angular 22 with `@angular/elements`, the
-   `@angular/build` application builder, ESLint with Prettier, Vitest for units, Playwright
-   for behaviour and appearance, and a GitHub Actions gate that builds the production bundle
-   and tests that artifact rather than a development one. CEE's `angular.json`,
-   `eslint.config.mjs`, `vitest.config.mts` and workflow transfer nearly verbatim. Set a
-   bundle budget deliberately: the Template Designer does not load an Angular 22 runtime
-   today, and this component adds one.
+The component runs against the live corpus and the four tabs answer. `POST /search` on the
+terminology server backs it, on the `version-aware-search` branch, and a cross-snapshot index
+backs corpus-wide queries.
+
+**The endpoint.** A query at a named version or the current one, across the four constraint
+types, in one call. Per-source blocks say which snapshot answered, whether it can be pinned, and
+— for a source that could not be searched — why, rather than letting its absence read as an
+absence of matches. A source may be named once per request, because a hit carries the addressing
+pair and no version of its own.
+
+**The index.** 1,215 ontologies, 13,939,470 terms, 24,278,806 names, built in 226 seconds into
+5.4 GB, answering a corpus-wide query in about a quarter of a second. It holds each ontology's
+current version and no other, which is a property of the question: a corpus-wide search cannot be
+pinned, since there is no one version to pin it to. Matching is FTS5 — token prefixes, folded
+diacritics, so `aquifere` finds `aquifère`. Ranking happens in SQL because the cap truncates
+before a caller can reorder; ordering by label length alone filled it with coded vocabularies'
+numeric ids and dropped the terms named after the query.
+
+**Both list tabs page by distinct label**, not by hit, and carry every hit of the labels on the
+page. Paging by hit made folding impossible to do honestly — a page of twenty-five hits for a
+common word is one label — so a row could only ever claim a count "on this page". Terms fold
+across ontologies; branches fold across and within, because a thesaurus can place one concept
+several times in its own tree.
+
+**The rows.** One line each, folding what an author cannot choose between and opening onto what
+they can. A row leads with the name that matched when the ontology's label is a bare code. A
+branch shows its parent, since a label does not always identify a class. An ontology row ranks
+name matches and term matches together, because segregating them spent the first page
+alphabetically and never reached the vocabularies that hold the terms.
+
+**Version stepping.** Rows for the pinnable kinds carry `‹ v2026-06-30 ›` where the store holds
+more than one release. Stepping forward to current unpins rather than pinning to today's version,
+so a constraint records a version only when the author chose one. Terms have no stepper: a class
+carries no snapshot of its own.
+
+Three things the work measured that the plan below rests on:
+
+- A corpus-wide query needs at least two characters. One matched a large fraction of 24 million
+  names and took 18.6 seconds where "melanoma" takes 0.11.
+- Counting stops at ten thousand. Counting every match of a broad query is a deduplication of much
+  of the corpus — "cell" takes 3.2 seconds unbounded and 40 milliseconds capped — and nobody acts
+  on the difference between ten thousand rows and three hundred thousand.
+- The dev server on 9004 has the local store disabled and proxies to BioPortal, so figures read
+  from it are BioPortal's. The instance these numbers came from is a separate one, with the
+  catalog and index configured.
 
 ## The Component
 
-5. **The search box and the four tabs.** One input, four tabs beneath it — ontologies,
-   branches, terms, value sets — each showing what the current query found, and each
-   updating as the query is refined. Four kinds against a moving query is where a naive
-   implementation renders stale results, so the debounce and the cancellation are the
-   component's first real engineering rather than a detail. Because a query matches synonyms
-   and other languages, a hit has to say *why* it matched when the reason is not the label on
-   screen, or a result that is correct will read as unrelated. The ontology narrowing filter
-   lives here too, applying to every tab at once rather than to the one in front of the
-   author.
-6. **Show a branch hit's reach.** A branch hit is a class hit with descendants, so the row
-   has to carry the descendant count and enough of the surrounding tree for an author to see
-   what they would be constraining to. Sequenced behind items 15 and 16, and deliberately not
-   built lazily in the meantime: resolving each row's reach on expand means a tab whose badge
-   cannot be computed and a click before an author learns what a branch holds, which is worse
-   than the tab arriving a release later.
-7. **Set the badge threshold, and get the numbers behind it right.** Measured on 2026-08-13
-   through the dev server, which was proxying: `q=disease&scope=classes` reports `totalCount`
-   238,163 and value sets 13, both BioPortal's figures rather than the local store's, while the
-   Workbench displays "500 results" — the 500 is a frontend cap rather than a total. Scope changes
-   the numbers a great deal and the problem not at all: the same query against DOID alone in the
-   local store returns 90 classes and 14 branches. The threshold
-   between the two cases is a judgement about how many hits an author will scan, and it
-   should be set against real queries rather than picked.
-8. **Offer version selection natively, latest by default.** An author constraining a field
-   to an ontology, a branch or a value set gets the latest version without asking for it,
-   sees that older ones exist, and can step backwards through them one at a time rather than
-   choosing from a list of content hashes. Individual classes are not offered a version, by
-   design — they have no snapshot of their own. This is what the version picker item in
-   [VERSIONING-ROADMAP.md](./VERSIONING-ROADMAP.md) now points at, and it needs three things
-   the endpoints do not obviously give yet:
-   - **A legible sequence to step through.** `GET /ontologies/{acronym}/versions` returns
-     snapshots; stepping needs them ordered and labelled by something an author can read —
-     `effectiveDate`, falling back to `declaredVersion` — with the content hash kept as
-     identity rather than shown as a name.
-   - **A cheap "older versions exist" signal.** The indicator appears before an author asks
-     for the version list, so a per-row call is too expensive on the ontology tab. Either the
-     ontology list carries a version count, or the indicator waits until a row is selected.
-   - **Nothing written while the author stays on latest**, per the decision above, so the
-     component has to distinguish "the author accepted the default" from "the author stepped
-     back and then forward again to the newest version". The second pins; the first does not.
-   - **Nothing to offer on a proxied ontology**, since a hit BioPortal served has no snapshot
-     to step through. The control is absent rather than disabled, and the row says why.
-9. **Make one credential work across the terminology server.** It does not agree with itself
-   today about what a caller must hold: `/bioportal/search` builds an anonymous request
-   context and answers without a header, while `/bioportal/ontologies` returns
-   `UNAUTHORIZED` without an API key (both measured 2026-08-13). The picker carries the
-   author's credentials, so the work is to accept a user credential where an API key is
-   expected while keeping the anonymous path working for whatever else relies on it. Worth
-   revisiting once, now that the resource server has left the picture: making
-   `/bioportal/ontologies` anonymous like its sibling is the cheaper way to reach the same
-   place, and the only reason to prefer a user credential is if the picker will eventually
-   need one for something else.
-10. **Show the pinned version in the field's configuration panel.** The panel already lists
-    everything constraining a field, one repeat per kind over `_valueConstraints`, and it
-    keeps that job — the picker adds one constraint and closes, as it does today. What the
-    panel does not show is the version, which becomes visible state the moment constraints
-    can be pinned: a field constrained to two branches of DOID at different versions looks
-    identical there to one pinned at neither. Those four tables gain a version, and the
-    constraint the picker hands back has to land in them unchanged.
-11. **Retire three capabilities cleanly: provisional creation, property search, relation
-    types.** All three are being dropped, so the work is making sure nothing falls over
-    behind them. Find who creates provisional terms today and what they do instead, confirm
-    that templates already referencing one still resolve it, decide whether the terminology
-    server's provisional endpoints keep serving reads once nothing writes to them, and check
-    whether anything in production authored constraints through property search.
-12. **Define the theming surface, and make the overlay behave.** Shadow DOM is settled; what
-    is not is which CSS custom properties the Template Designer gets and what they are
-    allowed to move. Reuse CEE's token approach and its rule that Material internals are not
-    host API. The overlay is the part shadow DOM makes harder rather than easier: a modal
-    inside a shadow root has to stack above the host's own layers and trap focus without
-    reaching into them.
-13. **Build the test gate with the component, not after it.** Unit tests over the
-    framework-free client against recorded terminology-server responses, behaviour and
-    appearance tests in a browser, and a production-artifact gate in CI. The real query
-    corpus that `cedar_usage_matrix.py` harvests from production templates gives the client's
-    tests inputs that reflect what CEDAR actually looks up.
+1. **Narrow a search to named ontologies.** Decided and not built. One filter constrains every
+   tab at once, and it is the cheapest way to make a query with thousands of matches usable — an
+   author who knows the field belongs to NCIT should not be reading LOINC's answers. The endpoint
+   already takes the sources; this is the control that names them.
+2. **Page past the first page.** Both list tabs return page one and nothing offers page two. The
+   endpoint pages by label and reports the count, so this is a control and a request, but it is
+   the difference between a picker and a demonstration.
+3. **Define the theming surface, and make the overlay behave.** Shadow DOM and CEDAR's design
+   values are settled; what is not is which CSS custom properties the Template Designer gets and
+   what they may move. Reuse CEE's token approach and its rule that Material internals are not
+   host API. The overlay is the part shadow DOM makes harder: a modal inside a shadow root has to
+   stack above the host's own layers and trap focus without reaching into them.
+4. **Test behaviour and appearance in a browser.** The gate runs lint, typecheck, unit specs and
+   a production build; nothing drives the component in a browser, and everything this work found
+   — a stale bundle serving old markup, a fold that swallowed a group, a row three times the
+   height of its neighbours — was found by hand. Playwright is in the scaffold's plan and not yet
+   in it. The query corpus `cedar_usage_matrix.py` harvests from production templates gives the
+   specs inputs that reflect what CEDAR actually looks up.
+5. **Embed it in the Template Designer.** The host integration is DOM-level: set properties,
+   listen for events. Nothing of it exists — the component runs in its own development host
+   against a dev-server proxy, which is what keeps the call same-origin and CORS out of the
+   picture. Whatever replaces that proxy in the Workbench is the first real question.
 
-## Backend It Depends On
+## The Template Designer
 
-14. **Search ordering.** The picker's whole premise is that an author reads the first
-    handful of hits and recognizes the one they want. Today's ordering leaves BioPortal's
-    entire top ten tied at edit distance zero, so which ten CEDAR shows is effectively
-    arbitrary — measured and written up as the term-ordering item in
-    [VERSIONING-ROADMAP.md](./VERSIONING-ROADMAP.md). A count of 238,163 advertises a
-    haystack the ordering cannot search, so this belongs on the critical path and should start
-    before the component does. It lands in item 15's new endpoint rather than in
-    `/bioportal/search`, which is what makes it safe: a route with no consumers yet cannot
-    change results underneath CEE or the Template Designer.
-15. **Build `POST /search`, the version-aware authoring search.** The one backend dependency
-    the picker cannot start without, on the `version-aware-search` branch. Its request and
-    response shapes are designed in [VERSION-AWARE-SEARCH.md](./VERSION-AWARE-SEARCH.md), keyed
-    throughout to the versioned value-constraint naming so that a hit is a constraint entry plus
-    the evidence for choosing it. What it answers, in one call: a query at a named version or the
-    current one, across the kinds, with per-kind counts and each kind's first page, saying when a
-    count is capped rather than computed. What a hit carries beyond today's
-    `prefLabel`/`definition`/`source`/`matchType`/`matchedSynonyms` is the part that unblocks the
-    tabs — all of it data the store already holds, so this is one change to a hit shape rather
-    than several endpoints:
-    - `hasChildren` and a descendant count, without which the branch tab cannot be built at all;
-    - obsolete, and the replacement IRI the store records beside it, without which "shown,
-      marked and demoted" cannot be implemented;
-    - the matched label in the language it matched, so a hit found through a French label does
-      not display an English one with no explanation. `lang=` is ignored on
-      `/bioportal/search` today — measured 2026-08-13, GEMET returns identical labels with and
-      without it — which the versioning roadmap records as deferred by decision.
+6. **Show the pinned version in the field's configuration panel.** The panel already lists
+   everything constraining a field, one repeat per kind over `_valueConstraints`, and it keeps
+   that job — the picker adds one constraint and closes, as it does today. What the panel does not
+   show is the version, which becomes visible state the moment constraints can be pinned: a field
+   constrained to two branches of DOID at different versions looks identical there to one pinned
+   at neither.
+7. **Retire three capabilities cleanly: provisional creation, property search, relation types.**
+   All three are being dropped, so the work is making sure nothing falls over behind them. Find
+   who creates provisional terms today and what they do instead, confirm that templates already
+   referencing one still resolve it, decide whether the terminology server's provisional endpoints
+   keep serving reads once nothing writes to them, and check whether anything in production
+   authored constraints through property search.
 
-    Alongside the hits, a per-source block in the envelope: for each source the results touch,
-    the version it was searched at, whether it was served locally or proxied, and therefore
-    whether a constraint on it can be pinned.
+## The Terminology Server
 
-    When a request pins a source to a version the store does not hold, that source is reported
-    unavailable in its own block and the rest of the results are returned. The whole request
-    does not fail. `integrated-search` does fail loud in the same situation, and the difference
-    is deliberate rather than an inconsistency to tidy away later: it resolves one constraint so
-    a field can be filled, where serving latest in place of a pin would corrupt an instance and
-    there is no partial answer worth having. A search spanning many sources has one, and
-    discarding it because a single source could not be pinned would serve nobody. Both obey the
-    same rule — latest is never served as though it were pinned.
+8. **Finish the ordering.** What exists ranks an exact name first, then a name starting with the
+   query, then the shortest, deterministically. What the term-ordering item in
+   [VERSIONING-ROADMAP.md](./VERSIONING-ROADMAP.md) describes is a ranking: match reason weighed
+   against a length norm, and a demand signal in place of the page-visit prior BioPortal uses.
+   The measurement there stands — the head of a common query's list is still arbitrary among terms
+   that match equally well.
+9. **Make one credential work.** The server does not agree with itself: `POST /search` and
+   `/bioportal/integrated-search` answer anonymously, `/bioportal/ontologies` and
+   `/ontologies/{acronym}/versions` refuse without an API key. The picker sidesteps it by taking
+   everything through the search response — the version histories included, which is why a source
+   block carries them — but a third answer to the same question is still a third answer.
+10. **Proxy the ontologies the store cannot hold.** `proxied` is a designed state the server never
+    produces: a source not served locally is reported unavailable, including the UMLS-licensed
+    ones — SNOMEDCT, MEDDRA, RCD, ICPC2P — that BioPortal could answer for at latest. Reporting
+    them as proxied while returning none of their terms would be the silent wrong answer this
+    endpoint exists to prevent, so the state waits until something fills it.
+11. **Capture definitions at ingest.** A class hit carries no definition, because the snapshot
+    holds none. The design says a row shows one, and a term's definition is often what separates
+    two identically-labelled classes when the parent does not.
+12. **Keep the index fresh.** A re-ingest moves an ontology's current version and the index does
+    not follow until `SearchIndexJob` runs again. It is incremental and takes seconds for a few
+    ontologies, but nothing runs it, and an index behind the catalog reports the version it holds
+    rather than the one that exists — correctly, and confusingly. Decide what triggers a rebuild.
 
-    The client inherits an obligation from this. A source reported unavailable has to be shown
-    as such, or its absence reads as "this ontology has no matches" when it means "this ontology
-    could not be searched at the version you asked for".
-
-    Corpus-wide search is served: a query naming no source is answered from a cross-snapshot index
-    holding each ontology's current version — 1,215 ontologies, 13.9M terms, built in 196 seconds
-    into 5.4 GB, and answering a broad query in about half a second. What it cannot do is pin, and
-    that is the question rather than the index: there is no one version to pin a corpus-wide search
-    to. Its remaining differences from a source-scoped search — prefix matching rather than
-    substring, no branch path, no `lang` — are in
-    [VERSION-AWARE-SEARCH.md](./VERSION-AWARE-SEARCH.md).
-
-    Keep it a general capability rather than a picker API. Collapsing identical labels and the
-    match-reason chip belong to the client; an endpoint shaped around one UI is a liability the
-    first time a second consumer wants it.
-16. **Compute the descendant signal the hit carries.** Item 15 serves it; this is producing it.
-    A branch row needs whether a class has descendants, how many, and its path from the root,
-    none of which the store materializes today — `hasChildren` appears on class detail, and a
-    direct-child count needs its own call, measured at 197 for DOID_4 on 2026-08-13. Cheap to
-    compute at ingest, and BioPortal offers none of it, which is another reason the branch tab
-    cannot be built against a proxy.
 ## Cutover
 
-17. **Ship behind a flag for one release, then delete what it replaces.** The new component
-    is the default from the day it lands, with the old picker reachable behind a flag so a
-    blocking gap found in real use has a way back. The AngularJS directives, controllers and
-    templates under `cedar-template-editor/app/scripts/controlled-term/` come out the release
-    after, together with the flag — carrying both indefinitely means two pickers writing
-    constraints in two ways, which is worse than either. Set the date the old one goes when
-    the flag goes in, rather than leaving it to be noticed.
+13. **Ship behind a flag for one release, then delete what it replaces.** The new component is the
+    default from the day it lands, with the old picker reachable behind a flag so a blocking gap
+    found in real use has a way back. The AngularJS directives, controllers and templates under
+    `cedar-template-editor/app/scripts/controlled-term/` come out the release after, together with
+    the flag — carrying both indefinitely means two pickers writing constraints in two ways, which
+    is worse than either. Set the date the old one goes when the flag goes in, rather than leaving
+    it to be noticed.
