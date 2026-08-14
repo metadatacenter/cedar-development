@@ -322,12 +322,17 @@ Three things the work measured that the plan below rests on:
    what they may move. Reuse CEE's token approach and its rule that Material internals are not
    host API. The overlay is the part shadow DOM makes harder: a modal inside a shadow root has to
    stack above the host's own layers and trap focus without reaching into them.
+
+## The Template Designer
+
+Later work, and deliberately after the component stands on its own. Embedding turns every open
+question about the picker into a question about the Workbench as well, and none of the three items
+here can be finished without the component being finished first.
+
 2. **Embed it in the Template Designer.** The host integration is DOM-level: set properties, listen
    for events. Nothing of it exists — the component runs in its own development host against a
    dev-server proxy, which is what keeps the call same-origin and CORS out of the picture. Whatever
    replaces that proxy in the Workbench is the first real question.
-
-## The Template Designer
 
 3. **Show the pinned version in the field's configuration panel.** The panel already lists
    everything constraining a field, one repeat per kind over `_valueConstraints`, and it keeps
