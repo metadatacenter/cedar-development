@@ -39,12 +39,7 @@ commit that opened it.
 6. **Temporal `required`.** Settle whether `InstanceValidator` should require `@type` on
    every temporal value, and fix the production temporal fields that declare no
    `temporalType` and so cannot be filled in at all.
-7. **`hideEmptyFields` on the separate artifact inputs.** The key is honoured only when the
-   template and the instance arrive on `templateAndInstanceObject`: the form is built when
-   the template lands, and on the two-input route nothing has read the instance by then, so
-   no field is known to be empty. Three of the six consumers use the two-input route, where
-   the key silently does nothing. Asserted in the visual suite as it stands, and documented.
-8. **The screenshot budget still hides a small removal.** `maxDiffPixels: 120` is sized for
+7. **The screenshot budget still hides a small removal.** `maxDiffPixels: 120` is sized for
    a couple of glyphs' worth of rasterisation variance, which on one machine is zero; it
    was already tightened from a ratio after four changes in a day went green against a
    stale baseline. It is still enough to absorb a control disappearing — removing the
@@ -52,7 +47,7 @@ commit that opened it.
    the suite passed. Decide whether the budget can go to zero, since the baselines are
    keyed to the platform and re-recording is already the stated answer to an OS font
    shift, or whether a budget survives only on the shots whose variance is real.
-9. **Audit the configuration surface.** Fifty-two keys, and several are stranger than their
+8. **Audit the configuration surface.** Fifty keys, and several are stranger than their
    names. The four prefixes do three unrelated jobs: `iriPrefix` mints IRIs into the
    instance, `bioPortalPrefix` builds a link out to BioPortal's web UI, and `orcidPrefix`
    and `rorPrefix` are value-recognition patterns interpolated raw into `new RegExp('^' +
@@ -63,7 +58,7 @@ commit that opened it.
    scope or retire accordingly. `showTemplateYaml`, `showInstanceYaml` and their `expanded`
    partners are also missing from the documented panel table, which lists seven panels
    where the code renders nine.
-10. **`showHeader` and `showFooter` name a position and deliver CEDAR's identity.** Both gate
+9. **`showHeader` and `showFooter` name a position and deliver CEDAR's identity.** Both gate
    CEDAR's own chrome rather than the host's. `showHeader` renders a `mat-toolbar` carrying the
    CEDAR logo and the title "CEDAR Embeddable Editor"; `showFooter` renders the Stanford
    Division of Computational Medicine logo, the maintainer line, and a "Contact CEDAR" link
