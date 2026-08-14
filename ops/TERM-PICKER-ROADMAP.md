@@ -270,6 +270,13 @@ diacritics, so `aquifere` finds `aquifère`. Ranking happens in SQL because the 
 before a caller can reorder; ordering by label length alone filled it with coded vocabularies'
 numeric ids and dropped the terms named after the query.
 
+**Hits rank on what matched.** An exact preferred label first, then an exact synonym, then any
+other exact name, then a prefix, with hidden labels last, and length only as a tie-break within a
+tier. Obsolete terms rank second, so a retired term is shown and marked but sits below the live
+terms that answer as well — not below every live term that answers worse, which would bury an
+exact hit on a retired label. A query for melanoma now leads with the three ontologies that call a
+class exactly that; before, it led with "Malignant Melanoma".
+
 **Both list tabs page by distinct label**, not by hit, and carry every hit of the labels on the
 page. Paging by hit made folding impossible to do honestly — a page of twenty-five hits for a
 common word is one label — so a row could only ever claim a count "on this page". Terms fold
@@ -355,12 +362,14 @@ left that does not need a host.
 
 ## The Terminology Server
 
-5. **Finish the ordering.** What exists ranks an exact name first, then a name starting with the
-   query, then the shortest, deterministically. What the term-ordering item in
-   [VERSIONING-ROADMAP.md](./VERSIONING-ROADMAP.md) describes is a ranking: match reason weighed
-   against a length norm, and a demand signal in place of the page-visit prior BioPortal uses.
-   The measurement there stands — the head of a common query's list is still arbitrary among terms
-   that match equally well.
+5. **Order across ontologies.** Ranking on the match reason is in place, which is the field half
+   of what the term-ordering item in [VERSIONING-ROADMAP.md](./VERSIONING-ROADMAP.md) measures.
+   The ontology half is not: BioPortal multiplies its field score by a per-ontology prior built
+   from its own page visits and UMLS membership, and that measurement puts the prior at most of
+   the agreement. Nothing local reproduces it. Counting how many CEDAR templates reference an
+   ontology was considered and declined, so the head of a common query is ordered within an
+   ontology and arbitrary between them — three ontologies calling a class "melanoma" tie, and the
+   IRI breaks it. Deciding what, if anything, plays the prior's part is the open question.
 6. **Make one credential work.** The server does not agree with itself: `POST /search` and
    `/bioportal/integrated-search` answer anonymously, `/bioportal/ontologies` and
    `/ontologies/{acronym}/versions` refuse without an API key. The picker sidesteps it by taking
