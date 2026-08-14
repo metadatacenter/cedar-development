@@ -276,8 +276,17 @@ common word is one label — so a row could only ever claim a count "on this pag
 across ontologies; branches fold across and within, because a thesaurus can place one concept
 several times in its own tree.
 
+**Narrowing and paging.** One filter serves every tab, chosen from a panel ranked by how much of
+the query each ontology holds — a different order from the ontologies tab, which leads with a
+vocabulary named after the query. For melanoma that is the difference between MELO, aptly named
+and holding 38 terms, and NCIT with 950. Narrowing keeps the index rather than dropping to the
+snapshots, so the same search runs over less rather than a different search running. Each tab
+pages independently, and the source blocks accumulate as later pages name ontologies the first
+did not.
+
 **The rows.** One line each, folding what an author cannot choose between and opening onto what
-they can. A row leads with the name that matched when the ontology's label is a bare code. A
+they can. A long label folds from the middle, keeping both ends, because LOINC puts a whole
+question in the label and its axis codes after it. A row leads with the name that matched when the ontology's label is a bare code. A
 branch shows its parent, since a label does not always identify a class. An ontology row ranks
 name matches and term matches together, because segregating them spent the first page
 alphabetically and never reached the vocabularies that hold the terms.
@@ -300,38 +309,32 @@ Three things the work measured that the plan below rests on:
 
 ## The Component
 
-1. **Narrow a search to named ontologies.** Decided and not built. One filter constrains every
-   tab at once, and it is the cheapest way to make a query with thousands of matches usable — an
-   author who knows the field belongs to NCIT should not be reading LOINC's answers. The endpoint
-   already takes the sources; this is the control that names them.
-2. **Page past the first page.** Both list tabs return page one and nothing offers page two. The
-   endpoint pages by label and reports the count, so this is a control and a request, but it is
-   the difference between a picker and a demonstration.
-3. **Define the theming surface, and make the overlay behave.** Shadow DOM and CEDAR's design
+1. **Define the theming surface, and make the overlay behave.** Shadow DOM and CEDAR's design
    values are settled; what is not is which CSS custom properties the Template Designer gets and
    what they may move. Reuse CEE's token approach and its rule that Material internals are not
    host API. The overlay is the part shadow DOM makes harder: a modal inside a shadow root has to
    stack above the host's own layers and trap focus without reaching into them.
-4. **Test behaviour and appearance in a browser.** The gate runs lint, typecheck, unit specs and
-   a production build; nothing drives the component in a browser, and everything this work found
-   — a stale bundle serving old markup, a fold that swallowed a group, a row three times the
-   height of its neighbours — was found by hand. Playwright is in the scaffold's plan and not yet
-   in it. The query corpus `cedar_usage_matrix.py` harvests from production templates gives the
-   specs inputs that reflect what CEDAR actually looks up.
-5. **Embed it in the Template Designer.** The host integration is DOM-level: set properties,
-   listen for events. Nothing of it exists — the component runs in its own development host
-   against a dev-server proxy, which is what keeps the call same-origin and CORS out of the
-   picture. Whatever replaces that proxy in the Workbench is the first real question.
+2. **Test behaviour and appearance in a browser.** The gate runs lint, typecheck, unit specs and
+   a production build; nothing drives the component in a browser, and nearly everything this work
+   found was found by hand — a stale bundle serving old markup, a panel that cleared the list an
+   author was choosing from, rows reading "BERO BERO", a row three times the height of its
+   neighbours. Playwright is in the scaffold's plan and not yet in it. The query corpus
+   `cedar_usage_matrix.py` harvests from production templates gives the specs inputs that reflect
+   what CEDAR actually looks up.
+3. **Embed it in the Template Designer.** The host integration is DOM-level: set properties, listen
+   for events. Nothing of it exists — the component runs in its own development host against a
+   dev-server proxy, which is what keeps the call same-origin and CORS out of the picture. Whatever
+   replaces that proxy in the Workbench is the first real question.
 
 ## The Template Designer
 
-6. **Show the pinned version in the field's configuration panel.** The panel already lists
+4. **Show the pinned version in the field's configuration panel.** The panel already lists
    everything constraining a field, one repeat per kind over `_valueConstraints`, and it keeps
    that job — the picker adds one constraint and closes, as it does today. What the panel does not
    show is the version, which becomes visible state the moment constraints can be pinned: a field
    constrained to two branches of DOID at different versions looks identical there to one pinned
    at neither.
-7. **Retire three capabilities cleanly: provisional creation, property search, relation types.**
+5. **Retire three capabilities cleanly: provisional creation, property search, relation types.**
    All three are being dropped, so the work is making sure nothing falls over behind them. Find
    who creates provisional terms today and what they do instead, confirm that templates already
    referencing one still resolve it, decide whether the terminology server's provisional endpoints
@@ -340,33 +343,33 @@ Three things the work measured that the plan below rests on:
 
 ## The Terminology Server
 
-8. **Finish the ordering.** What exists ranks an exact name first, then a name starting with the
+6. **Finish the ordering.** What exists ranks an exact name first, then a name starting with the
    query, then the shortest, deterministically. What the term-ordering item in
    [VERSIONING-ROADMAP.md](./VERSIONING-ROADMAP.md) describes is a ranking: match reason weighed
    against a length norm, and a demand signal in place of the page-visit prior BioPortal uses.
    The measurement there stands — the head of a common query's list is still arbitrary among terms
    that match equally well.
-9. **Make one credential work.** The server does not agree with itself: `POST /search` and
+7. **Make one credential work.** The server does not agree with itself: `POST /search` and
    `/bioportal/integrated-search` answer anonymously, `/bioportal/ontologies` and
    `/ontologies/{acronym}/versions` refuse without an API key. The picker sidesteps it by taking
    everything through the search response — the version histories included, which is why a source
    block carries them — but a third answer to the same question is still a third answer.
-10. **Proxy the ontologies the store cannot hold.** `proxied` is a designed state the server never
+8. **Proxy the ontologies the store cannot hold.** `proxied` is a designed state the server never
     produces: a source not served locally is reported unavailable, including the UMLS-licensed
     ones — SNOMEDCT, MEDDRA, RCD, ICPC2P — that BioPortal could answer for at latest. Reporting
     them as proxied while returning none of their terms would be the silent wrong answer this
     endpoint exists to prevent, so the state waits until something fills it.
-11. **Capture definitions at ingest.** A class hit carries no definition, because the snapshot
+9. **Capture definitions at ingest.** A class hit carries no definition, because the snapshot
     holds none. The design says a row shows one, and a term's definition is often what separates
     two identically-labelled classes when the parent does not.
-12. **Keep the index fresh.** A re-ingest moves an ontology's current version and the index does
+10. **Keep the index fresh.** A re-ingest moves an ontology's current version and the index does
     not follow until `SearchIndexJob` runs again. It is incremental and takes seconds for a few
     ontologies, but nothing runs it, and an index behind the catalog reports the version it holds
     rather than the one that exists — correctly, and confusingly. Decide what triggers a rebuild.
 
 ## Cutover
 
-13. **Ship behind a flag for one release, then delete what it replaces.** The new component is the
+11. **Ship behind a flag for one release, then delete what it replaces.** The new component is the
     default from the day it lands, with the old picker reachable behind a flag so a blocking gap
     found in real use has a way back. The AngularJS directives, controllers and templates under
     `cedar-template-editor/app/scripts/controlled-term/` come out the release after, together with
