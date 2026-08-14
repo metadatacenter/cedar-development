@@ -55,66 +55,30 @@ Nothing here needs Java.
 
 ## What the Component Reads
 
-All four kinds of hit — ontologies, branches, terms and value sets — come from the
-terminology server, which listens on port 9004. Bring the stack up with the sequence in
-[BACKEND-RUNBOOK.md](./BACKEND-RUNBOOK.md).
-
-Set the environment first, `CEDAR_HOME` exported before the profile is sourced or its
-variables come out empty:
+One call: `POST /search` on the terminology server, designed in
+[VERSION-AWARE-SEARCH.md](./VERSION-AWARE-SEARCH.md) and served from the `version-aware-search`
+branch. It answers all four constraint types at once, at a named version or the current one, and
+describes every source it searched.
 
 ```bash
-export CEDAR_HOME=/Users/martin/CEDAR
-source $CEDAR_HOME/cedar-profile-native-develop.sh
+curl -s -X POST http://localhost:29004/search -H 'Content-Type: application/json' \
+  -d '{"query":"melanoma","pageSize":25}' | python3 -m json.tool | head -40
 ```
 
-### Terms and Value Sets
+Naming no source searches the whole corpus through the cross-snapshot index; naming one searches
+its snapshot and can pin a version. `includeVersions` asks a source block for the releases it can
+be pinned to, which is what the row's version stepper walks — the picker fetches that on the first
+step rather than with every search, since a corpus-wide query touches a hundred sources and an
+author steps one.
 
-`GET /bioportal/search` answers both, and its `scope` parameter picks which — `classes`,
-`value_sets`, `values`, or `all`. It builds an anonymous request context, so it answers
-without a credential. The response wraps the hits in paging metadata: `page`, `pageSize`,
-`pageCount`, `totalCount`, `prevPage`, `nextPage` and `collection`.
+The endpoint is unauthenticated, like `integrated-search`. That is deliberate and it is also the
+one thing the server is inconsistent about: `/bioportal/ontologies` and
+`/ontologies/{acronym}/versions` refuse without an API key, which is why the picker takes version
+histories through the search response rather than calling the versions endpoint. Reconciling the
+three answers is on the roadmap.
 
-```bash
-curl -s 'http://localhost:9004/bioportal/search?q=disease&scope=classes&page_size=50' \
-  | python3 -c 'import sys,json;d=json.load(sys.stdin);print({k:v for k,v in d.items() if k!="collection"})'
-# verified 2026-08-13
-# -> {'page': 1, 'pageCount': 4764, 'pageSize': 50, 'totalCount': 238163, 'prevPage': None, 'nextPage': 2}
-```
-
-The same query under `scope=value_sets` returns `totalCount` 13. The gap between 13 and
-238,163 is what the tab-badge item on the roadmap has to answer, and the "500 results" the
-Workbench displays for this query is its own cap rather than either number.
-
-### Ontologies
-
-`GET /bioportal/ontologies` returns the whole list in one response — 1,300 entries as of
-2026-08-13 — each carrying `id`, `name` and a `details` block with `numberOfClasses`. There
-is no server-side ontology search, so the ontology tab filters this list in the client,
-which is why the list is worth caching once per session rather than per keystroke.
-
-Unlike `/bioportal/search`, this endpoint requires a credential:
-
-```bash
-curl -s -H "Authorization: apiKey $CEDAR_ADMIN_USER_API_KEY" \
-  'http://localhost:9004/bioportal/ontologies' | python3 -c 'import sys,json;print(len(json.load(sys.stdin)))'
-# verified 2026-08-13 -> 1300
-```
-
-Without the header it returns `UNAUTHORIZED` with `suggestedAction: provideAuthorizationHeader`.
-
-### Branches
-
-Nothing to call. A branch is a class used as a subtree root, so a branch hit is a class hit
-presented differently, and `/bioportal/ontologies/{acronym}/classes/{id}/children` and
-`/descendants` walk it once one is chosen.
-
-### Versions
-
-`GET /bioportal/ontologies/{acronym}/versions` lists what an ontology can be pinned to,
-`/versions/current` gives the one in force, and `/versions/diff` compares two. Only the local
-versioned store answers these; with no catalog configured they do not resolve. Which mode the
-server is in is in [BACKEND-RUNBOOK.md](./BACKEND-RUNBOOK.md) under the local terminology
-store.
+The older `/bioportal/*` routes still exist and the picker does not use them. `POST /search`
+replaces `/bioportal/search` once CEE and the Template Designer move off it.
 
 ## Running It
 
