@@ -126,8 +126,14 @@ sitting on them fails the suite with a bind error that reads like a code fault.
 | `npm test` | unit tests, through the Angular CLI's Vitest builder |
 | `npm run lint` | ESLint over TypeScript and templates, Prettier included |
 | `npm run typecheck` | `tsc` over every file under `src/`, including ones no build or test reaches |
-| `npm run test:ci` | the gate: lint, typecheck, tests, then the production build |
+| `npm run test:ci` | the gate: lint, typecheck, unit tests, the production build, then the browser tests against it |
+| `npm run test:browser` | builds, then drives the bundle in Chromium with the terminology server stubbed |
 | `npm run audit:prod` | advisories against what actually ships |
+
+The browser tests live in their own workspace, `browser/`, with their own Playwright config and a
+twenty-line static server — they drive `dist/` rather than `ng serve`, because a build that breaks
+the bundle while leaving the dev server working is the failure they exist to catch. Every
+terminology response is a fixture, so they need no server and no catalog.
 
 `.github/workflows/test.yml` runs the gate on push and pull request, on the Node version
 `.nvmrc` pins, with the audit as a separate step so a disclosure does not fail somebody's
