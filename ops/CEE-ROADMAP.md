@@ -47,7 +47,7 @@ commit that opened it.
    the suite passed. Decide whether the budget can go to zero, since the baselines are
    keyed to the platform and re-recording is already the stated answer to an OS font
    shift, or whether a budget survives only on the shots whose variance is real.
-8. **Audit the configuration surface.** Fifty keys, and several are stranger than their
+8. **Audit the configuration surface.** Forty-four keys, and several are stranger than their
    names. The four prefixes do three unrelated jobs: `iriPrefix` mints IRIs into the
    instance, `bioPortalPrefix` builds a link out to BioPortal's web UI, and `orcidPrefix`
    and `rorPrefix` are value-recognition patterns interpolated raw into `new RegExp('^' +
@@ -67,8 +67,9 @@ commit that opened it.
    `showCedarHeader` and `showCedarFooter` would. Neither key covers the header an embedder is
    most likely to mean: the template card's own title block, holding the avatar, the version
    stamp, the template name, its description and the expand controls, renders whenever a
-   template does and no key suppresses it. The sample-template picker is a child of the CEDAR
-   toolbar, so `showSampleTemplateLinks` is inert while `showHeader` is false — one key
-   silently governing another. Decide whether the pair is host API, developer chrome or
-   something to retire, whether a host needs its own way to suppress the card's title block,
-   and what an embedder that wants no CEDAR branding at all is supposed to set.
+   template does and no key suppresses it. Decide whether the pair is host API, developer
+   chrome or something to retire, whether a host needs its own way to suppress the card's
+   title block, and what an embedder that wants no CEDAR branding at all is supposed to set.
+   The footer is also the visual suite's only rendered surface for a translated string from an
+   external language map, so removing it means moving that coverage onto the expand controls,
+   which render on every form.
