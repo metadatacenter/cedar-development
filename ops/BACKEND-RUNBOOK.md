@@ -639,6 +639,21 @@ rather than documenting the loss.
 - **Keycloak won't start** → wrong JDK. Pin `JAVA_HOME` to 17 (see above). Symptom: `Failed to start
   caches … getSubject is supported only if a security manager is allowed`.
 
+- **`startinfra.sh` seems to hang for minutes, and Keycloak is dead once it returns** → the script
+  was piped. `startkeycloak.sh` runs `kc.sh start &`, and that backgrounded Keycloak inherits the
+  script's stdout, so a reader on the other end of a pipe never sees end-of-file however long ago the
+  script itself finished. Whatever eventually gives up sends SIGTERM to the process group, which
+  includes the Keycloak that started perfectly well. The symptom is therefore a long stall followed
+  by an infra tier missing one service, which reads as a Keycloak failure and is not one. Redirect
+  instead of piping, and read the file afterwards:
+
+  ```bash
+  bash $CEDAR_UTIL_BIN/services-generic/startinfra.sh > /tmp/startinfra.log 2>&1
+  ```
+
+  The same applies to anything else that leaves a child holding stdout. `cedar-services.sh` is safe
+  either way: it detaches what it starts.
+
 - **OpenSearch (Homebrew) stuck in `error`, port 9200 closed** → Homebrew upgraded its `openjdk` to
   25, which OpenSearch 2.19 cannot run on (`JvmErgonomics` parse failure, `jdk.incubator.vector`
   warning). Fix — point OpenSearch at JDK 17 in the launchd environment `brew services` inherits:
