@@ -33,24 +33,18 @@ commit that opened it.
    consistently to every control, deprecate the inert text-primary and accent properties,
    forbid arbitrary CSS and Material selectors, test every preset for contrast, focus,
    narrow layout and edit/read-only rendering, and report any unscoped `::ng-deep`.
-5. **`showAllMultiInstanceValues` is untested.** It reaches only the sweeps that prove a flag
-   is wired to something — the config key reaches its field, and the DOM differs off versus
-   on — which cannot say it does the right thing. It gates the summary of every value in a
-   repeating group, so testing it needs a multi-instance template with an instance carrying
-   several values: one instance file for `17-real-flat`. It defaults to true, so every
-   embedder gets it.
-6. **Markup discoverability.** Have the Template Designer's rich-text editor declare or
+5. **Markup discoverability.** Have the Template Designer's rich-text editor declare or
    enforce what an embedder will actually render, since its `Source` button accepts markup
    CEE will strip.
-7. **Temporal `required`.** Settle whether `InstanceValidator` should require `@type` on
+6. **Temporal `required`.** Settle whether `InstanceValidator` should require `@type` on
    every temporal value, and fix the production temporal fields that declare no
    `temporalType` and so cannot be filled in at all.
-8. **`hideEmptyFields` on the separate artifact inputs.** The key is honoured only when the
+7. **`hideEmptyFields` on the separate artifact inputs.** The key is honoured only when the
    template and the instance arrive on `templateAndInstanceObject`: the form is built when
    the template lands, and on the two-input route nothing has read the instance by then, so
    no field is known to be empty. Three of the six consumers use the two-input route, where
    the key silently does nothing. Asserted in the visual suite as it stands, and documented.
-9. **The screenshot budget still hides a small removal.** `maxDiffPixels: 120` is sized for
+8. **The screenshot budget still hides a small removal.** `maxDiffPixels: 120` is sized for
    a couple of glyphs' worth of rasterisation variance, which on one machine is zero; it
    was already tightened from a ratio after four changes in a day went green against a
    stale baseline. It is still enough to absorb a control disappearing — removing the
@@ -58,7 +52,7 @@ commit that opened it.
    the suite passed. Decide whether the budget can go to zero, since the baselines are
    keyed to the platform and re-recording is already the stated answer to an OS font
    shift, or whether a budget survives only on the shots whose variance is real.
-10. **Audit the configuration surface.** Fifty-three keys, and several are stranger than their
+9. **Audit the configuration surface.** Fifty-two keys, and several are stranger than their
    names. The four prefixes do three unrelated jobs: `iriPrefix` mints IRIs into the
    instance, `bioPortalPrefix` builds a link out to BioPortal's web UI, and `orcidPrefix`
    and `rorPrefix` are value-recognition patterns interpolated raw into `new RegExp('^' +
@@ -69,7 +63,7 @@ commit that opened it.
    scope or retire accordingly. `showTemplateYaml`, `showInstanceYaml` and their `expanded`
    partners are also missing from the documented panel table, which lists seven panels
    where the code renders nine.
-11. **`showHeader` and `showFooter` name a position and deliver CEDAR's identity.** Both gate
+10. **`showHeader` and `showFooter` name a position and deliver CEDAR's identity.** Both gate
    CEDAR's own chrome rather than the host's. `showHeader` renders a `mat-toolbar` carrying the
    CEDAR logo and the title "CEDAR Embeddable Editor"; `showFooter` renders the Stanford
    Division of Computational Medicine logo, the maintainer line, and a "Contact CEDAR" link
