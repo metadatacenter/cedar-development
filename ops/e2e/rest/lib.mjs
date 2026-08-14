@@ -14,9 +14,14 @@ export const HOST = env.CEDAR_HOST ?? 'metadatacenter.orgx';
 export const RESOURCE = env.CEDAR_RESOURCE_BASE ?? `https://resource.${HOST}`;
 export const USER_SERVER = env.CEDAR_USER_BASE ?? `https://user.${HOST}`;
 export const GROUP_SERVER = env.CEDAR_GROUP_BASE ?? `https://group.${HOST}`;
-// The artifact server, addressed directly. The resource server proxies every artifact write and read
-// to it, so the contract suite compares the two sides of that hop.
-export const ARTIFACT_SERVER = env.CEDAR_ARTIFACT_BASE ?? `https://artifact.${HOST}`;
+// The artifact server, addressed directly on its port rather than through `artifact.${HOST}`. The
+// resource server proxies every artifact write and read to it, so the contract suite compares the two
+// sides of that hop — but the vhost is closed. The artifact server holds no resource-level ACL and
+// authorizes on global roles alone, so anything that reaches it can read or change any artifact in
+// the installation; production and this host both answer 404 there, and only the internal address
+// remains. Reaching it at all is a property of running the suite beside the stack.
+export const ARTIFACT_SERVER = env.CEDAR_ARTIFACT_BASE
+  ?? `http://${env.CEDAR_ARTIFACT_SERVER_HOST ?? 'localhost'}:${env.CEDAR_ARTIFACT_HTTP_PORT ?? '9001'}`;
 export const TERMINOLOGY = env.CEDAR_TERMINOLOGY_BASE ?? `https://terminology.${HOST}`;
 // The OpenView *server*, not the OpenView frontend. `openview.${HOST}` is the AngularJS app; the API
 // has no vhost of its own, so it is addressed directly on its port.

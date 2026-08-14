@@ -115,6 +115,12 @@ export NODE_TLS_REJECT_UNAUTHORIZED=0
 npm run smoke:rest
 ```
 
+The artifact server has no answer here. The suites reach it on `localhost:9001`, which is the native
+stack's port; the container publishes none, deliberately, since nothing outside the container network
+should address a server that authorizes on global roles alone. So the checks that read it to confirm a
+write landed cannot pass against containers until either that port is published for the run or those
+checks learn to ask the resource server instead.
+
 To get back to the native stack, `cedarcli docker stop microservices` and `stop infrastructure`,
 then bring up native as above.
 
@@ -914,6 +920,14 @@ in the profile, so there are no API keys to keep. Run one suite with `npm run sm
 the suites are `folders`, `artifacts`, `versioning`, `groups`, `sharing`, `group-sharing`, `openness`,
 `categories`, `validation`, `search`, `finding`, `authentication`, `pagination`, `negotiation` and
 `download` (JSON / YAML / compact-YAML export and read-negotiation across all four artifact kinds).
+
+**The artifact server is addressed on its port, not through a vhost.** Several checks read it directly
+to confirm a write reached the datastore, and `artifact.${CEDAR_HOST}` answers 404: the artifact server
+authorizes on global roles alone and holds no resource-level ACL, so anything that reaches it can read
+or change any artifact in the installation, and both production and this host close that door. The
+suites therefore default to `http://localhost:9001`, which is also why they must run beside the stack
+rather than against a remote one. `CEDAR_ARTIFACT_BASE` overrides it — needed for the containerized
+stack, where that service publishes no port at all and the checks cannot reach it from the host.
 
 Four of them are where the running stack earns its keep, because each pins a defect an embedded suite
 could not see:
