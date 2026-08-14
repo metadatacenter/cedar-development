@@ -276,7 +276,14 @@ common word is one label — so a row could only ever claim a count "on this pag
 across ontologies; branches fold across and within, because a thesaurus can place one concept
 several times in its own tree.
 
-**Eleven browser tests drive the built bundle**, with the terminology server stubbed, so the
+**A theming contract of ten custom properties**, and a discipline about what is missing from it.
+A host sets the brand, the text and surface colours, the border, the warning colour, and the font
+family and base size; row geometry, control padding and the meaning of a colour stay with the
+component, because a host able to re-point those could make an obsolete term look ordinary. The
+type scale moves with the base and the tint is mixed from the brand, so neither is left behind by
+a host that changes one. Escape leaves the picker.
+
+**Thirteen browser tests drive the built bundle**, with the terminology server stubbed, so the
 suite is hermetic and says what the component does with an answer rather than whether the answer
 was good. They hold the faults this work found by hand, which is every fault it found: a fold that
 swallowed a group, a panel that cleared the list an author was choosing from, rows reading "BERO
@@ -315,24 +322,23 @@ Three things the work measured that the plan below rests on:
   from it are BioPortal's. The instance these numbers came from is a separate one, with the
   catalog and index configured.
 
-## The Component
-
-1. **Define the theming surface, and make the overlay behave.** Shadow DOM and CEDAR's design
-   values are settled; what is not is which CSS custom properties the Template Designer gets and
-   what they may move. Reuse CEE's token approach and its rule that Material internals are not
-   host API. The overlay is the part shadow DOM makes harder: a modal inside a shadow root has to
-   stack above the host's own layers and trap focus without reaching into them.
-
 ## The Template Designer
 
 Later work, and deliberately after the component stands on its own. Embedding turns every open
 question about the picker into a question about the Workbench as well, and none of the three items
-here can be finished without the component being finished first.
+here can be finished without the component being finished first. The component itself has nothing
+left that does not need a host.
 
-2. **Embed it in the Template Designer.** The host integration is DOM-level: set properties, listen
+1. **Embed it in the Template Designer.** The host integration is DOM-level: set properties, listen
    for events. Nothing of it exists — the component runs in its own development host against a
    dev-server proxy, which is what keeps the call same-origin and CORS out of the picture. Whatever
    replaces that proxy in the Workbench is the first real question.
+2. **Make the overlay behave, once there is one to behave.** The picker is an inline panel today
+   and the Workbench presents its picker as a modal, so this is the half of the theming item that
+   could not be finished without a host: a modal inside a shadow root has to stack above the host's
+   own layers and trap focus without reaching into them. Escape already leaves. Sequenced with the
+   embedding rather than before it, because what the overlay has to sit above is a property of the
+   page it sits in.
 
 3. **Show the pinned version in the field's configuration panel.** The panel already lists
    everything constraining a field, one repeat per kind over `_valueConstraints`, and it keeps
