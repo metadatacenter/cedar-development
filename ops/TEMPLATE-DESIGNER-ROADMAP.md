@@ -77,3 +77,20 @@ from the terminology layer, or a relaxed minimum in the meta-schema — so which
 counterpart there. The `maxItems: 0` item on [BACKEND-ROADMAP.md](./BACKEND-ROADMAP.md) is the same
 mistake in a second place, the editor using zero as a sentinel where the schema reads zero as a
 quantity, and the two are worth deciding together.
+
+### 3. Does the designer write `"@id": ""` on an element occurrence?
+
+An element inside a filled instance carries an identifier from CEDAR's own namespace,
+`https://repo.metadatacenter.org/template-element-instances/<uuid>`. Half the element occurrences in
+the shared corpus carried an empty string instead — 59 nodes across four instances, since corrected to
+`@id: null` in `cedar-test-artifacts`. Those instances are exports of real documents, so something
+wrote the empty string, and the editor is the likeliest author: it is what fills instances.
+
+What to establish here is narrow: fill an instance with a repeatable element in the designer, save it,
+and look at what each occurrence's `@id` holds before and after the save. If the editor writes `""` as
+a placeholder for an identifier the server has not yet assigned, `null` is the honest value and the
+model libraries already read the two the same way.
+
+The rest of the question — how common the empty string is in production, and why validation accepts it
+when the schema types the key as a URI — is on [BACKEND-ROADMAP.md](./BACKEND-ROADMAP.md), because the
+answer binds the meta-schema and the validator rather than the editor.

@@ -267,11 +267,34 @@ model libraries — where their JSON and YAML serializations diverge — is in
   [TEMPLATE-DESIGNER-ROADMAP.md](./TEMPLATE-DESIGNER-ROADMAP.md); this one is tracked here because the
   decision binds the meta-schema and both model libraries as well.
 
+- **9. Find out who writes `"@id": ""` on an element occurrence, and why validation lets it through.**
+  An element inside an instance carries an identifier from CEDAR's own namespace,
+  `https://repo.metadatacenter.org/template-element-instances/<uuid>`, which says the repository
+  assigns it as it assigns a template's or an element's. But half the element occurrences in the shared
+  corpus carried an empty string instead: 59 nodes across four instances, now corrected to `@id: null`
+  in `cedar-test-artifacts`, which is what both model libraries already read them as.
+
+  Three things to establish. **How common it is in production** — a query over stored instances for
+  element occurrences whose `@id` is `""`, since the corpus is a sample and the count there was close
+  to half. **Whether the Template Designer writes them** — the corpus instances are exports, so the
+  empty string was produced by something, and the editor is the likeliest author; the frontend fix, if
+  it is the frontend, belongs on [TEMPLATE-DESIGNER-ROADMAP.md](./TEMPLATE-DESIGNER-ROADMAP.md).
+  **Why validation accepts it** — a template types a nested element's `@id` as
+  `{"type": "string", "format": "uri"}`, and an empty string satisfies `type` while failing `format`,
+  which the validator does not enforce. So the schema is stating a rule the validator does not check,
+  and `""` passes where `null` — the honest value for an identifier not yet assigned — is refused.
+
+  That last point is the one with teeth, and it is the other half of item 1: an instance built locally
+  cannot have element identifiers, so it cannot be valid until the repository assigns them, unless the
+  element `@id` is typed as a URI or null the way a template types its own instances'. Changing that
+  alters the schema every stored CEDAR element carries — 28 round-trip fixtures in
+  `cedar-artifact-library` differ — so it is a model decision, not a library fix.
+
 ### Infrastructure
 
-- **9. Upgrade the persistence and infrastructure servers.** These versions are pinned in the Docker
+- **10. Upgrade the persistence and infrastructure servers.** These versions are pinned in the Docker
   images and nowhere else, while the client libraries have moved on. The record that would say what
-  they are pinned *to* does not exist yet; establishing it is part of item 14, and this item is parked
+  they are pinned *to* does not exist yet; establishing it is part of item 15, and this item is parked
   behind it, since it defers to a lock that currently names six servers and no versions. Order them by
   risk, lowest first:
   Five are **done** on 2026-08-08, each taken together with containerizing that store: Redis
@@ -285,7 +308,7 @@ model libraries — where their JSON and YAML serializations diverge — is in
 
   No longer parked at the end. Containerizing the data stores needs each image pin moved up to the
   version already running, because an older engine cannot open existing data files, so this item is
-  what unblocks the last step of item 14 rather than something to take up afterwards. MySQL is the
+  what unblocks the last step of item 15 rather than something to take up afterwards. MySQL is the
   real decision left among the data stores; Keycloak is its own piece of work.
 
   **What actually holds Keycloak at 22.** Measured 2026-08-08 against Maven Central and the code, and
@@ -336,9 +359,9 @@ model libraries — where their JSON and YAML serializations diverge — is in
   The four that are done moved in development only, where the pin move and the containerization were
   one piece of work per store. Production is the part this item still owns: the same versions, but
   rehearsed on a copy of production data and gated on the end-to-end smoke. Where the order above and
-  item 14's disagree, item 14 governs, since it is what sequences the remaining work.
+  item 15's disagree, item 15 governs, since it is what sequences the remaining work.
 
-- **10. Move the build and runtime to Java 21.** The stack is locked to Java 17 — the zsh profile pins it
+- **11. Move the build and runtime to Java 21.** The stack is locked to Java 17 — the zsh profile pins it
   and the build enforces it. 21 is the next LTS and the natural target, but the lock exists for a
   reason: newer JDKs (23/25) crash Keycloak (`getSubject … security manager`) and OpenSearch will not
   start under them. So this is not a blind bump — verify Keycloak and OpenSearch run on 21 first, then
@@ -367,13 +390,13 @@ model libraries — where their JSON and YAML serializations diverge — is in
   problem — every Java repository now carries a wrapper at 3.9.14 and CI invokes `./mvnw` — except
   inside the build images, which still `microdnf -y install maven` unversioned.
 
-- **11. Point the token-verification client at a truststore in production.** Token-signature verification
+- **12. Point the token-verification client at a truststore in production.** Token-signature verification
   fetches the realm's signing keys over HTTPS; on the local stack that client trusts the self-signed
   `.orgx` certificate (`disableTrustManager` in `KeycloakDeploymentProvider`, matching the admin
   client). A real deployment should instead trust a truststore holding the realm CA. Small, and only
   matters outside local dev.
 
-- **12. Stop using the hardcoded BioPortal key, and rotate it.** `Constants.BP_PUBLIC_API_KEY` in
+- **13. Stop using the hardcoded BioPortal key, and rotate it.** `Constants.BP_PUBLIC_API_KEY` in
   `cedar-terminology-server` holds a literal BioPortal key, and `Cache` sends it on the four calls
   that populate the ontology and value-set caches (`findOntology` twice, `findAllOntologies`,
   `findAllValueSets`). Those are the server's own calls rather than calls made for a signed-in user,
@@ -399,7 +422,7 @@ model libraries — where their JSON and YAML serializations diverge — is in
   here is the *cause*: read `CEDAR_BIOPORTAL_API_KEY` from config, delete the constant, and rotate the
   exposed key so the partial loads stop happening in the first place.
 
-- **13. Identify API keys by a non-secret id, not the secret in the URL.** The API-key management routes
+- **14. Identify API keys by a non-secret id, not the secret in the URL.** The API-key management routes
   carry the full secret in the path — `POST /{id}/api-keys/{key}/regenerate` and
   `DELETE /{id}/api-keys/{key}` — so the key lands in nginx access logs, request traces, monitoring and
   browser history. The cheap leaks are already closed (the not-found error no longer echoes the key and
@@ -408,7 +431,7 @@ model libraries — where their JSON and YAML serializations diverge — is in
   (`/api-keys/{keyId}`), keeping the secret out of the path. Breaking change: cedar-cli and the profile
   UI call these routes, so it needs a coordinated client update.
 
-- **14. Deploy CEDAR from containers. The stack builds and runs locally; no environment deploys from
+- **15. Deploy CEDAR from containers. The stack builds and runs locally; no environment deploys from
   it.** Development runs as native processes brought up by hand — JDK 17 pinned, infra services
   started, fifteen service jars and the frontends launched through `cedar-services.sh` — and a deploy
   to staging or production rebuilds all of it on the target. Both work, and neither is reproducible. A
@@ -586,7 +609,7 @@ model libraries — where their JSON and YAML serializations diverge — is in
          Neo4j        5.26.0          5.26.0     (moved 2026-08-08, was 5.3.0)
          Redis        7.2.7           7.2.7      (moved 2026-08-08, was 6.2.7)
          OpenSearch   2.19.1          2.19.1     (moved 2026-08-08, was 1.3.6)
-         Keycloak     22.0.5          22.0.4     (upstream is 26.7.1; see item 9 for what holds it)
+         Keycloak     22.0.5          22.0.4     (upstream is 26.7.1; see item 10 for what holds it)
 
      The direction is the surprise. The Docker images are the only place any of these versions is
      written down; the native stack is Homebrew, so `brew upgrade` moves four of the six with nobody
@@ -1106,7 +1129,7 @@ model libraries — where their JSON and YAML serializations diverge — is in
   than a slow one, so they are worth knowing about before the next thing perturbs request latency.
 
 
-- **15. Adopt Renovate, so a version that falls behind says so.** Every pin in this estate is
+- **16. Adopt Renovate, so a version that falls behind says so.** Every pin in this estate is
   maintained by someone remembering to look at it, and the measurement above is what that produces:
   the Docker OpenSearch image sat at 1.3.6 while the servers shipped the 2.19 client, for about two
   years, and nothing anywhere reported it. Renovate is a bot that reads the files a repository
@@ -1168,7 +1191,7 @@ model libraries — where their JSON and YAML serializations diverge — is in
   manager is what makes them watchable again. Adopting no bot at all remains a coherent choice — the
   versions are at least in one place now — but it means those six are watched by nobody, as before.
 
-- **16. Build the MCP servers with everything else.** Four of them live under `$CEDAR_HOME/mcp`:
+- **17. Build the MCP servers with everything else.** Four of them live under `$CEDAR_HOME/mcp`:
   `cedar-artifact-mcp`, `cedar-artifact-rest-mcp` and `cedar-cee-mcp` are Maven projects,
   `bioportal-term-mcp` is Python. Each is its own repository, none is part of `cedarcli build java`,
   none has a GitHub Actions workflow, and neither [BACKEND-RUNBOOK.md](./BACKEND-RUNBOOK.md) nor
@@ -1203,7 +1226,7 @@ model libraries — where their JSON and YAML serializations diverge — is in
   - Decide whether they join the release or stay outside it, as CEE and the TypeScript model library
     do.
 
-- **17. Manage the transitive artifacts that still split on the test classpath.** Thirty-four
+- **18. Manage the transitive artifacts that still split on the test classpath.** Thirty-four
   artifacts that resolved to several versions across the estate are now managed in `cedar-parent`,
   which also repaired six integration classes that had been dying in `oneTimeSetUp` on
   `NoClassDefFound org/eclipse/jetty/http/UriCompliance`, the Neo4j harness's Jetty 9.4.49 beating
@@ -1219,7 +1242,7 @@ model libraries — where their JSON and YAML serializations diverge — is in
   can be what breaks a suite, and forcing a newer one on a consumer built against the old can break a
   suite that passes today. The whole estate's suites, 7,814 tests, are the check.
 
-- **18. Upgrade Mockito so byte-buddy converges, and then manage it too.** `byte-buddy` is the one
+- **19. Upgrade Mockito so byte-buddy converges, and then manage it too.** `byte-buddy` is the one
   artifact deliberately left unmanaged, and the pom says why: `dropwizard-hibernate` 4.0.17 brings
   1.18.4 at compile scope for Hibernate's bytecode enhancer, and Mockito 5.7.0 brings 1.14.9 at test
   scope. That is a scope boundary rather than drift, and forcing either version onto the other side
@@ -1230,7 +1253,7 @@ model libraries — where their JSON and YAML serializations diverge — is in
   set. Move `byte-buddy-agent` with it, since Mockito needs the two to match, and confirm the mock
   matrix still passes rather than trusting a green compile.
 
-- **19. Let the rebuilt search index become searchable before `regenerate-search-index` swaps the
+- **20. Let the rebuilt search index become searchable before `regenerate-search-index` swaps the
   alias onto it.** `RegenerateSearchIndexTask` orders its steps correctly: it indexes every batch,
   including the final partial one, then points the `cedar-search` alias at the new index, then deletes
   the old one. What it does not do is wait for what it just wrote to become visible. `addBatch` issues
@@ -1249,7 +1272,7 @@ model libraries — where their JSON and YAML serializations diverge — is in
   the sequence costs nothing beyond the wait. Worth doing before the command is run against
   production, where the fallback matters more than the second does.
 
-- **20. Decide the fate of `/command/regenerate-rules-index`, which empties the rules index rather
+- **21. Decide the fate of `/command/regenerate-rules-index`, which empties the rules index rather
   than rebuilding it.** The command creates an empty index, points the alias at it and deletes the
   old one; the loop that would have populated it is commented out, as is the comparison that would
   let `force=false` decline to run. So it does exactly what `/command/generate-empty-rules-index`
@@ -1274,7 +1297,7 @@ model libraries — where their JSON and YAML serializations diverge — is in
 Coverage and test-infrastructure work. The active REST integration suites live in
 `ops/e2e/rest/suites/`; the JUnit matrices and boot-smoke live in the per-server modules.
 
-- **21. Decide whether the build runs the tests, and give the answer a command-line option. Stop the
+- **22. Decide whether the build runs the tests, and give the answer a command-line option. Stop the
   output loop busy-polling.** The Java build skips its tests again: every Java repo is built with
   `./mvnw clean install -DskipTests`, and the `CEDAR_DEV_SKIP_TESTS` escape hatch is gone with the
   default it modified. That restores the behaviour the build had before, and it means a green
@@ -1343,7 +1366,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   "Execution succeeded!" and exits 0. A build that continued past a failure must record it, say so in
   the closing panel, and exit non-zero.
 
-- **22. Deepen the core-workflow tests instead of growing the headline count.** The JUnit matrices and the
+- **23. Deepen the core-workflow tests instead of growing the headline count.** The JUnit matrices and the
   REST suites now give the system respectable horizontal coverage: routes boot, authentication and
   permission boundaries are pinned, and create/read/update/delete, sharing, search, versioning and the
   cross-service hop all execute against the real stack. Much of that is deliberately
@@ -1382,7 +1405,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   versions or search projection disagreeing. The present suite protects the behavioural skeleton; this
   item protects the integrity of state when operations fail or are repeated.
 
-- **23. Add degradation tests.** Nothing asserts how a service behaves when a dependency it needs is
+- **24. Add degradation tests.** Nothing asserts how a service behaves when a dependency it needs is
   unavailable. The cost of that gap is known: reading any folder whose creator could not be resolved
   returned 500 for as long as the defect existed, because `UserSummaryCache` let Guava's
   "loader returned null" signal escape instead of degrading to the no-display-name path the callers
@@ -1390,7 +1413,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   asserts the API degrades rather than 500s. Bear in mind that queue writes are already best-effort
   by design (`AppLoggerQueueService`, the worker and NCBI queues), so those are the pattern to match.
 
-- **24. Retry the ontology-list load in the term picker (frontend, `cedar-template-editor`).** This is a
+- **25. Retry the ontology-list load in the term picker (frontend, `cedar-template-editor`).** This is a
   change to the Angular frontend, not to any microservice or test suite — it lands in
   `cedar-template-editor`, and so needs a frontend owner to review and push it (see the note below).
   It is the last piece of this defect still outstanding, and the fix is already written: it is open as
@@ -1435,13 +1458,13 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   and never could succeed. Nothing is saved server-side until after the block, so a failed attempt
   leaves no orphan template.
 
-- **25. Give `UserSummaryCache` a seam a test can reach.** The class resolves the display names that
+- **26. Give `UserSummaryCache` a seam a test can reach.** The class resolves the display names that
   decorate every resource read, and nothing tests it. `cedar-cache-operations-library` has no test
   sources at all. Reaching it needs a seam that does not exist today: the class is static throughout,
   its `init` takes a `CedarConfig`, and its loader calls the user server over HTTP.
 
   That gap has cost twice, both times in the same few lines. Guava's "loader returned null" signal
-  escaping as a 500 is recorded in item 23. The second is what a failure costs when it repeats. Guava
+  escaping as a 500 is recorded in item 24. The second is what a failure costs when it repeats. Guava
   caches a value and never a failure, so an unresolvable id was fetched again on every lookup and each
   attempt waited out the 20-second socket timeout, while `ProvenanceNameUtil` asks for three ids per
   resource and repeats that for every ancestor on a path and every entry of a listing. The
