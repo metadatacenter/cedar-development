@@ -177,6 +177,15 @@ query a hit, which is affordable at a page of them and is not at a corpus-wide p
 hundred ontologies — which is why the whole chain is what a scoped search gets and the one step is
 what everything else gets.
 
+**Branches order by what they hold, within how well they matched.** A branch constraint is
+"everything under this", so size is the thing being chosen between — but size alone is only right
+for a generic query. Measured 2026-08-15 over the live store: ordering branches by descendant count
+alone puts "disease, disorder or finding" (50,839 beneath) at the head of a search for *disease*,
+which is the branch an author means, and "melanoma ontology" (526) and "malignant skin neoplasm"
+(421) at the head of a search for *melanoma*, above "melanoma" itself (321), which is not. Ranking
+by match first and by size within a rank leads with the exact branch in every case and still orders
+the rest by weight, so that is what ships.
+
 **A branch row counts branches, not positions.** A folded row says "179 branches in 149
 ontologies", the extra thirty being ontologies that place one concept at several points in their
 own tree. It carried the range of descendant counts across the fold too, and that came off: it
