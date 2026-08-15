@@ -348,13 +348,19 @@ BERO", a row three times the height of its neighbours. They drive the production
 static server rather than `ng serve`, because a build that breaks the bundle while leaving the dev
 server working is the failure worth catching.
 
-**Narrowing and paging.** One filter serves every tab, chosen from a panel ranked by how much of
-the query each ontology holds — a different order from the ontologies tab, which leads with a
-vocabulary named after the query. For melanoma that is the difference between MELO, aptly named
-and holding 38 terms, and NCIT with 950. Narrowing keeps the index rather than dropping to the
-snapshots, so the same search runs over less rather than a different search running. Each tab
-pages independently, and the source blocks accumulate as later pages name ontologies the first
-did not.
+**Narrowing.** One filter serves every tab, chosen from a panel ranked by how much of the query
+each ontology holds — a different order from the ontologies tab, which leads with a vocabulary
+named after the query. For melanoma that is the difference between MELO, aptly named and holding
+38 terms, and NCIT with 950. Narrowing keeps the index rather than dropping to the snapshots, so
+the same search runs over less rather than a different search running.
+
+**One list per tab, extended by scrolling.** The results box scrolls, and reaching within a
+screenful of the end fetches the next page of that type alone and appends it. Page numbers were
+the wrong shape for the data: a count that stops at its cap reads "page 1 of 400+", which asks an
+author to navigate a list whose length nobody knows. A page that comes back short is the end, and
+the only signal there is — so the list says "no more matches" rather than counting to it. A first
+page too short to scroll fetches on by itself, since scrolling is what asks and there would be
+nothing to scroll. Source blocks accumulate as later pages name ontologies the first did not.
 
 **The rows.** One line each, folding what an author cannot choose between and opening onto what
 they can. A long label folds from the middle, keeping both ends, because LOINC puts a whole
