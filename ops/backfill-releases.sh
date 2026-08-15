@@ -12,7 +12,10 @@
 # the store already has costs a download and changes nothing.
 #
 # Usage: backfill-releases.sh <plan.tsv> [logdir]
-#   plan.tsv is `acronym<TAB>id,id,id` a line, ids newest first.
+#   plan.tsv is `acronym<TAB>id,id,id` a line, ids newest first. An acronym suffixed `:valuesets`
+#   is ingested as a value-set collection, which is the same content-hash mechanism under a
+#   different kind in the catalog — CEDARVS is one, and ingesting it as an ontology would file it
+#   under the wrong kind.
 
 set -u
 PLAN="${1:?usage: backfill-releases.sh <plan.tsv> [logdir]}"
@@ -27,12 +30,18 @@ RESULTS="$LOGDIR/results.tsv"
 
 while IFS=$'\t' read -r acronym ids; do
   [ -z "${acronym:-}" ] && continue
+  # A plain string, not an array: under `set -u` bash 3.2 calls an empty array unbound, and macOS
+  # ships bash 3.2. The flag has no spaces, so nothing is lost by not quoting it as one word.
+  kind=""
+  case "$acronym" in
+    *:valuesets) kind="--valuesets"; acronym="${acronym%%:*}" ;;
+  esac
   for id in ${ids//,/ }; do
     [ -z "$id" ] && continue
     started=$(date +%s)
     BIOPORTAL_API_KEY="$CEDAR_BIOPORTAL_API_KEY" java -Xmx10g -cp "$CP" \
         org.metadatacenter.terms.ingest.IngestJob "$CATALOG" "$SNAPSHOTS" \
-        --submission "$id" "$acronym" > "$LOGDIR/$acronym-$id.log" 2>&1
+        --submission "$id" $kind "$acronym" > "$LOGDIR/$acronym-$id.log" 2>&1
     status=$?
     took=$(( $(date +%s) - started ))
     version=$(grep -o 'version [0-9a-f]\{64\}' "$LOGDIR/$acronym-$id.log" | tail -1 | cut -d' ' -f2)
