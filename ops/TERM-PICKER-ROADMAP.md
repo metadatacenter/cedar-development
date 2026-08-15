@@ -59,6 +59,11 @@ published. A `version` appears on a constraint only when the author steps off la
 how the backend already stores and freezes them, so nothing has to be reconciled across the
 constraints on one field.
 
+**A term row carries nothing about the subtree beneath the term.** It showed a descendant count,
+which answers the branches tab's question: a class constraint is that term, and what sits under it
+changes nothing about the constraint. The same label appearing on the branches tab is where the
+subtree becomes the decision.
+
 **A term row says where in its ontology the term sits.** A label repeats within one ontology as
 readily as across several — ACESO merges three vocabularies and labels a class "Disease" in each —
 so two rows of one ontology were told apart by their descendant counts and nothing else. They carry
