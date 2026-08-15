@@ -89,12 +89,10 @@ path: a tree that collapsed to its root would lose the term the panel is about. 
 Workbench picker does by re-rooting a flat list of children on every click, which loses where you
 have been.
 
-The topmost node says "top of DOID", because a chain of one step and a chain that was cut short
-look identical otherwise. Many chains are genuinely one step or none: AD-CDO labels a class Disease
-and declares it a root, with no parent edge in its snapshot, and 1.8 million of the index's 13.9
-million terms are roots of their ontology. The index records one parent a term, so a term with
-several parents is drawn under the one the ingest kept — a real limit, and the reason a chain is
-"a" path rather than "the" path.
+Many chains are one step or none: AD-CDO labels a class Disease and declares it a root, with no
+parent edge in its snapshot, and 1.8 million of the index's 13.9 million terms are roots of their
+ontology. The index records one parent a term, so a term with several parents is drawn under the
+one the ingest kept — a real limit, and the reason a chain is "a" path rather than "the" path.
 
 **The other names come from the index, in one query for the page.** They are what says whether a
 concept is the one an author meant, and they are worth nothing at a round trip a row. Shown eight
@@ -112,12 +110,13 @@ which answers the branches tab's question: a class constraint is that term, and 
 changes nothing about the constraint. The same label appearing on the branches tab is where the
 subtree becomes the decision.
 
-**A term row says where in its ontology the term sits.** A label repeats within one ontology as
-readily as across several — ACESO merges three vocabularies and labels a class "Disease" in each —
-so two rows of one ontology were told apart by their descendant counts and nothing else. They carry
-their parent now, as branch rows already did. Where the row is too narrow for both, the ontology's
-name gives way and the parent survives: the acronym beside it has already identified the ontology,
-and the parent is the part that distinguishes.
+**A term row names its ontology and nothing about the hierarchy.** It carried its parent for a
+while, because a label repeats within one ontology as readily as across several — ACESO merges
+three vocabularies and labels a class "Disease" in each — and two rows of one ontology are
+otherwise told apart by their descendant counts alone. The tree took that job when it arrived:
+marking a row draws the whole chain, which says more than one step ever did, and the row went back
+to the ontology it names. The cost is real and accepted — two rows of one ontology look alike until
+one is marked.
 
 **A branch row counts branches, not positions.** A folded row says "179 branches in 149
 ontologies", the extra thirty being ontologies that place one concept at several points in their
