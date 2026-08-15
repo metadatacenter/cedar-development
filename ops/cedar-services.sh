@@ -121,6 +121,10 @@ start_one() {
         opts="-DterminologyStore.catalogPath=$CEDAR_TERMINOLOGY_STORE_CATALOG -DterminologyStore.localOntologies=$CEDAR_TERMINOLOGY_LOCAL_ONTOLOGIES"
         [ -n "$CEDAR_TERMINOLOGY_LOCAL_ROOTS_ONTOLOGIES" ] && opts="$opts -DterminologyStore.localRootsOntologies=$CEDAR_TERMINOLOGY_LOCAL_ROOTS_ONTOLOGIES"
         [ -n "$CEDAR_TERMINOLOGY_LOCAL_ONLY" ] && opts="$opts -DterminologyStore.localOnly=$CEDAR_TERMINOLOGY_LOCAL_ONLY"
+        # The cross-snapshot search index, which POST /search and /search/hierarchy need. Its own
+        # variable because it is its own file: the catalog can be served without it, and those two
+        # endpoints then report themselves unavailable rather than answering from BioPortal.
+        [ -n "$CEDAR_TERMINOLOGY_STORE_INDEX" ] && opts="$opts -DterminologyStore.searchIndexPath=$CEDAR_TERMINOLOGY_STORE_INDEX"
       fi
       nohup java $opts -jar "$jar" server "$cfg" >"$log" 2>&1 & ;;
   esac
