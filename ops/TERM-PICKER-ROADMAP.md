@@ -284,7 +284,16 @@ string as often as not: the catalog holds `V2`, `v1.0.0`, `2026-07-06` and `late
 the 998 snapshots that fill it, 915 are 20 characters or fewer while the longest is 782 characters
 of prose, newlines and a table of HTML. The row elides from the middle at 20 and carries the whole
 string in its title, so a version that is prose costs a hover rather than the layout. A row with
-more than one release says how many, which is the only thing on it inviting a step.
+more than one release says how many, and that count opens the whole history beneath the row.
+
+**The history is the release list, not a position in it.** Stepping one release at a time never
+says which release it reached, so the panel gives every release its own line: the declared version,
+the effective date, and the content hash that makes a pin reproducible. It scrolls rather than
+growing — MONDO has eight releases and nothing bounds what an ontology accumulates — and it marks
+the one the row is reading. Choosing the current release unpins rather than writing today's
+version, the rule stepping forward already obeyed. A release declaring no version says so; of the
+1,215 ontologies the store holds, some declare a file path where a version belongs, so the panel
+shows the string as it is and lets the date and the hash identify the release.
 
 **The rows of a tab share one set of columns.** Counts, versions and the step arrows sit in tracks
 the whole list declares, through CSS subgrid, so a row keeps its own box — it tints when marked and
