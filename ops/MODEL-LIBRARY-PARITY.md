@@ -38,9 +38,10 @@ instance: 21 compared, 0 differing
 ```
 
 The two libraries write the same YAML for every artifact in the corpus, byte for byte, in
-the full form and the compact one, and each reads every document the other writes. Any
-difference the run reports from here is a regression in one of them, which is what the
-gate is now set to say.
+the full form and the compact one, and each reads every document the other writes. **Their
+JSON matches too**, for all 81 artifacts, so the divergences catalogued below are closed in
+both serializations. Any difference the run reports from here is a regression in one of
+them, which is what the gate is now set to say.
 
 ## Corpus coverage
 
@@ -130,9 +131,27 @@ its rendering of templates 4, 9 and 37 validates clean. What that costs is the v
 round trip on those three: the JSON writer's reference comparison skips them, because
 reproducing those sources exactly would mean reproducing what makes them invalid.
 
-**4. Empty literal values are normalised away** (44 occurrences across instances)
+**4. ~~Empty literal values are normalised away~~** — **resolved: the shape is kept, because it
+carries the only evidence there is**
 
-See the table below.
+An unfilled field is written one of two ways, and they are not interchangeable. A literal field's
+sub-schema requires `@value`, so an unfilled one is `{"@value": null}` and `{}` is rejected. A
+controlled-term or link field's forbids `@value` — `@id` and `rdfs:label` under
+`additionalProperties: false` — so an unfilled one is `{}` and `{"@value": null}` is rejected. The
+canonical validator says so on real templates: `{}` on template-002's `Textfield` is *missing required
+properties (['@value'])*, and `{"@value": null}` on template-023's `Controlled 1` is *properties which
+are not allowed by the schema: ['@value']*.
+
+Java read an instance, lost which of the two it had seen — `readPossiblyNullString` returns an empty
+`Optional` either way — and wrote `@value: null` for both. Of the 38 unfilled fields in the corpus's
+instance pairs, **34 are controlled-term and 2 are links**, so the normalisation made an instance
+invalid against the template it was filled from far more often than it repaired one; only 1 was a
+literal field. An instance built from a template, written, read back without one and written again came
+out invalid, which is the path a conversion takes.
+
+`FieldInstanceArtifact` now records whether the document wrote an `@value` key, and the renderer's
+untyped branch writes back what it read. The typed kinds are unaffected: each already rendered the
+shape its kind calls for. `UnfilledFieldShapeRoundTripTest` pins both directions.
 
 ### TypeScript loses data that Java preserves
 
@@ -224,25 +243,21 @@ each was a divergence over YAML input rather than output.
 Found by asserting the round trip over the corpus rather than by comparing the libraries, which is what
 `CompactYamlRoundTrip.spec.ts` now does for both forms of every artifact.
 
-### Empty values in instances — the systematic one
+### ~~Empty values in instances~~ — resolved
 
-This is the largest single class, and it is perfectly regular: 62 occurrences,
-no exceptions.
+This was the largest single class, and it is now perfectly regular in the other direction: every
+unfilled field comes out of both libraries as the source wrote it.
 
 | Source | Java emits | TypeScript emits |
 |---|---|---|
-| `{}` (18×) | `{}` — faithful | `{}` — faithful *(was: key absent)* |
-| `{"@value": null}` (44×) | `{}` — **normalised** | `{"@value": null}` — faithful |
+| `{}` (22×) | `{}` | `{}` |
+| `{"@value": null}` (63×) | `{"@value": null}` | `{"@value": null}` |
 
-TypeScript is now faithful to both shapes. Java still collapses every empty
-field to `{}`, losing the distinction between an empty literal and an empty
-controlled term.
-
-That leaves the model question live rather than settled: TypeScript now
-*preserves* a distinction Java erases, so the two still disagree on 44
-occurrences. If `{}` and `{"@value": null}` are meant to be the same thing,
-TypeScript is over-faithful and Java is right; if they are not, Java is losing
-data. Someone has to say which.
+Which shape belongs where is the template's business, not a matter of taste: a literal field's
+sub-schema requires `@value` and a controlled-term or link field's forbids it, so each shape is refused
+in the other's place. An instance read on its own carries no template, so the shape it was written with
+is the only evidence of which kind the field is, and both libraries now keep it. The reasoning and the
+validator runs behind that are with item 4 above.
 
 ### An empty attribute-value field — resolved on both sides, by opposite routes
 
@@ -340,11 +355,12 @@ Resolved this pass:
    `PropertyUriGenerationTest` and `PropertyIri.spec.ts` — so neither encoder can move alone. No
    corpus fixture changed, since no corpus artifact reaches the generator.
 
-Remaining:
+2. ~~**Decide whether `{}` and `{"@value": null}` are distinguishable.**~~ **Resolved: they are, and
+   the document is the only thing that says which a field wants.** TypeScript preserved the shape;
+   Java normalised it away and now keeps it. The measured cost of normalising was 36 of 38 unfilled
+   fields in the corpus rendered invalid against their own templates.
 
-2. **Decide whether `{}` and `{"@value": null}` are distinguishable.** Unchanged — the largest class
-   (44 cases). TypeScript preserves the distinction, Java erases it; this decides whether Java changes
-   or TypeScript should start normalising too. A model-owner decision.
+Remaining: nothing.
 
 ### What is left
 
