@@ -226,6 +226,12 @@ so the chip needs no new backend work. Without it a synonym hit reads as a defec
 recall — and on a row whose own label answers the query, the chip is the noise it exists to
 prevent, which is why the server withholds it there.
 
+**An ontology row shows what matched rather than labelling it.** A vocabulary is on the tab because
+its name matched, its acronym matched, or its terms did, and the first two mark the part that
+matched in the name and in the acronym. A row with nothing marked is there for its terms, and its
+count is the whole of the reason. The row said "named ·" before the count, which named the reason a
+second time and named it for the rows that needed it least.
+
 **Ontologies — which vocabulary this field draws from.** Name and acronym matching over the
 cached list, ordered by how well the name matches, with the ontology's size and its current
 version on the row. The tab answers a different question from the others and returns far less:
