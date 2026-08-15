@@ -178,6 +178,14 @@ checked out.
 
 ### Getting a Local Build Into the Frontends
 
+Two routes. A **symlink** covers a tight edit loop, where the point is to see a
+change without publishing anything. A **dev release to Nexus** covers the other
+case — putting one named, fetchable build in front of every frontend at once,
+which is what to reach for when the build is worth referring to later or worth
+someone else installing. That route is
+[Releasing a dev snapshot locally](#releasing-a-dev-snapshot-locally) below; the
+symlink is the rest of this section.
+
 Point the consumer at `dist-npm/cedar-embeddable-editor` — `ln -s` over its
 `node_modules/cedar-embeddable-editor` — and staging is then necessary but not
 sufficient. The symlink means a consumer *resolves* the freshly staged bundle, but
@@ -234,6 +242,79 @@ that is already open, but it reports the label rather than the contents: a stage
 bundle keeps the version from its last release until one is cut, so two different
 builds can both call themselves the same dev version. The hash is what
 distinguishes them.
+
+### Releasing a Dev Snapshot Locally
+
+A snapshot is a real published version, so every frontend can name it and install
+it, and anyone can fetch it later. Reads from Nexus are anonymous; only publishing
+needs the credential already in `~/.npmrc`.
+
+Version it `<next>-dev.<date>.<sha>`, where the commit is the one whose content
+ships and the date is *that commit's*. Bump `package.json` and the two root
+entries in `package-lock.json` — take care, since a dependency may legitimately
+also be at the version being replaced — and set the load-trace stamp to
+`'<YYYY-MM-DD HH:MM> <sha>'` naming the same commit. `check:npm-package` compares
+the two and fails if they disagree. Then run the gate, stage, and publish with the
+tag stated explicitly:
+
+```bash
+npm run test:visual && npm run package:npm:prebuilt
+cd dist-npm/cedar-embeddable-editor && npm publish --tag dev
+```
+
+Each frontend then names the snapshot through an npm alias, because npm routes by
+scope and this is the only package taken from Nexus:
+
+```json
+"cedar-embeddable-editor": "npm:@org.metadatacenter/cedar-embeddable-editor@2.0.0-dev.20260814.e26f34f"
+```
+
+All seven manifests already carry the `@org.metadatacenter:registry` line an alias
+needs. Install, then get the bundle into what each host serves:
+
+| Host | Install | Then |
+|---|---|---|
+| `cedar-template-editor` | plain | `npx gulp copy:cee` (needs the profile sourced) |
+| `cedar-artifacts`, `cedar-bridging` | plain | `cedarcli build this` |
+| `cedar-openview` | `--legacy-peer-deps` | `cedarcli build this` — it copies `dist/cedar-openview` into `cedar-openview-dist` |
+| `cedar-component-demo` (Angular) | `--legacy-peer-deps` | `cedarcli build this` |
+| `cedar-component-demo` (Ember, React) | plain | nothing — they run from source |
+
+A build refreshes what is on disk. A **running `ng serve` still serves what it
+started with**, because a `node_modules` swap is not a source change, so
+`ui-openview`, `ui-artifacts` and `ui-bridging` need restarting; the same
+`.angular/cache` caveat above applies to openview. The Template Designer needs no
+restart — it serves the file `copy:cee` wrote, so the copy is the deploy.
+
+```bash
+bash $CEDAR_HOME/cedar-development/ops/cedar-services.sh restart ui-openview ui-artifacts ui-bridging
+```
+
+Compilation is seconds, not minutes: `ng serve` reports `Compiled successfully` in
+the frontend log — `$CEDAR_HOME/log/frontend-<name>.log` — and 400ms is typical for
+an incremental rebuild. If a check still shows the old bundle after that, the
+build is not what is behind; look at what is being fetched.
+
+Then confirm, and **ask each host at the path it actually serves** — they differ,
+and checking the wrong file reads exactly like a failed deploy:
+
+| Host | Where the bundle is |
+|---|---|
+| Template Designer | `/third_party_components/cedar-embeddable-editor/cedar-embeddable-editor.js` |
+| openview | `/node_modules/cedar-embeddable-editor/cedar-embeddable-editor.js` |
+| artifacts, bridging | inside `vendor.js` — imported in `app.module.ts`, so it is bundled, not served as a file |
+
+For the first two, compare sha256 against the staged bundle. For the last two
+there is no file to hash: grep `vendor.js` for the load-trace stamp, which names
+one build exactly. The version string alone is not enough — `vendor.js` holds
+every dependency's version, so a bare `1.6.0` in it may belong to something else
+entirely.
+
+```bash
+curl -s http://127.0.0.1:4220/node_modules/cedar-embeddable-editor/cedar-embeddable-editor.js | shasum -a 256
+curl -sk https://cedar.metadatacenter.orgx/third_party_components/cedar-embeddable-editor/cedar-embeddable-editor.js | shasum -a 256
+curl -s http://127.0.0.1:4320/vendor.js | grep -c '<the load-trace stamp>'
+```
 
 ### First-time setup
 

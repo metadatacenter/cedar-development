@@ -390,14 +390,15 @@ async function reEditInstance(page, newValue) {
 //      A genuine value-carriage regression still fails — the wait just times out and the
 //      assertions run against the (still value-less) metadata, reporting exactly what is
 //      missing.
-//   2. `outputSerialization` is checked for the one thing only it decides: the *format*
-//      `currentMetadataSerialized` returns — a JSON object by default, a YAML string when
-//      configured — with `currentMetadata` left JSON either way (the save-path contract).
-//      Every input on the element takes one assignment and keeps it, so a host chooses the
-//      format when it builds an element rather than by re-assigning `config` on a live one.
-//      This check therefore builds two throwaway elements from the template under test, one
-//      default and one configured for YAML, and reads only the *type* each returns, never
-//      the value.
+//   2. The same two getters are read again from a throwaway element built from the template
+//      under test, which is where a format regression would show first: an element that has
+//      only ever been given a template, with no host configuration at all, must still offer
+//      the instance as both a JSON object and a YAML string.
+//
+//      This checked `outputSerialization` and `currentMetadataSerialized` until CEE 2.0.0
+//      removed both. One getter that changed its return type by configuration was the whole
+//      of that contract, and two always-on getters say the same thing without a key: a host
+//      reads whichever it wants, and nothing it sets can take the other away.
 //
 // Runs last on this page. The throwaway elements are hidden and removed again, and the live
 // editor is only read from, so nothing after this is disturbed.
@@ -437,8 +438,8 @@ async function verifySerializationConfig(page, expectedValue, templateObject) {
     };
   }, expectedValue);
 
-  // Format selection, on elements built for it. Each is configured before it receives the
-  // template, hidden while it renders, and removed once read.
+  // Both formats, on a throwaway element built from the template under test. It is
+  // hidden while it renders and removed once read.
   const formats = await page.evaluate(async (template) => {
     const build = async (config) => {
       const el = document.createElement('cedar-embeddable-editor');
@@ -446,35 +447,44 @@ async function verifySerializationConfig(page, expectedValue, templateObject) {
       if (config) el.config = config;
       document.body.appendChild(el);
       el.templateObject = template;
-      // The form is built asynchronously; a populated `currentMetadata` says it is up.
+      // The form is built asynchronously, and the two getters do not become ready
+      // together: JSON is offered as soon as the instance exists, YAML once the
+      // template has also been parsed, which the YAML writer needs. Waiting on
+      // `currentMetadata` alone therefore reads YAML a beat early and sees the empty
+      // string — a race that looks exactly like a missing format. Waiting for both is
+      // what the live-editor half of this step already does. On timeout we fall
+      // through, so a format that never arrives still fails the assertions below.
       const deadline = Date.now() + 15_000;
       while (Date.now() < deadline) {
-        const m = el.currentMetadata;
-        if (m !== null && typeof m === 'object' && Object.keys(m).length > 0) break;
+        const json = el.currentMetadata;
+        const yaml = el.currentMetadataYaml;
+        const jsonReady = json !== null && typeof json === 'object' && Object.keys(json).length > 0;
+        if (jsonReady && typeof yaml === 'string' && yaml.length > 0) break;
         await new Promise(resolve => setTimeout(resolve, 100));
       }
       return el;
     };
 
-    const byDefault = await build(null);
-    const asYaml = await build({ outputSerialization: 'yaml' });
-    const defaultSerialized = byDefault.currentMetadataSerialized;
-    const configuredSerialized = asYaml.currentMetadataSerialized;
-    const jsonStill = asYaml.currentMetadata;
-    byDefault.remove();
-    asYaml.remove();
+    // Configured, because an element assigned only a template never builds: both
+    // getters then answer empty — `{}` and `''` — which is CEE's behaviour rather
+    // than this step's subject. A `{}` passes any "is it JSON" test vacuously, so a
+    // config-less element proves nothing about format either way. The config here is
+    // the smallest one that is not about serialization at all.
+    const built = await build({ defaultLanguage: 'en' });
+    const json = built.currentMetadata;
+    const yaml = built.currentMetadataYaml;
+    built.remove();
 
     return {
-      defaultSerializedIsJson: defaultSerialized !== null && typeof defaultSerialized === 'object',
-      configuredSerializedIsYamlString: typeof configuredSerialized === 'string' && configuredSerialized.length > 0,
-      jsonContractPreserved: jsonStill !== null && typeof jsonStill === 'object' && !Array.isArray(jsonStill),
+      builtOffersPopulatedJson: json !== null && typeof json === 'object' && Object.keys(json).length > 0,
+      builtOffersYamlString: typeof yaml === 'string' && yaml.length > 0,
     };
   }, templateObject);
 
   Object.assign(r, formats);
   const failed = Object.entries(r).filter(([, ok]) => !ok).map(([k]) => k);
   if (failed.length > 0) {
-    throw new Error(`serialization-config check failed [${failed.join(', ')}] — ${JSON.stringify(r)}`);
+    throw new Error(`both-serializations check failed [${failed.join(', ')}] — ${JSON.stringify(r)}`);
   }
 }
 
@@ -691,12 +701,12 @@ try {
   await reEditInstance(page, 'edited notes');
   console.log('✓ Metadata Editor rendered the post-save edit view, re-edited, and updated');
 
-  // 3b-iv. The deployed CEE honours the serialization config: default output is JSON,
-  //        outputSerialization:'yaml' makes currentMetadataSerialized YAML, and
-  //        currentMetadata stays JSON so the host's save path is unchanged. The format
-  //        half builds its own elements, so it needs the template this instance is based
-  //        on: the live editor names it, and the REST token already in hand fetches it.
-  step = 'serialization-config';
+  // 3b-iv. The deployed CEE offers the instance in both formats, from getters a host
+  //        cannot configure away: currentMetadata as JSON and currentMetadataYaml as a
+  //        string, each carrying the value just saved. The second half builds its own
+  //        element, so it needs the template this instance is based on: the live editor
+  //        names it, and the REST token already in hand fetches it.
+  step = 'both-serializations';
   const basedOn = await page.evaluate(
     () => document.querySelector('cedar-embeddable-editor').currentMetadata['schema:isBasedOn']);
   const templateResp = await restCall(user1.auth, 'GET', `/templates/${enc(basedOn)}`);
@@ -704,7 +714,7 @@ try {
     throw new Error(`could not fetch the template under test: ${templateResp.status} ${templateResp.text}`);
   }
   await verifySerializationConfig(page, 'edited notes', templateResp.body);
-  console.log('✓ deployed CEE honours serialization config (JSON by default; YAML on request; currentMetadata stays JSON)');
+  console.log('✓ deployed CEE offers the instance as both JSON and YAML, from getters a host cannot configure away');
 
   // 3c. Publish the template to OpenView, then confirm an anonymous visitor — a
   //     fresh browser with no CEDAR session — sees it presented on the OpenView
@@ -743,7 +753,7 @@ try {
   await assertWorkingFolderCleared(user1, folderId, [savedInstance.id, templateId, standaloneFieldId]);
   console.log(`✓ "${FOLDER_NAME}" holds none of this run's artifacts`);
 
-  console.log(`\nPASS: login (reusable session) → "${FOLDER_NAME}" folder + seeded field → template w/ DOID + text field → populate + fill → save instance → re-edit (update) → serialization config (JSON/YAML) → OpenView presented anonymously → delete → folder cleared`);
+  console.log(`\nPASS: login (reusable session) → "${FOLDER_NAME}" folder + seeded field → template w/ DOID + text field → populate + fill → save instance → re-edit (update) → both serializations (JSON/YAML) → OpenView presented anonymously → delete → folder cleared`);
   await browser.close();
   process.exit(0);
 } catch (e) {
