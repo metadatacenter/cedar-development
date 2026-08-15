@@ -314,8 +314,15 @@ Resolved this pass:
    current libraries, and the fixtures no longer lag behind them. The regeneration surfaced what the
    uniformly stale corpus had hidden and settled most of it: the identifier now present in compact
    YAML, an encoding repair to template 35 whose YAML no reader could parse, and Java output for the
-   eight field cases that had none. What it left is the two divergences below.
+   eight field cases that had none. What it left is the divergence below.
 6. ~~**Expose `booleanFieldBuilder`.**~~ **Resolved** — the builder went with the type, item 1.
+8. ~~**Decide which spelling of a property IRI is canonical.**~~ **Resolved** — both libraries now
+   percent-encode the name as a path segment, which is where it ends up: a space is `%20`, and `!`,
+   `'`, `(`, `)`, `~` and `*` are left literal. Each had reached for form encoding, meant for a query
+   string, which writes a space as `+`; a `+` in a path is a literal plus, so the IRI did not decode
+   back to the name it came from. A table of 22 names and their encodings is pinned on both sides —
+   `PropertyUriGenerationTest` and `PropertyIri.spec.ts` — so neither encoder can move alone. No
+   corpus fixture changed, since no corpus artifact reaches the generator.
 
 Remaining:
 
@@ -324,13 +331,6 @@ Remaining:
    or TypeScript should start normalising too. A model-owner decision.
 7. **`propertyLabels`/`propertyDescriptions` orphan keys** (`templates/003`) — unchanged; both
    libraries diverge from the source.
-8. **Decide which spelling of a property IRI is canonical.** A property IRI generated from a field
-   name is percent-encoded differently by each library: Java's `URLEncoder.encode` encodes `!`, `'`,
-   `(`, `)` and `~`, while TypeScript's `encodeURIComponent` leaves them literal, so a field named
-   `Dose (mg)` gets a different `@context` URI depending on which library wrote it. Both libraries
-   only generate one when the artifact carries none, so it reaches newly authored artifacts and
-   compact input rather than stored ones, and no corpus case exercises it — which is why the JSON
-   comparison has never reported it.
 
 ### What the regeneration left
 
