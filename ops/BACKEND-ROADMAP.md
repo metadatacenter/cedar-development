@@ -274,6 +274,11 @@ model libraries — where their JSON and YAML serializations diverge — is in
   corpus carried an empty string instead: 59 nodes across four instances, now corrected to `@id: null`
   in `cedar-test-artifacts`, which is what both model libraries already read them as.
 
+  The YAML readers refuse it now, in both libraries: a URI field that is present must be a URI, and an
+  empty string is neither one nor an absence of one. The JSON readers still map it to an absent value
+  silently, which is how these documents were read without complaint, so a production instance carrying
+  one still passes through quietly — worth settling with the rest of this item.
+
   Three things to establish. **How common it is in production** — a query over stored instances for
   element occurrences whose `@id` is `""`, since the corpus is a sample and the count there was close
   to half. **Whether the Template Designer writes them** — the corpus instances are exports, so the
