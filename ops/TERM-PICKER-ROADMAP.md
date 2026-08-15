@@ -59,6 +59,15 @@ published. A `version` appears on a constraint only when the author steps off la
 how the backend already stores and freezes them, so nothing has to be reconciled across the
 constraints on one field.
 
+**The bar is half search, half what has been found.** The search takes the left half and a phrase
+for the marked row takes the right: the kind of constraint, the thing it names, its ontology, and
+the release it would be recorded at — "Every term in Mondo Disease Ontology · MONDO · at 2026-07-06,
+and unpinned". A row is dense with the evidence for choosing it and says nothing about the choice
+itself; this is the other half, and it says "unpinned" out loud because that is the default and
+because freeze-on-publish is what resolves it. Nothing is shown until something is marked, rather
+than an empty frame reading as a selection of nothing. Both halves keep their width either way, so
+marking a row does not move the input.
+
 **Marking a row opens what it is offering.** The rows under a folded label are a shortlist; the
 marked one is the row an author is deciding about, and the decision is a term IRI written into a
 template. So the panel is that IRI, the chain above the term, the other names the source records
