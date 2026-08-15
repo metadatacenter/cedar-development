@@ -42,34 +42,18 @@ commit that opened it.
 7. **The screenshot budget still hides a small removal.** `maxDiffPixels: 120` is sized for
    a couple of glyphs' worth of rasterisation variance, which on one machine is zero; it
    was already tightened from a ratio after four changes in a day went green against a
-   stale baseline. It is still enough to absorb a control disappearing — removing the
-   preferences menu left `preset-chrome` depicting a trigger that no longer renders, and
-   the suite passed. Decide whether the budget can go to zero, since the baselines are
+   stale baseline. It is still enough to absorb a control disappearing: removing the
+   preferences menu left the since-retired `preset-chrome` depicting a trigger that no
+   longer rendered, and the suite passed. Decide whether the budget can go to zero, since
+   the baselines are
    keyed to the platform and re-recording is already the stated answer to an OS font
    shift, or whether a budget survives only on the shots whose variance is real.
-8. **Audit the configuration surface.** Forty-four keys, and several are stranger than their
+8. **Audit the configuration surface.** Twenty-nine keys, and several are stranger than their
    names. The four prefixes do three unrelated jobs: `iriPrefix` mints IRIs into the
    instance, `bioPortalPrefix` builds a link out to BioPortal's web UI, and `orcidPrefix`
    and `rorPrefix` are value-recognition patterns interpolated raw into `new RegExp('^' +
    prefix)` — so the `.` in every URL matches any character and the check is looser than it
-   reads. Seven authorities have endpoint keys but only two have prefixes. Two panel keys
-   are on by default because CEE began as a developer tool. Decide for each key whether it
-   is host API, developer chrome or a discriminator wearing a URL's name, then rename,
-   scope or retire accordingly. `showTemplateYaml`, `showInstanceYaml` and their `expanded`
-   partners are also missing from the documented panel table, which lists seven panels
-   where the code renders nine.
-9. **`showHeader` and `showFooter` name a position and deliver CEDAR's identity.** Both gate
-   CEDAR's own chrome rather than the host's. `showHeader` renders a `mat-toolbar` carrying the
-   CEDAR logo and the title "CEDAR Embeddable Editor"; `showFooter` renders the Stanford
-   Division of Computational Medicine logo, the maintainer line, and a "Contact CEDAR" link
-   pointing at `more.metadatacenter.org`. Every string and every destination is hardcoded, so
-   an embedder can take CEDAR's branding or nothing, and the names do not say that.
-   `showCedarHeader` and `showCedarFooter` would. Neither key covers the header an embedder is
-   most likely to mean: the template card's own title block, holding the avatar, the version
-   stamp, the template name, its description and the expand controls, renders whenever a
-   template does and no key suppresses it. Decide whether the pair is host API, developer
-   chrome or something to retire, whether a host needs its own way to suppress the card's
-   title block, and what an embedder that wants no CEDAR branding at all is supposed to set.
-   The footer is also the visual suite's only rendered surface for a translated string from an
-   external language map, so removing it means moving that coverage onto the expand controls,
-   which render on every form.
+   reads. Seven authorities have endpoint keys but only two have prefixes. Decide for each
+   key whether it is host API or a discriminator wearing a URL's name, then rename, scope
+   or retire accordingly. The boolean keys have been through exactly that and come out at
+   three; the nine strings have not.
