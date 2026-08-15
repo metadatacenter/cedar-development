@@ -71,6 +71,14 @@ Nothing else is on it. The ontology's name, its acronym, its release and the siz
 are all on the row already, and repeating them under the row spent the panel on what the author
 had just read.
 
+**The panel draws where the term sits.** The chain above it, the term itself, and what hangs
+directly below, each step indented from the last — the structure an author reads to know whether
+a label is the concept they meant. ACESO's three classes called "Disease" become three different
+answers: one under "Clinical finding" with Developmental disorder, Drug-related disorder, Mental
+disorder and Substance abuse below it, and two others elsewhere. It is fetched per marked term
+from `GET /search/hierarchy` rather than with the search, since a page is twenty-five terms and an
+author asks this of one, and it is held once read.
+
 **The other names come from the index, in one query for the page.** They are what says whether a
 concept is the one an author meant, and they are worth nothing at a round trip a row. Shown eight
 at a time and then a count, because a source decides what a synonym is and some decide oddly: BPT

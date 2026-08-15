@@ -92,6 +92,47 @@ page inside one tab, ask for that type alone.
 rather than the number of matches, and a client that renders it as an exact figure is lying on
 the server's behalf.
 
+## `GET /search/hierarchy` — Where a Term Sits
+
+A search names a term. Whether it is the right term is a question about its neighbourhood, and a
+label cannot answer it: ACESO labels a class "Disease" three times over, once per vocabulary it
+merges, and the three are told apart by what is above them and nothing else.
+
+```
+GET /search/hierarchy?sourceAcronym=DOID&termIri=http://purl.obolibrary.org/obo/DOID_1909
+```
+
+```json
+{
+  "sourceSystem": "bioportal",
+  "sourceAcronym": "DOID",
+  "source": { "…": "the same source block a search returns" },
+  "path": [
+    { "termIri": "http://purl.obolibrary.org/obo/DOID_4", "termLabel": "disease" },
+    { "termIri": "http://purl.obolibrary.org/obo/DOID_14566", "termLabel": "disease of cellular proliferation" },
+    { "termIri": "http://purl.obolibrary.org/obo/DOID_162", "termLabel": "cancer" },
+    { "termIri": "http://purl.obolibrary.org/obo/DOID_0050687", "termLabel": "cell type cancer" }
+  ],
+  "termIri": "http://purl.obolibrary.org/obo/DOID_1909",
+  "termLabel": "melanoma",
+  "children": [
+    { "termIri": "…", "termLabel": "amelanotic melanoma", "hasChildren": true, "descendantCount": 3 }
+  ],
+  "childCount": 15,
+  "descendantCount": 42
+}
+```
+
+Both parameters are required: an IRI addresses a term only within a source, and OBO terms are
+imported across ontologies. `path` runs root first and is absent where the term is a root of its
+ontology — 1.8 million of the index's 13.9 million terms are. `children` is alphabetical and capped
+at fifty, with `childCount` saying how many there are in all.
+
+It is answered from the cross-snapshot index, which holds one parent a term, rather than by opening
+a snapshot: the ancestors walk in one recursive query, bounded at thirty-two steps because a
+broader/narrower cycle would otherwise recurse without end. A term the index does not hold — a
+proxied source, an unheld one — is a 404 rather than an empty hierarchy.
+
 ## Sources Are Described Once
 
 The envelope describes sources; hits describe matches and name their source with the
