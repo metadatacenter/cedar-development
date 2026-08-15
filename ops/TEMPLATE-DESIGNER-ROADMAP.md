@@ -91,6 +91,8 @@ and look at what each occurrence's `@id` holds before and after the save. If the
 a placeholder for an identifier the server has not yet assigned, `null` is the honest value and the
 model libraries already read the two the same way.
 
-The rest of the question — how common the empty string is in production, and why validation accepts it
-when the schema types the key as a URI — is on [BACKEND-ROADMAP.md](./BACKEND-ROADMAP.md), because the
-answer binds the meta-schema and the validator rather than the editor.
+What the editor writes is one input to a larger decision on
+[BACKEND-ROADMAP.md](./BACKEND-ROADMAP.md): who assigns an element occurrence's identifier, and what
+stands in that slot until they do. A template requires a string there, `null` is refused, and the empty
+string passes only because `format: uri` goes unchecked. That decision binds the meta-schema and both
+model libraries; this is the part only the designer can answer.

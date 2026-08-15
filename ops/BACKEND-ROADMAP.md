@@ -267,33 +267,48 @@ model libraries — where their JSON and YAML serializations diverge — is in
   [TEMPLATE-DESIGNER-ROADMAP.md](./TEMPLATE-DESIGNER-ROADMAP.md); this one is tracked here because the
   decision binds the meta-schema and both model libraries as well.
 
-- **9. Find out who writes `"@id": ""` on an element occurrence, and why validation lets it through.**
-  An element inside an instance carries an identifier from CEDAR's own namespace,
-  `https://repo.metadatacenter.org/template-element-instances/<uuid>`, which says the repository
-  assigns it as it assigns a template's or an element's. But half the element occurrences in the shared
-  corpus carried an empty string instead: 59 nodes across four instances, now corrected to `@id: null`
-  in `cedar-test-artifacts`, which is what both model libraries already read them as.
+- **9. Decide who assigns an element occurrence's `@id`, and settle what stands in for it meanwhile.**
+  An element inside a filled instance is identified from CEDAR's own namespace,
+  `https://repo.metadatacenter.org/template-element-instances/<uuid>`, so the repository assigns it as
+  it assigns a template's or an element's. Nothing built locally can supply one honestly. But a
+  template types that slot as `{"type": "string", "format": "uri"}` and lists it in the element's
+  `required`, so the slot must be filled before the document is valid — before the only party that can
+  fill it has seen the document.
 
-  The YAML readers refuse it now, in both libraries: a URI field that is present must be a URI, and an
-  empty string is neither one nor an absence of one. The JSON readers still map it to an absent value
-  silently, which is how these documents were read without complaint, so a production instance carrying
-  one still passes through quietly — worth settling with the rest of this item.
+  Three values have occupied it. A **minted UUID**, which the artifact library wrote until it was
+  removed as fabricated identity. An **empty string**, which half the element occurrences in the shared
+  corpus carried — 59 nodes across four instances, since corrected to `null` — and which passes
+  validation for a reason worth knowing: `""` satisfies `type: string`, and `format: uri` is not
+  enforced, so the schema states a rule nothing checks. And **`null`**, what both libraries write today,
+  which is the honest answer and the one validation refuses.
 
-  Three things to establish. **How common it is in production** — a query over stored instances for
-  element occurrences whose `@id` is `""`, since the corpus is a sample and the count there was close
-  to half. **Whether the Template Designer writes them** — the corpus instances are exports, so the
-  empty string was produced by something, and the editor is the likeliest author; the frontend fix, if
-  it is the frontend, belongs on [TEMPLATE-DESIGNER-ROADMAP.md](./TEMPLATE-DESIGNER-ROADMAP.md).
-  **Why validation accepts it** — a template types a nested element's `@id` as
-  `{"type": "string", "format": "uri"}`, and an empty string satisfies `type` while failing `format`,
-  which the validator does not enforce. So the schema is stating a rule the validator does not check,
-  and `""` passes where `null` — the honest value for an identifier not yet assigned — is refused.
+  So the decision is which of three:
 
-  That last point is the one with teeth, and it is the other half of item 1: an instance built locally
-  cannot have element identifiers, so it cannot be valid until the repository assigns them, unless the
-  element `@id` is typed as a URI or null the way a template types its own instances'. Changing that
-  alters the schema every stored CEDAR element carries — 28 round-trip fixtures in
-  `cedar-artifact-library` differ — so it is a model decision, not a library fix.
+  - **Mint for element occurrences.** The template demands a string and CEDAR's editor supplies one, so
+    built instances become valid without touching anything stored. It partly reverses the removal,
+    though the two cases differ: an instance's own `@id` is repository identity, an element
+    occurrence's is a node identifier inside a document.
+  - **Let the element schema accept null**, as a template already does for its own instances. One line
+    in the renderer, but it changes the schema every stored CEDAR element carries — 28 round-trip
+    fixtures in `cedar-artifact-library` differ — so it is a model change, not a library fix.
+  - **Accept that a locally built instance is not valid until saved.** Coherent, and it matches who
+    owns identity, but `InstanceInflater`'s output is then invalid by construction and no tool can
+    check an instance before sending it.
+
+  Two facts belong with the decision rather than after it, because either could change which option is
+  right. **How common the empty string is in production** — a query over stored instances for element
+  occurrences whose `@id` is `""`; the corpus is a sample, and there it was close to half, so whatever
+  is decided may need a migration beside it. **Whether the Template Designer writes them** — the corpus
+  instances are exports, so something produced those empty strings and the editor is the likeliest
+  author; that half is tracked on
+  [TEMPLATE-DESIGNER-ROADMAP.md](./TEMPLATE-DESIGNER-ROADMAP.md).
+
+  Both YAML readers now refuse a present-but-empty URI, so the empty string cannot re-enter that way.
+  The JSON readers still map it to an absent value silently, which is how these documents were read
+  without complaint in the first place; closing that belongs here too. `create_template_instance` in
+  `cedar-artifact-mcp` records the state of play in a test, asserting that the refused element
+  identifier is the *only* thing wrong with a freshly built instance — when this item lands, that test
+  becomes a plain validation assertion.
 
 ### Infrastructure
 
