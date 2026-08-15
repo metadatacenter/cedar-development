@@ -89,6 +89,13 @@ path: a tree that collapsed to its root would lose the term the panel is about. 
 Workbench picker does by re-rooting a flat list of children on every click, which loses where you
 have been.
 
+The topmost node says "top of DOID", because a chain of one step and a chain that was cut short
+look identical otherwise. Many chains are genuinely one step or none: AD-CDO labels a class Disease
+and declares it a root, with no parent edge in its snapshot, and 1.8 million of the index's 13.9
+million terms are roots of their ontology. The index records one parent a term, so a term with
+several parents is drawn under the one the ingest kept — a real limit, and the reason a chain is
+"a" path rather than "the" path.
+
 **The other names come from the index, in one query for the page.** They are what says whether a
 concept is the one an author meant, and they are worth nothing at a round trip a row. Shown eight
 at a time and then a count, because a source decides what a synonym is and some decide oddly: BPT
