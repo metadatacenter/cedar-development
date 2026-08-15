@@ -280,8 +280,12 @@ class exactly that; before, it led with "Malignant Melanoma".
 
 **A version reads as its ontology declares it.** No synthesised `v`, which was wrong about the
 string as often as not: the catalog holds `V2`, `v1.0.0`, `2026-07-06` and `latest`, rendered as
-`vV2`, `vv1.0.0` and `vlatest`. The row control that narrows to one ontology says "Narrow to this",
-the words the filter panel above it already uses, rather than naming an operation of its own.
+`vV2`, `vv1.0.0` and `vlatest`. Declared means arbitrary — `owl:versionInfo` is free text, and of
+the 998 snapshots that fill it, 915 are 20 characters or fewer while the longest is 782 characters
+of prose, newlines and a table of HTML. The row elides from the middle at 20 and carries the whole
+string in its title, so a version that is prose costs a hover rather than the layout. The row
+control that narrows to one ontology says "Narrow to this", the words the filter panel above it
+already uses, rather than naming an operation of its own.
 
 **Both list tabs page by distinct label**, not by hit, and carry every hit of the labels on the
 page. Paging by hit made folding impossible to do honestly — a page of twenty-five hits for a
