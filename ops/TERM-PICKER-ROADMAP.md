@@ -66,12 +66,12 @@ their parent now, as branch rows already did. Where the row is too narrow for bo
 name gives way and the parent survives: the acronym beside it has already identified the ontology,
 and the parent is the part that distinguishes.
 
-**A branch row counts branches, not positions, and ranges rather than totals.** A folded row says
-"179 branches in 149 ontologies", the extra thirty being ontologies that place one concept at
-several points in their own tree. The descendant figure is a range across the fold and not a sum:
-the branches in a fold are the same idea drawn by different ontologies and their contents overlap
-heavily, so adding them would count the same concepts many times over. What an author choosing
-between them needs is how differently those ontologies scope it — for "Disease", from 1 to 31,543.
+**A branch row counts branches, not positions.** A folded row says "179 branches in 149
+ontologies", the extra thirty being ontologies that place one concept at several points in their
+own tree. It carried the range of descendant counts across the fold too, and that came off: it
+could not be a total — the branches in a fold are the same idea drawn by different ontologies, and
+summing them would count the same concepts many times over — and as a range it was a figure with
+no decision attached, since the decision is made against the per-ontology counts inside the fold.
 
 **A branch hit is a class hit that has descendants.** The Branches tab answers the same
 query as the Terms tab, filtered to hits with something beneath them and framed as
