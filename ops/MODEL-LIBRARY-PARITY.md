@@ -137,8 +137,7 @@ See the table below.
 
 ### TypeScript loses data that Java preserves
 
-**5. ~~Static *image* `_ui._size` — width and height~~** — **fixed in source,
-awaiting publication**
+**5. ~~Static *image* `_ui._size` — width and height~~** — **fixed**
 
 The mirror of item 1, and found the other way round: there, Java dropped
 `_ui._size` from a YouTube field and TypeScript kept it. Here TypeScript dropped
@@ -174,9 +173,9 @@ never asked. The new
 `test/org/metadatacenter/roundtrip/StaticFieldSizeRoundTrip.spec.ts` closes it
 by starting from source JSON rather than a builder, covering both field types.
 
-Still to do: publish the library, then CEE can render a static image at the size
-its template asks for. `harness/test/static-content-size.spec.ts` in CEE asserts
-the gap today and will fail on the upgrade, which is its purpose.
+CEE renders a static image at the size its template asks for once it takes the
+library up; `harness/test/static-content-size.spec.ts` there asserts the gap
+today and will fail on the upgrade, which is its purpose.
 
 ### ~~TypeScript's instance round-trip losses~~ — both fixed
 
@@ -289,19 +288,24 @@ between a template that renders in CEE and a template no Java-side tool can read
 all. Which side is right is a model question; that they differ is a portability
 problem either way.
 
-### Both diverge from the source
+### ~~Both diverge from the source~~ — resolved
 
-**8. `propertyLabels` and `propertyDescriptions` with orphan keys**
-(`templates/003`)
+**8. ~~`propertyLabels` and `propertyDescriptions` with orphan keys~~**
+(`templates/003`) — **resolved: the orphans go, and nothing is invented in their place**
 
 The source declares entries keyed `TextfieldLabel` and `TextfieldChildExtra`,
-neither of which names an actual child. Java emits `{}`; TypeScript emits
-`{"TextfieldChild": "Textfield"}` and `{"TextfieldChild": ""}`, regenerating the
-map from the children that exist.
+neither of which names a child the template holds. Both libraries dropped those,
+which is the decision: a key here names a child, and one that names none stands
+for nothing to keep. Java then emitted `{}`; TypeScript emitted
+`{"TextfieldChild": "Textfield"}` and `{"TextfieldChild": ""}`, filling in the
+one real child from the field's own name and an empty string.
 
-Neither reproduces the input. TypeScript's behaviour is more useful — a label map
-keyed by real children — but a template with orphan entries survives neither
-round trip, and TypeScript inventing a `""` description is its own small wart.
+TypeScript now writes what the container declares and no more, so both emit `{}`
+and their JSON for `template-003` is identical. Its reader also demanded an entry
+for every child — stricter than the meta-schema, which requires `propertyLabels`
+but not its contents — and refused Java's rendering of this template for want of
+one. It reads it cleanly now. Both renderings pass the canonical validator; the
+source does not.
 
 ---
 
@@ -338,8 +342,10 @@ Remaining:
 2. **Decide whether `{}` and `{"@value": null}` are distinguishable.** Unchanged — the largest class
    (44 cases). TypeScript preserves the distinction, Java erases it; this decides whether Java changes
    or TypeScript should start normalising too. A model-owner decision.
-7. **`propertyLabels`/`propertyDescriptions` orphan keys** (`templates/003`) — unchanged; both
-   libraries diverge from the source.
+7. ~~**`propertyLabels`/`propertyDescriptions` orphan keys**~~ (`templates/003`) — **Resolved: an
+   orphan key names nothing to keep, and a child the container does not label gets no entry
+   invented for it.** Both libraries emit `{}` here now, and TypeScript's reader no longer demands
+   an entry per child, which had made Java's rendering of this template unreadable.
 
 ### What is left
 
