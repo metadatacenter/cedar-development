@@ -48,15 +48,16 @@ commit that opened it.
    the baselines are
    keyed to the platform and re-recording is already the stated answer to an OS font
    shift, or whether a budget survives only on the shots whose variance is real.
-8. **Audit the configuration surface.** Twenty-seven keys, and several are stranger than their
-   names. The four prefixes do three unrelated jobs: `iriPrefix` mints IRIs into the
-   instance, `bioPortalPrefix` builds a link out to BioPortal's web UI, and `orcidPrefix`
-   and `rorPrefix` are value-recognition patterns interpolated raw into `new RegExp('^' +
-   prefix)` — so the `.` in every URL matches any character and the check is looser than it
-   reads. Seven authorities have endpoint keys but only two have prefixes. Decide for each
-   key whether it is host API or a discriminator wearing a URL's name, then rename, scope
-   or retire accordingly. The boolean keys have been through exactly that and come out at
-   three; the nine strings have not.
+8. **Audit the remaining string keys.** Twenty-five keys. The two prefixes that were
+   value-recognition patterns wearing a URL's name are gone, and with them a regex built
+   from unescaped host configuration; what remains of that family is `iriPrefix`, which
+   mints IRIs into the instance, and `bioPortalPrefix`, which builds a link out to
+   BioPortal's web UI and is a link base rather than a prefix. A branch constraint ignores
+   it and uses `branches[0].source`, so the same form links through two mechanisms
+   depending on constraint type. Seven authorities have endpoint keys, fourteen of them,
+   and they are the one place the typed contract stops catching typos. Decide for each
+   remaining string whether it is host API or something narrower, then rename, scope or
+   retire. The booleans have been through this and come out at four.
 9. **The value-constraint keys move with the next model-library upgrade.** A controlled-term
    entry now names its vocabulary with `source*` keys and its term with `term*` keys, and the
    library refuses the form it replaced. CEE reads YAML through that library in
