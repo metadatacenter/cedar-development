@@ -849,12 +849,24 @@ plain version. `scripts/npm-package.mjs` generates the published manifest, hardc
 writing no `publishConfig`, so the package goes to `registry.npmjs.org` and the root manifest's own
 `name` and `publishConfig` are not what publishes.
 
-Dev snapshots used to be a second channel — the scoped `@org.metadatacenter/cedar-embeddable-editor`
-on Stanford Nexus under a `dev` tag, reached through an npm alias that pinned
-`1.6.0-dev.<date>.<sha>`. That channel is retired: the script no longer emits the scoped name, and no
-manifest pins an alias. Older notes describing two targets, `--tag dev`, or a Nexus credential for
-publishing CEE describe that arrangement. The model library still publishes to Nexus that way, which
-is a different package.
+Dev snapshots are a second channel: the scoped `@org.metadatacenter/cedar-embeddable-editor` on
+Stanford Nexus under a `dev` tag, versioned `<next>-dev.<date>.<sha>`. It was retired for a while and
+is live again — `dev` currently names `2.0.0-dev.20260814.e26f34f`. Reach it from an embedding app
+through an npm alias, since npm routes by scope and this is the only package taken from Nexus.
+
+`scripts/npm-package.mjs` derives the channel from the version rather than taking it as a flag: a
+version containing `-dev.` is published scoped, with a `publishConfig` naming the Nexus registry;
+anything else is published unscoped to npmjs. So a snapshot cannot reach npmjs by a forgotten flag.
+
+The **tag** is not covered by that. npm 11 ignores `publishConfig.tag` — a dry run of the snapshot
+manifest reports `tag latest` — so `--tag dev` has to be passed on the command line. Without it the
+scoped package gains a `latest` pointing at a prerelease, a tag it does not otherwise have.
+
+Do not publish CEE unscoped to Nexus. That name exists there already, carrying a 2023 lineage:
+`2.6.20`–`2.6.24` from early 2023 and `1.0.3` as `latest`. Any 2.x published now sorts below
+`2.6.24`, so a range like `^2.0.0` would resolve to a three-year-old build. `npm-cedar` is a hosted
+repository and proxies nothing, so an unscoped package cannot be reached selectively anyway: npm
+routes by scope, and pointing a whole app at Nexus would break every dependency it does not hold.
 
 Version is surfaced at runtime as `window.cedarEmbeddableEditorVersion`.
 
@@ -928,10 +940,19 @@ Checks the bundle is fresh and within its size budget, writes the five-file pack
 `dist-npm/cedar-embeddable-editor/`, then re-verifies every staged byte against its source. It
 prints the version, size and sha256 it staged — read them.
 
-### 4 · Publish to npmjs
+### 4 · Publish
+
+A release goes to npmjs, unscoped, under `latest`:
 
 ```bash
 cd dist-npm/cedar-embeddable-editor && npm publish
+```
+
+A dev snapshot goes to Nexus, scoped. The registry comes from the staged manifest; the tag does not,
+so pass it:
+
+```bash
+cd dist-npm/cedar-embeddable-editor && npm publish --tag dev
 ```
 
 > Dry-run it first. A published version cannot be replaced, and the dry run names the registry and
@@ -941,13 +962,18 @@ cd dist-npm/cedar-embeddable-editor && npm publish
 > npm publish --dry-run
 > ```
 
-Then confirm what moved:
+Then confirm what moved. For a release:
 
 ```bash
 npm dist-tag ls cedar-embeddable-editor
 ```
 
-`latest` should point at the version just published, and it should be the only tag.
+`latest` should point at the version just published, and it should be the only tag. For a snapshot,
+read the tags off Nexus, where `dev` should be the only one:
+
+```bash
+curl -s "https://nexus.bmir.stanford.edu/repository/npm-cedar/@org.metadatacenter%2fcedar-embeddable-editor" | python3 -c "import json,sys; print(json.load(sys.stdin)['dist-tags'])"
+```
 
 ### 5 · Propagate
 
