@@ -97,6 +97,12 @@ That needs two pieces of state rather than one: the row whose panel is open, and
 Selecting inside a tree leaves the panel where it is — the tree is where the term was found, and
 closing it would take the context away at the moment an author is using it.
 
+**A selected term is carried across a change of release.** An author reading a term deep in one
+release and stepping to another means to see that term there, not to be returned to the row they
+started from, so the same IRI is looked for in the new release and the tree opened down to it. A
+release that does not contain it — a term added since, or removed — falls back to the row's own
+term, which every release of the ontology has.
+
 **The tree is of the release the row is reading.** It sits under the release list rather than above
 it, because that is the order of the two decisions: a release, and then a shape within it. Stepping
 an ontology back re-asks rather than redrawing what the current release happens to look like — the
