@@ -409,6 +409,18 @@ Each used to refuse 7 of the other's — element 6 and templates 23, 24, 28, 29,
 them over a value constraint whose keys the other library did not recognise, rejected with "a constraint
 that points at nothing cannot be resolved". The shared naming closed all seven.
 
+### A document with a full root and compact children
+
+The two readers disagree about one shape, found on a hand-written template rather than in the corpus.
+A document stating `modelVersion` at its root, whose children state none, is read by the Java library
+and refused by this one: TypeScript demands the model version of every child, so a compact child under
+a full root fails with *"No modelVersion present"*. `YamlReaderStrictness.spec.ts` pins that as
+deliberate — a compact child is refused as surely as a compact artifact.
+
+Neither reading is obviously wrong, and the document is a hybrid nobody should write: a template being
+authored is compact throughout, and a stored one is full throughout. It is recorded because the two
+libraries answer differently, which nothing else in this file does any more.
+
 ### What each library now guarantees about itself
 
 Both carry the same two round-trip properties as tests, so a regression is a build failure rather than
