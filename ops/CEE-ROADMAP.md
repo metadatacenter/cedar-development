@@ -48,7 +48,7 @@ commit that opened it.
    the baselines are
    keyed to the platform and re-recording is already the stated answer to an OS font
    shift, or whether a budget survives only on the shots whose variance is real.
-8. **Audit the configuration surface.** Twenty-nine keys, and several are stranger than their
+8. **Audit the configuration surface.** Twenty-seven keys, and several are stranger than their
    names. The four prefixes do three unrelated jobs: `iriPrefix` mints IRIs into the
    instance, `bioPortalPrefix` builds a link out to BioPortal's web UI, and `orcidPrefix`
    and `rorPrefix` are value-recognition patterns interpolated raw into `new RegExp('^' +
