@@ -154,6 +154,16 @@ marking a row draws the whole chain, which says more than one step ever did, and
 to the ontology it names. The cost is real and accepted — two rows of one ontology look alike until
 one is marked.
 
+**The narrowing strip is chips and nothing else.** Adding an ontology and removing one are the same
+kind of act on the same strip, so the way in wears the shape of what it adds — a dashed chip reading
+"+ ontology", outlined rather than filled so the row reads as the ontologies chosen plus one empty
+slot. "Search everything" is gone: removing the last chip already does it. What is left of it is a
+bulk reset in plain text beside the chips, shown only while something is narrowed, because it is
+worth having once several ontologies are on and worth nothing before that.
+
+**A term's other names are tags, not chips.** The tint marks a selection everywhere in the picker,
+and a row of tinted synonyms read as eight things an author had chosen. They are outlined and muted.
+
 **Narrowed to one ontology, the terms tab draws that ontology's tree.** Folding by label answers a
 corpus-wide question — two hundred vocabularies offering one label — and inside a single ontology it
 says nothing while a flat list hides what an ontology is for. So the matches are drawn where they
