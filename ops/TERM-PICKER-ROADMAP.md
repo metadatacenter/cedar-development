@@ -83,9 +83,13 @@ had just read.
 **The panel draws a tree the author can walk.** The chain above the term, the term, and what hangs
 below it, every node opening where it stands. ACESO's three classes called "Disease" become three
 different answers: one under "Clinical finding", opening onto Developmental disorder, Drug-related
-disorder, Mental disorder and Substance abuse, and each of those opening in turn. A double click on
-any node takes it as the constraint, so a term found by browsing is chosen the same way as a term
-found by searching.
+disorder, Mental disorder and Substance abuse, and each of those opening in turn. A click on any
+node selects it and the bar says so; a double click takes it, so a term found by browsing is chosen
+the same way as a term found by searching.
+
+That needs two pieces of state rather than one: the row whose panel is open, and the thing selected.
+Selecting inside a tree leaves the panel where it is — the tree is where the term was found, and
+closing it would take the context away at the moment an author is using it.
 
 **The tree is of the release the row is reading.** It sits under the release list rather than above
 it, because that is the order of the two decisions: a release, and then a shape within it. Stepping
