@@ -61,17 +61,26 @@ constraints on one field.
 
 **Marking a row opens what it is offering.** The rows under a folded label are a shortlist; the
 marked one is the row an author is deciding about, and the decision is a term IRI written into a
-template. So the panel leads with that IRI in full, and adds the chain above the term, what matched
-where the label did not, how much sits beneath it, whether it is deprecated and what replaces it,
-the ontology and release it comes from, and that ontology's own IRI. Both IRIs, because which one a
-template records depends on the kind: a class or branch constraint carries the term's, an ontology
-constraint carries the ontology's. Every kind opens the panel, the ontologies tab included. It is
-the same two acts as choosing: a click opens it, a second confirms.
+template. So the panel is that IRI, the chain above the term, the other names the source records
+for it, what matched where the label did not, and what replaces it where it is deprecated. Which
+IRI depends on the kind: a class or branch constraint records the term's, an ontology constraint
+the ontology's, and the panel shows whichever the row would write. Every kind opens it, the
+ontologies tab included. It is the same two acts as choosing: a click opens it, a second confirms.
 
-What it cannot show is a definition. The ingest captures labels and synonyms and no definition at
-all — a snapshot's `label` table holds `rdfs:label`, `skos:prefLabel` and the four
-`oboInOwl:has*Synonym` properties and nothing else — so a definition is an ingest change and a
-re-run across 1,215 ontologies, not a display one.
+Nothing else is on it. The ontology's name, its acronym, its release and the size of the subtree
+are all on the row already, and repeating them under the row spent the panel on what the author
+had just read.
+
+**The other names come from the index, in one query for the page.** They are what says whether a
+concept is the one an author meant, and they are worth nothing at a round trip a row. Shown eight
+at a time and then a count, because a source decides what a synonym is and some decide oddly: BPT
+records "Description: Melanoma is the most aggressive form of skin cancer…" and a URL as exact
+synonyms of Melanoma, twenty-one names in all.
+
+What is still missing is a definition. The ingest captures labels and synonyms and no definition at
+all — the index holds ten name properties, `prefLabel` and `rdfs:label` through the four
+`oboInOwl:has*Synonym` — so a definition is an ingest change and a re-run across 1,215 ontologies,
+not a display one.
 
 **A term row carries nothing about the subtree beneath the term.** It showed a descendant count,
 which answers the branches tab's question: a class constraint is that term, and what sits under it
