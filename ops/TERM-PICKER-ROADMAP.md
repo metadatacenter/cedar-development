@@ -87,6 +87,12 @@ disorder, Mental disorder and Substance abuse, and each of those opening in turn
 any node takes it as the constraint, so a term found by browsing is chosen the same way as a term
 found by searching.
 
+**The tree is of the release the row is reading.** It sits under the release list rather than above
+it, because that is the order of the two decisions: a release, and then a shape within it. Stepping
+an ontology back re-asks rather than redrawing what the current release happens to look like — the
+picker keys a held hierarchy by release as well as by term, and passes `versionId`. The difference
+is real: NCIT's Melanoma has 20 children at 26.06e and 14 at 26.07d.
+
 Nodes read their children as they open, from `GET /search/hierarchy`, one node at a time: a
 hierarchy is a tree, SNOMED's clinical findings run to hundreds of thousands of concepts, and an
 author opens the handful on their way down. What a node needs before it opens — whether it has

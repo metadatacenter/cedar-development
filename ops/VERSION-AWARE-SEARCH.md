@@ -123,15 +123,22 @@ GET /search/hierarchy?sourceAcronym=DOID&termIri=http://purl.obolibrary.org/obo/
 }
 ```
 
-Both parameters are required: an IRI addresses a term only within a source, and OBO terms are
-imported across ontologies. `path` runs root first and is absent where the term is a root of its
+`versionId` is optional and changes where the answer comes from. Given one, the hierarchy is read
+from that release's snapshot; without one, from the cross-snapshot index, which holds each
+ontology's current version and no other. That distinction is not cosmetic: NCIT's Melanoma has 20
+children at 26.06e and 14 at 26.07d, so answering a pinned request from the index would draw an
+author the shape of a release they did not choose.
+
+`sourceAcronym` and `termIri` are required: an IRI addresses a term only within a source, and OBO
+terms are imported across ontologies. `path` runs root first and is absent where the term is a root of its
 ontology — 1.8 million of the index's 13.9 million terms are. `children` is alphabetical and capped
 at fifty, with `childCount` saying how many there are in all.
 
-It is answered from the cross-snapshot index, which holds one parent a term, rather than by opening
-a snapshot: the ancestors walk in one recursive query, bounded at thirty-two steps because a
-broader/narrower cycle would otherwise recurse without end. A term the index does not hold — a
-proxied source, an unheld one — is a 404 rather than an empty hierarchy.
+The unpinned answer comes from the index, which holds one parent a term: the ancestors walk in one
+recursive query, bounded at thirty-two steps because a broader/narrower cycle would otherwise
+recurse without end. A pinned one opens the snapshot and walks the same chain the branch results
+walk. Either way a term the store does not hold — a proxied source, an unheld one, a release that
+never contained it — is a 404 rather than an empty hierarchy.
 
 ## Sources Are Described Once
 
