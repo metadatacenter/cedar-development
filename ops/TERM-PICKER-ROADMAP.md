@@ -286,6 +286,12 @@ of prose, newlines and a table of HTML. The row elides from the middle at 20 and
 string in its title, so a version that is prose costs a hover rather than the layout. A row with
 more than one release says how many, and that count opens the whole history beneath the row.
 
+The count carries a caret and the primary colour, because the mechanism was there and unreachable
+without them: muted grey beside a muted version, it read as another figure rather than the one
+thing on the row that opens. The panel keeps a sticky heading that names the hash column and says
+how many releases there are, and shows a thin track rather than one appearing only once an author
+is already scrolling.
+
 **The history is the release list, not a position in it.** Stepping one release at a time never
 says which release it reached, so the panel gives every release its own line: the declared version,
 the effective date, and the content hash that makes a pin reproducible. It scrolls rather than
