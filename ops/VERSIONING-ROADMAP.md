@@ -192,6 +192,17 @@ response.
    as subsumption, and EHDAA is configured as a `part_of` partonomy; re-ingested and re-allowlisted), DDSS
    was already healthy (807k labelled classes), and EO1 stays BioPortal-served (its SKOS source is broken —
    `skos:broader` values are string literals, not IRIs).
+
+   **Part of the tail was ours, found 2026-08-14.** An ontology can assert `rdfs:label ""` beside the
+   real one, and both extractors ranked the blank literal like any other and kept whichever came
+   first. A concept that lost the toss counted as unlabeled, so it drew the IRI-fragment fallback
+   meant for genuinely unlabeled classes: ABD's "White pine blister rust" is stored, served and
+   indexed as `?id=118`. The extractors now skip blank literals. Over the search index, 795,379 of
+   13,939,470 terms are named by their own IRI fragment and 45,230 of those have a real name
+   recorded alongside — the size of what this cost, and the size of what a re-ingest recovers.
+   Snapshots already written keep the wrong label: a version id is a hash over `pref_label`, so
+   correcting one in place would change the release's identity rather than repair it. They correct
+   themselves, with a new version id, when the ontology is next ingested.
 - **9. Term ordering in search: what BioPortal does, and what the local store can do instead
    (replace-BioPortal track).** Ordering is the one part of lookup the local store does not model.
    Inside a snapshot, `SnapshotStore.labelSearch` orders by `length(pref_label), pref_label, iri`;
