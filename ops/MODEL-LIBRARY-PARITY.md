@@ -13,7 +13,7 @@ libraries stand rather than as they stood when a fixture was last written.
 ## How to reproduce
 
 The TypeScript library carries the corpus in-repo at `cedar-test-artifacts/`, so
-`npm test` runs clean on a plain clone — **81 suites, 920 tests**. Nothing needs
+`npm test` runs clean on a plain clone — **81 suites, 921 tests**. Nothing needs
 cloning or symlinking first. The copy came from the **`develop`** branch of
 `cedar-test-artifacts`; `main` there carries only a README.
 
@@ -28,8 +28,8 @@ npm run parity:yaml:compact
 
 A case with output on only one side is skipped and counted rather than throwing,
 so the run reads as a summary. Both comparisons stand at the same place, and on the
-same artifacts: 2 of 81 differ in the full form, 1 in the compact one, the
-compact set being the full set less template-22.
+same artifacts: 2 of 81 differ in the full form and **none in the compact one**, since the
+compact form drops the key they differ over.
 
 ```
 templateField: 17 compared, 0 differing
@@ -38,11 +38,10 @@ template: 37 compared, 2 differing
 instance: 21 compared, 0 differing
 ```
 
-The differences that remain are the two below, both on template-29 and one of them also
-on template-22. There is none over the value-constraint
-keys, over quoting, over the identifier, over the boolean type that used to account for
-three of them, or over anything the compact form leaves out. Every field case agrees, as
-does every instance.
+One difference remains, over templates 22 and 29, and it is the one below. There is none
+over the value-constraint keys, over quoting, over the identifier, over the boolean type
+that used to account for three of them, or over anything the compact form leaves out.
+Every field case agrees, as does every element and every instance.
 
 ## Corpus coverage
 
@@ -344,17 +343,20 @@ Remaining:
 
 ### What is left
 
-Two divergences, over templates 22 and 29. Neither stops either reader.
+One divergence, over templates 22 and 29, and only in the full form. It does not stop either reader.
 
 - **`propertyIri`** — templates 22 and 29, full form only. TypeScript writes it under `configuration:`,
   Java writes nothing; the compact form drops the key on both sides.
-- **`multipleChoice`** — template 29. A list field wrapped in an array is read as a multi-select by
-  TypeScript, which then writes `multipleChoice: true` over the `false` its source declares, and as a
-  repeatable single-select by Java, which preserves the declared value. The only reader divergence in
-  the corpus, and a model question rather than a defect on either side: reading the field as declared
-  makes instance 071, which holds several languages for it, stop validating. `JsonFieldReaderList`
-  normalises deliberately and `JsonFieldReaderListMultipleChoice.spec.ts` pins the behaviour — though
-  its claim that the Java library normalises the same way no longer holds.
+**`multipleChoice` is settled: the declared value governs, as the Java library reads it.** How many
+options an answer may select and how many times the field is asked are separate facts that happen to
+serialise the same way, as an array. TypeScript took the first from the second, so a repeatable
+single-select was read as a multi-select and written back with `multipleChoice: true` over the `false`
+its template declared. It could not have been read otherwise: a single-select list was single-instance
+*by definition* there, with no way to model a repeatable one. It has ordinary cardinality now, like its
+Java counterpart, and template-029's `Other Language` comes back a single-select asked more than once —
+the shape its source declares, which the Java output has all along. The corpus confirms it from the
+other end: `cee-suite/071`, whose instance carries that field as an array, validates against the model
+either way, so nothing was relying on the normalisation.
 
 Four entries left this list rather than being settled by decision. An element's `prefLabel` and
 `altLabels` were written by the JSON writer and by neither YAML writer here, so five of template-029's
