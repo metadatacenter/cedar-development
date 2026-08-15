@@ -303,9 +303,11 @@ model libraries — where their JSON and YAML serializations diverge — is in
   author; that half is tracked on
   [TEMPLATE-DESIGNER-ROADMAP.md](./TEMPLATE-DESIGNER-ROADMAP.md).
 
-  Both YAML readers now refuse a present-but-empty URI, so the empty string cannot re-enter that way.
-  The JSON readers still map it to an absent value silently, which is how these documents were read
-  without complaint in the first place; closing that belongs here too. `create_template_instance` in
+  Both libraries now refuse an empty `@id`, in YAML and in JSON, so the empty string cannot re-enter
+  through either. What is still tolerated is an empty string on other URI keys: `pav:derivedFrom`
+  carries one on **437 corpus artifacts**, so holding those to the same rule needs a decision and a
+  migration of its own — the same disease, at a scale that cannot simply be refused.
+  `create_template_instance` in
   `cedar-artifact-mcp` records the state of play in a test, asserting that the refused element
   identifier is the *only* thing wrong with a freshly built instance — when this item lands, that test
   becomes a plain validation assertion.
