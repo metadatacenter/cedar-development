@@ -262,6 +262,13 @@ labelled *melanoma* found by a French search needs to say so. Today's `/bioporta
 supplies `matchType` and `matchedSynonyms` but no language, and ignores `lang` on its output
 entirely — measured 2026-08-13, where GEMET returns identical labels with and without it.
 
+`matchedLabels` is present only when the served label does not already carry the query, which is
+what makes it readable as an explanation. A search reaches a concept through every name captured
+for it, so a term whose preferred label answers a query answers it through the synonyms too:
+reporting one of those against a row that reads *melanoma* explains a row needing no explanation,
+and picks an arbitrary synonym to do it with. Matching folds diacritics, so a label can answer a
+query it does not contain — `aquifere` reaches `aquifère`, which is reported.
+
 `obsolete` and `replacedBy` are recorded by the ingest and served by nothing today.
 `replacedBy` is `{ "termIri": …, "termLabel": … }` when the source names a replacement.
 
@@ -280,7 +287,6 @@ per row.
 
   "descendantCount": 42,
   "matchType": "termLabel",
-  "matchedLabels": [{ "label": "melanoma", "language": "en" }],
   "obsolete": false,
   "path": [
     { "termIri": "http://purl.obolibrary.org/obo/DOID_4", "termLabel": "disease" },

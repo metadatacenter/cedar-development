@@ -221,9 +221,10 @@ corpus.
 **Terms — which concept, and whose.** One row per distinct preferred label, expanding to the
 vocabularies that offer it. A row carries the label, the ontology, a definition snippet, and a
 match-reason chip wherever the reason is not the label on screen: *matched synonym "cutaneous
-melanoma"*, *matched French label*. The search response already carries `matchType` and
-`matchedSynonyms`, so the chip needs no new backend work. Without it a synonym hit reads as a
-defect rather than as recall.
+melanoma"*, *matched French label*. The search response carries `matchType` and `matchedLabels`,
+so the chip needs no new backend work. Without it a synonym hit reads as a defect rather than as
+recall — and on a row whose own label answers the query, the chip is the noise it exists to
+prevent, which is why the server withholds it there.
 
 **Ontologies — which vocabulary this field draws from.** Name and acronym matching over the
 cached list, ordered by how well the name matches, with the ontology's size and its current
@@ -276,6 +277,11 @@ tier. Obsolete terms rank second, so a retired term is shown and marked but sits
 terms that answer as well — not below every live term that answers worse, which would bury an
 exact hit on a retired label. A query for melanoma now leads with the three ontologies that call a
 class exactly that; before, it led with "Malignant Melanoma".
+
+**A version reads as its ontology declares it.** No synthesised `v`, which was wrong about the
+string as often as not: the catalog holds `V2`, `v1.0.0`, `2026-07-06` and `latest`, rendered as
+`vV2`, `vv1.0.0` and `vlatest`. The row control that narrows to one ontology says "Narrow to this",
+the words the filter panel above it already uses, rather than naming an operation of its own.
 
 **Both list tabs page by distinct label**, not by hit, and carry every hit of the labels on the
 page. Paging by hit made folding impossible to do honestly — a page of twenty-five hits for a
