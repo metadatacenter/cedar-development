@@ -13,7 +13,7 @@ libraries stand rather than as they stood when a fixture was last written.
 ## How to reproduce
 
 The TypeScript library carries the corpus in-repo at `cedar-test-artifacts/`, so
-`npm test` runs clean on a plain clone — **78 suites, 882 tests**. Nothing needs
+`npm test` runs clean on a plain clone — **80 suites, 918 tests**. Nothing needs
 cloning or symlinking first. The copy came from the **`develop`** branch of
 `cedar-test-artifacts`; `main` there carries only a README.
 
@@ -28,19 +28,20 @@ npm run parity:yaml:compact
 
 A case with output on only one side is skipped and counted rather than throwing,
 so the run reads as a summary. Both comparisons stand at the same place, and on the
-same artifacts: 11 of 81 differ in the full form, 10 in the compact one, the
+same artifacts: 6 of 81 differ in the full form, 5 in the compact one, the
 compact set being the full set less template-22.
 
 ```
 templateField: 17 compared, 0 differing
 templateElement: 6 compared, 1 differing
-template: 37 compared, 10 differing
+template: 37 compared, 5 differing
 instance: 21 compared, 0 differing
 ```
 
-Every remaining difference is the one below, the value-constraint keys. There is none
-over quoting, over the identifier, over the boolean type that used to account for
-three of them, or over anything the compact form leaves out. Every field case agrees.
+The differences that remain are the four below. There is none over the value-constraint
+keys, over quoting, over the identifier, over the boolean type that used to account for
+three of them, or over anything the compact form leaves out. Every field case agrees, as
+does every instance.
 
 ## Corpus coverage
 
@@ -332,28 +333,38 @@ Remaining:
 7. **`propertyLabels`/`propertyDescriptions` orphan keys** (`templates/003`) — unchanged; both
    libraries diverge from the source.
 
-### What the regeneration left
+### What is left
 
-One divergence remains, over 11 artifacts: element 6 and templates 7, 9, 22, 23, 24, 28, 29, 30, 35, 36.
+Four divergences, over 6 artifacts: element 6 and templates 7, 9, 22, 29, 35. Each is a key one library
+writes and the other does not, and none of them stops either reader.
 
-- **Value-constraint key naming** — Java `sourceAcronym`/`sourceName` against TypeScript
-  `acronym`/`ontologyName`/`termLabel`/`iri`/`maxDepth` for the same concept. Not a difference in
-  spelling only: each library **refuses** the other's document for the seven artifacts carrying an
-  ontology, branch or class constraint, in both YAML forms, with "a constraint that points at nothing
-  cannot be resolved". A model-owner decision, and the last one standing.
+- **`instanceType`** — element 6 and templates 7 and 35. Java writes the key; TypeScript does not model
+  it, so a template declaring what its instances are typed as loses that on a TypeScript round trip.
+- **`_ui` size** — template 9. TypeScript writes `width` and `height` beside the field; Java nests them
+  under `configuration:`. One of the two placements is wrong, and the JSON both render from is the same.
+- **`propertyIri`** — template 22, full form only. TypeScript writes it under `configuration:`, Java
+  writes nothing; the compact form drops the key on both sides.
+- **`prefLabel`** — template 29. Five fields carry one in Java's output and none in TypeScript's. The
+  same template is also read as a multi-select there and a single-select here, which is a reader
+  divergence rather than a writer one and the only one of its kind in the corpus.
 
-Three entries recorded here before are gone. The identifier missing from TypeScript's compact YAML is
-fixed: the compact form drops what the system records about an artifact, and an identifier is not that.
-The boolean type token went with the type. The element `prefLabel` entry no longer describes anything —
-neither library writes a `prefLabel` for any of the six elements in compact form.
+The value-constraint naming that stood here is settled: both libraries write the `source*`/`term*` keys,
+and each now reads every document the other writes. Three older entries are gone too. The identifier
+missing from TypeScript's compact YAML is fixed: the compact form drops what the system records about an
+artifact, and an identifier is not that. The boolean type token went with the type. The element
+`prefLabel` entry no longer describes anything — neither library writes a `prefLabel` for any of the six
+elements in compact form.
 
 ### Reading each other's output
 
 Byte comparison says whether the two libraries write a document the same way. Whether either can read
-the other's is a separate question, and the answer is the same two divergences: over the corpus's
-compact YAML, each library reads 74 of the other's 81 documents and refuses the same 7: element 6 and
-templates 23, 24, 28, 29, 30 and 36, every one of them over a value constraint. Nothing else stops a
-document at either reader, in either direction.
+the other's is a separate question, and the answer is now all of it: **each library reads all 81 of the
+other's documents, in both the full and the compact form**. Nothing stops a document at either reader,
+in either direction.
+
+Each used to refuse 7 of the other's — element 6 and templates 23, 24, 28, 29, 30 and 36, every one of
+them over a value constraint whose keys the other library did not recognise, rejected with "a constraint
+that points at nothing cannot be resolved". The shared naming closed all seven.
 
 ### What each library now guarantees about itself
 
