@@ -854,10 +854,11 @@ import from `src/` and so cannot catch a broken `dist/` — a missing export map
 entry, a declaration that does not resolve, a dependency that was only ever a
 devDependency.
 
-`npm run build` synchronizes the version into `package-dist.json` before
-webpack runs, which is where the published name comes from: the repository is
-`cedar-model-typescript-library`, the package is
-`@org.metadatacenter/cedar-model-typescript-library`.
+`npm run build` synchronizes the version into `package-dist.json` before webpack
+runs. That file is also where the published *name* comes from, and the name
+selects the channel — scoped for a dev snapshot on Nexus, unscoped for a release
+on npmjs. The repository itself is always `cedar-model-typescript-library`; see
+the channel table below.
 
 `.github/workflows/test.yml` runs exactly that sequence on `ubuntu-latest` with
 a fifteen-minute ceiling, on every push and pull request to `develop`. Nothing
@@ -869,9 +870,38 @@ registry (`https://nexus.bmir.stanford.edu/repository/npm-cedar/`) through its
 own `.npmrc`, pinned to an exact version whose suffix carries the build date
 and commit.
 
+### The two channels, and the name that selects them
+
+The library publishes to two places, and **the package name is what decides
+which**. npm routes by scope, so this is not a flag or a registry setting on the
+command line:
+
+| Channel | Name in `package-dist.json` | Goes to |
+|---|---|---|
+| Release | `cedar-model-typescript-library` | public npmjs, where `latest` is currently 0.8.0 |
+| Dev snapshot | `@org.metadatacenter/cedar-model-typescript-library` | Stanford Nexus, `@org.metadatacenter:registry` in `~/.npmrc` |
+
+**A dev release to Nexus is scoped; a release to npmjs is not.** The name is held
+by hand in `package-dist.json`, which `npm run build` copies to
+`dist/package.json` — the manifest that publishes. Nothing derives the channel
+from the version, so cutting a release leaves the manifest unscoped and the next
+dev publish will aim at npmjs unless the name is put back. That has happened:
+"Prepare release 1.0.0" dropped the scope, and the dev publish after it was
+caught only by reading the dry run.
+
+So read the **last line** of `npm publish --dry-run --tag dev` every time. It
+names the registry, and it is the only check between a snapshot and public npmjs:
+
+```
+npm notice Publishing to https://nexus.bmir.stanford.edu/repository/npm-cedar/ with tag dev
+```
+
+`npm run test:package` takes the expected name from `package-dist.json` for the
+same reason, so it exercises whichever tarball the build is set to ship.
+
 ### Publishing a model library dev build
 
-Version is `0.9.2-dev.<YYYYMMDD>.<sha>`, naming the commit whose content is
+Version is `<next>-dev.<YYYYMMDD>.<sha>`, naming the commit whose content is
 published and *that commit's* date — so the bump commit carries a version naming
 its parent, as CEE's own dev versions do. Three files hold it by hand:
 `package.json`, `package-lock.json` (two spots) and `package-dist.json`.
@@ -887,11 +917,14 @@ npm run test:package   # builds dist/ and installs the real tarball as a consume
 cd dist && npm publish --tag dev
 ```
 
+Check the name before the version: a dev publish needs the scoped one, per the
+channel table above.
+
 `npm publish` is run **from `dist/`**, not the repository root: `npm run build`
 writes `package-dist.json` to `dist/package.json`, and that is the manifest
-carrying the published scoped name
-`@org.metadatacenter/cedar-model-typescript-library`. The root manifest is named
-`cedar-model-typescript-library` and is not what publishes.
+carrying the published name — the scoped one for a dev snapshot. The root
+manifest is always named `cedar-model-typescript-library` and is not what
+publishes, so its name says nothing about where a build is going.
 
 Neither manifest declares a registry. The target comes from the **scope**:
 `@org.metadatacenter:registry` in `~/.npmrc` points at Nexus, so npm routes the
