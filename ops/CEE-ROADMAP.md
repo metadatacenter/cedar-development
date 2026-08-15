@@ -57,3 +57,12 @@ commit that opened it.
    key whether it is host API or a discriminator wearing a URL's name, then rename, scope
    or retire accordingly. The boolean keys have been through exactly that and come out at
    three; the nine strings have not.
+9. **The value-constraint keys move with the next model-library upgrade.** A controlled-term
+   entry now names its vocabulary with `source*` keys and its term with `term*` keys, and the
+   library refuses the form it replaced. CEE reads YAML through that library in
+   `harness/test/container-reader-parity.spec.ts` and
+   `harness/test/field-order-source-of-truth.spec.ts`, over a copy of the corpus at
+   `harness/fixtures/corpus/`, whose `templates/036/template-036.yaml` still carries the older
+   keys. Refresh that copy from `cedar-test-artifacts` in the same change that bumps the
+   library, not before: refreshed alone it fails against the pinned version, and bumped alone
+   it fails against the fixture.
