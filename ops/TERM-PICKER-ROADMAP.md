@@ -66,8 +66,13 @@ for choosing it and says nothing about the choice itself; this is the other half
 
 An unpinned selection says "latest", not the release latest currently resolves to. The constraint
 records no version at all and freeze-on-publish resolves it at publish time, so naming today's
-release there would describe something the template will not say. A pinned one names the release the
-author chose, which is what it will say.
+release there would describe something the template will not say. A pinned one states all three
+things it does record — declared version, effective date and content hash — because that triple is
+the constraint: "Disease or Disorder · NCIT · 26.06e · 2026-07-02 · ac54fb1c612a".
+
+A class says no kind. "The term" before a label named the tab it was found on; an ontology and a
+branch keep theirs, because "Every term in" and "Everything under" say what the constraint covers
+rather than what it is.
 
 Nothing is shown until something is selected, rather than an empty frame reading as a selection of
 nothing. Both halves keep their width either way, so selecting does not move the input. The dismiss
