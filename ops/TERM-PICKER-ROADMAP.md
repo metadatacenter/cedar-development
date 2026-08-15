@@ -60,13 +60,19 @@ how the backend already stores and freezes them, so nothing has to be reconciled
 constraints on one field.
 
 **The bar is half search, half what has been found.** The search takes the left half and a phrase
-for the marked row takes the right: the kind of constraint, the thing it names, its ontology, and
-the release it would be recorded at — "Every term in Mondo Disease Ontology · MONDO · at 2026-07-06,
-and unpinned". A row is dense with the evidence for choosing it and says nothing about the choice
-itself; this is the other half, and it says "unpinned" out loud because that is the default and
-because freeze-on-publish is what resolves it. Nothing is shown until something is marked, rather
-than an empty frame reading as a selection of nothing. Both halves keep their width either way, so
-marking a row does not move the input.
+for the selection takes the right: the kind of constraint, the thing it names, its ontology, and the
+release — "Every term in Mondo Disease Ontology · MONDO · latest". A row is dense with the evidence
+for choosing it and says nothing about the choice itself; this is the other half.
+
+An unpinned selection says "latest", not the release latest currently resolves to. The constraint
+records no version at all and freeze-on-publish resolves it at publish time, so naming today's
+release there would describe something the template will not say. A pinned one names the release the
+author chose, which is what it will say.
+
+Nothing is shown until something is selected, rather than an empty frame reading as a selection of
+nothing. Both halves keep their width either way, so selecting does not move the input. The dismiss
+sits in the panel's corner rather than in the bar's flow, where it was centred against a bar as tall
+as the search field and left floating in the middle of the panel.
 
 **Marking a row opens what it is offering.** The rows under a folded label are a shortlist; the
 marked one is the row an author is deciding about, and the decision is a term IRI written into a
