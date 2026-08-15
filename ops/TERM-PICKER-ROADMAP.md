@@ -292,21 +292,23 @@ thing on the row that opens. The panel keeps a sticky heading that names the has
 how many releases there are, and shows a thin track rather than one appearing only once an author
 is already scrolling.
 
-**The history is the release list, not a position in it.** Stepping one release at a time never
-says which release it reached, so the panel gives every release its own line: the declared version,
-the effective date, and the content hash that makes a pin reproducible. It scrolls rather than
-growing — MONDO has eight releases and nothing bounds what an ontology accumulates — and it marks
-the one the row is reading. Choosing the current release unpins rather than writing today's
-version, the rule stepping forward already obeyed. A release declaring no version says so; of the
-1,215 ontologies the store holds, some declare a file path where a version belongs, so the panel
-shows the string as it is and lets the date and the hash identify the release.
+**The history is the release list, and it replaced the step arrows.** A `‹` and a `›` moved an
+ontology one release without saying which release it reached, and asked an author to recognise the
+glyphs first; the panel says both in one click, so the arrows are gone and the row is two cells
+narrower. Every release gets its own line: the declared version, the effective date, and the
+content hash that makes a pin reproducible. It scrolls rather than growing — DOID has fifteen
+releases and nothing bounds what an ontology accumulates — and it marks the one the row is reading.
+Choosing the newest unpins rather than writing today's version, so a constraint records a version
+only where the author chose one. A release declaring no version says so; of the 1,215 ontologies
+the store holds, some declare a file path where a version belongs, so the panel shows the string as
+it is and lets the date and the hash identify the release.
 
-**The rows of a tab share one set of columns.** Counts, versions and the step arrows sit in tracks
-the whole list declares, through CSS subgrid, so a row keeps its own box — it tints when marked and
-rules off from its neighbours — while its trailing cells line up with every other row's. The step
-control is a button where there is something to step to and an empty span where there is not, since
-a row emitting fewer cells than its neighbours shifts every cell after it. Counts run right against
-their column, so the repeated words align rather than starting wherever a number ends.
+**The rows of a tab share one set of columns.** Counts, versions and the release count sit in
+tracks the whole list declares, through CSS subgrid, so a row keeps its own box — it tints when
+marked and rules off from its neighbours — while its trailing cells line up with every other row's.
+A row with one release emits an empty cell rather than nothing, since a row emitting fewer cells
+than its neighbours shifts every cell after it. Counts run right against their column, so the
+repeated words align rather than starting wherever a number ends.
 
 **Dismissal is a glyph.** The bar's ✕ emits `cancelled` and nothing else, so a host that closes on
 it closes with the field's constraints as they were. Spelling it "Close" gave the one control that
@@ -355,10 +357,9 @@ branch shows its parent, since a label does not always identify a class. An onto
 name matches and term matches together, because segregating them spent the first page
 alphabetically and never reached the vocabularies that hold the terms.
 
-**Version stepping.** Rows for the pinnable kinds carry `‹ v2026-06-30 ›` where the store holds
-more than one release. Stepping forward to current unpins rather than pinning to today's version,
-so a constraint records a version only when the author chose one. Terms have no stepper: a class
-carries no snapshot of its own.
+**Choosing a release.** Rows for the pinnable kinds carry `of 8 ⌄` where the store holds more than
+one release, opening the history described above. Choosing the newest unpins rather than pinning to
+today's version, so a constraint records a version only when the author chose one.
 
 Three things the work measured that the plan below rests on:
 
