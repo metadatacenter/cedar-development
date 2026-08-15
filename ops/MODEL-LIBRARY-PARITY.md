@@ -13,7 +13,7 @@ libraries stand rather than as they stood when a fixture was last written.
 ## How to reproduce
 
 The TypeScript library carries the corpus in-repo at `cedar-test-artifacts/`, so
-`npm test` runs clean on a plain clone — **80 suites, 918 tests**. Nothing needs
+`npm test` runs clean on a plain clone — **81 suites, 923 tests**. Nothing needs
 cloning or symlinking first. The copy came from the **`develop`** branch of
 `cedar-test-artifacts`; `main` there carries only a README.
 
@@ -28,17 +28,17 @@ npm run parity:yaml:compact
 
 A case with output on only one side is skipped and counted rather than throwing,
 so the run reads as a summary. Both comparisons stand at the same place, and on the
-same artifacts: 6 of 81 differ in the full form, 5 in the compact one, the
+same artifacts: 5 of 81 differ in the full form, 4 in the compact one, the
 compact set being the full set less template-22.
 
 ```
 templateField: 17 compared, 0 differing
 templateElement: 6 compared, 1 differing
-template: 37 compared, 5 differing
+template: 37 compared, 4 differing
 instance: 21 compared, 0 differing
 ```
 
-The differences that remain are the four below. There is none over the value-constraint
+The differences that remain are the three below. There is none over the value-constraint
 keys, over quoting, over the identifier, over the boolean type that used to account for
 three of them, or over anything the compact form leaves out. Every field case agrees, as
 does every instance.
@@ -335,18 +335,27 @@ Remaining:
 
 ### What is left
 
-Four divergences, over 6 artifacts: element 6 and templates 7, 9, 22, 29, 35. Each is a key one library
-writes and the other does not, and none of them stops either reader.
+Three divergences, over 5 artifacts: element 6 and templates 7, 22, 29, 35. None of them stops either
+reader.
 
 - **`instanceType`** — element 6 and templates 7 and 35. Java writes the key; TypeScript does not model
   it, so a template declaring what its instances are typed as loses that on a TypeScript round trip.
-- **`_ui` size** — template 9. TypeScript writes `width` and `height` beside the field; Java nests them
-  under `configuration:`. One of the two placements is wrong, and the JSON both render from is the same.
-- **`propertyIri`** — template 22, full form only. TypeScript writes it under `configuration:`, Java
-  writes nothing; the compact form drops the key on both sides.
-- **`prefLabel`** — template 29. Five fields carry one in Java's output and none in TypeScript's. The
-  same template is also read as a multi-select there and a single-select here, which is a reader
-  divergence rather than a writer one and the only one of its kind in the corpus.
+- **`propertyIri`** — templates 22 and 29, full form only. TypeScript writes it under `configuration:`,
+  Java writes nothing; the compact form drops the key on both sides.
+- **`multipleChoice`** — template 29. A list field wrapped in an array is read as a multi-select by
+  TypeScript, which then writes `multipleChoice: true` over the `false` its source declares, and as a
+  repeatable single-select by Java, which preserves the declared value. The only reader divergence in
+  the corpus, and a model question rather than a defect on either side: reading the field as declared
+  makes instance 071, which holds several languages for it, stop validating. `JsonFieldReaderList`
+  normalises deliberately and `JsonFieldReaderListMultipleChoice.spec.ts` pins the behaviour — though
+  its claim that the Java library normalises the same way no longer holds.
+
+Two entries left this list rather than being settled by decision. An element's `prefLabel` and
+`altLabels` were written by the JSON writer and by neither YAML writer here, so five of template-029's
+elements lost their question text on a YAML round trip; both writer and reader now carry them. And a
+static field's `width` and `height` sat among the field's own keys, where the specification puts them
+only for a field written standalone — for a child they belong in that child's `configuration`, which
+closed template 9.
 
 The value-constraint naming that stood here is settled: both libraries write the `source*`/`term*` keys,
 and each now reads every document the other writes. Three older entries are gone too. The identifier
