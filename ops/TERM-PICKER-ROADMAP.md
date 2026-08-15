@@ -286,6 +286,17 @@ of prose, newlines and a table of HTML. The row elides from the middle at 20 and
 string in its title, so a version that is prose costs a hover rather than the layout. A row with
 more than one release says how many, which is the only thing on it inviting a step.
 
+**The rows of a tab share one set of columns.** Counts, versions and the step arrows sit in tracks
+the whole list declares, through CSS subgrid, so a row keeps its own box — it tints when marked and
+rules off from its neighbours — while its trailing cells line up with every other row's. The step
+control is a button where there is something to step to and an empty span where there is not, since
+a row emitting fewer cells than its neighbours shifts every cell after it. Counts run right against
+their column, so the repeated words align rather than starting wherever a number ends.
+
+**Dismissal is a glyph.** The bar's ✕ emits `cancelled` and nothing else, so a host that closes on
+it closes with the field's constraints as they were. Spelling it "Close" gave the one control that
+answers nothing the weight of a choice, beside the field where the choices are made.
+
 **A row is chosen in two acts.** A click marks it and a double click, or Enter on a focused row,
 emits it. The per-row buttons are gone with that: a "Use" on every line spent the width the names
 need, and the narrowing button duplicated the filter panel above the tabs, which is where narrowing
