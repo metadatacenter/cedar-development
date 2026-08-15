@@ -59,6 +59,18 @@ published. A `version` appears on a constraint only when the author steps off la
 how the backend already stores and freezes them, so nothing has to be reconciled across the
 constraints on one field.
 
+**Marking a row opens what it is offering.** The rows under a folded label are a shortlist; the
+marked one is the row an author is deciding about, and the decision is a term IRI written into a
+template. So the panel leads with that IRI in full, and adds the chain above the term, what matched
+where the label did not, how much sits beneath it, whether it is deprecated and what replaces it,
+and the ontology and release it comes from. It is the same two acts as choosing: a click opens it,
+a second confirms.
+
+What it cannot show is a definition. The ingest captures labels and synonyms and no definition at
+all — a snapshot's `label` table holds `rdfs:label`, `skos:prefLabel` and the four
+`oboInOwl:has*Synonym` properties and nothing else — so a definition is an ingest change and a
+re-run across 1,215 ontologies, not a display one.
+
 **A term row carries nothing about the subtree beneath the term.** It showed a descendant count,
 which answers the branches tab's question: a class constraint is that term, and what sits under it
 changes nothing about the constraint. The same label appearing on the branches tab is where the
