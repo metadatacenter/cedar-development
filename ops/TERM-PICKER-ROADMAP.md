@@ -59,6 +59,13 @@ published. A `version` appears on a constraint only when the author steps off la
 how the backend already stores and freezes them, so nothing has to be reconciled across the
 constraints on one field.
 
+**A term row says where in its ontology the term sits.** A label repeats within one ontology as
+readily as across several — ACESO merges three vocabularies and labels a class "Disease" in each —
+so two rows of one ontology were told apart by their descendant counts and nothing else. They carry
+their parent now, as branch rows already did. Where the row is too narrow for both, the ontology's
+name gives way and the parent survives: the acronym beside it has already identified the ontology,
+and the parent is the part that distinguishes.
+
 **A branch row counts branches, not positions, and ranges rather than totals.** A folded row says
 "179 branches in 149 ontologies", the extra thirty being ontologies that place one concept at
 several points in their own tree. The descendant figure is a range across the fold and not a sum:

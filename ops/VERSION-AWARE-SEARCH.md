@@ -252,9 +252,19 @@ once and copied by a client when it writes the constraint.
   "obsolete": false,
   "replacedBy": null,
   "hasChildren": true,
-  "descendantCount": 42
+  "descendantCount": 42,
+  "path": [
+    { "termIri": "http://purl.obolibrary.org/obo/DOID_4", "termLabel": "disease" },
+    { "termIri": "http://purl.obolibrary.org/obo/DOID_14566", "termLabel": "disease of cellular proliferation" }
+  ]
 }
 ```
+
+`path` is what tells two classes of one label apart, and a label repeats within an ontology as
+often as across them: ACESO merges three vocabularies and labels a class "Disease" in each, under
+"Clinical finding", "disposition" and "Disease, Disorder or Finding". A hit from the index carries
+the one step above it, which is what the index holds; a hit resolved against a snapshot carries the
+chain from a root.
 
 `matchType` is `termLabel` or `synonym`, and `matchedLabels` carries what actually matched, in
 the language it matched. Together they are what stops a synonym hit reading as a defect: a row
