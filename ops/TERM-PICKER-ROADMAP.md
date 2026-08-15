@@ -71,13 +71,23 @@ Nothing else is on it. The ontology's name, its acronym, its release and the siz
 are all on the row already, and repeating them under the row spent the panel on what the author
 had just read.
 
-**The panel draws where the term sits.** The chain above it, the term itself, and what hangs
-directly below, each step indented from the last — the structure an author reads to know whether
-a label is the concept they meant. ACESO's three classes called "Disease" become three different
-answers: one under "Clinical finding" with Developmental disorder, Drug-related disorder, Mental
-disorder and Substance abuse below it, and two others elsewhere. It is fetched per marked term
-from `GET /search/hierarchy` rather than with the search, since a page is twenty-five terms and an
-author asks this of one, and it is held once read.
+**The panel draws a tree the author can walk.** The chain above the term, the term, and what hangs
+below it, every node opening where it stands. ACESO's three classes called "Disease" become three
+different answers: one under "Clinical finding", opening onto Developmental disorder, Drug-related
+disorder, Mental disorder and Substance abuse, and each of those opening in turn. A double click on
+any node takes it as the constraint, so a term found by browsing is chosen the same way as a term
+found by searching.
+
+Nodes read their children as they open, from `GET /search/hierarchy`, one node at a time: a
+hierarchy is a tree, SNOMED's clinical findings run to hundreds of thousands of concepts, and an
+author opens the handful on their way down. What a node needs before it opens — whether it has
+children at all, and how much is beneath it — comes from its parent's answer, so a closed tree
+fetches nothing.
+
+The chain itself never collapses. Closing an ancestor hides what stands beside the path, not the
+path: a tree that collapsed to its root would lose the term the panel is about. This is what the
+Workbench picker does by re-rooting a flat list of children on every click, which loses where you
+have been.
 
 **The other names come from the index, in one query for the page.** They are what says whether a
 concept is the one an author meant, and they are worth nothing at a round trip a row. Shown eight
