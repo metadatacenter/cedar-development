@@ -63,8 +63,10 @@ constraints on one field.
 marked one is the row an author is deciding about, and the decision is a term IRI written into a
 template. So the panel leads with that IRI in full, and adds the chain above the term, what matched
 where the label did not, how much sits beneath it, whether it is deprecated and what replaces it,
-and the ontology and release it comes from. It is the same two acts as choosing: a click opens it,
-a second confirms.
+the ontology and release it comes from, and that ontology's own IRI. Both IRIs, because which one a
+template records depends on the kind: a class or branch constraint carries the term's, an ontology
+constraint carries the ontology's. Every kind opens the panel, the ontologies tab included. It is
+the same two acts as choosing: a click opens it, a second confirms.
 
 What it cannot show is a definition. The ingest captures labels and synonyms and no definition at
 all — a snapshot's `label` table holds `rdfs:label`, `skos:prefLabel` and the four
