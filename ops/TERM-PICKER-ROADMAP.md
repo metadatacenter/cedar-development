@@ -154,6 +154,19 @@ marking a row draws the whole chain, which says more than one step ever did, and
 to the ontology it names. The cost is real and accepted — two rows of one ontology look alike until
 one is marked.
 
+**Narrowed to one ontology, the terms tab draws that ontology's tree.** Folding by label answers a
+corpus-wide question — two hundred vocabularies offering one label — and inside a single ontology it
+says nothing while a flat list hides what an ontology is for. So the matches are drawn where they
+sit, rooted, with the ones the query found in the heading colour and their ancestors muted as
+context.
+
+It costs no extra call. A search naming one source returns each hit's whole ancestry rather than the
+one step the index holds, so the union of those chains is a tree rooted by construction: no request
+for the roots, and no walk down from them to find where the matches are. The chains cost a recursive
+query a hit, which is affordable at a page of them and is not at a corpus-wide page touching a
+hundred ontologies — which is why the whole chain is what a scoped search gets and the one step is
+what everything else gets.
+
 **A branch row counts branches, not positions.** A folded row says "179 branches in 149
 ontologies", the extra thirty being ontologies that place one concept at several points in their
 own tree. It carried the range of descendant counts across the fold too, and that came off: it
