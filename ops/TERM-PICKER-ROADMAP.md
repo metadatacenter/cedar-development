@@ -59,6 +59,13 @@ published. A `version` appears on a constraint only when the author steps off la
 how the backend already stores and freezes them, so nothing has to be reconciled across the
 constraints on one field.
 
+**A branch row counts branches, not positions, and ranges rather than totals.** A folded row says
+"179 branches in 149 ontologies", the extra thirty being ontologies that place one concept at
+several points in their own tree. The descendant figure is a range across the fold and not a sum:
+the branches in a fold are the same idea drawn by different ontologies and their contents overlap
+heavily, so adding them would count the same concepts many times over. What an author choosing
+between them needs is how differently those ontologies scope it — for "Disease", from 1 to 31,543.
+
 **A branch hit is a class hit that has descendants.** The Branches tab answers the same
 query as the Terms tab, filtered to hits with something beneath them and framed as
 "constrain to everything under this". The tab strip therefore keeps its promise that one
