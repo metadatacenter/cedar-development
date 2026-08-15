@@ -27,21 +27,20 @@ npm run parity:yaml:compact
 ```
 
 A case with output on only one side is skipped and counted rather than throwing,
-so the run reads as a summary. Both comparisons stand at the same place, and on the
-same artifacts: 2 of 81 differ in the full form and **none in the compact one**, since the
-compact form drops the key they differ over.
+so the run reads as a summary. Both comparisons stand in the same place: **nothing
+differs**, over any of the 81 artifacts, in either form.
 
 ```
 templateField: 17 compared, 0 differing
 templateElement: 6 compared, 0 differing
-template: 37 compared, 2 differing
+template: 37 compared, 0 differing
 instance: 21 compared, 0 differing
 ```
 
-One difference remains, over templates 22 and 29, and it is the one below. There is none
-over the value-constraint keys, over quoting, over the identifier, over the boolean type
-that used to account for three of them, or over anything the compact form leaves out.
-Every field case agrees, as does every element and every instance.
+The two libraries write the same YAML for every artifact in the corpus, byte for byte, in
+the full form and the compact one, and each reads every document the other writes. Any
+difference the run reports from here is a regression in one of them, which is what the
+gate is now set to say.
 
 ## Corpus coverage
 
@@ -329,6 +328,10 @@ Resolved this pass:
    YAML, an encoding repair to template 35 whose YAML no reader could parse, and Java output for the
    eight field cases that had none. What it left is the divergence below.
 6. ~~**Expose `booleanFieldBuilder`.**~~ **Resolved** — the builder went with the type, item 1.
+7. ~~**`propertyLabels`/`propertyDescriptions` orphan keys**~~ (`templates/003`) — **Resolved: an
+   orphan key names nothing to keep, and a child the container does not label gets no entry
+   invented for it.** Both libraries emit `{}` here now, and TypeScript's reader no longer demands
+   an entry per child, which had made Java's rendering of this template unreadable.
 8. ~~**Decide which spelling of a property IRI is canonical.**~~ **Resolved** — both libraries now
    percent-encode the name as a path segment, which is where it ends up: a space is `%20`, and `!`,
    `'`, `(`, `)`, `~` and `*` are left literal. Each had reached for form encoding, meant for a query
@@ -342,17 +345,16 @@ Remaining:
 2. **Decide whether `{}` and `{"@value": null}` are distinguishable.** Unchanged — the largest class
    (44 cases). TypeScript preserves the distinction, Java erases it; this decides whether Java changes
    or TypeScript should start normalising too. A model-owner decision.
-7. ~~**`propertyLabels`/`propertyDescriptions` orphan keys**~~ (`templates/003`) — **Resolved: an
-   orphan key names nothing to keep, and a child the container does not label gets no entry
-   invented for it.** Both libraries emit `{}` here now, and TypeScript's reader no longer demands
-   an entry per child, which had made Java's rendering of this template unreadable.
 
 ### What is left
 
-One divergence, over templates 22 and 29, and only in the full form. It does not stop either reader.
-
-- **`propertyIri`** — templates 22 and 29, full form only. TypeScript writes it under `configuration:`,
-  Java writes nothing; the compact form drops the key on both sides.
+Nothing, over the corpus. The last entry was **`propertyIri` on an attribute-value child** — templates
+22 and 29, full form only. TypeScript wrote it under `configuration:`; the Java library skipped
+attribute-value and static fields there, on the grounds that the JSON `@context` has no mapping for one
+and a conversion to JSON would drop what the YAML kept. Both libraries do drop it in JSON, and they
+agree about that; it is a fact about the JSON representation rather than a reason for the YAML to forget
+what the template declared. Java writes it now, for every kind of field that carries one, and still not
+in the compact form.
 **`multipleChoice` is settled: the declared value governs, as the Java library reads it.** How many
 options an answer may select and how many times the field is asked are separate facts that happen to
 serialise the same way, as an array. TypeScript took the first from the second, so a repeatable
