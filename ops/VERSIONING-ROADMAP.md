@@ -197,12 +197,23 @@ response.
    real one, and both extractors ranked the blank literal like any other and kept whichever came
    first. A concept that lost the toss counted as unlabeled, so it drew the IRI-fragment fallback
    meant for genuinely unlabeled classes: ABD's "White pine blister rust" is stored, served and
-   indexed as `?id=118`. The extractors now skip blank literals. Over the search index, 795,379 of
-   13,939,470 terms are named by their own IRI fragment and 45,230 of those have a real name
-   recorded alongside — the size of what this cost, and the size of what a re-ingest recovers.
-   Snapshots already written keep the wrong label: a version id is a hash over `pref_label`, so
-   correcting one in place would change the release's identity rather than repair it. They correct
-   themselves, with a new version id, when the ontology is next ingested.
+   indexed as `?id=118`. The extractors now skip blank literals. A snapshot already written keeps
+   the wrong label — a version id is a hash over `pref_label`, so correcting one in place would
+   change the release's identity rather than repair it — so the repair is a re-ingest, which mints
+   a new version id.
+
+   *Repaired 2026-08-14* by re-ingesting the 161 candidate ontologies (`ops/reingest-blank-label.sh`;
+   160 succeeded, EMI skipped for want of a recorded source URL) and rebuilding their slice of the
+   search index in 65 seconds. **The repair recovered 157 concepts across 23 ontologies**, measured
+   by diffing each ontology's previous snapshot against its new one: ABD 32, ACGT-MO 24, NEMO 21,
+   G-PROV 16, AERO 14, and a tail of one to seven apiece.
+
+   The candidate list came from a proxy that overstated the problem by two orders of magnitude, and
+   the proxy is worth naming so it is not reused: terms whose `pref_label` is a suffix of their own
+   IRI, of which the index holds 795,379, with 45,230 also carrying another name. That catches every
+   ontology that mints IRIs from labels — OCHV's 27,758, MEPO's 5,672 and GNO's 3,761 are all of
+   that kind, and none of them was ever mislabeled. A defect of this shape can only be counted by
+   comparing snapshots before and after, which is what the 157 is.
 - **9. Term ordering in search: what BioPortal does, and what the local store can do instead
    (replace-BioPortal track).** Ordering is the one part of lookup the local store does not model.
    Inside a snapshot, `SnapshotStore.labelSearch` orders by `length(pref_label), pref_label, iri`;
