@@ -48,21 +48,15 @@ commit that opened it.
    the baselines are
    keyed to the platform and re-recording is already the stated answer to an OS font
    shift, or whether a budget survives only on the shots whose variance is real.
-8. **Audit the remaining string keys.** Twenty-four keys, and the prefix family is settled:
-   three of the four are gone — two were value-recognition patterns wearing a URL's name,
-   compiled into a regex from unescaped host configuration, and one was a link base for
-   BioPortal's own address. `iriPrefix` remains and is genuinely a deployment's, since it
-   mints the IRIs written into an instance. What is left to review is the two endpoints,
-   the three language keys, and the fourteen authority endpoint overrides — seven
-   authorities with two keys each, and the one place the typed contract stops catching
-   typos, since they arrive through an index signature. The booleans have been through
-   this and come out at four.
-9. **The value-constraint keys move with the next model-library upgrade.** A controlled-term
-   entry now names its vocabulary with `source*` keys and its term with `term*` keys, and the
-   library refuses the form it replaced. CEE reads YAML through that library in
-   `harness/test/container-reader-parity.spec.ts` and
-   `harness/test/field-order-source-of-truth.spec.ts`, over a copy of the corpus at
-   `harness/fixtures/corpus/`, whose `templates/036/template-036.yaml` still carries the older
-   keys. Refresh that copy from `cedar-test-artifacts` in the same change that bumps the
-   library, not before: refreshed alone it fails against the pinned version, and bumped alone
-   it fails against the fixture.
+8. **Audit the remaining string keys.** Seventeen keys. The prefix family is settled: three
+   of the four are gone — two were value-recognition patterns wearing a URL's name, compiled
+   into a regex from unescaped host configuration, and one was a link base for BioPortal's own
+   address. `iriPrefix` remains and is genuinely a deployment's, since it mints the IRIs
+   written into an instance. The authority overrides are halved, from fourteen to seven: the
+   details path each authority resolves an identifier through was configurable, and every host
+   that set it set the path CEE already uses, with two of the seven never named by any host at
+   all. What is left to review is the two endpoints, the three language keys, and the seven
+   surviving search overrides — still the one place the typed contract stops catching typos,
+   since they arrive through an index signature. Closing that is now a mapped type over the
+   seven authority names rather than seven declarations. The booleans have been through this
+   and come out at four.
