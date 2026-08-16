@@ -70,12 +70,12 @@ selection in the new term picker) and instance-level capture (item 4).
 What versioning *is* here, and why it is that rather than something else. The numbered items
 above and below are the plan; this is what they rest on.
 
-A source-explicit, content-addressed version model for value constraints. Living document; the
-canonical statement of *what* the model is and *why*. Implementation status and sequencing live in
-[VERSIONING-ROADMAP.md](VERSIONING-ROADMAP.md), along with the divergence findings that motivated
-it — see [BioPortal reconciliation issues](VERSIONING-ROADMAP.md#bioportal-reconciliation-issues).
+A source-explicit, content-addressed version model for value constraints, grounded in a survey of
+the 1,214 ingested BioPortal ontologies (2026-07-29). The divergences that motivated it are in
+[BioPortal reconciliation issues](#bioportal-reconciliation-issues).
 
-Grounded in a survey of the 1,214 ingested BioPortal ontologies (2026-07-29).
+Its numbered sections are cited from the code as `VERSIONING-ROADMAP "The Model" §N`, so a number
+here is a handle something else holds. Renumbering one means fixing what cites it.
 
 ### Decision ledger
 
@@ -141,7 +141,7 @@ digests, lockfiles): identity = content hash, the human name rides alongside. **
 don't. **BioPortal/OntoPortal** version by `submissionId` and retain history, so they *are* pinnable,
 just not via the version string. Nobody uses the self-declared version as identity.
 
-### 3. The definition
+### 4. The definition
 
 > A **version** is the identity of an immutable, reproducible snapshot of a value space, denoted by a
 > **content hash** of its ingested contents. Human-facing labels (declared version, release/upload
@@ -157,7 +157,7 @@ Three separated concerns:
 | **Metadata** | declared version, dates, submission id, backend | version picker + ordering; never load-bearing alone |
 | **Resolution** | how `version` maps to an identity | hash (exact), or a label/date resolving to a hash at serve time |
 
-### 4.1 The triple
+#### 4.1 The triple
 
 | Field | Source | Job |
 |---|---|---|
@@ -165,14 +165,14 @@ Three separated concerns:
 | `effectiveDate` | source publication date (BioPortal `released`); fallback ingest timestamp | **ordering** — anchors `latest` and date-pins |
 | `declaredVersion` | the source's self-declared string | **label** — display only; may be empty/ambiguous; never resolves alone |
 
-### 4.2 Why `effectiveDate` = the source upload date (the "arbitrary" one)
+#### 4.2 Why `effectiveDate` = the source upload date (the "arbitrary" one)
 
 It is complete (100% of submissions, vs 11–22% for the self-date) and **orders states correctly even
 for backfilled history**: ingesting INCENTIVE's six historical submissions today gives one ingest
 date and `0.1.3` on three of them — only the source publication date (2022/2023/2024) recovers the
 true order. The self-claimed date is sparse and provably stale; kept as a display label only.
 
-### 4.3 Identity: raw bytes vs normalized content — SETTLED (normalized, incl. labels; shipped)
+#### 4.3 Identity: raw bytes vs normalized content — SETTLED (normalized, incl. labels; shipped)
 
 Today `version_id` is `sha256` of the raw downloaded file, tying identity to the *serialization*: the
 same release from BioPortal vs an OBO PURL, or OWL vs OBO form, gives different bytes and different
@@ -192,7 +192,7 @@ recomputed every `version_id` from the on-disk snapshots (no re-download), kept 
 files keep their raw-hash names (`file_path` is authoritative); new ingests name files by the content
 hash and compute identity from the extracted model.
 
-### 4. Source taxonomy
+### 5. Source taxonomy
 
 Naming the source explicitly unifies every case; the source discriminates what a constraint means.
 
@@ -211,7 +211,7 @@ Every row has a base `iri`, including the open authorities: ORCID → `https://o
 CompTox (PFAS) → the DTXSID namespace. For sources with content these are derived (§6.1); for open
 authorities the backend adapter declares them as a constant.
 
-### 5. The value-constraint shape
+### 6. The value-constraint shape
 
 Purely additive: the outer `_valueConstraints` object is unchanged; each entry gains optional fields.
 An entry answers three questions — *which* value space (`iri` identity, `acronym`/`name` labels),
@@ -261,7 +261,7 @@ there `iri` is derivable for free from the target `uri` (`DOID_4` → `obo/DOID_
 (`"Human Disease Ontology (DOID)"`, `"undefined (ADO)"`), not a backend. Do **not** reuse `source`;
 the backend field is `sourceSystem`.
 
-### 6.4 Deriving `ontology.iri` — mandatory, always populatable
+#### 6.4 Deriving `ontology.iri` — mandatory, always populatable
 
 `iri` is not optional. Survey of the corpus: a declared `owl:Ontology` IRI is extractable for only
 ~57–64% of ontologies, but a base IRI is **derivable for 100%** (1,213 of 1,214; the sole exception
@@ -343,7 +343,7 @@ discarded the rest at ingest. For a multilingual ontology that threw away real c
 Japanese label, an exact synonym, a hidden search term. This records how BioPortal handles language,
 what the store now captures, and how the existing snapshots were backfilled.
 
-### How BioPortal Serves Language
+#### How BioPortal Serves Language
 
 BioPortal (through the OntoPortal layer) stores every language variant of a name and chooses per
 request. The same class answers four ways:
@@ -361,7 +361,7 @@ request. The same class answers four ways:
 - `lang=all` turns each into a `{lang: value}` hash; untagged literals bucket under `"none"`.
 - Search indexes all languages: a query in any language matches, presentation is language-scoped.
 
-### What the Store Captures
+#### What the Store Captures
 
 Identity is the point of leverage. A snapshot's `version_id` is the normalized content hash, and that
 hash reads only the concept's single served `pref_label`, its obsolete flag and replacement, the
@@ -384,7 +384,7 @@ untagged, then any other language; `rdfs:label` over `skos:prefLabel`), so `vers
 A store test asserts that adding labels moves neither the structure-only nor the label-sensitive
 content hash.
 
-### Backfilling the Existing Snapshots
+#### Backfilling the Existing Snapshots
 
 The discarded labels live only in the source files, which are not cached — so backfill re-fetches and
 re-parses from source. `IngestJob --backfill-labels` walks the catalog and, for each snapshot:
@@ -402,7 +402,7 @@ hashes differently and the snapshot is skipped — its exact original bytes are 
 Those snapshots keep their single served label; capturing their languages needs a fresh ingest of the
 current release (a new `version_id`), which is a catalog update, not a label backfill.
 
-### Coverage
+#### Coverage
 
 Run against the served catalog on 2026-08-01 (`ops/label-coverage`-style aggregate over every
 snapshot):
@@ -430,7 +430,7 @@ acronyms). Structure and identity were untouched throughout, and the live server
 Synonyms — never stored before this work — account for ~5.2 M of the rows. Method: aggregate every
 snapshot's `label`/`meta` tables ([label-coverage.py](label-coverage.py)).
 
-### Serving the Languages
+#### Serving the Languages
 
 The local read path now serves the captured names:
 
@@ -844,7 +844,7 @@ response.
    refreshing on a schedule or when the local copy is stale rather than on every boot, so the server
    serves from the cache immediately. SQLite fits and is already in the stack (`org.xerial:sqlite-jdbc`,
    pinned in `cedar-parent` for the terminology local store). Split readiness from liveness in the health
-   check alongside, so a warming server reports as such rather than as failed. Related to item 18: both
+   check alongside, so a warming server reports as such rather than as failed. Related to item 17: both
    concern how CompTox content enters and is held by the stack.
 
 - **19. Make a missing catalog say so, instead of reporting a store that serves nothing.** The server
@@ -858,24 +858,6 @@ response.
    Measured on 2026-08-12 across all three shapes. Check the file exists and carries the schema before
    opening it, and log the store as enabled only once it can name what it serves.
 
-- **20. Decide whether production ships with a catalog, because freeze-on-publish is inert without
-   one.** Publishing pins a controlled-term constraint by resolving the vocabulary's current version
-   through `ontologies/{acronym}/versions/current` and `vs-collections/version-current`, and only the
-   local store answers those. With no catalog the endpoints do not resolve, publishing pins nothing,
-   and the reproducibility the Goal above describes is not in force — quietly, since publishing still
-   succeeds. The REST suite already declares this rather than hiding it: the freeze checks skip with
-   "the local terminology store does not serve DOID/CEDARVS (freeze is inert here)", which is the
-   difference between a 652-check and a 646-check run.
-
-   So "ship without SQLite" and "publish reproducibly" are the same decision, and it is a product one
-   rather than a deployment detail. Either production carries a catalog, or freeze is understood to be
-   dormant there and the roadmap says by when it will not be.
-
-   The term picker sharpens this rather than adding to it. Its search endpoint assumes the local store
-   and reports unavailable without one, and the picker tells the author so, so a catalog-less production
-   loses the way constraints are authored rather than quietly publishing unpinned ones. The decision is
-   the same decision; what changes is that it stops being silent.
-
 ## The Picker, the Designer and Cutover
 
 The numbered items continue here: the work that
@@ -888,33 +870,20 @@ question about the picker into a question about the Workbench as well, and none 
 here can be finished without the component being finished first. The component itself has nothing
 left that does not need a host.
 
-- **21. Embed it in the Template Designer.** The host integration is DOM-level: set properties, listen
-   for events. Nothing of it exists — the component runs in its own development host against a
-   dev-server proxy, which is what keeps the call same-origin and CORS out of the picture. Whatever
-   replaces that proxy in the Workbench is the first real question.
-- **22. Make the overlay behave, once there is one to behave.** The picker is an inline panel today
+- **20. Make the overlay behave, once there is one to behave.** The picker is an inline panel today
    and the Workbench presents its picker as a modal, so this is the half of the theming item that
    could not be finished without a host: a modal inside a shadow root has to stack above the host's
    own layers and trap focus without reaching into them. Escape already leaves. Sequenced with the
    embedding rather than before it, because what the overlay has to sit above is a property of the
    page it sits in.
 
-- **23. Show the pinned version in the field's configuration panel.** The panel already lists
+- **21. Show the pinned version in the field's configuration panel.** The panel already lists
    everything constraining a field, one repeat per kind over `_valueConstraints`, and it keeps
    that job — the picker adds one constraint and closes, as it does today. What the panel does not
    show is the version, which becomes visible state the moment constraints can be pinned: a field
    constrained to two branches of DOID at different versions looks identical there to one pinned
    at neither.
-- **24. Retire three capabilities cleanly: provisional creation, property search, relation types.**
-   All three are being dropped, so the work is making sure nothing falls over behind them. Find
-   who creates provisional terms today and what they do instead, confirm that templates already
-   referencing one still resolve it, decide whether the terminology server's provisional endpoints
-   keep serving reads once nothing writes to them, and check whether anything in production
-   authored constraints through property search.
-
-### The Terminology Server
-
-- **25. Order across ontologies.** Ranking on the match reason is in place, which is the field half
+- **22. Order across ontologies.** Ranking on the match reason is in place, which is the field half
    of what the term-ordering item in [VERSIONING-ROADMAP.md](./VERSIONING-ROADMAP.md) measures.
    The ontology half is not: BioPortal multiplies its field score by a per-ontology prior built
    from its own page visits and UMLS membership, and that measurement puts the prior at most of
@@ -922,27 +891,22 @@ left that does not need a host.
    ontology was considered and declined, so the head of a common query is ordered within an
    ontology and arbitrary between them — three ontologies calling a class "melanoma" tie, and the
    IRI breaks it. Deciding what, if anything, plays the prior's part is the open question.
-- **26. Make one credential work.** The server does not agree with itself: `POST /search` and
-   `/bioportal/integrated-search` answer anonymously, `/bioportal/ontologies` and
-   `/ontologies/{acronym}/versions` refuse without an API key. The picker sidesteps it by taking
-   everything through the search response — the version histories included, which is why a source
-   block carries them — but a third answer to the same question is still a third answer.
-- **27. Proxy the ontologies the store cannot hold.** `proxied` is a designed state the server never
+- **23. Proxy the ontologies the store cannot hold.** `proxied` is a designed state the server never
     produces: a source not served locally is reported unavailable, including the UMLS-licensed
     ones — SNOMEDCT, MEDDRA, RCD, ICPC2P — that BioPortal could answer for at latest. Reporting
     them as proxied while returning none of their terms would be the silent wrong answer this
     endpoint exists to prevent, so the state waits until something fills it.
-- **28. Capture definitions at ingest.** A class hit carries no definition, because the snapshot
+- **24. Capture definitions at ingest.** A class hit carries no definition, because the snapshot
     holds none. The design says a row shows one, and a term's definition is often what separates
     two identically-labelled classes when the parent does not.
-- **29. Keep the index fresh.** A re-ingest moves an ontology's current version and the index does
+- **25. Keep the index fresh.** A re-ingest moves an ontology's current version and the index does
     not follow until `SearchIndexJob` runs again. It is incremental and takes seconds for a few
     ontologies, but nothing runs it, and an index behind the catalog reports the version it holds
     rather than the one that exists — correctly, and confusingly. Decide what triggers a rebuild.
 
 ### Cutover
 
-- **30. Ship behind a flag for one release, then delete what it replaces.** The new component is the
+- **26. Ship behind a flag for one release, then delete what it replaces.** The new component is the
     default from the day it lands, with the old picker reachable behind a flag so a blocking gap
     found in real use has a way back. The AngularJS directives, controllers and templates under
     `cedar-template-editor/app/scripts/controlled-term/` come out the release after, together with
