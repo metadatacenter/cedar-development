@@ -47,15 +47,15 @@ commit that opened it.
 6. **Temporal `required`.** Settle whether `InstanceValidator` should require `@type` on
    every temporal value, and fix the production temporal fields that declare no
    `temporalType` and so cannot be filled in at all.
-7. **The screenshot budget still hides a small removal.** `maxDiffPixels: 120` is sized for
-   a couple of glyphs' worth of rasterisation variance, which on one machine is zero; it
-   was already tightened from a ratio after four changes in a day went green against a
-   stale baseline. It is still enough to absorb a control disappearing: removing the
-   preferences menu left the since-retired `preset-chrome` depicting a trigger that no
-   longer rendered, and the suite passed. Decide whether the budget can go to zero, since
-   the baselines are
-   keyed to the platform and re-recording is already the stated answer to an OS font
-   shift, or whether a budget survives only on the shots whose variance is real.
+7. **The authority marks are three different things pretending to be one.** ORCID, PFAS, NIH
+   Grant and DOI are not those organisations' logos: they are approximations someone drew — an
+   `iD` in a green circle, `NIH` in a navy box — inlined as SVG data URIs. PubMed and RRID are
+   the real marks, but rasterised, and PubMed's is a JPEG, which is a lossy format with no
+   transparency being used for a logo. ROR is the real mark as vector, and was the only one
+   fetched over the network until it was inlined. Decide whether CEE should carry the genuine
+   marks for all seven — a trademark and asset-licensing question rather than a technical one,
+   though nominative use of a registry's logo to label a field targeting that registry is the
+   ordinary case — and if so, obtain them as vectors and inline them the way ROR now is.
 8. **Type the config surface end to end, now that the audit is done.** Nine keys remain,
    from forty-odd: `terminologyBaseUrl` and `bridgeBaseUrl`, three language keys, and four
    booleans. `CeeConfig` is closed, so a misspelling is a compile error and the index

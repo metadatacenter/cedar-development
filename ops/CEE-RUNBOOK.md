@@ -333,9 +333,11 @@ else resolves from npmjs.org, and reads need no credentials.
 cd ../cedar-embeddable-editor
 npm ci
 npm --prefix harness ci
-npm --prefix visual ci
-./visual/node_modules/.bin/playwright install chromium
 ```
+
+The visual suite needs no install of its own: it runs in Playwright's container,
+which carries the browsers, and installs its dependencies there against a named
+volume. It does need Docker running.
 
 The current gate should report 0 lint problems, 125 unit tests, 2,359 domain tests
 and 404 Playwright tests. Treat these as useful smoke checks, not permanent
@@ -392,13 +394,27 @@ on reflex.
 pushes to `main`, `develop` and the `cee-angular-**` branches, with a
 thirty-minute ceiling. Two of its choices are deliberate and expensive to rediscover.
 
-**The runner is pinned to `macos-15`, not `macos-latest`.** The committed
-Playwright snapshots are macOS baselines, so a runner bump would move them
-underneath the suite and fail it for no reason anyone had changed. It is also
-specifically not `macos-14`: Playwright no longer builds WebKit for
-`mac14-arm64` and serves a frozen v2251 there, while the pinned Playwright
-drives v2336. The driver sends `Page.overrideSetting: PushAPIEnabled`, v2251
-does not implement it, and every `newPage()` in the webkit-smoke project fails.
+**The runner is `ubuntu-24.04-arm`, and the visual suite runs in a container.**
+Screenshot baselines record a machine's text rasterisation as much as the
+application's rendering, so recording on a laptop and checking on a runner
+compares two things that were never going to agree. Measured on 2026-08-16, that
+boundary moved 7 of 106 baselines by 124 to 393 pixels, and a `maxDiffPixels`
+budget of 120 had been papering over it. `visual/run-in-container.sh` puts both
+sides in Playwright's own image, so the baselines are `-linux`, the budget is
+zero, and a diff can only mean CEE draws something different.
+
+Two consequences worth knowing before changing either. The runner must be arm64,
+because the script asks for `linux/arm64` and an x86_64 runner would rasterise
+differently and put the problem back without saying so. And the image tag in that
+script is the thing that moves every baseline at once — treat a bump the way an
+OS upgrade used to be treated, by re-recording deliberately.
+
+This was `macos-15`, pinned so a runner bump would not move the macOS baselines,
+and specifically not `macos-14`, where Playwright served a WebKit frozen at v2251
+against a driver expecting v2336 — `Page.overrideSetting: PushAPIEnabled` is
+unimplemented there and every `newPage()` in the webkit-smoke project failed.
+Linux builds are current, so that constraint left with the runner. macOS runners
+cannot host a Linux container either way.
 
 **One Node version, 24.19.0, for the whole job.** It used to change midway —
 build on 16.20.2, switch to 20.20.2, reinstall, then test the already-built
@@ -699,11 +715,13 @@ months.
 To accept an intentional visual change:
 
 ```bash
-npm --prefix visual run update
+npm run update:visual
 ```
 
-The script lives in `visual/package.json`, so from the repository root it needs the
-prefix — plain `npm run update` fails with `Missing script: "update"`.
+That re-records inside the container, which is the only place a baseline means
+anything. `npm --prefix visual run update` still exists and writes baselines for
+whatever machine you are sitting at — on a laptop that is a `-darwin` file no CI
+run will ever read.
 
 Review every changed PNG before committing — a baseline update asserts the new
 rendering is correct.
@@ -735,14 +753,14 @@ the suite write it fresh:
 ```bash
 rm visual/tests/render.spec.ts-snapshots/07-timezone-*.png
 npm --prefix visual test   # writes what is missing, and fails while doing so
-npm --prefix visual test   # confirm it passes against what it just wrote
+npm run test:visual:prebuilt   # confirm it passes against what it just wrote
 ```
 
 Then find out what actually moved, rather than accepting the new image because it is
 new. Extract the committed version and compare scanlines:
 
 ```bash
-git show HEAD:visual/tests/render.spec.ts-snapshots/07-timezone-desktop-darwin.png > /tmp/old.png
+git show HEAD:visual/tests/render.spec.ts-snapshots/07-timezone-desktop-linux.png > /tmp/old.png
 ```
 
 Decode both and list the rows that differ, then group them into bands and look at
