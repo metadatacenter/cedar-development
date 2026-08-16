@@ -25,14 +25,22 @@ commit that opened it.
    focus and accessibility invariants, use supported theme and component override mixins,
    review incidental Material-chrome diffs separately, and never expose `--mat-*` tokens as
    host API. Cut back the Material internal selectors made unnecessary by the adapter.
-4. **Appearance contract.** Keep Shadow DOM and CEE ownership of control geometry, layout,
-   validation colours and Material internals; give embedders a small versioned API for
-   `cedar`/`neutral` theme, `light`/`dark`/`auto` colour scheme and
-   `comfortable`/`compact` density, with only a few advanced `--cee-*` overrides. Preserve
-   the existing heading properties for compatibility, expose a font only if it can apply
-   consistently to every control, deprecate the inert text-primary and accent properties,
-   forbid arbitrary CSS and Material selectors, test every preset for contrast, focus,
-   narrow layout and edit/read-only rendering, and report any unscoped `::ng-deep`.
+4. **Appearance contract, designed rather than accumulated.** CEE publishes nothing now:
+   the eight `--cee-*` custom properties are gone, two having been read nowhere and the five
+   colours never having reached a Material component, since `_cee-material-theme.scss` is
+   compiled from Sass and carries no `var(--cee-…)`. No embedder had set any of them. What
+   replaces them is a decision about roles, not a list: name what CEE's interface actually
+   has — brand, surface, text, muted, border, and the status colours whose meaning a host
+   must not be able to re-point — derive the rest with `color-mix` so a re-pointed brand
+   drags its tints along, and keep geometry, density and Material internals CEE's own. Two
+   things make it real rather than nominal: the Material theme has to read the properties,
+   which is item 3's work and why these land together; and the test has to set a role to a
+   sentinel and assert it reaches rendered pixels, where the old one asserted only that a
+   property was published, which an inert property passes just as well. Expose a font only
+   if it can apply consistently to every control — today `$cee-font-family` threads through
+   the Material typography config from one token, so it is the cheapest of these and still
+   needs the pixel test. Every route re-baselines the visual suite; do the palette decision
+   in [THEMING.md](../../cedar-embeddable-editor/THEMING.md) and the mechanism in one change.
 5. **Markup discoverability.** Have the Template Designer's rich-text editor declare or
    enforce what an embedder will actually render, since its `Source` button accepts markup
    CEE will strip.
@@ -48,15 +56,19 @@ commit that opened it.
    the baselines are
    keyed to the platform and re-recording is already the stated answer to an OS font
    shift, or whether a budget survives only on the shots whose variance is real.
-8. **Audit the remaining string keys.** Seventeen keys. The prefix family is settled: three
-   of the four are gone — two were value-recognition patterns wearing a URL's name, compiled
-   into a regex from unescaped host configuration, and one was a link base for BioPortal's own
-   address. `iriPrefix` remains and is genuinely a deployment's, since it mints the IRIs
-   written into an instance. The authority overrides are halved, from fourteen to seven: the
-   details path each authority resolves an identifier through was configurable, and every host
-   that set it set the path CEE already uses, with two of the seven never named by any host at
-   all. What is left to review is the two endpoints, the three language keys, and the seven
-   surviving search overrides — still the one place the typed contract stops catching typos,
-   since they arrive through an index signature. Closing that is now a mapped type over the
-   seven authority names rather than seven declarations. The booleans have been through this
-   and come out at four.
+8. **Type the config surface end to end, now that the audit is done.** Nine keys remain,
+   from forty-odd: `terminologyBaseUrl` and `bridgeBaseUrl`, three language keys, and four
+   booleans. `CeeConfig` is closed, so a misspelling is a compile error and the index
+   signature that once carried fourteen authority overrides is gone with them. What is left
+   is smaller than it was: `showTemplateDescription` is set by nobody and set to `false`
+   explicitly by the two hosts that mention it, one of them because it renders the
+   description in its own header — decided, for now, to keep.
+9. **The documentation site describes a CEE nobody can install yet, and shows one that no longer
+   exists.** `cedar-mkdocs` was rewritten from roughly forty configuration keys down to the nine that
+   remain, which matches `develop` and the changelog's unreleased section — but npm still serves
+   `1.6.0`, so a reader following the site today meets keys their copy does not have. Decide whether
+   the site tracks the release or the branch, and if the release, hold the rewrite until 2.0.0
+   publishes. Separately, the walkthrough in `docs/tutorials/cedar_tutorial.md` carries screenshots
+   of the diagnostic panels beneath the form — `img/08-filled-form.png` and its neighbours — which the
+   download menu replaced. The prose is corrected; the images need retaking against a deployed 2.0.0,
+   and they can only be retaken once one is deployed.
