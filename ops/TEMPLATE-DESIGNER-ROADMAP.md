@@ -74,9 +74,11 @@ editor's live check does not exercise the same constraint.
 
 Only option (b) is the designer's to make alone. The other two are backend changes — a real count
 from the terminology layer, or a relaxed minimum in the meta-schema — so whichever is chosen needs a
-counterpart there. The `maxItems: 0` item on [BACKEND-ROADMAP.md](./BACKEND-ROADMAP.md) is the same
-mistake in a second place, the editor using zero as a sentinel where the schema reads zero as a
-quantity, and the two are worth deciding together.
+counterpart there. This is one of three places the same mistake shows — the editor using zero as a
+sentinel where the schema reads zero as a quantity — and the other two, `maxItems: 0` for unbounded
+and a value set whose term count nobody knew, are one item with it on
+[BACKEND-ROADMAP.md](./BACKEND-ROADMAP.md). The decision binds the meta-schema and both model
+libraries, so it is taken there; only the frontend half is the designer's.
 
 ### 3. Does the designer write `"@id": ""` on an element occurrence?
 

@@ -206,55 +206,53 @@ Frontend work for the embeddable editor is tracked separately in
   library's `YamlTitleDerivation` / `YamlJsonConstraintParity` specs; this item is the design decision
   those tests currently encode by default.
 
-- **7. Decide whether `maxItems: 0` should mean unlimited, or the key should simply be absent.** The
-  Template Designer emits `maxItems: 0` for an unbounded multi-instance field. Its cardinality
-  selector labels the zero "unlimited" (`cardinality-selector.directive.js`, `zeros = {'min': 'none',
-  'max': 'unlimited'}`), `defaultMinMax` in `cedar-template-element.directive.js` sets it on every new
-  multi-instance element, and the runtime directives guard with `!maxItems || model.length < maxItems`,
-  so zero is falsy and imposes no ceiling.
+- **7. Decide what a count of zero means, and how "unknown" is written.** Three keys use zero as a
+  sentinel where the schema gives zero a quantity, and the answer to any one of them is the answer to
+  all three.
 
-  Omitting the key would say the same thing better. An absent `maxItems` already means unbounded to
-  every consumer, and it is what JSON Schema means: there, `maxItems: 0` constrains an array to be
-  *empty*, the exact opposite of unlimited. So the current encoding does not merely duplicate the
-  default, it inverts the standard reading, and any tool validating a CEDAR template as ordinary JSON
-  Schema draws the wrong conclusion from it.
+  **`maxItems: 0`, meaning unbounded.** The Template Designer emits it for an unbounded multi-instance
+  field: its cardinality selector labels the zero "unlimited" (`cardinality-selector.directive.js`,
+  `zeros = {'min': 'none', 'max': 'unlimited'}`), `defaultMinMax` in
+  `cedar-template-element.directive.js` sets it on every new multi-instance element, and the runtime
+  directives guard with `!maxItems || model.length < maxItems`, so zero is falsy and imposes no
+  ceiling. Omitting the key would say the same thing better: an absent `maxItems` already means
+  unbounded to every consumer, and it is what JSON Schema means, where `maxItems: 0` constrains an
+  array to be *empty* — the exact opposite. The current encoding does not merely duplicate the default,
+  it inverts the standard reading, so any tool validating a CEDAR template as ordinary JSON Schema
+  draws the wrong conclusion. `cedar-artifact-library` rejected `maxItems < 1` outright until
+  `ValidationHelper.UNBOUNDED_MAX_ITEMS` was introduced; it now accepts zero and skips the
+  `minItems <= maxItems` check when the maximum is unbounded. That is tolerance of the convention
+  rather than endorsement, and whichever way this is decided the library has to keep reading zero,
+  because templates already stored carry it.
 
-  `cedar-artifact-library` rejected `maxItems < 1` outright until `ValidationHelper.UNBOUNDED_MAX_ITEMS`
-  was introduced. It now accepts zero and skips the `minItems <= maxItems` check when the maximum is
-  unbounded. That is tolerance of the convention, not endorsement of it. Whichever way this is decided,
-  the library has to keep reading zero: templates already stored carry it.
+  **A value set's `numTerms: 0`, meaning nobody knew.** Every party to that fact allows absence — the
+  Java record holds `Optional<Integer>`, the TypeScript model class `number | null`, the JSON omits
+  the key — and the TypeScript value-set builder now takes `number | null` too, where it once
+  defaulted to zero. What the builder no longer forces, stored data still carries: `template-023` bound
+  a field to the CADSR-VS *Progressive Disease* value set and recorded `numTerms: 0` for it, a set with
+  terms in it whose count nobody had. Both libraries write such a zero through faithfully as
+  `termCount: 0`, so a reader cannot tell an empty value set from an unmeasured one.
 
-  Related, and worth settling at the same time: single-instance fields can carry stray cardinality keys.
-  In one working template `publication_doi` is `"type": "object"` yet has `minItems: 0, maxItems: 0`. The
+  **An ontology's `numTerms: 0`, which blocks saving outright.** GAZ's count comes back `n/a` from the
+  terminology layer, the editor serialises the constraint with zero, and the meta-schema requires
+  `minimum: 1` there — so the template cannot be saved at all. That one is tracked with its producer on
+  [TEMPLATE-DESIGNER-ROADMAP.md](./TEMPLATE-DESIGNER-ROADMAP.md), and only one of its three fixes is
+  the designer's to make alone.
+
+  Two pieces of work follow the decision. The **frontend** stops writing zero where it means something
+  else, which belongs to the Template Designer's roadmap; the decision is tracked here because it binds
+  the meta-schema and both model libraries. And the **stored artifacts** already carrying a zero have
+  to be patched — two preprod captures in the corpus still show one, beside corrected copies naming
+  real counts, and how far that generalizes is the query every item under
+  [Production Artifact Patch](#production-artifact-patch) starts with.
+
+  Related, and cheap to settle alongside: single-instance fields can carry stray cardinality keys. In
+  one working template `publication_doi` is `"type": "object"` yet has `minItems: 0, maxItems: 0`. The
   reader drops both, taking cardinality only from a `{type: array, items: {…}}` envelope. Establish
   whether the frontend writes those or whether they are residue from a field that was once
   multi-instance.
 
-  This is the same shape as the GAZ `numTerms: 0` bug, which the Template Designer's roadmap carries —
-  the editor using zero as a sentinel where the schema gives zero a different meaning — so the two are
-  worth deciding together. The frontend change belongs to
-  [TEMPLATE-DESIGNER-ROADMAP.md](./TEMPLATE-DESIGNER-ROADMAP.md); this one is tracked here because the
-  decision binds the meta-schema and both model libraries as well.
-
-- **8. A value set cannot say it does not know how many terms it has.** The TypeScript builder's
-  `withNumTerms` takes a `number` and defaults to `0`, so a value-set constraint built through it
-  always states a count. Every other party to the same fact allows absence: the Java record holds
-  `Optional<Integer>`, the TypeScript model class holds `number | null`, the JSON omits the key, and
-  the sibling ontology builder takes `number | null`. Only the value-set builder insists.
-
-  What fills the gap is zero, and the corpus shows it: `template-023` binds a field to the CADSR-VS
-  *Progressive Disease* value set and records `numTerms: 0` for it — a set with terms in it, whose
-  count nobody knew. Both libraries write that through faithfully as `termCount: 0`, so a reader
-  cannot tell a value set with no terms from one whose size was never established.
-
-  This is the third place zero stands in for absent, and the other two are already here: the
-  `maxItems: 0` question above, and the GAZ `numTerms: 0` bug on
-  [TEMPLATE-DESIGNER-ROADMAP.md](./TEMPLATE-DESIGNER-ROADMAP.md), where the editor's zero met a
-  meta-schema that reads zero as a quantity. Worth settling as one question — what a count of zero
-  means, and how "unknown" is written — rather than three times over. The builder signature is the
-  cheap half; the corpus data and whatever wrote it are the rest.
-
-- **9. Nobody mints an identifier but the server, and `null` is how a client asks for one.** The rule
+- **8. Nobody mints an identifier but the server, and `null` is how a client asks for one.** The rule
   is one sentence and the work is making every producer obey it: an artifact or a node that does not
   yet have an identity carries `@id: null`, and the server assigns a real IRI when the artifact is
   uploaded, on create and on update alike. A client that invents one is asserting an identity nothing
@@ -372,7 +370,7 @@ Frontend work for the embeddable editor is tracked separately in
   that the refused element identifier is the *only* thing wrong with a freshly built instance — when
   this item lands, that test becomes a plain validation assertion.
 
-- **10. Decide whether a child artifact must carry `$schema`.** The Java reader throws
+- **9. Decide whether a child artifact must carry `$schema`.** The Java reader throws
   `ArtifactParseException: No text value present for field $schema` on a template whose nested fields
   omit it; the TypeScript reader records a blueprint departure and carries on. Templates in the wild
   carry the omission — one local template had it on 204 artifact nodes — so this is the difference
@@ -395,9 +393,9 @@ Frontend work for the embeddable editor is tracked separately in
 
 ### Infrastructure
 
-- **11. Upgrade the persistence and infrastructure servers.** These versions are pinned in the Docker
+- **10. Upgrade the persistence and infrastructure servers.** These versions are pinned in the Docker
   images and nowhere else, while the client libraries have moved on. The record that would say what
-  they are pinned *to* does not exist yet; establishing it is part of item 16, and this item is parked
+  they are pinned *to* does not exist yet; establishing it is part of item 15, and this item is parked
   behind it, since it defers to a lock that currently names six servers and no versions. Order them by
   risk, lowest first:
   Five are **done** on 2026-08-08, each taken together with containerizing that store: Redis
@@ -411,7 +409,7 @@ Frontend work for the embeddable editor is tracked separately in
 
   No longer parked at the end. Containerizing the data stores needs each image pin moved up to the
   version already running, because an older engine cannot open existing data files, so this item is
-  what unblocks the last step of item 16 rather than something to take up afterwards. MySQL is the
+  what unblocks the last step of item 15 rather than something to take up afterwards. MySQL is the
   real decision left among the data stores; Keycloak is its own piece of work.
 
   **What actually holds Keycloak at 22.** Measured 2026-08-08 against Maven Central and the code, and
@@ -462,9 +460,9 @@ Frontend work for the embeddable editor is tracked separately in
   The four that are done moved in development only, where the pin move and the containerization were
   one piece of work per store. Production is the part this item still owns: the same versions, but
   rehearsed on a copy of production data and gated on the end-to-end smoke. Where the order above and
-  item 16's disagree, item 16 governs, since it is what sequences the remaining work.
+  item 15's disagree, item 15 governs, since it is what sequences the remaining work.
 
-- **12. Move the build and runtime to Java 21.** The stack is locked to Java 17 — the zsh profile pins it
+- **11. Move the build and runtime to Java 21.** The stack is locked to Java 17 — the zsh profile pins it
   and the build enforces it. 21 is the next LTS and the natural target, but the lock exists for a
   reason: newer JDKs (23/25) crash Keycloak (`getSubject … security manager`) and OpenSearch will not
   start under them. So this is not a blind bump — verify Keycloak and OpenSearch run on 21 first, then
@@ -493,13 +491,13 @@ Frontend work for the embeddable editor is tracked separately in
   problem — every Java repository now carries a wrapper at 3.9.14 and CI invokes `./mvnw` — except
   inside the build images, which still `microdnf -y install maven` unversioned.
 
-- **13. Point the token-verification client at a truststore in production.** Token-signature verification
+- **12. Point the token-verification client at a truststore in production.** Token-signature verification
   fetches the realm's signing keys over HTTPS; on the local stack that client trusts the self-signed
   `.orgx` certificate (`disableTrustManager` in `KeycloakDeploymentProvider`, matching the admin
   client). A real deployment should instead trust a truststore holding the realm CA. Small, and only
   matters outside local dev.
 
-- **14. Stop using the hardcoded BioPortal key, and rotate it.** `Constants.BP_PUBLIC_API_KEY` in
+- **13. Stop using the hardcoded BioPortal key, and rotate it.** `Constants.BP_PUBLIC_API_KEY` in
   `cedar-terminology-server` holds a literal BioPortal key, and `Cache` sends it on the four calls
   that populate the ontology and value-set caches (`findOntology` twice, `findAllOntologies`,
   `findAllValueSets`). Those are the server's own calls rather than calls made for a signed-in user,
@@ -525,7 +523,7 @@ Frontend work for the embeddable editor is tracked separately in
   here is the *cause*: read `CEDAR_BIOPORTAL_API_KEY` from config, delete the constant, and rotate the
   exposed key so the partial loads stop happening in the first place.
 
-- **15. Identify API keys by a non-secret id, not the secret in the URL.** The API-key management routes
+- **14. Identify API keys by a non-secret id, not the secret in the URL.** The API-key management routes
   carry the full secret in the path — `POST /{id}/api-keys/{key}/regenerate` and
   `DELETE /{id}/api-keys/{key}` — so the key lands in nginx access logs, request traces, monitoring and
   browser history. The cheap leaks are already closed (the not-found error no longer echoes the key and
@@ -534,7 +532,7 @@ Frontend work for the embeddable editor is tracked separately in
   (`/api-keys/{keyId}`), keeping the secret out of the path. Breaking change: cedar-cli and the profile
   UI call these routes, so it needs a coordinated client update.
 
-- **16. Deploy CEDAR from containers. The stack builds and runs locally; no environment deploys from
+- **15. Deploy CEDAR from containers. The stack builds and runs locally; no environment deploys from
   it.** Development runs as native processes brought up by hand — JDK 17 pinned, infra services
   started, fifteen service jars and the frontends launched through `cedar-services.sh` — and a deploy
   to staging or production rebuilds all of it on the target. Both work, and neither is reproducible. A
@@ -712,7 +710,7 @@ Frontend work for the embeddable editor is tracked separately in
          Neo4j        5.26.0          5.26.0     (moved 2026-08-08, was 5.3.0)
          Redis        7.2.7           7.2.7      (moved 2026-08-08, was 6.2.7)
          OpenSearch   2.19.1          2.19.1     (moved 2026-08-08, was 1.3.6)
-         Keycloak     22.0.5          22.0.4     (upstream is 26.7.1; see item 11 for what holds it)
+         Keycloak     22.0.5          22.0.4     (upstream is 26.7.1; see item 10 for what holds it)
 
      The direction is the surprise. The Docker images are the only place any of these versions is
      written down; the native stack is Homebrew, so `brew upgrade` moves four of the six with nobody
@@ -1232,7 +1230,7 @@ Frontend work for the embeddable editor is tracked separately in
   than a slow one, so they are worth knowing about before the next thing perturbs request latency.
 
 
-- **17. Adopt Renovate, so a version that falls behind says so.** Every pin in this estate is
+- **16. Adopt Renovate, so a version that falls behind says so.** Every pin in this estate is
   maintained by someone remembering to look at it, and the measurement above is what that produces:
   the Docker OpenSearch image sat at 1.3.6 while the servers shipped the 2.19 client, for about two
   years, and nothing anywhere reported it. Renovate is a bot that reads the files a repository
@@ -1294,7 +1292,7 @@ Frontend work for the embeddable editor is tracked separately in
   manager is what makes them watchable again. Adopting no bot at all remains a coherent choice — the
   versions are at least in one place now — but it means those six are watched by nobody, as before.
 
-- **18. Build the MCP servers with everything else.** Four of them live under `$CEDAR_HOME/mcp`:
+- **17. Build the MCP servers with everything else.** Four of them live under `$CEDAR_HOME/mcp`:
   `cedar-artifact-mcp`, `cedar-artifact-rest-mcp` and `cedar-cee-mcp` are Maven projects,
   `bioportal-term-mcp` is Python. Each is its own repository, none is part of `cedarcli build java`,
   none has a GitHub Actions workflow, and neither [BACKEND-RUNBOOK.md](./BACKEND-RUNBOOK.md) nor
@@ -1329,7 +1327,7 @@ Frontend work for the embeddable editor is tracked separately in
   - Decide whether they join the release or stay outside it, as CEE and the TypeScript model library
     do.
 
-- **19. Manage the transitive artifacts that still split on the test classpath.** Thirty-four
+- **18. Manage the transitive artifacts that still split on the test classpath.** Thirty-four
   artifacts that resolved to several versions across the estate are now managed in `cedar-parent`,
   which also repaired six integration classes that had been dying in `oneTimeSetUp` on
   `NoClassDefFound org/eclipse/jetty/http/UriCompliance`, the Neo4j harness's Jetty 9.4.49 beating
@@ -1345,7 +1343,7 @@ Frontend work for the embeddable editor is tracked separately in
   can be what breaks a suite, and forcing a newer one on a consumer built against the old can break a
   suite that passes today. The whole estate's suites, 7,814 tests, are the check.
 
-- **20. Upgrade Mockito so byte-buddy converges, and then manage it too.** `byte-buddy` is the one
+- **19. Upgrade Mockito so byte-buddy converges, and then manage it too.** `byte-buddy` is the one
   artifact deliberately left unmanaged, and the pom says why: `dropwizard-hibernate` 4.0.17 brings
   1.18.4 at compile scope for Hibernate's bytecode enhancer, and Mockito 5.7.0 brings 1.14.9 at test
   scope. That is a scope boundary rather than drift, and forcing either version onto the other side
@@ -1356,7 +1354,7 @@ Frontend work for the embeddable editor is tracked separately in
   set. Move `byte-buddy-agent` with it, since Mockito needs the two to match, and confirm the mock
   matrix still passes rather than trusting a green compile.
 
-- **21. Let the rebuilt search index become searchable before `regenerate-search-index` swaps the
+- **20. Let the rebuilt search index become searchable before `regenerate-search-index` swaps the
   alias onto it.** `RegenerateSearchIndexTask` orders its steps correctly: it indexes every batch,
   including the final partial one, then points the `cedar-search` alias at the new index, then deletes
   the old one. What it does not do is wait for what it just wrote to become visible. `addBatch` issues
@@ -1380,7 +1378,7 @@ Frontend work for the embeddable editor is tracked separately in
 Coverage and test-infrastructure work. The active REST integration suites live in
 `ops/e2e/rest/suites/`; the JUnit matrices and boot-smoke live in the per-server modules.
 
-- **22. Decide whether the build runs the tests, and give the answer a command-line option. Stop the
+- **21. Decide whether the build runs the tests, and give the answer a command-line option. Stop the
   output loop busy-polling.** The Java build skips its tests again: every Java repo is built with
   `./mvnw clean install -DskipTests`, and the `CEDAR_DEV_SKIP_TESTS` escape hatch is gone with the
   default it modified. That restores the behaviour the build had before, and it means a green
@@ -1449,7 +1447,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   "Execution succeeded!" and exits 0. A build that continued past a failure must record it, say so in
   the closing panel, and exit non-zero.
 
-- **23. Deepen the core-workflow tests instead of growing the headline count.** The JUnit matrices and the
+- **22. Deepen the core-workflow tests instead of growing the headline count.** The JUnit matrices and the
   REST suites now give the system respectable horizontal coverage: routes boot, authentication and
   permission boundaries are pinned, and create/read/update/delete, sharing, search, versioning and the
   cross-service hop all execute against the real stack. Much of that is deliberately
@@ -1488,7 +1486,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   versions or search projection disagreeing. The present suite protects the behavioural skeleton; this
   item protects the integrity of state when operations fail or are repeated.
 
-- **24. Add degradation tests.** Nothing asserts how a service behaves when a dependency it needs is
+- **23. Add degradation tests.** Nothing asserts how a service behaves when a dependency it needs is
   unavailable. The cost of that gap is known: reading any folder whose creator could not be resolved
   returned 500 for as long as the defect existed, because `UserSummaryCache` let Guava's
   "loader returned null" signal escape instead of degrading to the no-display-name path the callers
@@ -1496,7 +1494,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   asserts the API degrades rather than 500s. Bear in mind that queue writes are already best-effort
   by design (`AppLoggerQueueService`, the worker and NCBI queues), so those are the pattern to match.
 
-- **25. Retry the ontology-list load in the term picker (frontend, `cedar-template-editor`).** This is a
+- **24. Retry the ontology-list load in the term picker (frontend, `cedar-template-editor`).** This is a
   change to the Angular frontend, not to any microservice or test suite — it lands in
   `cedar-template-editor`, and so needs a frontend owner to review and push it (see the note below).
   It is the last piece of this defect still outstanding, and the fix is already written: it is open as
@@ -1541,13 +1539,13 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   and never could succeed. Nothing is saved server-side until after the block, so a failed attempt
   leaves no orphan template.
 
-- **26. Give `UserSummaryCache` a seam a test can reach.** The class resolves the display names that
+- **25. Give `UserSummaryCache` a seam a test can reach.** The class resolves the display names that
   decorate every resource read, and nothing tests it. `cedar-cache-operations-library` has no test
   sources at all. Reaching it needs a seam that does not exist today: the class is static throughout,
   its `init` takes a `CedarConfig`, and its loader calls the user server over HTTP.
 
   That gap has cost twice, both times in the same few lines. Guava's "loader returned null" signal
-  escaping as a 500 is recorded in item 24. The second is what a failure costs when it repeats. Guava
+  escaping as a 500 is recorded in item 23. The second is what a failure costs when it repeats. Guava
   caches a value and never a failure, so an unresolvable id was fetched again on every lookup and each
   attempt waited out the 20-second socket timeout, while `ProvenanceNameUtil` asks for three ids per
   resource and repeats that for every ancestor on a path and every entry of a listing. The
@@ -1570,7 +1568,9 @@ production already holds, and what has to be rewritten before the model can be h
 The shared corpus is the sample every count below is drawn from, and it is a sample: preprod captures
 of real templates and instances, kept beside their corrected copies precisely so the defect stays
 legible. Every item therefore starts the same way, with a query over stored artifacts that says how
-far the sample generalizes.
+far the sample generalizes. One defect is not listed here but belongs to the same body of work: the
+stored constraints recording a term count of zero, whose patch waits on what that zero should have
+been — item 7.
 
 Two of these are now blocking rather than latent. Both model libraries refuse an empty `@id` and an
 empty `pav:derivedFrom` on read, so a stored artifact carrying either can no longer be read by the
@@ -1578,7 +1578,7 @@ library at all — it throws where it used to drop the value silently. That is t
 it makes the patch a precondition for anything that reads those artifacts through the libraries
 rather than an improvement to schedule at leisure.
 
-- **27. Temporal fields that declare no `temporalType`.** Production holds temporal fields that
+- **26. Temporal fields that declare no `temporalType`.** Production holds temporal fields that
   declare none, and a field in that state cannot be filled in at all: it sits in the template as a
   slot nobody can complete. No reader refuses it, so nothing surfaces the field until a user reaches
   it. The patch is finding the stored fields and giving each one a `temporalType` that agrees with
@@ -1591,20 +1591,20 @@ rather than an improvement to schedule at leisure.
   it the other way, and leaving `@type` optional, means a temporal value can be stored with no
   statement of what kind of temporal value it is, which every reader then has to guess at.
 
-- **28. `pav:derivedFrom` written as an empty string.** The key names the artifact a copy was made
+- **27. `pav:derivedFrom` written as an empty string.** The key names the artifact a copy was made
   from, and it is optional: an artifact derived from nothing leaves it out. **289** schema artifacts in
   the shared corpus wrote `""` instead, against 41 naming a real IRI — 146 of them in one template,
   133 in another, ten across two more. The corpus is corrected and both libraries now refuse the empty
   string on read, in JSON and in YAML. What remains is the query over stored templates, elements and
   fields, and a rewrite that drops the key wherever it is empty.
 
-- **29. `"@id": ""` on element occurrences in stored instances.** The same disease on the identifier
+- **28. `"@id": ""` on element occurrences in stored instances.** The same disease on the identifier
   itself. Half the element occurrences in the corpus carried it — 59 nodes across four instances,
   since corrected to `null` — and both libraries now refuse it. Whether production holds them, and how
   many, is unmeasured; the rewrite is to `null`, which is what an occurrence with no assigned identity
-  says. The rule this serves, and who is allowed to mint an identifier at all, is item 9.
+  says. The rule this serves, and who is allowed to mint an identifier at all, is item 8.
 
-- **30. `_ui.pages`, a key the meta-schema forbids.** A template's `_ui` may carry `order`,
+- **29. `_ui.pages`, a key the meta-schema forbids.** A template's `_ui` may carry `order`,
   `propertyLabels`, `propertyDescriptions`, `header` and `footer`, and nothing else:
   `additionalProperties` is `false`. **120** template documents in the corpus carry `pages` there, 34
   of them preprod captures, and `CedarValidator` rejects every one of them for it. Both model
@@ -1613,22 +1613,13 @@ rather than an improvement to schedule at leisure.
   becomes part of the model or is dropped from stored templates, then patch accordingly — the count
   says this is not a stray.
 
-- **31. A count of zero standing for "unknown".** A value-set or ontology constraint records how many
-  terms the vocabulary has, and production has written `0` where nobody knew. Two preprod captures in
-  the corpus still show it, and the corrected copies name real counts. The same zero breaks template
-  saving outright for GAZ, whose count comes back `n/a` and reaches a meta-schema requiring
-  `minimum: 1` — tracked with its producer on
-  [TEMPLATE-DESIGNER-ROADMAP.md](./TEMPLATE-DESIGNER-ROADMAP.md). What that zero should have been, and
-  how "unknown" is written at all, is item 8; the patch is the stored constraints that already carry
-  one.
-
-- **32. Identifiers the Template Designer minted.** `DataManipulationService.generateTempGUID` hands
+- **30. Identifiers the Template Designer minted.** `DataManipulationService.generateTempGUID` hands
   out `tmp-<ts>-<n>`, and `create-element.controller.js` falls back to `generateGUID()` where an
   element has no `@id`. Both name an identity nothing assigned. Whether any reached stored artifacts —
   rather than living only in the editor's working copy — is a query, and any that did are the same
-  rewrite as item 29. The producer is tracked on [TEMPLATE-DESIGNER-ROADMAP.md](./TEMPLATE-DESIGNER-ROADMAP.md).
+  rewrite as item 28. The producer is tracked on [TEMPLATE-DESIGNER-ROADMAP.md](./TEMPLATE-DESIGNER-ROADMAP.md).
 
-- **33. Ontology constraints that carry no canonical `iri`, and `sourceUri` where it is no longer
+- **31. Ontology constraints that carry no canonical `iri`, and `sourceUri` where it is no longer
   authored.** The versioned value-constraint shape names a source with `sourceSystem` and
   `sourceAcronym` and identifies it with a canonical `iri`; the older shape carried `sourceUri` and
   neither of the other two. Stored constraints are readable either way — a tolerant reader defaults an
