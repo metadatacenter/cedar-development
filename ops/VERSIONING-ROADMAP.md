@@ -635,12 +635,30 @@ response.
    a SKOS vocabulary that names its concepts with `rdfs:label` gets no name at all and draws the
    IRI-fragment fallback. Fixing it is an extractor change and a re-ingest of those ten.
 
-   **A third, unfixed:** 465 concepts in 36 ontologies store a label running over several lines,
-   led by BIBFRAME (214) and ABD (86). ABD asserts six synonyms in one `rdfs:label` literal beside
-   the real name and the extractor kept whichever came first, so "Histoplasmosis" is served as
-   "Cave disease ⏎ Darling's disease ⏎ Ohio valley disease ⏎ …". A literal spanning lines is not a
-   label; preferring a single-line one would fix it, and is again an extractor change plus a
-   re-ingest.
+   **A third, fixed in the extractors 2026-08-16 and awaiting a re-ingest.** 465 concepts in 36
+   ontologies store a label running over several lines, led by BIBFRAME (214) and ABD (86). ABD
+   packs a list into one `rdfs:label` literal beside the real name, and the extractor kept whichever
+   came first, so a class asserting the plain label "Meningitis" was served, indexed and offered by
+   the picker as "Bacterial meningitis Meningococcal meningitis Viral meningitis Fungal meningitis
+   Parasitic meningitis Non infectious meningitis" — the entries run together, because a display
+   collapses the line breaks.
+
+   A fourth travels with it and is far more widespread: **9,044 labels carry leading or trailing
+   whitespace**, led by METABUS (4,876), ONTOPSYCARE (1,296), FGNHNS (489) and JFO (486), with a
+   long tail reaching NCIT's 12. Padding is invisible where it is served and significant where the
+   label is compared, so it is a defect that only ever shows up as a false difference.
+
+   Both are now one rule, in `Names`: a name is a single line of text, so a literal is reduced to
+   its first non-blank line, trimmed, and the lines below it become names in their own right. Where
+   a concept asserts both a plain label and a list, language decides first — BioPortal's choice of
+   language must not shift — and the plain literal wins among equals. Nothing is invented and
+   nothing is lost: each entry becomes findable on its own, where the run-on could only be matched
+   by a query spanning two of them. Only the pick and the label table changed; the hierarchy did not.
+
+   The repair is a re-ingest, for the same reason the blank-literal one was: a version id is a hash
+   over `pref_label`, so correcting a label in place would change the release's identity rather than
+   repair it. The affected set is larger than the 36 — every ontology holding a padded label — and
+   it has not been run.
 - **8. Term ordering in search: what BioPortal does, and what the local store can do instead
    (replace-BioPortal track).** Ordering is the one part of lookup the local store does not model.
    Inside a snapshot, `SnapshotStore.labelSearch` orders by `length(pref_label), pref_label, iri`;
@@ -736,11 +754,26 @@ response.
    no history to fetch). The store went from 1,343 snapshots to 2,460, and from 1,149 ontologies
    holding one release to **573**.
 
-   What remains is the large end, deliberately left: the 30 ontologies at 50k–200k, the six at 200k+
-   (DDSS 807k, GAZ 669k, BERO 392k, PR 333k, RH-MESH 305k, CCO 265k) and NCBITAXON at 2.85M. About
-   ten hours and 17 GB at the measured 300–530 classes a second. **Depth would be worth more than
-   breadth now:** four releases apiece exercises the release list and freeze, but not a term moving
-   parents or being deprecated across years, and BioPortal holds 150 submissions of NCIT alone.
+   *2026-08-16, the 50k–200k band:* those 30 ontologies, **77 submissions ingested**, 3 failed and 3
+   with no history to fetch.
+
+   *2026-08-16, depth rather than breadth:* four releases apiece exercises the release list and
+   freeze, but not a term moving parents or being deprecated across years, and BioPortal holds 150
+   submissions of NCIT alone. The store held four, all from 2026, so the release list had nothing
+   interesting to show. Ingesting **19 NCIT releases, one per year from 2007 to 2026** (submissions
+   146, 142, 140, 124, 112, 100, 86, 71, 58, 46, 42, 37, 23, 11, 9, 7, 5, 3, 1) gives the first
+   history long enough for a term to visibly move between two pins. Run behind the band above by
+   `ops/run-after.sh`, which waits on the first driver by process: each ingest is a full parse
+   holding the ontology in memory, and BioPortal is one API, so two at once halves neither's time.
+
+   **The first four of those releases were ingested before the whitespace fix and the rest after**,
+   because the ingest classpath was rebuilt under a running driver. NCIT holds 12 padded labels, so
+   a diff across that boundary shows 12 label changes that never happened. The re-ingest the label
+   fix already requires resolves it; until then, do not read a release diff spanning submission 124.
+   The lesson generalises: **do not build into the ingest classpath while an ingest is running.**
+
+   What remains is the top of the range: the six at 200k+ (DDSS 807k, GAZ 669k, BERO 392k, PR 333k,
+   RH-MESH 305k, CCO 265k) and NCBITAXON at 2.85M.
 
    The 131 failures are informative rather than alarming: 31 produced 0 classes and the guard
    refused to overwrite a good snapshot, 17 were HTTP 404 on a submission BioPortal lists but will
