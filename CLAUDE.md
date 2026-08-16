@@ -26,7 +26,7 @@ Helper scripts are in `cedar-development/ops/`:
 
 ## Ops docs: roadmaps and runbooks
 
-Fourteen documents under `cedar-development/ops/`, paired by area: a runbook says how to run, build,
+Thirteen documents under `cedar-development/ops/`, paired by area: a runbook says how to run, build,
 release and deploy; a roadmap tracks open work. Findings and measurements sit with whichever of the
 pair they belong to rather than in files of their own, so start from the pair for your area and
 search within it.
@@ -55,23 +55,21 @@ The embeddable editor (CEE) and the TypeScript model library it consumes:
 - [MODEL-LIBRARY-PARITY.md](ops/MODEL-LIBRARY-PARITY.md) — measured divergences between the
   TypeScript and Java model libraries over the shared corpus.
 
-Terminology versioning:
+Terminology versioning, the authoring surface included — `cedar-term-picker`, the Web Component
+replacing the Workbench's controlled-term picker, is tracked here rather than in a pair of its own,
+because it exists to author versioned constraints:
+- [VERSIONING-RUNBOOK.md](ops/VERSIONING-RUNBOOK.md) — running it: the store on disk, ingesting and
+  rebuilding the index, serving the store from the terminology server, and building, testing and
+  running the picker.
+- [VERSIONING-ROADMAP.md](ops/VERSIONING-ROADMAP.md) — what remains across the model, the store and
+  the picker, plus the findings behind it: what the picker replaces and has built, the ingestion
+  tracker, the BioPortal reconciliation log, and the survey of ingesting from other repositories.
 - [VERSIONING-DESIGN.md](ops/VERSIONING-DESIGN.md) — what the model is and why: content-hash
   identity, the constraint shape, freeze-on-publish, and what the store captures and serves for
   multilingual labels.
-- [VERSIONING-ROADMAP.md](ops/VERSIONING-ROADMAP.md) — what remains, plus the findings behind it:
-  the ingestion tracker, the BioPortal reconciliation log, and the survey of ingesting from other
-  repositories.
-
-The term picker (`cedar-term-picker`), the Web Component replacing the Workbench's
-controlled-term picker:
-- [TERM-PICKER-RUNBOOK.md](ops/TERM-PICKER-RUNBOOK.md) — the repository's conventions, the
-  endpoints the component reads, and the build and test gate once it exists.
-- [TERM-PICKER-ROADMAP.md](ops/TERM-PICKER-ROADMAP.md) — everything still open, from the
-  result contract and the host decision through to retiring the picker it replaces.
 - [VERSION-AWARE-SEARCH.md](ops/VERSION-AWARE-SEARCH.md) — the request and response shapes of
-  `POST /search`, the terminology server endpoint the picker is built against, keyed to the
-  versioned value-constraint naming.
+  `POST /search` and `GET /search/hierarchy`, the terminology server endpoints the picker is built
+  against, keyed to the versioned value-constraint naming.
 
 The rest:
 - [RELEASE-RUNBOOK.md](ops/RELEASE-RUNBOOK.md) — `cedarcli release all-in-one` across the ~48

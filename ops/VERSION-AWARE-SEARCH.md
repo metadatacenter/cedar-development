@@ -10,7 +10,7 @@ version does not contain — which manufactures the irreproducibility the versio
 constraint, what may fill it. This answers the authoring half.
 
 Why it is being built, what it replaces and how it is sequenced are in
-[TERM-PICKER-ROADMAP.md](./TERM-PICKER-ROADMAP.md). Work is on the `version-aware-search` branch
+[VERSIONING-ROADMAP.md](./VERSIONING-ROADMAP.md). Work is on the `version-aware-search` branch
 of `cedar-terminology-server`.
 
 ## Naming
