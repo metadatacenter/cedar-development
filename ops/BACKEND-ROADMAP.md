@@ -1581,9 +1581,15 @@ rather than an improvement to schedule at leisure.
 - **27. Temporal fields that declare no `temporalType`.** Production holds temporal fields that
   declare none, and a field in that state cannot be filled in at all: it sits in the template as a
   slot nobody can complete. No reader refuses it, so nothing surfaces the field until a user reaches
-  it. The companion question, whether `InstanceValidator` should require `@type` on every temporal
-  value, is on [CEE-ROADMAP.md](./CEE-ROADMAP.md); the patch is finding the stored fields and giving
-  each one a `temporalType` that agrees with whatever values it already holds.
+  it. The patch is finding the stored fields and giving each one a `temporalType` that agrees with
+  whatever values it already holds.
+
+  The companion question belongs here rather than beside CEE, because it is the same decision about
+  the same stored data: whether `InstanceValidator` should require `@type` on every temporal value.
+  Requiring it makes an instance written against one of these fields invalid, which is the honest
+  answer only once the fields carry a `temporalType` — so the two are ordered, patch first. Settling
+  it the other way, and leaving `@type` optional, means a temporal value can be stored with no
+  statement of what kind of temporal value it is, which every reader then has to guess at.
 
 - **28. `pav:derivedFrom` written as an empty string.** The key names the artifact a copy was made
   from, and it is optional: an artifact derived from nothing leaves it out. **289** schema artifacts in

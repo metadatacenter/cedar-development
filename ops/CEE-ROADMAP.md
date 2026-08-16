@@ -44,10 +44,7 @@ commit that opened it.
 5. **Markup discoverability.** Have the Template Designer's rich-text editor declare or
    enforce what an embedder will actually render, since its `Source` button accepts markup
    CEE will strip.
-6. **Temporal `required`.** Settle whether `InstanceValidator` should require `@type` on
-   every temporal value, and fix the production temporal fields that declare no
-   `temporalType` and so cannot be filled in at all.
-7. **The authority marks are three different things pretending to be one.** ORCID, PFAS, NIH
+6. **The authority marks are three different things pretending to be one.** ORCID, PFAS, NIH
    Grant and DOI are not those organisations' logos: they are approximations someone drew — an
    `iD` in a green circle, `NIH` in a navy box — inlined as SVG data URIs. PubMed and RRID are
    the real marks, but rasterised, and PubMed's is a JPEG, which is a lossy format with no
@@ -56,14 +53,14 @@ commit that opened it.
    marks for all seven — a trademark and asset-licensing question rather than a technical one,
    though nominative use of a registry's logo to label a field targeting that registry is the
    ordinary case — and if so, obtain them as vectors and inline them the way ROR now is.
-8. **Type the config surface end to end, now that the audit is done.** Nine keys remain,
+7. **Type the config surface end to end, now that the audit is done.** Nine keys remain,
    from forty-odd: `terminologyBaseUrl` and `bridgeBaseUrl`, three language keys, and four
    booleans. `CeeConfig` is closed, so a misspelling is a compile error and the index
    signature that once carried fourteen authority overrides is gone with them. What is left
    is smaller than it was: `showTemplateDescription` is set by nobody and set to `false`
    explicitly by the two hosts that mention it, one of them because it renders the
    description in its own header — decided, for now, to keep.
-9. **The documentation site describes a CEE nobody can install yet, and shows one that no longer
+8. **The documentation site describes a CEE nobody can install yet, and shows one that no longer
    exists.** `cedar-mkdocs` was rewritten from roughly forty configuration keys down to the nine that
    remain, which matches `develop` and the changelog's unreleased section — but npm still serves
    `1.6.0`, so a reader following the site today meets keys their copy does not have. Decide whether

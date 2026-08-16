@@ -635,8 +635,8 @@ defect count. It has gone 0 → 31 → 34 and should only go up.
 
 All three remaining failures are defects in the templates themselves — 001 has
 no `@id`, 003 will not compile, and 029 contradicts itself by offering literal
-choices under an IRI-only schema. See [CEE-ROADMAP.md](./CEE-ROADMAP.md) →
-Model conformance for the evidence on each.
+choices under an IRI-only schema. [CEE-ROADMAP.md](./CEE-ROADMAP.md) carries what
+is open on each.
 
 ### Why the harness check can be trusted
 
@@ -847,7 +847,7 @@ republish rather than overwriting. For a tight local edit loop, prefer
 
 **A test asserts something that looks wrong**
 Check whether it sits in a "known defects (characterized, not endorsed)" block.
-Those assert what CEE *does*, deliberately. See [CEE-ROADMAP.md](./CEE-ROADMAP.md) → What needs doing.
+Those assert what CEE *does*, deliberately. [CEE-ROADMAP.md](./CEE-ROADMAP.md) carries what is open.
 
 ---
 
