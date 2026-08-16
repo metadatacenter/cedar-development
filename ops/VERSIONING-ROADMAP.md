@@ -946,9 +946,29 @@ left that does not need a host.
     ontologies, but nothing runs it, and an index behind the catalog reports the version it holds
     rather than the one that exists — correctly, and confusingly. Decide what triggers a rebuild.
 
+- **26. Tell a release apart from a re-extraction of it.** A version id is a hash over extracted
+    content, so changing an extractor mints a new version of a release that did not change. ABD has
+    exactly one BioPortal submission, released 2016-09-13, and the store now holds three snapshots
+    of it — one per generation of the label fixes — which the picker offers as "3 releases", all
+    with that same effective date. An author reading that list is being told ABD was released three
+    times, and can pin to a superseded extraction whose labels are the ones the repair existed to
+    correct.
+
+    It is proven for the five groups whose snapshots record the same BioPortal submission id, and
+    that undercounts: 1,061 snapshots predate the provenance column and record no submission at all.
+    The looser signal — one acronym, one effective date, several version ids — covers **271 groups
+    and 348 of 2,533 snapshots**, an upper bound, because two genuine submissions can share a date.
+    Every repair re-ingest adds more; the 36-ontology label repair adds 36.
+
+    The fix is to model the two identities separately rather than to delete anything: a release is
+    identified by the source's submission, a snapshot by its content hash, and the release list
+    should show releases with the current extraction of each, keeping the rest reachable for audit
+    and out of the pinning path. Superseding is what makes freeze-on-publish safe — a pin resolved
+    at publish time should not be able to land on an extraction known to be wrong.
+
 ### Cutover
 
-- **26. Ship behind a flag for one release, then delete what it replaces.** The new component is the
+- **27. Ship behind a flag for one release, then delete what it replaces.** The new component is the
     default from the day it lands, with the old picker reachable behind a flag so a blocking gap
     found in real use has a way back. The AngularJS directives, controllers and templates under
     `cedar-template-editor/app/scripts/controlled-term/` come out the release after, together with
