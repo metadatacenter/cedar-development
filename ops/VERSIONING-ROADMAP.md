@@ -208,7 +208,7 @@ live). Nothing to snapshot; reproducibility comes from recording the chosen valu
 instance, which CEDAR already does. PFAS lands in row 3 (enumerable release) or row 4 (live lookup).
 
 Every row has a base `iri`, including the open authorities: ORCID → `https://orcid.org/`, EPA
-CompTox (PFAS) → the DTXSID namespace. For sources with content these are derived (§6.1); for open
+CompTox (PFAS) → the DTXSID namespace. For sources with content these are derived (§6.4); for open
 authorities the backend adapter declares them as a constant.
 
 ### 6. The value-constraint shape
@@ -450,8 +450,7 @@ The local read path now serves the captured names:
 English-preferred).
 
 Whether the served `pref_label` is the right thing to fold into content identity is
-an open question, not a settled one — see
-[VERSIONING-ROADMAP.md](VERSIONING-ROADMAP.md) item 3.
+an open question, not a settled one — see item 3 above.
 
 ## Pending
 
