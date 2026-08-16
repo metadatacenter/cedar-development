@@ -350,14 +350,18 @@ model libraries — where their JSON and YAML serializations diverge — is in
   Three values have occupied that slot, which is worth knowing before touching stored data. A **minted
   UUID**, which the artifact library wrote until it was removed as fabricated identity. An **empty
   string**, which half the element occurrences in the shared corpus carried — 59 nodes across four
-  instances, since corrected to `null` — and which passes validation for a reason worth knowing: `""`
-  satisfies `type: string` and `format: uri` is not enforced, so the schema states a rule nothing
-  checks. And **`null`**, what both libraries write today. Both libraries now refuse an empty `@id`, in
-  YAML and in JSON, so the empty string cannot re-enter through either. What is still tolerated is an
-  empty string on other URI keys: `pav:derivedFrom` carries one on **437 corpus artifacts**, so holding
-  those to the same rule needs a decision and a migration of its own — the same disease, at a scale
-  that cannot simply be refused. Whether the empty strings are common in production is a query over
-  stored instances, and whatever is decided may need a migration beside it.
+  instances, since corrected to `null`. And **`null`**, what both libraries write today.
+
+  Why the empty string passed is worth stating exactly, because an earlier reading of it here was
+  wrong. The slot is typed `{"type": "string", "format": "uri"}`, and the validator **does** assert
+  that format: measured against `CedarValidator` on a template and a matching instance, an occurrence
+  carrying `"not a uri at all"` is rejected at `#/properties/…/@id/format`, one carrying `null` is
+  rejected for the type, and an absent key is rejected as a missing required property. What passes is
+  `""`, because an empty relative reference is a well-formed URI. So the rule is asserted and the empty
+  string satisfies it — not, as this said before, a rule nothing checks. Both libraries now refuse an
+  empty `@id` in YAML and in JSON, and `pav:derivedFrom` with them, so neither can re-enter through a
+  reader. What production holds is a separate question, under
+  [Production Artifact Patch](#production-artifact-patch).
 
   **Where the producers stand.** CEE no longer mints element-occurrence identifiers: it stamped a GUID
   onto every occurrence it built, and stopped once the requirement it was meeting turned out not to
@@ -1573,3 +1577,63 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   a failed lookup is not retried inside the retention window, that `put` clears the record for an id
   before it expires, and that the record does expire. Putting the loader behind an interface the test
   can supply is most of the work; the assertions are small once it is there.
+
+## Production Artifact Patch
+
+Defects that live in stored artifacts rather than in code. Each began as something a producer wrote,
+and each producer is tracked with its own repository; what is collected here is the other half — what
+production already holds, and what has to be rewritten before the model can be held to its own rules.
+The shared corpus is the sample every count below is drawn from, and it is a sample: preprod captures
+of real templates and instances, kept beside their corrected copies precisely so the defect stays
+legible. Every item therefore starts the same way, with a query over stored artifacts that says how
+far the sample generalizes.
+
+Two of these are now blocking rather than latent. Both model libraries refuse an empty `@id` and an
+empty `pav:derivedFrom` on read, so a stored artifact carrying either can no longer be read by the
+library at all — it throws where it used to drop the value silently. That is the intended rule, and
+it makes the patch a precondition for anything that reads those artifacts through the libraries
+rather than an improvement to schedule at leisure.
+
+- **28. Temporal fields that declare no `temporalType`.** Production holds temporal fields that
+  declare none, and a field in that state cannot be filled in at all: it sits in the template as a
+  slot nobody can complete. No reader refuses it, so nothing surfaces the field until a user reaches
+  it. The companion question, whether `InstanceValidator` should require `@type` on every temporal
+  value, is on [CEE-ROADMAP.md](./CEE-ROADMAP.md); the patch is finding the stored fields and giving
+  each one a `temporalType` that agrees with whatever values it already holds.
+
+- **29. `pav:derivedFrom` written as an empty string.** The key names the artifact a copy was made
+  from, and it is optional: an artifact derived from nothing leaves it out. **289** schema artifacts in
+  the shared corpus wrote `""` instead, against 41 naming a real IRI — 146 of them in one template,
+  133 in another, ten across two more. The corpus is corrected and both libraries now refuse the empty
+  string on read, in JSON and in YAML. What remains is the query over stored templates, elements and
+  fields, and a rewrite that drops the key wherever it is empty.
+
+- **30. `"@id": ""` on element occurrences in stored instances.** The same disease on the identifier
+  itself. Half the element occurrences in the corpus carried it — 59 nodes across four instances,
+  since corrected to `null` — and both libraries now refuse it. Whether production holds them, and how
+  many, is unmeasured; the rewrite is to `null`, which is what an occurrence with no assigned identity
+  says. The rule this serves, and who is allowed to mint an identifier at all, is item 10.
+
+- **31. `_ui.pages`, a key the meta-schema forbids.** A template's `_ui` may carry `order`,
+  `propertyLabels`, `propertyDescriptions`, `header` and `footer`, and nothing else:
+  `additionalProperties` is `false`. **120** template documents in the corpus carry `pages` there, 34
+  of them preprod captures, and `CedarValidator` rejects every one of them for it. Both model
+  libraries drop the key on write, so a template that has been through either validates while the
+  stored original does not, and the two disagree about what the template is. Decide whether `pages`
+  becomes part of the model or is dropped from stored templates, then patch accordingly — the count
+  says this is not a stray.
+
+- **32. A count of zero standing for "unknown".** A value-set or ontology constraint records how many
+  terms the vocabulary has, and production has written `0` where nobody knew. Two preprod captures in
+  the corpus still show it, and the corrected copies name real counts. The same zero breaks template
+  saving outright for GAZ, whose count comes back `n/a` and reaches a meta-schema requiring
+  `minimum: 1` — tracked with its producer on
+  [TEMPLATE-DESIGNER-ROADMAP.md](./TEMPLATE-DESIGNER-ROADMAP.md). What that zero should have been, and
+  how "unknown" is written at all, is item 9; the patch is the stored constraints that already carry
+  one.
+
+- **33. Identifiers the Template Designer minted.** `DataManipulationService.generateTempGUID` hands
+  out `tmp-<ts>-<n>`, and `create-element.controller.js` falls back to `generateGUID()` where an
+  element has no `@id`. Both name an identity nothing assigned. Whether any reached stored artifacts —
+  rather than living only in the editor's working copy — is a query, and any that did are the same
+  rewrite as item 30. The producer is tracked on [TEMPLATE-DESIGNER-ROADMAP.md](./TEMPLATE-DESIGNER-ROADMAP.md).
