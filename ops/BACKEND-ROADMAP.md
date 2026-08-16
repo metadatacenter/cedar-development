@@ -311,9 +311,25 @@ Frontend work for the embeddable editor is tracked separately in
   is legal, the body validates before minting as well as after, so nothing has to be sequenced around
   it.
 
-  That leaves one rule covering both slots: **`null` where the schema requires the key, absence where
-  it does not.** An occurrence's `@id` is required, so "no value yet" can only be spelled `null`; an
-  attribute's term is required by nothing, so it is left out.
+  **A template child's property IRI goes the same way.** Both libraries generate one for a child whose
+  artifact declares none — `PropertyIri.forName` and `ParentSchemaArtifact.generatePropertyUri`, each
+  deriving `…/properties/<percent-encoded child name>` — and that is an IRI nothing assigned, however
+  reproducible it is. The server fills these too. Two measurements say what it costs, and the answer is
+  almost nothing: across every corpus template and element, all 75 child `@context` entries carry an
+  IRI the child declared and **none** is name-derived, so no stored artifact depends on the generator;
+  and a template whose child has no `@context` mapping validates against the meta-schema with no
+  errors, whether or not `required` still names it. So this is not a model change, unlike the
+  occurrence identifier.
+
+  It carries one sequencing constraint. The generators stay until the server fills, because they fire
+  for artifacts built through the builders — what the MCP servers and a converter produce — and
+  removing them first would leave such a template with no child mapping and nothing to supply one.
+  They go as part of the server change, and the round-trip tests that pin the attribute case extend to
+  cover children at the same time.
+
+  That leaves one rule covering all three slots: **`null` where the schema requires the key, absence
+  where it does not.** An occurrence's `@id` is required, so "no value yet" can only be spelled `null`;
+  an attribute's term and a child's property IRI are required by nothing, so they are left out.
 
   **What the server does on POST and PUT.** The instance enumerates the work rather than hiding it: an
   attribute-value field's own value *is* the list of attribute names it holds, so for each such field
@@ -324,8 +340,9 @@ Frontend work for the embeddable editor is tracked separately in
 
   - **Mint only where the term is absent.** An instance arriving at PUT already carries terms, and
     re-minting would hand the same attribute a new IRI on every save.
-  - **One pass, two jobs.** The same walk fills the element occurrences carrying `@id: null`. Both are
-    what only the server can fill, on create and update alike.
+  - **One pass, three jobs.** The same walk fills the element occurrences carrying `@id: null`, and on
+    a template or element it fills the child property IRIs that are missing from `@context`. All three
+    are what only the server can fill, on create and update alike.
   - **Read the keys rather than lean on validation**, which cannot tell null from absent, and which
     does not run `additionalProperties` inside `@context` at all today.
   - **Put it where both servers reach it.** The resource server and the artifact server both take POST
