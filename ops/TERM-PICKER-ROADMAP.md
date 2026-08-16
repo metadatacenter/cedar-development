@@ -146,13 +146,12 @@ which answers the branches tab's question: a class constraint is that term, and 
 changes nothing about the constraint. The same label appearing on the branches tab is where the
 subtree becomes the decision.
 
-**A term row names its ontology and nothing about the hierarchy.** It carried its parent for a
-while, because a label repeats within one ontology as readily as across several — ACESO merges
-three vocabularies and labels a class "Disease" in each — and two rows of one ontology are
-otherwise told apart by their descendant counts alone. The tree took that job when it arrived:
-marking a row draws the whole chain, which says more than one step ever did, and the row went back
-to the ontology it names. The cost is real and accepted — two rows of one ontology look alike until
-one is marked.
+**A term row names the step above it only where that is what distinguishes it.** A label repeats
+within one ontology as readily as across several — ACESO merges three vocabularies and labels a
+class "Disease" in each, so two of its rows carry the same acronym, the same name and the same
+release. Saying the parent on every row was noise; saying it on none left two rows an author cannot
+tell apart, which is what a fold of 245 ontologies makes of ACESO, BAO and BBO. So it is said where
+a fold holds more than one row from an ontology, and nowhere else.
 
 **The narrowing strip is chips and nothing else.** Adding an ontology and removing one are the same
 kind of act on the same strip, so the way in wears the shape of what it adds — a dashed chip reading
