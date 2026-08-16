@@ -728,9 +728,10 @@ rendering is correct.
 
 ### When a Baseline Passes and Is Still Wrong
 
-Every screenshot is judged against an absolute budget of **120 differing pixels**,
-not a proportion of its own area. That distinction is worth understanding before
-trusting a green run.
+Every screenshot is judged against an absolute budget, and that budget is now
+**zero**: the suite runs in a container, so a laptop and a runner rasterise text
+identically and a single differing pixel means CEE draws something different. The
+history of how it got there is worth understanding before trusting a green run.
 
 A proportional budget forgives in step with image size, so a localised change to a
 tall page cannot move enough pixels to fail it: 1% of a 1280x4418 corpus page is
@@ -741,9 +742,10 @@ single day that way — a decimal separator's colour and size, a placeholder fro
 failed fourteen baselines at once, between 557 and 8,837 differing pixels each, none
 of it rasterisation noise.
 
-So a passing screenshot does not prove the baseline matches what CEE renders. It
-proves the difference is under budget. The two were the same thing only after the
-budget stopped scaling.
+So a passing screenshot proved only that the difference was under budget, and that
+was never the same claim as the baseline matching what CEE renders. At zero they
+are the same claim, which is the point of the container: the tolerance existed for
+cross-machine rasterisation, and there is no longer a machine boundary to cross.
 
 **`npm --prefix visual run update` cannot fix such a baseline.** Playwright rewrites a snapshot only
 when its comparison failed, so one that passes while depicting the previous
