@@ -23,7 +23,12 @@ mkdir -p "$LOGDIR"
 
 CATALOG="$CEDAR_HOME/cedar-term/prod/catalog.sqlite"
 SNAPSHOTS="$CEDAR_HOME/cedar-term/prod/snapshots"
-CP="$CEDAR_HOME/cedar-terminology-server/cedar-terminology-server-ingest/target/classes:$(cat /tmp/ingest-cp.txt)"
+# The runtime classpath, kept beside the store rather than in /tmp, which is swept: a missing
+# file leaves only the classes directory and every ingest dies on NoClassDefFoundError in
+# under a second, which reads as a thousand failures rather than as one missing file.
+CPFILE="$CEDAR_HOME/cedar-term/prod/ingest-cp.txt"
+[ -s "$CPFILE" ] || { echo "no classpath at $CPFILE — run mvn dependency:build-classpath" >&2; exit 2; }
+CP="$CEDAR_HOME/cedar-terminology-server/cedar-terminology-server-ingest/target/classes:$(cat "$CPFILE")"
 RESULTS="$LOGDIR/results.tsv"
 : > "$RESULTS"
 
