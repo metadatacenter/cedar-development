@@ -1621,3 +1621,19 @@ rather than an improvement to schedule at leisure.
   element has no `@id`. Both name an identity nothing assigned. Whether any reached stored artifacts —
   rather than living only in the editor's working copy — is a query, and any that did are the same
   rewrite as item 29. The producer is tracked on [TEMPLATE-DESIGNER-ROADMAP.md](./TEMPLATE-DESIGNER-ROADMAP.md).
+
+- **33. Ontology constraints that carry no canonical `iri`, and `sourceUri` where it is no longer
+  authored.** The versioned value-constraint shape names a source with `sourceSystem` and
+  `sourceAcronym` and identifies it with a canonical `iri`; the older shape carried `sourceUri` and
+  neither of the other two. Stored constraints are readable either way — a tolerant reader defaults an
+  absent `sourceSystem` to BioPortal and derives the IRI from the acronym — so this is
+  self-description rather than a functional gap, which is why it sits here and not in Features. The
+  rewrite walks each stored template's controlled-term constraints, looks up the acronym's canonical
+  IRI from the terminology catalog (`ontologyIri(acronym)`, the only place that mapping lives), writes
+  it where derivable and leaves the rest to defaults. Dry-run with zero mutations first, reporting
+  coverage and the acronyms it cannot derive.
+
+  The code half — making the model's `uri` optional and stopping the editor writing it — is on
+  [VERSIONING-ROADMAP.md](./VERSIONING-ROADMAP.md), item 6. Patch the stored artifacts before
+  requiring the new shape of anything that reads them.
+
