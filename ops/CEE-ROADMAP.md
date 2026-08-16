@@ -60,12 +60,27 @@ commit that opened it.
    is smaller than it was: `showTemplateDescription` is set by nobody and set to `false`
    explicitly by the two hosts that mention it, one of them because it renders the
    description in its own header — decided, for now, to keep.
-8. **The documentation site describes a CEE nobody can install yet, and shows one that no longer
-   exists.** `cedar-mkdocs` was rewritten from roughly forty configuration keys down to the nine that
-   remain, which matches `develop` and the changelog's unreleased section — but npm still serves
-   `1.6.0`, so a reader following the site today meets keys their copy does not have. Decide whether
-   the site tracks the release or the branch, and if the release, hold the rewrite until 2.0.0
-   publishes. Separately, the walkthrough in `docs/tutorials/cedar_tutorial.md` carries screenshots
-   of the diagnostic panels beneath the form — `img/08-filled-form.png` and its neighbours — which the
-   download menu replaced. The prose is corrected; the images need retaking against a deployed 2.0.0,
-   and they can only be retaken once one is deployed.
+8. **The documentation site describes a CEE nobody can install yet.** `cedar-mkdocs` was
+   rewritten from roughly forty configuration keys down to the nine that remain, which matches
+   `develop` and the changelog's unreleased section — but npm still serves `1.6.0`, so a reader
+   following the site today meets keys their copy does not have. Decide whether the site tracks
+   the release or the branch, and if the release, hold the rewrite until 2.0.0 publishes.
+
+   The screenshots follow whichever answer that is. They are generated rather than captured —
+   `cedar-mkdocs/runner/` drives a live Workbench with Playwright and writes into
+   `docs/tutorials/img/` — so retaking them is `node run.mjs`, pointed with `CEDAR_BASE` at a
+   deployment serving the CEE in question. `runner/lib.mjs` already sets `ignoreHTTPSErrors` for
+   a local `.orgx` stack.
+
+   **The run does not currently finish against `.orgx`**, and that has to be fixed before any of
+   this can be regenerated. It stops in `step3_populateBasic`, waiting twenty seconds for the
+   Workbench's "The metadata have been created." toast. The save itself works — the POST returns
+   201, the instance appears in the folder, and teardown deletes it — so what fails is the wait,
+   not the flow. Nothing in the console explains it: the only page errors come from the runner's
+   own injected script, on every navigation, and they predate this. The Designer reads exactly one
+   member of CEE, `currentMetadata`, which is unchanged, so the toast is the thing to look at
+   rather than the editor. Reproduced twice.
+
+   Note also that a failed run leaves the tree half-written: `run.mjs` clears `docs/tutorials/img/`
+   before it starts, so a stop at step 3 deletes images 09 through 22 and writes only 01 through 08.
+   Restore with `git checkout` rather than committing the remains.
