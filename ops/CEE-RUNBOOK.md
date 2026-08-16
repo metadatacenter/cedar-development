@@ -948,10 +948,17 @@ curl -s "https://nexus.bmir.stanford.edu/repository/npm-cedar/@org.metadatacente
 ```
 
 A published version cannot be replaced, so the dry run is the check that matters.
-Then bump the dependency in **all three** CEE manifests — `package.json`,
-`harness/package.json` and `visual/package.json` — and run the full gate. A skew
-between them means the domain tests and the bundle disagree about what the model
-is.
+Then bump the dependency in **both** CEE manifests that declare it — `package.json`
+and `visual/package.json` — and run the full gate. A skew between them means the
+domain tests and the bundle disagree about what the model is. The harness declares
+none of its own: it imports `cedar-model-typescript-library` and resolves it from
+the root install, so the root manifest is what it reads.
+
+Both spell the dependency as an alias, `cedar-model-typescript-library:
+npm:@org.metadatacenter/cedar-model-typescript-library@<version>`, which is how the
+imports keep the unscoped name while the install comes from Nexus. A bare
+`"cedar-model-typescript-library": "<version>"` resolves against public npmjs
+instead, where the dev versions do not exist.
 
 ## Release
 
