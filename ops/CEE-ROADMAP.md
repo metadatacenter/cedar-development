@@ -2,8 +2,8 @@
 
 Open work for `cedar-embeddable-editor` and the TypeScript model library it consumes,
 one line each. How to build, test and release is in
-[CEE-RUNBOOK.md](./CEE-RUNBOOK.md); where the two model libraries disagree is in
-[MODEL-LIBRARY-PARITY.md](./MODEL-LIBRARY-PARITY.md); backend work is in
+[CEE-RUNBOOK.md](./CEE-RUNBOOK.md); backend work, including what the two model
+libraries still answer differently, is in
 [BACKEND-ROADMAP.md](./BACKEND-ROADMAP.md). The reasoning behind an item is in the
 commit that opened it.
 

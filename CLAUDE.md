@@ -26,7 +26,7 @@ Helper scripts are in `cedar-development/ops/`:
 
 ## Ops docs: roadmaps and runbooks
 
-Eleven documents under `cedar-development/ops/`, paired by area: a runbook says how to run, build,
+Ten documents under `cedar-development/ops/`, paired by area: a runbook says how to run, build,
 release and deploy; a roadmap tracks open work. Findings and measurements sit with whichever of the
 pair they belong to rather than in files of their own, so start from the pair for your area and
 search within it.
@@ -52,8 +52,6 @@ The embeddable editor (CEE) and the TypeScript model library it consumes:
 - [CEE-ROADMAP.md](ops/CEE-ROADMAP.md) — CEE's open work: what the finished Angular 14 → 22 march
   left behind, styling and theming, the host contract, plus the model library's own items and
   adoption status.
-- [MODEL-LIBRARY-PARITY.md](ops/MODEL-LIBRARY-PARITY.md) — measured divergences between the
-  TypeScript and Java model libraries over the shared corpus.
 
 Terminology versioning, the authoring surface included — `cedar-term-picker`, the Web Component
 replacing the Workbench's controlled-term picker, is tracked here rather than in a pair of its own,

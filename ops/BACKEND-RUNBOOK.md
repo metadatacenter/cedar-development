@@ -583,6 +583,40 @@ nested static field. `YamlAsymmetryProbeTest` in `cedar-artifact-library` and `Y
 in `cedar-artifact-server` both pin it. If a round trip ever loses a setting again, add a probe there
 rather than documenting the loss.
 
+### The two model libraries agree, and how to confirm it
+
+`cedar-artifact-library` (Java) and `cedar-model-typescript-library` (TypeScript) implement the same
+model and are meant to write the same document for the same artifact. They do: byte-identical YAML
+over all 81 corpus artifacts in the full form and the compact one, matching JSON over the same set,
+and each reads every document the other writes. Anything a run reports from here is a regression.
+
+Both comparisons live in the TypeScript library, which carries the corpus in-repo, so a plain clone
+runs them with nothing cloned or symlinked first:
+
+```bash
+npx ts-node ./itest/scripts/compare-verbatim-ts-java-yaml-files.ts
+npm run parity:yaml:compact
+```
+
+Each reads as a summary — a case with output on only one side is counted and skipped rather than
+thrown — and a green run names the four artifact kinds with `0 differing` against 17 fields, 6
+elements, 37 templates and 21 instances. The compact form went without a comparison of its own for a
+long time, which is how a missing identifier in the TypeScript library's compact output went
+unnoticed; both are gates now.
+
+Each library also holds two properties about itself as tests, so a regression fails a build rather
+than waiting for a comparison run. Every scalar returns as the string it went in as, over a few
+thousand adversarial strings generated from a fixed seed — `YamlScalarRoundTripTest` in Java,
+`YamlScalarRoundTrip.spec.ts` in TypeScript. And the compact form reads back as the artifact it was
+written from, keeping the identifier and carrying none of the model version, version, status or
+provenance — `CompactYamlRoundTripTest` and `CompactYamlRoundTrip.spec.ts`. Reading the compact form
+has to be asked for on both sides: the ordinary reader refuses it over the absent model version, and
+a reader for it is a separate constructor, `YamlArtifactReader(true)` in Java and
+`getStrictForCompact()` in TypeScript.
+
+What the two still answer differently is on [BACKEND-ROADMAP.md](./BACKEND-ROADMAP.md): whether a
+child artifact must carry `$schema`, plus two divergences recorded as costing nothing.
+
 ## Known gotchas and fixes (the expensive ones)
 
 - **Browser blocks login with a cert error, but `curl` works** → the local TLS **leaf certs
