@@ -63,10 +63,11 @@ because it exists to author versioned constraints:
   running the picker.
 - [VERSIONING-ROADMAP.md](ops/VERSIONING-ROADMAP.md) — everything else about versioning in one
   document: the model and why it is that (content-hash identity, the constraint shape,
-  freeze-on-publish, multilingual labels), what remains across the model, the store and the picker,
-  the request and response shapes of `POST /search` and `GET /search/hierarchy`, and the findings —
-  what the picker replaces and has built, the ingestion tracker, the BioPortal reconciliation log,
-  and the survey of ingesting from other repositories.
+  freeze-on-publish, multilingual labels), the numbered items still open across the model, the store
+  and the picker, the request and response shapes of `POST /search` and `GET /search/hierarchy`, and
+  the findings — what the picker replaces and has built, the ingestion tracker, the BioPortal
+  reconciliation log, and the survey of ingesting from other repositories. A finished item leaves
+  the numbered list and joins the built paragraph at the top; the numbers are not stable handles.
 
 The rest:
 - [RELEASE-RUNBOOK.md](ops/RELEASE-RUNBOOK.md) — `cedarcli release all-in-one` across the ~48
