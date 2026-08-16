@@ -1,7 +1,7 @@
 # CEDAR Embeddable Editor (CEE) — Roadmap
 
-Open work for `cedar-embeddable-editor` and the TypeScript model library it consumes,
-one line each. How to build, test and release is in
+Open work for `cedar-embeddable-editor` and the TypeScript model library it consumes.
+How to build, test and release is in
 [CEE-RUNBOOK.md](./CEE-RUNBOOK.md); backend work, including what the two model
 libraries still answer differently, is in
 [BACKEND-ROADMAP.md](./BACKEND-ROADMAP.md). The reasoning behind an item is in the
@@ -34,8 +34,8 @@ commit that opened it.
    must not be able to re-point — derive the rest with `color-mix` so a re-pointed brand
    drags its tints along, and keep geometry, density and Material internals CEE's own. Two
    things make it real rather than nominal: the Material theme has to read the properties,
-   which is item 3's work and why these land together; and the test has to set a role to a
-   sentinel and assert it reaches rendered pixels, where the old one asserted only that a
+   which is the M3 adapter's work and why these two land together; and the test has to set a
+   role to a sentinel and assert it reaches rendered pixels, where the old one asserted only that a
    property was published, which an inert property passes just as well. Expose a font only
    if it can apply consistently to every control — today `$cee-font-family` threads through
    the Material typography config from one token, so it is the cheapest of these and still
@@ -72,14 +72,10 @@ commit that opened it.
    deployment serving the CEE in question. `runner/lib.mjs` already sets `ignoreHTTPSErrors` for
    a local `.orgx` stack.
 
-   **The run does not currently finish against `.orgx`**, and that has to be fixed before any of
-   this can be regenerated. It stops in `step3_populateBasic`, waiting twenty seconds for the
-   Workbench's "The metadata have been created." toast. The save itself works — the POST returns
-   201, the instance appears in the folder, and teardown deletes it — so what fails is the wait,
-   not the flow. Nothing in the console explains it: the only page errors come from the runner's
-   own injected script, on every navigation, and they predate this. The Designer reads exactly one
-   member of CEE, `currentMetadata`, which is unchanged, so the toast is the thing to look at
-   rather than the editor. Reproduced twice.
+   **The run does not currently finish**, so nothing can be regenerated until it does. It stops
+   waiting for the Workbench's create-metadata toast, which never appears even though the save
+   succeeds — a Designer defect rather than an editor one, tracked on
+   [TEMPLATE-DESIGNER-ROADMAP.md](./TEMPLATE-DESIGNER-ROADMAP.md).
 
    Note also that a failed run leaves the tree half-written: `run.mjs` clears `docs/tutorials/img/`
    before it starts, so a stop at step 3 deletes images 09 through 22 and writes only 01 through 08.
