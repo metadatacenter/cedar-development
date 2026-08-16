@@ -1,6 +1,6 @@
 # CEDAR Terminology Versioning — Roadmap
 
-Forward-looking plan for the model in [VERSIONING-DESIGN.md](VERSIONING-DESIGN.md); running any of
+Forward-looking plan for the model described under [The Model](#the-model); running any of
 it — the store, the ingest, the server, the picker — is in
 [VERSIONING-RUNBOOK.md](VERSIONING-RUNBOOK.md).
 
@@ -27,7 +27,7 @@ The sections after the numbered items are findings rather than plans, and stay p
 [BioPortal reconciliation issues](#bioportal-reconciliation-issues) log that motivated the model, and
 the [survey of ingesting from other repositories](#ingesting-from-other-repositories). What the store
 captures and serves for multilingual labels is part of the model rather than a plan, and lives in
-[VERSIONING-DESIGN.md](VERSIONING-DESIGN.md#10-multilingual-labels); item 5 below is the open
+[Multilingual labels](#10-multilingual-labels); item 5 below is the open
 question about it.
 
 ## Where the code is, and how it is switched on
@@ -63,6 +63,394 @@ resolution) and the compact-YAML dialect are code-complete** — the version-awa
 preview only, pending production. The remaining gaps: the frontend (CEE sending the pin, and version
 selection in the new term picker) and instance-level capture (item 6).
 
+## The Model
+
+What versioning *is* here, and why it is that rather than something else. The numbered items
+above and below are the plan; this is what they rest on.
+
+A source-explicit, content-addressed version model for value constraints. Living document; the
+canonical statement of *what* the model is and *why*. Implementation status and sequencing live in
+[VERSIONING-ROADMAP.md](VERSIONING-ROADMAP.md), along with the divergence findings that motivated
+it — see [BioPortal reconciliation issues](VERSIONING-ROADMAP.md#bioportal-reconciliation-issues).
+
+Grounded in a survey of the 1,214 ingested BioPortal ontologies (2026-07-29).
+
+### Decision ledger
+
+| Decision | Status |
+|---|---|
+| Identity = content hash | **settled** |
+| `effectiveDate` = source publication (upload) date; fallback ingest timestamp | **settled** |
+| Stored pin = the triple `{id, effectiveDate, declaredVersion}`, `id` authoritative | **settled** |
+| Open authorities (ORCID/DOI/RRID) are not versioned; value captured in the instance | **settled** |
+| Constraint shape is source-explicit and additive; `sourceSystem`, not `source` | **settled** |
+| `ontology.iri` = identity (mandatory, precedence-derived), `acronym` = presentation label | **settled** |
+| Published templates freeze `latest` → the triple | **settled** |
+| Canonical `iri` form — normalized namespace (OBO → `obo/doid`; others → namespace, trailing separator stripped) | **settled** (§6.4) |
+| Hash over raw bytes vs normalized extracted model | **settled** — normalized, incl. labels (§4.3); shipped |
+| When to promote `iri` to the ontology key across sources | OPEN (roadmap) |
+
+### 1. The problem
+
+A CEDAR template is published as *immutable*, but the vocabulary its fields point at is not. Terms
+are fetched live from BioPortal, which serves whatever submission is current. When an ontology is
+revised, the same field silently resolves to a different set of terms — no record, no way to
+reproduce the original. Removing that drift, letting a template pin the exact vocabulary state it was
+authored against, is the grant's core thesis.
+
+Two obstacles: the current value-constraint spec **assumes BioPortal** (the ontology reference is a
+BioPortal URL; source unnamed; no version), and — more fundamental — **there is no dependable version
+to attach**.
+
+### 2. What BioPortal actually gives us
+
+The self-declared `version` string is present but unreliable, and does not identify a distinct upload.
+
+| Self-declared `version` | Share | Examples |
+|---|--:|---|
+| semver-like | 40% | `2.8.19`, `3.92.0` |
+| date-like | 18% | `2026-06-08` |
+| free-text | 17% | `2026_2025_08_15`, `releases/2021-10-26` |
+| empty | 17% | — |
+| bare integer | 7% | `281` (LOINC) |
+
+**Decisive finding — the declared version does not identify a state.** BioPortal keeps every upload
+as a numbered `submissionId`, but the version string is frequently stale and repeated across
+genuinely different uploads. UBERON submissions #352–#355 (uploaded 2025-10-17, 2025-12-05,
+2026-04-01, 2026-06-23) are **all** labeled `version = "2023-07-25"`; INCENTIVE #5/#6/#7 all say
+`0.1.3`. A label missing 17% of the time and ambiguous much of the rest cannot be a reproducible pin.
+
+**Which date?** Three diverge: the version-string's self-claimed date (UBERON: `2023-07-25` forever),
+and `released`/`creationDate` — the BioPortal upload date, present on 100% of submissions and the
+honest "when this state entered circulation." The only fully reliable BioPortal primitives are the
+monotonic `submissionId` and the bytes.
+
+**Is the ontology's own date better?** No. Across 250 sampled raw files: `owl:versionInfo` 42% (often
+a string, not a date), `owl:versionIRI` 22%, a clean dated `/releases/YYYY-MM-DD/` IRI only **11%**,
+Dublin Core dates 12%. **There is no canonical source date.**
+
+### 3. Prior art
+
+Every community that solved this separates the identity of a frozen state from the labels describing
+it. **FHIR** splits a `ValueSet` *definition* (may float) from its **expansion** (immutable,
+timestamped, own identity) — our per-submission snapshot. **Content-addressing** (Git, Nix, OCI
+digests, lockfiles): identity = content hash, the human name rides alongside. **Dated releases**
+(SNOMED `effectiveTime`, UMLS `2023AA`, LOINC `2.74`, OBO `versionIRI`) work when maintained — most
+don't. **BioPortal/OntoPortal** version by `submissionId` and retain history, so they *are* pinnable,
+just not via the version string. Nobody uses the self-declared version as identity.
+
+### 4. The definition
+
+> A **version** is the identity of an immutable, reproducible snapshot of a value space, denoted by a
+> **content hash** of its ingested contents. Human-facing labels (declared version, release/upload
+> date, source submission id) are descriptive metadata that a request may resolve *to* a content
+> hash; none is the identity, because each is variously missing, malformed, or repeated across
+> genuinely distinct states.
+
+Three separated concerns:
+
+| Concern | What it is | Role |
+|---|---|---|
+| **Identity** | content hash (`version_id`) | backend-agnostic, exact; what a published template pins |
+| **Metadata** | declared version, dates, submission id, backend | version picker + ordering; never load-bearing alone |
+| **Resolution** | how `version` maps to an identity | hash (exact), or a label/date resolving to a hash at serve time |
+
+### 4.1 The triple
+
+| Field | Source | Job |
+|---|---|---|
+| `id` (content hash) | hash of the ingested snapshot | **identity** — resolution uses only this |
+| `effectiveDate` | source publication date (BioPortal `released`); fallback ingest timestamp | **ordering** — anchors `latest` and date-pins |
+| `declaredVersion` | the source's self-declared string | **label** — display only; may be empty/ambiguous; never resolves alone |
+
+### 4.2 Why `effectiveDate` = the source upload date (the "arbitrary" one)
+
+It is complete (100% of submissions, vs 11–22% for the self-date) and **orders states correctly even
+for backfilled history**: ingesting INCENTIVE's six historical submissions today gives one ingest
+date and `0.1.3` on three of them — only the source publication date (2022/2023/2024) recovers the
+true order. The self-claimed date is sparse and provably stale; kept as a display label only.
+
+### 4.3 Identity: raw bytes vs normalized content — SETTLED (normalized, incl. labels; shipped)
+
+Today `version_id` is `sha256` of the raw downloaded file, tying identity to the *serialization*: the
+same release from BioPortal vs an OBO PURL, or OWL vs OBO form, gives different bytes and different
+ids for content served identically — source and format leak into identity.
+
+The alternative hashes the **normalized extracted model** (sorted concept IRIs, edges, labels,
+obsolete flags). Same served hierarchy → same id regardless of source or serialization; genuinely
+different content (e.g. an `obo2owl` transform changing the tree) → different id, which is correct.
+For a hierarchy service this matches what "version" means to a consumer. **Settled and shipped:
+normalized-content hash, including labels.** The canonical form is over IRIs (never row ids): every
+concept (`iri`, `obsolete`, `prefLabel`, `replacedBy`), every subsumption edge, every typed relation,
+sorted and sha256'd. Measurement over the 7 multi-version ontologies (76 snapshots) decided the
+labels knob: raw hashing over-split 2 snapshots (byte-different re-uploads of identical content), and
+structure-only vs +labels never diverged, so labels are in at zero observed cost. The cutover
+recomputed every `version_id` from the on-disk snapshots (no re-download), kept the raw hash as
+`file_hash` provenance, and merged the 2 duplicates (INCENTIVE 6→5, MODSCI 3→2). Existing snapshot
+files keep their raw-hash names (`file_path` is authoritative); new ingests name files by the content
+hash and compute identity from the extracted model.
+
+### 5. Source taxonomy
+
+Naming the source explicitly unifies every case; the source discriminates what a constraint means.
+
+| Field kind | `sourceSystem` | `ontology.iri` | `version` |
+|---|---|---|---|
+| BioPortal ontology | BioPortal | `obo/doid` | triple |
+| Same ontology, other backend | OLS / OBO-PURL | `obo/doid` (same) | triple (own hash) |
+| Dynamic dataset with releases | e.g. EPA CompTox (PFAS) | collection IRI | triple (release) |
+| **Open authority / live resolver** | ORCID, DOI, RRID | the authority | **absent** |
+
+**ORCID falls out naturally:** an open authority is not a versioned value space (infinite, validated
+live). Nothing to snapshot; reproducibility comes from recording the chosen value (iD + label) in the
+instance, which CEDAR already does. PFAS lands in row 3 (enumerable release) or row 4 (live lookup).
+
+Every row has a base `iri`, including the open authorities: ORCID → `https://orcid.org/`, EPA
+CompTox (PFAS) → the DTXSID namespace. For sources with content these are derived (§6.1); for open
+authorities the backend adapter declares them as a constant.
+
+### 6. The value-constraint shape
+
+Purely additive: the outer `_valueConstraints` object is unchanged; each entry gains optional fields.
+An entry answers three questions — *which* value space (`iri` identity, `acronym`/`name` labels),
+*where* it lives (`sourceSystem`), *which* state (`version`).
+
+**Current (verbatim):**
+```json
+"_valueConstraints": {
+  "ontologies": [
+    { "uri": "https://data.bioontology.org/ontologies/DOID",
+      "acronym": "DOID", "name": "Human Disease Ontology", "numTerms": 18055 }
+  ],
+  "valueSets": [], "classes": [], "branches": [], "requiredValue": false
+}
+```
+
+**Evolved — pinned** (same wrapper; new fields marked):
+```jsonc
+"ontologies": [
+  { "uri": "https://data.bioontology.org/ontologies/DOID",  // kept — legacy routing url
+    "acronym": "DOID",                                      // kept — PRESENTATION label
+    "name": "Human Disease Ontology", "numTerms": 18055,    // kept
+    "iri": "http://purl.obolibrary.org/obo/doid.owl",       // NEW — canonical IDENTITY
+    "sourceSystem": "BioPortal",                            // NEW — absent ⇒ BioPortal
+    "version": {                                            // NEW — the triple
+      "id": "e1dc041e…",                                    //   content hash = identity
+      "effectiveDate": "2023-11-23", "declaredVersion": "0.1.3" } }
+]
+```
+
+**Evolved — latest** (the default; no `version` key):
+```jsonc
+"ontologies": [
+  { "uri": "https://data.bioontology.org/ontologies/DOID",
+    "acronym": "DOID", "name": "Human Disease Ontology", "numTerms": 18055,
+    "iri": "http://purl.obolibrary.org/obo/doid.owl",
+    "sourceSystem": "BioPortal" }
+    // no "version" key ⇒ latest: resolve the newest snapshot at serve time
+]
+```
+
+`version` is polymorphic: **absent** → latest · **`"latest"`** → latest (explicit intent) ·
+**`{id, effectiveDate, declaredVersion}`** → pinned. Branch/class entries evolve identically, and
+there `iri` is derivable for free from the target `uri` (`DOID_4` → `obo/DOID_`).
+
+**Naming landmine:** `branches`/`classes` already carry a `source` field — a free-text display string
+(`"Human Disease Ontology (DOID)"`, `"undefined (ADO)"`), not a backend. Do **not** reuse `source`;
+the backend field is `sourceSystem`.
+
+### 6.4 Deriving `ontology.iri` — mandatory, always populatable
+
+`iri` is not optional. Survey of the corpus: a declared `owl:Ontology` IRI is extractable for only
+~57–64% of ontologies, but a base IRI is **derivable for 100%** (1,213 of 1,214; the sole exception
+is the empty LC-CARRIERS). So `iri` is a mandatory identity field, filled by precedence:
+
+1. **Declared `owl:Ontology` IRI** from the header, where present and clean (~57–64%).
+2. **Acronym-keyed own-namespace** — reuse `SnapshotStore.ownIdspaces` (the roots-prune logic).
+   This is the 100% workhorse. The naive "dominant concept namespace" is **wrong** for import-heavy
+   ontologies (OBI and DOID both resolve to `obo/CHEBI_`, CL to `ensembl/`); the acronym-keyed
+   own-namespace correctly yields `obo/OBI_`, `obo/DOID_`, `obo/CL_`, `nif/nifstd/`, etc.
+3. **Adapter-declared de facto base** for open authorities with no concepts to sample: ORCID →
+   `https://orcid.org/`, EPA CompTox → the DTXSID namespace. A constant the backend supplies.
+
+**Canonical form.** The derived value is a term-ID namespace (`http://purl.obolibrary.org/obo/DOID_`,
+trailing `_`), not a polished ontology IRI. Normalize `iri` to a clean namespace base, uniformly:
+
+- **OBO** term-prefix → drop the trailing `_` and lowercase the id:
+  `http://purl.obolibrary.org/obo/DOID_` → `http://purl.obolibrary.org/obo/doid` (the OBO Foundry
+  ontology IRI).
+- **Other** namespace → strip the trailing separator (`/` or `#`), preserve case:
+  `http://purl.bioontology.org/ontology/MESH/` → `…/MESH`; `http://www.ebi.ac.uk/efo/` → `…/efo`.
+
+The declared `owl:Ontology` IRI (where present) and the raw term-namespace are kept as recorded
+provenance — useful, but not the identity.
+
+| acronym | canonical `iri` | provenance (declared) |
+|---|---|---|
+| DOID | `http://purl.obolibrary.org/obo/doid` | `…/obo/doid.owl` |
+| OBI | `http://purl.obolibrary.org/obo/obi` | `…/obo/obi.owl` |
+| MESH | `http://purl.bioontology.org/ontology/MESH` | (same) |
+| EFO | `http://www.ebi.ac.uk/efo` | `…/efo/efo.owl` |
+| NIFDYS | `http://uri.neuinfo.org/nif/nifstd` | `…/NIF-Dysfunction.ttl` (file URL) |
+
+### 7. Lifecycle — latest and freeze-on-publish
+
+| State | `version` | Resolution |
+|---|---|---|
+| Draft (default / legacy) | absent | newest at serve time |
+| Draft (explicit float) | `"latest"` | newest at serve time |
+| **Published** | the triple | fixed `id` (hash), forever |
+
+Freezing is **not** a terminology-server operation. The terminology server exposes one capability —
+*resolve current → triple* for an entry. The publish pipeline (template editor + artifact/resource
+servers) walks the constraints and stamps the frozen triple. That walk is cross-repo.
+
+### 8. Persistence & API — no re-ingest
+
+The core is already persisted and served. The `snapshot` table holds identity + ordering, populated
+for all 1,221 snapshots, with a `(acronym, released_at)` index for date resolution; `/versions`
+already returns `{versionId, version, released, latest}`.
+
+| Model concept | Column | Status |
+|---|---|---|
+| identity (content hash) | `version_id` | present, 100% |
+| effectiveDate | `released_at` | present, 100% (indexed) |
+| declaredVersion | `declared_version` | present, 83% |
+| source / submission id / self-date | — | additive `ALTER TABLE`; backfill from metadata, not content |
+
+The only new *behavior* is resolution: accept, beyond a hash and `latest`, a **date** (`released_at ≤
+D`, newest — uses the existing index) and a **declaredVersion** (newest match; ambiguity → newest +
+warn). Precedence: `hash → tag → date → declaredVersion → latest`. Pure logic over existing columns —
+no schema change for the core, no re-ingest. The exception is §4.3 (normalized hash), which recomputes
+ids from on-disk snapshots.
+
+### 9. Backward compatibility
+
+- `sourceSystem` absent → **BioPortal**.
+- `version` absent → **latest** (every legacy template is already "latest").
+- `iri` absent → fall back to `acronym`; derive from the target `uri` for branch/class, backfill for
+  bare ontologies.
+- Readers tolerate both shapes; the editor emits the richer shape only for new/edited fields.
+- The legacy `source` display string is left untouched.
+
+### 10. Multilingual labels
+
+A concept in a source ontology can be named in several languages, and with several synonyms. The
+terminology store historically kept only one name per concept — the single label it serves — and
+discarded the rest at ingest. For a multilingual ontology that threw away real content: a French or
+Japanese label, an exact synonym, a hidden search term. This records how BioPortal handles language,
+what the store now captures, and how the existing snapshots were backfilled.
+
+### How BioPortal Serves Language
+
+BioPortal (through the OntoPortal layer) stores every language variant of a name and chooses per
+request. The same class answers four ways:
+
+| Request | `prefLabel` |
+|---|---|
+| default | `"water"` |
+| `?lang=en` | `"water"` |
+| `?lang=fr` | `"eau"` |
+| `?lang=all` | `{"en": "water", "fr": "eau"}` |
+
+- One label by default: a single string, the submission's declared `naturalLanguage`, English
+  otherwise.
+- `lang=<code>` (alias `language=`) narrows every label-valued property to that BCP-47 language.
+- `lang=all` turns each into a `{lang: value}` hash; untagged literals bucket under `"none"`.
+- Search indexes all languages: a query in any language matches, presentation is language-scoped.
+
+### What the Store Captures
+
+Identity is the point of leverage. A snapshot's `version_id` is the normalized content hash, and that
+hash reads only the concept's single served `pref_label`, its obsolete flag and replacement, the
+subsumption edges, and the typed relations. So a second table that the hash never reads sits outside
+identity by construction.
+
+The `label` table holds every name literal with its language tag:
+
+```
+label(concept_id, property, lang, value)   -- lang '' = untagged (BioPortal's "none")
+```
+
+captured for the label proper (`rdfs:label`, `skos:prefLabel`) and the synonym properties BioPortal
+serves (`skos:altLabel`, `skos:hiddenLabel`, and the OBO-in-OWL synonym scopes
+`hasExactSynonym`/`hasRelatedSynonym`/`hasBroadSynonym`/`hasNarrowSynonym`/`hasSynonym`). Both
+extraction paths capture — the OWL/OBO extractor and the relation (SKOS) extractor.
+
+The change is strictly additive: the single `pref_label` is chosen exactly as before (English, then
+untagged, then any other language; `rdfs:label` over `skos:prefLabel`), so `version_id` is unchanged.
+A store test asserts that adding labels moves neither the structure-only nor the label-sensitive
+content hash.
+
+### Backfilling the Existing Snapshots
+
+The discarded labels live only in the source files, which are not cached — so backfill re-fetches and
+re-parses from source. `IngestJob --backfill-labels` walks the catalog and, for each snapshot:
+re-fetches its submission (by recorded submission id, else the source's current latest), re-extracts
+into a throwaway store, and **only if the recomputed `version_id` equals the snapshot's** copies the
+captured labels into the existing snapshot file. The version-id gate makes it fail-safe: a snapshot is
+enriched in place with identity-preserving labels, or left untouched, never rewritten with different
+content. A durable `meta` marker records completion, so the run is resumable and idempotent (a
+label-less ontology is marked done rather than reprocessed). The catalog is never mutated, and a
+SQLite busy timeout lets the write land while the live server is reading the same snapshot.
+
+**Content drift is the coverage limit.** Most snapshots recorded no submission id, so backfill re-fetches
+the source's current latest. Where the ontology has changed since it was ingested, the re-extraction
+hashes differently and the snapshot is skipped — its exact original bytes are no longer retrievable.
+Those snapshots keep their single served label; capturing their languages needs a fresh ingest of the
+current release (a new `version_id`), which is a catalog update, not a label backfill.
+
+### Coverage
+
+Run against the served catalog on 2026-08-01 (`ops/label-coverage`-style aggregate over every
+snapshot):
+
+Of 1,281 served BioPortal snapshots, **1,142 were backfilled** (967 with at least one real label;
+the rest are genuinely label-less, named only by IRI fragment, and marked done). **127 are
+multilingual** (more than one language). **134 were skipped as content-drift** (BioPortal has a newer
+release than the one ingested), and **5 failed** on a BioPortal-side HTTP 422 (retired `OCDAR*`/`OCDO`
+acronyms). Structure and identity were untouched throughout, and the live server kept serving.
+
+**14,058,647 label literals** captured, across more than 30 languages:
+
+| Language | Rows | | Property | Rows |
+|---|--:|---|---|--:|
+| (untagged) | 12,491,357 | | `rdfs:label` | 5,906,158 |
+| en | 1,224,055 | | `oboInOwl:hasExactSynonym` | 3,173,105 |
+| fr | 197,422 | | `skos:altLabel` | 1,748,748 |
+| de | 66,216 | | `oboInOwl:hasRelatedSynonym` | 1,663,113 |
+| es | 21,279 | | `skos:prefLabel` | 1,201,926 |
+| it | 19,903 | | `oboInOwl:hasNarrowSynonym` | 254,944 |
+| pt | 15,481 | | `oboInOwl:hasBroadSynonym` | 75,727 |
+| ja | 10,416 | | `skos:hiddenLabel` | 21,431 |
+| + ~25 more (zh, nl, ar, el, da, …) | | | `oboInOwl:hasSynonym` | 13,495 |
+
+Synonyms — never stored before this work — account for ~5.2 M of the rows. Method: aggregate every
+snapshot's `label`/`meta` tables ([label-coverage.py](label-coverage.py)).
+
+### Serving the Languages
+
+The local read path now serves the captured names:
+
+- **Search recall** — a non-empty query matches any captured name, in any language or a synonym, not
+  only the served `pref_label`. Searching "réseau" returns a concept whose default label is the English
+  "Health Network"; an empty-query browse is unchanged.
+- **Synonyms** — class detail returns the captured altLabels and OBO synonym scopes.
+- **`lang=<code>`** — the class endpoint (`GET .../classes/{id}?lang=fr`) and integrated-search
+  (`POST /bioportal/integrated-search?lang=fr`) return labels in the requested language, falling back to
+  the default when a concept has none. Only the returned page slice is re-labelled. Verified live:
+  searching "occupational" with `lang=fr` returns "professionnel" / "ergothérapie".
+
+`lang=` is honored on the local path; a BioPortal-proxied ontology returns BioPortal's own default label.
+
+**Still deferred (by decision):** `lang=all` (the `{lang:value}` hash), `lang=` on the public
+`search`/tree output, and honoring the submission's `naturalLanguage` for the default (it stays
+English-preferred).
+
+Whether the served `pref_label` is the right thing to fold into content identity is
+an open question, not a settled one — see
+[VERSIONING-ROADMAP.md](VERSIONING-ROADMAP.md) item 4.
+
 ## Pending
 
 - **1. Label the OntoPortal authority on the snapshot.** The store reaches AgroPortal, EcoPortal and
@@ -71,7 +459,7 @@ selection in the new term picker) and instance-level capture (item 6).
    the instance that answered, so the authority is lost unless an operator remembers the flag. The
    consequence used to be provenance, which is why this sat as a clause under ingest. It is now
    structural. `sourceSystem` and `sourceAcronym` are the pair that addresses a source in
-   [VERSION-AWARE-SEARCH.md](VERSION-AWARE-SEARCH.md) — an acronym means nothing outside a system —
+   [The Search API](#the-search-api) — an acronym means nothing outside a system —
    and while every OntoPortal reads as `bioportal`, that pair cannot tell AgroPortal's AGROVOC from a
    BioPortal ontology of the same acronym, and routing cannot honour the rule that a non-BioPortal
    source is never proxied to BioPortal. Derive the label from the base URL, and backfill the
@@ -555,6 +943,450 @@ left that does not need a host.
     the flag — carrying both indefinitely means two pickers writing constraints in two ways, which
     is worse than either. Set the date the old one goes when the flag goes in, rather than leaving
     it to be noticed.
+
+## The Search API
+
+The request and response shapes of `POST /search` and `GET /search/hierarchy`, the endpoints the
+picker is built against, keyed to the versioned value-constraint naming.
+
+`POST /search` on the terminology server: search the vocabulary corpus at a named version or
+the current one, across the kinds a controlled-term field can be constrained to, in one call.
+
+It exists because `/bioportal/search` takes no version. An author who pins a constraint to an
+older ontology and then searches is searching the current one, and can select a term the pinned
+version does not contain — which manufactures the irreproducibility the versioning work removes.
+`integrated-search` is version-aware and answers the other half of the question: given a
+constraint, what may fill it. This answers the authoring half.
+
+Why it is being built and how it is sequenced are the numbered items above. Work is on the
+`version-aware-search` branch of `cedar-terminology-server`.
+
+### Naming
+
+Every key naming a source, a term or a version is the key the versioned value-constraint
+specification uses — `type`, `sourceSystem`, `sourceAcronym`, `sourceName`, `sourceIri`,
+`termIri`, `termLabel`, `termType`, `termBaseIri`, `termBaseLabel`, `termCount`, and the
+`version` object with `id`, `effectiveDate` and `declaredVersion`.
+
+This is not tidiness. **A hit is a constraint entry plus the evidence for choosing it.** Take a
+class hit, drop the evidence, add the version from the envelope, and the result is the entry
+that goes into the template. Any renaming between the two would be a translation layer with
+nothing to translate, and translation layers are where a `label` quietly becomes a `prefLabel`.
+
+The specification is at
+[Versioned value constraints](https://metadatacenter.readthedocs.io/en/latest/yaml-spec/appendices/versioned-value-constraints/).
+Note the four constraint types are `ontology`, `branch`, `class` and `valueSet` — so the picker's
+"terms" tab searches for `class` entries, and its tabs are the constraint types rather than a
+vocabulary of their own.
+
+### The Request
+
+```json
+POST /search
+{
+  "query": "melanoma",
+  "types": ["ontology", "branch", "class", "valueSet"],
+  "sources": [
+    { "sourceSystem": "bioportal", "sourceAcronym": "DOID", "version": { "id": "63ef56df1a…" } },
+    { "sourceAcronym": "NCIT" },
+    { "sourceSystem": "agroportal", "sourceAcronym": "AGROVOC" }
+  ],
+  "lang": "fr",
+  "page": 1,
+  "pageSize": 20
+}
+```
+
+A source may be named once. A hit carries the addressing pair and no version of its own, so the
+same acronym at two versions would leave every hit from it unable to say which one answered; the
+request is refused rather than collapsed.
+
+`sources` does two jobs at once, which is why it is one list rather than a scope and a pin. It
+narrows the search to the named sources, and it says which version each is searched at. Omit it
+and the whole served corpus is searched at latest, through the index described below. Omit
+`version` on an entry, or write
+`"version": "latest"`, and that source is searched at latest — the same spelling the constraint
+spec uses for an unpinned entry.
+
+**An acronym only means something inside a system.** `sourceSystem` and `sourceAcronym` are the
+pair that addresses a source, and BioPortal is one system among several: the store ingests from
+any OntoPortal instance, from OBO PURLs and from any URL. An absent or blank `sourceSystem`
+means BioPortal, which is both the constraint spec's default and what
+`RoutingTerminologyService` already implements.
+
+`types` omitted means all four. `lang` is the preferred display language and does not narrow the
+search: recall already spans every language and synonym the store holds, and `lang` chooses which
+label comes back.
+
+Paging applies to every type in the request, which is what makes one call answer four tabs. To
+page inside one tab, ask for that type alone.
+
+### The Response
+
+```json
+{
+  "query": "melanoma",
+  "sources": [ … ],
+  "results": {
+    "ontology": { "totalCount": 0,    "countCapped": false, "page": 1, "pageSize": 20, "collection": [] },
+    "branch":   { "totalCount": 412,  "countCapped": false, "page": 1, "pageSize": 20, "collection": [ … ] },
+    "class":    { "totalCount": 9572, "countCapped": false, "page": 1, "pageSize": 20, "collection": [ … ] },
+    "valueSet": { "totalCount": 13,   "countCapped": false, "page": 1, "pageSize": 20, "collection": [ … ] }
+  }
+}
+```
+
+`countCapped` distinguishes a count from a ceiling. When it is true, `totalCount` is the cap
+rather than the number of matches, and a client that renders it as an exact figure is lying on
+the server's behalf.
+
+### `GET /search/hierarchy` — Where a Term Sits
+
+A search names a term. Whether it is the right term is a question about its neighbourhood, and a
+label cannot answer it: ACESO labels a class "Disease" three times over, once per vocabulary it
+merges, and the three are told apart by what is above them and nothing else.
+
+```
+GET /search/hierarchy?sourceAcronym=DOID&termIri=http://purl.obolibrary.org/obo/DOID_1909
+```
+
+```json
+{
+  "sourceSystem": "bioportal",
+  "sourceAcronym": "DOID",
+  "source": { "…": "the same source block a search returns" },
+  "path": [
+    { "termIri": "http://purl.obolibrary.org/obo/DOID_4", "termLabel": "disease" },
+    { "termIri": "http://purl.obolibrary.org/obo/DOID_14566", "termLabel": "disease of cellular proliferation" },
+    { "termIri": "http://purl.obolibrary.org/obo/DOID_162", "termLabel": "cancer" },
+    { "termIri": "http://purl.obolibrary.org/obo/DOID_0050687", "termLabel": "cell type cancer" }
+  ],
+  "termIri": "http://purl.obolibrary.org/obo/DOID_1909",
+  "termLabel": "melanoma",
+  "children": [
+    { "termIri": "…", "termLabel": "amelanotic melanoma", "hasChildren": true, "descendantCount": 3 }
+  ],
+  "childCount": 15,
+  "descendantCount": 42
+}
+```
+
+`versionId` is optional and changes where the answer comes from. Given one, the hierarchy is read
+from that release's snapshot; without one, from the cross-snapshot index, which holds each
+ontology's current version and no other. That distinction is not cosmetic: NCIT's Melanoma has 20
+children at 26.06e and 14 at 26.07d, so answering a pinned request from the index would draw an
+author the shape of a release they did not choose.
+
+`sourceAcronym` and `termIri` are required: an IRI addresses a term only within a source, and OBO
+terms are imported across ontologies. `path` runs root first and is absent where the term is a root of its
+ontology — 1.8 million of the index's 13.9 million terms are. `children` is alphabetical and capped
+at fifty, with `childCount` saying how many there are in all.
+
+The unpinned answer comes from the index, which holds one parent a term: the ancestors walk in one
+recursive query, bounded at thirty-two steps because a broader/narrower cycle would otherwise
+recurse without end. A pinned one opens the snapshot and walks the same chain the branch results
+walk. Either way a term the store does not hold — a proxied source, an unheld one, a release that
+never contained it — is a 404 rather than an empty hierarchy.
+
+### Sources Are Described Once
+
+The envelope describes sources; hits describe matches and name their source with the
+`sourceSystem` and `sourceAcronym` pair. Whether a term can be pinned is a property of its
+ontology within a request — every SNOMEDCT hit is unpinnable for one reason — so saying it on
+each hit would state one fact a hundred times and let the copies disagree.
+
+```json
+{
+  "sourceSystem": "bioportal",
+  "sourceAcronym": "DOID",
+  "sourceName": "Human Disease Ontology",
+  "sourceIri": "http://purl.obolibrary.org/obo/doid.owl",
+  "served": "local",
+  "pinnable": true,
+  "version": { "id": "63ef56df1a…", "effectiveDate": "2026-07-01", "declaredVersion": "2026-06-30" }
+}
+```
+
+`served` is `local`, `proxied` or `unavailable`, and `pinnable` follows from it. A locally served
+source reports the exact snapshot it was searched at, which is the answer an author who pinned a
+version needs confirmed rather than assumed, and which no client can derive from the hits.
+
+**Which of the three a source can be depends on its system.** Proxying means falling back to
+BioPortal, so only a BioPortal source has it available: anything else is served from the local
+store or reported unavailable, never answered with another system's content. That rule is not
+new here — `RoutingTerminologyService` already refuses to proxy a non-BioPortal source. What is
+new is saying so. Today that path returns an empty result set, which a caller cannot tell apart
+from an honest absence of matches, and ending exactly that confusion is what the source block is
+for.
+
+| `sourceSystem` | `served` can be |
+|---|---|
+| `bioportal`, or absent | `local`, `proxied`, `unavailable` |
+| anything else | `local`, `unavailable` |
+
+A proxied source is one the store cannot hold — the UMLS-licensed ontologies, SNOMEDCT, MEDDRA,
+RCD and ICPC2P among them. It is served from BioPortal at whatever BioPortal currently holds, so
+it carries no content hash and can never be pinned:
+
+```json
+{
+  "sourceSystem": "bioportal",
+  "sourceAcronym": "SNOMEDCT",
+  "sourceName": "SNOMED CT",
+  "served": "proxied",
+  "pinnable": false,
+  "version": { "declaredVersion": "2026-03-01" }
+}
+```
+
+An unavailable source is reported in its own block and the rest of the results are returned:
+
+```json
+{
+  "sourceSystem": "agroportal",
+  "sourceAcronym": "AGROVOC",
+  "served": "unavailable",
+  "pinnable": false,
+  "reason": "versionNotHeld",
+  "requestedVersion": { "id": "aa11bb22…" }
+}
+```
+
+`reason` is `versionNotHeld`, `sourceNotServed` or `sourceUnknown`. `integrated-search` fails the
+whole request in this situation and should keep doing so: it resolves a single constraint so a
+field can be filled, there is no partial answer worth having, and serving latest in place of a
+pin would corrupt an instance. A search across sources does have a partial answer. Both obey one
+rule — latest is never served as though it were pinned.
+
+**A client has to render an unavailable source**, or its absence from the results reads as "this
+ontology has no matches" when it means "this ontology was not searched".
+
+**The endpoint requires the local store.** With no catalog configured it reports unavailable
+rather than falling back to BioPortal for everything, so a caller is never handed unpinnable
+results in the belief that pinning was available.
+
+### Searching Everything
+
+A snapshot is a self-contained file, which is what makes a version reproducible and what makes a
+corpus-wide query impossible to serve by iteration: 1,215 current snapshots, 13.9 million concepts,
+24.3 million captured names, 8.2 GB, measured 2026-08-13. A query naming no source is answered from
+a cross-snapshot index instead — one SQLite file, 5.4 GB, built in 196 seconds by `SearchIndexJob`
+and rebuilt per ontology as each is re-ingested.
+
+**It holds the current version of each ontology and no other**, which is a property of the question
+rather than a limitation of the answer. A corpus-wide search cannot be pinned: there is no one
+version to pin it to, only a version per ontology. So searching everything is searching what is
+current, and a search that pins names its sources and reads their snapshots directly.
+
+The source blocks then report **the version the index holds**, which is not always the catalog's
+current one. An ontology re-ingested since the index was last built was searched at the older
+snapshot, and saying otherwise would credit results to a version that did not produce them.
+
+Three things differ from a source-scoped search, and a client can tell which it got:
+
+- **Matching is by token prefix, not substring.** The index is FTS5, so "melano" reaches melanoma
+  while it is still being typed, and "elanoma" reaches nothing. A snapshot's `LIKE` does the
+  opposite. Reconciling the two belongs with the search-ordering work.
+- **Diacritics are folded**, so `aquifere` finds `aquifère` — which the snapshot cannot do, since
+  SQLite folds ASCII case only.
+- **A branch row carries its descendant count but no path or examples**, and `lang` does not choose
+  the label. Both need the snapshot. Absent rather than wrong, and narrowing to the source returns
+  them.
+
+Value sets are reached through the collection that holds them, which the index does not record, so
+a corpus-wide request searches every collection the catalog knows instead. That is one, CEDARVS,
+across the whole served catalog — a bounded set, and not something an author should have to name to
+be shown what is in it.
+
+**A corpus-wide query needs at least two characters.** A single character matches a large fraction
+of 24 million names, and the cost is in reaching the cap rather than in the cap itself: "a" took
+18.6 seconds where "melanoma" takes 0.16. Naming a source lifts the limit, because that path reads
+one snapshot.
+
+### Counts Come From Facets, Not From the Page
+
+A page is capped before it is counted, so counting it reports the cap. The counts are separate
+aggregate queries over the same match, exact below ten thousand and "more than" above it:
+
+| query | terms | distinct labels | branches | whole response |
+|---|---|---|---|---|
+| melanoma | 5,439 | 2,552 | 1,313 | 0.16s |
+| blood pressure | 3,019 | 1,601 | 912 | 0.09s |
+| cell | 10000+ | 10000+ | 10000+ | 1.03s |
+
+`distinctLabelCount` is the second count, and it exists because the first is not a usable badge: a
+query anyone types saturates any cap on terms, while the collapsed count varies — 2,552 against
+1,601 — and is the number of rows a client that collapses identical labels will actually render. It
+is computed for the terms results only, since each facet is another pass over the match.
+
+### Hits
+
+One shape per constraint type. In each, the keys the constraint spec defines for that type come
+first; everything after them is evidence, which a client uses to choose and drops when it writes
+the constraint.
+
+A hit carries the pair that addresses its source, `sourceSystem` and `sourceAcronym`, and joins
+the rest from the source block. The split is between a key and an attribute rather than between
+short values and long ones: `sourceSystem` and `sourceAcronym` are how a hit says which source
+it came from, while `sourceName`, `sourceIri` and `version` are things that source has, stated
+once and copied by a client when it writes the constraint.
+
+### `class` — a specific term
+
+```json
+{
+  "type": "class",
+  "sourceSystem": "bioportal",
+  "sourceAcronym": "DOID",
+  "termIri": "http://purl.obolibrary.org/obo/DOID_1909",
+  "termType": "class",
+  "termLabel": "melanoma",
+
+  "definition": "A cell type cancer that has_material_basis_in abnormally proliferating cells …",
+  "matchType": "synonym",
+  "matchedLabels": [{ "label": "mélanome malin", "language": "fr" }],
+  "obsolete": false,
+  "replacedBy": null,
+  "hasChildren": true,
+  "descendantCount": 42,
+  "path": [
+    { "termIri": "http://purl.obolibrary.org/obo/DOID_4", "termLabel": "disease" },
+    { "termIri": "http://purl.obolibrary.org/obo/DOID_14566", "termLabel": "disease of cellular proliferation" }
+  ]
+}
+```
+
+`path` is what tells two classes of one label apart, and a label repeats within an ontology as
+often as across them: ACESO merges three vocabularies and labels a class "Disease" in each, under
+"Clinical finding", "disposition" and "Disease, Disorder or Finding". A hit from the index carries
+the one step above it, which is what the index holds; a hit resolved against a snapshot carries the
+chain from a root.
+
+`matchType` is `termLabel` or `synonym`, and `matchedLabels` carries what actually matched, in
+the language it matched. Together they are what stops a synonym hit reading as a defect: a row
+labelled *melanoma* found by a French search needs to say so. Today's `/bioportal/search`
+supplies `matchType` and `matchedSynonyms` but no language, and ignores `lang` on its output
+entirely — measured 2026-08-13, where GEMET returns identical labels with and without it.
+
+`matchedLabels` is present only when the served label does not already carry the query, which is
+what makes it readable as an explanation. A search reaches a concept through every name captured
+for it, so a term whose preferred label answers a query answers it through the synonyms too:
+reporting one of those against a row that reads *melanoma* explains a row needing no explanation,
+and picks an arbitrary synonym to do it with. Matching folds diacritics, so a label can answer a
+query it does not contain — `aquifere` reaches `aquifère`, which is reported.
+
+`obsolete` and `replacedBy` are recorded by the ingest and served by nothing today.
+`replacedBy` is `{ "termIri": …, "termLabel": … }` when the source names a replacement.
+
+`hasChildren` and `descendantCount` are what make the branch results computable without a call
+per row.
+
+### `branch` — everything at or below a term
+
+```json
+{
+  "type": "branch",
+  "sourceSystem": "bioportal",
+  "sourceAcronym": "DOID",
+  "termBaseIri": "http://purl.obolibrary.org/obo/DOID_1909",
+  "termBaseLabel": "melanoma",
+
+  "descendantCount": 42,
+  "matchType": "termLabel",
+  "obsolete": false,
+  "path": [
+    { "termIri": "http://purl.obolibrary.org/obo/DOID_4", "termLabel": "disease" },
+    { "termIri": "http://purl.obolibrary.org/obo/DOID_14566", "termLabel": "disease of cellular proliferation" }
+  ],
+  "examples": [
+    { "termIri": "http://purl.obolibrary.org/obo/DOID_6689", "termLabel": "amelanotic melanoma" }
+  ]
+}
+```
+
+The branch results are the class results that have descendants, expressed as branch entries.
+`path` runs root-first and is what separates *disease* in DOID from *disease* in an upper
+ontology; `examples` are what tell an author whether the subtree is the one they pictured.
+
+`termMaxDepth` is absent deliberately. The constraint carries it, and the author chooses it when
+writing the constraint; a search has no view on how deep the field should reach.
+
+### `ontology` — a whole vocabulary
+
+```json
+{
+  "type": "ontology",
+  "sourceSystem": "bioportal",
+  "sourceAcronym": "DOID",
+  "termCount": 14203,
+
+  "matchType": "sourceName"
+}
+```
+
+Thin, because everything else about an ontology is in its source block — which the response
+carries for every ontology hit, or the acronym would arrive with no way to learn its name.
+`matchType` says why it surfaced, and the tab answers two questions in one list. A name match comes
+first — `sourceAcronym` or `sourceName` — and then, for a corpus-wide query, the vocabularies the
+query actually landed in, `matchType: terms`, each carrying `matchCount`: how many of its terms
+matched. `termCount` remains the vocabulary's size as the constraint spec defines it; `matchCount`
+is evidence about this query and never becomes part of a constraint.
+
+Both halves are needed because most queries answer only one. Measured 2026-08-13: "melanoma" finds
+MELO by name and then NCIT (950 terms), BERO (782), PR (238); "blood pressure" and "aspirin" name no
+vocabulary at all, and answer with LOINC (790) and with DDSS (861), DRON (858), RXNORM (663). A tab
+that only matched names would be empty for the second kind, which is most of what a picker sees.
+
+The vocabulary half is a group-by over the match rather than a tally of the page, and the difference
+is not small: "melanoma" is in 113 vocabularies where its first thousand hits come from 88.
+
+### `valueSet` — a curated list
+
+```json
+{
+  "type": "valueSet",
+  "sourceSystem": "bioportal",
+  "sourceAcronym": "HRAVS",
+  "termBaseIri": "https://…/analyte-class",
+  "termBaseLabel": "Analyte class",
+  "termCount": 37,
+
+  "matchType": "member",
+  "matchedTerms": [{ "termIri": "https://…/protein", "termLabel": "protein" }]
+}
+```
+
+`matchType` is `termBaseLabel` or `member`, and `matchedTerms` names the values that matched. A
+value set is small and enumerable, so this is the one type where a row can carry enough for an
+author to decide without opening anything.
+
+### What Is Not Here, on Purpose
+
+Collapsing identical labels across vocabularies, the match-reason chip, ordering the ontology
+results, and everything about how a version is stepped through belong to a client. An endpoint
+shaped around one UI is a liability the first time a second consumer wants it, and the picker is
+one consumer of a general capability.
+
+### Open
+
+**`sourceSystem` is not yet truthful for OntoPortal instances.** The ingest reaches any
+OntoPortal — AgroPortal, EcoPortal — through `--source bioportal --base-url`, and the backend
+records `bioportal` for all of them regardless of which instance answered. So the pair that
+addresses a source cannot currently distinguish AgroPortal's AGROVOC from a BioPortal ontology
+of the same acronym, and this endpoint can only report what the store recorded. Labelling the
+authority on the snapshot is already an open item on
+[VERSIONING-ROADMAP.md](./VERSIONING-ROADMAP.md), and it is a dependency of this design rather
+than an improvement to it: until it lands, `sourceSystem` distinguishes BioPortal from a direct
+URL ingest and no finer.
+
+`sourceIri` remains the canonical, source-independent identity and stays in the source block.
+The addressing pair is what a hit carries because it is short and stable; if two systems ever
+collide within one response despite the above, the block is where an explicit key would go.
+
+**Ordering.** The results are only as good as the order they arrive in, and today's ordering
+leaves the head of the list arbitrary. That work lands here rather than in `/bioportal/search`,
+which is what makes it safe to do — see the term-ordering item in
+[VERSIONING-ROADMAP.md](./VERSIONING-ROADMAP.md).
 
 ## The Term Picker
 

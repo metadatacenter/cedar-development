@@ -2,9 +2,10 @@
 
 Running the versioned terminology work: the local store, the terminology server that serves it, and
 `cedar-term-picker`, the Web Component an author picks a versioned constraint with. Open work and
-the decisions behind it are in [VERSIONING-ROADMAP.md](./VERSIONING-ROADMAP.md); what the model is
-and why is in [VERSIONING-DESIGN.md](./VERSIONING-DESIGN.md); the search endpoint the picker reads
-is designed in [VERSION-AWARE-SEARCH.md](./VERSION-AWARE-SEARCH.md).
+the decisions behind it are in [VERSIONING-ROADMAP.md](./VERSIONING-ROADMAP.md); what the model is and why, and the
+shapes of the endpoints the picker reads, are sections of that same roadmap —
+[The Model](./VERSIONING-ROADMAP.md#the-model) and
+[The Search API](./VERSIONING-ROADMAP.md#the-search-api).
 
 Sibling runbooks:
 - [BACKEND-RUNBOOK.md](./BACKEND-RUNBOOK.md) — running the CEDAR stack the terminology server sits
@@ -140,7 +141,7 @@ nothing wrong in the code.
 `POST /search` answers all four constraint types at once, at a named version or the current one, and
 describes every source it searched. `GET /search/hierarchy` answers where one term sits, at a named
 release or the current one. Both are designed in
-[VERSION-AWARE-SEARCH.md](./VERSION-AWARE-SEARCH.md).
+[The Search API](./VERSIONING-ROADMAP.md#the-search-api).
 
 ```bash
 curl -s -X POST http://localhost:9004/search -H 'Content-Type: application/json' \

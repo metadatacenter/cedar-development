@@ -1311,7 +1311,7 @@ to revert to a pure BioPortal proxy):
 
 For locally-served ontologies the store keeps every language variant of every name and every synonym
 (captured at ingest, backfilled across the served catalog — see
-[Multilingual labels](VERSIONING-DESIGN.md#10-multilingual-labels)). The read path serves them:
+[Multilingual labels](VERSIONING-ROADMAP.md#10-multilingual-labels)). The read path serves them:
 
 - **Search recall** — a query matches a label in any language or a synonym, not just the served
   `pref_label`; an empty-query browse is unchanged.
@@ -1364,7 +1364,7 @@ is skipped, so a rebuild after a few re-ingests costs a few ontologies rather th
 The index holds each ontology's **current** version and no other, and records which. A corpus-wide
 search cannot be pinned — there is no one version to pin it to — so it searches what is current,
 and a pinned search names its sources and reads their snapshots. Full design in
-[VERSION-AWARE-SEARCH.md](VERSION-AWARE-SEARCH.md).
+[The Search API](VERSIONING-ROADMAP.md#the-search-api).
 
 ### Re-ingesting an ontology
 
