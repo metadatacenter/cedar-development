@@ -98,25 +98,3 @@ What the editor writes is one input to a larger decision on
 stands in that slot until they do. A template requires a string there, `null` is refused, and the empty
 string passes only because `format: uri` goes unchecked. That decision binds the meta-schema and both
 model libraries; this is the part only the designer can answer.
-
-### 4. The create-metadata toast does not appear, though the save succeeds
-
-Populating a template and saving the instance creates it — the POST to
-`/template-instances` returns 201, the instance appears in the folder listing, and it can be
-opened and edited afterwards. What does not happen is the confirmation: `doSave` calls
-`UIMessageService.flashSuccess('SERVER.INSTANCE.create.success', …)`, whose string is "The
-metadata have been created.", and that text never becomes visible.
-
-Found because it stops the documentation screenshot generator, which waits twenty seconds for
-exactly that toast before going on; reproduced three times against the local stack, so it is not
-a timing accident. Nothing in the browser console explains it — the only page errors come from
-the generator's own injected script, fire on every navigation, and predate this.
-
-Worth ruling out first, in order: whether the translation resolves (an unresolved key renders as
-`SERVER.INSTANCE.create.success` and would match no search for the message), and whether the
-`$timeout` redirect to the edit view in `doSave` tears the toast down before it paints. The
-embeddable editor is not implicated: the controller reads one member of it, `currentMetadata`,
-and that is unchanged.
-
-Until it is fixed the tutorial screenshots cannot be regenerated, which
-[CEE-ROADMAP.md](./CEE-ROADMAP.md) is waiting on.

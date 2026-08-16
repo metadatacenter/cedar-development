@@ -72,10 +72,11 @@ commit that opened it.
    deployment serving the CEE in question. `runner/lib.mjs` already sets `ignoreHTTPSErrors` for
    a local `.orgx` stack.
 
-   **The run does not currently finish**, so nothing can be regenerated until it does. It stops
-   waiting for the Workbench's create-metadata toast, which never appears even though the save
-   succeeds — a Designer defect rather than an editor one, tracked on
-   [TEMPLATE-DESIGNER-ROADMAP.md](./TEMPLATE-DESIGNER-ROADMAP.md).
+   **The run does not finish yet.** It used to stop at the save, waiting for a confirmation the
+   Designer never showed anyone; that is fixed and the run now reaches step 4, where it waits for
+   the *disease* branch in the ontology tree and BioPortal has not answered in time. The e2e smoke
+   meets the same step and retries it, so the generator wants the same treatment before this can
+   be regenerated unattended.
 
    Note also that a failed run leaves the tree half-written: `run.mjs` clears `docs/tutorials/img/`
    before it starts, so a stop at step 3 deletes images 09 through 22 and writes only 01 through 08.
