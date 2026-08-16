@@ -2023,7 +2023,7 @@ defining ontology was not loaded, so they arrive **unlabeled and parentless** an
   import-heavy set. Verified live: CL 77, UBERON 7, GO 3, MONDO 4, ABD 338 all served local with
   zero outbound BioPortal calls; the 26 real-gap ontologies (BTO-EMMO, NDDO, …) correctly proxy.
 
-### 10. Zero-label ontologies emptied by the root prune  — FOLLOW-UP
+### 2. Zero-label ontologies emptied by the root prune  — FOLLOW-UP
 
 Twenty ontologies carry no `rdfs:label`/`skos:prefLabel` at all (e.g. ACGT-MO: 1,754 concepts, 1,732
 edges, **0 labeled**). Because every root is then unlabeled with no labeled descendant, the dead-end
@@ -2032,7 +2032,7 @@ the browse allowlist and proxy to BioPortal (which shows their unlabeled roots).
 doing: `pruneDeadEndImportRoots` should never prune an ontology to zero roots (keep the originals
 when the prune would empty it), so a label-less-but-structured ontology still browses locally.
 
-### 9. Source data contains OWLAPI parse-error artifacts  — EXTERNAL
+### 3. Source data contains OWLAPI parse-error artifacts  — EXTERNAL
 
 Some ontologies' source files fail to parse cleanly, and OWLAPI emits placeholder classes in the
 {@code http://org.semanticweb.owlapi/error#ErrorN} namespace. BioPortal ingests and displays these
@@ -2041,7 +2041,7 @@ Example: ABD has 54 such error roots (BioPortal shows all 392 roots including th
 them, serving 338). Issue #1's prune removes them from the tree; the underlying source-file parse
 failure is upstream and not fixable at ingest.
 
-### 2. Root over-reporting on BioPortal's side: foreign / meta vocabulary  — BP-ARTIFACT
+### 4. Root over-reporting on BioPortal's side: foreign / meta vocabulary  — BP-ARTIFACT
 
 BioPortal roots external vocabulary that we correctly exclude: RDF/RDFS (`Datatype`, `Resource`,
 `List`), FOAF (`Organization`), Dublin Core (`Agent`), SKOS (`Collection`), OWL-Time
@@ -2052,7 +2052,7 @@ IDs (`BFO_0000001`, `GO_0008150`, `NCBITaxon_1`, `OMIM_000000`).
   classes; e.g. PO's only "gap" is `obo/NCBITaxon_1` ("root"), NIFSTD's is `obo/OMIM_000000`.
 - **Verdict.** BioPortal artifact; local is cleaner. No fix.
 
-### 3. BioPortal misses real subClassOf edges we captured  — LOCAL-BETTER
+### 5. BioPortal misses real subClassOf edges we captured  — LOCAL-BETTER
 
 BioPortal reports a class as a root that in fact has a genuine `rdfs:subClassOf`/genus parent our
 OWLAPI extraction captured.
@@ -2064,7 +2064,7 @@ OWLAPI extraction captured.
 - **Verdict.** Local is more correct. The gate's directional invariant ("every BioPortal root is
   also a local root") holds for 1,099/1,191 (92%).
 
-### 3. BioPortal root set is not rule-reproducible  — BP-ARTIFACT / OPEN
+### 6. BioPortal root set is not rule-reproducible  — BP-ARTIFACT / OPEN
 
 No clean local rule reproduces BioPortal's roots, because BioPortal resolves some imports and not
 others, inconsistently. "Roots must be labeled" wrongly drops 433 ontologies to subset (BioPortal
@@ -2074,7 +2074,7 @@ because BioPortal roots unlabeled-foreign classes where it *didn't* resolve the 
 - **Verdict.** Matching BioPortal exactly would require downloading each import closure (heavy,
   offline-fragile, snapshot-ballooning). Rejected in favor of issue #1's cleaner-tree approach.
 
-### 4. Genuine own-content root gaps  — EXTERNAL (only 2 across the corpus)
+### 7. Genuine own-content root gaps  — EXTERNAL (only 2 across the corpus)
 
 Triage (2026-07-29) of the 26 ontologies the re-derivation excluded for "missing a genuine
 own-namespace labeled BioPortal root". Their 490 missing roots break down as **480 "we captured a
@@ -2117,18 +2117,18 @@ gaps across all 1,191 gated (5 classes).
   concluded these are source-data / provenance artifacts, not extractor bugs — the extractor
   already handles axiom-only class declarations. Spawned task `task_9ea65cb1`.
 
-### 5. Un-gatable ontologies: BioPortal roots 404/500  — BP-ARTIFACT
+### 8. Un-gatable ontologies: BioPortal roots 404/500  — BP-ARTIFACT
 
 23 ingested ontologies could not be gated because BioPortal's own `/classes/roots` returned 404 or
 500 for them (e.g. ADALAB-META, BFLC, BIBFRAME, BMT, CST). BioPortal-side gaps.
 
-### 7. Label disagreements below the 98% bar  — OPEN (minor)
+### 9. Label disagreements below the 98% bar  — OPEN (minor)
 
 16 ontologies are root-set-equal to BioPortal but labels agree < 98% (e.g. AIDENTIFYAGE 75%, HECON
 75%, NLN 80%). Cause is language / label-form differences (which of several labels is "the" label).
 Not structural; revisit if it blocks specific ontologies.
 
-### 8. Search gate not feasible corpus-wide  — OPEN
+### 10. Search gate not feasible corpus-wide  — OPEN
 
 The differential search gate replays specific usage targets; the broad corpus has none, and the
 only generic probe (enumerate a whole ontology from BioPortal) is infeasible for giants
