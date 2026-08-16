@@ -33,7 +33,9 @@ model libraries — where their JSON and YAML serializations diverge — is in
   The question is which way to close it, and it is small. Either make create reject a body that omits
   `@id`, pointing the client at `@id: null` — aligning the two contracts at the cost of refusing a body
   that works today; or leave create lenient and document `@id: null` as the canonical pre-create shape,
-  so a client never omits the key and never meets validation's "missing required property `@id`". The
+  so a client never omits the key and never meets validation's "missing required property `@id`". Item
+  10 decides this for the estate — a client says `null` and the server mints — which makes the first
+  the answer here, and this item the top-level artifact's share of that work. The
   three shapes are pinned in `ops/e2e/rest/suites/validation.mjs`: `@id: null` validates and creates,
   an omitted `@id` creates but does not validate, and a real IRI validates but is refused by create.
 
@@ -285,50 +287,103 @@ model libraries — where their JSON and YAML serializations diverge — is in
   means, and how "unknown" is written — rather than three times over. The builder signature is the
   cheap half; the corpus data and whatever wrote it are the rest.
 
-- **10. Decide who assigns an element occurrence's `@id`, and settle what stands in for it meanwhile.**
-  An element inside a filled instance is identified from CEDAR's own namespace,
-  `https://repo.metadatacenter.org/template-element-instances/<uuid>`, so the repository assigns it as
-  it assigns a template's or an element's. Nothing built locally can supply one honestly. But a
-  template types that slot as `{"type": "string", "format": "uri"}` and lists it in the element's
-  `required`, so the slot must be filled before the document is valid — before the only party that can
-  fill it has seen the document.
+- **10. Nobody mints an identifier but the server, and `null` is how a client asks for one.** The rule
+  is one sentence and the work is making every producer obey it: an artifact or a node that does not
+  yet have an identity carries `@id: null`, and the server assigns a real IRI when the artifact is
+  uploaded, on create and on update alike. A client that invents one is asserting an identity nothing
+  can resolve, and a client that omits the key leaves the server unable to tell "mint me one" from "I
+  forgot".
 
-  Three values have occupied it. A **minted UUID**, which the artifact library wrote until it was
-  removed as fabricated identity. An **empty string**, which half the element occurrences in the shared
-  corpus carried — 59 nodes across four instances, since corrected to `null` — and which passes
-  validation for a reason worth knowing: `""` satisfies `type: string`, and `format: uri` is not
-  enforced, so the schema states a rule nothing checks. And **`null`**, what both libraries write today,
-  which is the honest answer and the one validation refuses.
+  This settles a question that stood open here as three options — mint locally, let the schema accept
+  null, or accept that a locally built instance is not valid until saved. The answer is the second
+  and third together: `null` is the honest value, so the model has to accept it where it does not yet,
+  and an instance holding one is a client's draft rather than a stored artifact.
 
-  So the decision is which of three:
+  Recursion is not the difficulty it looks like. Only an element or a field that already exists can be
+  placed in a template, so every child an artifact carries was minted when *it* was created. The nulls
+  in any one upload therefore belong to the artifact being created and to nothing beneath it.
 
-  - **Mint for element occurrences.** The template demands a string and CEDAR's editor supplies one, so
-    built instances become valid without touching anything stored. It partly reverses the removal,
-    though the two cases differ: an instance's own `@id` is repository identity, an element
-    occurrence's is a node identifier inside a document.
-  - **Let the element schema accept null**, as a template already does for its own instances. One line
-    in the renderer, but it changes the schema every stored CEDAR element carries — 28 round-trip
-    fixtures in `cedar-artifact-library` differ — so it is a model change, not a library fix.
-  - **Accept that a locally built instance is not valid until saved.** Coherent, and it matches who
-    owns identity, but `InstanceInflater`'s output is then invalid by construction and no tool can
-    check an instance before sending it.
+  **What has to change on the server.** No new JSON Schema machinery: no custom keyword, no
+  vocabulary, nothing beyond `type: ["string", "null"]`, which CEDAR already uses for an artifact's own
+  `@id` in all three meta-schemas and for `pav:createdOn`, `pav:createdBy`, `pav:lastUpdatedOn`,
+  `oslc:modifiedBy`, `rdfs:label` and `@value` in a rendered template. The work is applying that
+  existing convention to the two slots that lack it, in the artifact library's renderer:
 
-  Two facts belong with the decision rather than after it, because either could change which option is
-  right. **How common the empty string is in production** — a query over stored instances for element
-  occurrences whose `@id` is `""`; the corpus is a sample, and there it was close to half, so whatever
-  is decided may need a migration beside it. **Whether the Template Designer writes them** — the corpus
-  instances are exports, so something produced those empty strings and the editor is the likeliest
-  author; that half is tracked on
+  - **An element occurrence's `@id`**, rendered `{"type": "string", "format": "uri"}` and listed in the
+    element's `required` array. It changes the schema every stored CEDAR element carries — 28
+    round-trip fixtures in `cedar-artifact-library` differ — so it is a model change rather than a
+    library fix.
+  - **An attribute-value property IRI**, which reaches `@context` through the
+    `additionalProperties: {"type": "string", "format": "uri"}` that a template carrying an
+    attribute-value field renders in place of `additionalProperties: false`.
+
+  Both already pass validation today, and neither passes for a good reason. Measured against
+  `CedarValidator` — networknt, `formatAssertionsEnabled`, on a template rendered by the current
+  artifact library — a null value is treated as an absent key: `type` never fires on it, so `required`
+  is the only rule that can catch one. Which rules actually run is narrower than the schema reads:
+
+  | Rule | Enforced |
+  |---|---|
+  | `required` at the instance root | yes — a null `schema:name` is reported as a *missing* property |
+  | `properties` types at the root and inside a nested element | yes — `@id: 42` and `@id: "not a uri"` are both rejected |
+  | `required` inside a nested element | no — an occurrence with neither `@id` nor its only field validates |
+  | `additionalProperties` at the root, rendered `false` | no — a stray key of any shape validates |
+  | `additionalProperties` inside `@context` | no — a property IRI of `42` validates |
+
+  So an element occurrence's null `@id` is accepted because nested `required` does not run, and a null
+  property IRI is accepted because `additionalProperties` does not run. Two gaps, holding up a rule the
+  model does not yet state — and a validator upgrade could close either without warning. Whether those
+  gaps are themselves defects worth fixing is a separate question from this item, and the answer
+  changes what a stricter validator would then reject across stored data.
+
+  A null in `@context` needs one more decision than the element case does, because null already means
+  something there: in JSON-LD, a term mapped to null is a term explicitly *removed* from the context,
+  which is close to the opposite of "mint me an IRI for this". The alternative is to leave the term out
+  of `@context` entirely and have the server add it — the attribute's value sits at the instance root
+  under its own name either way, so the name is not lost. The server also has to read these keys
+  itself rather than lean on validation: null and absent are the same thing to the validator and
+  different things to this rule.
+
+  The minting itself belongs wherever the resource server already assigns a template's or an
+  instance's own IRI, extended to walk the document for nulls.
+
+  Three values have occupied that slot, which is worth knowing before touching stored data. A **minted
+  UUID**, which the artifact library wrote until it was removed as fabricated identity. An **empty
+  string**, which half the element occurrences in the shared corpus carried — 59 nodes across four
+  instances, since corrected to `null` — and which passes validation for a reason worth knowing: `""`
+  satisfies `type: string` and `format: uri` is not enforced, so the schema states a rule nothing
+  checks. And **`null`**, what both libraries write today. Both libraries now refuse an empty `@id`, in
+  YAML and in JSON, so the empty string cannot re-enter through either. What is still tolerated is an
+  empty string on other URI keys: `pav:derivedFrom` carries one on **437 corpus artifacts**, so holding
+  those to the same rule needs a decision and a migration of its own — the same disease, at a scale
+  that cannot simply be refused. Whether the empty strings are common in production is a query over
+  stored instances, and whatever is decided may need a migration beside it.
+
+  **Where the producers stand.** CEE no longer mints element-occurrence identifiers: it stamped a GUID
+  onto every occurrence it built, and stopped once the requirement it was meeting turned out not to
+  exist — measured against `CedarValidator`, an occurrence validates with `@id` null and with `@id`
+  absent, and is rejected only for a string that is not a URI. So CEE already writes what this item
+  asks for, ahead of the server being able to act on it.
+
+  The Template Designer does not. `DataManipulationService.generateTempGUID` hands out `tmp-<ts>-<n>`
+  identifiers, and `create-element.controller.js` falls back to `generateGUID()` where an element has
+  no `@id`. Those are scope-local in the directives that use them, but they are the same habit and the
+  same source of an identity nothing assigned; that half is tracked on
   [TEMPLATE-DESIGNER-ROADMAP.md](./TEMPLATE-DESIGNER-ROADMAP.md).
 
-  Both libraries now refuse an empty `@id`, in YAML and in JSON, so the empty string cannot re-enter
-  through either. What is still tolerated is an empty string on other URI keys: `pav:derivedFrom`
-  carries one on **437 corpus artifacts**, so holding those to the same rule needs a decision and a
-  migration of its own — the same disease, at a scale that cannot simply be refused.
-  `create_template_instance` in
-  `cedar-artifact-mcp` records the state of play in a test, asserting that the refused element
-  identifier is the *only* thing wrong with a freshly built instance — when this item lands, that test
-  becomes a plain validation assertion.
+  **Attribute values are the one hard case.** Every attribute a user names on an attribute-value field
+  needs a property IRI in the instance's `@context`, and the name is invented at fill time, so there is
+  no earlier point at which anything could have minted one. Both editors mint it now:
+  `DataObjectDataValueHandler` in CEE and `staging.service.js` in the Template Designer, each writing
+  `https://schema.metadatacenter.org/properties/<uuid>`. Under this rule both write `null` — or omit the
+  `@context` entry, per the JSON-LD point above — and the server mints on upload. What still needs
+  settling is how the server matches a minted IRI back to the attribute it belongs to when several are
+  named in one upload; the attribute's name is the obvious key, and it is what the two editors already
+  use to pair the `@context` entry with the value at the instance root.
+
+  `create_template_instance` in `cedar-artifact-mcp` records the state of play in a test, asserting
+  that the refused element identifier is the *only* thing wrong with a freshly built instance — when
+  this item lands, that test becomes a plain validation assertion.
 
 ### Infrastructure
 
