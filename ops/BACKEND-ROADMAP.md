@@ -272,17 +272,15 @@ Frontend work for the embeddable editor is tracked separately in
   vocabulary, nothing beyond `type: ["string", "null"]`, which CEDAR already uses for an artifact's own
   `@id` in all three meta-schemas and for `pav:createdOn`, `pav:createdBy`, `pav:lastUpdatedOn`,
   `oslc:modifiedBy`, `rdfs:label` and `@value` in a rendered template. The work is applying that
-  existing convention to the two slots that lack it, in the artifact library's renderer:
+  existing convention to the one slot that lacks it, in the artifact library's renderer: **an element
+  occurrence's `@id`**, rendered `{"type": "string", "format": "uri"}` and listed in the element's
+  `required` array. It changes the schema every stored CEDAR element carries — 28 round-trip fixtures
+  in `cedar-artifact-library` differ — so it is a model change rather than a library fix.
 
-  - **An element occurrence's `@id`**, rendered `{"type": "string", "format": "uri"}` and listed in the
-    element's `required` array. It changes the schema every stored CEDAR element carries — 28
-    round-trip fixtures in `cedar-artifact-library` differ — so it is a model change rather than a
-    library fix.
-  - **An attribute-value property IRI**, which reaches `@context` through the
-    `additionalProperties: {"type": "string", "format": "uri"}` that a template carrying an
-    attribute-value field renders in place of `additionalProperties: false`.
+  An attribute's property IRI was a second slot here, on the reading that it too would carry `null`.
+  It does not: see the decision below.
 
-  Both already pass validation today, and neither passes for a good reason. Measured against
+  A null `@id` on an occurrence already passes validation today, and not for a good reason. Measured against
   `CedarValidator` — networknt, `formatAssertionsEnabled`, on a template rendered by the current
   artifact library — a null value is treated as an absent key: `type` never fires on it, so `required`
   is the only rule that can catch one. Which rules actually run is narrower than the schema reads:
@@ -295,22 +293,52 @@ Frontend work for the embeddable editor is tracked separately in
   | `additionalProperties` at the root, rendered `false` | no — a stray key of any shape validates |
   | `additionalProperties` inside `@context` | no — a property IRI of `42` validates |
 
-  So an element occurrence's null `@id` is accepted because nested `required` does not run, and a null
-  property IRI is accepted because `additionalProperties` does not run. Two gaps, holding up a rule the
-  model does not yet state — and a validator upgrade could close either without warning. Whether those
-  gaps are themselves defects worth fixing is a separate question from this item, and the answer
-  changes what a stricter validator would then reject across stored data.
+  So an occurrence's null `@id` is accepted only because nested `required` does not run — a gap holding
+  up a rule the model does not yet state, which a validator upgrade could close without warning. That
+  makes the renderer change urgent rather than tidy. The `@context` row matters for the same reason in
+  reverse: a `null` term would pass today and stop passing later, which is one more argument for
+  leaving the term out instead. Whether these gaps are themselves defects worth fixing is a separate
+  question, and the answer changes what a stricter validator would then reject across stored data.
 
-  A null in `@context` needs one more decision than the element case does, because null already means
-  something there: in JSON-LD, a term mapped to null is a term explicitly *removed* from the context,
-  which is close to the opposite of "mint me an IRI for this". The alternative is to leave the term out
-  of `@context` entirely and have the server add it — the attribute's value sits at the instance root
-  under its own name either way, so the name is not lost. The server also has to read these keys
-  itself rather than lean on validation: null and absent are the same thing to the validator and
-  different things to this rule.
+  **An attribute's property IRI is left out, not nulled.** A draft omits the `@context` term and the
+  server adds it; nothing is written where a value is not yet known. Three things decide it. The model
+  already allows it: `@context.required` lists the standard prefixes and the system keys and no
+  attribute name, so an absent term violates nothing, while `null` would need
+  `additionalProperties` widened to `["string", "null"]` in every attribute-value template ever
+  rendered, stored ones included. JSON-LD gives `null` a meaning that is close to the opposite of what
+  is wanted — a term mapped to null is a term explicitly *removed* — where an absent term is simply an
+  undefined one, which is exactly true of an attribute nothing has minted for yet. And because absence
+  is legal, the body validates before minting as well as after, so nothing has to be sequenced around
+  it.
 
-  The minting itself belongs wherever the resource server already assigns a template's or an
-  instance's own IRI, extended to walk the document for nulls.
+  That leaves one rule covering both slots: **`null` where the schema requires the key, absence where
+  it does not.** An occurrence's `@id` is required, so "no value yet" can only be spelled `null`; an
+  attribute's term is required by nothing, so it is left out.
+
+  **What the server does on POST and PUT.** The instance enumerates the work rather than hiding it: an
+  attribute-value field's own value *is* the list of attribute names it holds, so for each such field
+  the template declares, the server reads that list and mints
+  `https://schema.metadatacenter.org/properties/<uuid>` for every name `@context` has no term for. The
+  value already sits at the instance root under the name, so nothing else moves. Four rules make it
+  well-behaved:
+
+  - **Mint only where the term is absent.** An instance arriving at PUT already carries terms, and
+    re-minting would hand the same attribute a new IRI on every save.
+  - **One pass, two jobs.** The same walk fills the element occurrences carrying `@id: null`. Both are
+    what only the server can fill, on create and update alike.
+  - **Read the keys rather than lean on validation**, which cannot tell null from absent, and which
+    does not run `additionalProperties` inside `@context` at all today.
+  - **Put it where both servers reach it.** The resource server and the artifact server both take POST
+    and PUT for instances, so this belongs in the shared library. The template lookup it needs already
+    happens: instance validation resolves `schema:isBasedOn` and answers 400 when the template is
+    missing.
+
+  **Open: who prunes a term when an attribute is renamed or deleted.** A server that only ever adds
+  leaves a context accumulating an orphan for every attribute a user ever named. Pruning terms no
+  attribute-value field names is the symmetric answer and belongs in the same pass, but it means the
+  server deleting something a client sent, which is a decision rather than a detail. The collision half
+  is already settled and can be leaned on: `AttributeValueNamePolicy` refuses a name that clashes with
+  a declared child.
 
   Three values have occupied that slot, which is worth knowing before touching stored data. A **minted
   UUID**, which the artifact library wrote until it was removed as fabricated identity. An **empty
@@ -356,15 +384,14 @@ Frontend work for the embeddable editor is tracked separately in
   same source of an identity nothing assigned; that half is tracked on
   [TEMPLATE-DESIGNER-ROADMAP.md](./TEMPLATE-DESIGNER-ROADMAP.md).
 
-  **Attribute values are the one hard case.** Every attribute a user names on an attribute-value field
-  needs a property IRI in the instance's `@context`, and the name is invented at fill time, so there is
-  no earlier point at which anything could have minted one. Both editors mint it now:
+  **Attribute values have no earlier point to mint at.** Every attribute a user names on an
+  attribute-value field needs a property IRI in the instance's `@context`, and the name is invented at
+  fill time, so nothing could have minted one before the upload. Both editors mint it now:
   `DataObjectDataValueHandler` in CEE and `staging.service.js` in the Template Designer, each writing
-  `https://schema.metadatacenter.org/properties/<uuid>`. Under this rule both write `null` — or omit the
-  `@context` entry, per the JSON-LD point above — and the server mints on upload. What still needs
-  settling is how the server matches a minted IRI back to the attribute it belongs to when several are
-  named in one upload; the attribute's name is the obvious key, and it is what the two editors already
-  use to pair the `@context` entry with the value at the instance root.
+  `https://schema.metadatacenter.org/properties/<uuid>`. Under this rule both stop, leaving the
+  `@context` term out, and the server mints on upload. Which attribute a minted IRI belongs to is not
+  in doubt: the attribute-value field names them, and the name is what both editors already use to pair
+  the `@context` entry with the value at the instance root.
 
   `create_template_instance` in `cedar-artifact-mcp` records the state of play in a test, asserting
   that the refused element identifier is the *only* thing wrong with a freshly built instance — when
