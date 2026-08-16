@@ -16,43 +16,12 @@ model libraries — where their JSON and YAML serializations diverge — is in
 
 ### Features
 
-- **1. Decide whether create should require `@id: null` rather than accept an omitted `@id`.** The
-  meta-schema types `@id` as `{"type": ["string", "null"]}` and marks it required — deliberately: a
-  stored artifact carries its IRI, one not yet created carries `@id: null`, and both are the model's
-  idea of a valid artifact. Validation honours this exactly: the key must be present, its value may be
-  null. So the body a client is about to POST validates clean as long as it carries `@id: null`, and
-  the `validate` then `create` workflow composes with no placeholder IRI at all. This corrects an
-  earlier reading of this item, which had validation as too strict; it is faithful to the model.
-
-  The looser of the two is create. It accepts an omitted `@id` as well as a null one — both create a
-  201 — and rejects only a real client-supplied IRI. So the one body shape that creates but does not
-  validate is the one that leaves `@id` out entirely, which is the natural thing a client does. The
-  mismatch is create's leniency, not validation's strictness: if create required the `@id` key the way
-  the meta-schema and validation do, every createable body would also validate.
-
-  The question is which way to close it, and it is small. Either make create reject a body that omits
-  `@id`, pointing the client at `@id: null` — aligning the two contracts at the cost of refusing a body
-  that works today; or leave create lenient and document `@id: null` as the canonical pre-create shape,
-  so a client never omits the key and never meets validation's "missing required property `@id`". Item
-  10 decides this for the estate — a client says `null` and the server mints — which makes the first
-  the answer here, and this item the top-level artifact's share of that work. The
-  three shapes are pinned in `ops/e2e/rest/suites/validation.mjs`: `@id: null` validates and creates,
-  an omitted `@id` creates but does not validate, and a real IRI validates but is refused by create.
-
-  Checked over JSON only. The validate, create and update paths also negotiate YAML, so the same @id
-  behaviour needs confirming there: a body that validates as YAML should create as YAML, and the
-  null / omitted / IRI distinction should hold across both media types rather than only over JSON.
-
-  Instance validation is also not purely syntactic: it resolves `schema:isBasedOn` and answers 400 when
-  the template cannot be found, so an instance cannot be validated against a template that does not yet
-  exist. Reasonable, and worth stating.
-
-- **2. Decide on concurrency control.** There is no `ETag`, `If-Match` or `@Version` anywhere in the
+- **1. Decide on concurrency control.** There is no `ETag`, `If-Match` or `@Version` anywhere in the
   stack, so two users editing one template is a silent lost update: the second save wins and the
   first user is never told. This is a design item rather than a coverage item, since no test can be
   written until the API offers the conditional-request machinery.
 
-- **3. A published artifact can be deleted, contradicting the docs.** The docs say a published
+- **2. A published artifact can be deleted, contradicting the docs.** The docs say a published
   artifact is permanent, but `DELETE` on one succeeds. The guard in
   `AbstractResourceServerResource.executeArtifactDelete` was briefly re-enabled and then **reverted by
   deliberate decision**: blocking deletion strands published artifacts and the folders holding them with
@@ -63,7 +32,7 @@ model libraries — where their JSON and YAML serializations diverge — is in
   through folder deletion). Immutability of published content is a separate guarantee and is
   unaffected either way — that one is enforced.
 
-- **4. Clean up the DataCite DOI minting workflow.** Treat minting as one explicit, auditable lifecycle
+- **3. Clean up the DataCite DOI minting workflow.** Treat minting as one explicit, auditable lifecycle
   rather than a preparatory GET followed by a loosely coupled POST. The mutation endpoint must itself
   enforce write access and the source artifact's open/published requirements — today those checks are
   made only by the GET, so a caller can bypass them by invoking the POST directly. It also computes the
@@ -83,7 +52,7 @@ model libraries — where their JSON and YAML serializations diverge — is in
   failure, and repeated publish. Keep normal tests offline; add only an opt-in DataCite sandbox smoke
   test for the final wire contract and credential/configuration check.
 
-- **5. Settle the sharing and permission model, then write it down.** This is the umbrella item: the
+- **4. Settle the sharing and permission model, then write it down.** This is the umbrella item: the
   pieces below are each small, and separately each looks like a quirk, but together they say the model
   was never specified in one place, so every surface decided for itself. Controlled sharing is what
   CEDAR is for, which makes this the part most worth being deliberate about. All of it is now pinned by
@@ -174,7 +143,7 @@ model libraries — where their JSON and YAML serializations diverge — is in
   `GroupMembershipAuthorizationMatrixTest`, `GroupSharingRevocationIntegrationTest`,
   `ArtifactLifecycleMatrixTest` and `ops/e2e/rest/suites/categories.mjs`.
 
-- **6. Decide whether the artifact server is allowed to have no authorization of its own.** The
+- **5. Decide whether the artifact server is allowed to have no authorization of its own.** The
   workspace model in the item above lives in Neo4j and is enforced by the resource server. The
   artifact server, which holds the artifacts themselves in Mongo, consults none of it. Every path in
   `AbstractArtifactCrudResource` — create, find, find-all, update, delete — asks the same two
@@ -214,7 +183,7 @@ model libraries — where their JSON and YAML serializations diverge — is in
   levels mean, and this one asks which services are entitled to ignore them. A model that is
   specified but only enforced at one of two doors is not yet specified.
 
-- **7. Decide the contract for `title`/`internalName` across the YAML and JSON serializations.** A CEDAR
+- **6. Decide the contract for `title`/`internalName` across the YAML and JSON serializations.** A CEDAR
   artifact carries two names. The JSON has a JSON-Schema `title` (and `description`) alongside
   `schema:name` (and `schema:description`); the YAML has only `name` (and `description`). In the model
   the two are independent — the artifact library calls the JSON-Schema one `internalName` — but the
@@ -239,7 +208,7 @@ model libraries — where their JSON and YAML serializations diverge — is in
   library's `YamlTitleDerivation` / `YamlJsonConstraintParity` specs; this item is the design decision
   those tests currently encode by default.
 
-- **8. Decide whether `maxItems: 0` should mean unlimited, or the key should simply be absent.** The
+- **7. Decide whether `maxItems: 0` should mean unlimited, or the key should simply be absent.** The
   Template Designer emits `maxItems: 0` for an unbounded multi-instance field. Its cardinality
   selector labels the zero "unlimited" (`cardinality-selector.directive.js`, `zeros = {'min': 'none',
   'max': 'unlimited'}`), `defaultMinMax` in `cedar-template-element.directive.js` sets it on every new
@@ -269,7 +238,7 @@ model libraries — where their JSON and YAML serializations diverge — is in
   [TEMPLATE-DESIGNER-ROADMAP.md](./TEMPLATE-DESIGNER-ROADMAP.md); this one is tracked here because the
   decision binds the meta-schema and both model libraries as well.
 
-- **9. A value set cannot say it does not know how many terms it has.** The TypeScript builder's
+- **8. A value set cannot say it does not know how many terms it has.** The TypeScript builder's
   `withNumTerms` takes a `number` and defaults to `0`, so a value-set constraint built through it
   always states a count. Every other party to the same fact allows absence: the Java record holds
   `Optional<Integer>`, the TypeScript model class holds `number | null`, the JSON omits the key, and
@@ -287,7 +256,7 @@ model libraries — where their JSON and YAML serializations diverge — is in
   means, and how "unknown" is written — rather than three times over. The builder signature is the
   cheap half; the corpus data and whatever wrote it are the rest.
 
-- **10. Nobody mints an identifier but the server, and `null` is how a client asks for one.** The rule
+- **9. Nobody mints an identifier but the server, and `null` is how a client asks for one.** The rule
   is one sentence and the work is making every producer obey it: an artifact or a node that does not
   yet have an identity carries `@id: null`, and the server assigns a real IRI when the artifact is
   uploaded, on create and on update alike. A client that invents one is asserting an identity nothing
@@ -363,6 +332,22 @@ model libraries — where their JSON and YAML serializations diverge — is in
   reader. What production holds is a separate question, under
   [Production Artifact Patch](#production-artifact-patch).
 
+  **What has to change at create.** The resource server's create endpoint is where this rule meets a
+  client, and it is looser than the model: it accepts a body that omits `@id` as readily as one
+  carrying `null` — both answer 201 — and refuses only a real client-supplied IRI. Validation is the
+  faithful one, because the meta-schema types `@id` as `{"type": ["string", "null"]}` and marks it
+  required: the key must be present, its value may be null. So the single body shape that creates but
+  does not validate is the one leaving the key out, which is the natural thing for a client to write.
+  Under this rule create requires the key, which is what keeps "mint me one" apart from "I forgot",
+  and every createable body then validates as well. The three shapes are pinned in
+  `ops/e2e/rest/suites/validation.mjs`: `@id: null` validates and creates, an omitted `@id` creates
+  but does not validate, and a real IRI validates but is refused by create.
+
+  That is checked over JSON alone. Validate, create and update all negotiate YAML as well, so the same
+  three shapes have to be confirmed there rather than assumed. Instance validation is also not purely
+  syntactic: it resolves `schema:isBasedOn` and answers 400 when the template cannot be found, so an
+  instance cannot be validated against a template that does not yet exist.
+
   **Where the producers stand.** CEE no longer mints element-occurrence identifiers: it stamped a GUID
   onto every occurrence it built, and stopped once the requirement it was meeting turned out not to
   exist — measured against `CedarValidator`, an occurrence validates with `@id` null and with `@id`
@@ -391,9 +376,9 @@ model libraries — where their JSON and YAML serializations diverge — is in
 
 ### Infrastructure
 
-- **11. Upgrade the persistence and infrastructure servers.** These versions are pinned in the Docker
+- **10. Upgrade the persistence and infrastructure servers.** These versions are pinned in the Docker
   images and nowhere else, while the client libraries have moved on. The record that would say what
-  they are pinned *to* does not exist yet; establishing it is part of item 16, and this item is parked
+  they are pinned *to* does not exist yet; establishing it is part of item 15, and this item is parked
   behind it, since it defers to a lock that currently names six servers and no versions. Order them by
   risk, lowest first:
   Five are **done** on 2026-08-08, each taken together with containerizing that store: Redis
@@ -407,7 +392,7 @@ model libraries — where their JSON and YAML serializations diverge — is in
 
   No longer parked at the end. Containerizing the data stores needs each image pin moved up to the
   version already running, because an older engine cannot open existing data files, so this item is
-  what unblocks the last step of item 16 rather than something to take up afterwards. MySQL is the
+  what unblocks the last step of item 15 rather than something to take up afterwards. MySQL is the
   real decision left among the data stores; Keycloak is its own piece of work.
 
   **What actually holds Keycloak at 22.** Measured 2026-08-08 against Maven Central and the code, and
@@ -458,9 +443,9 @@ model libraries — where their JSON and YAML serializations diverge — is in
   The four that are done moved in development only, where the pin move and the containerization were
   one piece of work per store. Production is the part this item still owns: the same versions, but
   rehearsed on a copy of production data and gated on the end-to-end smoke. Where the order above and
-  item 16's disagree, item 16 governs, since it is what sequences the remaining work.
+  item 15's disagree, item 15 governs, since it is what sequences the remaining work.
 
-- **12. Move the build and runtime to Java 21.** The stack is locked to Java 17 — the zsh profile pins it
+- **11. Move the build and runtime to Java 21.** The stack is locked to Java 17 — the zsh profile pins it
   and the build enforces it. 21 is the next LTS and the natural target, but the lock exists for a
   reason: newer JDKs (23/25) crash Keycloak (`getSubject … security manager`) and OpenSearch will not
   start under them. So this is not a blind bump — verify Keycloak and OpenSearch run on 21 first, then
@@ -489,13 +474,13 @@ model libraries — where their JSON and YAML serializations diverge — is in
   problem — every Java repository now carries a wrapper at 3.9.14 and CI invokes `./mvnw` — except
   inside the build images, which still `microdnf -y install maven` unversioned.
 
-- **13. Point the token-verification client at a truststore in production.** Token-signature verification
+- **12. Point the token-verification client at a truststore in production.** Token-signature verification
   fetches the realm's signing keys over HTTPS; on the local stack that client trusts the self-signed
   `.orgx` certificate (`disableTrustManager` in `KeycloakDeploymentProvider`, matching the admin
   client). A real deployment should instead trust a truststore holding the realm CA. Small, and only
   matters outside local dev.
 
-- **14. Stop using the hardcoded BioPortal key, and rotate it.** `Constants.BP_PUBLIC_API_KEY` in
+- **13. Stop using the hardcoded BioPortal key, and rotate it.** `Constants.BP_PUBLIC_API_KEY` in
   `cedar-terminology-server` holds a literal BioPortal key, and `Cache` sends it on the four calls
   that populate the ontology and value-set caches (`findOntology` twice, `findAllOntologies`,
   `findAllValueSets`). Those are the server's own calls rather than calls made for a signed-in user,
@@ -521,7 +506,7 @@ model libraries — where their JSON and YAML serializations diverge — is in
   here is the *cause*: read `CEDAR_BIOPORTAL_API_KEY` from config, delete the constant, and rotate the
   exposed key so the partial loads stop happening in the first place.
 
-- **15. Identify API keys by a non-secret id, not the secret in the URL.** The API-key management routes
+- **14. Identify API keys by a non-secret id, not the secret in the URL.** The API-key management routes
   carry the full secret in the path — `POST /{id}/api-keys/{key}/regenerate` and
   `DELETE /{id}/api-keys/{key}` — so the key lands in nginx access logs, request traces, monitoring and
   browser history. The cheap leaks are already closed (the not-found error no longer echoes the key and
@@ -530,7 +515,7 @@ model libraries — where their JSON and YAML serializations diverge — is in
   (`/api-keys/{keyId}`), keeping the secret out of the path. Breaking change: cedar-cli and the profile
   UI call these routes, so it needs a coordinated client update.
 
-- **16. Deploy CEDAR from containers. The stack builds and runs locally; no environment deploys from
+- **15. Deploy CEDAR from containers. The stack builds and runs locally; no environment deploys from
   it.** Development runs as native processes brought up by hand — JDK 17 pinned, infra services
   started, fifteen service jars and the frontends launched through `cedar-services.sh` — and a deploy
   to staging or production rebuilds all of it on the target. Both work, and neither is reproducible. A
@@ -708,7 +693,7 @@ model libraries — where their JSON and YAML serializations diverge — is in
          Neo4j        5.26.0          5.26.0     (moved 2026-08-08, was 5.3.0)
          Redis        7.2.7           7.2.7      (moved 2026-08-08, was 6.2.7)
          OpenSearch   2.19.1          2.19.1     (moved 2026-08-08, was 1.3.6)
-         Keycloak     22.0.5          22.0.4     (upstream is 26.7.1; see item 11 for what holds it)
+         Keycloak     22.0.5          22.0.4     (upstream is 26.7.1; see item 10 for what holds it)
 
      The direction is the surprise. The Docker images are the only place any of these versions is
      written down; the native stack is Homebrew, so `brew upgrade` moves four of the six with nobody
@@ -1228,7 +1213,7 @@ model libraries — where their JSON and YAML serializations diverge — is in
   than a slow one, so they are worth knowing about before the next thing perturbs request latency.
 
 
-- **17. Adopt Renovate, so a version that falls behind says so.** Every pin in this estate is
+- **16. Adopt Renovate, so a version that falls behind says so.** Every pin in this estate is
   maintained by someone remembering to look at it, and the measurement above is what that produces:
   the Docker OpenSearch image sat at 1.3.6 while the servers shipped the 2.19 client, for about two
   years, and nothing anywhere reported it. Renovate is a bot that reads the files a repository
@@ -1290,7 +1275,7 @@ model libraries — where their JSON and YAML serializations diverge — is in
   manager is what makes them watchable again. Adopting no bot at all remains a coherent choice — the
   versions are at least in one place now — but it means those six are watched by nobody, as before.
 
-- **18. Build the MCP servers with everything else.** Four of them live under `$CEDAR_HOME/mcp`:
+- **17. Build the MCP servers with everything else.** Four of them live under `$CEDAR_HOME/mcp`:
   `cedar-artifact-mcp`, `cedar-artifact-rest-mcp` and `cedar-cee-mcp` are Maven projects,
   `bioportal-term-mcp` is Python. Each is its own repository, none is part of `cedarcli build java`,
   none has a GitHub Actions workflow, and neither [BACKEND-RUNBOOK.md](./BACKEND-RUNBOOK.md) nor
@@ -1325,7 +1310,7 @@ model libraries — where their JSON and YAML serializations diverge — is in
   - Decide whether they join the release or stay outside it, as CEE and the TypeScript model library
     do.
 
-- **19. Manage the transitive artifacts that still split on the test classpath.** Thirty-four
+- **18. Manage the transitive artifacts that still split on the test classpath.** Thirty-four
   artifacts that resolved to several versions across the estate are now managed in `cedar-parent`,
   which also repaired six integration classes that had been dying in `oneTimeSetUp` on
   `NoClassDefFound org/eclipse/jetty/http/UriCompliance`, the Neo4j harness's Jetty 9.4.49 beating
@@ -1341,7 +1326,7 @@ model libraries — where their JSON and YAML serializations diverge — is in
   can be what breaks a suite, and forcing a newer one on a consumer built against the old can break a
   suite that passes today. The whole estate's suites, 7,814 tests, are the check.
 
-- **20. Upgrade Mockito so byte-buddy converges, and then manage it too.** `byte-buddy` is the one
+- **19. Upgrade Mockito so byte-buddy converges, and then manage it too.** `byte-buddy` is the one
   artifact deliberately left unmanaged, and the pom says why: `dropwizard-hibernate` 4.0.17 brings
   1.18.4 at compile scope for Hibernate's bytecode enhancer, and Mockito 5.7.0 brings 1.14.9 at test
   scope. That is a scope boundary rather than drift, and forcing either version onto the other side
@@ -1352,7 +1337,7 @@ model libraries — where their JSON and YAML serializations diverge — is in
   set. Move `byte-buddy-agent` with it, since Mockito needs the two to match, and confirm the mock
   matrix still passes rather than trusting a green compile.
 
-- **21. Let the rebuilt search index become searchable before `regenerate-search-index` swaps the
+- **20. Let the rebuilt search index become searchable before `regenerate-search-index` swaps the
   alias onto it.** `RegenerateSearchIndexTask` orders its steps correctly: it indexes every batch,
   including the final partial one, then points the `cedar-search` alias at the new index, then deletes
   the old one. What it does not do is wait for what it just wrote to become visible. `addBatch` issues
@@ -1371,32 +1356,12 @@ model libraries — where their JSON and YAML serializations diverge — is in
   the sequence costs nothing beyond the wait. Worth doing before the command is run against
   production, where the fallback matters more than the second does.
 
-- **22. Decide the fate of `/command/regenerate-rules-index`, which empties the rules index rather
-  than rebuilding it.** The command creates an empty index, points the alias at it and deletes the
-  old one; the loop that would have populated it is commented out, as is the comparison that would
-  let `force=false` decline to run. So it does exactly what `/command/generate-empty-rules-index`
-  does, while its name and its description promised a rebuild. It is now marked deprecated on the
-  endpoint, in the OpenAPI spec and in the admin tool, and it logs a warning when invoked, but it
-  still runs and still wipes.
-
-  Restoring the commented loop is not the fix. That loop indexes folder-server resources, copied from
-  the search index task, and the rules index holds association rules mined by the value recommender
-  from template instances. The resource server cannot produce those documents at all.
-
-  Two ways to close it. Delete the command, the `/command/regenerate-rules-index` route and the admin
-  tool task, leaving the honest empty-index command as the only way to clear the rules — cheapest,
-  and it removes an admin surface someone may have scripted against. Or make it mean what it says:
-  keep the create-swap-delete, then drive regeneration through `ValuerecommenderReindexQueueService`,
-  which already drains into per-template `generate-rules` calls with thread-count and in-flight
-  throttling, and make the `force=false` comparison meaningful again by comparing template ids in
-  Neo4j against the distinct template ids present in the rules index.
-
 ## Testing
 
 Coverage and test-infrastructure work. The active REST integration suites live in
 `ops/e2e/rest/suites/`; the JUnit matrices and boot-smoke live in the per-server modules.
 
-- **23. Decide whether the build runs the tests, and give the answer a command-line option. Stop the
+- **21. Decide whether the build runs the tests, and give the answer a command-line option. Stop the
   output loop busy-polling.** The Java build skips its tests again: every Java repo is built with
   `./mvnw clean install -DskipTests`, and the `CEDAR_DEV_SKIP_TESTS` escape hatch is gone with the
   default it modified. That restores the behaviour the build had before, and it means a green
@@ -1465,7 +1430,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   "Execution succeeded!" and exits 0. A build that continued past a failure must record it, say so in
   the closing panel, and exit non-zero.
 
-- **24. Deepen the core-workflow tests instead of growing the headline count.** The JUnit matrices and the
+- **22. Deepen the core-workflow tests instead of growing the headline count.** The JUnit matrices and the
   REST suites now give the system respectable horizontal coverage: routes boot, authentication and
   permission boundaries are pinned, and create/read/update/delete, sharing, search, versioning and the
   cross-service hop all execute against the real stack. Much of that is deliberately
@@ -1504,7 +1469,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   versions or search projection disagreeing. The present suite protects the behavioural skeleton; this
   item protects the integrity of state when operations fail or are repeated.
 
-- **25. Add degradation tests.** Nothing asserts how a service behaves when a dependency it needs is
+- **23. Add degradation tests.** Nothing asserts how a service behaves when a dependency it needs is
   unavailable. The cost of that gap is known: reading any folder whose creator could not be resolved
   returned 500 for as long as the defect existed, because `UserSummaryCache` let Guava's
   "loader returned null" signal escape instead of degrading to the no-display-name path the callers
@@ -1512,7 +1477,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   asserts the API degrades rather than 500s. Bear in mind that queue writes are already best-effort
   by design (`AppLoggerQueueService`, the worker and NCBI queues), so those are the pattern to match.
 
-- **26. Retry the ontology-list load in the term picker (frontend, `cedar-template-editor`).** This is a
+- **24. Retry the ontology-list load in the term picker (frontend, `cedar-template-editor`).** This is a
   change to the Angular frontend, not to any microservice or test suite — it lands in
   `cedar-template-editor`, and so needs a frontend owner to review and push it (see the note below).
   It is the last piece of this defect still outstanding, and the fix is already written: it is open as
@@ -1557,13 +1522,13 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   and never could succeed. Nothing is saved server-side until after the block, so a failed attempt
   leaves no orphan template.
 
-- **27. Give `UserSummaryCache` a seam a test can reach.** The class resolves the display names that
+- **25. Give `UserSummaryCache` a seam a test can reach.** The class resolves the display names that
   decorate every resource read, and nothing tests it. `cedar-cache-operations-library` has no test
   sources at all. Reaching it needs a seam that does not exist today: the class is static throughout,
   its `init` takes a `CedarConfig`, and its loader calls the user server over HTTP.
 
   That gap has cost twice, both times in the same few lines. Guava's "loader returned null" signal
-  escaping as a 500 is recorded in item 25. The second is what a failure costs when it repeats. Guava
+  escaping as a 500 is recorded in item 23. The second is what a failure costs when it repeats. Guava
   caches a value and never a failure, so an unresolvable id was fetched again on every lookup and each
   attempt waited out the 20-second socket timeout, while `ProvenanceNameUtil` asks for three ids per
   resource and repeats that for every ancestor on a path and every entry of a listing. The
@@ -1594,27 +1559,27 @@ library at all — it throws where it used to drop the value silently. That is t
 it makes the patch a precondition for anything that reads those artifacts through the libraries
 rather than an improvement to schedule at leisure.
 
-- **28. Temporal fields that declare no `temporalType`.** Production holds temporal fields that
+- **26. Temporal fields that declare no `temporalType`.** Production holds temporal fields that
   declare none, and a field in that state cannot be filled in at all: it sits in the template as a
   slot nobody can complete. No reader refuses it, so nothing surfaces the field until a user reaches
   it. The companion question, whether `InstanceValidator` should require `@type` on every temporal
   value, is on [CEE-ROADMAP.md](./CEE-ROADMAP.md); the patch is finding the stored fields and giving
   each one a `temporalType` that agrees with whatever values it already holds.
 
-- **29. `pav:derivedFrom` written as an empty string.** The key names the artifact a copy was made
+- **27. `pav:derivedFrom` written as an empty string.** The key names the artifact a copy was made
   from, and it is optional: an artifact derived from nothing leaves it out. **289** schema artifacts in
   the shared corpus wrote `""` instead, against 41 naming a real IRI — 146 of them in one template,
   133 in another, ten across two more. The corpus is corrected and both libraries now refuse the empty
   string on read, in JSON and in YAML. What remains is the query over stored templates, elements and
   fields, and a rewrite that drops the key wherever it is empty.
 
-- **30. `"@id": ""` on element occurrences in stored instances.** The same disease on the identifier
+- **28. `"@id": ""` on element occurrences in stored instances.** The same disease on the identifier
   itself. Half the element occurrences in the corpus carried it — 59 nodes across four instances,
   since corrected to `null` — and both libraries now refuse it. Whether production holds them, and how
   many, is unmeasured; the rewrite is to `null`, which is what an occurrence with no assigned identity
-  says. The rule this serves, and who is allowed to mint an identifier at all, is item 10.
+  says. The rule this serves, and who is allowed to mint an identifier at all, is item 9.
 
-- **31. `_ui.pages`, a key the meta-schema forbids.** A template's `_ui` may carry `order`,
+- **29. `_ui.pages`, a key the meta-schema forbids.** A template's `_ui` may carry `order`,
   `propertyLabels`, `propertyDescriptions`, `header` and `footer`, and nothing else:
   `additionalProperties` is `false`. **120** template documents in the corpus carry `pages` there, 34
   of them preprod captures, and `CedarValidator` rejects every one of them for it. Both model
@@ -1623,17 +1588,17 @@ rather than an improvement to schedule at leisure.
   becomes part of the model or is dropped from stored templates, then patch accordingly — the count
   says this is not a stray.
 
-- **32. A count of zero standing for "unknown".** A value-set or ontology constraint records how many
+- **30. A count of zero standing for "unknown".** A value-set or ontology constraint records how many
   terms the vocabulary has, and production has written `0` where nobody knew. Two preprod captures in
   the corpus still show it, and the corrected copies name real counts. The same zero breaks template
   saving outright for GAZ, whose count comes back `n/a` and reaches a meta-schema requiring
   `minimum: 1` — tracked with its producer on
   [TEMPLATE-DESIGNER-ROADMAP.md](./TEMPLATE-DESIGNER-ROADMAP.md). What that zero should have been, and
-  how "unknown" is written at all, is item 9; the patch is the stored constraints that already carry
+  how "unknown" is written at all, is item 8; the patch is the stored constraints that already carry
   one.
 
-- **33. Identifiers the Template Designer minted.** `DataManipulationService.generateTempGUID` hands
+- **31. Identifiers the Template Designer minted.** `DataManipulationService.generateTempGUID` hands
   out `tmp-<ts>-<n>`, and `create-element.controller.js` falls back to `generateGUID()` where an
   element has no `@id`. Both name an identity nothing assigned. Whether any reached stored artifacts —
   rather than living only in the editor's working copy — is a query, and any that did are the same
-  rewrite as item 30. The producer is tracked on [TEMPLATE-DESIGNER-ROADMAP.md](./TEMPLATE-DESIGNER-ROADMAP.md).
+  rewrite as item 28. The producer is tracked on [TEMPLATE-DESIGNER-ROADMAP.md](./TEMPLATE-DESIGNER-ROADMAP.md).
