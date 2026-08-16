@@ -635,6 +635,16 @@ response.
    a SKOS vocabulary that names its concepts with `rdfs:label` gets no name at all and draws the
    IRI-fragment fallback. Fixing it is an extractor change and a re-ingest of those ten.
 
+   **A fifth, fixed 2026-08-16, was not a label defect at all but read as one.** A hierarchy read
+   from a snapshot took the first fifty children by IRI and sorted those fifty by label, so a large
+   node's list was an arbitrary subset presented as the alphabetical head of its children. ABD's
+   "Disease" has 280, and the fifty that came back skipped "African horse sickness" while showing
+   "African swine fever" two rows below it — so pinning a release appeared to lose a term the
+   release does hold. The current release is served by the search index, which orders by label and
+   limits afterwards, so the two disagreed and only the pinned path was wrong. Ordering and limiting
+   now happen in one query on both paths. The picker also states what a node is not showing; a
+   capped list that looks complete is what turned this into a report of a lost selection.
+
    **A third, fixed in the extractors 2026-08-16 and awaiting a re-ingest.** 465 concepts in 36
    ontologies store a label running over several lines, led by BIBFRAME (214) and ABD (86). ABD
    packs a list into one `rdfs:label` literal beside the real name, and the extractor kept whichever
