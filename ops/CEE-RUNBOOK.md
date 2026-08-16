@@ -302,22 +302,23 @@ and checking the wrong file reads exactly like a failed deploy:
 |---|---|
 | Template Designer | `/third_party_components/cedar-embeddable-editor/cedar-embeddable-editor.js` |
 | openview | `/node_modules/cedar-embeddable-editor/cedar-embeddable-editor.js` |
-| artifacts, bridging | inside `main.js` — imported in `app.module.ts`, so it is bundled, not served as a file |
+| artifacts, bridging | bundled, not served as a file — it is imported in `app.module.ts`. **Which bundle depends on which build**: the running `ng serve` splits it into `vendor.js`, and the checked-in production dist emits no `vendor.js` at all, carrying it in `main.js`. |
 
 For the first two, compare sha256 against the staged bundle. For the last two
-there is no file to hash: grep `main.js` for the load-trace stamp, which names one
-build exactly. The version string alone is not enough — `main.js` holds every
+there is no file to hash: grep the bundle for the load-trace stamp, which names
+one build exactly. The version string alone is not enough — the bundle holds every
 dependency's version, so a bare `1.6.0` in it may belong to something else
 entirely.
 
-These two named `vendor.js` here until 2026-08-16, and neither dist has ever
-contained one: both emit `main.js`, `polyfills.js` and `runtime.js`. Grepping a
-file that does not exist returns zero, which reads exactly like the failed deploy
-this table exists to rule out.
+Ask the dev server for `vendor.js` and the dist for `main.js`. Grepping the other
+one of the pair returns zero, which reads exactly like the failed deploy this
+check exists to rule out — and a zero from the wrong file has already been
+mistaken for one.
 
 ```bash
 curl -s http://127.0.0.1:4220/node_modules/cedar-embeddable-editor/cedar-embeddable-editor.js | shasum -a 256
 curl -sk https://cedar.metadatacenter.orgx/third_party_components/cedar-embeddable-editor/cedar-embeddable-editor.js | shasum -a 256
+curl -s http://127.0.0.1:4320/vendor.js | grep -c '<the load-trace stamp>'
 grep -c '<the load-trace stamp>' $CEDAR_HOME/cedar-artifacts/cedar-artifacts-dist/main.js
 ```
 
