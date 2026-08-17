@@ -259,15 +259,9 @@ Frontend work for the embeddable editor is tracked separately in
   `["string", "null"]`, so a draft carrying one validates before it is sent, which it could not do
   while the same key was typed a bare string. How all of it behaves is in
   [BACKEND-RUNBOOK.md](./BACKEND-RUNBOOK.md), "Identifiers: what a client sends, and what the server
-  fills". What is left is three loose ends, none of which a client can see.
-
-  **A template child's property IRI.** Both model libraries derive one from the child's name —
-  `PropertyIri.forName` and `ParentSchemaArtifact.generatePropertyUri` — which is reproducible but
-  still an IRI nothing assigned. The server should fill it and the generators should go, in one
-  change: they fire only for artifacts built through the builders, so removing them first would leave
-  such a template with no child mapping and nothing to supply one. It costs little to do — measured
-  over the corpus, all 75 child `@context` entries carry an IRI the child declared and none is
-  name-derived, and a template whose child has no mapping validates with no errors.
+  fills", and it covers a child's property IRI too: the libraries no longer derive one from the
+  child's name, and the server assigns it on create and update. What is left is two loose ends,
+  neither of which a client can see.
 
   **Pruning a term when an attribute is renamed or deleted**, which needs the template. The rule that
   looks sufficient is not: dropping a term in the CEDAR properties namespace whose name is no key in

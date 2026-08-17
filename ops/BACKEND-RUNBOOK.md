@@ -547,7 +547,7 @@ taste: **`null` where the key is required, absence where it is not.**
 | An element occurrence's `@id` | `null`, or the key left out | the server, on create and update |
 | — and a template types that key `["string", "null"]`, so the draft validates | | |
 | An attribute's `@context` term | nothing — the term is left out | the server, on create and update |
-| A template child's property IRI | nothing today; both model libraries derive one from the child's name | the libraries, for now |
+| A template child's property IRI | nothing — the mapping is left out | the server, on create and update |
 
 A draft is checkable before it is sent. A template types an element occurrence's `@id` as
 `["string", "null"]`, matching how it has always typed its own instance's, so
@@ -570,7 +570,10 @@ before validation on `POST` and on `PUT`. It walks the instance, assigns
 `…/template-element-instances/<uuid>` to every element occurrence that asks, and
 `…/properties/<uuid>` to every attribute an attribute-value field names and no `@context` term
 covers — into the context of the node holding the field, which is the root for a field at the top
-level and the occurrence's own context for one inside an element.
+level and the occurrence's own context for one inside an element. On a template or an element it
+does the same for a child the `@context` block does not map, and lists the child in that block's
+`required`, skipping the children no property could name: a static field displays something and
+holds nothing, and an attribute-value field's names are mapped in the instance instead.
 
 Two rules keep it honest, and both are load-bearing. **An identifier already there is left alone**,
 whoever assigned it: an identifier is worth having because it is stable, so an update returns what it
