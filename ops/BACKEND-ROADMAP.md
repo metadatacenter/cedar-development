@@ -1284,12 +1284,30 @@ Frontend work for the embeddable editor is tracked separately in
   resolve from Nexus by design, so anything that pairs a library change with a consumer change meets
   it. Worth settling alongside how the estate is built rather than on its own.
 
+- **21. Rename the Maven settings file the workflows still call `travis-settings.xml`.** Travis stopped
+  building CEDAR years ago, but the settings file it created outlived it, because Maven needs one to
+  know where Nexus is and how to authenticate to it. Nothing in the file is Travis-specific: it
+  declares the two BMIR Nexus repositories and takes `bmir-nexus-snapshots` and `bmir-nexus-releases`
+  credentials from `BMIR_NEXUS_USERNAME` and `BMIR_NEXUS_PASSWORD`, which Actions supplies as
+  repository secrets exactly as Travis supplied them as environment variables. So the name is the only
+  thing left, and it now describes nothing: **31 repositories carry `.m2/travis-settings.xml`, it is
+  the only file in each `.m2/`, and 30 workflows name it on a `--settings` flag**. Rename it to
+  `nexus-settings.xml` and move every workflow reference in the same commit per repository, since a
+  workflow pointing at a path that no longer exists cannot publish. Mechanical, and worth doing in one
+  sweep rather than repository by repository, so no two repositories disagree about the name.
+
+  The three dead `.travis.yml` files this turned up are **done**, deleted on 2026-08-17 from
+  `cedar-artifact-viewer`, `cedar-openview` and `cedar-template-editor`. They pinned Node 6 on Ubuntu
+  trusty and carried encrypted Slack tokens for a service that no longer runs. One loose end left in
+  place: `karma-travis-env` in `cedar-template-editor`'s gulpfile has no caller now, and whether to
+  keep it, rename it, or drop it is a question about that gulpfile rather than about CI.
+
 ## Testing
 
 Coverage and test-infrastructure work. The active REST integration suites live in
 `ops/e2e/rest/suites/`; the JUnit matrices and boot-smoke live in the per-server modules.
 
-- **21. Decide whether the build runs the tests, and give the answer a command-line option. Stop the
+- **22. Decide whether the build runs the tests, and give the answer a command-line option. Stop the
   output loop busy-polling.** The Java build skips its tests again: every Java repo is built with
   `./mvnw clean install -DskipTests`, and the `CEDAR_DEV_SKIP_TESTS` escape hatch is gone with the
   default it modified. That restores the behaviour the build had before, and it means a green
@@ -1358,7 +1376,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   "Execution succeeded!" and exits 0. A build that continued past a failure must record it, say so in
   the closing panel, and exit non-zero.
 
-- **22. Deepen the core-workflow tests instead of growing the headline count.** The JUnit matrices and the
+- **23. Deepen the core-workflow tests instead of growing the headline count.** The JUnit matrices and the
   REST suites now give the system respectable horizontal coverage: routes boot, authentication and
   permission boundaries are pinned, and create/read/update/delete, sharing, search, versioning and the
   cross-service hop all execute against the real stack. Much of that is deliberately
@@ -1397,7 +1415,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   versions or search projection disagreeing. The present suite protects the behavioural skeleton; this
   item protects the integrity of state when operations fail or are repeated.
 
-- **23. Add degradation tests.** Nothing asserts how a service behaves when a dependency it needs is
+- **24. Add degradation tests.** Nothing asserts how a service behaves when a dependency it needs is
   unavailable. The cost of that gap is known: reading any folder whose creator could not be resolved
   returned 500 for as long as the defect existed, because `UserSummaryCache` let Guava's
   "loader returned null" signal escape instead of degrading to the no-display-name path the callers
@@ -1405,7 +1423,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   asserts the API degrades rather than 500s. Bear in mind that queue writes are already best-effort
   by design (`AppLoggerQueueService`, the worker and NCBI queues), so those are the pattern to match.
 
-- **24. Retry the ontology-list load in the term picker (frontend, `cedar-template-editor`).** This is a
+- **25. Retry the ontology-list load in the term picker (frontend, `cedar-template-editor`).** This is a
   change to the Angular frontend, not to any microservice or test suite — it lands in
   `cedar-template-editor`, and so needs a frontend owner to review and push it (see the note below).
   It is the last piece of this defect still outstanding, and the fix is already written: it is open as
@@ -1482,7 +1500,7 @@ library at all — it throws where it used to drop the value silently. That is t
 it makes the patch a precondition for anything that reads those artifacts through the libraries
 rather than an improvement to schedule at leisure.
 
-- **25. Temporal fields that declare no `temporalType`.** Production holds temporal fields that
+- **26. Temporal fields that declare no `temporalType`.** Production holds temporal fields that
   declare none, and a field in that state cannot be filled in at all: it sits in the template as a
   slot nobody can complete. No reader refuses it, so nothing surfaces the field until a user reaches
   it. The patch is finding the stored fields and giving each one a `temporalType` that agrees with
@@ -1504,7 +1522,7 @@ rather than an improvement to schedule at leisure.
   it the other way, and leaving `@type` optional, means a temporal value can be stored with no
   statement of what kind of temporal value it is, which every reader then has to guess at.
 
-- **26. `pav:derivedFrom` written as an empty string.** The key names the artifact a copy was made
+- **27. `pav:derivedFrom` written as an empty string.** The key names the artifact a copy was made
   from, and it is optional: an artifact derived from nothing leaves it out. **289** schema artifacts in
   the shared corpus wrote `""` instead, against 41 naming a real IRI — 146 of them in one template,
   133 in another, ten across two more. The corpus is corrected and both libraries now refuse the empty
@@ -1517,7 +1535,7 @@ rather than an improvement to schedule at leisure.
   synthetic artifact carrying every one of these defects: the key is dropped, and a second pass finds
   nothing. What it has yet to be run against is a store.
 
-- **27. `"@id": ""` on element occurrences in stored instances.** The same disease on the identifier
+- **28. `"@id": ""` on element occurrences in stored instances.** The same disease on the identifier
   itself. Half the element occurrences in the corpus carried it — 59 nodes across four instances,
   since corrected to `null` — and both libraries now refuse it. Whether production holds them, and how
   many, is unmeasured; the rewrite is to `null`, which is what an occurrence with no assigned identity
@@ -1530,7 +1548,7 @@ rather than an improvement to schedule at leisure.
   artifact was stored under an identifier nothing can resolve and no rewrite settles which one it
   should have had.
 
-- **28. `_ui.pages`, a key the meta-schema forbids.** A template's `_ui` may carry `order`,
+- **29. `_ui.pages`, a key the meta-schema forbids.** A template's `_ui` may carry `order`,
   `propertyLabels`, `propertyDescriptions`, `header` and `footer`, and nothing else:
   `additionalProperties` is `false`. **120** template documents in the corpus carry `pages` there, 34
   of them preprod captures, and `CedarValidator` rejects every one of them for it. Both model
@@ -1550,7 +1568,7 @@ rather than an improvement to schedule at leisure.
   exists. The tool refuses to drop a populated `_ui.pages` and reports it instead, so if a store holds
   one it will be seen rather than quietly discarded.
 
-- **29. Attribute-value fields naming an attribute that has no name.** Two corpus instances,
+- **30. Attribute-value fields naming an attribute that has no name.** Two corpus instances,
   `cee-suite/071` and `cee-suite/072`, carry an attribute-value field whose list of names is `[""]` —
   an attribute named by the empty string, with no sibling value and no `@context` term. The server
   skips it when naming attributes, since a property IRI for it would name a property nothing can be
@@ -1564,7 +1582,7 @@ rather than an improvement to schedule at leisure.
   the rewrite where something is keyed by the empty name, since dropping it would orphan a value; in
   these three nothing was.
 
-- **30. `@context` terms for attributes nobody can name any more.** The server now assigns a property
+- **31. `@context` terms for attributes nobody can name any more.** The server now assigns a property
   IRI to every attribute an instance names, and leaves an assigned one alone — but nothing removes a
   term when the attribute it named is renamed or deleted, so a stored context accumulates one orphan
   per attribute a user ever changed their mind about. Going forward, pruning is decided and waits on
@@ -1578,7 +1596,7 @@ rather than an improvement to schedule at leisure.
   orphan at all, and the count anyone gets from a template-blind query is entirely false positives —
   which is the reason this item cannot be discharged by a query over instances alone.
 
-- **31. Ontology constraints that carry no canonical `iri`, and `sourceUri` where it is no longer
+- **32. Ontology constraints that carry no canonical `iri`, and `sourceUri` where it is no longer
   authored.** The versioned value-constraint shape names a source with `sourceSystem` and
   `sourceAcronym` and identifies it with a canonical `iri`; the older shape carried `sourceUri` and
   neither of the other two. Stored constraints are readable either way — a tolerant reader defaults an
