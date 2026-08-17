@@ -17,7 +17,7 @@ export async function run({ user1, folderId }) {
   // instance is based on and refuses with 400 when it cannot be found. So the instance fixture needs
   // a template that actually exists, which means creating one first.
   const host = await call(auth, 'POST', `/templates?folder_id=${folderId ? encodeURIComponent(folderId) : ''}`,
-      Object.assign(load('minimal-template.json'), { '@id': undefined, 'schema:name': `Validation Host ${RUN}` }));
+      Object.assign(load('minimal-template.json'), { '@id': null, 'schema:name': `Validation Host ${RUN}` }));
   let hostId;
   if (checkStatus(host, 201, 'a host template is created for instance validation')) {
     hostId = host.body['@id'];
@@ -156,10 +156,11 @@ export async function run({ user1, folderId }) {
 
   // The meta-schema types @id as ["string","null"] and requires the key, so an artifact that has not
   // been created yet carries @id: null — and that one shape both validates and creates, so the
-  // validate-then-create workflow needs no placeholder. The other two shapes reveal the asymmetry the
-  // roadmap weighs: omitting @id creates but does not validate (validation wants the key present),
-  // while a real IRI validates but create refuses it (create mints the id). It is create's acceptance
-  // of the omitted key, not validation's strictness, that lets a createable body fail validation.
+  // validate-then-create workflow needs no placeholder. The other two are refused, each by the rule
+  // that only the server assigns an identifier: omitting the key leaves nothing to tell "assign me
+  // one" from "I forgot", and a real IRI asserts an identity nothing can resolve and the server is
+  // about to replace. Create used to accept the omitted key, which made it the one shape that created
+  // here and failed validation there.
   const base = () => Object.assign(load('minimal-template.json'), { 'schema:name': `Id Shape ${RUN}` });
   const validate = body => call(auth, 'POST', '/command/validate?resource_type=template', body);
   const create = async (body, label) => {
@@ -176,8 +177,9 @@ export async function run({ user1, folderId }) {
   check((await validate(omitted)).body?.validates === 'false',
       'an omitted @id does not validate — the meta-schema requires the key be present',
       'it validated, so the required-key rule is not being applied');
-  checkStatus(await create(omitted, 'Id Shape omitted'), 201,
-      'yet an omitted @id creates — the leniency the roadmap questions');
+  check((await create(omitted, 'Id Shape omitted')).status === 400,
+      'and an omitted @id does not create either — the key is how a client asks for one',
+      'create accepted a body with no @id key');
 
   const realId = base();
   realId['@id'] = 'https://repo.metadatacenter.orgx/templates/11111111-1111-1111-1111-111111111111';

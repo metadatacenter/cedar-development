@@ -210,8 +210,11 @@ function fixture(name) {
  *
  * Loaded from fixtures rather than written inline: the meta-schema requires a `properties` block
  * naming `@context`, `@id`, `oslc:modifiedBy` and more, which is knowledge that belongs with the
- * schema. See fixtures/README.md. The identifier is stripped because a create carrying one is
- * refused — and must be restored for an update, which requires it.
+ * schema. See fixtures/README.md.
+ *
+ * The identifier is nulled rather than dropped, which is what a client says when it wants one
+ * assigned: a create carrying a real IRI is refused, and so is one leaving the key out, because an
+ * absent key cannot be told from a forgotten one. An update needs the real identifier restored.
  */
 export function artifactBody(kind, name, extra = {}) {
   const files = {
@@ -221,7 +224,7 @@ export function artifactBody(kind, name, extra = {}) {
     instance: 'minimal-instance.json',
   };
   const body = fixture(files[kind]);
-  delete body['@id'];
+  body['@id'] = null;
   body['schema:name'] = name;
   body['schema:description'] = `Created by the REST suites (${RUN})`;
   return Object.assign(body, extra);

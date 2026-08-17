@@ -19,7 +19,7 @@ export const name = 'inclusion';
  */
 function templateEmbedding(elementObject, name) {
   const tmpl = JSON.parse(readFileSync(resolve(FIXTURES, 'minimal-template.json'), 'utf8'));
-  delete tmpl['@id'];
+  tmpl['@id'] = null;
   tmpl['schema:name'] = name;
   const field = 'embeddedElement';
   tmpl.properties[field] = elementObject;
