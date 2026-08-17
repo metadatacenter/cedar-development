@@ -252,15 +252,7 @@ Frontend work for the embeddable editor is tracked separately in
   whether the frontend writes those or whether they are residue from a field that was once
   multi-instance.
 
-- **8. `/command/validate` answers 500 for a body it cannot read.** It is JSON only. Handed
-  `Content-Type: application/yaml`, the body reaches Jackson and fails to deserialize, so the client
-  gets `500` and *"There was an error deserializing the request body : Unrecognized token 'type'"* —
-  a server error for what is a client's mistake, and the wrong one to act on. `415 Unsupported Media
-  Type` is the answer, or YAML validation is, since create and update both negotiate it and a client
-  that authors in YAML has no way to check its work first. `ops/e2e/rest/suites/validation.mjs` pins
-  the 500 as it stands rather than asserting it away.
-
-- **9. Decide whether a child artifact must carry `$schema`.** The Java reader throws
+- **8. Decide whether a child artifact must carry `$schema`.** The Java reader throws
   `ArtifactParseException: No text value present for field $schema` on a template whose nested fields
   omit it; the TypeScript reader records a blueprint departure and carries on. Templates in the wild
   carry the omission — one local template had it on 204 artifact nodes — so this is the difference
@@ -283,9 +275,9 @@ Frontend work for the embeddable editor is tracked separately in
 
 ### Infrastructure
 
-- **10. Upgrade the persistence and infrastructure servers.** These versions are pinned in the Docker
+- **9. Upgrade the persistence and infrastructure servers.** These versions are pinned in the Docker
   images and nowhere else, while the client libraries have moved on. The record that would say what
-  they are pinned *to* does not exist yet; establishing it is part of item 15, and this item is parked
+  they are pinned *to* does not exist yet; establishing it is part of item 14, and this item is parked
   behind it, since it defers to a lock that currently names six servers and no versions. Order them by
   risk, lowest first:
   Five are **done** on 2026-08-08, each taken together with containerizing that store: Redis
@@ -299,7 +291,7 @@ Frontend work for the embeddable editor is tracked separately in
 
   No longer parked at the end. Containerizing the data stores needs each image pin moved up to the
   version already running, because an older engine cannot open existing data files, so this item is
-  what unblocks the last step of item 15 rather than something to take up afterwards. MySQL is the
+  what unblocks the last step of item 14 rather than something to take up afterwards. MySQL is the
   real decision left among the data stores; Keycloak is its own piece of work.
 
   **What actually holds Keycloak at 22.** Measured 2026-08-08 against Maven Central and the code, and
@@ -350,9 +342,9 @@ Frontend work for the embeddable editor is tracked separately in
   The four that are done moved in development only, where the pin move and the containerization were
   one piece of work per store. Production is the part this item still owns: the same versions, but
   rehearsed on a copy of production data and gated on the end-to-end smoke. Where the order above and
-  item 15's disagree, item 15 governs, since it is what sequences the remaining work.
+  item 14's disagree, item 14 governs, since it is what sequences the remaining work.
 
-- **11. Move the build and runtime to Java 21.** The stack is locked to Java 17 — the zsh profile pins it
+- **10. Move the build and runtime to Java 21.** The stack is locked to Java 17 — the zsh profile pins it
   and the build enforces it. 21 is the next LTS and the natural target, but the lock exists for a
   reason: newer JDKs (23/25) crash Keycloak (`getSubject … security manager`) and OpenSearch will not
   start under them. So this is not a blind bump — verify Keycloak and OpenSearch run on 21 first, then
@@ -381,13 +373,13 @@ Frontend work for the embeddable editor is tracked separately in
   problem — every Java repository now carries a wrapper at 3.9.14 and CI invokes `./mvnw` — except
   inside the build images, which still `microdnf -y install maven` unversioned.
 
-- **12. Point the token-verification client at a truststore in production.** Token-signature verification
+- **11. Point the token-verification client at a truststore in production.** Token-signature verification
   fetches the realm's signing keys over HTTPS; on the local stack that client trusts the self-signed
   `.orgx` certificate (`disableTrustManager` in `KeycloakDeploymentProvider`, matching the admin
   client). A real deployment should instead trust a truststore holding the realm CA. Small, and only
   matters outside local dev.
 
-- **13. Stop using the hardcoded BioPortal key, and rotate it.** `Constants.BP_PUBLIC_API_KEY` in
+- **12. Stop using the hardcoded BioPortal key, and rotate it.** `Constants.BP_PUBLIC_API_KEY` in
   `cedar-terminology-server` holds a literal BioPortal key, and `Cache` sends it on the four calls
   that populate the ontology and value-set caches (`findOntology` twice, `findAllOntologies`,
   `findAllValueSets`). Those are the server's own calls rather than calls made for a signed-in user,
@@ -413,7 +405,7 @@ Frontend work for the embeddable editor is tracked separately in
   here is the *cause*: read `CEDAR_BIOPORTAL_API_KEY` from config, delete the constant, and rotate the
   exposed key so the partial loads stop happening in the first place.
 
-- **14. Identify API keys by a non-secret id, not the secret in the URL.** The API-key management routes
+- **13. Identify API keys by a non-secret id, not the secret in the URL.** The API-key management routes
   carry the full secret in the path — `POST /{id}/api-keys/{key}/regenerate` and
   `DELETE /{id}/api-keys/{key}` — so the key lands in nginx access logs, request traces, monitoring and
   browser history. The cheap leaks are already closed (the not-found error no longer echoes the key and
@@ -422,7 +414,7 @@ Frontend work for the embeddable editor is tracked separately in
   (`/api-keys/{keyId}`), keeping the secret out of the path. Breaking change: cedar-cli and the profile
   UI call these routes, so it needs a coordinated client update.
 
-- **15. Deploy CEDAR from containers. The stack builds and runs locally; no environment deploys from
+- **14. Deploy CEDAR from containers. The stack builds and runs locally; no environment deploys from
   it.** Development runs as native processes brought up by hand — JDK 17 pinned, infra services
   started, fifteen service jars and the frontends launched through `cedar-services.sh` — and a deploy
   to staging or production rebuilds all of it on the target. Both work, and neither is reproducible. A
@@ -600,7 +592,7 @@ Frontend work for the embeddable editor is tracked separately in
          Neo4j        5.26.0          5.26.0     (moved 2026-08-08, was 5.3.0)
          Redis        7.2.7           7.2.7      (moved 2026-08-08, was 6.2.7)
          OpenSearch   2.19.1          2.19.1     (moved 2026-08-08, was 1.3.6)
-         Keycloak     22.0.5          22.0.4     (upstream is 26.7.1; see item 10 for what holds it)
+         Keycloak     22.0.5          22.0.4     (upstream is 26.7.1; see item 9 for what holds it)
 
      The direction is the surprise. The Docker images are the only place any of these versions is
      written down; the native stack is Homebrew, so `brew upgrade` moves four of the six with nobody
@@ -1118,7 +1110,7 @@ Frontend work for the embeddable editor is tracked separately in
   neither is one now, but together they are why a transport hiccup escalates into a blank page rather
   than a slow one, so they are worth knowing about before the next thing perturbs request latency.
 
-- **16. Adopt Renovate, so a version that falls behind says so.** Every pin in this estate is
+- **15. Adopt Renovate, so a version that falls behind says so.** Every pin in this estate is
   maintained by someone remembering to look at it, and the measurement above is what that produces:
   the Docker OpenSearch image sat at 1.3.6 while the servers shipped the 2.19 client, for about two
   years, and nothing anywhere reported it. Renovate is a bot that reads the files a repository
@@ -1180,7 +1172,7 @@ Frontend work for the embeddable editor is tracked separately in
   manager is what makes them watchable again. Adopting no bot at all remains a coherent choice — the
   versions are at least in one place now — but it means those six are watched by nobody, as before.
 
-- **17. Build the MCP servers with everything else.** Four of them live under `$CEDAR_HOME/mcp`:
+- **16. Build the MCP servers with everything else.** Four of them live under `$CEDAR_HOME/mcp`:
   `cedar-artifact-mcp`, `cedar-artifact-rest-mcp` and `cedar-cee-mcp` are Maven projects,
   `bioportal-term-mcp` is Python. Each is its own repository, none is part of `cedarcli build java`,
   none has a GitHub Actions workflow, and neither [BACKEND-RUNBOOK.md](./BACKEND-RUNBOOK.md) nor
@@ -1215,7 +1207,7 @@ Frontend work for the embeddable editor is tracked separately in
   - Decide whether they join the release or stay outside it, as CEE and the TypeScript model library
     do.
 
-- **18. Manage the transitive artifacts that still split on the test classpath.** Thirty-four
+- **17. Manage the transitive artifacts that still split on the test classpath.** Thirty-four
   artifacts that resolved to several versions across the estate are now managed in `cedar-parent`,
   which also repaired six integration classes that had been dying in `oneTimeSetUp` on
   `NoClassDefFound org/eclipse/jetty/http/UriCompliance`, the Neo4j harness's Jetty 9.4.49 beating
@@ -1231,7 +1223,7 @@ Frontend work for the embeddable editor is tracked separately in
   can be what breaks a suite, and forcing a newer one on a consumer built against the old can break a
   suite that passes today. The whole estate's suites, 7,814 tests, are the check.
 
-- **19. Upgrade Mockito so byte-buddy converges, and then manage it too.** `byte-buddy` is the one
+- **18. Upgrade Mockito so byte-buddy converges, and then manage it too.** `byte-buddy` is the one
   artifact deliberately left unmanaged, and the pom says why: `dropwizard-hibernate` 4.0.17 brings
   1.18.4 at compile scope for Hibernate's bytecode enhancer, and Mockito 5.7.0 brings 1.14.9 at test
   scope. That is a scope boundary rather than drift, and forcing either version onto the other side
@@ -1242,7 +1234,7 @@ Frontend work for the embeddable editor is tracked separately in
   set. Move `byte-buddy-agent` with it, since Mockito needs the two to match, and confirm the mock
   matrix still passes rather than trusting a green compile.
 
-- **20. Let the rebuilt search index become searchable before `regenerate-search-index` swaps the
+- **19. Let the rebuilt search index become searchable before `regenerate-search-index` swaps the
   alias onto it.** `RegenerateSearchIndexTask` orders its steps correctly: it indexes every batch,
   including the final partial one, then points the `cedar-search` alias at the new index, then deletes
   the old one. What it does not do is wait for what it just wrote to become visible. `addBatch` issues
@@ -1261,7 +1253,7 @@ Frontend work for the embeddable editor is tracked separately in
   the sequence costs nothing beyond the wait. Worth doing before the command is run against
   production, where the fallback matters more than the second does.
 
-- **21. Publish a library snapshot before the consumer that needs it is built, or make the consumer
+- **20. Publish a library snapshot before the consumer that needs it is built, or make the consumer
   wait.** A change that adds a method to a shared library and calls it from a server is one change in
   two repositories, and CI builds them independently. The library's job compiles, tests and deploys
   its snapshot to Nexus in about thirty seconds; the consumer's job resolves that snapshot from Nexus
@@ -1297,7 +1289,7 @@ Frontend work for the embeddable editor is tracked separately in
 Coverage and test-infrastructure work. The active REST integration suites live in
 `ops/e2e/rest/suites/`; the JUnit matrices and boot-smoke live in the per-server modules.
 
-- **22. Decide whether the build runs the tests, and give the answer a command-line option. Stop the
+- **21. Decide whether the build runs the tests, and give the answer a command-line option. Stop the
   output loop busy-polling.** The Java build skips its tests again: every Java repo is built with
   `./mvnw clean install -DskipTests`, and the `CEDAR_DEV_SKIP_TESTS` escape hatch is gone with the
   default it modified. That restores the behaviour the build had before, and it means a green
@@ -1366,7 +1358,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   "Execution succeeded!" and exits 0. A build that continued past a failure must record it, say so in
   the closing panel, and exit non-zero.
 
-- **23. Deepen the core-workflow tests instead of growing the headline count.** The JUnit matrices and the
+- **22. Deepen the core-workflow tests instead of growing the headline count.** The JUnit matrices and the
   REST suites now give the system respectable horizontal coverage: routes boot, authentication and
   permission boundaries are pinned, and create/read/update/delete, sharing, search, versioning and the
   cross-service hop all execute against the real stack. Much of that is deliberately
@@ -1405,7 +1397,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   versions or search projection disagreeing. The present suite protects the behavioural skeleton; this
   item protects the integrity of state when operations fail or are repeated.
 
-- **24. Add degradation tests.** Nothing asserts how a service behaves when a dependency it needs is
+- **23. Add degradation tests.** Nothing asserts how a service behaves when a dependency it needs is
   unavailable. The cost of that gap is known: reading any folder whose creator could not be resolved
   returned 500 for as long as the defect existed, because `UserSummaryCache` let Guava's
   "loader returned null" signal escape instead of degrading to the no-display-name path the callers
@@ -1413,7 +1405,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   asserts the API degrades rather than 500s. Bear in mind that queue writes are already best-effort
   by design (`AppLoggerQueueService`, the worker and NCBI queues), so those are the pattern to match.
 
-- **25. Retry the ontology-list load in the term picker (frontend, `cedar-template-editor`).** This is a
+- **24. Retry the ontology-list load in the term picker (frontend, `cedar-template-editor`).** This is a
   change to the Angular frontend, not to any microservice or test suite — it lands in
   `cedar-template-editor`, and so needs a frontend owner to review and push it (see the note below).
   It is the last piece of this defect still outstanding, and the fix is already written: it is open as
@@ -1478,7 +1470,7 @@ library at all — it throws where it used to drop the value silently. That is t
 it makes the patch a precondition for anything that reads those artifacts through the libraries
 rather than an improvement to schedule at leisure.
 
-- **26. Temporal fields that declare no `temporalType`.** Production holds temporal fields that
+- **25. Temporal fields that declare no `temporalType`.** Production holds temporal fields that
   declare none, and a field in that state cannot be filled in at all: it sits in the template as a
   slot nobody can complete. No reader refuses it, so nothing surfaces the field until a user reaches
   it. The patch is finding the stored fields and giving each one a `temporalType` that agrees with
@@ -1491,21 +1483,21 @@ rather than an improvement to schedule at leisure.
   it the other way, and leaving `@type` optional, means a temporal value can be stored with no
   statement of what kind of temporal value it is, which every reader then has to guess at.
 
-- **27. `pav:derivedFrom` written as an empty string.** The key names the artifact a copy was made
+- **26. `pav:derivedFrom` written as an empty string.** The key names the artifact a copy was made
   from, and it is optional: an artifact derived from nothing leaves it out. **289** schema artifacts in
   the shared corpus wrote `""` instead, against 41 naming a real IRI — 146 of them in one template,
   133 in another, ten across two more. The corpus is corrected and both libraries now refuse the empty
   string on read, in JSON and in YAML. What remains is the query over stored templates, elements and
   fields, and a rewrite that drops the key wherever it is empty.
 
-- **28. `"@id": ""` on element occurrences in stored instances.** The same disease on the identifier
+- **27. `"@id": ""` on element occurrences in stored instances.** The same disease on the identifier
   itself. Half the element occurrences in the corpus carried it — 59 nodes across four instances,
   since corrected to `null` — and both libraries now refuse it. Whether production holds them, and how
   many, is unmeasured; the rewrite is to `null`, which is what an occurrence with no assigned identity
   says. The rule this serves, and who is allowed to assign an identifier at all, is in
   [BACKEND-RUNBOOK.md](./BACKEND-RUNBOOK.md), "Identifiers: what a client sends, and what the server fills".
 
-- **29. `_ui.pages`, a key the meta-schema forbids.** A template's `_ui` may carry `order`,
+- **28. `_ui.pages`, a key the meta-schema forbids.** A template's `_ui` may carry `order`,
   `propertyLabels`, `propertyDescriptions`, `header` and `footer`, and nothing else:
   `additionalProperties` is `false`. **120** template documents in the corpus carry `pages` there, 34
   of them preprod captures, and `CedarValidator` rejects every one of them for it. Both model
@@ -1514,14 +1506,14 @@ rather than an improvement to schedule at leisure.
   becomes part of the model or is dropped from stored templates, then patch accordingly — the count
   says this is not a stray.
 
-- **30. Attribute-value fields naming an attribute that has no name.** Two corpus instances,
+- **29. Attribute-value fields naming an attribute that has no name.** Two corpus instances,
   `cee-suite/071` and `cee-suite/072`, carry an attribute-value field whose list of names is `[""]` —
   an attribute named by the empty string, with no sibling value and no `@context` term. The server
   skips it when naming attributes, since a property IRI for it would name a property nothing can be
   said about, so these stay unnamed until the data is corrected. How many production instances hold
   one, and what wrote it, are the query and the producer question every item here starts with.
 
-- **31. `@context` terms for attributes nobody can name any more.** The server now assigns a property
+- **30. `@context` terms for attributes nobody can name any more.** The server now assigns a property
   IRI to every attribute an instance names, and leaves an assigned one alone — but nothing removes a
   term when the attribute it named is renamed or deleted, so a stored context accumulates one orphan
   per attribute a user ever changed their mind about. Going forward, pruning is decided and waits on
@@ -1529,7 +1521,7 @@ rather than an improvement to schedule at leisure.
   too, and for the same reason: a term whose name is no key in the instance may be an orphan, or it may
   be a child the instance does not fill, which `instances/005` carries two of.
 
-- **32. Ontology constraints that carry no canonical `iri`, and `sourceUri` where it is no longer
+- **31. Ontology constraints that carry no canonical `iri`, and `sourceUri` where it is no longer
   authored.** The versioned value-constraint shape names a source with `sourceSystem` and
   `sourceAcronym` and identifies it with a canonical `iri`; the older shape carried `sourceUri` and
   neither of the other two. Stored constraints are readable either way — a tolerant reader defaults an

@@ -563,9 +563,12 @@ each is refused in the other's form. JSON carries the key with null in it, becau
 requires the key. YAML has no such requirement and no use for a placeholder, so the authoring form
 simply omits `id`, and an explicit `id: null` is refused with *"null is not a valid value; omit the
 key if the value is unknown"*. An update over YAML must name the identifier it is updating, as over
-JSON. And `/command/validate` is **JSON only** — handed YAML it answers `500` from the deserializer
-rather than `415`, which is on [BACKEND-ROADMAP.md](./BACKEND-ROADMAP.md); a client authoring in YAML
-cannot check its work before sending it.
+JSON. `/command/validate` takes YAML too, so a client that authors in YAML can ask whether its work is valid
+before sending it — the same transcode the write routes use, on every artifact kind. A body it cannot
+read answers `400`: it is the client's mistake, not the server's. It used to accept JSON alone and
+answer `500` from the deserializer, which made it the one write-adjacent route that refused what the
+write routes accept. The JSON-only composite body — an instance together with the template to validate
+it against — is unaffected.
 
 **Create refuses a body with no `@id` key**, and refuses one carrying a real IRI. The first is
 refused because an absent key cannot be told from a forgotten one, and because the meta-schema types

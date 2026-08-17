@@ -233,14 +233,26 @@ export async function run({ user1, folderId }) {
       'and a real IRI is refused over YAML as it is over JSON — the server assigns identifiers',
       `expected 400, got ${yamlIri.status}`);
 
-  // Validation is JSON only. A YAML body reaches Jackson and fails to deserialize, so the answer is a
-  // 500 rather than the 415 an unsupported media type deserves. Pinned as it stands, with the defect
-  // recorded on BACKEND-ROADMAP.md rather than asserted away.
-  const yamlValidate = await call(auth, 'POST', '/command/validate?resource_type=template',
-      yaml('template-minimal.yml'), asYaml);
-  check(yamlValidate.status === 500 && /deserializing/.test(yamlValidate.text ?? ''),
-      'validate does not negotiate YAML, and says so as a 500 rather than a 415',
-      `${yamlValidate.status}: ${(yamlValidate.text ?? '').slice(0, 160)}`);
+  // Validate negotiates YAML, which is what lets a client that authors in YAML check its work before
+  // sending it. It was JSON only, and a YAML body reached Jackson and answered 500 — a server error for
+  // the client's own business, on the one write-adjacent route that did not accept what the write
+  // routes do.
+  for (const [fixture, kind] of [['template-minimal.yml', 'template'], ['template-full.yml', 'template'],
+                                 ['element-full.yml', 'element'], ['field-minimal.yml', 'field']]) {
+    const validated = await call(auth, 'POST', `/command/validate?resource_type=${kind}`, yaml(fixture), asYaml);
+    check(validated.status === 200 && validated.body?.validates === 'true',
+        `${fixture} validates as YAML`,
+        `${validated.status}: ${(validated.text ?? '').slice(0, 160)}`);
+  }
+
+  // And a body it cannot read is the client's mistake, so it answers 400 rather than 500 — which is
+  // what this route used to do with any YAML at all.
+  const unreadable = await call(auth, 'POST', '/command/validate?resource_type=template',
+      'type: template\nname: X\nid: https://repo.metadatacenter.org/templates/11111111-1111-1111-1111-111111111111\n',
+      asYaml);
+  check(unreadable.status === 400,
+      'YAML that cannot be read answers 400, not 500',
+      `${unreadable.status}: ${(unreadable.text ?? '').slice(0, 160)}`);
 
   return {};
 }
