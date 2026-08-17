@@ -1,6 +1,5 @@
 type: template
 name: Simple Template with Attribute-Value Field
-id: https://repo.metadatacenter.org/templates/b2cb857d-cdd2-4122-a006-ab8afc5dce0b
 children:
 - key: Attribute values
   type: attribute-value-field

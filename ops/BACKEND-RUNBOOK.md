@@ -637,10 +637,19 @@ printf 'type: template\nname: Minimal\n' | curl -sk -X POST -H "Authorization: a
 
 Two things to know before relying on it:
 
-- **`?compact=true` is read-only.** It returns the lean form — on a 23-field template, 40% of the
-  full YAML and under a seventh of the JSON — by dropping provenance, version, and status. Writing
-  it back is rejected with a `400` naming the compact form. Write the full form, or omit `id` to
-  author minimally.
+- **`?compact=true` is a read parameter.** It returns the lean form — on a 23-field template, 40% of
+  the full YAML and under a seventh of the JSON — by dropping provenance, version, status, the model
+  version and the identifier. Passing it on a `POST` or `PUT` is refused: writing compact is not a
+  thing to ask for.
+
+  A compact **body**, though, is accepted on create and refused on update, and both follow from what it
+  carries. Having no identifier, it is the same document as the minimal authoring form, so a create
+  loses nothing — there is no stored artifact to damage, and the server supplies the identifier,
+  version, status, model version and provenance. An update is refused because it names no artifact to
+  update. A guard used to catch a compact body by its signature, an id with none of the system-recorded
+  keys; that signature went when the identifier did, and nothing emits it now. The shape is still
+  refused if a client writes one by hand, because naming an artifact selects the full form and the full
+  form requires a model version.
 - **A template instance takes `?format=` ahead of `Accept`.** That parameter already names the
   representation (`jsonld`, `json`, `rdf-nquad`), so YAML negotiation applies only when it is absent.
 
