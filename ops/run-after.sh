@@ -1,22 +1,50 @@
 #!/bin/bash
 #
-# Runs one ingest driver after another finishes, so two never compete.
+# Runs one long job after another finishes, so two never compete.
 #
-# Each ingest is a full parse holding the ontology in memory, and BioPortal is one API — two drivers
-# at once halves neither's time and doubles the chance of being throttled. This waits on the first
-# by process rather than by a guessed duration.
+# Each ingest is a full parse holding an ontology in memory, and BioPortal is one API — two drivers
+# at once halves neither's time and doubles the chance of being throttled. This waits for the first
+# to exit rather than for a guessed duration.
 #
-# The pattern is matched against whole command lines, so pick one that names the driver being
-# waited for and nothing else. Any process whose arguments happen to contain it counts as still
-# running — including a shell that launched this one with the pattern on its own command line.
+# Waits on a process id, not on a name. Matching whole command lines is how this went wrong three
+# times: the pattern is one of this script's own arguments, so `pgrep -f` matched this very script
+# and it waited for itself for ever — a chain whose pattern named the command it was about to launch
+# never started at all. The same trap catches any shell whose command line happens to contain the
+# pattern, including the one an operator types to check on it. A pid cannot match the wrong thing.
 #
-# Usage: run-after.sh <pattern-to-wait-for> <command...>
+# Usage:
+#   run-after.sh <pid> <command...>
+#
+# Typical use, chaining a second driver behind a first:
+#   nohup bash ops/backfill-releases.sh plan-a.tsv logs/a > logs/a.out 2>&1 &
+#   nohup bash ops/run-after.sh $! bash ops/backfill-releases.sh plan-b.tsv logs/b > logs/b.out 2>&1 &
+#
+# The pid must be a process this user can signal, which is what `kill -0` tests. A pid the kernel
+# has already reused would be waited on wrongly, which needs the original to have exited and several
+# tens of thousands of processes to have started since — not a risk on the timescale of an ingest,
+# and the alternative is the name matching this exists to avoid.
 
 set -u
-WAIT_FOR="${1:?usage: run-after.sh <pattern> <command...>}"
+
+WAIT_FOR="${1:?usage: run-after.sh <pid> <command...>}"
 shift
-# Excluding this process: the pattern is one of our own arguments, so a plain `pgrep -f` matches
-# this very script and waits for itself for ever.
-while pgrep -f "$WAIT_FOR" | grep -qvx "$$"; do sleep 60; done
-echo "$(date '+%F %T') — $WAIT_FOR finished, starting: $*"
+
+case "$WAIT_FOR" in
+  ''|*[!0-9]*)
+    echo "run-after.sh: first argument must be a process id, not '$WAIT_FOR'" >&2
+    echo "  (it used to take a pattern; that matched this script's own command line)" >&2
+    exit 2
+    ;;
+esac
+
+if ! kill -0 "$WAIT_FOR" 2>/dev/null; then
+  echo "$(date '+%F %T') — pid $WAIT_FOR is not running; starting straight away: $*"
+else
+  echo "$(date '+%F %T') — waiting for pid $WAIT_FOR before: $*"
+  while kill -0 "$WAIT_FOR" 2>/dev/null; do
+    sleep 30
+  done
+  echo "$(date '+%F %T') — pid $WAIT_FOR finished, starting: $*"
+fi
+
 exec "$@"

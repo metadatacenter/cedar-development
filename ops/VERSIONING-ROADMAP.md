@@ -780,7 +780,7 @@ response.
    interesting to show. Ingesting **19 NCIT releases, one per year from 2007 to 2026** (submissions
    146, 142, 140, 124, 112, 100, 86, 71, 58, 46, 42, 37, 23, 11, 9, 7, 5, 3, 1) gives the first
    history long enough for a term to visibly move between two pins. Run behind the band above by
-   `ops/run-after.sh`, which waits on the first driver by process: each ingest is a full parse
+   `ops/run-after.sh`, which waits on the first driver by process id: each ingest is a full parse
    holding the ontology in memory, and BioPortal is one API, so two at once halves neither's time.
 
    **The first four of those releases were ingested before the whitespace fix and the rest after**,
