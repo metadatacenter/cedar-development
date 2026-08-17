@@ -50,10 +50,3 @@ commit that opened it.
    marks for all seven — a trademark and asset-licensing question rather than a technical one,
    though nominative use of a registry's logo to label a field targeting that registry is the
    ordinary case — and if so, obtain them as vectors and inline them the way ROR now is.
-6. **Type the config surface end to end, now that the audit is done.** Nine keys remain,
-   from forty-odd: `terminologyBaseUrl` and `bridgeBaseUrl`, three language keys, and four
-   booleans. `CeeConfig` is closed, so a misspelling is a compile error and the index
-   signature that once carried fourteen authority overrides is gone with them. What is left
-   is smaller than it was: `showTemplateDescription` is set by nobody and set to `false`
-   explicitly by the two hosts that mention it, one of them because it renders the
-   description in its own header — decided, for now, to keep.
