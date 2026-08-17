@@ -59,7 +59,34 @@ commit that opened it.
    in [THEMING.md](../../cedar-embeddable-editor/THEMING.md) and the mechanism in one change.
 4. **Markup discoverability.** Have the Template Designer's rich-text editor declare or
    enforce what an embedder will actually render, since its `Source` button accepts markup
-   CEE will strip.
+   CEE will strip. Three policies decide what survives, and none of them derives from
+   another. CEE sanitizes with DOMPurify against an allowlist of 36 tags and 25 attributes,
+   refuses `ng-*` and `on*` outright, and admits a `data:` image only as raster. The
+   Designer's `rich-text-config-service.conf.json` gives CKEditor a toolbar, a height and a
+   UI colour and no content filtering at all, so what constrains authoring is CKEditor's
+   automatic ACF, derived from its own enabled plugin set. The Designer's legacy render path
+   hands a plain string to `ng-bind-html`, which leaves the decision to `ngSanitize`. An
+   author gets no signal from any of the three: nothing objects while they type, and the
+   field goes blank in CEE.
+
+   `TEMPLATE_MARKUP_POLICY` in `template-markup-policy.ts` is the obvious single source of
+   truth, and nothing reads it — not the spec, which imports only `sanitizeTemplateMarkup`,
+   and not the README, although its own comment claims both. So the first decision is whether
+   it joins CEE's public API, letting the Designer configure itself from one declaration, or
+   stays internal while the allowlist is duplicated in the Designer's JSON, where it will
+   drift on the first edit to either side. Enforcing costs a mechanical translation of the
+   allowlist into ACF rules plus `disallowedContent` approximations for the two rules ACF
+   cannot express; declaring costs help text and a save-time warning and leaves the preview
+   lying.
+
+   Measured, so that it need not be re-derived: neither surface executes static content
+   today. CEE keeps a payload's `<img>` and drops its `onerror`, confirmed by a probe that saw
+   the broken image render with the handler never firing. The `$sce.trustAsHtml` in
+   `schema.service.js` and `data-manipulation.service.js` is unreachable, because the only
+   expressions that call it name `$root.getUnescapedContent` and nothing puts that function on
+   `$rootScope`. The same dead expression leaves the legacy metadata editor rendering a static
+   rich-text field as an empty box, tracked as a bug in
+   [TEMPLATE-DESIGNER-ROADMAP.md](./TEMPLATE-DESIGNER-ROADMAP.md).
 5. **The authority marks are three different things pretending to be one.** ORCID, PFAS, NIH
    Grant and DOI are not those organisations' logos: they are approximations someone drew — an
    `iD` in a green circle, `NIH` in a navy box — inlined as SVG data URIs. PubMed and RRID are
