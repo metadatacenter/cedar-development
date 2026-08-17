@@ -339,7 +339,11 @@ Frontend work for the embeddable editor is tracked separately in
   well-behaved:
 
   - **Mint only where the term is absent.** An instance arriving at PUT already carries terms, and
-    re-minting would hand the same attribute a new IRI on every save.
+    re-minting would hand the same attribute a new IRI on every save. The same holds backwards: an IRI
+    already assigned is left alone, whoever assigned it. Stored artifacts carry property IRIs the
+    editors minted before this rule, and they stay — reassigning one changes what a stored instance
+    says about itself, for no gain, since the point of the rule is that an identifier is stable and
+    resolvable, which these already are. There is no patch item for them for that reason.
   - **One pass, three jobs.** The same walk fills the element occurrences carrying `@id: null`, and on
     a template or element it fills the child property IRIs that are missing from `@context`. All three
     are what only the server can fill, on create and update alike.
@@ -1621,7 +1625,8 @@ of real templates and instances, kept beside their corrected copies precisely so
 legible. Every item therefore starts the same way, with a query over stored artifacts that says how
 far the sample generalizes. One defect is not listed here but belongs to the same body of work: the
 stored constraints recording a term count of zero, whose patch waits on what that zero should have
-been — item 7.
+been — item 7. Property IRIs the editors minted are deliberately absent: by the decision in item 8
+they are left alone, so there is nothing to rewrite.
 
 Two of these are now blocking rather than latent. Both model libraries refuse an empty `@id` and an
 empty `pav:derivedFrom` on read, so a stored artifact carrying either can no longer be read by the
@@ -1664,18 +1669,7 @@ rather than an improvement to schedule at leisure.
   becomes part of the model or is dropped from stored templates, then patch accordingly — the count
   says this is not a stray.
 
-- **30. Property IRIs the Template Designer minted.** The editor writes
-  `https://schema.metadatacenter.org/properties/<uuid>` in two places — into an instance's `@context`
-  for an attribute the user has just named, and while staging a template — so stored artifacts carry
-  IRIs the repository never assigned. Under the rule in item 8 the server assigns both, which leaves
-  the question of what is already stored: how many, and whether they can be left alone as historical or
-  have to be reassigned, given that reassigning one changes what a stored instance says about itself.
-  Its GUID helpers were listed here as minting element identifiers as well; they do not — `$scope.uuid`
-  and `scope.elementId` are scope-local, and the third call is a property key rather than an `@id`.
-  Whether the editor writes an empty string into an occurrence's `@id` is a separate question, open on
-  [TEMPLATE-DESIGNER-ROADMAP.md](./TEMPLATE-DESIGNER-ROADMAP.md) and patched here as item 28.
-
-- **31. Ontology constraints that carry no canonical `iri`, and `sourceUri` where it is no longer
+- **30. Ontology constraints that carry no canonical `iri`, and `sourceUri` where it is no longer
   authored.** The versioned value-constraint shape names a source with `sourceSystem` and
   `sourceAcronym` and identifies it with a canonical `iri`; the older shape carried `sourceUri` and
   neither of the other two. Stored constraints are readable either way — a tolerant reader defaults an
