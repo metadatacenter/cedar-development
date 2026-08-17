@@ -26,13 +26,14 @@ is the source of truth for which.
 | What | Node | Why |
 |---|---|---|
 | Everything in CEE — `ng serve`, `npm run test:ci`, `harness/` and `visual/` alone | **24.19.0** | Angular 22 requires `^22.22.3 \|\| ^24.15.0 \|\| >=26`. 24 is the active LTS where 22 is in maintenance. Pinned by CI. |
-| `cedar-model-typescript-library` | 18 or 20 | Webpack 5 / TS 5.3; both work. It is a separate build with its own toolchain. |
+| `cedar-model-typescript-library` | 24.19.0 | Webpack 5 / TS 5.3. Its own build, and now on CEE's Node rather than the Node 20 it outlived. |
 
 The split this table used to describe — 18 for interactive development, 20.20.2
 for the gate — is gone. It existed because Angular 14's toolchain and the current
 Playwright did not accept the same Node, and the Angular march removed the reason
-for it. One version now builds the artifact that ships and runs the tests that
-judge it.
+for it. The model library was the last thing left on a Node of its own, and joined
+these on 2026-08-16. One version now builds every artifact that ships and runs the
+tests that judge it.
 
 Install it with Homebrew, keg-only so it does not displace the Node the other
 CEDAR frontends use:
@@ -858,12 +859,16 @@ Those assert what CEE *does*, deliberately. [CEE-ROADMAP.md](./CEE-ROADMAP.md) c
 CEE consumes `@org.metadatacenter/cedar-model-typescript-library` as a published
 package, so this is only needed when working on the library itself.
 
-The library needs **Node 20**; `package.json` declares `>=20.19.0` and CI pins
-20.20.2. That is deliberately not the 24.19.0 CEE now uses — the library is a
-separate build with its own toolchain, and CEE consumes it as a published npm
-package rather than from a checkout. Nothing needs a sibling
-checkout: the test corpus is vendored under `cedar-test-artifacts/`, along with
-the reference templates it compares against.
+The library builds on **Node 24.19.0**, the same version CEE uses: `.nvmrc` names
+it, `engines` declares `^24.15.0`, and CI pins it. It sat on Node 20 until
+2026-08-16 — declared `>=20.19.0`, CI pinned 20.20.2, and the runbook called the
+split deliberate on the grounds that the library is a separate build with its own
+toolchain. That reasoning outlived its subject: Node 20 left maintenance in April
+2026, so snapshots were being published from a runtime no longer receiving
+security patches, and the whole gate turned out to pass on 24 unchanged — 86
+suites, 954 tests, and the packed-consumer smoke test that imports the real
+tarball. Nothing needs a sibling checkout: the test corpus is vendored under
+`cedar-test-artifacts/`, along with the reference templates it compares against.
 
 ```bash
 npm ci
@@ -935,7 +940,7 @@ its parent, as CEE's own dev versions do. Three files hold it by hand:
 `sync-package-version.js`, which `npm run build` runs first, so editing it is
 belt and braces rather than required.
 
-On **Node 20**, from the library repository:
+From the library repository, on the Node its `.nvmrc` names:
 
 ```bash
 npm run lint && npm run typecheck && npm run test:coverage
