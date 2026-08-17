@@ -918,7 +918,6 @@ Frontend work for the embeddable editor is tracked separately in
      Compose version, since the stacks use healthcheck conditions and `include` arrived in Compose
      5.3.
 
-
   3. **Verify every download, not just pin it.** Audited 2026-08-09 across all 34 images. The
      estate pins versions well and verifies downloads badly, and the two are not the same property:
      a pin says *which* bytes you meant to fetch, a signature or a digest says you got them. The
@@ -1284,7 +1283,6 @@ Frontend work for the embeddable editor is tracked separately in
   neither is one now, but together they are why a transport hiccup escalates into a blank page rather
   than a slow one, so they are worth knowing about before the next thing perturbs request latency.
 
-
 - **16. Adopt Renovate, so a version that falls behind says so.** Every pin in this estate is
   maintained by someone remembering to look at it, and the measurement above is what that produces:
   the Docker OpenSearch image sat at 1.3.6 while the servers shipped the 2.19 client, for about two
@@ -1594,27 +1592,6 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   and never could succeed. Nothing is saved server-side until after the block, so a failed attempt
   leaves no orphan template.
 
-- **25. Give `UserSummaryCache` a seam a test can reach.** The class resolves the display names that
-  decorate every resource read, and nothing tests it. `cedar-cache-operations-library` has no test
-  sources at all. Reaching it needs a seam that does not exist today: the class is static throughout,
-  its `init` takes a `CedarConfig`, and its loader calls the user server over HTTP.
-
-  That gap has cost twice, both times in the same few lines. Guava's "loader returned null" signal
-  escaping as a 500 is recorded in item 23. The second is what a failure costs when it repeats. Guava
-  caches a value and never a failure, so an unresolvable id was fetched again on every lookup and each
-  attempt waited out the 20-second socket timeout, while `ProvenanceNameUtil` asks for three ids per
-  resource and repeats that for every ancestor on a path and every entry of a listing. The
-  resource-server suite ran for hours and had to be killed by hand, leaving a JVM holding 19047, 19147
-  and 19247. Remembering a failed id for sixty seconds fixed it: the folder suite went from finishing
-  none of its six tests inside ten minutes to passing in 49 seconds, and the resource-server suite from
-  never completing to 154 seconds with 60 tests green.
-
-  What guards that now is only that the suite finishes, so a regression shows up as a CI timeout rather
-  than a failing assertion. Three properties are worth asserting directly, and none can be today: that
-  a failed lookup is not retried inside the retention window, that `put` clears the record for an id
-  before it expires, and that the record does expire. Putting the loader behind an interface the test
-  can supply is most of the work; the assertions are small once it is there.
-
 ## Production Artifact Patch
 
 Defects that live in stored artifacts rather than in code. Each began as something a producer wrote,
@@ -1634,7 +1611,7 @@ library at all — it throws where it used to drop the value silently. That is t
 it makes the patch a precondition for anything that reads those artifacts through the libraries
 rather than an improvement to schedule at leisure.
 
-- **26. Temporal fields that declare no `temporalType`.** Production holds temporal fields that
+- **25. Temporal fields that declare no `temporalType`.** Production holds temporal fields that
   declare none, and a field in that state cannot be filled in at all: it sits in the template as a
   slot nobody can complete. No reader refuses it, so nothing surfaces the field until a user reaches
   it. The patch is finding the stored fields and giving each one a `temporalType` that agrees with
@@ -1647,20 +1624,20 @@ rather than an improvement to schedule at leisure.
   it the other way, and leaving `@type` optional, means a temporal value can be stored with no
   statement of what kind of temporal value it is, which every reader then has to guess at.
 
-- **27. `pav:derivedFrom` written as an empty string.** The key names the artifact a copy was made
+- **26. `pav:derivedFrom` written as an empty string.** The key names the artifact a copy was made
   from, and it is optional: an artifact derived from nothing leaves it out. **289** schema artifacts in
   the shared corpus wrote `""` instead, against 41 naming a real IRI — 146 of them in one template,
   133 in another, ten across two more. The corpus is corrected and both libraries now refuse the empty
   string on read, in JSON and in YAML. What remains is the query over stored templates, elements and
   fields, and a rewrite that drops the key wherever it is empty.
 
-- **28. `"@id": ""` on element occurrences in stored instances.** The same disease on the identifier
+- **27. `"@id": ""` on element occurrences in stored instances.** The same disease on the identifier
   itself. Half the element occurrences in the corpus carried it — 59 nodes across four instances,
   since corrected to `null` — and both libraries now refuse it. Whether production holds them, and how
   many, is unmeasured; the rewrite is to `null`, which is what an occurrence with no assigned identity
   says. The rule this serves, and who is allowed to mint an identifier at all, is item 8.
 
-- **29. `_ui.pages`, a key the meta-schema forbids.** A template's `_ui` may carry `order`,
+- **28. `_ui.pages`, a key the meta-schema forbids.** A template's `_ui` may carry `order`,
   `propertyLabels`, `propertyDescriptions`, `header` and `footer`, and nothing else:
   `additionalProperties` is `false`. **120** template documents in the corpus carry `pages` there, 34
   of them preprod captures, and `CedarValidator` rejects every one of them for it. Both model
@@ -1669,7 +1646,7 @@ rather than an improvement to schedule at leisure.
   becomes part of the model or is dropped from stored templates, then patch accordingly — the count
   says this is not a stray.
 
-- **30. Ontology constraints that carry no canonical `iri`, and `sourceUri` where it is no longer
+- **29. Ontology constraints that carry no canonical `iri`, and `sourceUri` where it is no longer
   authored.** The versioned value-constraint shape names a source with `sourceSystem` and
   `sourceAcronym` and identifies it with a canonical `iri`; the older shape carried `sourceUri` and
   neither of the other two. Stored constraints are readable either way — a tolerant reader defaults an
