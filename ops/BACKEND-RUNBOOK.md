@@ -545,8 +545,18 @@ taste: **`null` where the key is required, absence where it is not.**
 |---|---|---|
 | An artifact's own `@id` | `null`, and the key must be there | the server, on create |
 | An element occurrence's `@id` | `null`, or the key left out | the server, on create and update |
+| — and a template types that key `["string", "null"]`, so the draft validates | | |
 | An attribute's `@context` term | nothing — the term is left out | the server, on create and update |
 | A template child's property IRI | nothing today; both model libraries derive one from the child's name | the libraries, for now |
+
+A draft is checkable before it is sent. A template types an element occurrence's `@id` as
+`["string", "null"]`, matching how it has always typed its own instance's, so
+`POST /command/validate?resource_type=instance` accepts an instance whose new occurrences carry null
+— the identifiers the server is about to assign. Both meta-schemas accept either typing and both model
+libraries read either, so a template rendered before this validates and reads exactly as it did;
+nothing rewrites a stored artifact, and one is not wrong for predating a rule. Only the renderers
+changed, so a stored template starts typing the key the new way when something reads it and writes it
+back.
 
 **Create refuses a body with no `@id` key**, and refuses one carrying a real IRI. The first is
 refused because an absent key cannot be told from a forgotten one, and because the meta-schema types

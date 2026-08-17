@@ -255,9 +255,11 @@ Frontend work for the embeddable editor is tracked separately in
 - **8. Finish the identifier rule where it does not yet reach.** The rule itself is enforced and
   documented — only the repository assigns identity, a client writes `null` where the schema requires
   the key and leaves it out where it does not, and the server fills occurrence identifiers and
-  attribute property IRIs on create and update. How it behaves is in
+  attribute property IRIs on create and update. A template now types an occurrence's `@id` as
+  `["string", "null"]`, so a draft carrying one validates before it is sent, which it could not do
+  while the same key was typed a bare string. How all of it behaves is in
   [BACKEND-RUNBOOK.md](./BACKEND-RUNBOOK.md), "Identifiers: what a client sends, and what the server
-  fills". What is left is four loose ends, none of which a client can see.
+  fills". What is left is three loose ends, none of which a client can see.
 
   **A template child's property IRI.** Both model libraries derive one from the child's name —
   `PropertyIri.forName` and `ParentSchemaArtifact.generatePropertyUri` — which is reproducible but
@@ -279,61 +281,6 @@ Frontend work for the embeddable editor is tracked separately in
   `@id: null` validates and creates, an omitted key does neither, a real IRI validates but create
   refuses it. Validate, create and update all negotiate YAML as well, so the same three need
   confirming there rather than assuming they follow.
-
-  **`@id` on an element occurrence is typed `{"type": "string", "format": "uri"}` where the same key
-  on an instance is typed `["string", "null"]`.** Both typings are emitted by neighbouring methods in
-  `JsonSchemaArtifactPropertyRenderers`: the template's properties block calls
-  `renderUriOrNullJsonSchemaTypeSpecification()` for `@id`, and the element's — five lines of the same
-  shape — calls `renderUriJsonSchemaTypeSpecification()`. So a template says an *instance* may carry a
-  null identifier and that an *occurrence inside it* may not, and nothing chose that; it is one method
-  call apart.
-
-  The consequence is that `POST /command/validate?resource_type=instance` refuses an instance that
-  carries a new occurrence. The server resolves `schema:isBasedOn`, hands the template to
-  `CedarValidator.validateTemplateInstance`, and the null fails at
-  `#/properties/<element name>/properties/@id/type` with *"null found, string expected"* — an
-  identifier only the server can assign, on a document the server would happily accept, since `POST
-  /template-instances` fills it before validating. What emits that null is `InstanceInflater` and
-  CEE's working tree, so an instance built from a template is invalid by construction until it has
-  been saved once.
-
-  **The change was made and reverted, which is how its real cost got measured.** The renderer swap is
-  one call — `renderUriJsonSchemaTypeSpecification()` →
-  `renderUriOrNullJsonSchemaTypeSpecification()` — and the same one line in TypeScript's
-  `JsonTemplateElementContent`. What it takes with it is the part worth recording:
-
-  - **The meta-schema has to move first, and the move is additive.**
-    `templateElementPropertiesFieldContent`'s `@id` points at `jsonLDIDFieldContent`, whose `type` enum
-    is exactly `["string"]`, so a template rendered with the new typing is rejected outright — 10 of
-    the first 28 failures were the validator refusing the library's own output, not fixture drift. The
-    definition that accepts the new form already exists, `jsonLDIDFieldContentWithNull`, and is what a
-    template's own `@id` uses.
-  - **Widen, do not repoint.** Repointing the `$ref` at `jsonLDIDFieldContentWithNull` clears those
-    failures and invalidates every stored template at the same time, because that definition requires
-    the array form: `template-031` as stored then fails with *"string found, array expected"*. Making
-    the `@id` an `anyOf` over both definitions accepts either. Measured with the widening installed:
-    `template-031` as stored validates with 0 errors, and the same template retyped
-    `["string", "null"]` validates with 0 errors. So nothing that validates today stops validating —
-    the edit is two files, one `$ref` becoming an `anyOf`, plus a copy of the existing definition into
-    `element-meta-schema.json`.
-  - **The fixtures are the small part.** 21 files, 148 occurrences in `cedar-artifact-library`, after
-    which its 1060 tests pass. Each has to be rewritten with the writer that wrote it — three
-    formatting conventions live under `src/test/resources`, and re-serializing uniformly rewrites whole
-    files.
-  - **The TypeScript reader reports every stored template as departing.** Its blueprint check raises
-    `valueMismatch at /properties/<element>/properties/@id/type` for the old typing: 71 test failures
-    from that single cause, and 69 corpus artifacts with 318 element occurrences carrying it. Making
-    the reader accept both typings — old is what is stored, new is what is rendered — is the migration
-    posture that avoids churning the corpus, and it is what this estate has done for every other shape
-    change.
-
-  So the sequence, whenever it is taken, is: widen the meta-schema to accept both, teach the TypeScript
-  reader to accept both, move the two renderers, update the 21 fixtures. Each step accepts what exists
-  and only the renderers emit anything new, so no stored artifact is invalidated at any point and none
-  has to be re-rendered — a stored template keeps refusing a null occurrence in its own instances until
-  it is, which is the one thing the change does not reach by itself. Leaving it is coherent meanwhile:
-  an instance carrying a new occurrence is not a checkable document until the server has seen it, and
-  creation is unaffected either way.
 
 - **9. Decide whether a child artifact must carry `$schema`.** The Java reader throws
   `ArtifactParseException: No text value present for field $schema` on a template whose nested fields
