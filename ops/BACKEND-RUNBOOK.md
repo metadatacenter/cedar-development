@@ -592,8 +592,19 @@ mint over it, because that would hide whoever wrote it. Stored artifacts carryin
 [BACKEND-ROADMAP.md](./BACKEND-ROADMAP.md) under Production Artifact Patch, with the rest of what
 production already holds.
 
-What is not filled yet is on that roadmap too: a template child's property IRI, and the removal of a
-`@context` term when the attribute it named is renamed or deleted.
+**A term whose attribute is gone is removed**, in the same pass, and this is the one place the server
+deletes something a client sent. Three questions decide each term, and two of them need the template,
+which is why the prune runs where the template is already loaded — fetched to validate against. A name
+the template declares is structure and stays, filled in or not: an unfilled child is absent from the
+body and its definition still belongs there. A name an attribute-value field still holds is in use and
+stays. Anything else goes, and only when the IRI is one the repository assigned — an author who mapped
+a child to a term from a real vocabulary chose that IRI, and it is never touched.
+
+Inside the document an orphan and a structural term look identical: a name in the context, mapped to a
+`…/properties/…` address, used nowhere in the body. `instances/005` in the shared corpus carries two of
+the second kind, which is why the rule that drops whatever the body does not use deletes an author's
+work. What is already stored keeps its orphans until something rewrites it, which is a patch item on
+[BACKEND-ROADMAP.md](./BACKEND-ROADMAP.md).
 
 ## YAML is a native artifact format
 
