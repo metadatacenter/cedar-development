@@ -1279,12 +1279,43 @@ Frontend work for the embeddable editor is tracked separately in
   the sequence costs nothing beyond the wait. Worth doing before the command is run against
   production, where the fallback matters more than the second does.
 
+- **22. Publish a library snapshot before the consumer that needs it is built, or make the consumer
+  wait.** A change that adds a method to a shared library and calls it from a server is one change in
+  two repositories, and CI builds them independently. The library's job compiles, tests and deploys
+  its snapshot to Nexus in about thirty seconds; the consumer's job resolves that snapshot from Nexus
+  rather than from any checkout. Push both together and the consumer starts before the snapshot exists
+  and fails to compile against a method that is already written, already merged, and simply not
+  published yet.
+
+  It is not hypothetical and not rare. Three consecutive `cedar-artifact-server` runs failed this way
+  on 2026-08-17, each two seconds behind a green `cedar-config-library` run — 01:36:07 against
+  01:36:09, and 05:41:20 against 05:41:22 — reporting `cannot find symbol` for
+  `linkedDataUtil.addChildPropertyIris` while the whole estate built locally, because a local build
+  installs the library from the checkout. One of those three failures was on a commit that did not
+  touch the affected lines at all: it inherited the previous commit's unpublished symbol.
+
+  The failure is loud but misleading. It names the consumer, which is not at fault, and it says the
+  symbol does not exist, which is not true; re-running the same job minutes later passes with nothing
+  changed. That combination is worth removing rather than learning to recognise, since the cost is
+  paid by whoever next reads the failure rather than by whoever caused it.
+
+  Three ways to close it, in ascending order of what they ask of the estate. Push the library, wait for
+  its run to go green, then push the consumer — free, and a discipline that will be forgotten. Have the
+  consumer's workflow poll Nexus for the version it is about to resolve and fail with "the library
+  snapshot is not published yet" instead of a compile error — cheap, and it turns a confusing failure
+  into an accurate one without fixing the ordering. Or build a change that spans both repositories in
+  one job, which fixes it properly and is the largest change.
+
+  This is a standing property of the estate rather than a defect in either repository: CEDAR artifacts
+  resolve from Nexus by design, so anything that pairs a library change with a consumer change meets
+  it. Worth settling alongside how the estate is built rather than on its own.
+
 ## Testing
 
 Coverage and test-infrastructure work. The active REST integration suites live in
 `ops/e2e/rest/suites/`; the JUnit matrices and boot-smoke live in the per-server modules.
 
-- **22. Decide whether the build runs the tests, and give the answer a command-line option. Stop the
+- **23. Decide whether the build runs the tests, and give the answer a command-line option. Stop the
   output loop busy-polling.** The Java build skips its tests again: every Java repo is built with
   `./mvnw clean install -DskipTests`, and the `CEDAR_DEV_SKIP_TESTS` escape hatch is gone with the
   default it modified. That restores the behaviour the build had before, and it means a green
@@ -1353,7 +1384,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   "Execution succeeded!" and exits 0. A build that continued past a failure must record it, say so in
   the closing panel, and exit non-zero.
 
-- **23. Deepen the core-workflow tests instead of growing the headline count.** The JUnit matrices and the
+- **24. Deepen the core-workflow tests instead of growing the headline count.** The JUnit matrices and the
   REST suites now give the system respectable horizontal coverage: routes boot, authentication and
   permission boundaries are pinned, and create/read/update/delete, sharing, search, versioning and the
   cross-service hop all execute against the real stack. Much of that is deliberately
@@ -1392,7 +1423,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   versions or search projection disagreeing. The present suite protects the behavioural skeleton; this
   item protects the integrity of state when operations fail or are repeated.
 
-- **24. Add degradation tests.** Nothing asserts how a service behaves when a dependency it needs is
+- **25. Add degradation tests.** Nothing asserts how a service behaves when a dependency it needs is
   unavailable. The cost of that gap is known: reading any folder whose creator could not be resolved
   returned 500 for as long as the defect existed, because `UserSummaryCache` let Guava's
   "loader returned null" signal escape instead of degrading to the no-display-name path the callers
@@ -1400,7 +1431,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   asserts the API degrades rather than 500s. Bear in mind that queue writes are already best-effort
   by design (`AppLoggerQueueService`, the worker and NCBI queues), so those are the pattern to match.
 
-- **25. Retry the ontology-list load in the term picker (frontend, `cedar-template-editor`).** This is a
+- **26. Retry the ontology-list load in the term picker (frontend, `cedar-template-editor`).** This is a
   change to the Angular frontend, not to any microservice or test suite — it lands in
   `cedar-template-editor`, and so needs a frontend owner to review and push it (see the note below).
   It is the last piece of this defect still outstanding, and the fix is already written: it is open as
@@ -1465,7 +1496,7 @@ library at all — it throws where it used to drop the value silently. That is t
 it makes the patch a precondition for anything that reads those artifacts through the libraries
 rather than an improvement to schedule at leisure.
 
-- **26. Temporal fields that declare no `temporalType`.** Production holds temporal fields that
+- **27. Temporal fields that declare no `temporalType`.** Production holds temporal fields that
   declare none, and a field in that state cannot be filled in at all: it sits in the template as a
   slot nobody can complete. No reader refuses it, so nothing surfaces the field until a user reaches
   it. The patch is finding the stored fields and giving each one a `temporalType` that agrees with
@@ -1478,21 +1509,21 @@ rather than an improvement to schedule at leisure.
   it the other way, and leaving `@type` optional, means a temporal value can be stored with no
   statement of what kind of temporal value it is, which every reader then has to guess at.
 
-- **27. `pav:derivedFrom` written as an empty string.** The key names the artifact a copy was made
+- **28. `pav:derivedFrom` written as an empty string.** The key names the artifact a copy was made
   from, and it is optional: an artifact derived from nothing leaves it out. **289** schema artifacts in
   the shared corpus wrote `""` instead, against 41 naming a real IRI — 146 of them in one template,
   133 in another, ten across two more. The corpus is corrected and both libraries now refuse the empty
   string on read, in JSON and in YAML. What remains is the query over stored templates, elements and
   fields, and a rewrite that drops the key wherever it is empty.
 
-- **28. `"@id": ""` on element occurrences in stored instances.** The same disease on the identifier
+- **29. `"@id": ""` on element occurrences in stored instances.** The same disease on the identifier
   itself. Half the element occurrences in the corpus carried it — 59 nodes across four instances,
   since corrected to `null` — and both libraries now refuse it. Whether production holds them, and how
   many, is unmeasured; the rewrite is to `null`, which is what an occurrence with no assigned identity
   says. The rule this serves, and who is allowed to assign an identifier at all, is in
   [BACKEND-RUNBOOK.md](./BACKEND-RUNBOOK.md), "Identifiers: what a client sends, and what the server fills".
 
-- **29. `_ui.pages`, a key the meta-schema forbids.** A template's `_ui` may carry `order`,
+- **30. `_ui.pages`, a key the meta-schema forbids.** A template's `_ui` may carry `order`,
   `propertyLabels`, `propertyDescriptions`, `header` and `footer`, and nothing else:
   `additionalProperties` is `false`. **120** template documents in the corpus carry `pages` there, 34
   of them preprod captures, and `CedarValidator` rejects every one of them for it. Both model
@@ -1501,14 +1532,14 @@ rather than an improvement to schedule at leisure.
   becomes part of the model or is dropped from stored templates, then patch accordingly — the count
   says this is not a stray.
 
-- **30. Attribute-value fields naming an attribute that has no name.** Two corpus instances,
+- **31. Attribute-value fields naming an attribute that has no name.** Two corpus instances,
   `cee-suite/071` and `cee-suite/072`, carry an attribute-value field whose list of names is `[""]` —
   an attribute named by the empty string, with no sibling value and no `@context` term. The server
   skips it when naming attributes, since a property IRI for it would name a property nothing can be
   said about, so these stay unnamed until the data is corrected. How many production instances hold
   one, and what wrote it, are the query and the producer question every item here starts with.
 
-- **31. `@context` terms for attributes nobody can name any more.** The server now assigns a property
+- **32. `@context` terms for attributes nobody can name any more.** The server now assigns a property
   IRI to every attribute an instance names, and leaves an assigned one alone — but nothing removes a
   term when the attribute it named is renamed or deleted, so a stored context accumulates one orphan
   per attribute a user ever changed their mind about. Going forward, pruning is decided and waits on
@@ -1516,7 +1547,7 @@ rather than an improvement to schedule at leisure.
   too, and for the same reason: a term whose name is no key in the instance may be an orphan, or it may
   be a child the instance does not fill, which `instances/005` carries two of.
 
-- **32. Ontology constraints that carry no canonical `iri`, and `sourceUri` where it is no longer
+- **33. Ontology constraints that carry no canonical `iri`, and `sourceUri` where it is no longer
   authored.** The versioned value-constraint shape names a source with `sourceSystem` and
   `sourceAcronym` and identifies it with a canonical `iri`; the older shape carried `sourceUri` and
   neither of the other two. Stored constraints are readable either way — a tolerant reader defaults an
