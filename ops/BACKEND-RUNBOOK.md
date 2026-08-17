@@ -862,6 +862,24 @@ When invoking Maven directly, never pipe its output through a reader that can cl
 `grep -m`). A closing reader sends SIGPIPE to `mvn`, which can end the reactor early while the shell
 reports success. Redirect the full log to a file and grep the file.
 
+**Rebuilding a server without `clean` can ship the previous build's dependency.** Change a shared
+library, `mvn install` it, then `mvn install` a server that depends on it, and the server's fat jar is
+rewritten — with the library's *old* classes still inside. Everything says the build worked: the
+reactor is green, the jar's modification time is seconds old, `cedar-services.sh status` reports the
+binary `current`, and a `dependency:build-classpath` scan finds only the new library. The service then
+runs the old code. The tell is inside the jar rather than around it, and this is how to see it:
+
+```bash
+unzip -l cedar-artifact-server/cedar-artifact-server-application/target/*-SNAPSHOT.jar \
+  | grep 'org/metadatacenter/server/jsonld/LinkedDataUtil.class'
+```
+
+An entry dated days ago in a jar built moments ago is the whole diagnosis: shade preserves each
+entry's timestamp from the jar it copied, so the date names when that class was compiled rather than
+when it was packaged. `mvn clean install` in the consuming repository fixes it. `cedarcli build java`
+is unaffected — it passes `clean` — so this bites exactly when rebuilding one server by hand to try a
+library change, which is the common case while developing one.
+
 Packaging is centrally managed. The shade plugin configuration lives once in `cedar-parent`'s
 `pluginManagement` as the `cedar-shade` execution, guarded by the `cedar.shade.phase` property
 ("none" by default). A server opts in by setting two properties in its application pom:
