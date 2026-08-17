@@ -340,11 +340,23 @@ The visual suite needs no install of its own: it runs in Playwright's container,
 which carries the browsers, and installs its dependencies there against a named
 volume. It does need Docker running.
 
-The current gate should report 0 lint problems, 125 unit tests, 2,359 domain tests
-and 404 Playwright tests. Treat these as useful smoke checks, not permanent
-constants: new tests should make the counts rise. (This line once carried a Karma
-figure, years after the move to Vitest — which is the hazard of writing counts
-down at all.)
+The gate should report 0 lint problems and, on 17 August 2026, 152 unit tests, 2,116
+domain tests and 416 Playwright tests.
+
+Read those as floors rather than as targets. Their only use is catching a suite that
+silently ran nothing — a filter matching no file, a project that failed to start —
+so what matters is the order of magnitude, and a count well below one of these is
+worth explaining before it is written down as the new figure. A count *above* it
+needs no explanation and is not a reason to edit this line.
+
+Three warnings about doing that anyway are already in this document's history. It
+once carried a Karma figure years after the move to Vitest; the numbers above
+replaced a set that had drifted in both directions at once, low on unit and
+Playwright and high on domain, because removing four snapshot recordings that
+compared minted identifiers took the domain count *down*; and the Playwright figure
+disagreed with the one in
+[The visual baseline suite](#the-visual-baseline-suite) by 42. Prefer citing a date
+and a floor to maintaining an exact number in more than one place.
 
 Use the complete gate before pushing or opening a pull request. The focused
 commands below are faster feedback while working on one layer.
@@ -460,8 +472,8 @@ export PATH="/opt/homebrew/opt/node@24/bin:$PATH"
 npm run test:domain
 ```
 
-Expect **2,359 passing** on `develop`. For watch mode, run
-`npm --prefix harness run test:watch`.
+Expect **over 2,000 passing** on `develop` — 2,116 on 17 August 2026. For watch
+mode, run `npm --prefix harness run test:watch`.
 
 A green run here means CEE agrees with itself. For whether its output is
 actually a valid CEDAR instance, see
@@ -695,8 +707,8 @@ cd visual
 npm run prepare:all && npm test
 ```
 
-Expect **446 passing** in about four minutes. The count grows as tests are added;
-treat a *fall* as something to explain. `prepare:all` re-concatenates the
+Expect **over 400 passing** in about four minutes — 416 on 17 August 2026. The count
+grows as tests are added; treat a *fall* as something to explain. `prepare:all` re-concatenates the
 bundle from `../dist` and regenerates the template fixtures; run it after any
 rebuild.
 
