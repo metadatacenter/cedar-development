@@ -954,17 +954,26 @@ left that does not need a host.
     times, and can pin to a superseded extraction whose labels are the ones the repair existed to
     correct.
 
-    It is proven for the five groups whose snapshots record the same BioPortal submission id, and
-    that undercounts: 1,061 snapshots predate the provenance column and record no submission at all.
-    The looser signal — one acronym, one effective date, several version ids — covers **271 groups
-    and 348 of 2,533 snapshots**, an upper bound, because two genuine submissions can share a date.
-    Every repair re-ingest adds more; the 36-ontology label repair adds 36.
+    Re-ingesting is not the mistake, and neither is the hash. Changing what is extracted changes the
+    content, the hash says so correctly, and a re-ingest is the only way a fix reaches data already
+    written. The mistake is downstream of both: the store records two identities and the release
+    list spends one of them on everything.
 
-    The fix is to model the two identities separately rather than to delete anything: a release is
-    identified by the source's submission, a snapshot by its content hash, and the release list
-    should show releases with the current extraction of each, keeping the rest reachable for audit
-    and out of the pinning path. Superseding is what makes freeze-on-publish safe — a pin resolved
-    at publish time should not be able to land on an extraction known to be wrong.
+    `file_hash` is the raw bytes as the source served them; `version_id` is a hash of what was
+    extracted from those bytes. Identical bytes and a different version id is exactly and only a
+    re-extraction — no other cause produces it. ABD's three snapshots all carry `file_hash`
+    `5365dc5fbbe3`. Swept over the store, **129 of 2,560 snapshots are superseded extractions**, and
+    that is a count rather than a bound: every snapshot records a file hash, none is missing.
+    Grouping by BioPortal submission id instead finds 30 and adds nothing the file hash misses;
+    grouping by effective date finds 348 and overcounts, two genuine submissions being able to share
+    a date.
+
+    So the fix needs no new column and no migration: group a release list by `file_hash`, show the
+    newest extraction of each, and keep the older ones reachable for audit and out of the pinning
+    path. Superseding is what makes freeze-on-publish safe — a pin resolved at publish time should
+    not be able to land on an extraction known to be wrong. What is worth adding is the extractor's
+    version on the snapshot, so a superseded one says why it was superseded rather than leaving it
+    to be inferred from an ingest date.
 
 ### Cutover
 
