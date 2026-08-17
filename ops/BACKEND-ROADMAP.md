@@ -400,6 +400,14 @@ Frontend work for the embeddable editor is tracked separately in
   `ops/e2e/rest/suites/validation.mjs`: `@id: null` validates and creates, an omitted `@id` creates
   but does not validate, and a real IRI validates but is refused by create.
 
+  Every producer already writes the key, so requiring it would refuse nothing that is sent today. The
+  REST MCP nulls the top-level `@id` explicitly before posting (`ArtifactCodec.nullifyTopLevelId`); the
+  Template Designer starts from blueprints — `template-empty.json`, `element-empty.json`,
+  `field-empty.json` — that each carry `"@id": null`; and CEE posts nothing at all, handing the host an
+  instance whose `@id` is null, which its own contract test pins. What would have to change is the
+  recorded expectation rather than a client: `ops/e2e/rest/suites/validation.mjs` asserts today that a
+  body omitting the key still creates.
+
   That is checked over JSON alone. Validate, create and update all negotiate YAML as well, so the same
   three shapes have to be confirmed there rather than assumed. Instance validation is also not purely
   syntactic: it resolves `schema:isBasedOn` and answers 400 when the template cannot be found, so an
@@ -1665,7 +1673,15 @@ rather than an improvement to schedule at leisure.
   said about, so these stay unnamed until the data is corrected. How many production instances hold
   one, and what wrote it, are the query and the producer question every item here starts with.
 
-- **30. Ontology constraints that carry no canonical `iri`, and `sourceUri` where it is no longer
+- **30. `@context` terms for attributes nobody can name any more.** The server now assigns a property
+  IRI to every attribute an instance names, and leaves an assigned one alone — but nothing removes a
+  term when the attribute it named is renamed or deleted, so a stored context accumulates one orphan
+  per attribute a user ever changed their mind about. Going forward, pruning is decided and waits on
+  where the template can be had; what is already stored is this item. The query needs the template
+  too, and for the same reason: a term whose name is no key in the instance may be an orphan, or it may
+  be a child the instance does not fill, which `instances/005` carries two of.
+
+- **31. Ontology constraints that carry no canonical `iri`, and `sourceUri` where it is no longer
   authored.** The versioned value-constraint shape names a source with `sourceSystem` and
   `sourceAcronym` and identifies it with a canonical `iri`; the older shape carried `sourceUri` and
   neither of the other two. Stored constraints are readable either way — a tolerant reader defaults an
