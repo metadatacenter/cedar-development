@@ -280,15 +280,35 @@ Frontend work for the embeddable editor is tracked separately in
   refuses it. Validate, create and update all negotiate YAML as well, so the same three need
   confirming there rather than assuming they follow.
 
-  **Whether a client can check its own draft.** An element occurrence's `@id` is typed by the template
-  as `{"type": "string", "format": "uri"}` and listed in that element's `required`, so an instance
-  carrying `@id: null` on a new occurrence is refused by `/command/validate?resource_type=instance`
-  even though the server would fill it on upload. Widening the slot to `["string", "null"]` in the
-  artifact library's renderer makes such a draft checkable before it is sent, and changes the schema
-  every stored CEDAR element carries — 28 round-trip fixtures differ — so it is a model change, and
-  stored templates keep their old rendering until re-rendered. Leaving it means an instance holding a
-  new occurrence is not a checkable document until the server has seen it, which is coherent but
-  costs `InstanceInflater`'s output its validity by construction.
+  **`@id` on an element occurrence is typed `{"type": "string", "format": "uri"}` where the same key
+  on an instance is typed `["string", "null"]`.** Both typings are emitted by neighbouring methods in
+  `JsonSchemaArtifactPropertyRenderers`: the template's properties block calls
+  `renderUriOrNullJsonSchemaTypeSpecification()` for `@id`, and the element's — five lines of the same
+  shape — calls `renderUriJsonSchemaTypeSpecification()`. So a template says an *instance* may carry a
+  null identifier and that an *occurrence inside it* may not, and nothing chose that; it is one method
+  call apart.
+
+  The consequence is that `POST /command/validate?resource_type=instance` refuses an instance that
+  carries a new occurrence. The server resolves `schema:isBasedOn`, hands the template to
+  `CedarValidator.validateTemplateInstance`, and the null fails at
+  `#/properties/<element name>/properties/@id/type` with *"null found, string expected"* — an
+  identifier only the server can assign, on a document the server would happily accept, since `POST
+  /template-instances` fills it before validating. What emits that null is `InstanceInflater` and
+  CEE's working tree, so an instance built from a template is invalid by construction until it has
+  been saved once.
+
+  Changing it is `renderUriJsonSchemaTypeSpecification()` → `renderUriOrNullJsonSchemaTypeSpecification()`
+  in `renderElementSchemaArtifactPropertiesJsonSchemaSpecification`. Measured by making that swap and
+  running the suite: **28 failures in `cedar-artifact-library`, all of them round-trip fixtures whose
+  recorded JSON carries the old typing** — `JsonArtifactRoundTripTest` over templates 28, 37, 101 and
+  the rest, plus the element cases. Nothing else in 1060 tests moves. So the work is the fixtures, and
+  the question is not whether the change is hard.
+
+  The question is what it reaches. The typing sits in the stored template document, and validation
+  reads that document, so a template stored before the change keeps refusing null occurrences until it
+  is re-rendered — which makes the difference between a one-line fix and a migration over stored
+  templates. Leaving it is coherent: an instance carrying a new occurrence is simply not a checkable
+  document until the server has seen it, and creation is unaffected either way.
 
 - **9. Decide whether a child artifact must carry `$schema`.** The Java reader throws
   `ArtifactParseException: No text value present for field $schema` on a template whose nested fields
