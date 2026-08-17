@@ -18,8 +18,11 @@ author-facing version selection in the term picker (a release list a constraint 
 hierarchy drawn at the release chosen, and "latest" recorded as no version at all), multilingual label +
 synonym capture (every language preserved outside content identity, backfilled across the served
 catalog) and served on the local read path (multilingual + synonym search recall, synonyms on class
-detail, `lang=<code>` on the class and integrated-search endpoints), and `owl:Ontology`-header identity
-recovery for acronym-only ontologies — lives in git and the design doc. The numbered items track only
+detail, `lang=<code>` on the class and integrated-search endpoints), `owl:Ontology`-header identity
+recovery for acronym-only ontologies, and a release list that offers releases rather than
+re-extractions of them (grouped on the raw-bytes hash the catalog already recorded, so a fix to an
+extractor no longer reads as a new release, while a pin naming a superseded reading still resolves
+and says that it does) — lives in git and the design doc. The numbered items track only
 what remains, in three buckets: **Pending** (to build), **Testing** (built, needs live verification),
 and **Future** (deferred / needs a decision / speculative). Items are numbered continuously.
 
@@ -946,38 +949,9 @@ left that does not need a host.
     ontologies, but nothing runs it, and an index behind the catalog reports the version it holds
     rather than the one that exists — correctly, and confusingly. Decide what triggers a rebuild.
 
-- **26. Tell a release apart from a re-extraction of it.** A version id is a hash over extracted
-    content, so changing an extractor mints a new version of a release that did not change. ABD has
-    exactly one BioPortal submission, released 2016-09-13, and the store now holds three snapshots
-    of it — one per generation of the label fixes — which the picker offers as "3 releases", all
-    with that same effective date. An author reading that list is being told ABD was released three
-    times, and can pin to a superseded extraction whose labels are the ones the repair existed to
-    correct.
-
-    Re-ingesting is not the mistake, and neither is the hash. Changing what is extracted changes the
-    content, the hash says so correctly, and a re-ingest is the only way a fix reaches data already
-    written. The mistake is downstream of both: the store records two identities and the release
-    list spends one of them on everything.
-
-    `file_hash` is the raw bytes as the source served them; `version_id` is a hash of what was
-    extracted from those bytes. Identical bytes and a different version id is exactly and only a
-    re-extraction — no other cause produces it. ABD's three snapshots all carry `file_hash`
-    `5365dc5fbbe3`. Swept over the store, **129 of 2,560 snapshots are superseded extractions**, and
-    that is a count rather than a bound: every snapshot records a file hash, none is missing.
-    Grouping by BioPortal submission id instead finds 30 and adds nothing the file hash misses;
-    grouping by effective date finds 348 and overcounts, two genuine submissions being able to share
-    a date.
-
-    So the fix needs no new column and no migration: group a release list by `file_hash`, show the
-    newest extraction of each, and keep the older ones reachable for audit and out of the pinning
-    path. Superseding is what makes freeze-on-publish safe — a pin resolved at publish time should
-    not be able to land on an extraction known to be wrong. What is worth adding is the extractor's
-    version on the snapshot, so a superseded one says why it was superseded rather than leaving it
-    to be inferred from an ingest date.
-
 ### Cutover
 
-- **27. Ship behind a flag for one release, then delete what it replaces.** The new component is the
+- **26. Ship behind a flag for one release, then delete what it replaces.** The new component is the
     default from the day it lands, with the old picker reachable behind a flag so a blocking gap
     found in real use has a way back. The AngularJS directives, controllers and templates under
     `cedar-template-editor/app/scripts/controlled-term/` come out the release after, together with
