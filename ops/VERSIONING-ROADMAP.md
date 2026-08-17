@@ -670,8 +670,12 @@ response.
 
    The repair is a re-ingest, for the same reason the blank-literal one was: a version id is a hash
    over `pref_label`, so correcting a label in place would change the release's identity rather than
-   repair it. The affected set is larger than the 36 — every ontology holding a padded label — and
-   it has not been run.
+   repair it.
+
+   *Both repaired.* The 36 line-break ontologies on 2026-08-16, and the 69 holding a padded label on
+   2026-08-17 — all 69 succeeded, 595,873 terms and 934,329 names reindexed in 55 seconds. Swept
+   over the whole index afterwards, labels carrying a line break and labels carrying stray
+   whitespace both stand at **zero**.
 - **8. Term ordering in search: what BioPortal does, and what the local store can do instead
    (replace-BioPortal track).** Ordering is the one part of lookup the local store does not model.
    Inside a snapshot, `SnapshotStore.labelSearch` orders by `length(pref_label), pref_label, iri`;
@@ -785,8 +789,16 @@ response.
    fix already requires resolves it; until then, do not read a release diff spanning submission 124.
    The lesson generalises: **do not build into the ingest classpath while an ingest is running.**
 
-   What remains is the top of the range: the six at 200k+ (DDSS 807k, GAZ 669k, BERO 392k, PR 333k,
-   RH-MESH 305k, CCO 265k) and NCBITAXON at 2.85M.
+   *2026-08-17, the 260k–400k band:* four releases apiece attempted for BERO, PR, RH-MESH and CCO —
+   **9 ingested, 5 failed**, and the failures are the sources rather than the ingest: BERO's
+   submission 1 is HTTP 404, PR's 93 dropped the connection mid-download, and CCO's 3, 4 and 5 are
+   served as HTML rather than RDF (`Content is not allowed in prolog`). CCO's own count is unchanged
+   at one release, its newest submission hashing to the snapshot already held — the same content
+   under a second submission id, which is content identity working.
+
+   What remains is the top of the range: DDSS 807k, GAZ 669k and NCBITAXON at 2.85M. Each needed its
+   own heap and download timeout when first ingested — GAZ a 90-minute window, NCBITAXON 40g and 82
+   minutes — so they want attention rather than an overnight queue.
 
    The 131 failures are informative rather than alarming: 31 produced 0 classes and the guard
    refused to overwrite a good snapshot, 17 were HTTP 404 on a submission BioPortal lists but will
