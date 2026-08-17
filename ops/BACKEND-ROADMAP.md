@@ -297,18 +297,37 @@ Frontend work for the embeddable editor is tracked separately in
   CEE's working tree, so an instance built from a template is invalid by construction until it has
   been saved once.
 
-  Changing it is `renderUriJsonSchemaTypeSpecification()` → `renderUriOrNullJsonSchemaTypeSpecification()`
-  in `renderElementSchemaArtifactPropertiesJsonSchemaSpecification`. Measured by making that swap and
-  running the suite: **28 failures in `cedar-artifact-library`, all of them round-trip fixtures whose
-  recorded JSON carries the old typing** — `JsonArtifactRoundTripTest` over templates 28, 37, 101 and
-  the rest, plus the element cases. Nothing else in 1060 tests moves. So the work is the fixtures, and
-  the question is not whether the change is hard.
+  **The change was made and reverted, which is how its real cost got measured.** The renderer swap is
+  one call — `renderUriJsonSchemaTypeSpecification()` →
+  `renderUriOrNullJsonSchemaTypeSpecification()` — and the same one line in TypeScript's
+  `JsonTemplateElementContent`. What it takes with it is the part worth recording:
 
-  The question is what it reaches. The typing sits in the stored template document, and validation
-  reads that document, so a template stored before the change keeps refusing null occurrences until it
-  is re-rendered — which makes the difference between a one-line fix and a migration over stored
-  templates. Leaving it is coherent: an instance carrying a new occurrence is simply not a checkable
-  document until the server has seen it, and creation is unaffected either way.
+  - **The meta-schema forbids it.** `templateElementPropertiesFieldContent`'s `@id` points at
+    `jsonLDIDFieldContent`, whose `type` enum is exactly `["string"]`, so a template rendered with the
+    new typing is rejected outright — 10 of the first 28 failures were the validator refusing the
+    library's own output, not fixture drift. The definition that would accept it already exists,
+    `jsonLDIDFieldContentWithNull`, and is what a template's own `@id` uses. Pointing the element at it
+    in `template-meta-schema.json` and `element-meta-schema.json` clears those failures.
+  - **But then every stored template becomes invalid.** `jsonLDIDFieldContentWithNull` requires the
+    array form, so with the element pointed at it, `template-031` as stored fails with *"string found,
+    array expected"*. Accepting both would mean an `anyOf` over the two definitions — a meta-schema
+    change wider than the one-line fix it serves, and the meta-schema is the estate's most load-bearing
+    document.
+  - **The fixtures are the small part.** 21 files, 148 occurrences in `cedar-artifact-library`, after
+    which its 1060 tests pass. Each has to be rewritten with the writer that wrote it — three
+    formatting conventions live under `src/test/resources`, and re-serializing uniformly rewrites whole
+    files.
+  - **The TypeScript reader reports every stored template as departing.** Its blueprint check raises
+    `valueMismatch at /properties/<element>/properties/@id/type` for the old typing: 71 test failures
+    from that single cause, and 69 corpus artifacts with 318 element occurrences carrying it. Making
+    the reader accept both typings — old is what is stored, new is what is rendered — is the migration
+    posture that avoids churning the corpus, and it is what this estate has done for every other shape
+    change.
+
+  So the sequence, whenever it is taken, is: widen the meta-schema to accept both, teach both readers
+  to accept both, move the two renderers, update the 21 fixtures. Leaving it is coherent meanwhile: an
+  instance carrying a new occurrence is not a checkable document until the server has seen it, and
+  creation is unaffected either way.
 
 - **9. Decide whether a child artifact must carry `$schema`.** The Java reader throws
   `ArtifactParseException: No text value present for field $schema` on a template whose nested fields
