@@ -1458,9 +1458,21 @@ production already holds, and what has to be rewritten before the model can be h
 The shared corpus is the sample every count below is drawn from, and it is a sample: preprod captures
 of real templates and instances, kept beside their corrected copies precisely so the defect stays
 legible. Every item therefore starts the same way, with a query over stored artifacts that says how
-far the sample generalizes. One defect is not listed here but belongs to the same body of work: the
-stored constraints recording a term count of zero, whose patch waits on what that zero should have
-been — item 7. Property IRIs the editors minted are deliberately absent: an identifier already
+far the sample generalizes.
+
+That query is now one instrument, `ops/cedar_artifact_patch.py`, which detects all seven defects and
+repairs the ones whose correction is settled. It reads either a tree of artifact files or a Mongo
+artifact store, reports by default and writes only under `--apply`, and skips the `*-original.json`
+captures unless asked for them, since those are the evidence. Running it is in
+[BACKEND-RUNBOOK.md](./BACKEND-RUNBOOK.md), "Patching stored artifacts". Every count below was taken
+with it on 2026-08-17 against the shared corpus of 434 artifacts, so what each item still owes is a
+run against a store rather than a way to ask the question. Each rewrite was exercised on a copy of the
+corpus and on a synthetic artifact carrying all seven defects, and a second pass over the result finds
+only what the tool declines to decide.
+
+One defect is not listed here but belongs to the same body of work: the stored constraints recording a
+term count of zero, whose patch waits on what that zero should have been — item 7. Property IRIs the
+editors minted are deliberately absent: an identifier already
 assigned is left alone, whoever assigned it, so there is nothing to rewrite — see
 [BACKEND-RUNBOOK.md](./BACKEND-RUNBOOK.md), "Identifiers: what a client sends, and what the server fills".
 
@@ -1476,6 +1488,15 @@ rather than an improvement to schedule at leisure.
   it. The patch is finding the stored fields and giving each one a `temporalType` that agrees with
   whatever values it already holds.
 
+  The corpus holds none: all 88 temporal fields in it declare a `temporalType`, so this defect is
+  production-only and the sample says nothing about how common it is. What the corpus did settle is
+  how much of the patch can be derived rather than looked up. `_ui.temporalGranularity` determines
+  the type down to a day and no further: all 64 fields at `year`, `month` or `day` are `xsd:date`,
+  while `second` appears as both `xsd:dateTime` (12) and `xsd:time` (4) and `decimalSecond` as both.
+  So a date granularity is derivable from the field alone, and below a day the stored values are the
+  only evidence. The patch tool derives the first, consults instance values for the second, and
+  reports what neither settles.
+
   The companion question belongs here rather than beside CEE, because it is the same decision about
   the same stored data: whether `InstanceValidator` should require `@type` on every temporal value.
   Requiring it makes an instance written against one of these fields invalid, which is the honest
@@ -1490,6 +1511,12 @@ rather than an improvement to schedule at leisure.
   string on read, in JSON and in YAML. What remains is the query over stored templates, elements and
   fields, and a rewrite that drops the key wherever it is empty.
 
+  The 148 occurrences the tool still finds in the corpus are all inside `*-original.json` captures —
+  146 in `templates/029`, one each in `fields/003` and `fields/004` — which is the corrected state, not
+  a residue. So the corpus can no longer exercise the rewrite, and it was exercised instead against a
+  synthetic artifact carrying every one of these defects: the key is dropped, and a second pass finds
+  nothing. What it has yet to be run against is a store.
+
 - **27. `"@id": ""` on element occurrences in stored instances.** The same disease on the identifier
   itself. Half the element occurrences in the corpus carried it — 59 nodes across four instances,
   since corrected to `null` — and both libraries now refuse it. Whether production holds them, and how
@@ -1497,21 +1524,45 @@ rather than an improvement to schedule at leisure.
   says. The rule this serves, and who is allowed to assign an identifier at all, is in
   [BACKEND-RUNBOOK.md](./BACKEND-RUNBOOK.md), "Identifiers: what a client sends, and what the server fills".
 
+  The corpus now reports zero, captures included, which confirms the correction took. The patch tool
+  separates two cases the single count used to hide: an occurrence's empty `@id` is rewritten to
+  `null`, while a stored artifact whose *own* `@id` is empty is reported and left alone, because that
+  artifact was stored under an identifier nothing can resolve and no rewrite settles which one it
+  should have had.
+
 - **28. `_ui.pages`, a key the meta-schema forbids.** A template's `_ui` may carry `order`,
   `propertyLabels`, `propertyDescriptions`, `header` and `footer`, and nothing else:
   `additionalProperties` is `false`. **120** template documents in the corpus carry `pages` there, 34
   of them preprod captures, and `CedarValidator` rejects every one of them for it. Both model
   libraries drop the key on write, so a template that has been through either validates while the
-  stored original does not, and the two disagree about what the template is. Decide whether `pages`
-  becomes part of the model or is dropped from stored templates, then patch accordingly — the count
-  says this is not a stray.
+  stored original does not, and the two disagree about what the template is.
+
+  **The decision is settled by measurement: drop it.** Every one of those 120 occurrences is the empty
+  array. Not one template in the corpus records a page anywhere, so there is no authored content to
+  bring into the model and nothing is lost by removing the key. The TypeScript library confirms it
+  from the other side: `JsonWriterBehavior.STRICT` omits `pages` and only `FEBRUARY_2024` writes it,
+  as `[]`, which makes it a legacy-compatibility concession to a February 2024 baseline rather than a
+  key anything ever filled in.
+
+  The patch target is the store, not the corpus. Those 120 documents are period captures, and
+  `TemplateCorpusReadability.spec.ts` reads them under `FEBRUARY_2024` precisely to hold the two
+  reader behaviors apart, so stripping `pages` from them would erase the evidence that the older form
+  exists. The tool refuses to drop a populated `_ui.pages` and reports it instead, so if a store holds
+  one it will be seen rather than quietly discarded.
 
 - **29. Attribute-value fields naming an attribute that has no name.** Two corpus instances,
   `cee-suite/071` and `cee-suite/072`, carry an attribute-value field whose list of names is `[""]` —
   an attribute named by the empty string, with no sibling value and no `@context` term. The server
   skips it when naming attributes, since a property IRI for it would name a property nothing can be
-  said about, so these stay unnamed until the data is corrected. How many production instances hold
-  one, and what wrote it, are the query and the producer question every item here starts with.
+  said about. How many production instances hold one, and what wrote it, are the query and the
+  producer question every item here starts with.
+
+  **The corpus is corrected**, on 2026-08-17: three fields across those two instances — two in `071`,
+  one in `072` — now carry `[]`, which is what an attribute-value field naming no attributes says. The
+  edit was textual and verified against the parse, so the files keep their own formatting, and both
+  suites that read the corpus stayed green (TypeScript 930, artifact library 1038). The tool refuses
+  the rewrite where something is keyed by the empty name, since dropping it would orphan a value; in
+  these three nothing was.
 
 - **30. `@context` terms for attributes nobody can name any more.** The server now assigns a property
   IRI to every attribute an instance names, and leaves an assigned one alone — but nothing removes a
@@ -1520,6 +1571,12 @@ rather than an improvement to schedule at leisure.
   where the template can be had; what is already stored is this item. The query needs the template
   too, and for the same reason: a term whose name is no key in the instance may be an orphan, or it may
   be a child the instance does not fill, which `instances/005` carries two of.
+
+  That warning is now confirmed rather than anticipated. Run without a template, the tool reports four
+  terms across the two `instances/005` renderings and declines to touch them; given the template, it
+  reports none, because all four are children those instances do not fill. So the corpus holds no
+  orphan at all, and the count anyone gets from a template-blind query is entirely false positives —
+  which is the reason this item cannot be discharged by a query over instances alone.
 
 - **31. Ontology constraints that carry no canonical `iri`, and `sourceUri` where it is no longer
   authored.** The versioned value-constraint shape names a source with `sourceSystem` and
@@ -1531,6 +1588,23 @@ rather than an improvement to schedule at leisure.
   IRI from the terminology catalog (`ontologyIri(acronym)`, the only place that mapping lives), writes
   it where derivable and leaves the rest to defaults. Dry-run with zero mutations first, reporting
   coverage and the acronyms it cannot derive.
+
+  **The dry run is done, and the rewrite is blocked on the terminology store rather than on the
+  artifacts.** All 373 controlled-term constraints in the corpus are in the legacy shape: none carries
+  `iri`, and none carries `sourceUri` either, so the older key is not in circulation here and only the
+  additive fields are missing. Coverage is currently zero, and the reason is the catalog. The store on
+  disk was built before `ontology_source` existed, its `ontology` table holds eleven rows, and
+  `source_iri` is null in every one, so there is no acronym-to-IRI mapping to read: the 41 acronyms
+  the constraints name — `DOID`, `NCIT`, `SNOMEDCT`, `LOINC` and the rest — all come back unresolved.
+  Rebuilding the terminology store is therefore a precondition, and that is measured in days
+  ([VERSIONING-RUNBOOK.md](./VERSIONING-RUNBOOK.md)). The tool reads whichever schema the store has,
+  so once it is rebuilt the same run derives what it can and names the remainder.
+
+  One thing the dry run corrected about this item's terms: a `classes` constraint has no `acronym` at
+  all — it names its ontology only in `source`, the legacy free-text display string — so for class
+  constraints the acronym has to be recovered from that string before anything can be looked up. The
+  tool reads a parenthesized acronym or a bare one; a `source` that is neither is reported as
+  unresolvable rather than guessed at.
 
   The code half — making the model's `uri` optional and stopping the editor writing it — is on
   [VERSIONING-ROADMAP.md](./VERSIONING-ROADMAP.md), item 6. Patch the stored artifacts before

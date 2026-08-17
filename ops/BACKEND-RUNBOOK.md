@@ -609,6 +609,57 @@ the second kind, which is why the rule that drops whatever the body does not use
 work. What is already stored keeps its orphans until something rewrites it, which is a patch item on
 [BACKEND-ROADMAP.md](./BACKEND-ROADMAP.md).
 
+## Patching stored artifacts: `ops/cedar_artifact_patch.py`
+
+The rules above govern what the server accepts from now on. They say nothing about what a store
+already holds, and several defects are in circulation there: an empty `pav:derivedFrom`, an empty
+`@id` on an element occurrence, a `_ui.pages` the meta-schema forbids, an attribute-value field naming
+an attribute nobody named, a temporal field declaring no `temporalType`, a `@context` term whose
+attribute is gone, and controlled-term constraints predating the versioned source fields. Two of them
+now stop a read outright, because both model libraries refuse an empty `@id` and an empty
+`pav:derivedFrom`, so an artifact carrying either cannot be opened through the library at all.
+
+One script finds and repairs all seven. It reports by default and writes only under `--apply`:
+
+```bash
+python3 ops/cedar_artifact_patch.py --tree ../cedar-test-artifacts/artifacts
+```
+
+Two sources are accepted. `--tree` walks a directory of artifact files, which is how the shared corpus
+is read; `--mongo` reads a store, one pass over `templates`, `template-elements`, `template-fields` and
+`template-instances`:
+
+```bash
+python3 ops/cedar_artifact_patch.py --mongo mongodb://localhost:27017 --db cedar
+```
+
+The Mongo source needs `pymongo`, and the system Python on this machine is externally managed, so give
+it a virtual environment rather than `--break-system-packages`:
+
+```bash
+python3 -m venv /tmp/cedar-patch && /tmp/cedar-patch/bin/pip install pymongo
+```
+
+Three things about a run are worth knowing before trusting its numbers. `--items` narrows it to the
+defects you mean, numbered as they are on the roadmap, which matters because a full run over a large
+store reads every artifact. The `*-original.json` files in a tree are skipped: those are preprod
+captures kept beside their corrected copies so a defect stays legible, and `--include-originals` reads
+them but cannot be combined with `--apply`. And a repair is offered only where the correction is
+settled — a populated `_ui.pages`, an artifact whose own `@id` is empty, an empty attribute name with
+something keyed by it, and a constraint whose acronym the terminology catalog cannot resolve are all
+reported and left alone, since each needs a decision the script has no grounds to make.
+
+A corpus run reports one unreadable file, and it is meant to be unreadable. `cee-suite/086` is not
+valid JSON and `templates/003` disagrees with its own `_ui.order`; both are named in
+`TemplateCorpusReadability.spec.ts` as deliberate failures, so a reader that refuses them is being
+tested rather than obstructed. Do not repair either.
+
+Item 30 is the one that needs more than the artifact. A `@context` term naming no key in the instance
+may be an orphan or a child the instance does not fill, and only the template says which, so the script
+resolves one — by `schema:isBasedOn` against the store, or by the sibling `template-NNN.json` in a
+tree — and reports rather than rewrites when it cannot. Run template-blind, the corpus yields four
+findings and all four are false positives.
+
 ## YAML is a native artifact format
 
 YAML is a first-class CEDAR representation, not a side format you convert to. Both the resource

@@ -23,6 +23,10 @@ Helper scripts are in `cedar-development/ops/`:
 - `cedar_usage_matrix.py` — reduce that harvest to the atomic-target usage matrix: one row per
   distinct `(kind, acronym, target)` terminology lookup production performs, for comparing two
   terminology-server implementations (current vs SQLite-backed).
+- `cedar_artifact_patch.py` — find and repair the defects stored artifacts carry rather than code: an
+  empty `pav:derivedFrom` or `@id`, a forbidden `_ui.pages`, an unnamed attribute, a temporal field
+  with no `temporalType`, an orphan `@context` term, a legacy constraint shape. Reads a tree of
+  artifact files or a Mongo store, reports by default, writes only under `--apply`.
 
 ## Ops docs: roadmaps and runbooks
 
