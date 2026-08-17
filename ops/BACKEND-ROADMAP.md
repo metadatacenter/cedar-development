@@ -252,198 +252,43 @@ Frontend work for the embeddable editor is tracked separately in
   whether the frontend writes those or whether they are residue from a field that was once
   multi-instance.
 
-- **8. Nobody mints an identifier but the server, and `null` is how a client asks for one.** The rule
-  is one sentence and the work is making every producer obey it: an artifact or a node that does not
-  yet have an identity carries `@id: null`, and the server assigns a real IRI when the artifact is
-  uploaded, on create and on update alike. A client that invents one is asserting an identity nothing
-  can resolve, and a client that omits the key leaves the server unable to tell "mint me one" from "I
-  forgot".
+- **8. Finish the identifier rule where it does not yet reach.** The rule itself is enforced and
+  documented — only the repository assigns identity, a client writes `null` where the schema requires
+  the key and leaves it out where it does not, and the server fills occurrence identifiers and
+  attribute property IRIs on create and update. How it behaves is in
+  [BACKEND-RUNBOOK.md](./BACKEND-RUNBOOK.md), "Identifiers: what a client sends, and what the server
+  fills". What is left is four loose ends, none of which a client can see.
 
-  This settles a question that stood open here as three options — mint locally, let the schema accept
-  null, or accept that a locally built instance is not valid until saved. The answer is the second
-  and third together: `null` is the honest value, so the model has to accept it where it does not yet,
-  and an instance holding one is a client's draft rather than a stored artifact.
+  **A template child's property IRI.** Both model libraries derive one from the child's name —
+  `PropertyIri.forName` and `ParentSchemaArtifact.generatePropertyUri` — which is reproducible but
+  still an IRI nothing assigned. The server should fill it and the generators should go, in one
+  change: they fire only for artifacts built through the builders, so removing them first would leave
+  such a template with no child mapping and nothing to supply one. It costs little to do — measured
+  over the corpus, all 75 child `@context` entries carry an IRI the child declared and none is
+  name-derived, and a template whose child has no mapping validates with no errors.
 
-  Recursion is not the difficulty it looks like. Only an element or a field that already exists can be
-  placed in a template, so every child an artifact carries was minted when *it* was created. The nulls
-  in any one upload therefore belong to the artifact being created and to nothing beneath it.
+  **Pruning a term when an attribute is renamed or deleted**, which needs the template. The rule that
+  looks sufficient is not: dropping a term in the CEDAR properties namespace whose name is no key in
+  the document would delete the mappings for children an instance does not fill, and `instances/005`
+  carries two. Only the template tells a child from a deleted attribute. The server resolves
+  `schema:isBasedOn` during validation, so it can be had — but `LinkedDataUtil` has no artifact
+  lookup, so this belongs where the template is already in hand. What is already stored is a patch
+  item below.
 
-  **What has to change on the server.** No new JSON Schema machinery: no custom keyword, no
-  vocabulary, nothing beyond `type: ["string", "null"]`, which CEDAR already uses for an artifact's own
-  `@id` in all three meta-schemas and for `pav:createdOn`, `pav:createdBy`, `pav:lastUpdatedOn`,
-  `oslc:modifiedBy`, `rdfs:label` and `@value` in a rendered template. The work is applying that
-  existing convention to the one slot that lacks it, in the artifact library's renderer: **an element
-  occurrence's `@id`**, rendered `{"type": "string", "format": "uri"}` and listed in the element's
-  `required` array. It changes the schema every stored CEDAR element carries — 28 round-trip fixtures
-  in `cedar-artifact-library` differ — so it is a model change rather than a library fix.
+  **The same three body shapes over YAML.** `ops/e2e/rest/suites/validation.mjs` pins them over JSON:
+  `@id: null` validates and creates, an omitted key does neither, a real IRI validates but create
+  refuses it. Validate, create and update all negotiate YAML as well, so the same three need
+  confirming there rather than assuming they follow.
 
-  An attribute's property IRI was a second slot here, on the reading that it too would carry `null`.
-  It does not: see the decision below.
-
-  A null `@id` on an occurrence already passes validation today, and not for a good reason. Measured against
-  `CedarValidator` — networknt, `formatAssertionsEnabled`, on a template rendered by the current
-  artifact library — a null value is treated as an absent key: `type` never fires on it, so `required`
-  is the only rule that can catch one. Which rules actually run is narrower than the schema reads:
-
-  | Rule | Enforced |
-  |---|---|
-  | `required` at the instance root | yes — a null `schema:name` is reported as a *missing* property |
-  | `properties` types at the root and inside a nested element | yes — `@id: 42` and `@id: "not a uri"` are both rejected |
-  | `required` inside a nested element | no — an occurrence with neither `@id` nor its only field validates |
-  | `additionalProperties` at the root, rendered `false` | no — a stray key of any shape validates |
-  | `additionalProperties` inside `@context` | no — a property IRI of `42` validates |
-
-  So an occurrence's null `@id` is accepted only because nested `required` does not run — a gap holding
-  up a rule the model does not yet state, which a validator upgrade could close without warning. That
-  makes the renderer change urgent rather than tidy. The `@context` row matters for the same reason in
-  reverse: a `null` term would pass today and stop passing later, which is one more argument for
-  leaving the term out instead. Whether these gaps are themselves defects worth fixing is a separate
-  question, and the answer changes what a stricter validator would then reject across stored data.
-
-  **An attribute's property IRI is left out, not nulled.** A draft omits the `@context` term and the
-  server adds it; nothing is written where a value is not yet known. Three things decide it. The model
-  already allows it: `@context.required` lists the standard prefixes and the system keys and no
-  attribute name, so an absent term violates nothing, while `null` would need
-  `additionalProperties` widened to `["string", "null"]` in every attribute-value template ever
-  rendered, stored ones included. JSON-LD gives `null` a meaning that is close to the opposite of what
-  is wanted — a term mapped to null is a term explicitly *removed* — where an absent term is simply an
-  undefined one, which is exactly true of an attribute nothing has minted for yet. And because absence
-  is legal, the body validates before minting as well as after, so nothing has to be sequenced around
-  it.
-
-  **A template child's property IRI goes the same way.** Both libraries generate one for a child whose
-  artifact declares none — `PropertyIri.forName` and `ParentSchemaArtifact.generatePropertyUri`, each
-  deriving `…/properties/<percent-encoded child name>` — and that is an IRI nothing assigned, however
-  reproducible it is. The server fills these too. Two measurements say what it costs, and the answer is
-  almost nothing: across every corpus template and element, all 75 child `@context` entries carry an
-  IRI the child declared and **none** is name-derived, so no stored artifact depends on the generator;
-  and a template whose child has no `@context` mapping validates against the meta-schema with no
-  errors, whether or not `required` still names it. So this is not a model change, unlike the
-  occurrence identifier.
-
-  It carries one sequencing constraint. The generators stay until the server fills, because they fire
-  for artifacts built through the builders — what the MCP servers and a converter produce — and
-  removing them first would leave such a template with no child mapping and nothing to supply one.
-  They go as part of the server change, and the round-trip tests that pin the attribute case extend to
-  cover children at the same time.
-
-  That leaves one rule covering all three slots: **`null` where the schema requires the key, absence
-  where it does not.** An occurrence's `@id` is required, so "no value yet" can only be spelled `null`;
-  an attribute's term and a child's property IRI are required by nothing, so they are left out.
-
-  **What the server does on POST and PUT.** The instance enumerates the work rather than hiding it: an
-  attribute-value field's own value *is* the list of attribute names it holds, so for each such field
-  the template declares, the server reads that list and mints
-  `https://schema.metadatacenter.org/properties/<uuid>` for every name `@context` has no term for. The
-  value already sits at the instance root under the name, so nothing else moves. Four rules make it
-  well-behaved:
-
-  - **Mint only where the term is absent.** An instance arriving at PUT already carries terms, and
-    re-minting would hand the same attribute a new IRI on every save. The same holds backwards: an IRI
-    already assigned is left alone, whoever assigned it. Stored artifacts carry property IRIs the
-    editors minted before this rule, and they stay — reassigning one changes what a stored instance
-    says about itself, for no gain, since the point of the rule is that an identifier is stable and
-    resolvable, which these already are. There is no patch item for them for that reason.
-  - **One pass, three jobs.** The same walk fills the element occurrences carrying `@id: null`, and on
-    a template or element it fills the child property IRIs that are missing from `@context`. All three
-    are what only the server can fill, on create and update alike.
-
-  Two of the three are done, in `LinkedDataUtil` in `cedar-config-library`, called from the artifact
-  server on create and on update. Occurrence identifiers were already walked for, but only where the
-  key was absent — a null counted as one already in hand, so the null reached storage. Attributes are
-  now named as well, in the `@context` of the node holding the field, skipping a blank name. Both leave
-  an IRI that is already there alone. What remains is the child property IRI, which no producer omits
-  today, so it is worth doing when the library generators go rather than before.
-  - **Read the keys rather than lean on validation**, which cannot tell null from absent, and which
-    does not run `additionalProperties` inside `@context` at all today.
-  - **Put it where both servers reach it.** The resource server and the artifact server both take POST
-    and PUT for instances, so this belongs in the shared library. The template lookup it needs already
-    happens: instance validation resolves `schema:isBasedOn` and answers 400 when the template is
-    missing.
-
-  **Pruning a term when an attribute is renamed or deleted needs the template.** A server that only
-  ever adds leaves a context accumulating an orphan for every attribute a user ever named, so it
-  prunes; that much is decided. The obvious rule without a template is to drop a term in the CEDAR
-  properties namespace whose name is not a key in the document, and the corpus says that rule is
-  wrong: `instances/005` maps `Element` and `Element1` in its `@context` while carrying neither in its
-  body, because they are *children the instance does not fill* rather than attributes anybody deleted.
-  Only the template tells the two apart. The server does resolve `schema:isBasedOn` during validation,
-  so it can be had — but `LinkedDataUtil` has no artifact lookup, so pruning belongs wherever the
-  template is already in hand rather than in the walk beside the two fills. The collision half is
-  settled and can be leaned on: `AttributeValueNamePolicy` refuses a name that clashes with a declared
-  child.
-
-  Three values have occupied that slot, which is worth knowing before touching stored data. A **minted
-  UUID**, which the artifact library wrote until it was removed as fabricated identity. An **empty
-  string**, which half the element occurrences in the shared corpus carried — 59 nodes across four
-  instances, since corrected to `null`. And **`null`**, what both libraries write today.
-
-  Why the empty string passed is worth stating exactly, because an earlier reading of it here was
-  wrong. The slot is typed `{"type": "string", "format": "uri"}`, and the validator **does** assert
-  that format: measured against `CedarValidator` on a template and a matching instance, an occurrence
-  carrying `"not a uri at all"` is rejected at `#/properties/…/@id/format`, one carrying `null` is
-  rejected for the type, and an absent key is rejected as a missing required property. What passes is
-  `""`, because an empty relative reference is a well-formed URI. So the rule is asserted and the empty
-  string satisfies it — not, as this said before, a rule nothing checks. Both libraries now refuse an
-  empty `@id` in YAML and in JSON, and `pav:derivedFrom` with them, so neither can re-enter through a
-  reader. What production holds is a separate question, under
-  [Production Artifact Patch](#production-artifact-patch).
-
-  **What has to change at create.** The resource server's create endpoint is where this rule meets a
-  client, and it is looser than the model: it accepts a body that omits `@id` as readily as one
-  carrying `null` — both answer 201 — and refuses only a real client-supplied IRI. Validation is the
-  faithful one, because the meta-schema types `@id` as `{"type": ["string", "null"]}` and marks it
-  required: the key must be present, its value may be null. So the single body shape that creates but
-  does not validate is the one leaving the key out, which is the natural thing for a client to write.
-  Under this rule create requires the key, which is what keeps "mint me one" apart from "I forgot",
-  and every createable body then validates as well. The three shapes are pinned in
-  `ops/e2e/rest/suites/validation.mjs`: `@id: null` validates and creates, an omitted `@id` creates
-  but does not validate, and a real IRI validates but is refused by create.
-
-  Every producer already writes the key, so requiring it would refuse nothing that is sent today. The
-  REST MCP nulls the top-level `@id` explicitly before posting (`ArtifactCodec.nullifyTopLevelId`); the
-  Template Designer starts from blueprints — `template-empty.json`, `element-empty.json`,
-  `field-empty.json` — that each carry `"@id": null`; and CEE posts nothing at all, handing the host an
-  instance whose `@id` is null, which its own contract test pins. What would have to change is the
-  recorded expectation rather than a client: `ops/e2e/rest/suites/validation.mjs` asserts today that a
-  body omitting the key still creates.
-
-  That is checked over JSON alone. Validate, create and update all negotiate YAML as well, so the same
-  three shapes have to be confirmed there rather than assumed. Instance validation is also not purely
-  syntactic: it resolves `schema:isBasedOn` and answers 400 when the template cannot be found, so an
-  instance cannot be validated against a template that does not yet exist.
-
-  **Where the producers stand.** CEE no longer mints element-occurrence identifiers: it stamped a GUID
-  onto every occurrence it built, and stopped once the requirement it was meeting turned out not to
-  exist — measured against `CedarValidator`, an occurrence validates with `@id` null and with `@id`
-  absent, and is rejected only for a string that is not a URI. So CEE already writes what this item
-  asks for, ahead of the server being able to act on it.
-
-  The Template Designer does not mint occurrence identifiers either, which an earlier reading of its
-  GUID helpers here got wrong. Tracing every call: `generateTempGUID` produces `tmp-<ts>-<n>` for
-  `$scope.uuid` in the field directives, which binds DOM nodes and reaches no document;
-  `generateGUID` fills `scope.elementId` the same way, and in `create-element.controller.js` it becomes
-  the *property key* a newly created element sits under in `properties`, which is a name rather than an
-  identifier. Two calls do reach a document, and both write **property IRIs**:
-  `cedar-runtime-field.directive.js` writes one into an instance's `@context` for an attribute the user
-  has just named, and `staging.service.js` uses them while staging a template. So the designer is a
-  producer for the attribute's term and for a child's property IRI, and not for an occurrence's `@id`;
-  what it does with the latter is the open question on
-  [TEMPLATE-DESIGNER-ROADMAP.md](./TEMPLATE-DESIGNER-ROADMAP.md), which asks whether it writes an empty
-  string there.
-
-  **Attribute values have no earlier point to mint at.** Every attribute a user names on an
-  attribute-value field needs a property IRI in the instance's `@context`, and the name is invented at
-  fill time, so nothing could have minted one before the upload. Both editors mint it now:
-  `DataObjectDataValueHandler` in CEE and `staging.service.js` in the Template Designer, each writing
-  `https://schema.metadatacenter.org/properties/<uuid>`. Under this rule both stop, leaving the
-  `@context` term out, and the server mints on upload. Which attribute a minted IRI belongs to is not
-  in doubt: the attribute-value field names them, and the name is what both editors already use to pair
-  the `@context` entry with the value at the instance root.
-
-  `create_template_instance` in `cedar-artifact-mcp` records the state of play in a test, asserting
-  that the refused element identifier is the *only* thing wrong with a freshly built instance — when
-  this item lands, that test becomes a plain validation assertion.
+  **Whether a client can check its own draft.** An element occurrence's `@id` is typed by the template
+  as `{"type": "string", "format": "uri"}` and listed in that element's `required`, so an instance
+  carrying `@id: null` on a new occurrence is refused by `/command/validate?resource_type=instance`
+  even though the server would fill it on upload. Widening the slot to `["string", "null"]` in the
+  artifact library's renderer makes such a draft checkable before it is sent, and changes the schema
+  every stored CEDAR element carries — 28 round-trip fixtures differ — so it is a model change, and
+  stored templates keep their old rendering until re-rendered. Leaving it means an instance holding a
+  new occurrence is not a checkable document until the server has seen it, which is coherent but
+  costs `InstanceInflater`'s output its validity by construction.
 
 - **9. Decide whether a child artifact must carry `$schema`.** The Java reader throws
   `ArtifactParseException: No text value present for field $schema` on a template whose nested fields
@@ -1622,8 +1467,9 @@ of real templates and instances, kept beside their corrected copies precisely so
 legible. Every item therefore starts the same way, with a query over stored artifacts that says how
 far the sample generalizes. One defect is not listed here but belongs to the same body of work: the
 stored constraints recording a term count of zero, whose patch waits on what that zero should have
-been — item 7. Property IRIs the editors minted are deliberately absent: by the decision in item 8
-they are left alone, so there is nothing to rewrite.
+been — item 7. Property IRIs the editors minted are deliberately absent: an identifier already
+assigned is left alone, whoever assigned it, so there is nothing to rewrite — see
+[BACKEND-RUNBOOK.md](./BACKEND-RUNBOOK.md), "Identifiers: what a client sends, and what the server fills".
 
 Two of these are now blocking rather than latent. Both model libraries refuse an empty `@id` and an
 empty `pav:derivedFrom` on read, so a stored artifact carrying either can no longer be read by the
@@ -1655,7 +1501,8 @@ rather than an improvement to schedule at leisure.
   itself. Half the element occurrences in the corpus carried it — 59 nodes across four instances,
   since corrected to `null` — and both libraries now refuse it. Whether production holds them, and how
   many, is unmeasured; the rewrite is to `null`, which is what an occurrence with no assigned identity
-  says. The rule this serves, and who is allowed to mint an identifier at all, is item 8.
+  says. The rule this serves, and who is allowed to assign an identifier at all, is in
+  [BACKEND-RUNBOOK.md](./BACKEND-RUNBOOK.md), "Identifiers: what a client sends, and what the server fills".
 
 - **28. `_ui.pages`, a key the meta-schema forbids.** A template's `_ui` may carry `order`,
   `propertyLabels`, `propertyDescriptions`, `header` and `footer`, and nothing else:

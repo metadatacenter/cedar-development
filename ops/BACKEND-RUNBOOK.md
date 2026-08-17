@@ -535,6 +535,44 @@ does the work in the background; the resource server log reports progress. It is
 instrument, and it discards the index the alias is serving, so prefer a replay when the dead-letter
 queue explains the drift.
 
+## Identifiers: what a client sends, and what the server fills
+
+Only the repository assigns an identity. A client says which identifiers it wants assigned rather
+than inventing them, and there are two spellings, chosen by what the schema demands rather than by
+taste: **`null` where the key is required, absence where it is not.**
+
+| What | A draft writes | Who fills it |
+|---|---|---|
+| An artifact's own `@id` | `null`, and the key must be there | the server, on create |
+| An element occurrence's `@id` | `null`, or the key left out | the server, on create and update |
+| An attribute's `@context` term | nothing — the term is left out | the server, on create and update |
+| A template child's property IRI | nothing today; both model libraries derive one from the child's name | the libraries, for now |
+
+**Create refuses a body with no `@id` key**, and refuses one carrying a real IRI. The first is
+refused because an absent key cannot be told from a forgotten one, and because the meta-schema types
+`@id` as `["string", "null"]` and marks it required — so an omitted key was the one body shape that
+created here and failed `/command/validate` there. Both refusals answer `400` with `templateNotCreated`
+or its sibling for the kind. Nothing else about a create body changed: `@id: null` has always worked,
+and it is what the REST MCP, the Template Designer's blueprints and CEE all send.
+
+The filling happens in `LinkedDataUtil` in `cedar-config-library`, which the artifact server calls
+before validation on `POST` and on `PUT`. It walks the instance, assigns
+`…/template-element-instances/<uuid>` to every element occurrence that asks, and
+`…/properties/<uuid>` to every attribute an attribute-value field names and no `@context` term
+covers — into the context of the node holding the field, which is the root for a field at the top
+level and the occurrence's own context for one inside an element.
+
+Two rules keep it honest, and both are load-bearing. **An identifier already there is left alone**,
+whoever assigned it: an identifier is worth having because it is stable, so an update returns what it
+was given, and the property IRIs the editors minted before this rule stay as they are. **An empty
+string is not an absent identifier**: both model libraries refuse to read one, and the server does not
+mint over it, because that would hide whoever wrote it. Stored artifacts carrying one are on
+[BACKEND-ROADMAP.md](./BACKEND-ROADMAP.md) under Production Artifact Patch, with the rest of what
+production already holds.
+
+What is not filled yet is on that roadmap too: a template child's property IRI, and the removal of a
+`@context` term when the attribute it named is renamed or deleted.
+
 ## YAML is a native artifact format
 
 YAML is a first-class CEDAR representation, not a side format you convert to. Both the resource
