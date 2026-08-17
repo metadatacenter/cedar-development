@@ -953,9 +953,37 @@ left that does not need a host.
     ones — SNOMEDCT, MEDDRA, RCD, ICPC2P — that BioPortal could answer for at latest. Reporting
     them as proxied while returning none of their terms would be the silent wrong answer this
     endpoint exists to prevent, so the state waits until something fills it.
-- **24. Capture definitions at ingest.** A class hit carries no definition, because the snapshot
-    holds none. The design says a row shows one, and a term's definition is often what separates
-    two identically-labelled classes when the parent does not.
+- **24. Capture definitions at ingest.** A class hit carries no definition, and BioPortal shows one
+    for every term an author is choosing between. It is also the thing that would settle the cases
+    this picker keeps running into: GENEPIO offers "disease" three times over from three upstream
+    vocabularies, BAO and MEPO twice each, and a reader is told them apart today by an accession.
+
+    *Measured on the store as it stands.* Of 250 sampled ontologies, **120 carry a definition
+    property** — roughly half. The standard four do most of the work: `IAO_0000115` (DOID alone
+    asserts 21,189 of them), `skos:definition`, the OBO format's `def:`, and `dcterms:description`.
+    They are not enough on their own: NCIT writes its own `DEFINITION` (32,666) and
+    `ALT_DEFINITION` (13,575), so a vocabulary-specific mapping is needed beside the standard set,
+    as `HierarchyConfig` already does for hierarchy predicates. `rdfs:comment` appears far more
+    widely (204 of 400 files) and is not a definition — it is an editorial note, and taking it would
+    fill the panel with remarks to curators.
+
+    *The shape of the work.* Follow the multilingual label capture exactly, which is the precedent
+    for adding content without disturbing identity:
+    - A `definition` table beside `label`, keyed by concept, property CURIE and language, so a term
+      can carry more than one and say where each came from. **Outside the content hash**, as the
+      label table is — otherwise every snapshot in the store changes identity and 2,635 pins break.
+    - The four standard properties in the extractors, plus a per-vocabulary mapping for the
+      handful that mint their own.
+    - `definition` on the class hit and on the hierarchy response, served from the snapshot.
+    - The picker shows it under the term in the marked row's panel, above the tree.
+
+    *What it costs.* No re-download: **1,242 ontologies retain their raw source**, so this is
+    `--backfill-definitions-from-raw` on the pattern of `--backfill-labels-from-raw`, and the label
+    backfill covered 1,142 of 1,281 snapshots that way. The store is 52 GB and definitions are
+    prose — the sampled OBI definitions average a couple of hundred characters — so the addition is
+    a few hundred megabytes, not a doubling. Ontologies whose raw is gone fall back to a re-fetch,
+    which is where the label backfill lost its 139.
+
 - **25. Keep the index fresh.** A re-ingest moves an ontology's current version and the index does
     not follow until `SearchIndexJob` runs again. It is incremental and takes seconds for a few
     ontologies, but nothing runs it, and an index behind the catalog reports the version it holds
