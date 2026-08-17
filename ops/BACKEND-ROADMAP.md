@@ -302,17 +302,20 @@ Frontend work for the embeddable editor is tracked separately in
   `renderUriOrNullJsonSchemaTypeSpecification()` — and the same one line in TypeScript's
   `JsonTemplateElementContent`. What it takes with it is the part worth recording:
 
-  - **The meta-schema forbids it.** `templateElementPropertiesFieldContent`'s `@id` points at
-    `jsonLDIDFieldContent`, whose `type` enum is exactly `["string"]`, so a template rendered with the
-    new typing is rejected outright — 10 of the first 28 failures were the validator refusing the
-    library's own output, not fixture drift. The definition that would accept it already exists,
-    `jsonLDIDFieldContentWithNull`, and is what a template's own `@id` uses. Pointing the element at it
-    in `template-meta-schema.json` and `element-meta-schema.json` clears those failures.
-  - **But then every stored template becomes invalid.** `jsonLDIDFieldContentWithNull` requires the
-    array form, so with the element pointed at it, `template-031` as stored fails with *"string found,
-    array expected"*. Accepting both would mean an `anyOf` over the two definitions — a meta-schema
-    change wider than the one-line fix it serves, and the meta-schema is the estate's most load-bearing
-    document.
+  - **The meta-schema has to move first, and the move is additive.**
+    `templateElementPropertiesFieldContent`'s `@id` points at `jsonLDIDFieldContent`, whose `type` enum
+    is exactly `["string"]`, so a template rendered with the new typing is rejected outright — 10 of
+    the first 28 failures were the validator refusing the library's own output, not fixture drift. The
+    definition that accepts the new form already exists, `jsonLDIDFieldContentWithNull`, and is what a
+    template's own `@id` uses.
+  - **Widen, do not repoint.** Repointing the `$ref` at `jsonLDIDFieldContentWithNull` clears those
+    failures and invalidates every stored template at the same time, because that definition requires
+    the array form: `template-031` as stored then fails with *"string found, array expected"*. Making
+    the `@id` an `anyOf` over both definitions accepts either. Measured with the widening installed:
+    `template-031` as stored validates with 0 errors, and the same template retyped
+    `["string", "null"]` validates with 0 errors. So nothing that validates today stops validating —
+    the edit is two files, one `$ref` becoming an `anyOf`, plus a copy of the existing definition into
+    `element-meta-schema.json`.
   - **The fixtures are the small part.** 21 files, 148 occurrences in `cedar-artifact-library`, after
     which its 1060 tests pass. Each has to be rewritten with the writer that wrote it — three
     formatting conventions live under `src/test/resources`, and re-serializing uniformly rewrites whole
@@ -324,9 +327,12 @@ Frontend work for the embeddable editor is tracked separately in
     posture that avoids churning the corpus, and it is what this estate has done for every other shape
     change.
 
-  So the sequence, whenever it is taken, is: widen the meta-schema to accept both, teach both readers
-  to accept both, move the two renderers, update the 21 fixtures. Leaving it is coherent meanwhile: an
-  instance carrying a new occurrence is not a checkable document until the server has seen it, and
+  So the sequence, whenever it is taken, is: widen the meta-schema to accept both, teach the TypeScript
+  reader to accept both, move the two renderers, update the 21 fixtures. Each step accepts what exists
+  and only the renderers emit anything new, so no stored artifact is invalidated at any point and none
+  has to be re-rendered — a stored template keeps refusing a null occurrence in its own instances until
+  it is, which is the one thing the change does not reach by itself. Leaving it is coherent meanwhile:
+  an instance carrying a new occurrence is not a checkable document until the server has seen it, and
   creation is unaffected either way.
 
 - **9. Decide whether a child artifact must carry `$schema`.** The Java reader throws
