@@ -395,11 +395,18 @@ Frontend work for the embeddable editor is tracked separately in
   absent, and is rejected only for a string that is not a URI. So CEE already writes what this item
   asks for, ahead of the server being able to act on it.
 
-  The Template Designer does not. `DataManipulationService.generateTempGUID` hands out `tmp-<ts>-<n>`
-  identifiers, and `create-element.controller.js` falls back to `generateGUID()` where an element has
-  no `@id`. Those are scope-local in the directives that use them, but they are the same habit and the
-  same source of an identity nothing assigned; that half is tracked on
-  [TEMPLATE-DESIGNER-ROADMAP.md](./TEMPLATE-DESIGNER-ROADMAP.md).
+  The Template Designer does not mint occurrence identifiers either, which an earlier reading of its
+  GUID helpers here got wrong. Tracing every call: `generateTempGUID` produces `tmp-<ts>-<n>` for
+  `$scope.uuid` in the field directives, which binds DOM nodes and reaches no document;
+  `generateGUID` fills `scope.elementId` the same way, and in `create-element.controller.js` it becomes
+  the *property key* a newly created element sits under in `properties`, which is a name rather than an
+  identifier. Two calls do reach a document, and both write **property IRIs**:
+  `cedar-runtime-field.directive.js` writes one into an instance's `@context` for an attribute the user
+  has just named, and `staging.service.js` uses them while staging a template. So the designer is a
+  producer for the attribute's term and for a child's property IRI, and not for an occurrence's `@id`;
+  what it does with the latter is the open question on
+  [TEMPLATE-DESIGNER-ROADMAP.md](./TEMPLATE-DESIGNER-ROADMAP.md), which asks whether it writes an empty
+  string there.
 
   **Attribute values have no earlier point to mint at.** Every attribute a user names on an
   attribute-value field needs a property IRI in the instance's `@context`, and the name is invented at
@@ -1657,11 +1664,16 @@ rather than an improvement to schedule at leisure.
   becomes part of the model or is dropped from stored templates, then patch accordingly — the count
   says this is not a stray.
 
-- **30. Identifiers the Template Designer minted.** `DataManipulationService.generateTempGUID` hands
-  out `tmp-<ts>-<n>`, and `create-element.controller.js` falls back to `generateGUID()` where an
-  element has no `@id`. Both name an identity nothing assigned. Whether any reached stored artifacts —
-  rather than living only in the editor's working copy — is a query, and any that did are the same
-  rewrite as item 28. The producer is tracked on [TEMPLATE-DESIGNER-ROADMAP.md](./TEMPLATE-DESIGNER-ROADMAP.md).
+- **30. Property IRIs the Template Designer minted.** The editor writes
+  `https://schema.metadatacenter.org/properties/<uuid>` in two places — into an instance's `@context`
+  for an attribute the user has just named, and while staging a template — so stored artifacts carry
+  IRIs the repository never assigned. Under the rule in item 8 the server assigns both, which leaves
+  the question of what is already stored: how many, and whether they can be left alone as historical or
+  have to be reassigned, given that reassigning one changes what a stored instance says about itself.
+  Its GUID helpers were listed here as minting element identifiers as well; they do not — `$scope.uuid`
+  and `scope.elementId` are scope-local, and the third call is a property key rather than an `@id`.
+  Whether the editor writes an empty string into an occurrence's `@id` is a separate question, open on
+  [TEMPLATE-DESIGNER-ROADMAP.md](./TEMPLATE-DESIGNER-ROADMAP.md) and patched here as item 28.
 
 - **31. Ontology constraints that carry no canonical `iri`, and `sourceUri` where it is no longer
   authored.** The versioned value-constraint shape names a source with `sourceSystem` and
