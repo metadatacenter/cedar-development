@@ -347,6 +347,13 @@ Frontend work for the embeddable editor is tracked separately in
   - **One pass, three jobs.** The same walk fills the element occurrences carrying `@id: null`, and on
     a template or element it fills the child property IRIs that are missing from `@context`. All three
     are what only the server can fill, on create and update alike.
+
+  Two of the three are done, in `LinkedDataUtil` in `cedar-config-library`, called from the artifact
+  server on create and on update. Occurrence identifiers were already walked for, but only where the
+  key was absent — a null counted as one already in hand, so the null reached storage. Attributes are
+  now named as well, in the `@context` of the node holding the field, skipping a blank name. Both leave
+  an IRI that is already there alone. What remains is the child property IRI, which no producer omits
+  today, so it is worth doing when the library generators go rather than before.
   - **Read the keys rather than lean on validation**, which cannot tell null from absent, and which
     does not run `additionalProperties` inside `@context` at all today.
   - **Put it where both servers reach it.** The resource server and the artifact server both take POST
@@ -354,12 +361,17 @@ Frontend work for the embeddable editor is tracked separately in
     happens: instance validation resolves `schema:isBasedOn` and answers 400 when the template is
     missing.
 
-  **Open: who prunes a term when an attribute is renamed or deleted.** A server that only ever adds
-  leaves a context accumulating an orphan for every attribute a user ever named. Pruning terms no
-  attribute-value field names is the symmetric answer and belongs in the same pass, but it means the
-  server deleting something a client sent, which is a decision rather than a detail. The collision half
-  is already settled and can be leaned on: `AttributeValueNamePolicy` refuses a name that clashes with
-  a declared child.
+  **Pruning a term when an attribute is renamed or deleted needs the template.** A server that only
+  ever adds leaves a context accumulating an orphan for every attribute a user ever named, so it
+  prunes; that much is decided. The obvious rule without a template is to drop a term in the CEDAR
+  properties namespace whose name is not a key in the document, and the corpus says that rule is
+  wrong: `instances/005` maps `Element` and `Element1` in its `@context` while carrying neither in its
+  body, because they are *children the instance does not fill* rather than attributes anybody deleted.
+  Only the template tells the two apart. The server does resolve `schema:isBasedOn` during validation,
+  so it can be had — but `LinkedDataUtil` has no artifact lookup, so pruning belongs wherever the
+  template is already in hand rather than in the walk beside the two fills. The collision half is
+  settled and can be leaned on: `AttributeValueNamePolicy` refuses a name that clashes with a declared
+  child.
 
   Three values have occupied that slot, which is worth knowing before touching stored data. A **minted
   UUID**, which the artifact library wrote until it was removed as fabricated identity. An **empty
@@ -1646,7 +1658,14 @@ rather than an improvement to schedule at leisure.
   becomes part of the model or is dropped from stored templates, then patch accordingly — the count
   says this is not a stray.
 
-- **29. Ontology constraints that carry no canonical `iri`, and `sourceUri` where it is no longer
+- **29. Attribute-value fields naming an attribute that has no name.** Two corpus instances,
+  `cee-suite/071` and `cee-suite/072`, carry an attribute-value field whose list of names is `[""]` —
+  an attribute named by the empty string, with no sibling value and no `@context` term. The server
+  skips it when naming attributes, since a property IRI for it would name a property nothing can be
+  said about, so these stay unnamed until the data is corrected. How many production instances hold
+  one, and what wrote it, are the query and the producer question every item here starts with.
+
+- **30. Ontology constraints that carry no canonical `iri`, and `sourceUri` where it is no longer
   authored.** The versioned value-constraint shape names a source with `sourceSystem` and
   `sourceAcronym` and identifies it with a canonical `iri`; the older shape carried `sourceUri` and
   neither of the other two. Stored constraints are readable either way — a tolerant reader defaults an
