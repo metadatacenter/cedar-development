@@ -7,6 +7,7 @@ import { suite, check, checkStatus, call, cleanup, enc, RUN } from '../lib.mjs';
 
 const FIXTURES = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', 'fixtures');
 const load = name => JSON.parse(readFileSync(resolve(FIXTURES, name), 'utf8'));
+const yaml = name => readFileSync(resolve(FIXTURES, name), 'utf8');
 
 export const name = 'validation';
 
@@ -186,6 +187,60 @@ export async function run({ user1, folderId }) {
   check((await validate(realId)).body?.validates === 'true', 'a real IRI validates', 'it did not');
   check((await create(realId, 'Id Shape iri')).status === 400,
       'but create refuses a client-supplied IRI — it mints the id itself', 'create did not refuse it');
+
+  suite('the identifier shapes a YAML body may take');
+
+  // The same question over YAML, and the answer is the mirror image for two of the three shapes —
+  // deliberately, because the two dialects say "no identifier yet" differently. JSON carries the key
+  // with null in it, because the meta-schema requires the key. YAML has no such requirement and no use
+  // for a placeholder, so the authoring form simply omits it and the transcoder refuses an explicit
+  // null, naming the alternative. A real IRI is refused in both.
+  const asYaml = { contentType: 'application/yaml' };
+  const yamlTemplate = shape => {
+    const full = yaml('template-full.yml');
+    if (shape === 'omitted') return full.replace(/^id: .*\n/m, '');
+    if (shape === 'null') return full.replace(/^id: .*$/m, 'id: null');
+    return full.replace(/^id: .*$/m, 'id: https://repo.metadatacenter.orgx/templates/11111111-1111-1111-1111-111111111111');
+  };
+  const createYaml = async (shape, label) => {
+    const r = await call(auth, 'POST', `/templates?folder_id=${enc(folderId)}`, yamlTemplate(shape), asYaml);
+    if (r.status === 201 && r.body?.['@id']) cleanup('template', `/templates/${enc(r.body['@id'])}`, label);
+    return r;
+  };
+
+  const yamlOmitted = await createYaml('omitted', `Yaml Id omitted ${RUN}`);
+  if (checkStatus(yamlOmitted, 201, 'a YAML body that omits the identifier creates — omission is how YAML asks')) {
+    const yamlId = yamlOmitted.body['@id'];
+    check(!!yamlId, 'and the server assigned one', 'no identifier came back');
+
+    const put = await call(auth, 'PUT', `/templates/${enc(yamlId)}`,
+        yaml('template-full.yml').replace(/^id: .*$/m, `id: ${yamlId}`), asYaml);
+    checkStatus(put, 200, 'and an update naming that identifier is accepted');
+
+    const putWithout = await call(auth, 'PUT', `/templates/${enc(yamlId)}`, yamlTemplate('omitted'), asYaml);
+    check(putWithout.status === 400,
+        'while an update that omits it is refused — an update says which artifact it is updating',
+        `expected 400, got ${putWithout.status}`);
+  }
+
+  const yamlNull = await createYaml('null', `Yaml Id null ${RUN}`);
+  check(yamlNull.status === 400 && /omit the key/.test(yamlNull.text ?? ''),
+      'an explicit null is refused, and the refusal names omission as the way to ask',
+      `${yamlNull.status}: ${(yamlNull.text ?? '').slice(0, 160)}`);
+
+  const yamlIri = await createYaml('iri', `Yaml Id iri ${RUN}`);
+  check(yamlIri.status === 400,
+      'and a real IRI is refused over YAML as it is over JSON — the server assigns identifiers',
+      `expected 400, got ${yamlIri.status}`);
+
+  // Validation is JSON only. A YAML body reaches Jackson and fails to deserialize, so the answer is a
+  // 500 rather than the 415 an unsupported media type deserves. Pinned as it stands, with the defect
+  // recorded on BACKEND-ROADMAP.md rather than asserted away.
+  const yamlValidate = await call(auth, 'POST', '/command/validate?resource_type=template',
+      yaml('template-minimal.yml'), asYaml);
+  check(yamlValidate.status === 500 && /deserializing/.test(yamlValidate.text ?? ''),
+      'validate does not negotiate YAML, and says so as a 500 rather than a 415',
+      `${yamlValidate.status}: ${(yamlValidate.text ?? '').slice(0, 160)}`);
 
   return {};
 }

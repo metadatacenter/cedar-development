@@ -558,6 +558,15 @@ nothing rewrites a stored artifact, and one is not wrong for predating a rule. O
 changed, so a stored template starts typing the key the new way when something reads it and writes it
 back.
 
+**A YAML body asks the other way round.** The two dialects say "no identifier yet" differently, and
+each is refused in the other's form. JSON carries the key with null in it, because the meta-schema
+requires the key. YAML has no such requirement and no use for a placeholder, so the authoring form
+simply omits `id`, and an explicit `id: null` is refused with *"null is not a valid value; omit the
+key if the value is unknown"*. An update over YAML must name the identifier it is updating, as over
+JSON. And `/command/validate` is **JSON only** — handed YAML it answers `500` from the deserializer
+rather than `415`, which is on [BACKEND-ROADMAP.md](./BACKEND-ROADMAP.md); a client authoring in YAML
+cannot check its work before sending it.
+
 **Create refuses a body with no `@id` key**, and refuses one carrying a real IRI. The first is
 refused because an absent key cannot be told from a forgotten one, and because the meta-schema types
 `@id` as `["string", "null"]` and marks it required — so an omitted key was the one body shape that
