@@ -195,6 +195,31 @@ recomputed every `version_id` from the on-disk snapshots (no re-download), kept 
 files keep their raw-hash names (`file_path` is authoritative); new ingests name files by the content
 hash and compute identity from the extracted model.
 
+#### 4.4 Both date-ish members must stay quoted in YAML
+
+`id` is safe to write bare and the other two are not, and the reason is the same one that makes `id`
+authoritative: CEDAR mints it, so its form is fixed, while a publisher writes `declaredVersion` and a
+source's upload clock writes `effectiveDate`. Measured against all 114 snapshots in the store on
+2026-08-17:
+
+| Field | Store column | Distinct | Unsafe as a plain YAML scalar |
+|---|---|---:|---:|
+| `id` | `version_id` | — | 0 — a 64-character hex content hash, never all digits |
+| `effectiveDate` | `released_at` | 113 | **113, all of them** — every value reads back as a datetime |
+| `declaredVersion` | `declared_version` | 48 | **36 (75%)** — three separate ways |
+
+`declaredVersion` is the one that matters, because it fails silently rather than loudly. **18 values
+read as numbers** — CL and ENVO version themselves `1.30`, `1.40`, `1.41`, and ELD declares plain
+`4` — so `1.40` comes back `1.4`, a different version string with no error and no warning. **17 read
+as dates**, the OBO convention (`2011-06-03`, `2026-06-30`). One is the empty string, which reads as
+null. Only 12 survive, and by accident of form rather than by rule: `releases/2016-02-12` is a path,
+`5.0.16` has three components, `20AA_250902F` and `unknown` are neither number nor date.
+
+So a pin exists to preserve a version string exactly, and writing these two bare would silently
+rewrite the thing being preserved. Whatever the YAML writer does elsewhere, these two are quoted.
+The estate-wide quoting question is on [BACKEND-ROADMAP.md](./BACKEND-ROADMAP.md), under the YAML
+quoting item; the corpus does not yet exercise either key, so nothing there measures them.
+
 ### 5. Source taxonomy
 
 Naming the source explicitly unifies every case; the source discriminates what a constraint means.

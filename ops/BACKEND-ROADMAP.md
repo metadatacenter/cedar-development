@@ -310,11 +310,9 @@ Frontend work for the embeddable editor is tracked separately in
   exemption or a writer that slipped — legible only while the exempt set stays closed vocabularies,
   whose values are short lowercase tokens against a background of quoted text and IRIs.
 
-  Two loose ends the inventory turned up. `effectiveDate` and `declaredVersion` are unexercised by the
-  corpus and both fail — `declaredVersion` three ways, since an ontology's self-declared version is
-  whatever its publisher wrote — and they will start appearing as the versioned constraint shape
-  spreads. And `YamlConstants.URI = "termUri"` is dead: nothing in the YAML reader or renderer
-  references it, and the key is live only on the JSON side of the TypeScript library.
+  One loose end the inventory turned up: `YamlConstants.URI = "termUri"` is dead. Nothing in the YAML
+  reader or renderer references it, and the key is live only on the JSON side of the TypeScript
+  library.
 
 ### Infrastructure
 
