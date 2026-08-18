@@ -217,8 +217,9 @@ null. Only 12 survive, and by accident of form rather than by rule: `releases/20
 
 So a pin exists to preserve a version string exactly, and writing these two bare would silently
 rewrite the thing being preserved. Whatever the YAML writer does elsewhere, these two are quoted.
-The estate-wide quoting question is on [BACKEND-ROADMAP.md](./BACKEND-ROADMAP.md), under the YAML
-quoting item; the corpus does not yet exercise either key, so nothing there measures them.
+The settled artifact-wide quoting policy is in [BACKEND-RUNBOOK.md](./BACKEND-RUNBOOK.md), under
+"YAML is a native artifact format". It likewise keeps timestamps and identifiers quoted; the artifact
+corpus does not exercise these ontology-version keys, so their measurements remain separate.
 
 ### 5. Source taxonomy
 
