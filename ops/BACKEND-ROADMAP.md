@@ -1228,21 +1228,50 @@ Frontend work for the embeddable editor is tracked separately in
   - Decide whether they join the release or stay outside it, as CEE and the TypeScript model library
     do.
 
-- **17. Manage the transitive artifacts that still split on the test classpath.** Thirty-four
-  artifacts that resolved to several versions across the estate are now managed in `cedar-parent`,
-  which also repaired six integration classes that had been dying in `oneTimeSetUp` on
-  `NoClassDefFound org/eclipse/jetty/http/UriCompliance`, the Neo4j harness's Jetty 9.4.49 beating
-  the Jetty 11 the code compiles against. That pass measured the runtime classpath. Measuring the
-  test classpath afterwards, on 2026-08-12, found eleven more: `checker-qual` (3.31.0 / 3.53.0), the
-  three `apache-mime4j` artifacts (0.8.3 / 0.8.9), `resteasy-jaxb-provider` and
-  `resteasy-multipart-provider` (6.0.0.Final / 6.2.4.Final), `jaxb-core` and `txw2` (4.0.2 / 4.0.9),
-  `jackson-dataformat-cbor` (2.14.2 / 2.18.2), `jakarta.transaction-api` (2.0.0 / 2.0.1) and
-  `commons-collections4` (4.4 / 4.5.0).
+- **17. Separate CEDAR dependency convergence from the Keycloak provider platform lock.** The eleven
+  apparent test-classpath splits are not eleven candidates for one global version. Re-measuring all
+  thirty Maven roots divides them into three different problems, and blindly managing the newer side
+  in `cedar-parent` would make the Keycloak event listener compile against libraries its server does
+  not provide.
 
-  Give them the same treatment, one at a time rather than as a block. Check each against whatever
-  wants the older version before pinning it, since the Jetty case cuts both ways: a stale transitive
-  can be what breaks a suite, and forcing a newer one on a consumer built against the old can break a
-  suite that passes today. The whole estate's suites, 7,814 tests, are the check.
+  - **One is a real CEDAR classpath conflict:** `commons-collections4`. POI selects 4.5.0 on the
+    application classpath while MariaDB4j's test tooling requests 4.4 through `ch.vorburger.exec`.
+    The applications already run and test with 4.5.0 winning, so manage 4.5.0 for the ordinary CEDAR
+    runtime once the event-listener exception below is in place.
+  - **Five are unused admin-tool baggage:** `resteasy-jaxb-provider`,
+    `resteasy-multipart-provider` and the three `apache-mime4j` artifacts. They reach
+    `cedar-admin-tool` only through its direct `keycloak-admin-client-jakarta` dependency. CEDAR uses
+    the JSON provider, and `cedar-auth-operations-keycloak-library` already excludes the same two
+    RESTEasy providers for that reason. Put those exclusions on the admin tool's direct dependency;
+    Mime4j leaves with the multipart provider, and none of the five needs a CEDAR-wide pin.
+  - **The rest belong to a different runtime:** `checker-qual`, `jaxb-core`, `txw2`,
+    `jackson-dataformat-cbor`, `jakarta.transaction-api` and the event listener's copy of
+    `commons-collections4` are all `provided` transitives of `keycloak-services:22.0.4`. They are
+    supplied by the Keycloak process and must follow its platform, not Dropwizard, Hibernate,
+    OpenSearch or POI. The same is true of Keycloak's RESTEasy and Mime4j versions after their unused
+    admin-tool path is removed.
+
+  The event-listener POM currently inherits `cedar-parent` but does not import Keycloak's dependency
+  management. Keycloak's server-extension guide requires an import of `keycloak-parent` at the server
+  version. That import changes three of the raw transitive values recorded above to the versions the
+  Keycloak 22.0.4 platform actually manages: `checker-qual` 3.34.0, JAXB 4.0.3 and CBOR 2.15.2.
+  Comparing the listener's current compile tree with an isolated Keycloak-managed provider found 28
+  common artifacts at different versions, including Jackson 2.18.3 versus Keycloak's 2.15.2. This is
+  a real provider contract gap, not ordinary dependency drift.
+
+  Importing `keycloak-parent` is necessary but not sufficient: direct entries inherited from
+  `cedar-parent` beat versions supplied by an imported POM. Keep the CEDAR parent for the repository's
+  shared build and release machinery, import the Keycloak parent, and add child-level overrides for
+  the overlapping `provided` artifacts so the resulting tree matches the Keycloak 22 platform. Keep
+  that exception local to `cedar-keycloak-event-listener`; do not weaken dependency management for the
+  other Java repositories.
+
+  Gate the change at all three boundaries: dependency trees must show the managed CEDAR versions, the
+  admin tool must contain none of the unused provider stack, and the event listener must match the
+  Keycloak platform. Run the whole estate's 7,814 tests, package the listener, boot Keycloak with it
+  installed and trigger one event, then exercise one read-only admin-tool Keycloak operation. The
+  last two are required because the admin tool has only a configuration test and the event listener
+  has no tests at all.
 
 - **18. Publish a library snapshot before the consumer that needs it is built, or make the consumer
   wait.** A change that adds a method to a shared library and calls it from a server is one change in
