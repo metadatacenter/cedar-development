@@ -27,6 +27,10 @@ Helper scripts are in `cedar-development/ops/`:
   empty `pav:derivedFrom` or `@id`, a forbidden `_ui.pages`, an unnamed attribute, a temporal field
   with no `temporalType`, an orphan `@context` term, a legacy constraint shape. Reads a tree of
   artifact files or a Mongo store, reports by default, writes only under `--apply`.
+- `cedar_artifact_rest_audit.py` — GET-only, permission-scoped production inventory for the hardened
+  identifier and attribute-name rules. Enumerates all four artifact kinds through `/search-deep`,
+  streams JSONL findings, and checkpoints a short summary every 300 artifacts. It never writes an
+  artifact and never stores or prints the API key.
 
 ## Ops docs: roadmaps and runbooks
 

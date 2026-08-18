@@ -1419,6 +1419,63 @@ filter, the reflective `@Context`-injection feature, the Hibernate 6 data layer 
 generation changed, so `@GeneratedValue` columns moved to `IDENTITY` on `AUTO_INCREMENT` tables), and
 `commons-fileupload` to its jakarta successor `commons-fileupload2`.
 
+## Auditing production artifacts through REST
+
+`ops/cedar_artifact_rest_audit.py` is the read-only counterpart to the Mongo/tree patch tool. It
+enumerates every template, element, field and instance visible to an API key through `/search-deep`,
+fetches the full artifacts through their typed resource-server GET endpoints, and checks the stored
+documents against the hardened minting and compatibility rules. Its HTTP client implements GET only.
+It never calls validation by POST, never saves a sampled artifact, and never writes to CEDAR.
+
+Keep the key out of shell history and the process list:
+
+```bash
+export CEDAR_API_KEY=…
+python3 ops/cedar_artifact_rest_audit.py \
+  --server https://resource.metadatacenter.org \
+  --out production-artifact-findings.jsonl
+```
+
+The key may instead come from a one-line `--api-key-file`, or from a hidden prompt when the script is
+run interactively. There is deliberately no `--api-key VALUE` argument. TLS verification is always
+on; `--ca-file` adds a private CA, while `--allow-http` exists only for a loopback/local test server.
+Redirects are refused so an authorization header cannot be forwarded to another origin.
+
+The JSONL is streamed and flushed after every artifact, and the adjacent
+`production-artifact-findings-summary.json` is atomically checkpointed with a concise terminal report
+every **300 artifacts**. Both output files are owner-only, and the streamed findings path refuses a
+symlink. `--progress-every` changes the interval and `--limit` makes an explicitly labelled sample
+run. Ctrl-C and request failures retain partial output. A complete run normally exits zero even when
+it finds defects; `--fail-on-findings` makes findings exit 1, while an incomplete run exits 2.
+
+Findings say what an ordinary update will do rather than flattening every problem into “invalid”:
+
+- `repair-on-save`: inherited unusable/missing child property IRIs, child IDs, occurrence IDs,
+  `@context.required` entries, unsafe attribute-value names, missing attribute property IRIs and
+  repository-minted orphan terms;
+- `save-rejected`: unusable root IDs, root/search-ID disagreement, unrecognised child types,
+  malformed multi-instance children, missing instance/occurrence contexts and unusable
+  `schema:isBasedOn`;
+- `reader-blocking`: empty `pav:derivedFrom` and blank/relative link or controlled-term IDs, including
+  the shapes deliberately excluded from CEE's occurrence-only compatibility adapter;
+- `manual-review`: field/element ID-prefix contradictions and existing non-absolute attribute
+  mappings, which an ordinary save deliberately does not overwrite;
+- `audit-incomplete`: an instance's template could not be resolved, so template-aware occurrence and
+  attribute-name checks could not be finished.
+
+Template shapes are retained in reduced form and used to distinguish real attribute-value fields from
+arbitrary string arrays. This is what makes the blank/reserved/collision/duplicate checks match
+`CedarValidator` rather than guess. A structural occurrence walk runs as a fallback, so bad occurrence
+IDs are still found when a template is unavailable.
+
+**“Complete” is intentionally qualified as `COMPLETE_FOR_KEY`.** `/search-deep` and every typed GET
+are permission-scoped, so the result covers all artifacts the key can enumerate and read, across all
+versions and publication states. It does not prove that an underprivileged key saw the deployment, or
+that Neo4j/search and Mongo have not drifted. A complete instance-wide claim still needs a privileged
+key plus a store/graph parity check; the Mongo patch tool is the authoritative store-side inventory.
+If totals change or pages overlap during the run, the REST audit marks itself partial rather than
+claiming a stable snapshot.
+
 ## `ops/cedar_ontology_usage.py`
 
 Inventories which ontologies CEDAR templates + elements reference, by walking their
