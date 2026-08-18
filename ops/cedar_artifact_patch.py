@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """Find and repair the defects that live in stored CEDAR artifacts rather than in code.
 
-Seven defects are tracked on BACKEND-ROADMAP.md under "Production Artifact Patch", and each one
-begins the same way: a query over stored artifacts that says how far the shared corpus generalizes.
-This is that query, and for the defects whose correction is settled it is also the rewrite.
+Each check begins the same way: a query over stored artifacts that says how far a known defect
+generalizes. This is that query, and for defects whose correction is settled it is also the rewrite.
 
 Two sources are supported. A tree of artifact files is the corpus, and a Mongo artifact store is
 what a deployment holds. Reporting is the default and mutates nothing; `--apply` writes.
@@ -23,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import collections
+import copy
 import json
 import os
 import re
@@ -99,6 +99,7 @@ ITEMS = {
     29: "empty-attribute-name",
     30: "orphan-context-term",
     31: "constraint-iri",
+    32: "inherently-multiple-shape",
 }
 
 
@@ -331,6 +332,95 @@ def detect_orphan_context_terms(instance: dict, source: str, path: str,
                           lambda t=term: context.pop(t, None))
 
 
+def detect_inherently_multiple_shapes(document: JsonNode, source: str) -> Iterator[Finding]:
+    """32. Checkbox, attribute-value, and multiple-choice list fields emit arrays whenever they
+    are deployed in a template or element. Legacy container artifacts can describe the same child
+    as an object, making every populated instance fail its exact JSON Schema.
+
+    A standalone field artifact is deliberately excluded: it is the reusable inner field
+    definition and is correctly object-shaped. Only child deployments under a template or element's
+    ``properties`` are inspected. Repair is intentionally confined to this report-first migration
+    tool; loading an artifact in the Template Designer does not rewrite it. Arbitrary field metadata
+    remains on the inner definition and cardinality stays on the array envelope.
+    """
+
+    def pointer_segment(value: str) -> str:
+        return value.replace("~", "~0").replace("/", "~1")
+
+    def inherent(field: dict) -> bool:
+        ui = field.get("_ui")
+        if not isinstance(ui, dict):
+            return False
+        input_type = ui.get("inputType")
+        if input_type in {"checkbox", "attribute-value"}:
+            return True
+        constraints = field.get("_valueConstraints")
+        return (input_type == "list" and isinstance(constraints, dict)
+                and constraints.get("multipleChoice") is True)
+
+    def visit_container(container: JsonNode, path: str) -> Iterator[Finding]:
+        if not isinstance(container, dict):
+            return
+        schema = container.get("items") if container.get("type") == "array" else container
+        if not isinstance(schema, dict):
+            return
+        properties = schema.get("properties")
+        if not isinstance(properties, dict):
+            return
+
+        for name, declared in properties.items():
+            if not isinstance(declared, dict):
+                continue
+            where = f"{path}/properties/{pointer_segment(name)}"
+            field = declared.get("items") if declared.get("type") == "array" else declared
+            if not isinstance(field, dict):
+                continue
+
+            if inherent(field):
+                if declared.get("type") != "array":
+                    constraints = field.get("_valueConstraints")
+                    required = isinstance(constraints, dict) and constraints.get("requiredValue") is True
+                    min_items = declared.get("minItems")
+                    if not isinstance(min_items, int) or isinstance(min_items, bool):
+                        min_items = 1 if required else 0
+                    max_items = declared.get("maxItems")
+                    bounded_max = (max_items if isinstance(max_items, int)
+                                   and not isinstance(max_items, bool) and max_items > 0 else None)
+                    if bounded_max is not None and bounded_max < min_items:
+                        yield Finding(
+                            32, source, where,
+                            f"inherently multiple {field.get('_ui', {}).get('inputType')} field is "
+                            f"object-shaped, but maxItems {bounded_max} is below minItems {min_items}; "
+                            "cardinality needs a decision")
+                        continue
+
+                    def repair(target: dict = declared, minimum: int = min_items,
+                               maximum: Optional[int] = bounded_max) -> None:
+                        inner = copy.deepcopy(target)
+                        inner.pop("minItems", None)
+                        inner.pop("maxItems", None)
+                        target.clear()
+                        target["type"] = "array"
+                        target["minItems"] = minimum
+                        if maximum is not None:
+                            target["maxItems"] = maximum
+                        target["items"] = inner
+
+                    yield Finding(
+                        32, source, where,
+                        f"inherently multiple {field.get('_ui', {}).get('inputType')} field is "
+                        f"object-shaped, wrapping it as an array with minItems {min_items}",
+                        repair)
+                continue
+
+            ui = field.get("_ui")
+            if (field.get("@type") == "https://schema.metadatacenter.org/core/TemplateElement"
+                    or isinstance(ui, dict) and isinstance(ui.get("order"), list)):
+                yield from visit_container(field, where)
+
+    yield from visit_container(document, "")
+
+
 # --------------------------------------------------------------------------------------------------
 # Walking a document. One pass, every detector, so a large store is read once.
 # --------------------------------------------------------------------------------------------------
@@ -385,6 +475,8 @@ def inspect_document(document: JsonNode, source: str, items: set[int], catalog: 
     detectors that need more than the document itself get."""
     if 30 in items and isinstance(document, dict):
         yield from detect_orphan_context_terms(document, source, "", declared)
+    if 32 in items:
+        yield from detect_inherently_multiple_shapes(document, source)
 
     def walk(node: JsonNode, path: str, is_root: bool) -> Iterator[Finding]:
         if isinstance(node, dict):

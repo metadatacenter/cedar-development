@@ -416,6 +416,19 @@ def audit_schema(ref: ArtifactRef, artifact: Any) -> Iterator[Finding]:
             ui = child.get("_ui")
             if isinstance(ui, dict):
                 input_type = ui.get("inputType") if isinstance(ui.get("inputType"), str) else ""
+                constraints = child.get("_valueConstraints")
+                inherently_multiple = (
+                    input_type in {"checkbox", "attribute-value"}
+                    or input_type == "list" and isinstance(constraints, dict)
+                    and constraints.get("multipleChoice") is True
+                )
+                if inherently_multiple and not multiple:
+                    yield finding(
+                        ref, "inherently-multiple-child-object", "instance-save-rejected", declared_path,
+                        "checkbox, attribute-value, and multiple-choice list deployments must be arrays; "
+                        "CEE emits an array that this exact stored schema rejects",
+                        input_type,
+                    )
                 state, value = mapping_value(context_properties, name)
                 if input_type not in NON_SERIALIZING_INPUT_TYPES:
                     if state == "missing":

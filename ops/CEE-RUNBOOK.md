@@ -472,7 +472,7 @@ export PATH="/opt/homebrew/opt/node@24/bin:$PATH"
 npm run test:domain
 ```
 
-Expect **over 2,000 passing** on `develop` — 2,117 on 17 August 2026. For watch
+Expect **over 2,500 passing** on `develop` — 2,560 on 18 August 2026. For watch
 mode, run `npm --prefix harness run test:watch`.
 
 A green run here means CEE agrees with itself. For whether its output is
@@ -669,6 +669,25 @@ All three remaining failures are defects in the templates themselves — 001 has
 no `@id`, 003 will not compile, and 029 contradicts itself by offering literal
 choices under an IRI-only schema. [CEE-ROADMAP.md](./CEE-ROADMAP.md) carries what
 is open on each.
+
+That corpus check starts from empty instances. The complementary saveability
+gate populates every value-bearing field through the real CEE handler, crosses
+single/multiple field cardinality with all seven root and one-/two-level element
+placements, and validates each emitted instance twice:
+
+```bash
+npx vitest run harness/test/instance-schema-population.spec.ts
+```
+
+`InstanceValidator` checks the parsed TypeScript model. `ajv-draft-04` checks
+the exact template object before any model reader can normalize it. Both are
+required. In August 2026 the model-only path hid stored multi-select fields whose
+widget semantics emitted arrays while their raw JSON Schema still required an
+object; the resource server rejected those instances on save. The exact captured
+nested template and all five placements from that incident are permanent
+regressions in the same file. `template-consistency.spec.ts` separately scans
+the independent, HuBMAP, and visual corpora for any checkbox, attribute-value,
+or `multipleChoice: true` list field not declared as an array.
 
 ### Why the harness check can be trusted
 

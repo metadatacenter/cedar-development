@@ -633,13 +633,14 @@ The rules above govern what the server accepts from now on. They say nothing abo
 already holds, and several defects are in circulation there: an empty `pav:derivedFrom`, an empty
 `@id` on an element occurrence, a `_ui.pages` the meta-schema forbids, an attribute-value field naming
 an attribute nobody named, a temporal field declaring no `temporalType`, a `@context` term whose
-attribute is gone, and controlled-term constraints predating the versioned source fields. An empty
+attribute is gone, controlled-term constraints predating the versioned source fields, and an
+inherently multiple field deployed as an object rather than an array. An empty
 `pav:derivedFrom` still stops both model libraries on read. A blank occurrence `@id` stops strict
 readers, while CEE and the February 2024 TypeScript compatibility reader can open it and turn it into
 the `null` that an ordinary server update repairs. The patch is still required for artifacts nobody
 edits and for consumers that correctly choose strict reading.
 
-One script finds and repairs all seven. It reports by default and writes only under `--apply`:
+One script finds and repairs all eight. It reports by default and writes only under `--apply`:
 
 ```bash
 python3 ops/cedar_artifact_patch.py --tree ../cedar-test-artifacts/artifacts
@@ -661,13 +662,27 @@ python3 -m venv /tmp/cedar-patch && /tmp/cedar-patch/bin/pip install pymongo
 ```
 
 Three things about a run are worth knowing before trusting its numbers. `--items` narrows it to the
-defects you mean, numbered as they are on the roadmap, which matters because a full run over a large
-store reads every artifact. The `*-original.json` files in a tree are skipped: those are preprod
+checks you mean, using the stable check numbers printed by the report, which matters because a full
+run over a large store reads every artifact. The `*-original.json` files in a tree are skipped: those are preprod
 captures kept beside their corrected copies so a defect stays legible, and `--include-originals` reads
 them but cannot be combined with `--apply`. And a repair is offered only where the correction is
 settled — a populated `_ui.pages`, an artifact whose own `@id` is empty, an empty attribute name with
 something keyed by it, and a constraint whose acronym the terminology catalog cannot resolve are all
 reported and left alone, since each needs a decision the script has no grounds to make.
+
+Check 32 is the multi-select incident repair. It inspects only field deployments inside templates and
+elements; a standalone field artifact is the reusable inner definition and is intentionally left
+object-shaped. The rewrite preserves the complete inner schema, moves any settled positive bounds to
+the array envelope, derives an absent `minItems` from `requiredValue`, and reports without rewriting
+when existing bounds contradict each other. The Template Designer deliberately does not perform this
+repair on load: opening an artifact must not silently change what its next save writes. Audit it alone
+before considering a write:
+
+```bash
+python3 ops/cedar_artifact_patch.py --mongo mongodb://localhost:27017 --db cedar --items 32
+# only after reviewing the JSON report and a database backup:
+python3 ops/cedar_artifact_patch.py --mongo mongodb://localhost:27017 --db cedar --items 32 --apply
+```
 
 A corpus run reports one unreadable file, and it is meant to be unreadable. `cee-suite/086` is not
 valid JSON and `templates/003` disagrees with its own `_ui.order`; both are named in
@@ -1487,12 +1502,15 @@ Findings say what an ordinary update will do rather than flattening every proble
 
 - `repair-on-save`: inherited unusable/missing child property IRIs, child IDs, occurrence IDs,
   missing nested child `$schema` declarations, `@context.required` entries, unsafe attribute-value
-  names, missing attribute property IRIs and repository-minted orphan terms;
+  names, missing attribute property IRIs, repository-minted orphan terms and unusable inherited
+  `pav:derivedFrom` values;
+- `instance-save-rejected`: a checkbox, attribute-value or multiple-choice list deployment is
+  object-shaped, so CEE's correctly emitted array cannot validate against the exact stored template;
 - `save-rejected`: unusable root IDs, root/search-ID disagreement, missing or invalid root `$schema`,
   explicit invalid child `$schema`, unrecognised child types, malformed multi-instance children,
   missing instance/occurrence contexts and unusable `schema:isBasedOn`;
-- `reader-blocking`: empty `pav:derivedFrom` and blank/relative link or controlled-term IDs, including
-  the shapes deliberately excluded from CEE's occurrence-only compatibility adapter;
+- `reader-blocking`: blank/relative link or controlled-term IDs, including the shapes deliberately
+  excluded from CEE's occurrence-only compatibility adapter;
 - `manual-review`: field/element ID-prefix contradictions and existing non-absolute attribute
   mappings, which an ordinary save deliberately does not overwrite;
 - `audit-incomplete`: an instance's template could not be resolved, so template-aware occurrence and

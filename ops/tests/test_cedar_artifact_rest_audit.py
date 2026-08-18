@@ -129,6 +129,64 @@ class RuleTests(unittest.TestCase):
         self.assertIn("/properties/Element/properties/Nested/@id", mismatch[0].path)
         self.assertEqual(mismatch[0].risk, "manual-review")
 
+    def test_schema_reports_object_shaped_multi_select_deployments_at_every_depth(self):
+        direct = schema_child(
+            audit.TEMPLATE_FIELD,
+            "https://repo.metadatacenter.org/template-fields/direct",
+            "list",
+        )
+        direct["_valueConstraints"] = {"multipleChoice": True}
+        nested = schema_child(
+            audit.TEMPLATE_FIELD,
+            "https://repo.metadatacenter.org/template-fields/nested",
+            "checkbox",
+        )
+        element = schema_child(
+            audit.TEMPLATE_ELEMENT,
+            "https://repo.metadatacenter.org/template-elements/e1",
+            "section",
+            {"Nested": nested},
+        )
+        for container, name in ((element, "Nested"),):
+            container["properties"]["@context"]["properties"][name] = {
+                "enum": [f"https://repo.metadatacenter.org/properties/{name.lower()}"]
+            }
+            container["properties"]["@context"]["required"].append(name)
+        artifact = schema_artifact(
+            self.ref().artifact_id,
+            {"Direct": direct, "Element": element},
+            {
+                "Direct": {"enum": ["https://repo.metadatacenter.org/properties/direct"]},
+                "Element": {"enum": ["https://repo.metadatacenter.org/properties/element"]},
+            },
+            ["Direct", "Element"],
+        )
+
+        findings = [
+            item for item in audit.audit_schema(self.ref(), artifact)
+            if item.rule == "inherently-multiple-child-object"
+        ]
+
+        self.assertEqual(
+            ["/properties/Direct", "/properties/Element/properties/Nested"],
+            [item.path for item in findings],
+        )
+        self.assertTrue(all(item.risk == "instance-save-rejected" for item in findings))
+
+    def test_schema_does_not_treat_a_standalone_multi_select_field_as_a_bad_deployment(self):
+        field = schema_child(
+            audit.TEMPLATE_FIELD,
+            "https://repo.metadatacenter.org/template-fields/f1",
+            "list",
+        )
+        field["_valueConstraints"] = {"multipleChoice": True}
+
+        rules = {
+            item.rule for item in audit.audit_schema(self.ref("field", field["@id"]), field)
+        }
+
+        self.assertNotIn("inherently-multiple-child-object", rules)
+
     def test_schema_reports_missing_child_declarations_as_repairable(self):
         child = schema_child(
             audit.TEMPLATE_FIELD,
