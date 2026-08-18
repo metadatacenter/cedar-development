@@ -1275,25 +1275,6 @@ Frontend work for the embeddable editor is tracked separately in
   set. Move `byte-buddy-agent` with it, since Mockito needs the two to match, and confirm the mock
   matrix still passes rather than trusting a green compile.
 
-- **20. Let the rebuilt search index become searchable before `regenerate-search-index` swaps the
-  alias onto it.** `RegenerateSearchIndexTask` orders its steps correctly: it indexes every batch,
-  including the final partial one, then points the `cedar-search` alias at the new index, then deletes
-  the old one. What it does not do is wait for what it just wrote to become visible. `addBatch` issues
-  its bulk request with no refresh policy, so the documents are written but stay invisible to queries
-  until OpenSearch's next scheduled refresh, a second by default. The alias moves immediately after
-  the last bulk write, and the old index is deleted in the same breath — locally, 35 ms later.
-
-  For about that second, a search through the alias reaches the new index and finds less than is
-  there. The window is set by the refresh interval rather than by how much was reindexed, so it stays
-  around a second whatever the corpus size, and a caller cannot tell a short answer from a complete
-  one. Deleting the old index straight after the swap also gives up the one copy that could have
-  answered during the gap, and the only thing to fall back to if the new index turns out wrong.
-
-  Refresh the new index and confirm its document count before swapping the alias, and delete the old
-  index once the swap is known good rather than as part of the same step. An alias swap is atomic, so
-  the sequence costs nothing beyond the wait. Worth doing before the command is run against
-  production, where the fallback matters more than the second does.
-
 - **21. Publish a library snapshot before the consumer that needs it is built, or make the consumer
   wait.** A change that adds a method to a shared library and calls it from a server is one change in
   two repositories, and CI builds them independently. The library's job compiles, tests and deploys
@@ -1325,31 +1306,13 @@ Frontend work for the embeddable editor is tracked separately in
   resolve from Nexus by design, so anything that pairs a library change with a consumer change meets
   it. Worth settling alongside how the estate is built rather than on its own.
 
-- **22. Rename the Maven settings file the workflows still call `travis-settings.xml`.** Travis stopped
-  building CEDAR years ago, but the settings file it created outlived it, because Maven needs one to
-  know where Nexus is and how to authenticate to it. Nothing in the file is Travis-specific: it
-  declares the two BMIR Nexus repositories and takes `bmir-nexus-snapshots` and `bmir-nexus-releases`
-  credentials from `BMIR_NEXUS_USERNAME` and `BMIR_NEXUS_PASSWORD`, which Actions supplies as
-  repository secrets exactly as Travis supplied them as environment variables. So the name is the only
-  thing left, and it now describes nothing: **31 repositories carry `.m2/travis-settings.xml`, it is
-  the only file in each `.m2/`, and 30 workflows name it on a `--settings` flag**. Rename it to
-  `nexus-settings.xml` and move every workflow reference in the same commit per repository, since a
-  workflow pointing at a path that no longer exists cannot publish. Mechanical, and worth doing in one
-  sweep rather than repository by repository, so no two repositories disagree about the name.
-
-  The three dead `.travis.yml` files this turned up are **done**, deleted on 2026-08-17 from
-  `cedar-artifact-viewer`, `cedar-openview` and `cedar-template-editor`. They pinned Node 6 on Ubuntu
-  trusty and carried encrypted Slack tokens for a service that no longer runs. One loose end left in
-  place: `karma-travis-env` in `cedar-template-editor`'s gulpfile has no caller now, and whether to
-  keep it, rename it, or drop it is a question about that gulpfile rather than about CI.
-
 ## Testing
 
 Coverage and test-infrastructure work. The active REST integration suites live in
 `ops/e2e/rest/suites/`; the JUnit matrices and boot-smoke live in the per-server modules.
 
-- **23. Decide whether the build runs the tests, and give the answer a command-line option. Stop the
-  output loop busy-polling.** The Java build skips its tests again: every Java repo is built with
+- **23. Decide whether the build runs the tests, expose the choice, and report continued failures
+  honestly.** The Java build skips its tests again: every Java repo is built with
   `./mvnw clean install -DskipTests`, and the `CEDAR_DEV_SKIP_TESTS` escape hatch is gone with the
   default it modified. That restores the behaviour the build had before, and it means a green
   `cedarcli build` says the stack compiles and nothing more. Whichever way it settles reaches every
@@ -1400,19 +1363,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   CLI one convention rather than two — the skipped tasks are currently named
   `"… skipped because of CEDAR_DEV_BUILD_FRONTENDS"`, so their titles have to move with it either way.
 
-  **The output loop.** `ShellTaskExecutor.execute_shell_command` sets `O_NONBLOCK` on the subprocess
-  pipe and spins on `while proc.poll() is None`, which is the 100% CPU, while Rich redraws under a
-  `Live` at ten frames a second, which is what makes progress hard to distinguish from a hang.
-  `worker/Worker.py` carries the same three lines for the commands that run outside a plan, so fix both
-  or the CPU burn survives in `git`, `dev` and `start`. The cheap fix is a net deletion: drop the `fcntl` call and iterate the pipe, then `proc.wait()` — stderr
-  is already merged into stdout, so there is one stream and no deadlock to avoid. `select` with a
-  timeout is the alternative if a periodic tick during silence is wanted, and a reader thread only if
-  the tick should report how long the silence has lasted. Separately, every line calls both
-  `job_progress.print` and `job_progress.update`; teeing full output to a per-repo log file and
-  echoing only under `--verbose` would suit a build whose logs already must not be piped through
-  `head` or `grep`.
-
-  One more thing belongs in the acceptance criterion. On failure with `fail_on_error` set,
+  The remaining acceptance criterion is honest failure reporting. On failure with `fail_on_error` set,
   `PlanExecutor` exits 1 correctly. With it unset the error is disregarded and the run still prints
   "Execution succeeded!" and exits 0. A build that continued past a failure must record it, say so in
   the closing panel, and exit non-zero.
@@ -1508,6 +1459,26 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   service a fresh attempt; re-running the ontology search inside the picker reads the same empty cache
   and never could succeed. Nothing is saved server-side until after the block, so a failed attempt
   leaves no orphan template.
+
+## Recently completed
+
+- **20. Safe search-index promotion (2026-08-17).** A rebuilt concrete index is now explicitly
+  refreshed and its document count verified before promotion. The `cedar-search` alias moves with one
+  atomic remove-and-add request, and old concrete indices are deleted only after OpenSearch
+  acknowledges the cutover. Refresh, count and promotion failures leave the previous alias target
+  intact. The search-operations suite covers the ordering and failure paths.
+
+- **22. Nexus settings naming (2026-08-17).** All 31 Java repositories now carry
+  `.m2/nexus-settings.xml`; all 59 references in 30 GitHub workflow files and the manual-publishing
+  example in the backend runbook use that name. The XML content is unchanged. The three obsolete
+  `.travis.yml` files found during the inventory were also removed from the frontend repositories
+  that still carried them.
+
+- **23a. Non-spinning CLI subprocess output (2026-08-17).** Both cedarcli execution paths now stream
+  the blocking subprocess pipe and call `wait()` once, instead of setting `O_NONBLOCK` and repeatedly
+  polling. Regression tests cover the plan executor and the generic worker, including output without
+  a final newline and non-zero exit status. The build-test default and honest aggregate failure status
+  remain open under item 23.
 
 ## Production Artifact Patch
 

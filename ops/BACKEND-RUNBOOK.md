@@ -1363,7 +1363,7 @@ Publishing by hand is still occasionally needed — to seed a layer Nexus never 
 that bypassed CI:
 
 ```bash
-cd $CEDAR_HOME/cedar-<name> && ./mvnw --batch-mode deploy --settings .m2/travis-settings.xml
+cd $CEDAR_HOME/cedar-<name> && ./mvnw --batch-mode deploy --settings .m2/nexus-settings.xml
 # needs BMIR_NEXUS_USERNAME and BMIR_NEXUS_PASSWORD in the environment
 ```
 
