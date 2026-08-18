@@ -420,7 +420,7 @@ Frontend work for the embeddable editor is tracked separately in
   client). A real deployment should instead trust a truststore holding the realm CA. Small, and only
   matters outside local dev.
 
-- **13. Stop using the hardcoded BioPortal key, and rotate it.** `Constants.BP_PUBLIC_API_KEY` in
+- **13. Stop using the hardcoded BioPortal key.** `Constants.BP_PUBLIC_API_KEY` in
   `cedar-terminology-server` holds a literal BioPortal key, and `Cache` sends it on the four calls
   that populate the ontology and value-set caches (`findOntology` twice, `findAllOntologies`,
   `findAllValueSets`). Those are the server's own calls rather than calls made for a signed-in user,
@@ -430,11 +430,13 @@ Frontend work for the embeddable editor is tracked separately in
   configuration has to be threaded in, which is why this belongs to the terminology rewrite rather
   than ahead of it.
 
-  Rotating the key at BioPortal is separate, needs no code change, and should not wait. The
-  repository is public and the constant dates from its earliest configuration commits, so the key has
-  been readable by anyone for years. BioPortal rate-limits per key, and a burnt quota surfaces to
-  users as controlled terms silently not existing, because the picker latches its empty cache for the
-  life of the page: the same defect as the term-picker ontology-list item (18).
+  BioPortal does not offer regeneration for this key, so rotation is not an actionable code or
+  operations step. Treat the existing value as a fixed exposed credential: remove it from source,
+  supply it only through deployment configuration, and avoid multiplying copies. Replacing it would
+  require external coordination with BioPortal rather than another CEDAR endpoint. BioPortal
+  rate-limits per key, and a burnt quota surfaces to users as controlled terms silently not existing,
+  because the picker latches its empty cache for the life of the page: the same defect as the
+  term-picker ontology-list item (26).
 
   The *safety* half of this is now done, on both `develop` and the `versioned-terminology-server`
   branch: a cold or rate-limited fetch that returns a handful of ontologies instead of the full ~1300
@@ -443,8 +445,7 @@ Frontend work for the embeddable editor is tracked separately in
   server unhealthy until it loads fully (it was a `2*2==5` placeholder that always passed). So a
   degraded key no longer silently serves a partial catalogue with names collapsed to acronyms
   ("DOID (DOID)" instead of "Human Disease Ontology (DOID)") behind a green health check. What remains
-  here is the *cause*: read `CEDAR_BIOPORTAL_API_KEY` from config, delete the constant, and rotate the
-  exposed key so the partial loads stop happening in the first place.
+  here is the code-owned cause: read `CEDAR_BIOPORTAL_API_KEY` from config and delete the constant.
 
 - **14. Identify API keys by a non-secret id, not the secret in the URL.** The API-key management routes
   carry the full secret in the path — `POST /{id}/api-keys/{key}/regenerate` and
