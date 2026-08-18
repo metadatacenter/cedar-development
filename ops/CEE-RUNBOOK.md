@@ -864,19 +864,20 @@ and nothing fails until the widget runs in a browser — the domain harness stay
 green throughout. The visual baseline is what catches it.
 
 **Model library changes aren't visible to the harness**
-The harness consumes the published package, not a local checkout, so a local
-build of the library changes nothing. To pick up model-library work, publish a
-new dev version and bump the alias in all three CEE manifests:
+The harness consumes the published package through CEE's root install, not a
+local checkout, so a local build of the library changes nothing. To pick up
+model-library work, publish a new dev version and bump the alias in the root and
+visual CEE manifests:
 
 ```bash
 cd ../cedar-model-typescript-library && npm run build && npm publish ./dist --tag dev
 ```
 
 Publish with the explicit `./dist` path — a bare `dist` is read as a package name
-and resolves an unrelated public package. Set the version in
-`package-dist.json`, not `package.json`; the build copies it to
-`dist/package.json`. Each publish needs a new version, because npm rejects a
-republish rather than overwriting. For a tight local edit loop, prefer
+and resolves an unrelated public package. Set the new version in `package.json`;
+`npm run build` synchronizes it into `package-dist.json` and then copies that
+manifest to `dist/package.json`. Each publish needs a new version, because npm
+rejects a republish rather than overwriting. For a tight local edit loop, prefer
 `npm link` over publishing a version per iteration.
 
 **A test asserts something that looks wrong**
