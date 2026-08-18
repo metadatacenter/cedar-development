@@ -263,8 +263,20 @@ Frontend work for the embeddable editor is tracked separately in
   `inputTimeFormat`, `action` and `termType`, whose permitted values are a finite set enumerated in
   code, plus `version` and `modelVersion`, which `Version.VERSION_REGEX` pins to three components so
   neither can ever resolve as a number. Every member of every set was tested individually rather than
-  sampled. `sourceSystem` is a tenth on the same grounds, unexercised by the corpus. That is 4,730 of
-  22,177 string scalars, 21%.
+  sampled. That is 4,730 of 22,177 string scalars, 21%.
+
+  Two positions the first inventory counted as safe are not, and for different reasons.
+  **`sourceSystem` stays quoted, decided on 2026-08-18**: its members name systems outside CEDAR —
+  `bioportal`, `ols`, `obo` — so the set is not CEDAR's to close, and a source added later could
+  arrive with a spelling no rule here anticipated. The exempt set holds only vocabularies enumerated
+  in CEDAR's own code. **`inputTimeZone` was a category error** and leaves the inventory rather than
+  changing side: it is a boolean, not a string. Both libraries read it as one —
+  `ReaderUtil.getBoolean` in TypeScript, `readBoolean` in Java — and it means "offer the user a
+  timezone control", so the three IANA names it was tested against are values the field cannot hold.
+  Zone information reaches an artifact only as a UTC offset appended to a temporal value,
+  `"2026-01-01T09:30:00+05:30"`, which is already covered as a timestamp. Measured separately on
+  2026-08-18: all 601 IANA zone names resolve as strings unquoted, so nothing was lost by the
+  correction — the exemption simply had no field to apply to.
 
   **IRIs stay quoted, decided on 2026-08-17.** The reasoning that would exempt them is that an IRI
   cannot hold a space or open with an indicator, and it does not survive contact with the model: every
