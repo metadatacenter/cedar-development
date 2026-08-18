@@ -730,6 +730,22 @@ Two things to know before relying on it:
 Storage stays JSON on both servers: YAML is a request and response representation, transcoded per
 request, never a stored form.
 
+Canonical YAML deliberately leaves a small set of structural values unquoted. Both model-library
+writers use the same `YamlPlainScalarPolicy`: a scalar is plain only when its mapping key is one of
+`type`, `modelVersion`, `status`, `version`, `datatype`, `action`, `granularity`, `termType` or
+`inputTimeFormat` **and** its value belongs to that key's CEDAR-controlled vocabulary. Versions must
+match `N.N.N`; all other eight positions use the exact values enumerated by the model. Everything
+else remains double-quoted, including IRIs, timestamps, user text and `sourceSystem`. This is a writer
+style, not a stricter input contract: the readers accept the old quoted form and the new plain form,
+so an existing artifact does not need patching merely because of scalar style. CEE metadata YAML and
+YAML downloads inherit the policy from the TypeScript writer rather than implementing a third copy.
+
+The 2026-08-18 corpus refresh changed 4,730 scalar spellings across all 389 YAML fixtures without
+changing any parsed value. Exhaustive policy tests cover every admitted value and rejection outside
+the nine key/value sets. In Java run `mvn test` under Java 17; in TypeScript run `npm test`,
+`npm run verify:java-lock:source` and `npm run parity:yaml`. The CEE integration checks are `npm test`,
+`npm run typecheck` and `npm run test:domain` against the candidate TypeScript package.
+
 A YAML round trip is expected to be lossless. The case that historically was not is the `_ui._size`
 box on `static-image` and `static-youtube-video` fields: the YAML serialization carries it in the
 child's `configuration:` block, and a reader that looked only at the field level dropped it on every
@@ -741,7 +757,7 @@ rather than documenting the loss.
 
 `cedar-artifact-library` (Java) and `cedar-model-typescript-library` (TypeScript) implement the same
 model and are meant to write the same document for the same artifact. They do: byte-identical YAML
-over all 81 corpus artifacts in the full form and the compact one, matching JSON over the same set,
+over all 82 corpus artifacts in the full form and the compact one, matching JSON over the same set,
 and each reads every document the other writes. Anything a run reports from here is a regression.
 
 Both comparisons live in the TypeScript library, which carries the corpus in-repo, so a plain clone
@@ -753,7 +769,7 @@ npm run parity:yaml:compact
 ```
 
 Each reads as a summary — a case with output on only one side is counted and skipped rather than
-thrown — and a green run names the four artifact kinds with `0 differing` against 17 fields, 6
+thrown — and a green run names the four artifact kinds with `0 differing` against 18 fields, 6
 elements, 37 templates and 21 instances. The compact form went without a comparison of its own for a
 long time, which is how a missing identifier in the TypeScript library's compact output went
 unnoticed; both are gates now.

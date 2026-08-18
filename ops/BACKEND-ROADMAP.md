@@ -252,64 +252,11 @@ Frontend work for the embeddable editor is tracked separately in
   whether the frontend writes those or whether they are residue from a field that was once
   multi-instance.
 
-- **8. Exempt the closed vocabularies from YAML quoting, and nothing else.** Every string scalar is
-  written double-quoted today, and the reason holds: a quoted scalar resolves to a string under every
-  YAML version and schema, so the format needs no statement of what a bare scalar means. The rule is
-  in no document — it lives in `YamlSerializer` and `YamlScalarQuotingChecker`, which is the first
-  thing to fix whichever way this goes.
-
-  Measured on 2026-08-17 over the 389 corpus YAML files and the model's enums. **Nine keys can go
-  unquoted**, and they are the only ones: `type`, `status`, `datatype`, `granularity`,
-  `inputTimeFormat`, `action` and `termType`, whose permitted values are a finite set enumerated in
-  code, plus `version` and `modelVersion`, which `Version.VERSION_REGEX` pins to three components so
-  neither can ever resolve as a number. Every member of every set was tested individually rather than
-  sampled. That is 4,730 of 22,177 string scalars, 21%.
-
-  Two positions the first inventory counted as safe are not, and for different reasons.
-  **`sourceSystem` stays quoted, decided on 2026-08-18**: its members name systems outside CEDAR —
-  `bioportal`, `ols`, `obo` — so the set is not CEDAR's to close, and a source added later could
-  arrive with a spelling no rule here anticipated. The exempt set holds only vocabularies enumerated
-  in CEDAR's own code. **`inputTimeZone` was a category error** and leaves the inventory rather than
-  changing side: it is a boolean, not a string. Both libraries read it as one —
-  `ReaderUtil.getBoolean` in TypeScript, `readBoolean` in Java — and it means "offer the user a
-  timezone control", so the three IANA names it was tested against are values the field cannot hold.
-  Zone information reaches an artifact only as a UTC offset appended to a temporal value,
-  `"2026-01-01T09:30:00+05:30"`, which is already covered as a timestamp. Measured separately on
-  2026-08-18: all 601 IANA zone names resolve as strings unquoted, so nothing was lost by the
-  correction — the exemption simply had no field to apply to.
-
-  **IRIs stay quoted, decided on 2026-08-17.** The reasoning that would exempt them is that an IRI
-  cannot hold a space or open with an indicator, and it does not survive contact with the model: every
-  IRI slot is typed `java.net.URI`, `isAbsolute` is checked nowhere in the artifact library, and the
-  readers reject only null and the empty string. So a relative reference passes, and `~` reads as
-  null, `#frag` and `*x` are parse errors, `no` a boolean and `12345` a number — thirteen of fifteen
-  probes fail. Exempting the eleven IRI keys would mean enforcing absoluteness on read, a model change
-  with a compatibility cost, for 17% of scalars. Not worth it.
-
-  `createdOn` and `modifiedOn` fail **universally**: all 138 distinct values resolve to a datetime,
-  which makes the machine-generated timestamps the sharpest hazard rather than the safest case. Four
-  keys pass the entire corpus with no failure and are unsafe anyway, because something outside CEDAR
-  chose the string: `identifier` (`12345`, `1.5`, `no`, `~`), `sourceAcronym` and `acronym` (`NO`,
-  `ON`, `Y` and `N` are all YAML 1.1 booleans), and `language`, where `no` is Norwegian and reads as
-  false. A rule derived from what the corpus happens to hold would therefore pass today and fail on a
-  real template later.
-
-  What the work is: name the exempt set in one place, have both model libraries agree on it, and pin
-  it with a test that enumerates each vocabulary and asserts every member survives a plain round-trip,
-  so adding a field type cannot quietly introduce an unsafe spelling. The cost to weigh is that
-  quoting stops being uniform, so a reader can no longer tell whether a bare value is a deliberate
-  exemption or a writer that slipped — legible only while the exempt set stays closed vocabularies,
-  whose values are short lowercase tokens against a background of quoted text and IRIs.
-
-  One loose end the inventory turned up: `YamlConstants.URI = "termUri"` is dead. Nothing in the YAML
-  reader or renderer references it, and the key is live only on the JSON side of the TypeScript
-  library.
-
 ### Infrastructure
 
-- **9. Upgrade the persistence and infrastructure servers.** These versions are pinned in the Docker
+- **8. Upgrade the persistence and infrastructure servers.** These versions are pinned in the Docker
   images and nowhere else, while the client libraries have moved on. The record that would say what
-  they are pinned *to* does not exist yet; establishing it is part of item 14, and this item is parked
+  they are pinned *to* does not exist yet; establishing it is part of item 13, and this item is parked
   behind it, since it defers to a lock that currently names six servers and no versions. Order them by
   risk, lowest first:
   Five are **done** on 2026-08-08, each taken together with containerizing that store: Redis
@@ -323,7 +270,7 @@ Frontend work for the embeddable editor is tracked separately in
 
   No longer parked at the end. Containerizing the data stores needs each image pin moved up to the
   version already running, because an older engine cannot open existing data files, so this item is
-  what unblocks the last step of item 14 rather than something to take up afterwards. MySQL is the
+  what unblocks the last step of item 13 rather than something to take up afterwards. MySQL is the
   real decision left among the data stores; Keycloak is its own piece of work.
 
   **What actually holds Keycloak at 22.** Measured 2026-08-08 against Maven Central and the code, and
@@ -374,9 +321,9 @@ Frontend work for the embeddable editor is tracked separately in
   The four that are done moved in development only, where the pin move and the containerization were
   one piece of work per store. Production is the part this item still owns: the same versions, but
   rehearsed on a copy of production data and gated on the end-to-end smoke. Where the order above and
-  item 14's disagree, item 14 governs, since it is what sequences the remaining work.
+  item 13's disagree, item 13 governs, since it is what sequences the remaining work.
 
-- **10. Move the build and runtime to Java 21.** The stack is locked to Java 17 — the zsh profile pins it
+- **9. Move the build and runtime to Java 21.** The stack is locked to Java 17 — the zsh profile pins it
   and the build enforces it. 21 is the next LTS and the natural target, but the lock exists for a
   reason: newer JDKs (23/25) crash Keycloak (`getSubject … security manager`) and OpenSearch will not
   start under them. So this is not a blind bump — verify Keycloak and OpenSearch run on 21 first, then
@@ -405,13 +352,13 @@ Frontend work for the embeddable editor is tracked separately in
   problem — every Java repository now carries a wrapper at 3.9.14 and CI invokes `./mvnw` — except
   inside the build images, which still `microdnf -y install maven` unversioned.
 
-- **11. Point the token-verification client at a truststore in production.** Token-signature verification
+- **10. Point the token-verification client at a truststore in production.** Token-signature verification
   fetches the realm's signing keys over HTTPS; on the local stack that client trusts the self-signed
   `.orgx` certificate (`disableTrustManager` in `KeycloakDeploymentProvider`, matching the admin
   client). A real deployment should instead trust a truststore holding the realm CA. Small, and only
   matters outside local dev.
 
-- **12. Stop using the hardcoded BioPortal key.** `Constants.BP_PUBLIC_API_KEY` in
+- **11. Stop using the hardcoded BioPortal key.** `Constants.BP_PUBLIC_API_KEY` in
   `cedar-terminology-server` holds a literal BioPortal key, and `Cache` sends it on the four calls
   that populate the ontology and value-set caches (`findOntology` twice, `findAllOntologies`,
   `findAllValueSets`). Those are the server's own calls rather than calls made for a signed-in user,
@@ -438,7 +385,7 @@ Frontend work for the embeddable editor is tracked separately in
   ("DOID (DOID)" instead of "Human Disease Ontology (DOID)") behind a green health check. What remains
   here is the code-owned cause: read `CEDAR_BIOPORTAL_API_KEY` from config and delete the constant.
 
-- **13. Identify API keys by a non-secret id, not the secret in the URL.** The API-key management routes
+- **12. Identify API keys by a non-secret id, not the secret in the URL.** The API-key management routes
   carry the full secret in the path — `POST /{id}/api-keys/{key}/regenerate` and
   `DELETE /{id}/api-keys/{key}` — so the key lands in nginx access logs, request traces, monitoring and
   browser history. The cheap leaks are already closed (the not-found error no longer echoes the key and
@@ -447,7 +394,7 @@ Frontend work for the embeddable editor is tracked separately in
   (`/api-keys/{keyId}`), keeping the secret out of the path. Breaking change: cedar-cli and the profile
   UI call these routes, so it needs a coordinated client update.
 
-- **14. Deploy CEDAR from containers. The stack builds and runs locally; no environment deploys from
+- **13. Deploy CEDAR from containers. The stack builds and runs locally; no environment deploys from
   it.** Development runs as native processes brought up by hand — JDK 17 pinned, infra services
   started, fifteen service jars and the frontends launched through `cedar-services.sh` — and a deploy
   to staging or production rebuilds all of it on the target. Both work, and neither is reproducible. A
@@ -625,7 +572,7 @@ Frontend work for the embeddable editor is tracked separately in
          Neo4j        5.26.0          5.26.0     (moved 2026-08-08, was 5.3.0)
          Redis        7.2.7           7.2.7      (moved 2026-08-08, was 6.2.7)
          OpenSearch   2.19.1          2.19.1     (moved 2026-08-08, was 1.3.6)
-         Keycloak     22.0.5          22.0.4     (upstream is 26.7.1; see item 9 for what holds it)
+         Keycloak     22.0.5          22.0.4     (upstream is 26.7.1; see item 8 for what holds it)
 
      The direction is the surprise. The Docker images are the only place any of these versions is
      written down; the native stack is Homebrew, so `brew upgrade` moves four of the six with nobody
@@ -1143,7 +1090,7 @@ Frontend work for the embeddable editor is tracked separately in
   neither is one now, but together they are why a transport hiccup escalates into a blank page rather
   than a slow one, so they are worth knowing about before the next thing perturbs request latency.
 
-- **15. Adopt Renovate, so a version that falls behind says so.** Every pin in this estate is
+- **14. Adopt Renovate, so a version that falls behind says so.** Every pin in this estate is
   maintained by someone remembering to look at it, and the measurement above is what that produces:
   the Docker OpenSearch image sat at 1.3.6 while the servers shipped the 2.19 client, for about two
   years, and nothing anywhere reported it. Renovate is a bot that reads the files a repository
@@ -1205,7 +1152,7 @@ Frontend work for the embeddable editor is tracked separately in
   manager is what makes them watchable again. Adopting no bot at all remains a coherent choice — the
   versions are at least in one place now — but it means those six are watched by nobody, as before.
 
-- **16. Build the MCP servers with everything else.** Four of them live under `$CEDAR_HOME/mcp`:
+- **15. Build the MCP servers with everything else.** Four of them live under `$CEDAR_HOME/mcp`:
   `cedar-artifact-mcp`, `cedar-artifact-rest-mcp` and `cedar-cee-mcp` are Maven projects,
   `bioportal-term-mcp` is Python. Each is its own repository, none is part of `cedarcli build java`,
   none has a GitHub Actions workflow, and neither [BACKEND-RUNBOOK.md](./BACKEND-RUNBOOK.md) nor
@@ -1240,7 +1187,7 @@ Frontend work for the embeddable editor is tracked separately in
   - Decide whether they join the release or stay outside it, as CEE and the TypeScript model library
     do.
 
-- **17. Separate CEDAR dependency convergence from the Keycloak provider platform lock.** The eleven
+- **16. Separate CEDAR dependency convergence from the Keycloak provider platform lock.** The eleven
   apparent test-classpath splits are not eleven candidates for one global version. Re-measuring all
   thirty Maven roots divides them into three different problems, and blindly managing the newer side
   in `cedar-parent` would make the Keycloak event listener compile against libraries its server does
@@ -1285,7 +1232,7 @@ Frontend work for the embeddable editor is tracked separately in
   last two are required because the admin tool has only a configuration test and the event listener
   has no tests at all.
 
-- **18. Publish a library snapshot before the consumer that needs it is built, or make the consumer
+- **17. Publish a library snapshot before the consumer that needs it is built, or make the consumer
   wait.** A change that adds a method to a shared library and calls it from a server is one change in
   two repositories, and CI builds them independently. The library's job compiles, tests and deploys
   its snapshot to Nexus in about thirty seconds; the consumer's job resolves that snapshot from Nexus
@@ -1321,7 +1268,7 @@ Frontend work for the embeddable editor is tracked separately in
 Coverage and test-infrastructure work. The active REST integration suites live in
 `ops/e2e/rest/suites/`; the JUnit matrices and boot-smoke live in the per-server modules.
 
-- **19. Decide whether the build runs the tests, expose the choice, and report continued failures
+- **18. Decide whether the build runs the tests, expose the choice, and report continued failures
   honestly.** The Java build skips its tests again: every Java repo is built with
   `./mvnw clean install -DskipTests`, and the `CEDAR_DEV_SKIP_TESTS` escape hatch is gone with the
   default it modified. That restores the behaviour the build had before, and it means a green
@@ -1378,7 +1325,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   "Execution succeeded!" and exits 0. A build that continued past a failure must record it, say so in
   the closing panel, and exit non-zero.
 
-- **20. Deepen the core-workflow tests instead of growing the headline count.** The JUnit matrices and the
+- **19. Deepen the core-workflow tests instead of growing the headline count.** The JUnit matrices and the
   REST suites now give the system respectable horizontal coverage: routes boot, authentication and
   permission boundaries are pinned, and create/read/update/delete, sharing, search, versioning and the
   cross-service hop all execute against the real stack. Much of that is deliberately
@@ -1417,7 +1364,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   versions or search projection disagreeing. The present suite protects the behavioural skeleton; this
   item protects the integrity of state when operations fail or are repeated.
 
-- **21. Add degradation tests.** Nothing asserts how a service behaves when a dependency it needs is
+- **20. Add degradation tests.** Nothing asserts how a service behaves when a dependency it needs is
   unavailable. The cost of that gap is known: reading any folder whose creator could not be resolved
   returned 500 for as long as the defect existed, because `UserSummaryCache` let Guava's
   "loader returned null" signal escape instead of degrading to the no-display-name path the callers
@@ -1425,7 +1372,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   asserts the API degrades rather than 500s. Bear in mind that queue writes are already best-effort
   by design (`AppLoggerQueueService`, the worker and NCBI queues), so those are the pattern to match.
 
-- **22. Retry the ontology-list load in the term picker (frontend, `cedar-template-editor`).** This is a
+- **21. Retry the ontology-list load in the term picker (frontend, `cedar-template-editor`).** This is a
   change to the Angular frontend, not to any microservice or test suite — it lands in
   `cedar-template-editor`, and so needs a frontend owner to review and push it (see the note below).
   It is the last piece of this defect still outstanding, and the fix is already written: it is open as
