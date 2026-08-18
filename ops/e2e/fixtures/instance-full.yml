@@ -1,4 +1,4 @@
-type: "instance"
+type: instance
 name: "Single Field Template metadata"
 id: "https://repo.metadatacenter.org/template-instances/e68980be-6583-4529-954a-edabceb29239"
 isBasedOn: "https://repo.metadatacenter.org/templates/dc898011-2742-41e9-9dae-9b57dbf2600f"
