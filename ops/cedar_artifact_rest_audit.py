@@ -159,6 +159,8 @@ class AuditState:
     duplicates: int = 0
     expected_by_type: dict[str, int] = field(default_factory=dict)
     total_count_changes: list[dict[str, Any]] = field(default_factory=list)
+    fetch_error_details: list[dict[str, Any]] = field(default_factory=list)
+    unresolved_template_details: list[dict[str, Any]] = field(default_factory=list)
     batch_start: int = 0
     batch_per_type: collections.Counter = field(default_factory=collections.Counter)
     batch_affected: set[tuple[str, str]] = field(default_factory=set)
@@ -184,6 +186,12 @@ class AuditState:
         if fetched:
             self.fetched += 1
             self.fetched_by_type[artifact_type] += 1
+
+    def add_diagnostic(self, diagnostic: Finding) -> None:
+        """Count an audit failure without calling the unread artifact defective."""
+        self.finding_counts[diagnostic.rule] += 1
+        self.risk_counts[diagnostic.risk] += 1
+        self.batch_findings[diagnostic.rule] += 1
 
     def reset_batch(self) -> None:
         self.batch_start = self.processed
@@ -292,9 +300,20 @@ def audit_common(ref: ArtifactRef, artifact: Any) -> Iterator[Finding]:
 
     def walk(node: Any, path: str) -> Iterator[Finding]:
         if isinstance(node, dict):
-            if node.get("pav:derivedFrom") == "":
-                yield finding(ref, "derived-from-empty", "reader-blocking",
-                              f"{path}/pav:derivedFrom", "strict model readers reject an empty pav:derivedFrom", "")
+            derived_from = node.get("pav:derivedFrom")
+            if isinstance(derived_from, str) and not is_absolute_iri(derived_from):
+                if derived_from == "":
+                    yield finding(
+                        ref, "derived-from-empty", "repair-on-save", f"{path}/pav:derivedFrom",
+                        "compatibility readers load this as absent; ordinary update removes the inherited value",
+                        derived_from,
+                    )
+                else:
+                    yield finding(
+                        ref, "derived-from-unusable", "repair-on-save", f"{path}/pav:derivedFrom",
+                        "ordinary update removes this inherited non-absolute provenance IRI; a new value is rejected",
+                        derived_from,
+                    )
             ui = node.get("_ui")
             if isinstance(ui, dict) and "pages" in ui:
                 yield finding(ref, "ui-pages-forbidden", "save-rejected", f"{path}/_ui/pages",
@@ -772,6 +791,8 @@ def summary_document(state: AuditState, status: str, server: str, types: list[st
         "unresolvedTemplates": state.unresolved_templates,
         "duplicateSearchRowsSkipped": state.duplicates,
         "searchTotalCountChanges": state.total_count_changes,
+        "fetchErrorDetails": state.fetch_error_details,
+        "unresolvedTemplateDetails": state.unresolved_template_details,
         "findingsFile": findings_path,
     }
 
@@ -844,6 +865,11 @@ def run_audit(arguments: argparse.Namespace, client: GetOnlyClient,
         )
         state.reset_batch()
 
+    def write_diagnostic(diagnostic: Finding) -> None:
+        state.add_diagnostic(diagnostic)
+        findings_stream.write(json.dumps(diagnostic.json_record(), ensure_ascii=False) + "\n")
+        findings_stream.flush()
+
     try:
         for artifact_type in arguments.selected_types:
             remaining = None if arguments.limit is None else max(0, arguments.limit - state.processed)
@@ -857,6 +883,20 @@ def run_audit(arguments: argparse.Namespace, client: GetOnlyClient,
                 except Exception as error:
                     state.fetch_errors += 1
                     state.batch_fetch_errors += 1
+                    error_text = str(error)
+                    state.fetch_error_details.append({
+                        "artifactType": ref.artifact_type,
+                        "artifactId": ref.artifact_id,
+                        "artifactName": ref.name,
+                        "error": error_text,
+                    })
+                    write_diagnostic(finding(
+                        ref,
+                        "artifact-fetch-failed",
+                        "audit-incomplete",
+                        "/",
+                        f"full artifact could not be fetched: {error_text}",
+                    ))
                     print(f"! could not fetch {ref.artifact_type} {ref.artifact_id}: {error}", file=sys.stderr)
                     state.artifact_processed(artifact_type, fetched=False)
                     if state.processed % arguments.progress_every == 0:
@@ -884,6 +924,20 @@ def run_audit(arguments: argparse.Namespace, client: GetOnlyClient,
                             raise
                         except Exception as error:
                             state.unresolved_templates += 1
+                            error_text = str(error)
+                            state.unresolved_template_details.append({
+                                "instanceId": ref.artifact_id,
+                                "templateId": based_on,
+                                "error": error_text,
+                            })
+                            write_diagnostic(finding(
+                                ref,
+                                "template-resolution-failed",
+                                "audit-incomplete",
+                                "/schema:isBasedOn",
+                                f"referenced template could not be fetched: {error_text}",
+                                based_on,
+                            ))
                             print(f"! could not resolve template {based_on} for {ref.artifact_id}: {error}",
                                   file=sys.stderr)
                     findings.extend(audit_instance(ref, artifact, shape))

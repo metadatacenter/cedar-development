@@ -64,7 +64,7 @@ class RuleTests(unittest.TestCase):
         for value in (None, "", "   ", "tmp-123", "/relative", " https://repo.example/x", "https://a b"):
             self.assertFalse(audit.is_absolute_iri(value), value)
 
-    def test_common_rules_find_reader_and_meta_schema_blockers(self):
+    def test_common_rules_find_legacy_provenance_and_meta_schema_defects(self):
         artifact = {
             "@id": self.ref().artifact_id,
             "pav:derivedFrom": "",
@@ -74,8 +74,17 @@ class RuleTests(unittest.TestCase):
         self.assertEqual({item.rule for item in findings}, {"derived-from-empty", "ui-pages-forbidden"})
         self.assertEqual(
             {item.risk for item in findings},
-            {"reader-blocking", "save-rejected"},
+            {"repair-on-save", "save-rejected"},
         )
+
+    def test_common_rules_find_nonempty_unusable_provenance(self):
+        artifact = {
+            "@id": self.ref().artifact_id,
+            "pav:derivedFrom": "relative-provenance",
+        }
+        findings = list(audit.audit_common(self.ref(), artifact))
+        self.assertEqual([item.rule for item in findings], ["derived-from-unusable"])
+        self.assertEqual(findings[0].risk, "repair-on-save")
 
     def test_schema_reports_unusable_child_id_mapping_and_required_entry(self):
         child = schema_child(audit.TEMPLATE_FIELD, "tmp-child")
@@ -223,6 +232,7 @@ def collections_counter(values):
 
 class _FakeCedarHandler(BaseHTTPRequestHandler):
     artifacts = {}
+    unfetchable = set()
     requests = []
 
     def log_message(self, *_args):
@@ -248,6 +258,10 @@ class _FakeCedarHandler(BaseHTTPRequestHandler):
         reverse = {value: key for key, value in audit.ARTIFACT_PATHS.items()}
         if len(parts) == 2 and parts[0] in reverse:
             key = (reverse[parts[0]], urllib.parse.unquote(parts[1]))
+            if key in self.__class__.unfetchable:
+                self.send_response(404)
+                self.end_headers()
+                return
             if key in self.__class__.artifacts:
                 self.send_json(self.__class__.artifacts[key])
                 return
@@ -281,6 +295,7 @@ class RestIntegrationTests(unittest.TestCase):
                 "@context": {},
             },
         }
+        _FakeCedarHandler.unfetchable = set()
         _FakeCedarHandler.requests = []
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), _FakeCedarHandler)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
@@ -330,6 +345,41 @@ class RestIntegrationTests(unittest.TestCase):
             self.assertTrue(_FakeCedarHandler.requests)
             self.assertTrue(all(method == "GET" for method, _, _ in _FakeCedarHandler.requests))
             self.assertTrue(all(auth == "apiKey test-secret" for _, _, auth in _FakeCedarHandler.requests))
+
+    def test_fetch_errors_are_persisted_in_jsonl_and_summary(self):
+        field_id = "https://repo.example/template-fields/f1"
+        _FakeCedarHandler.unfetchable.add(("field", field_id))
+        origin = f"http://127.0.0.1:{self.server.server_port}"
+        with tempfile.TemporaryDirectory() as directory:
+            findings = Path(directory) / "findings.jsonl"
+            summary = Path(directory) / "summary.json"
+            previous = os.environ.get("CEDAR_API_KEY")
+            os.environ["CEDAR_API_KEY"] = "test-secret"
+            try:
+                with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                    result = audit.main([
+                        "--server", origin,
+                        "--allow-http",
+                        "--types", "field",
+                        "--retries", "1",
+                        "--out", str(findings),
+                        "--summary", str(summary),
+                    ])
+            finally:
+                if previous is None:
+                    os.environ.pop("CEDAR_API_KEY", None)
+                else:
+                    os.environ["CEDAR_API_KEY"] = previous
+
+            self.assertEqual(result, 2)
+            records = [json.loads(line) for line in findings.read_text().splitlines()]
+            self.assertEqual([record["rule"] for record in records], ["artifact-fetch-failed"])
+            self.assertEqual(records[0]["artifact_id"], field_id)
+            self.assertEqual(records[0]["risk"], "audit-incomplete")
+            report = json.loads(summary.read_text())
+            self.assertEqual(report["status"], "PARTIAL_ERRORS")
+            self.assertEqual(report["findingsByRule"]["artifact-fetch-failed"], 1)
+            self.assertEqual(report["fetchErrorDetails"][0]["artifactId"], field_id)
 
 if __name__ == "__main__":
     unittest.main()
