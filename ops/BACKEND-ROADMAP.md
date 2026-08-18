@@ -295,13 +295,13 @@ Frontend work for the embeddable editor is tracked separately in
   probes fail. Exempting the eleven IRI keys would mean enforcing absoluteness on read, a model change
   with a compatibility cost, for 17% of scalars. Not worth it.
 
-  Two other findings belong with this. `createdOn` and `modifiedOn` fail **universally** — all 138
-  distinct values resolve to a datetime — which makes the machine-generated timestamps the sharpest
-  hazard rather than the safest case. And four keys pass the entire corpus with no failure and are
-  still unsafe, because the value comes from outside CEDAR: `identifier` (`12345`, `1.5`, `no`, `~`),
-  `sourceAcronym` and `acronym` (`NO`, `ON`, `Y` and `N` are all YAML 1.1 booleans), and `language`,
-  where `no` is Norwegian and reads as false. Any rule derived from what the corpus happens to hold
-  would pass today and fail on a real template later.
+  `createdOn` and `modifiedOn` fail **universally**: all 138 distinct values resolve to a datetime,
+  which makes the machine-generated timestamps the sharpest hazard rather than the safest case. Four
+  keys pass the entire corpus with no failure and are unsafe anyway, because something outside CEDAR
+  chose the string: `identifier` (`12345`, `1.5`, `no`, `~`), `sourceAcronym` and `acronym` (`NO`,
+  `ON`, `Y` and `N` are all YAML 1.1 booleans), and `language`, where `no` is Norwegian and reads as
+  false. A rule derived from what the corpus happens to hold would therefore pass today and fail on a
+  real template later.
 
   What the work is: name the exempt set in one place, have both model libraries agree on it, and pin
   it with a test that enumerates each vocabulary and asserts every member survives a plain round-trip,
