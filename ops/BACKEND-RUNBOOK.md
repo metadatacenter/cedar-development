@@ -1416,6 +1416,13 @@ Current framework baseline (all jakarta-namespace, all on Java 17): Dropwizard 4
 event listener, which stay on HttpClient 4 because those external APIs require v4 types), slf4j 2.0
 with logback 1.5, swagger-core v3 (OpenAPI 3), mysql-connector-j 8.4, log4j 2.24, commons-lang3.
 
+The test stack pins Mockito 5.23.0 and manages both `byte-buddy` and `byte-buddy-agent` at 1.18.4 in
+`cedar-parent`. Mockito's own POM names byte-buddy 1.17.7; the newer managed pair is intentional so
+Mockito and Dropwizard Hibernate share one version. Keep the core and agent together, and verify a
+change against the complete `cedar-microservice-libraries`, `cedar-bridge-server` and
+`cedar-worker-server` reactors rather than compile alone. The current pairing passes all 1,083 tests
+in those reactors with no failures, errors or skips.
+
 JSON Schema validation uses the maintained networknt validator, not the abandoned java-json-tools
 (FGE) fork. networknt's built-in `uri` and `date-time` formats are stricter than FGE's and would
 reject valid CEDAR data (relative `@id` references, colon-less timezone offsets), so

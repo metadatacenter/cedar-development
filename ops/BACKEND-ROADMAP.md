@@ -415,7 +415,7 @@ Frontend work for the embeddable editor is tracked separately in
   require external coordination with BioPortal rather than another CEDAR endpoint. BioPortal
   rate-limits per key, and a burnt quota surfaces to users as controlled terms silently not existing,
   because the picker latches its empty cache for the life of the page: the same defect as the
-  term-picker ontology-list item (23).
+  term-picker ontology-list item (22).
 
   The *safety* half of this is now done, on both `develop` and the `versioned-terminology-server`
   branch: a cold or rate-limited fetch that returns a handful of ontologies instead of the full ~1300
@@ -1244,18 +1244,7 @@ Frontend work for the embeddable editor is tracked separately in
   can be what breaks a suite, and forcing a newer one on a consumer built against the old can break a
   suite that passes today. The whole estate's suites, 7,814 tests, are the check.
 
-- **18. Upgrade Mockito so byte-buddy converges, and then manage it too.** `byte-buddy` is the one
-  artifact deliberately left unmanaged, and the pom says why: `dropwizard-hibernate` 4.0.17 brings
-  1.18.4 at compile scope for Hibernate's bytecode enhancer, and Mockito 5.7.0 brings 1.14.9 at test
-  scope. That is a scope boundary rather than drift, and forcing either version onto the other side
-  is wrong — Hibernate's version under Mockito leaves stubbing silently inert, so mocks return
-  defaults and the failures read as logic bugs in whatever was being tested.
-
-  A Mockito built against a 1.18.x byte-buddy closes the gap and lets the artifact join the managed
-  set. Move `byte-buddy-agent` with it, since Mockito needs the two to match, and confirm the mock
-  matrix still passes rather than trusting a green compile.
-
-- **19. Publish a library snapshot before the consumer that needs it is built, or make the consumer
+- **18. Publish a library snapshot before the consumer that needs it is built, or make the consumer
   wait.** A change that adds a method to a shared library and calls it from a server is one change in
   two repositories, and CI builds them independently. The library's job compiles, tests and deploys
   its snapshot to Nexus in about thirty seconds; the consumer's job resolves that snapshot from Nexus
@@ -1291,7 +1280,7 @@ Frontend work for the embeddable editor is tracked separately in
 Coverage and test-infrastructure work. The active REST integration suites live in
 `ops/e2e/rest/suites/`; the JUnit matrices and boot-smoke live in the per-server modules.
 
-- **20. Decide whether the build runs the tests, expose the choice, and report continued failures
+- **19. Decide whether the build runs the tests, expose the choice, and report continued failures
   honestly.** The Java build skips its tests again: every Java repo is built with
   `./mvnw clean install -DskipTests`, and the `CEDAR_DEV_SKIP_TESTS` escape hatch is gone with the
   default it modified. That restores the behaviour the build had before, and it means a green
@@ -1348,7 +1337,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   "Execution succeeded!" and exits 0. A build that continued past a failure must record it, say so in
   the closing panel, and exit non-zero.
 
-- **21. Deepen the core-workflow tests instead of growing the headline count.** The JUnit matrices and the
+- **20. Deepen the core-workflow tests instead of growing the headline count.** The JUnit matrices and the
   REST suites now give the system respectable horizontal coverage: routes boot, authentication and
   permission boundaries are pinned, and create/read/update/delete, sharing, search, versioning and the
   cross-service hop all execute against the real stack. Much of that is deliberately
@@ -1362,7 +1351,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
      graph update, for create, rename, publish, draft and delete. Assert the operation either rolls back
      or leaves a detectable, recoverable state — never a silently orphaned artifact, a stale graph node
      or a half-published version. This is the write-path counterpart to the read-path degradation-tests
-     item (22), which asks only that a service not 500 when a dependency is down.
+     item (21), which asks only that a service not 500 when a dependency is down.
   2. **Retry and idempotency.** Repeat a write after a timeout or an ambiguous response. Publish, draft,
      move, delete, permission change and DOI-set must not produce a duplicate version, a duplicate graph
      node or divergent state.
@@ -1387,7 +1376,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   versions or search projection disagreeing. The present suite protects the behavioural skeleton; this
   item protects the integrity of state when operations fail or are repeated.
 
-- **22. Add degradation tests.** Nothing asserts how a service behaves when a dependency it needs is
+- **21. Add degradation tests.** Nothing asserts how a service behaves when a dependency it needs is
   unavailable. The cost of that gap is known: reading any folder whose creator could not be resolved
   returned 500 for as long as the defect existed, because `UserSummaryCache` let Guava's
   "loader returned null" signal escape instead of degrading to the no-display-name path the callers
@@ -1395,7 +1384,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   asserts the API degrades rather than 500s. Bear in mind that queue writes are already best-effort
   by design (`AppLoggerQueueService`, the worker and NCBI queues), so those are the pattern to match.
 
-- **23. Retry the ontology-list load in the term picker (frontend, `cedar-template-editor`).** This is a
+- **22. Retry the ontology-list load in the term picker (frontend, `cedar-template-editor`).** This is a
   change to the Angular frontend, not to any microservice or test suite — it lands in
   `cedar-template-editor`, and so needs a frontend owner to review and push it (see the note below).
   It is the last piece of this defect still outstanding, and the fix is already written: it is open as
