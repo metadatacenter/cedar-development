@@ -597,18 +597,21 @@ an empty `@id` on a legacy element occurrence is opened with a warning and writt
 ordinary update can ask the server for the identifier it never received.
 
 **An ordinary update is differential.** Before normalization, the artifact server fetches the stored
-artifact and compares the two. An unusable template-child mapping, element-occurrence `@id`, or unsafe
-attribute-value name is repaired only when the stored artifact proves the defect was inherited. The
-same malformed value introduced into a clean artifact is left for validation to reject. A hardened
-client may already have made the safe half of the repair: Designer can omit an inherited unusable
-mapping and CEE can replace an inherited empty occurrence ID with `null`; normal server minting then
-finishes both. The resource server performs no artifact validation before proxying the PUT, so this
-comparison happens before a legacy document can be refused. `skip_validation` cannot bypass the
-post-normalization validation, and a verbatim write remains strict.
+artifact and compares the two. An unusable template-child mapping, element-occurrence `@id`, unsafe
+attribute-value name, or missing nested child `$schema` declaration is repaired only when the stored
+artifact proves the defect was inherited. A restored declaration is always the canonical
+`http://json-schema.org/draft-04/schema#`. The same malformed value or omission introduced into a
+clean artifact is left for validation to reject; a missing root declaration and an explicit bad child
+declaration are never repaired. A hardened client may already have made the safe half of the repair:
+Designer can omit an inherited unusable mapping and CEE can replace an inherited empty occurrence ID
+with `null`; normal server minting then finishes both. The resource server performs no artifact
+validation before proxying the PUT, so this comparison happens before a legacy document can be
+refused. `skip_validation` cannot bypass the post-normalization validation, and a verbatim write
+remains strict.
 
-This compatibility path makes an ordinary edit safe; it does not clean artifacts nobody edits.
-Stored artifacts carrying these defects remain on [BACKEND-ROADMAP.md](./BACKEND-ROADMAP.md) under
-Production Artifact Patch, with the rest of what production already holds.
+This compatibility path makes an ordinary edit safe; it does not clean artifacts nobody edits. Use
+the GET-only REST audit below to inventory what remains before deciding whether a bulk patch is
+worthwhile.
 
 **A term whose attribute is gone is removed**, in the same pass, and this is the one place the server
 deletes something a client sent. Three questions decide each term, and two of them need the template,
@@ -765,8 +768,17 @@ has to be asked for on both sides: the ordinary reader refuses it over the absen
 a reader for it is a separate constructor, `YamlArtifactReader(true)` in Java and
 `getStrictForCompact()` in TypeScript.
 
-What the two still answer differently is on [BACKEND-ROADMAP.md](./BACKEND-ROADMAP.md): whether a
-child artifact must carry `$schema`, plus two divergences recorded as costing nothing.
+Both readers make the same compatibility concession for `$schema`: an artifact root must carry the
+canonical draft-04 URI, while a nested legacy field or element may omit it on input. Both writers put
+the canonical declaration back, so a read-render cycle repairs the omission. An explicit wrong or
+non-text declaration remains an error. The artifact server keeps the wire contract strict and makes
+the same inherited-only repair on an ordinary update; new omissions and verbatim updates are refused.
+
+Two deliberately harmless reader differences remain. A document with `modelVersion` only at its root
+and none on its children is accepted by Java and refused by TypeScript; it is a hybrid neither writer
+emits, because authoring form is compact throughout and stored form is full throughout. An empty array
+inside an instance is classified as an empty multi-instance field by Java and an empty list by
+TypeScript, while both emit the same bytes for it.
 
 ## Known gotchas and fixes (the expensive ones)
 
@@ -1451,11 +1463,11 @@ it finds defects; `--fail-on-findings` makes findings exit 1, while an incomplet
 Findings say what an ordinary update will do rather than flattening every problem into “invalid”:
 
 - `repair-on-save`: inherited unusable/missing child property IRIs, child IDs, occurrence IDs,
-  `@context.required` entries, unsafe attribute-value names, missing attribute property IRIs and
-  repository-minted orphan terms;
-- `save-rejected`: unusable root IDs, root/search-ID disagreement, unrecognised child types,
-  malformed multi-instance children, missing instance/occurrence contexts and unusable
-  `schema:isBasedOn`;
+  missing nested child `$schema` declarations, `@context.required` entries, unsafe attribute-value
+  names, missing attribute property IRIs and repository-minted orphan terms;
+- `save-rejected`: unusable root IDs, root/search-ID disagreement, missing or invalid root `$schema`,
+  explicit invalid child `$schema`, unrecognised child types, malformed multi-instance children,
+  missing instance/occurrence contexts and unusable `schema:isBasedOn`;
 - `reader-blocking`: empty `pav:derivedFrom` and blank/relative link or controlled-term IDs, including
   the shapes deliberately excluded from CEE's occurrence-only compatibility adapter;
 - `manual-review`: field/element ID-prefix contradictions and existing non-absolute attribute

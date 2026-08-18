@@ -78,6 +78,7 @@ SYSTEM_CONTEXT_KEYS = {
 SPECIAL_CHILD_NAME = re.compile(r"(^@)|(^_)|(^schema:)|(^pav:)|(^oslc:)")
 URI_SCHEME = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
 REPOSITORY_PROPERTY_IRI_PREFIX = "https://schema.metadatacenter.org/properties/"
+JSON_SCHEMA_DRAFT_04 = "http://json-schema.org/draft-04/schema#"
 
 
 class AuditError(Exception):
@@ -363,6 +364,14 @@ def audit_schema(ref: ArtifactRef, artifact: Any) -> Iterator[Finding]:
     if not isinstance(artifact, dict):
         return
 
+    if "$schema" not in artifact:
+        yield finding(ref, "root-schema-missing", "save-rejected", "/$schema",
+                      "artifact root must declare the draft-04 JSON Schema URI")
+    elif artifact.get("$schema") != JSON_SCHEMA_DRAFT_04:
+        yield finding(ref, "root-schema-invalid", "save-rejected", "/$schema",
+                      "artifact root must declare the canonical draft-04 JSON Schema URI",
+                      artifact.get("$schema"))
+
     def walk(container: dict, path: str) -> Iterator[Finding]:
         properties = container.get("properties")
         context_schema = properties.get("@context") if isinstance(properties, dict) else None
@@ -380,6 +389,15 @@ def audit_schema(ref: ArtifactRef, artifact: Any) -> Iterator[Finding]:
                 yield finding(ref, "child-shape-invalid", "save-rejected", declared_path,
                               shape_error or "child schema is malformed")
                 continue
+
+            if "$schema" not in child:
+                yield finding(ref, "child-schema-missing", "repair-on-save", f"{actual_path}/$schema",
+                              "ordinary update restores the inherited draft-04 declaration; "
+                              "a new omission and verbatim update are rejected")
+            elif child.get("$schema") != JSON_SCHEMA_DRAFT_04:
+                yield finding(ref, "child-schema-invalid", "save-rejected", f"{actual_path}/$schema",
+                              "explicit child $schema must be the canonical draft-04 URI",
+                              child.get("$schema"))
 
             at_type = child.get("@type")
             if at_type not in RECOGNISED_CHILD_TYPES:

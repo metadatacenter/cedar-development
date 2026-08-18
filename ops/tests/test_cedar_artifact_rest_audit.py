@@ -24,6 +24,7 @@ SPEC.loader.exec_module(audit)
 
 def schema_child(at_type, identifier, input_type="text", nested=None):
     child = {
+        "$schema": audit.JSON_SCHEMA_DRAFT_04,
         "type": "object",
         "@type": at_type,
         "@id": identifier,
@@ -37,6 +38,7 @@ def schema_child(at_type, identifier, input_type="text", nested=None):
 
 def schema_artifact(identifier, children=None, mappings=None, required=None):
     return {
+        "$schema": audit.JSON_SCHEMA_DRAFT_04,
         "@id": identifier,
         "@type": "https://schema.metadatacenter.org/core/Template",
         "schema:name": "Schema",
@@ -126,6 +128,46 @@ class RuleTests(unittest.TestCase):
         self.assertEqual(len(mismatch), 1)
         self.assertIn("/properties/Element/properties/Nested/@id", mismatch[0].path)
         self.assertEqual(mismatch[0].risk, "manual-review")
+
+    def test_schema_reports_missing_child_declarations_as_repairable(self):
+        child = schema_child(
+            audit.TEMPLATE_FIELD,
+            "https://repo.metadatacenter.org/template-fields/f1",
+        )
+        child.pop("$schema")
+        artifact = schema_artifact(
+            self.ref().artifact_id,
+            {"Study Name": child},
+            {"Study Name": {"enum": ["https://repo.metadatacenter.org/properties/p1"]}},
+            ["Study Name"],
+        )
+
+        findings = list(audit.audit_schema(self.ref(), artifact))
+
+        self.assertEqual([item.rule for item in findings], ["child-schema-missing"])
+        self.assertEqual(findings[0].risk, "repair-on-save")
+        self.assertEqual(findings[0].path, "/properties/Study Name/$schema")
+
+    def test_schema_reports_missing_root_and_explicit_bad_child_declarations_as_rejected(self):
+        child = schema_child(
+            audit.TEMPLATE_FIELD,
+            "https://repo.metadatacenter.org/template-fields/f1",
+        )
+        child["$schema"] = "not-a-schema"
+        artifact = schema_artifact(
+            self.ref().artifact_id,
+            {"Study Name": child},
+            {"Study Name": {"enum": ["https://repo.metadatacenter.org/properties/p1"]}},
+            ["Study Name"],
+        )
+        artifact.pop("$schema")
+
+        findings = list(audit.audit_schema(self.ref(), artifact))
+
+        self.assertEqual(
+            [(item.rule, item.risk) for item in findings],
+            [("root-schema-missing", "save-rejected"), ("child-schema-invalid", "save-rejected")],
+        )
 
     def test_shape_uses_ui_to_avoid_treating_value_schema_as_a_child(self):
         artifact = schema_artifact(
@@ -286,6 +328,7 @@ class RestIntegrationTests(unittest.TestCase):
                 "https://repo.example/template-elements/e1"
             ),
             ("field", "https://repo.example/template-fields/f1"): {
+                "$schema": audit.JSON_SCHEMA_DRAFT_04,
                 "@id": "https://repo.example/template-fields/f1", "schema:name": "Field"
             },
             ("instance", "https://repo.example/template-instances/i1"): {
