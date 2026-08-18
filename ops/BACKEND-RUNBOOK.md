@@ -590,10 +590,25 @@ holds nothing, and an attribute-value field's names are mapped in the instance i
 Two rules keep it honest, and both are load-bearing. **An identifier already there is left alone**,
 whoever assigned it: an identifier is worth having because it is stable, so an update returns what it
 was given, and the property IRIs the editors minted before this rule stay as they are. **An empty
-string is not an absent identifier**: both model libraries refuse to read one, and the server does not
-mint over it, because that would hide whoever wrote it. Stored artifacts carrying one are on
-[BACKEND-ROADMAP.md](./BACKEND-ROADMAP.md) under Production Artifact Patch, with the rest of what
-production already holds.
+string is not an absent identifier**: a new request carrying one is invalid, and the ordinary minting
+pass does not confuse it with an honest absence. Strict model readers refuse it. The February 2024
+TypeScript compatibility reader and CEE make one deliberately narrower concession for production:
+an empty `@id` on a legacy element occurrence is opened with a warning and written as `null`, so an
+ordinary update can ask the server for the identifier it never received.
+
+**An ordinary update is differential.** Before normalization, the artifact server fetches the stored
+artifact and compares the two. An unusable template-child mapping, element-occurrence `@id`, or unsafe
+attribute-value name is repaired only when the stored artifact proves the defect was inherited. The
+same malformed value introduced into a clean artifact is left for validation to reject. A hardened
+client may already have made the safe half of the repair: Designer can omit an inherited unusable
+mapping and CEE can replace an inherited empty occurrence ID with `null`; normal server minting then
+finishes both. The resource server performs no artifact validation before proxying the PUT, so this
+comparison happens before a legacy document can be refused. `skip_validation` cannot bypass the
+post-normalization validation, and a verbatim write remains strict.
+
+This compatibility path makes an ordinary edit safe; it does not clean artifacts nobody edits.
+Stored artifacts carrying these defects remain on [BACKEND-ROADMAP.md](./BACKEND-ROADMAP.md) under
+Production Artifact Patch, with the rest of what production already holds.
 
 **A term whose attribute is gone is removed**, in the same pass, and this is the one place the server
 deletes something a client sent. Three questions decide each term, and two of them need the template,
@@ -615,9 +630,11 @@ The rules above govern what the server accepts from now on. They say nothing abo
 already holds, and several defects are in circulation there: an empty `pav:derivedFrom`, an empty
 `@id` on an element occurrence, a `_ui.pages` the meta-schema forbids, an attribute-value field naming
 an attribute nobody named, a temporal field declaring no `temporalType`, a `@context` term whose
-attribute is gone, and controlled-term constraints predating the versioned source fields. Two of them
-now stop a read outright, because both model libraries refuse an empty `@id` and an empty
-`pav:derivedFrom`, so an artifact carrying either cannot be opened through the library at all.
+attribute is gone, and controlled-term constraints predating the versioned source fields. An empty
+`pav:derivedFrom` still stops both model libraries on read. A blank occurrence `@id` stops strict
+readers, while CEE and the February 2024 TypeScript compatibility reader can open it and turn it into
+the `null` that an ordinary server update repairs. The patch is still required for artifacts nobody
+edits and for consumers that correctly choose strict reading.
 
 One script finds and repairs all seven. It reports by default and writes only under `--apply`:
 
@@ -1062,10 +1079,10 @@ started in a static `@BeforeAll` and stopped in `@AfterAll`. Do not use the JUni
 `DropwizardAppExtension`: its version bundled with Dropwizard 2.1 is binary-incompatible with the
 current JUnit platform.
 
-Rough suite sizes: artifact 1279 (parameterized CRUD over four artifact types on embedded Mongo),
+Rough suite sizes: artifact 1307 (parameterized CRUD over four artifact types on embedded Mongo),
 microservice-libraries 810 over seven modules (server-rest 249, workspace-operations 182,
 search-operations 178), artifact-library 800, terminology 246 (61 more excluded under `bioportal`),
-model-validation 216, resource 78, cadsr-tools 70, core-library 56, user 11, group 10, and a
+model-validation 220, resource 78, cadsr-tools 70, core-library 56, user 11, group 10, and a
 one-to-seven-test boot-and-config tier on the remaining thin servers.
 
 ### What the suites actually cover
@@ -1084,18 +1101,14 @@ from, because they answer very different questions:
 | Matrices | 7 | Authorization, permission levels and artifact lifecycle, as tables |
 | Sharing and ownership | 1 | The `PUT .../permissions` round trip, including ownership transfer |
 | Content negotiation | 2 | YAML and JSON transcode both ways |
-| REST smoke | 1 | The real stack, no browser: 15 suites, ~350 checks |
+| REST smoke | 1 | The real stack, no browser: 19 suites, 638 checks |
 | End-to-end smoke | 1 | The real stack, through a browser |
 
-**The browser smoke is red as of 2026-08-08, for a reason in front of the backend.** It fails at
-`serialization-config`: the post-save re-edit never lands, so the editor still shows the value it was
-saved with and the assertion reports both getters missing it. This is not infrastructure. The same
-failure reproduces with the stores native and containerized alike, and driving the same update over
-REST persists correctly, so the write path is sound end to end. `cedar-embeddable-editor` has recent
-commits on field-value behaviour and a dirty tree, which is where to look. Until it is fixed, gate
-backend changes on `npm run smoke:rest`, and note that a run failing here stops before its teardown
-and leaves its folder, template, field and instance behind —
-`ops/e2e/cleanup-smoke-leftovers.mjs` removes them.
+**The browser smoke is green as of 2026-08-17.** It logs in, creates a template with a DOID-constrained
+field and a text field, fills and saves an instance, reopens and updates it, checks the JSON and YAML
+getters, opens the result anonymously through OpenView, and deletes the temporary folder and its
+contents. A failed run can stop before teardown and leave its folder, template, field and instance
+behind; `ops/e2e/cleanup-smoke-leftovers.mjs` removes them.
 
 `ops/e2e` holds the two whole-stack tests, and they answer different questions. `npm run smoke:rest`
 drives the REST API directly, in about twenty seconds, and reaches what no unit suite can: the artifact
@@ -1103,9 +1116,11 @@ write path (which proxies, so the per-service suites cannot follow it), publish 
 whether the graph and the artifact server agree, and the things a real running stack does that an
 embedded one cannot. It authenticates through Keycloak's password grant using the credentials already
 in the profile, so there are no API keys to keep. Run one suite with `npm run smoke:rest -- <name>`;
-the suites are `folders`, `artifacts`, `versioning`, `groups`, `sharing`, `group-sharing`, `openness`,
-`categories`, `validation`, `search`, `finding`, `authentication`, `pagination`, `negotiation` and
-`download` (JSON / YAML / compact-YAML export and read-negotiation across all four artifact kinds).
+the suites are `apidocs`, `artifacts`, `authentication`, `categories`, `contract`, `download`,
+`finding`, `folders`, `freeze`, `group-sharing`, `groups`, `inclusion`, `negotiation`, `openness`,
+`pagination`, `search`, `sharing`, `validation` and `versioning`. Together they currently make 638
+checks; `download` includes JSON / YAML / compact-YAML export and read-negotiation across all four
+artifact kinds.
 
 **The artifact server is addressed on its port, not through a vhost.** Several checks read it directly
 to confirm a write reached the datastore, and `artifact.${CEDAR_HOST}` answers 404: the artifact server

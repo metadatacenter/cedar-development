@@ -1537,11 +1537,13 @@ editors minted are deliberately absent: an identifier already
 assigned is left alone, whoever assigned it, so there is nothing to rewrite — see
 [BACKEND-RUNBOOK.md](./BACKEND-RUNBOOK.md), "Identifiers: what a client sends, and what the server fills".
 
-Two of these are now blocking rather than latent. Both model libraries refuse an empty `@id` and an
-empty `pav:derivedFrom` on read, so a stored artifact carrying either can no longer be read by the
-library at all — it throws where it used to drop the value silently. That is the intended rule, and
-it makes the patch a precondition for anything that reads those artifacts through the libraries
-rather than an improvement to schedule at leisure.
+An empty `pav:derivedFrom` is now blocking rather than latent: both model libraries refuse it on read,
+so the patch is a precondition for opening those artifacts through either library. An empty occurrence
+`@id` is blocking for strict readers, including the Java model, but not for the normal CEE path. CEE
+and the February 2024 TypeScript compatibility reader preserve a deliberately narrow production
+bridge: they open that legacy value with a warning and emit `null`, after which an ordinary server PUT
+mints the missing occurrence identifier. The patch remains necessary for untouched artifacts and
+strict consumers; compatibility is protection for an edit, not a substitute for measuring the store.
 
 - **27. Temporal fields that declare no `temporalType`.** Production holds temporal fields that
   declare none, and a field in that state cannot be filled in at all: it sits in the template as a
@@ -1580,9 +1582,15 @@ rather than an improvement to schedule at leisure.
 
 - **29. `"@id": ""` on element occurrences in stored instances.** The same disease on the identifier
   itself. Half the element occurrences in the corpus carried it — 59 nodes across four instances,
-  since corrected to `null` — and both libraries now refuse it. Whether production holds them, and how
-  many, is unmeasured; the rewrite is to `null`, which is what an occurrence with no assigned identity
-  says. The rule this serves, and who is allowed to assign an identifier at all, is in
+  since corrected to `null`. Strict readers now refuse it; CEE and the February 2024 TypeScript reader
+  open it compatibly, emit `null`, and let the artifact server mint a repository identifier on an
+  ordinary update. The server only permits that repair when the stored artifact proves the blank was
+  inherited; introducing the same defect into a clean instance is rejected. Whether production holds
+  these values, and how many, is still unmeasured. A read-only public sample reached five templates
+  (123 applicable child mappings, all valid) and one shallow instance, but that instance contained no
+  nested occurrence and therefore could not answer this question. The store query remains required.
+  The patch rewrite is to `null`, which is what an occurrence with no assigned identity says. The rule
+  this serves, and who is allowed to assign an identifier at all, is in
   [BACKEND-RUNBOOK.md](./BACKEND-RUNBOOK.md), "Identifiers: what a client sends, and what the server fills".
 
   The corpus now reports zero, captures included, which confirms the correction took. The patch tool
@@ -1670,4 +1678,3 @@ rather than an improvement to schedule at leisure.
   The code half — making the model's `uri` optional and stopping the editor writing it — is on
   [VERSIONING-ROADMAP.md](./VERSIONING-ROADMAP.md), item 6. Patch the stored artifacts before
   requiring the new shape of anything that reads them.
-

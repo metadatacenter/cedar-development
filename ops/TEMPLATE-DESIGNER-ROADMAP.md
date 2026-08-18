@@ -80,26 +80,7 @@ and a value set whose term count nobody knew, are one item with it on
 [BACKEND-ROADMAP.md](./BACKEND-ROADMAP.md). The decision binds the meta-schema and both model
 libraries, so it is taken there; only the frontend half is the designer's.
 
-### 3. Does the designer write `"@id": ""` on an element occurrence?
-
-An element inside a filled instance carries an identifier from CEDAR's own namespace,
-`https://repo.metadatacenter.org/template-element-instances/<uuid>`. Half the element occurrences in
-the shared corpus carried an empty string instead — 59 nodes across four instances, since corrected to
-`@id: null` in `cedar-test-artifacts`. Those instances are exports of real documents, so something
-wrote the empty string, and the editor is the likeliest author: it is what fills instances.
-
-What to establish here is narrow: fill an instance with a repeatable element in the designer, save it,
-and look at what each occurrence's `@id` holds before and after the save. If the editor writes `""` as
-a placeholder for an identifier the server has not yet assigned, `null` is the honest value and the
-model libraries already read the two the same way.
-
-What the editor writes is one input to a larger decision on
-[BACKEND-ROADMAP.md](./BACKEND-ROADMAP.md): who assigns an element occurrence's identifier, and what
-stands in that slot until they do. A template requires a string there, `null` is refused, and the empty
-string passes only because `format: uri` goes unchecked. That decision binds the meta-schema and both
-model libraries; this is the part only the designer can answer.
-
-### 4. The legacy metadata editor renders a static rich-text field as an empty box
+### 3. The legacy metadata editor renders a static rich-text field as an empty box
 
 `runtime-field/richtext.html` binds `$root.getUnescapedContent(field)` in both of its branches, and
 nothing assigns `getUnescapedContent` to `$rootScope`. The function exists on `schemaService`

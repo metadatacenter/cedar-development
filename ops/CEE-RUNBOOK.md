@@ -340,7 +340,7 @@ The visual suite needs no install of its own: it runs in Playwright's container,
 which carries the browsers, and installs its dependencies there against a named
 volume. It does need Docker running.
 
-The gate should report 0 lint problems and, on 17 August 2026, 152 unit tests, 2,116
+The gate should report 0 lint problems and, on 17 August 2026, 152 unit tests, 2,117
 domain tests and 416 Playwright tests.
 
 Read those as floors rather than as targets. Their only use is catching a suite that
@@ -472,7 +472,7 @@ export PATH="/opt/homebrew/opt/node@24/bin:$PATH"
 npm run test:domain
 ```
 
-Expect **over 2,000 passing** on `develop` — 2,116 on 17 August 2026. For watch
+Expect **over 2,000 passing** on `develop` — 2,117 on 17 August 2026. For watch
 mode, run `npm --prefix harness run test:watch`.
 
 A green run here means CEE agrees with itself. For whether its output is
@@ -525,6 +525,25 @@ the same for the instance CEE emits.
 
 If either starts failing after a change to the parser or the emitter, the
 question to ask is which of the two formats the new code is quietly assuming.
+
+### Opening a legacy production instance
+
+Some stored instances predate repository minting for element occurrences and
+carry `"@id": ""` on an occurrence. CEE deliberately gives only that legacy
+shape a compatibility path. At its input boundary it clones the host's object,
+uses the model reader's node classification to distinguish occurrence
+containers from link and controlled-term values, and changes a blank occurrence
+identifier to `null`. It never mutates the object supplied by the host. The
+ordinary server PUT then recognizes the defect in the stored instance and mints
+the repository identifier; the same blank introduced against a clean stored
+instance is rejected.
+
+Do not widen this exception. A blank root artifact identifier, a blank link or
+term identifier, and a blank value in a new instance remain errors. Strict model
+readers also continue to reject a blank occurrence identifier. The February
+2024 TypeScript compatibility reader is the matching library path: it opens the
+legacy occurrence with a warning and writes `null`. The regression contract is
+in `harness/test/occurrence-identity.spec.ts`.
 
 ### Running against the old template parser
 
@@ -581,7 +600,7 @@ which resolves only against the CEDAR nexus. Clone and `./mvnw install`
 cd ../cedar-model-validation-library && export JAVA_HOME=$(/usr/libexec/java_home -v 17) && ./mvnw test
 ```
 
-Expect **210 passing, 7 skipped**.
+Expect **220 passing, 7 skipped**.
 
 Its own fixtures are the thing to read: `src/test/resources/instances/*.jsonld`
 paired with `src/test/resources/templates/*.json`, and
@@ -878,7 +897,7 @@ split deliberate on the grounds that the library is a separate build with its ow
 toolchain. That reasoning outlived its subject: Node 20 left maintenance in April
 2026, so snapshots were being published from a runtime no longer receiving
 security patches, and the whole gate turned out to pass on 24 unchanged — 86
-suites, 954 tests, and the packed-consumer smoke test that imports the real
+suites, 932 tests, and the packed-consumer smoke test that imports the real
 tarball. Nothing needs a sibling checkout: the test corpus is vendored under
 `cedar-test-artifacts/`, along with the reference templates it compares against.
 
@@ -1192,4 +1211,3 @@ deploy runs ([PROD-DEPLOY-RUNBOOK.md](./PROD-DEPLOY-RUNBOOK.md) step 6).
 - **Reaching prod is a separate step.** Publishing does nothing for prod until the template editor is
   rebuilt against the new version *and* `CEDAR_VERSION_MODIFIER` is bumped so clients drop the cached
   bundle (PROD-DEPLOY-RUNBOOK + frontend-caching).
-
