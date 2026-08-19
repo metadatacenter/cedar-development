@@ -58,13 +58,18 @@ class RuleTests(unittest.TestCase):
         return audit.ArtifactRef(artifact_type, identifier, "Example")
 
     def test_default_progress_interval_is_three_hundred(self):
-        self.assertEqual(audit.build_parser().parse_args([]).progress_every, 300)
+        arguments = audit.build_parser().parse_args([])
+        self.assertEqual(arguments.progress_every, 300)
+        self.assertEqual(arguments.types, "template,element")
+        self.assertEqual(audit.parse_types("all", audit.build_parser()), list(audit.TYPE_ORDER))
 
     def test_absolute_iri_rule_rejects_blank_relative_and_whitespace(self):
         self.assertTrue(audit.is_absolute_iri("https://repo.example/templates/t1"))
         self.assertTrue(audit.is_absolute_iri("urn:uuid:abc"))
+        self.assertTrue(audit.is_well_formed_uri_reference("relative"))
         for value in (None, "", "   ", "tmp-123", "/relative", " https://repo.example/x", "https://a b"):
             self.assertFalse(audit.is_absolute_iri(value), value)
+        self.assertTrue(audit.server_considers_child_id_usable(" https://repo.example/x "))
 
     def test_common_rules_find_legacy_provenance_and_meta_schema_defects(self):
         artifact = {
@@ -128,6 +133,23 @@ class RuleTests(unittest.TestCase):
         self.assertEqual(len(mismatch), 1)
         self.assertIn("/properties/Element/properties/Nested/@id", mismatch[0].path)
         self.assertEqual(mismatch[0].risk, "manual-review")
+
+    def test_schema_reports_child_id_whitespace_as_a_normalizer_gap(self):
+        child = schema_child(audit.TEMPLATE_FIELD, " https://repo.metadatacenter.org/template-fields/f1 ")
+        artifact = schema_artifact(
+            self.ref().artifact_id,
+            {"Field": child},
+            {"Field": {"enum": ["https://repo.metadatacenter.org/properties/p1"]}},
+            ["Field"],
+        )
+
+        findings = [
+            item for item in audit.audit_schema(self.ref(), artifact)
+            if item.rule == "child-id-surrounding-whitespace"
+        ]
+
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0].risk, "save-rejected")
 
     def test_schema_reports_object_shaped_multi_select_deployments_at_every_depth(self):
         direct = schema_child(
@@ -282,7 +304,34 @@ class RuleTests(unittest.TestCase):
         self.assertEqual(rules["attribute-name-duplicate"], 1)
         self.assertEqual(rules["attribute-property-iri-missing"], 1)
         self.assertEqual(rules["occurrence-id-unusable"], 1)
-        self.assertEqual(rules["value-id-unusable"], 1)
+        self.assertEqual(rules["value-id-relative"], 1)
+
+    def test_value_ids_distinguish_reader_failures_relative_iris_and_validation_failures(self):
+        ref = self.ref("instance", "https://repo.example/template-instances/i1")
+        instance = {
+            "@id": ref.artifact_id,
+            "@context": {},
+            "Blank": {"@id": ""},
+            "Relative": {"@id": "0000-0002-1825-0097"},
+            "Malformed": {"@id": "https://orcid.org/ 0000-0002-1825-0097"},
+            "Null": {"@id": None},
+            "Number": {"@id": 7},
+            "Contextless element": {"@id": "", "Nested": {"@value": "kept"}},
+        }
+
+        findings = list(audit.audit_value_ids(ref, instance))
+
+        self.assertEqual(
+            [(item.rule, item.risk) for item in findings],
+            [
+                ("value-id-empty", "reader-blocking"),
+                ("value-id-relative", "manual-review"),
+                ("value-id-malformed", "reader-blocking"),
+                ("value-id-null", "save-rejected"),
+                ("value-id-not-string", "save-rejected"),
+            ],
+        )
+        self.assertFalse(any("Contextless element" in item.path for item in findings))
 
     def test_structural_occurrence_fallback_works_without_template(self):
         instance_id = "https://repo.example/template-instances/i1"
@@ -332,6 +381,7 @@ def collections_counter(values):
 
 class _FakeCedarHandler(BaseHTTPRequestHandler):
     artifacts = {}
+    extra_search_rows = []
     unfetchable = set()
     requests = []
 
@@ -352,6 +402,10 @@ class _FakeCedarHandler(BaseHTTPRequestHandler):
                 for (kind, identifier), body in self.__class__.artifacts.items()
                 if kind == artifact_type
             ]
+            rows.extend(
+                row for row in self.__class__.extra_search_rows
+                if row.get("resourceType") == artifact_type
+            )
             self.send_json({"resources": rows[offset:offset + limit], "totalCount": len(rows)})
             return
         parts = parsed.path.strip("/").split("/", 1)
@@ -397,6 +451,7 @@ class RestIntegrationTests(unittest.TestCase):
             },
         }
         _FakeCedarHandler.unfetchable = set()
+        _FakeCedarHandler.extra_search_rows = []
         _FakeCedarHandler.requests = []
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), _FakeCedarHandler)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
@@ -420,6 +475,7 @@ class RestIntegrationTests(unittest.TestCase):
                     result = audit.main([
                         "--server", origin,
                         "--allow-http",
+                        "--types", "all",
                         "--page-size", "1",
                         "--progress-every", "3",
                         "--out", str(findings),
@@ -436,12 +492,17 @@ class RestIntegrationTests(unittest.TestCase):
             self.assertEqual(report["status"], "COMPLETE_FOR_KEY")
             self.assertEqual(report["artifactsProcessed"], 4)
             self.assertEqual(report["artifactsFetched"], 4)
+            self.assertEqual(report["completion"], {"percent": 100.0, "processed": 4, "target": 4})
+            self.assertEqual(report["scope"]["selectedArtifactTotal"], 4)
             self.assertEqual(report["scope"]["httpMethods"], ["GET"])
+            self.assertEqual(report["auditRuleset"]["version"], audit.AUDIT_RULESET_VERSION)
+            self.assertEqual(len(report["auditRuleset"]["scriptSha256"]), 64)
+            self.assertEqual(report["affectedArtifactsByRisk"], {})
             self.assertEqual(findings.read_text(), "")
             self.assertEqual(findings.stat().st_mode & 0o077, 0)
             self.assertEqual(summary.stat().st_mode & 0o077, 0)
-            self.assertIn("[checkpoint 3]", stdout.getvalue())
-            self.assertIn("[final 4]", stdout.getvalue())
+            self.assertIn("[checkpoint 3/4 75.0%]", stdout.getvalue())
+            self.assertIn("[final 4/4 100.0%]", stdout.getvalue())
             self.assertNotIn("test-secret", stdout.getvalue() + stderr.getvalue())
             self.assertTrue(_FakeCedarHandler.requests)
             self.assertTrue(all(method == "GET" for method, _, _ in _FakeCedarHandler.requests))
@@ -481,6 +542,45 @@ class RestIntegrationTests(unittest.TestCase):
             self.assertEqual(report["status"], "PARTIAL_ERRORS")
             self.assertEqual(report["findingsByRule"]["artifact-fetch-failed"], 1)
             self.assertEqual(report["fetchErrorDetails"][0]["artifactId"], field_id)
+
+    def test_progress_total_uses_unique_enumerated_ids_when_search_has_duplicates(self):
+        template_id = "https://repo.example/templates/t1"
+        _FakeCedarHandler.extra_search_rows = [{
+            "@id": template_id,
+            "schema:name": "Duplicate search row",
+            "resourceType": "template",
+        }]
+        origin = f"http://127.0.0.1:{self.server.server_port}"
+        with tempfile.TemporaryDirectory() as directory:
+            findings = Path(directory) / "findings.jsonl"
+            summary = Path(directory) / "summary.json"
+            previous = os.environ.get("CEDAR_API_KEY")
+            os.environ["CEDAR_API_KEY"] = "test-secret"
+            stdout, stderr = io.StringIO(), io.StringIO()
+            try:
+                with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                    result = audit.main([
+                        "--server", origin,
+                        "--allow-http",
+                        "--types", "template",
+                        "--page-size", "10",
+                        "--out", str(findings),
+                        "--summary", str(summary),
+                    ])
+            finally:
+                if previous is None:
+                    os.environ.pop("CEDAR_API_KEY", None)
+                else:
+                    os.environ["CEDAR_API_KEY"] = previous
+
+            self.assertEqual(result, 2)
+            report = json.loads(summary.read_text())
+            self.assertEqual(report["scope"]["searchReportedTotal"], 2)
+            self.assertEqual(report["scope"]["selectedArtifactTotal"], 1)
+            self.assertEqual(report["completion"], {"percent": 100.0, "processed": 1, "target": 1})
+            self.assertEqual(report["duplicateSearchRowsSkipped"], 1)
+            self.assertEqual(report["listingErrors"], 1)
+            self.assertIn("[final 1/1 100.0%]", stdout.getvalue())
 
 if __name__ == "__main__":
     unittest.main()

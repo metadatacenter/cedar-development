@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Read-only REST audit for artifacts affected by CEDAR's hardened minting rules.
 
-The auditor enumerates every template, element, field, and instance visible to one API key through
-``/search-deep`` and fetches each full artifact through its typed resource endpoint. It issues GET
-requests only. Findings are streamed as JSONL, a machine-readable summary is checkpointed every 300
-artifacts by default, and a concise progress line is printed at the same interval.
+The auditor defaults to every template and element visible to one API key through ``/search-deep``;
+``--types all`` adds standalone fields and instances. It fetches each full artifact through its typed
+resource endpoint and issues GET requests only. Findings are streamed as JSONL, a machine-readable
+summary is checkpointed every 300 artifacts by default, and a concise progress line reports both the
+processed and selected totals at the same interval.
 
 Enumeration is permission-scoped: "complete" means complete for what the supplied key can read and
 what the resource server's graph can enumerate. It is not a substitute for a store query when the key
@@ -15,7 +16,7 @@ Keep credentials out of shell history and the process list:
     export CEDAR_API_KEY=...
     python3 ops/cedar_artifact_rest_audit.py \
       --server https://resource.metadatacenter.org \
-      --out production-artifact-findings.jsonl
+      --out production-schema-findings.jsonl
 
 No third-party packages are required.
 """
@@ -25,6 +26,7 @@ from __future__ import annotations
 import argparse
 import collections
 import getpass
+import hashlib
 import json
 import os
 import re
@@ -43,6 +45,7 @@ from typing import Any, Iterable, Iterator, Optional
 
 DEFAULT_SERVER = "https://resource.metadatacenter.org"
 DEFAULT_PROGRESS_EVERY = 300
+DEFAULT_TYPES = ("template", "element")
 ARTIFACT_PATHS = {
     "template": "templates",
     "element": "template-elements",
@@ -50,6 +53,17 @@ ARTIFACT_PATHS = {
     "instance": "template-instances",
 }
 TYPE_ORDER = ("template", "element", "field", "instance")
+
+# Stored in every summary so a long-running result says which behavior it actually audited. The
+# script hash distinguishes edits made without changing this human-readable ruleset version.
+AUDIT_RULESET_VERSION = "2026-08-18.2"
+BEHAVIORAL_BASELINES = {
+    "cedar-artifact-library": "9250a4f",
+    "cedar-model-typescript-library": "bf97976",
+    "cedar-artifact-server": "c9be99d",
+    "cedar-config-library": "e729862",
+    "cedar-server-utils": "826839e2",
+}
 
 TEMPLATE_ELEMENT = "https://schema.metadatacenter.org/core/TemplateElement"
 TEMPLATE_FIELD = "https://schema.metadatacenter.org/core/TemplateField"
@@ -79,6 +93,9 @@ SPECIAL_CHILD_NAME = re.compile(r"(^@)|(^_)|(^schema:)|(^pav:)|(^oslc:)")
 URI_SCHEME = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
 REPOSITORY_PROPERTY_IRI_PREFIX = "https://schema.metadatacenter.org/properties/"
 JSON_SCHEMA_DRAFT_04 = "http://json-schema.org/draft-04/schema#"
+VALUE_ATOM_KEYS = {
+    "@value", "@id", "rdfs:label", "@type", "skos:notation", "skos:prefLabel", "@language",
+}
 
 
 class AuditError(Exception):
@@ -146,12 +163,25 @@ class SchemaShape:
 
 @dataclass
 class AuditState:
+    limit: Optional[int] = None
     started_at: str = field(default_factory=lambda: utc_now())
+    started_monotonic: float = field(default_factory=time.monotonic, repr=False)
+    processing_started_monotonic: Optional[float] = field(default=None, repr=False)
     processed: int = 0
     fetched: int = 0
     processed_by_type: collections.Counter = field(default_factory=collections.Counter)
     fetched_by_type: collections.Counter = field(default_factory=collections.Counter)
+    findings_by_type: collections.Counter = field(default_factory=collections.Counter)
     affected_artifacts: set[tuple[str, str]] = field(default_factory=set)
+    affected_by_type: dict[str, set[tuple[str, str]]] = field(
+        default_factory=lambda: collections.defaultdict(set)
+    )
+    affected_by_rule: dict[str, set[tuple[str, str]]] = field(
+        default_factory=lambda: collections.defaultdict(set)
+    )
+    affected_by_risk: dict[str, set[tuple[str, str]]] = field(
+        default_factory=lambda: collections.defaultdict(set)
+    )
     finding_counts: collections.Counter = field(default_factory=collections.Counter)
     risk_counts: collections.Counter = field(default_factory=collections.Counter)
     fetch_errors: int = 0
@@ -159,6 +189,8 @@ class AuditState:
     unresolved_templates: int = 0
     duplicates: int = 0
     expected_by_type: dict[str, int] = field(default_factory=dict)
+    enumerated_by_type: dict[str, int] = field(default_factory=dict)
+    enumeration_complete: bool = False
     total_count_changes: list[dict[str, Any]] = field(default_factory=list)
     fetch_error_details: list[dict[str, Any]] = field(default_factory=list)
     unresolved_template_details: list[dict[str, Any]] = field(default_factory=list)
@@ -166,18 +198,47 @@ class AuditState:
     batch_per_type: collections.Counter = field(default_factory=collections.Counter)
     batch_affected: set[tuple[str, str]] = field(default_factory=set)
     batch_findings: collections.Counter = field(default_factory=collections.Counter)
+    batch_risks: collections.Counter = field(default_factory=collections.Counter)
     batch_fetch_errors: int = 0
+
+    @property
+    def expected_total(self) -> int:
+        return sum(self.expected_by_type.values())
+
+    @property
+    def enumerated_total(self) -> int:
+        return sum(self.enumerated_by_type.values())
+
+    @property
+    def planned_total(self) -> int:
+        total = self.enumerated_total if self.enumeration_complete else self.expected_total
+        return min(total, self.limit) if self.limit is not None else total
+
+    @property
+    def elapsed_seconds(self) -> float:
+        return max(0.0, time.monotonic() - self.started_monotonic)
+
+    @property
+    def processing_elapsed_seconds(self) -> float:
+        started = self.processing_started_monotonic or self.started_monotonic
+        return max(0.0, time.monotonic() - started)
 
     def add_findings(self, ref: ArtifactRef, findings: Iterable[Finding]) -> list[Finding]:
         found = list(findings)
         if found:
             key = (ref.artifact_type, ref.artifact_id)
             self.affected_artifacts.add(key)
+            self.affected_by_type[ref.artifact_type].add(key)
             self.batch_affected.add(key)
         for finding in found:
+            key = (finding.artifact_type, finding.artifact_id)
             self.finding_counts[finding.rule] += 1
             self.risk_counts[finding.risk] += 1
+            self.findings_by_type[finding.artifact_type] += 1
+            self.affected_by_rule[finding.rule].add(key)
+            self.affected_by_risk[finding.risk].add(key)
             self.batch_findings[finding.rule] += 1
+            self.batch_risks[finding.risk] += 1
         return found
 
     def artifact_processed(self, artifact_type: str, fetched: bool) -> None:
@@ -192,18 +253,25 @@ class AuditState:
         """Count an audit failure without calling the unread artifact defective."""
         self.finding_counts[diagnostic.rule] += 1
         self.risk_counts[diagnostic.risk] += 1
+        self.findings_by_type[diagnostic.artifact_type] += 1
         self.batch_findings[diagnostic.rule] += 1
+        self.batch_risks[diagnostic.risk] += 1
 
     def reset_batch(self) -> None:
         self.batch_start = self.processed
         self.batch_per_type.clear()
         self.batch_affected.clear()
         self.batch_findings.clear()
+        self.batch_risks.clear()
         self.batch_fetch_errors = 0
 
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def script_sha256() -> str:
+    return hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
 
 
 def json_pointer_component(value: str) -> str:
@@ -214,8 +282,8 @@ def child_path(parent: str, name: str) -> str:
     return f"{parent}/properties/{json_pointer_component(name)}"
 
 
-def is_absolute_iri(value: Any) -> bool:
-    """Mirror the hardened Java boundary closely enough for a read-only static audit."""
+def is_well_formed_uri_reference(value: Any) -> bool:
+    """Accept absolute or relative URI references that the model readers can represent."""
     if not isinstance(value, str) or not value or value.isspace() or value != value.strip():
         return False
     if any(ch.isspace() or ord(ch) < 0x20 for ch in value):
@@ -223,10 +291,23 @@ def is_absolute_iri(value: Any) -> bool:
     if re.search(r"%(?![0-9A-Fa-f]{2})|[<>\"{}|\\^`]", value):
         return False
     try:
-        parsed = urllib.parse.urlsplit(value)
+        urllib.parse.urlsplit(value)
     except ValueError:
         return False
+    return True
+
+
+def is_absolute_iri(value: Any) -> bool:
+    """Apply the canonical persistence rule: a clean, well-formed URI with a scheme."""
+    if not is_well_formed_uri_reference(value):
+        return False
+    parsed = urllib.parse.urlsplit(value)
     return bool(parsed.scheme) and bool(URI_SCHEME.match(value))
+
+
+def server_considers_child_id_usable(value: Any) -> bool:
+    """Mirror ModelUtil.hasUsableChildId, including its trim-before-test behavior."""
+    return isinstance(value, str) and is_absolute_iri(value.strip())
 
 
 def is_repository_property_iri(value: Any) -> bool:
@@ -306,13 +387,15 @@ def audit_common(ref: ArtifactRef, artifact: Any) -> Iterator[Finding]:
                 if derived_from == "":
                     yield finding(
                         ref, "derived-from-empty", "repair-on-save", f"{path}/pav:derivedFrom",
-                        "compatibility readers load this as absent; ordinary update removes the inherited value",
+                        "the TypeScript compatibility reader loads this as absent and an ordinary update removes "
+                        "the inherited value; the strict Java reader rejects it until repaired",
                         derived_from,
                     )
                 else:
                     yield finding(
                         ref, "derived-from-unusable", "repair-on-save", f"{path}/pav:derivedFrom",
-                        "ordinary update removes this inherited non-absolute provenance IRI; a new value is rejected",
+                        "an ordinary update removes this inherited non-absolute provenance IRI; strict readers may "
+                        "reject it and a newly introduced value is rejected",
                         derived_from,
                     )
             ui = node.get("_ui")
@@ -405,9 +488,16 @@ def audit_schema(ref: ArtifactRef, artifact: Any) -> Iterator[Finding]:
                               "child must declare TemplateElement, TemplateField, or StaticTemplateField", at_type)
 
             identifier = child.get("@id")
-            if not is_absolute_iri(identifier):
+            if not server_considers_child_id_usable(identifier):
                 yield finding(ref, "child-id-unusable", "repair-on-save", f"{actual_path}/@id",
                               "ordinary update mints a child ID; verbatim update rejects this value", identifier)
+            elif not is_absolute_iri(identifier):
+                yield finding(
+                    ref, "child-id-surrounding-whitespace", "save-rejected", f"{actual_path}/@id",
+                    "the child-ID normalizer trims only while deciding that this is usable, so it does not mint a "
+                    "replacement and request validation sees the original whitespace",
+                    identifier,
+                )
             elif mismatched_child_prefix(identifier, at_type):
                 yield finding(ref, "child-id-prefix-mismatch", "manual-review", f"{actual_path}/@id",
                               "child ID prefix contradicts @type and is deliberately not rewritten automatically",
@@ -465,15 +555,50 @@ def audit_schema(ref: ArtifactRef, artifact: Any) -> Iterator[Finding]:
     yield from walk(artifact, "")
 
 
+def is_value_node(node: Any) -> bool:
+    """Match the model reader's distinction between a field value and a contextless element."""
+    if not isinstance(node, dict) or "@context" in node or "@id" not in node:
+        return False
+    return bool(node) and set(node).issubset(VALUE_ATOM_KEYS)
+
+
 def audit_value_ids(ref: ArtifactRef, node: Any, path: str = "", root: bool = True) -> Iterator[Finding]:
-    """Find unusable link/controlled-term IDs without confusing element occurrences with values."""
+    """Classify link/controlled-term IDs by what current readers and persistence actually do."""
     if isinstance(node, dict):
-        if not root and "@context" not in node and "@id" in node:
+        if not root and is_value_node(node):
             identifier = node.get("@id")
-            if isinstance(identifier, str) and not is_absolute_iri(identifier):
-                yield finding(ref, "value-id-unusable", "reader-blocking", f"{path}/@id",
-                              "blank or relative link/controlled-term @id is not covered by occurrence compatibility",
-                              identifier)
+            if identifier is None:
+                yield finding(
+                    ref, "value-id-null", "save-rejected", f"{path}/@id",
+                    "a link or controlled-term value must omit the empty node rather than write a null @id",
+                    identifier,
+                )
+            elif not isinstance(identifier, str):
+                yield finding(
+                    ref, "value-id-not-string", "save-rejected", f"{path}/@id",
+                    "a link or controlled-term @id must be a string",
+                    identifier,
+                )
+            elif not identifier.strip():
+                yield finding(
+                    ref, "value-id-empty", "reader-blocking", f"{path}/@id",
+                    "both current JSON model readers reject an empty link or controlled-term @id",
+                    identifier,
+                )
+            elif not is_well_formed_uri_reference(identifier):
+                yield finding(
+                    ref, "value-id-malformed", "reader-blocking", f"{path}/@id",
+                    "the strict Java reader rejects this malformed URI; no occurrence compatibility applies to "
+                    "field values",
+                    identifier,
+                )
+            elif not is_absolute_iri(identifier):
+                yield finding(
+                    ref, "value-id-relative", "manual-review", f"{path}/@id",
+                    "current readers accept this relative URI reference, but it is not an absolute JSON-LD "
+                    "identifier and there is no safe automatic repair",
+                    identifier,
+                )
         for key, value in node.items():
             if key != "@context":
                 yield from audit_value_ids(ref, value, f"{path}/{json_pointer_component(key)}", False)
@@ -708,35 +833,44 @@ def typed_artifact_path(ref: ArtifactRef) -> str:
     return f"/{ARTIFACT_PATHS[ref.artifact_type]}/{urllib.parse.quote(ref.artifact_id, safe='')}"
 
 
+def search_deep_page(client: GetOnlyClient, artifact_type: str, limit: int, offset: int) -> dict[str, Any]:
+    data = client.get_json("/search-deep", {
+        "resource_types": artifact_type,
+        "version": "all",
+        "publication_status": "all",
+        "sort": "createdOnTS,name",
+        "limit": limit,
+        "offset": offset,
+    })
+    if (not isinstance(data, dict) or not isinstance(data.get("resources"), list)
+            or not isinstance(data.get("totalCount"), int) or data["totalCount"] < 0):
+        raise ResponseError(f"search-deep returned an unexpected body for {artifact_type}")
+    return data
+
+
+def preflight_expected_counts(client: GetOnlyClient, artifact_types: list[str], state: AuditState) -> None:
+    """Read every selected total before fetching artifacts so progress has a denominator from item one."""
+    for artifact_type in artifact_types:
+        data = search_deep_page(client, artifact_type, 1, 0)
+        state.expected_by_type[artifact_type] = data["totalCount"]
+
+
 def iter_artifact_refs(client: GetOnlyClient, artifact_type: str, page_size: int,
                        state: AuditState, hard_limit: Optional[int] = None) -> Iterator[ArtifactRef]:
     offset = 0
-    expected: Optional[int] = None
+    expected: Optional[int] = state.expected_by_type.get(artifact_type)
     seen: set[str] = set()
     page_signatures: set[tuple[str, ...]] = set()
     while True:
-        data = client.get_json("/search-deep", {
-            "resource_types": artifact_type,
-            "version": "all",
-            "publication_status": "all",
-            "sort": "createdOnTS,name",
-            "limit": page_size,
-            "offset": offset,
-        })
-        if not isinstance(data, dict) or not isinstance(data.get("resources"), list):
-            raise ResponseError(f"search-deep returned an unexpected body for {artifact_type}")
+        data = search_deep_page(client, artifact_type, page_size, offset)
         resources = data.get("resources") or []
         total = data.get("totalCount")
-        if isinstance(total, int):
-            if expected is None:
-                expected = total
-                state.expected_by_type[artifact_type] = total
-            elif total != expected:
-                state.total_count_changes.append({
-                    "artifactType": artifact_type, "offset": offset, "was": expected, "now": total,
-                })
-                expected = total
-                state.expected_by_type[artifact_type] = total
+        if total != expected:
+            state.total_count_changes.append({
+                "artifactType": artifact_type, "offset": offset, "was": expected, "now": total,
+            })
+            expected = total
+            state.expected_by_type[artifact_type] = total
         if not resources:
             break
 
@@ -782,41 +916,91 @@ def top_counts(counter: collections.Counter, limit: int = 4) -> str:
     return ", ".join(f"{name}={count}" for name, count in counter.most_common(limit))
 
 
+def completion_percent(processed: int, total: int) -> float:
+    if total <= 0:
+        return 100.0 if processed == 0 else 0.0
+    return min(100.0, processed * 100.0 / total)
+
+
+def format_duration(seconds: float) -> str:
+    rounded = max(0, int(round(seconds)))
+    hours, remainder = divmod(rounded, 3600)
+    minutes, secs = divmod(remainder, 60)
+    if hours:
+        return f"{hours}h{minutes:02d}m"
+    if minutes:
+        return f"{minutes}m{secs:02d}s"
+    return f"{secs}s"
+
+
 def print_progress(state: AuditState, final: bool = False) -> None:
     start = state.batch_start + 1 if state.processed > state.batch_start else state.processed
     label = "final" if final else "checkpoint"
     type_summary = ", ".join(f"{kind}={count}" for kind, count in state.batch_per_type.items()) or "none"
+    total = state.planned_total
+    percent = completion_percent(state.processed, total)
+    elapsed = state.elapsed_seconds
+    processing_elapsed = state.processing_elapsed_seconds
+    timing = f"elapsed={format_duration(elapsed)}"
+    if not final and state.processed and state.processed < total and processing_elapsed > 0:
+        eta = (total - state.processed) / (state.processed / processing_elapsed)
+        timing += f", eta={format_duration(eta)}"
     print(
-        f"[{label} {state.processed}] artifacts {start}-{state.processed}: "
-        f"types({type_summary}); affected={len(state.batch_affected)}; "
+        f"[{label} {state.processed}/{total} {percent:.1f}%] batch {start}-{state.processed}: "
+        f"types({type_summary}); affected={len(state.batch_affected)} batch/{len(state.affected_artifacts)} total; "
         f"findings={sum(state.batch_findings.values())} ({top_counts(state.batch_findings)}); "
-        f"fetch-errors={state.batch_fetch_errors}",
+        f"risks({top_counts(state.batch_risks)}); fetch-errors={state.batch_fetch_errors}; {timing}",
         flush=True,
     )
 
 
 def summary_document(state: AuditState, status: str, server: str, types: list[str],
                      findings_path: str) -> dict[str, Any]:
+    total = state.planned_total
     return {
+        "auditRuleset": {
+            "version": AUDIT_RULESET_VERSION,
+            "scriptSha256": script_sha256(),
+            "behavioralBaselines": BEHAVIORAL_BASELINES,
+        },
         "status": status,
         "startedAt": state.started_at,
         "updatedAt": utc_now(),
+        "elapsedSeconds": round(state.elapsed_seconds, 3),
         "server": server,
         "scope": {
             "artifactTypes": types,
+            "selectedArtifactTotal": state.planned_total,
+            "searchReportedTotal": state.expected_total,
             "permissionScoped": True,
             "statement": "Complete means all artifacts enumerated and readable by this API key, not store-wide completeness.",
             "httpMethods": ["GET"],
+        },
+        "completion": {
+            "processed": state.processed,
+            "target": total,
+            "percent": round(completion_percent(state.processed, total), 3),
         },
         "artifactsProcessed": state.processed,
         "artifactsFetched": state.fetched,
         "processedByType": dict(state.processed_by_type),
         "fetchedByType": dict(state.fetched_by_type),
         "expectedByType": state.expected_by_type,
+        "enumeratedByType": state.enumerated_by_type,
         "affectedArtifacts": len(state.affected_artifacts),
+        "affectedArtifactsByType": {
+            key: len(values) for key, values in sorted(state.affected_by_type.items())
+        },
+        "affectedArtifactsByRule": {
+            key: len(values) for key, values in sorted(state.affected_by_rule.items())
+        },
+        "affectedArtifactsByRisk": {
+            key: len(values) for key, values in sorted(state.affected_by_risk.items())
+        },
         "findings": sum(state.finding_counts.values()),
         "findingsByRule": dict(state.finding_counts),
         "findingsByRisk": dict(state.risk_counts),
+        "findingsByType": dict(state.findings_by_type),
         "fetchErrors": state.fetch_errors,
         "listingErrors": state.listing_errors,
         "unresolvedTemplates": state.unresolved_templates,
@@ -875,6 +1059,10 @@ def parse_types(value: str, parser: argparse.ArgumentParser) -> list[str]:
     types = [item.strip() for item in value.split(",") if item.strip()]
     if not types:
         parser.error("--types must select at least one artifact type")
+    if types == ["all"]:
+        return list(TYPE_ORDER)
+    if "all" in types:
+        parser.error("--types all must be used on its own")
     unknown = set(types) - set(ARTIFACT_PATHS)
     if unknown:
         parser.error(f"unknown artifact types {sorted(unknown)}; choose from {list(TYPE_ORDER)}")
@@ -883,7 +1071,7 @@ def parse_types(value: str, parser: argparse.ArgumentParser) -> list[str]:
 
 def run_audit(arguments: argparse.Namespace, client: GetOnlyClient,
               findings_stream, summary_path: Path) -> tuple[AuditState, str]:
-    state = AuditState()
+    state = AuditState(limit=arguments.limit)
     template_shapes: dict[str, SchemaShape] = {}
     status = "RUNNING"
 
@@ -902,83 +1090,109 @@ def run_audit(arguments: argparse.Namespace, client: GetOnlyClient,
         findings_stream.flush()
 
     try:
+        preflight_expected_counts(client, arguments.selected_types, state)
+        reported_counts = ", ".join(
+            f"{kind}={state.expected_by_type[kind]}" for kind in arguments.selected_types
+        )
+        print(f"Search reports: {state.expected_total} rows ({reported_counts}); enumerating unique IDs", flush=True)
+
+        artifact_refs: list[ArtifactRef] = []
         for artifact_type in arguments.selected_types:
-            remaining = None if arguments.limit is None else max(0, arguments.limit - state.processed)
+            remaining = None if arguments.limit is None else max(0, arguments.limit - len(artifact_refs))
             if remaining == 0:
                 break
-            for ref in iter_artifact_refs(client, artifact_type, arguments.page_size, state, remaining):
-                try:
-                    artifact = client.get_json(typed_artifact_path(ref))
-                except AuthenticationError:
-                    raise
-                except Exception as error:
-                    state.fetch_errors += 1
-                    state.batch_fetch_errors += 1
-                    error_text = str(error)
-                    state.fetch_error_details.append({
-                        "artifactType": ref.artifact_type,
-                        "artifactId": ref.artifact_id,
-                        "artifactName": ref.name,
-                        "error": error_text,
-                    })
-                    write_diagnostic(finding(
-                        ref,
-                        "artifact-fetch-failed",
-                        "audit-incomplete",
-                        "/",
-                        f"full artifact could not be fetched: {error_text}",
-                    ))
-                    print(f"! could not fetch {ref.artifact_type} {ref.artifact_id}: {error}", file=sys.stderr)
-                    state.artifact_processed(artifact_type, fetched=False)
-                    if state.processed % arguments.progress_every == 0:
-                        checkpoint()
-                    continue
-
-                findings = list(audit_common(ref, artifact))
-                if artifact_type in {"template", "element"}:
-                    findings.extend(audit_schema(ref, artifact))
-                    if artifact_type == "template" and isinstance(artifact, dict):
-                        body_id = artifact.get("@id")
-                        template_shapes[ref.artifact_id] = build_schema_shape(artifact)
-                        if isinstance(body_id, str):
-                            template_shapes[body_id] = template_shapes[ref.artifact_id]
-                elif artifact_type == "instance":
-                    based_on = artifact.get("schema:isBasedOn") if isinstance(artifact, dict) else None
-                    shape = template_shapes.get(based_on) if isinstance(based_on, str) else None
-                    if shape is None and is_absolute_iri(based_on):
-                        template_ref = ArtifactRef("template", based_on)
-                        try:
-                            template = client.get_json(typed_artifact_path(template_ref))
-                            shape = build_schema_shape(template)
-                            template_shapes[based_on] = shape
-                        except AuthenticationError:
-                            raise
-                        except Exception as error:
-                            state.unresolved_templates += 1
-                            error_text = str(error)
-                            state.unresolved_template_details.append({
-                                "instanceId": ref.artifact_id,
-                                "templateId": based_on,
-                                "error": error_text,
-                            })
-                            write_diagnostic(finding(
-                                ref,
-                                "template-resolution-failed",
-                                "audit-incomplete",
-                                "/schema:isBasedOn",
-                                f"referenced template could not be fetched: {error_text}",
-                                based_on,
-                            ))
-                            print(f"! could not resolve template {based_on} for {ref.artifact_id}: {error}",
-                                  file=sys.stderr)
-                    findings.extend(audit_instance(ref, artifact, shape))
-
-                for item in state.add_findings(ref, findings):
-                    findings_stream.write(json.dumps(item.json_record(), ensure_ascii=False) + "\n")
-                findings_stream.flush()
-                state.artifact_processed(artifact_type, fetched=True)
+            refs = list(iter_artifact_refs(client, artifact_type, arguments.page_size, state, remaining))
+            state.enumerated_by_type[artifact_type] = len(refs)
+            artifact_refs.extend(refs)
+        state.enumeration_complete = True
+        selected_counts = ", ".join(
+            f"{kind}={state.enumerated_by_type.get(kind, 0)}" for kind in arguments.selected_types
+        )
+        limit_note = f"; sample limit={arguments.limit}" if arguments.limit is not None else ""
+        print(
+            f"Audit total: {state.planned_total} unique artifacts ({selected_counts}){limit_note}",
+            flush=True,
+        )
+        atomic_write_json(
+            summary_path,
+            summary_document(state, "RUNNING", arguments.server, arguments.selected_types,
+                             str(arguments.out)),
+        )
+        state.processing_started_monotonic = time.monotonic()
+        for ref in artifact_refs:
+            artifact_type = ref.artifact_type
+            try:
+                artifact = client.get_json(typed_artifact_path(ref))
+            except AuthenticationError:
+                raise
+            except Exception as error:
+                state.fetch_errors += 1
+                state.batch_fetch_errors += 1
+                error_text = str(error)
+                state.fetch_error_details.append({
+                    "artifactType": ref.artifact_type,
+                    "artifactId": ref.artifact_id,
+                    "artifactName": ref.name,
+                    "error": error_text,
+                })
+                write_diagnostic(finding(
+                    ref,
+                    "artifact-fetch-failed",
+                    "audit-incomplete",
+                    "/",
+                    f"full artifact could not be fetched: {error_text}",
+                ))
+                print(f"! could not fetch {ref.artifact_type} {ref.artifact_id}: {error}", file=sys.stderr)
+                state.artifact_processed(artifact_type, fetched=False)
                 if state.processed % arguments.progress_every == 0:
                     checkpoint()
+                continue
+
+            findings = list(audit_common(ref, artifact))
+            if artifact_type in {"template", "element"}:
+                findings.extend(audit_schema(ref, artifact))
+                if artifact_type == "template" and isinstance(artifact, dict):
+                    body_id = artifact.get("@id")
+                    template_shapes[ref.artifact_id] = build_schema_shape(artifact)
+                    if isinstance(body_id, str):
+                        template_shapes[body_id] = template_shapes[ref.artifact_id]
+            elif artifact_type == "instance":
+                based_on = artifact.get("schema:isBasedOn") if isinstance(artifact, dict) else None
+                shape = template_shapes.get(based_on) if isinstance(based_on, str) else None
+                if shape is None and is_absolute_iri(based_on):
+                    template_ref = ArtifactRef("template", based_on)
+                    try:
+                        template = client.get_json(typed_artifact_path(template_ref))
+                        shape = build_schema_shape(template)
+                        template_shapes[based_on] = shape
+                    except AuthenticationError:
+                        raise
+                    except Exception as error:
+                        state.unresolved_templates += 1
+                        error_text = str(error)
+                        state.unresolved_template_details.append({
+                            "instanceId": ref.artifact_id,
+                            "templateId": based_on,
+                            "error": error_text,
+                        })
+                        write_diagnostic(finding(
+                            ref,
+                            "template-resolution-failed",
+                            "audit-incomplete",
+                            "/schema:isBasedOn",
+                            f"referenced template could not be fetched: {error_text}",
+                            based_on,
+                        ))
+                        print(f"! could not resolve template {based_on} for {ref.artifact_id}: {error}",
+                              file=sys.stderr)
+                findings.extend(audit_instance(ref, artifact, shape))
+
+            for item in state.add_findings(ref, findings):
+                findings_stream.write(json.dumps(item.json_record(), ensure_ascii=False) + "\n")
+            findings_stream.flush()
+            state.artifact_processed(artifact_type, fetched=True)
+            if state.processed % arguments.progress_every == 0:
+                checkpoint()
 
         if state.fetch_errors or state.listing_errors or state.unresolved_templates:
             status = "PARTIAL_ERRORS"
@@ -1021,8 +1235,8 @@ def build_parser() -> argparse.ArgumentParser:
                         help=f"resource server origin (default: {DEFAULT_SERVER})")
     parser.add_argument("--api-key-file",
                         help="read the API key from this one-line file; otherwise CEDAR_API_KEY or a prompt")
-    parser.add_argument("--types", default=",".join(TYPE_ORDER),
-                        help="comma-separated artifact types (default: template,element,field,instance)")
+    parser.add_argument("--types", default=",".join(DEFAULT_TYPES),
+                        help="comma-separated artifact types or all (default: template,element)")
     parser.add_argument("--page-size", type=int, default=100,
                         help="search-deep page size (default: 100)")
     parser.add_argument("--progress-every", type=int, default=DEFAULT_PROGRESS_EVERY,
@@ -1085,6 +1299,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         parser.error(str(error))
 
     print(f"GET-only audit of {arguments.server}")
+    print(f"Ruleset: {AUDIT_RULESET_VERSION}")
     print(f"Scope: {', '.join(arguments.selected_types)}; permission-scoped to this key")
     print(f"Findings: {findings_path}; summary: {summary_path}")
     print(f"Progress checkpoint: every {arguments.progress_every} artifacts")
@@ -1097,7 +1312,7 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     print("\n=== Final summary ===")
     print(f"status: {status}")
-    print(f"artifacts: processed={state.processed}, fetched={state.fetched} "
+    print(f"artifacts: processed={state.processed}/{state.planned_total}, fetched={state.fetched} "
           f"({', '.join(f'{k}={v}' for k, v in state.fetched_by_type.items()) or 'none'})")
     print(f"affected artifacts: {len(state.affected_artifacts)}")
     print(f"findings: {sum(state.finding_counts.values())} ({top_counts(state.finding_counts, 8)})")
