@@ -8,7 +8,8 @@ For how to run and build the system see [BACKEND-RUNBOOK.md](./BACKEND-RUNBOOK.m
 State" section records what the stack currently sits on. Library-internal items belong in that
 library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact-library/ROADMAP.md).
 Frontend work for the embeddable editor is tracked separately in
-[CEE-ROADMAP.md](./CEE-ROADMAP.md).
+[CEE-ROADMAP.md](./CEE-ROADMAP.md), and the MCP servers in
+[MCP-ROADMAP.md](./MCP-ROADMAP.md).
 
 ## Next
 
@@ -1152,42 +1153,7 @@ Frontend work for the embeddable editor is tracked separately in
   manager is what makes them watchable again. Adopting no bot at all remains a coherent choice — the
   versions are at least in one place now — but it means those six are watched by nobody, as before.
 
-- **15. Build the MCP servers with everything else.** Four of them live under `$CEDAR_HOME/mcp`:
-  `cedar-artifact-mcp`, `cedar-artifact-rest-mcp` and `cedar-cee-mcp` are Maven projects,
-  `bioportal-term-mcp` is Python. Each is its own repository, none is part of `cedarcli build java`,
-  none has a GitHub Actions workflow, and neither [BACKEND-RUNBOOK.md](./BACKEND-RUNBOOK.md) nor
-  [RELEASE-RUNBOOK.md](./RELEASE-RUNBOOK.md) mentions them. They are built by hand, which means they
-  are built when somebody remembers.
-
-  The three Maven servers are currently unbuildable on this machine, and nothing said so. All three
-  pin `cedar-artifact-library:2.8.4-SNAPSHOT`; `~/.m2/settings.xml` reaches `oss.sonatype.org` for
-  releases, that repository answers `402 Payment Required`, and the hard failure aborts resolution
-  before the BMIR Nexus is tried — where the artifact is present and answers 200. Neither `-U` nor
-  clearing the `.lastUpdated` markers helps, because the abort happens on the way to the repository
-  that has it.
-
-  A stale MCP jar is worse than a stale service jar. **An MCP's tool descriptions are the only
-  documentation the calling LLM ever sees, and they ship inside the jar.** `cedar-artifact-rest-mcp`
-  was running a 30 July jar while its descriptions were rewritten on 9 August, so a client kept
-  reading a surface that no longer described the tools — and a description that disagrees with
-  behaviour is worse than no description, since it is followed rather than ignored.
-
-  Deliver:
-
-  - Make the dependency resolvable: pin a version the BMIR Nexus holds, or order the repositories so
-    a 402 from one that never holds CEDAR artifacts cannot end the search.
-  - Build the three Maven servers with the rest, after `cedar-artifact-library`, so a library change
-    that breaks a tool signature fails in the build rather than at a client's first call.
-  - Give each repository the workflow every other Java repository already has.
-  - Make a running server state which build it is and which CEDAR server it talks to. `ping` reports
-    the version and deliberately contacts nothing, so the target is invisible — and it is fixed when
-    the process spawns, so editing a client's configuration changes nothing until the server
-    restarts. That combination let a server keep writing to whatever it was started against after its
-    configuration had been pointed elsewhere, which is a hazard when one of the two is production.
-  - Decide whether they join the release or stay outside it, as CEE and the TypeScript model library
-    do.
-
-- **16. Separate CEDAR dependency convergence from the Keycloak provider platform lock.** The eleven
+- **15. Separate CEDAR dependency convergence from the Keycloak provider platform lock.** The eleven
   apparent test-classpath splits are not eleven candidates for one global version. Re-measuring all
   thirty Maven roots divides them into three different problems, and blindly managing the newer side
   in `cedar-parent` would make the Keycloak event listener compile against libraries its server does
@@ -1232,7 +1198,7 @@ Frontend work for the embeddable editor is tracked separately in
   last two are required because the admin tool has only a configuration test and the event listener
   has no tests at all.
 
-- **17. Publish a library snapshot before the consumer that needs it is built, or make the consumer
+- **16. Publish a library snapshot before the consumer that needs it is built, or make the consumer
   wait.** A change that adds a method to a shared library and calls it from a server is one change in
   two repositories, and CI builds them independently. The library's job compiles, tests and deploys
   its snapshot to Nexus in about thirty seconds; the consumer's job resolves that snapshot from Nexus
@@ -1268,7 +1234,7 @@ Frontend work for the embeddable editor is tracked separately in
 Coverage and test-infrastructure work. The active REST integration suites live in
 `ops/e2e/rest/suites/`; the JUnit matrices and boot-smoke live in the per-server modules.
 
-- **18. Decide whether the build runs the tests, expose the choice, and report continued failures
+- **17. Decide whether the build runs the tests, expose the choice, and report continued failures
   honestly.** The Java build skips its tests again: every Java repo is built with
   `./mvnw clean install -DskipTests`, and the `CEDAR_DEV_SKIP_TESTS` escape hatch is gone with the
   default it modified. That restores the behaviour the build had before, and it means a green
@@ -1325,7 +1291,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   "Execution succeeded!" and exits 0. A build that continued past a failure must record it, say so in
   the closing panel, and exit non-zero.
 
-- **19. Deepen the core-workflow tests instead of growing the headline count.** The JUnit matrices and the
+- **18. Deepen the core-workflow tests instead of growing the headline count.** The JUnit matrices and the
   REST suites now give the system respectable horizontal coverage: routes boot, authentication and
   permission boundaries are pinned, and create/read/update/delete, sharing, search, versioning and the
   cross-service hop all execute against the real stack. Much of that is deliberately
@@ -1364,7 +1330,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   versions or search projection disagreeing. The present suite protects the behavioural skeleton; this
   item protects the integrity of state when operations fail or are repeated.
 
-- **20. Add degradation tests.** Nothing asserts how a service behaves when a dependency it needs is
+- **19. Add degradation tests.** Nothing asserts how a service behaves when a dependency it needs is
   unavailable. The cost of that gap is known: reading any folder whose creator could not be resolved
   returned 500 for as long as the defect existed, because `UserSummaryCache` let Guava's
   "loader returned null" signal escape instead of degrading to the no-display-name path the callers
@@ -1372,7 +1338,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   asserts the API degrades rather than 500s. Bear in mind that queue writes are already best-effort
   by design (`AppLoggerQueueService`, the worker and NCBI queues), so those are the pattern to match.
 
-- **21. Retry the ontology-list load in the term picker (frontend, `cedar-template-editor`).** This is a
+- **20. Retry the ontology-list load in the term picker (frontend, `cedar-template-editor`).** This is a
   change to the Angular frontend, not to any microservice or test suite — it lands in
   `cedar-template-editor`, and so needs a frontend owner to review and push it (see the note below).
   It is the last piece of this defect still outstanding, and the fix is already written: it is open as
@@ -1416,3 +1382,44 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   service a fresh attempt; re-running the ontology search inside the picker reads the same empty cache
   and never could succeed. Nothing is saved server-side until after the block, so a failed attempt
   leaves no orphan template.
+
+## Production data
+
+- **21. Repair the production schema artifacts that can reject correctly shaped CEE instances.** The
+  permission-scoped production audit found 76 inherently-multiple fields deployed as JSON objects in
+  31 stored schema artifacts: 23 templates and 8 elements. Every case is a multiple-select list; no
+  object-shaped checkbox or attribute-value deployment was found. CEE correctly serializes these
+  values as arrays, but each stored schema still says `type: object`, so instance validation rejects
+  the array. The affected set is concentrated in the RADx/Data File family, with one template carrying
+  fourteen affected checklist fields, but every reported parent artifact and path is a separate patch
+  target. Updating a standalone element does not rewrite copies already embedded in templates.
+
+  Make this a narrow, idempotent store repair rather than an edit through the legacy Template Designer
+  or a blanket REST resave. Extend the existing artifact patch tool with a rule that wraps only a
+  confirmed object-shaped inherently-multiple child in the canonical array deployment while preserving
+  the child body, identifier, property mapping, constraints and parent metadata. It must refuse an
+  ambiguous shape, make no change when rerun, report by default, and write only under `--apply`. Do not
+  combine this repair with the unrelated normalization that an ordinary artifact update performs.
+
+  Rehearse against a production copy and require the dry run to match the captured manifest: 31
+  artifacts and 76 paths, subject to an explicitly reviewed drift report if production changes first.
+  Before applying, take a recoverable backup and retain the before/after documents and patch manifest.
+  Treat this as data repair rather than authored modification: preserve root IDs, version/publication
+  state and provenance timestamps. Afterward, require both model libraries to read every repaired
+  artifact, populate representative single- and multi-instance elements in CEE, and validate the
+  resulting instances against the exact repaired templates. A repeated audit must report zero
+  `inherently-multiple-child-object` findings and no new save-rejected findings.
+
+  Keep the broader legacy population out of this first patch. The same audit found 4,524 artifacts with
+  repair-on-save conditions — chiefly missing `@context.required` entries, empty `pav:derivedFrom`, and
+  child IDs or property IRIs that the server would mint. Those are not the cause of the instance-save
+  failure and should receive separately scoped, field-preserving patch rules rather than hitchhiking on
+  this urgent repair. Empty `pav:derivedFrom` is the first candidate because the strict Java reader
+  cannot open it even though the compatibility reader and ordinary update can recover it.
+
+  Finally reconcile the inventory boundary. Two search results point at artifacts that the typed
+  resource endpoint returns as 404, and two duplicate search rows make the reported row count exceed
+  the unique audit set. Determine whether each is a stale search/workspace projection or a missing
+  artifact before changing anything; then repair the projection from the authoritative stores and
+  rerun the audit to `COMPLETE_FOR_KEY`. Never delete a store artifact merely because its search entry
+  is inconsistent.

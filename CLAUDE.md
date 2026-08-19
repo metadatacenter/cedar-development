@@ -35,7 +35,7 @@ Helper scripts are in `cedar-development/ops/`:
 
 ## Ops docs: roadmaps and runbooks
 
-Ten documents under `cedar-development/ops/`, paired by area: a runbook says how to run, build,
+Twelve documents under `cedar-development/ops/`, paired by area: a runbook says how to run, build,
 release and deploy; a roadmap tracks open work. Findings and measurements sit with whichever of the
 pair they belong to rather than in files of their own, so start from the pair for your area and
 search within it.
@@ -75,6 +75,15 @@ because it exists to author versioned constraints:
   the findings — what the picker replaces and has built, the ingestion tracker, the BioPortal
   reconciliation log, and the survey of ingesting from other repositories. A finished item leaves
   the numbered list and joins the built paragraph at the top; the numbers are not stable handles.
+
+The MCP servers under `$CEDAR_HOME/mcp` — the four that let a language model author, look at,
+resolve terms for and store CEDAR artifacts:
+- [MCP-RUNBOOK.md](ops/MCP-RUNBOOK.md) — what each server is for, building and configuring them, the
+  client-restart rule a rebuilt jar depends on, testing, upgrading the CEE bundle `cedar-cee-mcp`
+  serves, and the dependency conflict that leaves a freshly built jar unable to start.
+- [MCP-ROADMAP.md](ops/MCP-ROADMAP.md) — building and releasing them with everything else, which
+  they are outside of today, and what that costs when a tool description is the only documentation
+  the calling model ever reads.
 
 The rest:
 - [RELEASE-RUNBOOK.md](ops/RELEASE-RUNBOOK.md) — `cedarcli release all-in-one` across the ~48
