@@ -68,3 +68,46 @@ commit that opened it.
    marks for all seven — a trademark and asset-licensing question rather than a technical one,
    though nominative use of a registry's logo to label a field targeting that registry is the
    ordinary case — and if so, obtain them as vectors and inline them the way ROR now is.
+5. **Offer the instance as RDF, which the editor CEE replaced already did.** The download menu
+   holds seven views — the instance as JSON-LD and as YAML in both shapes, the template as JSON
+   Schema and as YAML in both, and the data quality report — and no RDF. The legacy metadata
+   editor in the Template Designer has an RDF panel beside its JSON-LD and YAML ones, produced by
+   `jsonld.toRDF(form, {format: 'application/nquads'})` in `create-instance.controller.js`, so a
+   host that moves to CEE loses a serialization it had. That makes this parity rather than a new
+   feature, and it is the argument for doing it at all: nobody has asked for Turtle, and someone
+   did once ask for RDF.
+
+   Use a library rather than writing a serializer. A CEDAR instance carries its `@context` inline,
+   so the translation is mechanical, but the edge cases are not — `@type` coercion, the nested
+   containers an element occurrence produces, and the property IRIs an attribute-value pair mints
+   are exactly where a hand-rolled writer would quietly differ from every other JSON-LD consumer.
+   `jsonld.js` is the reference implementation and is what the Designer already uses, which also
+   means its output is the thing to diff against.
+
+   Four costs to weigh before starting, in the order they will bite.
+
+   **The download producer is synchronous, and a JSON-LD processor is not.** `downloadContentFor`
+   returns a `string` from a pure function over a `DataContext`, and its comment says why: the
+   harness can ask what a download holds without rendering anything, which is what keeps those
+   assertions honest. `jsonld.toRDF` returns a promise. Either the producer becomes
+   `Promise<string>` — changing every call site and every harness test that reads one — or the
+   descriptor grows a second, asynchronous kind and the menu learns to await it. That decision is
+   the whole shape of the change and should be taken first, not discovered.
+
+   **The bundle has room, but not unlimited room.** 219,133 gzip bytes free against the 840,000
+   limit, 1,459,465 raw against 3,600,000, measured 2026-08-18. `jsonld.js` pulls `rdf-canonize`
+   behind it and is the largest single dependency anyone has proposed adding. Measure it against
+   `check:size` before committing to it, and treat the gzip figure as the binding one.
+
+   **A JSON-LD processor fetches remote contexts by default, and CEE must not.** The published
+   security contract is that CEE contacts the servers a host configures and nothing else. CEDAR
+   instances embed every term inline, so nothing needs fetching; a document loader that refuses
+   every fetch must be installed explicitly rather than relied on to be unnecessary, and
+   [Embedding Security](../../cedar-mkdocs/docs/cedar-embeddable-editor/security.md) gains a line
+   either way.
+
+   **Turtle and N-Quads are different answers.** A JSON-LD processor emits N-Quads natively, which
+   is what the Designer shows under the label "RDF"; Turtle is what a person reads, and getting it
+   means a second dependency such as N3's writer, or accepting N-Quads and naming the menu entry
+   honestly. Decide which before the label, the `.ttl` or `.nq` extension and the `text/turtle` or
+   `application/n-quads` media type are written into the descriptor.
