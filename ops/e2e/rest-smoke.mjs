@@ -58,6 +58,30 @@ if (requested.length && selected.length !== requested.length) {
 
 const started = Date.now();
 let auth1;
+let ran = 'nothing';
+
+// Interrupting the run must still clean up after it. Node runs no `finally` on a signal, so a run
+// killed part-way through leaves its whole working subtree in the first user's home and nothing
+// reports it afterwards — thirty-two artifacts from one such run sat there for thirteen hours,
+// through several later runs that each cleaned up after themselves and passed.
+//
+// The handler records the interruption and returns rather than tearing down itself. Installing a
+// handler at all suppresses the default exit, so the run carries on: a teardown started from here
+// deletes artifacts out from under suites that are still using them, which turns one interruption
+// into a screenful of unrelated failures. The suite loop reads the flag between suites, and the
+// existing `finally` does the cleanup. A second signal is the way out of a suite that will not
+// return, at the cost of the cleanup this exists to perform.
+let interrupted = false;
+for (const signal of ['SIGINT', 'SIGTERM']) {
+  process.on(signal, () => {
+    if (interrupted) {
+      console.log(`\n${signal} again — exiting without cleaning up`);
+      process.exit(130);
+    }
+    interrupted = true;
+    console.log(`\n${signal} — finishing the current suite, then tearing down`);
+  });
+}
 
 try {
   const { user1, user2, admin } = await actors();
@@ -80,12 +104,17 @@ try {
 
   const ctx = { user1, user2, admin, homeFolderId, folderId };
   for (const s of selected) {
+    if (interrupted) {
+      console.log(`\nstopping after "${ran}" — ${selected.length - selected.indexOf(s)} suite(s) not run`);
+      break;
+    }
     try {
       await s.run(ctx);
     } catch (e) {
       suite(s.name);
       check(false, `suite "${s.name}" threw`, e.stack ?? e.message);
     }
+    ran = s.name;
   }
 
 } catch (e) {
@@ -97,5 +126,8 @@ try {
 
 const { passed, failed } = summary();
 const seconds = ((Date.now() - started) / 1000).toFixed(1);
-console.log(`\n${failed ? 'FAIL' : 'PASS'}: ${passed} passed, ${failed} failed, ${seconds}s`);
-process.exit(failed ? 1 : 0);
+// An interrupted run is neither pass nor fail: it cleaned up after itself, but it never reached the
+// suites it did not run, so reporting PASS on what it managed would read as a verdict on the estate.
+const verdict = interrupted ? 'INTERRUPTED' : failed ? 'FAIL' : 'PASS';
+console.log(`\n${verdict}: ${passed} passed, ${failed} failed, ${seconds}s`);
+process.exit(interrupted ? 130 : failed ? 1 : 0);
