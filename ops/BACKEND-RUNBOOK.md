@@ -1145,7 +1145,7 @@ from, because they answer very different questions:
 | Matrices | 7 | Authorization, permission levels and artifact lifecycle, as tables |
 | Sharing and ownership | 1 | The `PUT .../permissions` round trip, including ownership transfer |
 | Content negotiation | 2 | YAML and JSON transcode both ways |
-| REST smoke | 1 | The real stack, no browser: 19 suites, 638 checks |
+| REST smoke | 1 | The real stack, no browser: 19 suites, 662 checks |
 | End-to-end smoke | 1 | The real stack, through a browser |
 
 **The browser smoke is green as of 2026-08-17.** It logs in, creates a template with a DOID-constrained
@@ -1162,9 +1162,33 @@ embedded one cannot. It authenticates through Keycloak's password grant using th
 in the profile, so there are no API keys to keep. Run one suite with `npm run smoke:rest -- <name>`;
 the suites are `apidocs`, `artifacts`, `authentication`, `categories`, `contract`, `download`,
 `finding`, `folders`, `freeze`, `group-sharing`, `groups`, `inclusion`, `negotiation`, `openness`,
-`pagination`, `search`, `sharing`, `validation` and `versioning`. Together they currently make 638
-checks; `download` includes JSON / YAML / compact-YAML export and read-negotiation across all four
-artifact kinds.
+`pagination`, `search`, `sharing`, `validation` and `versioning`. Together they made 662 checks on
+2026-08-19; `download` includes JSON / YAML / compact-YAML export and read-negotiation across all
+four artifact kinds.
+
+An interrupted run still cleans up after itself. `SIGINT` or `SIGTERM` stops it at the next suite
+boundary, the teardown a finished run performs runs anyway, and the verdict is `INTERRUPTED` with exit
+130 rather than a pass covering only the suites that ran. A second signal exits at once and forgoes the
+cleanup, which is the way out of a suite that will not return. Before this, a killed run stranded its
+whole working subtree. Thirty-two artifacts from one such run sat in the first user's home for thirteen
+hours, through several later runs that each cleaned up after themselves and reported success. Tearing
+down from inside the signal handler was tried and is the wrong shape: installing a handler suppresses
+the default exit, so the run carries on while that cleanup deletes artifacts out from under suites still
+using them, which surfaces as a screenful of unrelated failures and a working folder that cannot be
+deleted.
+
+Teardown also reports what it was never told about. Every folder and artifact a POST mints is recorded
+against the suite that was running, and anything created but never registered for deletion is named,
+attributed to that suite, and swept. Every suite registers correctly today, so this reports nothing;
+what it buys is that a suite which forgets cannot leak inside a run that passes.
+
+Attributing a leftover starts with the timestamp in its name, and that timestamp is UTC. `REST Suites
+2026-08-19T04-27-53` was created at 21:27 the previous evening in Pacific time, seven hours earlier
+than it reads, which is enough to credit one run's mess to another. Removing leftovers by hand needs
+their identifiers rather than their names: `ops/e2e/cleanup-smoke-leftovers.mjs` takes
+`[[type, name, id], …]` and deletes in dependency order, instances before the templates that embed
+them, elements and fields next, folders last and deepest first, since a folder still holding anything
+cannot be removed.
 
 **The artifact server is addressed on its port, not through a vhost.** Several checks read it directly
 to confirm a write reached the datastore, and `artifact.${CEDAR_HOST}` answers 404: the artifact server
