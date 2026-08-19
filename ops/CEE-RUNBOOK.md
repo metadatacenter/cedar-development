@@ -267,7 +267,7 @@ Each frontend then names the snapshot through an npm alias, because npm routes b
 scope and this is the only package taken from Nexus:
 
 ```json
-"cedar-embeddable-editor": "npm:@org.metadatacenter/cedar-embeddable-editor@2.0.0-dev.20260814.e26f34f"
+"cedar-embeddable-editor": "npm:@org.metadatacenter/cedar-embeddable-editor@2.0.0-dev.20260818.6dca9bf"
 ```
 
 All seven manifests already carry the `@org.metadatacenter:registry` line an alias
@@ -1054,7 +1054,7 @@ writing no `publishConfig`, so the package goes to `registry.npmjs.org` and the 
 
 Dev snapshots are a second channel: the scoped `@org.metadatacenter/cedar-embeddable-editor` on
 Stanford Nexus under a `dev` tag, versioned `<next>-dev.<date>.<sha>`. It was retired for a while and
-is live again — `dev` currently names `2.0.0-dev.20260814.e26f34f`. Reach it from an embedding app
+is live again — `dev` currently names `2.0.0-dev.20260818.6dca9bf`. Reach it from an embedding app
 through an npm alias, since npm routes by scope and this is the only package taken from Nexus.
 
 `scripts/npm-package.mjs` derives the channel from the version rather than taking it as a flag: a
