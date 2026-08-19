@@ -4,3 +4,7 @@
 .DS_Store
 ops/__pycache__/
 *.pyc
+
+# Local, permission-scoped production audit output. Keep the auditor in Git, not its results.
+/production-*-findings.jsonl
+/production-*-findings-summary.json
