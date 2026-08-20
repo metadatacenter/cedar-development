@@ -111,3 +111,24 @@ commit that opened it.
    means a second dependency such as N3's writer, or accepting N-Quads and naming the menu entry
    honestly. Decide which before the label, the `.ttl` or `.nq` extension and the `text/turtle` or
    `application/n-quads` media type are written into the descriptor.
+
+6. **A declared default reaches the form only when the field is an enumeration.** `_valueConstraints`
+   may name a default on any field, and CEE seeds one into the empty instance it builds from a
+   template only where the field carries choices: `DataObjectBuilderHandler` sets the empty slot for
+   every field, then fills a value only inside `if (component?.choiceInfo?.choices?.length > 0)`. So a
+   radio, checkbox or list arrives pre-selected, while a text, numeric, temporal or controlled-term
+   default is read from the template, exposed on the model, rendered in the read-only specification —
+   and never offered to somebody filling the form in, who has to type what the template already
+   said. Decide whether seeding is the intended behaviour for the rest, then either seed them or say
+   in the host documentation that CEE presents a non-enumerated default rather than applying it.
+
+   Two things follow. The literal case is a one-line change (the branch above already knows the empty
+   slot and the XSD type), but the controlled-term case is not: `getSingleValueWrapper` deliberately
+   returns an empty slot for a controlled field, and a term default carries an IRI and a label that
+   the instance has to record as a pair.
+
+   The test harness cannot currently express either. Its four choice kinds — radio, checkbox, and the
+   two list flavours — are built with no options at all, so no generated template has a default
+   option to seed, and `view-sync.spec.ts` pins the clearing rule that read-only rendering depends on
+   only from the other side: that a value pushed into a read-only form survives. Give `ChildSpec`
+   options and a default, and the seeded path becomes testable in both modes.

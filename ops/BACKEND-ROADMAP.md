@@ -1423,3 +1423,33 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   artifact before changing anything; then repair the projection from the authoritative stores and
   rerun the audit to `COMPLETE_FOR_KEY`. Never delete a store artifact merely because its search entry
   is inconsistent.
+
+- **22. Write `sourceSystem` onto the production value constraints, so that its absence means something.**
+  A controlled-term constraint may name the system serving its vocabulary, and both model libraries read
+  an absent `sourceSystem` as BioPortal —
+  [the value-constraint shape](VERSIONING-ROADMAP.md#6-the-value-constraint-shape) defines the field and
+  that default. The default is correct for production today, because every deployed constraint resolves
+  through BioPortal. It stops being correct as soon as the versioned terminology store serves a second
+  system: a constraint authored before the field existed and one that deliberately names BioPortal are
+  then indistinguishable, while routing has to honour the rule that a non-BioPortal source is never
+  proxied to BioPortal. Writing the default explicitly while it still holds turns silence into evidence.
+  After the sweep, a constraint carrying no `sourceSystem` marks an artifact the patch never reached.
+
+  The serving system cannot be derived from the term IRI, which is the tempting shortcut and a wrong one.
+  The 51 HuBMAP assay templates carry 504 branch constraints whose targets sit under
+  `https://purl.humanatlas.io/vocab/hravs#`, and every one of them resolves through BioPortal, which
+  serves that vocabulary as HuBMAP Research Attributes Value Set under the acronym HRAVS. The acronym,
+  paired with a system, is what addresses a source. So the rule writes `BioPortal` where the
+  constraint's acronym resolves in BioPortal, and reports the remainder for review instead of guessing.
+
+  Add it to `cedar_artifact_patch.py` as its own rule, under that tool's existing discipline: report by
+  default, write only under `--apply`, no change when rerun, refuse any constraint whose system it cannot
+  establish. It needs no library change, since both model libraries already read the field and write it
+  whenever a constraint carries one, so a patched artifact round-trips through the strict readers
+  unchanged. Keep the scope to this one field. The canonical ontology identity (`iri`, `sourceIri` in
+  YAML) is a separate mandatory field with its own derivation precedence, and the free-text `source`
+  display string is separately defective — 497 of those 504 HuBMAP branch constraints record
+  `"undefined (HRAVS)"` where BioPortal has the real name — so each wants a rule of its own rather than a
+  ride on this one. Background work with no deadline of its own. Its value lands at the terminology
+  cutover, which means it has to be finished before a second source system is served, not before
+  anything else.
