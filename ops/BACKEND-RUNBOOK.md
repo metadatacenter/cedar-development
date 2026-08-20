@@ -631,17 +631,18 @@ work. What is already stored keeps its orphans until something rewrites it, whic
 
 The rules above govern what the server accepts from now on. They say nothing about what a store
 already holds, and several defects are in circulation there: an empty `pav:derivedFrom`, an empty
-`@id` on an element occurrence, a `_ui.pages` the meta-schema forbids, an attribute-value field naming
-an attribute nobody named, a temporal field declaring no `temporalType`, a `@context` term whose
-attribute is gone, controlled-term constraints predating the versioned source fields, and an
-inherently multiple field deployed as an object rather than an array. An empty
-`pav:derivedFrom` stops the strict Java reader; the TypeScript compatibility reader opens it as
-absence and omits it on write, and an ordinary server update removes the inherited value. A blank
-occurrence `@id` stops strict readers, while CEE and the February 2024 TypeScript compatibility reader
-can open it and turn it into the `null` that an ordinary server update repairs. The patch is still
-required for artifacts nobody edits and for consumers that correctly choose strict reading.
+`@id` on an element occurrence, a `_ui.pages` the meta-schema forbids, an attribute-value field
+naming an attribute nobody named, a temporal field declaring no `temporalType`, a `@context` term
+whose attribute is gone, controlled-term constraints predating the versioned source fields, an
+inherently multiple field deployed as an object rather than an array, and a static field the stored
+schema demands of every instance. An empty `pav:derivedFrom` stops the strict Java reader; the
+TypeScript compatibility reader opens it as absence and omits it on write, and an ordinary server
+update removes the inherited value. A blank occurrence `@id` stops strict readers, while CEE and the
+February 2024 TypeScript compatibility reader can open it and turn it into the `null` that an
+ordinary server update repairs. The patch is still required for artifacts nobody edits and for
+consumers that correctly choose strict reading.
 
-One script finds and repairs all eight. It reports by default and writes only under `--apply`:
+One script finds and repairs all nine. It reports by default and writes only under `--apply`:
 
 ```bash
 python3 ops/cedar_artifact_patch.py --tree ../cedar-test-artifacts/artifacts
