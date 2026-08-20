@@ -100,7 +100,10 @@ ITEMS = {
     30: "orphan-context-term",
     31: "constraint-iri",
     32: "inherently-multiple-shape",
+    33: "static-field-required",
 }
+
+STATIC_TEMPLATE_FIELD = "https://schema.metadatacenter.org/core/StaticTemplateField"
 
 
 @dataclass
@@ -181,6 +184,54 @@ def detect_ui_pages(node: dict, source: str, path: str) -> Iterator[Finding]:
     else:
         yield Finding(28, source, f"{path}/_ui/pages", "empty _ui.pages, a key the meta-schema forbids",
                       lambda: ui.pop("pages", None))
+
+
+def detect_static_field_required(node: dict, source: str, path: str) -> Iterator[Finding]:
+    """33. A static field renders and holds nothing, so it is not a property of an instance, and
+    every CEDAR editor omits it when it builds one. A container that names such a child in
+    `required`, in `@context.required`, or in `@context.properties` therefore describes an instance
+    no editor produces, and no instance of it validates: the artifact is unsatisfiable as stored.
+
+    Two authoring paths put it there. Creating a field inline did so until the Template Designer
+    gained its `isStaticField` guard, and adding an existing first-class field still does, because
+    the path that adds one never had that guard. The `@context` block is written by a third place,
+    which asks only whether the field carries a property IRI and never what type it is.
+
+    The correction is settled, so the repair is offered: the name leaves all three lists, and the
+    property IRI goes with it, since a static field is addressed by none. `_ui.order` and
+    `_ui.propertyLabels` are where the field legitimately appears and are left alone."""
+    properties = node.get("properties")
+    if not isinstance(properties, dict):
+        return
+    context = properties.get("@context")
+    context_properties = context.get("properties") if isinstance(context, dict) else None
+    context_required = context.get("required") if isinstance(context, dict) else None
+    for name, child in properties.items():
+        target = child.get("items") if (isinstance(child, dict)
+                                        and isinstance(child.get("items"), dict)) else child
+        if not isinstance(target, dict) or target.get("@type") != STATIC_TEMPLATE_FIELD:
+            continue
+        named = []
+        if isinstance(node.get("required"), list) and name in node["required"]:
+            named.append("required")
+        if isinstance(context_required, list) and name in context_required:
+            named.append("@context.required")
+        if isinstance(context_properties, dict) and name in context_properties:
+            named.append("@context.properties")
+        if not named:
+            continue
+
+        def repair(child_name: str = name) -> None:
+            if isinstance(node.get("required"), list):
+                node["required"] = [k for k in node["required"] if k != child_name]
+            if isinstance(context_required, list) and child_name in context_required:
+                context_required.remove(child_name)
+            if isinstance(context_properties, dict):
+                context_properties.pop(child_name, None)
+
+        yield Finding(33, source, f"{path}/{name}",
+                      f"static field named in {', '.join(named)}, so no instance can satisfy it",
+                      repair)
 
 
 def detect_empty_attribute_name(node: dict, source: str, path: str) -> Iterator[Finding]:
@@ -488,6 +539,8 @@ def inspect_document(document: JsonNode, source: str, items: set[int], catalog: 
                 yield from detect_ui_pages(node, source, path)
             if 29 in items:
                 yield from detect_empty_attribute_name(node, source, path)
+            if 33 in items:
+                yield from detect_static_field_required(node, source, path)
             if 25 in items:
                 name = path.rsplit("/", 1)[-1] if path else ""
                 yield from detect_temporal_type(
