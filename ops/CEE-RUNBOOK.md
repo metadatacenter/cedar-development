@@ -552,6 +552,12 @@ through the same input. This applies to both `instanceObject` and the instance
 inside `templateAndInstanceObject`. The browser regression is in
 `visual/tests/render.spec.ts`, beside the other set-once input tests.
 
+A successful first form render calls `eventHandler.ready()` exactly once for the
+element. A rejected artifact calls no readiness callback, and attaching a handler
+after rendering does not replay one; hosts that use it register the handler before
+the artifact. The visual host still waits for fonts and layout after that signal,
+because screenshot stability is a stronger condition than editor readiness.
+
 ### Running against the old template parser
 
 **Historical.** The hand-written JSON walk was kept alongside the
