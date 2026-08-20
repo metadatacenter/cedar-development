@@ -141,16 +141,18 @@ npm run test:ci
 
 It runs these stages in order and stops at the first failure:
 
-1. Vitest unit specs under `src/`, in jsdom (`test:unit:ci`).
-2. The Vitest domain harness with V8 coverage (`test:domain:coverage`).
-3. A production build of the web component.
-4. Fixture preparation and the Playwright browser suite at desktop and narrow
+1. Fast Vitest unit specs under `src/`, in jsdom (`test:unit:ci`).
+2. Angular's native Vitest/TestBed coordinator tier, compiling the real wrapper,
+   editor and renderer templates with coverage thresholds (`test:coordinator`).
+3. The Vitest domain harness with V8 coverage (`test:domain:coverage`).
+4. A production build of the web component.
+5. Fixture preparation and the Playwright browser suite at desktop and narrow
    viewport sizes (`test:visual`).
-5. The npm package, staged from the bundle stage 4 just built and then verified
+6. The npm package, staged from the bundle stage 5 just built and then verified
    byte-for-byte against the source each file came from
    (`package:npm:prebuilt`).
 
-Stage 5 leaves `dist-npm/` present and current. That directory is what a consumer
+Stage 6 leaves `dist-npm/` present and current. That directory is what a consumer
 can be pointed at to try an unpublished build, by symlinking its
 `node_modules/cedar-embeddable-editor` at it — described under "Getting a Local
 Build Into the Frontends". A fresh clone has no `dist-npm/` until something stages
@@ -447,10 +449,10 @@ Angular 22's rule set reported 413 errors, of which 411 were `prefer-control-flo
 `prefer-on-push-component-change-detection` (43). Each asks for an architectural
 rewrite that is tracked elsewhere or placed out of scope, and a gate nobody can
 pass gets ignored rather than fixed. The OnPush one is not deferred but wrong for
-CEE: it renders from `DoCheck` and mutates model objects in place, so OnPush would
-stop the view updating, and obeying it would undo by hand the Angular 22 migration
-that stamped `Eager` onto all 46 components. Moving to OnPush means moving to
-immutable updates or signals first.
+CEE: the coordinator mutates model objects in place and the component tree reads
+them under eager change detection, so OnPush would stop parts of the view updating.
+Obeying it would undo by hand the Angular 22 migration that stamped `Eager` onto all
+46 components. Moving to OnPush means moving to immutable updates or signals first.
 
 **A lint upgrade proves nothing until the gate is shown to still fail.** Before the
 toolchain moved, deliberate violations of `eqeqeq`, `banana-in-box`,
@@ -557,6 +559,15 @@ element. A rejected artifact calls no readiness callback, and attaching a handle
 after rendering does not replay one; hosts that use it register the handler before
 the artifact. The visual host still waits for fonts and layout after that signal,
 because screenshot stability is a stronger condition than editor readiness.
+
+Model-to-widget synchronization has one owner: the wrapper-scoped
+`RenderSchedulerService`. Artifact input, multi-instance paging and mutation, and
+page-break navigation update model state synchronously and schedule their registry
+push with Angular's `afterNextRender`. Each schedule advances a generation and
+cancels the previous one, so rapid inputs cannot apply stale state to a newer
+component tree. Destroying the editor scope cancels pending work. Do not introduce a
+local `setTimeout` to wait for a widget; schedule the whole post-render transition
+through this service instead.
 
 ### Running against the old template parser
 
@@ -846,6 +857,20 @@ This is the headless, single-run form included in `npm run test:ci`. The root
 `npm test` runs the same specs through Vitest, and `test:watch` is the
 interactive form. The unit layer is small; do not treat it as a substitute for
 the domain and browser stages.
+
+The coordination layer has a separate Angular-aware tier:
+
+```bash
+npm run test:coordinator
+```
+
+This is Angular's native Vitest builder, not the root hand-written Vitest config.
+It initializes `TestBed`, compiles component templates and styles, and renders the
+real wrapper → editor → renderer tree. It also tests scheduler supersession and
+teardown. Coverage is deliberately limited to those coordinator files and fails
+below 45% statements, 35% branches, 55% functions, or 45% lines. The root runner
+excludes `*.coordinator.spec.ts`; adding a TestBed spec anywhere else is therefore
+a configuration error rather than an accidentally half-working test.
 
 ---
 
