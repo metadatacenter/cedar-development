@@ -1184,11 +1184,27 @@ what it buys is that a suite which forgets cannot leak inside a run that passes.
 
 Attributing a leftover starts with the timestamp in its name, and that timestamp is UTC. `REST Suites
 2026-08-19T04-27-53` was created at 21:27 the previous evening in Pacific time, seven hours earlier
-than it reads, which is enough to credit one run's mess to another. Removing leftovers by hand needs
-their identifiers rather than their names: `ops/e2e/cleanup-smoke-leftovers.mjs` takes
-`[[type, name, id], …]` and deletes in dependency order, instances before the templates that embed
-them, elements and fields next, folders last and deepest first, since a folder still holding anything
-cannot be removed.
+than it reads, which is enough to credit one run's mess to another.
+
+`ops/e2e/cleanup-smoke-leftovers.mjs` finds and removes them. Run with no arguments it reports what
+it found and deletes nothing; `--apply` deletes. It keys on that same run stamp, and a stamped folder
+carries its whole subtree, so an artifact the suites created inside a working folder without stamping
+its own name goes with it. Deletion follows dependency order: instances before the templates they
+populate, elements and fields after the templates that embed them, folders last and deepest first,
+since a folder still holding anything cannot be removed. A JSON list of `[type, name, id]` triples
+still deletes exactly those, for when a run has already named its casualties.
+
+**It covers the category tree, which sits outside the folder tree.** Two stray categories from that
+interrupted run survived a cleanup that walked only folders, and were found the next day in the
+Workbench's category filter rather than by anything that reported on the run. Deleting one needs
+`CEDAR_ADMIN_USER_API_KEY`, since a category belongs to the administrator who created it, and the
+tool refuses rather than half-finishing when the key is absent. Matching is by the stamp in the name
+and not by `schema:identifier`: the suite that exercises renaming leaves the parent category's
+identifier null.
+
+Anything younger than fifteen minutes is reported and skipped, because a run still in flight names
+its working folder exactly as a dead one did and two sessions share this stack. `--min-age=0`
+includes it, which is what to pass when the run is known to be over.
 
 **The artifact server is addressed on its port, not through a vhost.** Several checks read it directly
 to confirm a write reached the datastore, and `artifact.${CEDAR_HOST}` answers 404: the artifact server
