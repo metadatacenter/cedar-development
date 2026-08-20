@@ -545,6 +545,13 @@ readers also continue to reject a blank occurrence identifier. The February
 legacy occurrence with a warning and writes `null`. The regression contract is
 in `harness/test/occurrence-identity.spec.ts`.
 
+Deserialization failure at the custom-element boundary is fail-closed. CEE sends
+an actionable error through `eventHandler`, renders no replacement empty form,
+and does not spend the instance's set-once claim; the host may correct the value
+through the same input. This applies to both `instanceObject` and the instance
+inside `templateAndInstanceObject`. The browser regression is in
+`visual/tests/render.spec.ts`, beside the other set-once input tests.
+
 ### Running against the old template parser
 
 **Historical.** The hand-written JSON walk was kept alongside the
