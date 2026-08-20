@@ -112,23 +112,19 @@ commit that opened it.
    honestly. Decide which before the label, the `.ttl` or `.nq` extension and the `text/turtle` or
    `application/n-quads` media type are written into the descriptor.
 
-6. **A declared default reaches the form only when the field is an enumeration.** `_valueConstraints`
-   may name a default on any field, and CEE seeds one into the empty instance it builds from a
-   template only where the field carries choices: `DataObjectBuilderHandler` sets the empty slot for
-   every field, then fills a value only inside `if (component?.choiceInfo?.choices?.length > 0)`. So a
-   radio, checkbox or list arrives pre-selected, while a text, numeric, temporal or controlled-term
-   default is read from the template, exposed on the model, rendered in the read-only specification —
-   and never offered to somebody filling the form in, who has to type what the template already
-   said. Decide whether seeding is the intended behaviour for the rest, then either seed them or say
-   in the host documentation that CEE presents a non-enumerated default rather than applying it.
+6. **The TypeScript model library drops numeric and temporal defaults.** CEE now applies every
+   default the library exposes while it builds a new instance: selected choice literals, text and
+   textarea literals, and controlled terms as an IRI/label pair. That happens before rendering, so
+   hidden and later-page fields agree with visible ones, and rendering an explicitly blank supplied
+   instance cannot replace the blank with the template default. `ChildSpec` can generate options and
+   literal or term defaults, and the domain and browser suites cover both a new instance and a blank
+   supplied one.
 
-   Two things follow. The literal case is a one-line change (the branch above already knows the empty
-   slot and the XSD type), but the controlled-term case is not: `getSingleValueWrapper` deliberately
-   returns an empty slot for a controlled field, and a term default carries an IRI and a label that
-   the instance has to record as a pair.
-
-   The test harness cannot currently express either. Its four choice kinds — radio, checkbox, and the
-   two list flavours — are built with no options at all, so no generated template has a default
-   option to seed, and `view-sync.spec.ts` pins the clearing rule that read-only rendering depends on
-   only from the other side: that a value pushed into a read-only form survives. Give `ChildSpec`
-   options and a default, and the seeded path becomes testable in both modes.
+   Numeric and temporal defaults remain upstream work. The Java artifact library reads, writes and
+   builds both (`NumericField.withDefaultValue(Number)` and
+   `TemporalField.withDefaultValue(String)`), but the TypeScript library's `ValueConstraintsNumericField`
+   and `ValueConstraintsTemporalField` have no `defaultValue`, their readers do not retain one, and
+   their builders expose no `withDefaultValue`. Add the two typed default contracts, JSON/YAML
+   reader-writer round trips and builder methods there; then map them into CEE's `ValueInfo` and add
+   numeric and temporal cases to the same generated default matrix. Until that model release lands,
+   CEE cannot seed those two kinds without bypassing its artifact boundary and re-reading raw JSON.
