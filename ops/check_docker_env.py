@@ -12,8 +12,8 @@ This asks the code for the answer rather than reading the descriptor by eye: it 
 cedar-config-library and compares the result with what each container actually receives, which is
 the union of the compose environment list and the ENV lines baked into the image and its bases.
 
-    ops/check_docker_env.py                # uses the built jar under cedar-config-library/target
-    ops/check_docker_env.py --jar PATH     # or a jar you point it at
+    ops/check_docker_env.py                # uses built jars or artifacts from the local Maven repo
+    ops/check_docker_env.py --jar PATH     # or a config-library jar you point it at
 
 Exits non-zero if any server is missing a variable it needs.
 """
@@ -48,18 +48,20 @@ for (SystemComponent c : SystemComponent.values()) {
 def find_jar(pattern, explicit=None):
     if explicit:
         return Path(explicit)
-    for root in (CEDAR_HOME / "cedar-config-library" / "target", Path.home() / ".m2" / "repository"):
+    for root in (CEDAR_HOME / "cedar-config-library" / "target",
+                 CEDAR_HOME / "cedar-core-library" / "target",
+                 Path.home() / ".m2" / "repository"):
         hits = [p for p in root.rglob(pattern) if "sources" not in p.name and "original" not in p.name]
         if hits:
             return sorted(hits)[-1]
     return None
 
 
-def required_by_server(config_jar, model_jar):
+def required_by_server(config_jar, core_jar):
     """Ask the code which variables each server needs."""
     java_home = os.environ.get("JAVA_HOME", "")
     jshell = Path(java_home, "bin", "jshell") if java_home else Path("jshell")
-    cp = f"{config_jar}:{model_jar}" if model_jar else str(config_jar)
+    cp = f"{config_jar}:{core_jar}"
     proc = subprocess.run([str(jshell), "--class-path", cp, "-q", "-"],
                           input=DUMP, capture_output=True, text=True)
     out = {}
@@ -101,9 +103,11 @@ def main():
     config_jar = find_jar("cedar-config-library-*.jar", args.jar)
     if not config_jar:
         sys.exit("No cedar-config-library jar found. Build it, or pass --jar.")
-    model_jar = find_jar("cedar-model-library-*.jar")
+    core_jar = find_jar("cedar-core-library-*.jar")
+    if not core_jar:
+        sys.exit("No cedar-core-library jar found. Build the libraries, or fetch it from Nexus.")
 
-    required = required_by_server(config_jar, model_jar)
+    required = required_by_server(config_jar, core_jar)
     compose = compose_env_by_service()
     base_env = set()
     for base in BASE_IMAGES:
