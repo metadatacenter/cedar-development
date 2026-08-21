@@ -52,7 +52,6 @@ SERVICES=(
   "ui-openview 4220 0"
   "ui-content 4240 0"
   "ui-monitoring 4300 0"
-  "ui-artifacts 4320 0"
   "ui-bridging 4340 0"
 )
 
@@ -62,7 +61,6 @@ fe_dir() {
     ui-openview)   echo "$CEDAR_HOME/cedar-openview/cedar-openview-src" ;;
     ui-content)    echo "$CEDAR_HOME/cedar-content-distribution" ;;
     ui-monitoring) echo "$CEDAR_HOME/cedar-monitoring/cedar-monitoring-src" ;;
-    ui-artifacts)  echo "$CEDAR_HOME/cedar-artifacts/cedar-artifacts-src" ;;
     ui-bridging)   echo "$CEDAR_HOME/cedar-bridging/cedar-bridging-src" ;;
   esac
 }

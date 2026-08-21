@@ -962,11 +962,14 @@ Frontend work for the embeddable editor is tracked separately in
      third profile.
 
   7. **Decide which frontends there are, then settle their publishing.** Publishing is the visible
-     half and probably not the first question. The estate builds six frontend images — the template
-     editor at `cedar.<host>`, plus openview, monitoring, artifacts, bridging and content — and the
-     working view is that only three are really needed: the template editor, openview and monitoring.
-     If that holds, artifacts, bridging and content are candidates for removal rather than things to
-     fix. This was deferrable while the containerized path was evaluation-only. It is now on the
+     half and probably not the first question. The Artifacts frontend has now been retired from the
+     CLI, Docker build/deploy definitions, native startup, nginx and Keycloak configuration; the
+     workspace and Template Designer integrations are deliberately being handled separately. The
+     estate therefore builds five frontend images — the template editor at `cedar.<host>`, plus
+     openview, monitoring, bridging and content — and the working view is that only three are really
+     needed: the template editor, openview and monitoring. If that holds, bridging and content are
+     candidates for removal rather than things to fix. This was deferrable while the containerized
+     path was evaluation-only. It is now on the
      critical path, because production serves the frontends: either their images publish, or a
      production deploy keeps a native frontend build on the box and is a hybrid.
 
@@ -975,7 +978,7 @@ Frontend work for the embeddable editor is tracked separately in
      it installs Node and runs `gulp`, where the other five unpack a published tarball into nginx.
 
      The publishing state: all eighteen Java artifacts resolve at the current snapshot and none of
-     the six frontend tarballs do. `npm-cedar` holds `2.9.1-SNAPSHOT` for five of them — all five
+     the five frontend tarballs do. `npm-cedar` holds `2.9.1-SNAPSHOT` for four of them — all four
      stopped at the same release, which reads as publishing happening at release time rather than any
      one repository falling behind — and has never held `cedar-content-distribution` at any version,
      which release timing does not explain and which is itself evidence about whether that one is
@@ -996,7 +999,7 @@ Frontend work for the embeddable editor is tracked separately in
      artefact of a natively-built frontend against a containerized backend, and the comparison that
      would settle it is the same browser smoke against the native backend.
 
-  8. **Give the frontends a local-build path.** The other half of the Nexus decoupling. The six
+  8. **Give the frontends a local-build path.** The other half of the Nexus decoupling. The five
      frontend images download a tarball with no local equivalent, so an edit-compile-run loop works
      for the backend and not the UI.
 
@@ -1005,6 +1008,15 @@ Frontend work for the embeddable editor is tracked separately in
      fresh clone rather than this machine. The question is whether the repo should carry certificates
      at all rather than issue them at setup, and a production deploy is what forces it: prod nginx
      serves real certificates that cannot come from a checked-in bundle.
+
+     - **Retire the Artifacts route certificates with the live route.** The checked-in development
+       and Docker leaf certificates have been removed; the CA index entries remain intentionally as
+       immutable issuance history. When the excluded workspace and Template Designer integrations no
+       longer need `artifacts.<host>`, remove that name from every live nginx/load-balancer route, DNS
+       zone, certificate request/SAN list and renewal job, then revoke or retire any environment leaf
+       certificate according to the issuer's policy. Verify that the hostname no longer resolves or
+       serves TLS and that the next scheduled renewal does not recreate it. Do not delete CA audit
+       records to make the inventory appear clean.
 
   10. **Deploy containerized services to staging, then production.** The goal the items above serve.
      Services and nginx as containers, data stores native and untouched, on both existing hosts.

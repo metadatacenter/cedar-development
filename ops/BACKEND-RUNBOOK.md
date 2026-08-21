@@ -134,7 +134,7 @@ frontends:
 ```bash
 docker stop infra-nginx                       # frees 80/443
 startnginx                                    # sudo; the native nginx
-ops/cedar-services.sh start frontend ui-openview ui-content ui-monitoring ui-artifacts ui-bridging
+ops/cedar-services.sh start frontend ui-openview ui-content ui-monitoring ui-bridging
 ```
 
 Naming the services matters: a bare `cedar-services.sh start` would also start the fifteen native
@@ -404,13 +404,13 @@ code. If you changed a shared library, `./mvnw clean install` in the consuming s
 
 ## The controller: `ops/cedar-services.sh`
 
-Manages the 15 microservices + the main frontend (`gulp`) + the 5 auxiliary Angular frontends as
+Manages the 15 microservices + the main frontend (`gulp`) + the 4 auxiliary Angular frontends as
 background (`nohup`) processes, each logging to `$CEDAR_HOME/log/`, PIDs tracked in
 `$CEDAR_HOME/log/run/`. It forces `JAVA_HOME=17`, puts `/opt/homebrew/bin` on `PATH` (for `node`/`ng`),
 and sources the profile itself, so it is safe to run standalone.
 
 The auxiliary frontends are the `ui-*` entries — `ui-openview` (4220), `ui-content` (4240),
-`ui-monitoring` (4300), `ui-artifacts` (4320), `ui-bridging` (4340) — each run as `ng serve` from its
+`ui-monitoring` (4300), `ui-bridging` (4340) — each run as `ng serve` from its
 `cedar-<name>[-src]` source dir (see `fe_dir()`). They are named `ui-*` because `openview`/`monitor`/
 `bridge` are already microservice names. Their health is **port-only** (no Dropwizard `/healthcheck`).
 `cedarcli start frontends` starts the same set but opens a macOS Terminal tab per app; this controller
@@ -467,7 +467,7 @@ one Terminal tab per service so a developer can watch/restart each. That does no
 Admin port = app port + 100; health check at `http://127.0.0.1:<admin>/healthcheck`.
 
 Auxiliary frontends (Angular `ng serve`, port-only health): `ui-openview` 4220, `ui-content` 4240,
-`ui-monitoring` 4300, `ui-artifacts` 4320, `ui-bridging` 4340. Non-essential CEE demos (not started by
+`ui-monitoring` 4300, `ui-bridging` 4340. Non-essential CEE demos (not started by
 default): `demo.cee` 4260, `cee-dev` 4400.
 
 ## The Redis queues, and where failed permission events go

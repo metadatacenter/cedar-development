@@ -272,25 +272,25 @@ scope and this is the only package taken from Nexus:
 "cedar-embeddable-editor": "npm:@org.metadatacenter/cedar-embeddable-editor@2.0.0-dev.20260818.6dca9bf"
 ```
 
-All seven manifests already carry the `@org.metadatacenter:registry` line an alias
+All six manifests already carry the `@org.metadatacenter:registry` line an alias
 needs. Install, then get the bundle into what each host serves:
 
 | Host | Install | Then |
 |---|---|---|
 | `cedar-template-editor` | plain | `npx gulp copy:cee` (needs the profile sourced) |
-| `cedar-artifacts`, `cedar-bridging` | plain | `cedarcli build this` |
+| `cedar-bridging` | plain | `cedarcli build this` |
 | `cedar-openview` | `--legacy-peer-deps` | `cedarcli build this` — it copies `dist/cedar-openview` into `cedar-openview-dist` |
 | `cedar-component-demo` (Angular) | `--legacy-peer-deps` | `cedarcli build this` |
 | `cedar-component-demo` (Ember, React) | plain | nothing — they run from source |
 
 A build refreshes what is on disk. A **running `ng serve` still serves what it
 started with**, because a `node_modules` swap is not a source change, so
-`ui-openview`, `ui-artifacts` and `ui-bridging` need restarting; the same
+`ui-openview` and `ui-bridging` need restarting; the same
 `.angular/cache` caveat above applies to openview. The CEDAR workspace needs no
 restart — it serves the file `copy:cee` wrote, so the copy is the deploy.
 
 ```bash
-bash $CEDAR_HOME/cedar-development/ops/cedar-services.sh restart ui-openview ui-artifacts ui-bridging
+bash $CEDAR_HOME/cedar-development/ops/cedar-services.sh restart ui-openview ui-bridging
 ```
 
 Compilation is seconds, not minutes: `ng serve` reports `Compiled successfully` in
@@ -305,9 +305,9 @@ and checking the wrong file reads exactly like a failed deploy:
 |---|---|
 | CEDAR workspace (`cedar-template-editor`) | `/third_party_components/cedar-embeddable-editor/cedar-embeddable-editor.js` |
 | openview | `/node_modules/cedar-embeddable-editor/cedar-embeddable-editor.js` |
-| artifacts, bridging | bundled, not served as a file — it is imported in `app.module.ts`. **Which bundle depends on which build**: the running `ng serve` splits it into `vendor.js`, and the checked-in production dist emits no `vendor.js` at all, carrying it in `main.js`. |
+| bridging | bundled, not served as a file — it is imported in `app.module.ts`. **Which bundle depends on which build**: the running `ng serve` splits it into `vendor.js`, and the checked-in production dist emits no `vendor.js` at all, carrying it in `main.js`. |
 
-For the first two, compare sha256 against the staged bundle. For the last two
+For the first two, compare sha256 against the staged bundle. For the bundled case
 there is no file to hash: grep the bundle for the load-trace stamp, which names
 one build exactly. The version string alone is not enough — the bundle holds every
 dependency's version, so a bare `1.6.0` in it may belong to something else
@@ -321,8 +321,8 @@ mistaken for one.
 ```bash
 curl -s http://127.0.0.1:4220/node_modules/cedar-embeddable-editor/cedar-embeddable-editor.js | shasum -a 256
 curl -sk https://cedar.metadatacenter.orgx/third_party_components/cedar-embeddable-editor/cedar-embeddable-editor.js | shasum -a 256
-curl -s http://127.0.0.1:4320/vendor.js | grep -c '<the load-trace stamp>'
-grep -c '<the load-trace stamp>' $CEDAR_HOME/cedar-artifacts/cedar-artifacts-dist/main.js
+curl -s http://127.0.0.1:4340/vendor.js | grep -c '<the load-trace stamp>'
+grep -c '<the load-trace stamp>' $CEDAR_HOME/cedar-bridging/cedar-bridging-dist/main.js
 ```
 
 ### First-time setup
@@ -1218,7 +1218,7 @@ routes by scope, and pointing a whole app at Nexus would break every dependency 
 
 Version is surfaced at runtime as `window.cedarEmbeddableEditorVersion`.
 
-> `gocee`, `gocedar`, `goartifacts`, `gobridging` are CEDAR profile aliases (cd to the respective
+> `gocee`, `gocedar` and `gobridging` are CEDAR profile aliases (cd to the respective
 > repo). **Never commit npm tokens, passwords, or OTPs.**
 
 ### Prerequisites — registry auth
@@ -1325,13 +1325,13 @@ curl -s "https://nexus.bmir.stanford.edu/repository/npm-cedar/@org.metadatacente
 
 ### 5 · Propagate
 
-Seven manifests across five repos depend on CEE. Each names one exact version, resolved from npmjs:
+Six manifests across four repos depend on CEE. Each names one exact version, resolved from npmjs:
 
 ```json
 "cedar-embeddable-editor": "1.6.0"
 ```
 
-All seven are pinned to `1.6.0`, and their lockfiles record the npmjs tarball
+All six are pinned to `1.6.0`, and their lockfiles record the npmjs tarball
 (`registry.npmjs.org/cedar-embeddable-editor/-/cedar-embeddable-editor-1.6.0.tgz`) with its integrity
 hash, so what installs is reproducible. Installing needs no credential; only publishing does.
 
@@ -1342,7 +1342,6 @@ would need if a dev channel ever returns.
 | Repo | Manifest | Install |
 |---|---|---|
 | `cedar-template-editor` | `package.json` | plain |
-| `cedar-artifacts` | `cedar-artifacts-src/package.json` | plain |
 | `cedar-bridging` | `cedar-bridging-src/package.json` | plain |
 | `cedar-openview` | `cedar-openview-src/package.json` | `--legacy-peer-deps` |
 | `cedar-component-demo` | `cedar-cee-demo-angular-src` | `--legacy-peer-deps` |
@@ -1359,7 +1358,6 @@ appear in each consumer's `node_modules`, and again wherever that consumer stage
 OpenView.
 
 ```bash
-goartifacts && npm install && cd .. && cedarcli build this
 gobridging  && npm install && cd .. && cedarcli build this
 ```
 
