@@ -180,6 +180,27 @@ deployment window must be approved first. The invariant is that **routing is the
 action**: both extracted applications and the known monolith rollback target are already running,
 and neither cutover nor rollback rebuilds an application or changes stored data.
 
+### Local route-only rehearsal
+
+Run the automated routing rehearsal before preparing a staging change. It requires the monolith,
+Workspace, and Designer to be listening locally on ports 4200-4202; they can be native Gulp servers
+or already-built local images.
+
+```sh
+cd "$CEDAR_HOME/cedar-docker-deploy/cedar-frontend"
+./rehearse-routing-switch.sh
+```
+
+The script owns only disposable gateways on ports 4280 and 4282. It first proves Workspace ownership
+of the canonical dashboard and instance routes, Designer ownership of its independent origin, and
+exact path/query preservation through temporary HTTP 307 redirects for the three design route
+families. It then swaps the complete canonical nginx configuration to the monolith and proves all
+routes there. The canonical gateway must change identity, the Designer gateway must not, and every
+application container ID or native PID must remain unchanged. The gateways are removed on exit.
+
+This is a route-mechanics and rollback gate, not staging acceptance: it has no TLS or authentication
+and makes no realm, hostname, production Compose, or data change.
+
 ### Evidence required before routing changes
 
 - Record the monolith commit, version modifier, deployed bundle identity, and current nginx

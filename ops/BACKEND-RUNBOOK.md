@@ -1798,8 +1798,25 @@ The defaults target `http://localhost:4201`, `http://localhost:4202`, the profil
 the native resource service on port 9007. For a remote preview deployment, set
 `CEDAR_WORKSPACE_PREVIEW`, `CEDAR_DESIGNER_PREVIEW`, `CEDAR_AUTH_URL`, and `CEDAR_RESOURCE_API`.
 This check intentionally stops at the authentication boundary; it does not enter credentials or
-mutate data. After the preview origins are authorized in Keycloak, run the split-aware form of the
-full Playwright journey:
+mutate data.
+
+The route-only cutover and rollback can be rehearsed locally before that authorization. Start the
+monolith and the two extracted applications on ports 4200-4202 (native Gulp servers or the local
+preview images), then run:
+
+```bash
+cd $CEDAR_HOME/cedar-docker-deploy/cedar-frontend
+./rehearse-routing-switch.sh
+```
+
+Disposable nginx gateways prove split ownership and exact HTTP 307 path/query preservation, replace
+only the complete canonical route table, and then prove every route is back on the monolith. The
+gate also verifies that the three application container IDs or native PIDs and the Designer gateway
+do not change. It removes both gateways on exit and deliberately performs no authentication, realm,
+hostname, production Compose, or data change.
+
+After the preview origins are authorized in Keycloak, run the split-aware form of the full
+Playwright journey:
 
 ```bash
 cd $CEDAR_HOME/cedar-development/ops/e2e
