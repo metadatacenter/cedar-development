@@ -1,7 +1,9 @@
 # CEDAR Docker Backend Roadmap
 
-Scope: make the seven infrastructure and fifteen Java microservice containers a repeatable,
-registry-backed deployment. Frontends and admin tools are deliberately excluded.
+Primary scope: make the seven infrastructure and fifteen Java microservice containers a repeatable,
+registry-backed deployment. Frontend images and admin tools remain outside the 24-image backend
+release count. The native-frontend hybrid and the separate Workspace/Designer image migration are
+tracked in a parallel lane below so their deployment boundary is explicit.
 
 The current state is a useful development deployment, not yet a release delivery path: all images
 build and the entire backend passes its REST gate, but a fresh machine cannot pull the snapshot image
@@ -138,6 +140,78 @@ Build and test every supported architecture explicitly, or declare amd64-only if
 contract. Record Docker/Compose minimum versions and CPU, memory, and disk requirements for a cold
 22-container start and a representative REST run.
 
+## Parallel frontend migration lane
+
+The current modes are intentionally different:
+
+- the proven development hybrid serves seven frontends from native Node.js processes through Docker
+  nginx, while all 22 backend containers remain in Docker;
+- `docker-compose.preview.yml` can run only the extracted Workspace and Designer images on
+  `cedarnet`; and
+- the normal `cedar-frontend/docker-compose.yml` remains unchanged and does not start Workspace or
+  Designer.
+
+Docker nginx now has Workspace and Designer virtual hosts for both the native hybrid and the
+opt-in preview. That routing support is not approval to promote the two images into the normal
+frontend lifecycle.
+
+### F1. Make hybrid mode explicit and self-validating
+
+Replace the manual environment override block with a named profile or CLI workflow that starts only
+the native frontends, recreates nginx with `host.docker.internal` upstreams, and validates every
+route. Preserve native-only and full-Docker defaults.
+
+Acceptance criteria:
+
+- the selected mode is visible in generated configuration and status output;
+- all seven frontend hostnames are checked against their expected upstream port;
+- recreating nginx cannot silently switch a hybrid deployment to reserved container addresses;
+- stopping the hybrid frontends leaves the Docker backend and its data untouched; and
+- the request path and source ownership remain documented in the Docker runbook.
+
+### F2. Publish Workspace and Designer preview images to Nexus
+
+Publish `cedar-frontend-workspace` and `cedar-frontend-template-designer` only after their source,
+image, and split-contract gates pass. Use the same configurable registry prefix planned in P0, but
+keep a frontend release manifest separate from the 24-image backend manifest until promotion.
+
+Acceptance criteria:
+
+- a clean Docker engine can pull both images from Nexus by immutable digest;
+- image metadata records the complete source commit and whether the source tree was dirty;
+- runtime configuration identifies the public Workspace and Designer origins;
+- neither repository credential nor environment-specific URL is baked into a reusable image; and
+- publishing a failed or partial pair cannot update the deployable preview alias.
+
+### F3. Establish the split-frontend acceptance and rollback gate
+
+Run the preview on its production-shaped HTTPS hostnames and preserve evidence from the credential-
+free contract, Keycloak origin preflight, authenticated cross-origin navigation journey, and bundle
+recorder. Include the nginx long-request regression because the hybrid originally exposed the
+default 60-second timeout.
+
+Acceptance criteria:
+
+- Workspace and Designer shells, navigation origins, Keycloak callbacks, and REST CORS pass;
+- Workspace-to-Designer SSO and exact `returnTo` restoration pass in a browser;
+- the deployed source commits and generated bundle digests are recorded;
+- a request exceeding 60 seconds succeeds under the documented 180-second proxy timeout; and
+- rollback selects a complete previous routing configuration and image digest pair.
+
+### F4. Promote into the normal Docker frontend lifecycle only by explicit decision
+
+After staging acceptance, decide whether to add Workspace and Designer to the normal frontend
+Compose project, image manifest, CLI build/start groups, status output, and volume cleanup. Until
+then, keep `docker-compose.preview.yml` opt-in and keep the native hybrid as the development path.
+
+Acceptance criteria:
+
+- promotion is one reviewed change across build, deploy, CLI, documentation, and tests;
+- normal startup either starts the complete approved frontend set or fails before partial creation;
+- no hostname can fall through to another frontend's default nginx virtual host;
+- rollback restores the preceding complete frontend set without changing backend data; and
+- the native hybrid is retired only after the image-based path meets the same functional gates.
+
 ## Recommended delivery slices
 
 1. **Nexus pull path:** items 1-3. Outcome: a fresh machine can pull and authenticate correctly.
@@ -145,4 +219,5 @@ contract. Record Docker/Compose minimum versions and CPU, memory, and disk requi
 3. **Release gate:** items 5-6. Outcome: the digest that passed is the digest promoted.
 4. **Durability and hardening:** items 7-11. Outcome: recoverable, auditable operation beyond a
    developer workstation.
-
+5. **Frontend migration:** F1-F4. Outcome: retain the proven hybrid now, publish and validate the
+   split images independently, then promote them only after an explicit staging decision.

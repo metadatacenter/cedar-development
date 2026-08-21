@@ -119,11 +119,13 @@ item; the historical `CEDAR_DOCKERHUB` instructions require manual retagging.
 Certificates come from `$CEDAR_HOME/CEDAR_CA` when it exists, and only fall back to the expired set
 bundled in `cedar-docker-deploy/cedar-assets` when it does not.
 
-**The frontends are not part of this yet.** Their npm tarballs are not published at the current
-snapshot, so those six images do not build; the API hosts work and the UI hosts answer 502. Running
-the REST estate against the containers therefore needs the two services that have no vhost addressed
-directly, and Keycloak addressed on its published port, because container addresses are not routable
-from macOS:
+**The 22-container backend proof does not start a frontend Compose project.** Do not infer frontend
+status from a 22/22 backend health result. The currently proven interactive mode runs all seven
+frontends natively through Docker nginx; the extracted Workspace and Designer images also have a
+separate opt-in preview Compose file. Neither fact adds those two applications to the unchanged
+normal Docker frontend stack. Running the REST estate without frontends still needs the two services
+that have no vhost addressed directly, and Keycloak addressed on its published port, because
+container addresses are not routable from macOS:
 
 ```bash
 cd ops/e2e
@@ -143,12 +145,33 @@ then bring up native as above.
 
 ### Running the native frontends against the containerized backend
 
-Useful while the frontend images cannot build. Docker nginx can serve the public hostnames and proxy
-to native frontend development servers on the Mac. This was proven on Docker Desktop on 2026-08-21;
-all five UI hostnames returned 200 through Docker nginx, and the browser smoke completed login,
-fixture creation, BioPortal constraint lookup, and template creation.
+This is the current interactive development mode for a full Docker backend. Docker nginx serves the
+public hostnames and proxies to native frontend development servers on the Mac. This was proven on
+Docker Desktop on 2026-08-21: all seven UI hostnames returned 200, the Workspace/Designer hostname,
+Keycloak, navigation-origin, and REST-CORS gates passed, and the earlier browser smoke completed
+login, fixture creation, BioPortal constraint lookup, and template creation.
 
-The main Gulp frontend already binds all interfaces. The four Angular development servers default
+No frontend application code is copied into the nginx container. A Workspace request, for example,
+travels from the browser to Docker's published port 443, through the Workspace nginx virtual host,
+to `host.docker.internal:4201`; the native Gulp server then serves
+`$CEDAR_HOME/cedar-workspace/app/index.html` and its assets. Browser API requests return to Docker
+nginx on the API hostnames and are proxied over `cedarnet` to the Java containers.
+
+| Public hostname | Native source root | Server | Port |
+| --- | --- | --- | ---: |
+| `cedar.metadatacenter.orgx` | `cedar-template-editor/app` | Gulp / gulp-connect | 4200 |
+| `workspace.metadatacenter.orgx` | `cedar-workspace/app` | Gulp / gulp-connect | 4201 |
+| `designer.metadatacenter.orgx` | `cedar-template-designer/app` | Gulp / gulp-connect | 4202 |
+| `openview.metadatacenter.orgx` | `cedar-openview/cedar-openview-src` | Angular CLI / `ng serve` | 4220 |
+| `content.metadatacenter.orgx` | `cedar-content-distribution` | Angular CLI / `ng serve` | 4240 |
+| `monitoring.metadatacenter.orgx` | `cedar-monitoring/cedar-monitoring-src` | Angular CLI / `ng serve` | 4300 |
+| `bridging.metadatacenter.orgx` | `cedar-bridging/cedar-bridging-src` | Angular CLI / `ng serve` | 4340 |
+
+These are seven independent Node.js processes: three legacy AngularJS applications use Gulp and
+four newer Angular applications use Angular CLI. The focused Docker procedure, verification, stop
+path, and three-mode comparison are in [DOCKER-BACKEND-RUNBOOK.md](./DOCKER-BACKEND-RUNBOOK.md).
+
+The three Gulp frontends already bind all interfaces. The four Angular development servers default
 to loopback for safety; opt them into the Docker hybrid bind, and name only frontend services so the
 fifteen native JVMs do not collide with the containers:
 

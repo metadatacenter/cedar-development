@@ -1,7 +1,10 @@
 # CEDAR Docker Backend Runbook
 
 This is the focused operating guide for the CEDAR backend in Docker: seven infrastructure
-containers and fifteen Java microservices. Frontends and admin tools are out of scope.
+containers and fifteen Java microservices. The backend is the deployment unit covered by the
+build, health, and REST acceptance gates. An optional native-frontend hybrid is documented here as
+an attachment to that backend; frontend images and admin tools are not included in the 22-container
+backend count.
 
 The broader native and hybrid guide remains in [BACKEND-RUNBOOK.md](./BACKEND-RUNBOOK.md). Work
 needed to make this a registry-driven, production-ready deployment is tracked in
@@ -29,6 +32,7 @@ P0 registry work in the roadmap is complete.
 | --- | ---: | --- |
 | Infrastructure | 7 | 80/443, 3306, 6379, 7474/7687, 8080/8443, 9200/9300, 27017 |
 | Microservices | 15 | 9002-9015; Artifact's 9001 is intentionally internal only |
+| Native frontends (optional hybrid) | 0 containers / 7 macOS processes | 4200-4202, 4220, 4240, 4300, 4340 |
 
 The two estates use different storage. Docker uses named volumes; the native stack uses its own
 Homebrew/local data. `docker compose down` retains named volumes and therefore retains Docker data.
@@ -183,6 +187,118 @@ docker compose logs --tail 200 <service>
 
 Treat `healthy` as a readiness check, not the deployment acceptance test. It does not prove that a
 valid token can be verified or that a Resource write reaches MongoDB, Neo4j, Redis, and OpenSearch.
+
+## Optional hybrid: native frontends through Docker nginx
+
+The currently proven interactive development topology keeps the full backend and nginx in Docker,
+but runs all frontend development servers directly from their source checkouts on macOS. This does
+not copy HTML, JavaScript, CSS, fonts, or images into the nginx container. Docker nginx terminates
+TLS and streams each frontend response from a native server through `host.docker.internal`.
+
+For example, a Workspace page load follows this path:
+
+```text
+browser: https://workspace.metadatacenter.orgx/
+  -> /etc/hosts: 127.0.0.1
+  -> Docker's published port 443
+  -> infra-nginx workspace virtual host
+  -> http://host.docker.internal:4201
+  -> native gulp-connect rooted at $CEDAR_HOME/cedar-workspace/app
+  -> app/index.html, followed by the scripts, styles, fonts, and images under app/
+```
+
+After the browser loads the frontend, API calls use API hostnames such as
+`resource.metadatacenter.orgx`. Docker nginx routes those requests inward over `cedarnet` to the
+Java containers. The same nginx container therefore proxies frontend assets outward to macOS and
+API traffic inward to Docker.
+
+Each frontend has its own Node.js process; there is no shared frontend server:
+
+| Public hostname | Controller name | Native source root | Development server | Port |
+| --- | --- | --- | --- | ---: |
+| `cedar.metadatacenter.orgx` | `frontend` | `cedar-template-editor/app` | Gulp / gulp-connect | 4200 |
+| `workspace.metadatacenter.orgx` | `workspace` | `cedar-workspace/app` | Gulp / gulp-connect | 4201 |
+| `designer.metadatacenter.orgx` | `designer` | `cedar-template-designer/app` | Gulp / gulp-connect | 4202 |
+| `openview.metadatacenter.orgx` | `ui-openview` | `cedar-openview/cedar-openview-src` | Angular CLI / `ng serve` | 4220 |
+| `content.metadatacenter.orgx` | `ui-content` | `cedar-content-distribution` | Angular CLI / `ng serve` | 4240 |
+| `monitoring.metadatacenter.orgx` | `ui-monitoring` | `cedar-monitoring/cedar-monitoring-src` | Angular CLI / `ng serve` | 4300 |
+| `bridging.metadatacenter.orgx` | `ui-bridging` | `cedar-bridging/cedar-bridging-src` | Angular CLI / `ng serve` | 4340 |
+
+The three Gulp applications are legacy AngularJS applications. The four `ui-*` applications use
+Angular CLI. Both kinds are Node.js processes; the difference is their historical build toolchain.
+
+Start only the seven frontends from a native-profile shell. The two absolute split-frontend URLs
+are build-time inputs written into the generated application configuration. The Angular CLI servers
+default to loopback, so `CEDAR_FRONTEND_BIND_HOST=0.0.0.0` is required for Docker Desktop to reach
+them.
+
+```bash
+export CEDAR_HOME=$HOME/CEDAR
+source $CEDAR_HOME/cedar-profile-native-develop.sh
+export CEDAR_FRONTEND_BIND_HOST=0.0.0.0
+export CEDAR_WORKSPACE_FRONTEND_URL=https://workspace.metadatacenter.orgx
+export CEDAR_TEMPLATE_DESIGNER_FRONTEND_URL=https://designer.metadatacenter.orgx
+bash $CEDAR_HOME/cedar-development/ops/cedar-services.sh start \
+  frontend workspace designer ui-openview ui-content ui-monitoring ui-bridging
+```
+
+Recreate only Docker nginx from a Docker-profile shell, overriding all frontend upstreams. These
+values are captured in the container environment when it is created; merely exporting them later
+does not change a running nginx container.
+
+```bash
+export CEDAR_HOME=$HOME/CEDAR
+source $CEDAR_HOME/cedar-development/bin/templates/cedar-profile-docker-eval.sh
+export CEDAR_AUTH_HOST_TARGET="$CEDAR_NGINX_HOST"
+export CEDAR_FRONTEND_EDITOR_HOST=host.docker.internal
+export CEDAR_FRONTEND_CONTENT_HOST=host.docker.internal
+export CEDAR_FRONTEND_OPENVIEW_HOST=host.docker.internal
+export CEDAR_FRONTEND_MONITORING_HOST=host.docker.internal
+export CEDAR_FRONTEND_BRIDGING_HOST=host.docker.internal
+export CEDAR_FRONTEND_WORKSPACE_HOST=host.docker.internal
+export CEDAR_FRONTEND_DESIGNER_HOST=host.docker.internal
+cd $CEDAR_HOME/cedar-docker-deploy/cedar-infrastructure
+docker compose up -d --no-deps --force-recreate nginx
+```
+
+Recreating nginx later with the unmodified Docker profile points its frontend upstreams back to
+reserved container addresses, not the native processes. Repeat the overrides above whenever nginx
+is recreated in hybrid mode.
+
+Verify the public shells, Keycloak origins, navigation origins, and REST CORS:
+
+```bash
+for host in cedar workspace designer openview content monitoring bridging; do
+  curl -sk -o /dev/null -w "$host %{http_code}\n" "https://${host}.metadatacenter.orgx/"
+done
+
+cd $CEDAR_HOME/cedar-development/ops/e2e
+npm run smoke:split:hostnames:keycloak
+npm run smoke:split:hostnames
+```
+
+Expected: all seven hostnames return 200 and both split smoke commands pass. The 2026-08-21 proof
+met those expectations while all 22 backend containers remained healthy.
+
+Stop only the native frontends without touching the Docker backend:
+
+```bash
+bash $CEDAR_HOME/cedar-development/ops/cedar-services.sh stop \
+  frontend workspace designer ui-openview ui-content ui-monitoring ui-bridging
+```
+
+Three frontend deployment modes must remain distinct:
+
+| Mode | Where frontend code is served | How it is started | Current status |
+| --- | --- | --- | --- |
+| Native hybrid | Seven macOS development-server processes | `cedar-services.sh` plus nginx host overrides above | Proven local development mode |
+| Split-image preview | Workspace and Designer containers on `cedarnet` | `docker-compose.preview.yml` | Opt-in migration test only |
+| Normal Docker frontend stack | Existing frontend containers from `docker-compose.yml` | `cedarcli docker start frontends` | Unchanged; does not include Workspace or Designer |
+
+Do not run native Workspace/Designer and their preview containers on the same published ports.
+The preview image workflow is documented in
+`cedar-docker-deploy/cedar-frontend/README.md`. Promotion into the normal frontend Compose stack is
+an explicit roadmap decision, not an automatic consequence of the nginx wiring.
 
 ## REST acceptance gate
 
