@@ -111,15 +111,3 @@ commit that opened it.
    means a second dependency such as N3's writer, or accepting N-Quads and naming the menu entry
    honestly. Decide which before the label, the `.ttl` or `.nq` extension and the `text/turtle` or
    `application/n-quads` media type are written into the descriptor.
-
-6. **Completed: numeric and temporal defaults cross the artifact boundary.** The TypeScript model
-   library now has typed builder, reader and writer contracts for both, with JSON/YAML round trips,
-   Java parity artifacts, datatype-aware validation and coverage of all seven numeric datatypes and
-   every valid temporal type/granularity pairing. Dev snapshot
-   `1.0.0-dev.20260820.137dc79` carries the contract CEE consumes.
-
-   CEE maps both defaults into `ValueInfo` and seeds them before rendering. Numeric defaults retain
-   their XSD datatype; partial temporal declarations such as `2026`, `2026-08` and `14` are normalized
-   to the complete lexical values an instance stores. The generated domain matrix covers every
-   numeric and temporal combination, and browser tests cover editable, read-only specification and
-   explicitly blank supplied-instance paths. No raw template JSON is reread.
