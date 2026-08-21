@@ -161,3 +161,52 @@ items below are the remaining product work, not cleanup left by that pass.
    is about 12,000 gzip bytes and a real migration, and lazy YAML needs the model library to expose
    its writers behind their own entry point, which only becomes cheap if the download path turns
    asynchronous for other reasons.
+
+7. **Nothing stops an instance CEE already knows is invalid from being saved, and nothing tells the
+   person saving it.** CEE works out what is wrong before any save happens. `dataQualityReport`
+   carries `isValid`, how many required fields the template declares against how many the instance
+   fills, and a `problems` list whose entries each name a code, a path, the field, its declared input
+   type, a message and the offending value. The Template Designer reads none of that.
+   `saveInstance` in `create-instance.controller.js` takes `cee.currentMetadata` and posts it, and
+   the only validation anybody sees arrives afterwards, from the server's `CEDAR-Validation-Status`
+   response header. Even that arrives thin: the call passes the header alone while `logValidation`
+   takes a report as its second argument, so the branch that would parse errors and warnings never
+   runs, and what reaches the header indicator is a bare state.
+
+   A host cannot learn validity from the change event either, because the event does not carry it.
+   The only `change` events CEE constructs are the multi-pager's, whose `detail` is
+   `{message: 'multiInstanceAdded'}` and its two siblings; every other one is a native DOM `change`
+   forwarded across the shadow boundary with `detail` undefined. OpenView's `onFormChange` reads
+   `event.detail.validity` alongside `event.detail.title` and `event.detail.description`, which is a
+   contract from the editor CEE replaced: for a forwarded native event the guard `if (event &&
+   event.detail)` is false and the block never runs, and for a multi-instance event all three
+   properties are undefined.
+
+   Decide what saving an invalid instance should mean, which is a product question before a
+   technical one. CEDAR stores instances its own server considers invalid, and an author part-way
+   through a long form has a good reason to save one, so refusing the save is probably the wrong
+   answer. Worth weighing instead: a save that names what is wrong and asks for confirmation, and a
+   save that proceeds but reports from CEE's report rather than from the response header, since the
+   report knows the path and the message while the header knows only that something failed. Either
+   way the fix is mostly in the hosts, and the part that belongs to CEE is a validity signal a host
+   can act on at the moment of change rather than a getter it must remember to read.
+
+8. **Whether a field is dirty is inferred from a DOM event, and probably not correctly.** The
+   Template Designer's whole notion of unsaved work is
+   `cee.addEventListener('change', () => UIUtilService.setDirty(true))`, cleared only after a
+   successful save. What that listens to is whatever bubbles out of `(change)="forwardChange($event)"`
+   on CEE's root element, which is native `change` events from the controls inside plus the
+   multi-pager's three custom ones. Nothing in that signal says which field changed, whether the
+   instance now differs from what was loaded, or whether an edit was undone: a value typed and then
+   retyped identically, or cleared back to what it was, leaves the form dirty, and a control that
+   emits `change` without altering the instance marks work that does not exist.
+
+   `valueChanged(path, value)` has been declared on `CeeEventHandler` since before this was written
+   and is called from nowhere, so a host that wants a real per-field signal has none to use — the one
+   method named `valueChanged` in the widgets belongs to the attribute-value component and is
+   unrelated. Establishing what the current behaviour actually is comes first, because the failure
+   modes above are derived from reading the wiring rather than observed: a browser test that edits a
+   field, reverts it, pages between occurrences and toggles read-only, asserting what the host
+   receives at each step, would either clear the suspicion or name the defect precisely. Then decide
+   what CEE should publish — the declared callback, a dirty getter, or paths on the change event —
+   and let the Designer's flag follow from it rather than from event traffic.
