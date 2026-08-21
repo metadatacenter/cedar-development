@@ -23,6 +23,7 @@ const resourceApi = withoutTrailingSlash(
 
 const workspaceOrigin = new URL(workspace).origin;
 const designerOrigin = new URL(designer).origin;
+const requireBuildInfo = process.env.CEDAR_REQUIRE_BUILD_INFO === '1';
 
 function fail(message) {
   throw new Error(message);
@@ -62,6 +63,37 @@ async function readConfig(label, base) {
     fail(`${label}: invalid JSON: ${error.message}`);
   }
   return config;
+}
+
+async function expectBuildInfo(label, base, application, expectedCommit) {
+  const response = await fetchOk(label, `${base}/config/build-info.json`);
+  const cacheControl = response.headers.get('cache-control') ?? '';
+  if (!cacheControl.includes('no-store')) {
+    fail(`${label}: build identity is cacheable (${cacheControl || 'no Cache-Control header'})`);
+  }
+
+  let info;
+  try {
+    info = await response.json();
+  } catch (error) {
+    fail(`${label}: invalid JSON: ${error.message}`);
+  }
+  if (info.application !== application) {
+    fail(`${label}: application is ${info.application}, expected ${application}`);
+  }
+  if (!/^[0-9a-f]{40}$/.test(info.sourceCommit ?? '')) {
+    fail(`${label}: sourceCommit is not a full Git commit`);
+  }
+  if (info.sourceDirty !== false) {
+    fail(`${label}: staging evidence requires a clean source tree, got sourceDirty=${info.sourceDirty}`);
+  }
+  if (!/^[0-9a-f]{64}$/.test(info.bundleSha256 ?? '')) {
+    fail(`${label}: bundleSha256 is not a SHA-256 digest`);
+  }
+  if (expectedCommit && info.sourceCommit !== expectedCommit) {
+    fail(`${label}: sourceCommit is ${info.sourceCommit}, expected ${expectedCommit}`);
+  }
+  console.log(`  ok  ${label} (${info.sourceCommit.slice(0, 8)}, ${info.bundleSha256.slice(0, 12)})`);
 }
 
 function assertNavigationConfig(label, config, expectDesignerOrigin = false) {
@@ -127,4 +159,12 @@ assertNavigationConfig('Designer navigation origins',
 await expectCors('Workspace REST preflight', workspaceOrigin, 'GET');
 await expectCors('Designer REST preflight', designerOrigin, 'POST');
 
-console.log('PASS: split frontend shells, bundle, origins, auth base and REST CORS are coherent');
+if (requireBuildInfo) {
+  await expectBuildInfo('Workspace deployed build identity', workspace, 'cedar-workspace',
+    process.env.CEDAR_EXPECT_WORKSPACE_COMMIT);
+  await expectBuildInfo('Designer deployed build identity', designer, 'cedar-template-designer',
+    process.env.CEDAR_EXPECT_DESIGNER_COMMIT);
+}
+
+console.log(`PASS: split frontend shells, bundle, origins, auth base and REST CORS are coherent${
+  requireBuildInfo ? '; deployed source and bundle identities are clean and immutable' : ''}`);

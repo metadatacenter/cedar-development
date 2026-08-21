@@ -1817,6 +1817,30 @@ create-save-edit/OpenView/cleanup journey with Workspace as `CEDAR_BASE` and Des
 so this extension does not change the production smoke contract. Remote preview hosts can use the
 same journey by setting both variables explicitly instead of using the localhost npm shortcut.
 
+Container and staging deployments add one stronger gate. Each image exposes a no-store
+`/config/build-info.json` containing its baked full source commit, clean/dirty marker, and SHA-256 of
+the exact environment-specific tree nginx serves. Validate both endpoints and optionally pin the
+expected commits:
+
+```bash
+CEDAR_EXPECT_WORKSPACE_COMMIT=$(git -C "$CEDAR_HOME/cedar-workspace" rev-parse HEAD) \
+CEDAR_EXPECT_DESIGNER_COMMIT=$(git -C "$CEDAR_HOME/cedar-template-designer" rev-parse HEAD) \
+npm run smoke:split:deployment
+```
+
+Record the accepted payloads as a durable JSON deployment artifact:
+
+```bash
+CEDAR_DEPLOYMENT_ENVIRONMENT=staging npm run record:split:deployment \
+  > "split-frontend-staging-$(date -u +%Y%m%dT%H%M%SZ).json"
+```
+
+Set `CEDAR_WORKSPACE_PREVIEW` and `CEDAR_DESIGNER_PREVIEW` for remote hosts. The recorder refuses a
+dirty or provenance-unknown image by default; `CEDAR_ALLOW_DIRTY_PREVIEW=1` exists only for informal
+local work and is not an acceptance setting. The record's source commits identify the inputs, while
+its bundle digests identify what was actually generated and served in that environment. Save the
+record with the deployment evidence so cutover and rollback can name exact payloads rather than tags.
+
 Needs the app tier up (frontend, resource, user, group, artifact at least — `cedar-services.sh
 status`). Credentials and base URL come from the profile environment, with the local-dev values
 as fallbacks. The UI gestures reuse the selectors verified by the tutorial runner, which now lives

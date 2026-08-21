@@ -10,7 +10,9 @@
     "smoke:split:authenticated": "CEDAR_BASE=http://localhost:4201 CEDAR_DESIGNER_BASE=http://localhost:4202 node login-smoke-test.mjs",
     "smoke:split:authenticated:headed": "CEDAR_BASE=http://localhost:4201 CEDAR_DESIGNER_BASE=http://localhost:4202 HEADED=1 node login-smoke-test.mjs",
     "smoke:rest": "node rest-smoke.mjs",
-    "smoke:split": "node split-frontend-smoke.mjs"
+    "smoke:split": "node split-frontend-smoke.mjs",
+    "smoke:split:deployment": "CEDAR_REQUIRE_BUILD_INFO=1 node split-frontend-smoke.mjs",
+    "record:split:deployment": "node record-split-frontend-deployment.mjs"
   },
   "dependencies": {
     "playwright": "^1.48.0"
