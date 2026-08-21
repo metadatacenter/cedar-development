@@ -33,6 +33,10 @@ export CEDAR_NEO4J_BOLT_PORT=7687
 # Microservices host
 export CEDAR_MICROSERVICE_HOST="${CEDAR_NET_GATEWAY}"
 
+# Comma-separated Jetty CORS origin patterns. Keep the historical wildcard by
+# default; each environment can override it before sourcing this file.
+export CEDAR_CORS_ALLOWED_ORIGINS="${CEDAR_CORS_ALLOWED_ORIGINS:-*}"
+
 export CEDAR_ARTIFACT_SERVER_HOST="${CEDAR_NET_GATEWAY}"
 export CEDAR_BRIDGE_SERVER_HOST="${CEDAR_NET_GATEWAY}"
 export CEDAR_GROUP_SERVER_HOST="${CEDAR_NET_GATEWAY}"

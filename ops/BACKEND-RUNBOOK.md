@@ -1874,10 +1874,33 @@ npm run smoke:split:hostnames:deployment
 npm run smoke:split:hostnames:authenticated
 ```
 
-The current shared Dropwizard CORS filter permits every origin and reflects the requesting origin
-when credentials are enabled. Therefore both local HTTPS origins already work and require no server
-rebuild. Verify the exact echo during the hostname smoke; replace the wildcard with an
-environment-configurable allowlist before staging.
+The shared Dropwizard CORS filter reads `CEDAR_CORS_ALLOWED_ORIGINS` as a comma-separated list of
+Jetty origin patterns. An unset or blank value retains the historical `*` default, so introducing
+the setting does not silently change an existing environment. Set the value before starting or
+restarting the backend services. Inventory every legitimate browser origin first: do not configure
+only Workspace and Designer while the monolith, OpenView, or another browser client is still in use.
+
+The local stack currently retains the backward-compatible wildcard. Its positive preflights from
+both local HTTPS origins pass and require no rebuild. Before staging, publish the updated shared
+library, rebuild and redeploy the servers, then set an exact environment-specific list. Prove both
+positive entries and a negative control:
+
+```bash
+export CEDAR_CORS_ALLOWED_ORIGINS='https://workspace.example.org,https://designer.example.org,https://openview.example.org'
+# restart the backend services after installing builds that consume the updated shared library
+
+cd $CEDAR_HOME/cedar-development/ops/e2e
+CEDAR_WORKSPACE_PREVIEW=https://workspace.example.org \
+CEDAR_DESIGNER_PREVIEW=https://designer.example.org \
+CEDAR_RESOURCE_API=https://resource.example.org \
+CEDAR_CORS_REJECT_ORIGIN=https://not-authorized.example.org \
+npm run smoke:split:deployment
+```
+
+The smoke fails if either configured frontend loses its exact echoed origin or if the deliberately
+unlisted origin receives `Access-Control-Allow-Origin`. Keep paths and trailing slashes out of exact
+origin entries. Retain the wildcard only as a temporary compatibility default; an environment is
+not allowlist-accepted until the negative control passes.
 
 Container and staging deployments add one stronger gate. Each image exposes a no-store
 `/config/build-info.json` containing its baked full source commit, clean/dirty marker, and SHA-256 of

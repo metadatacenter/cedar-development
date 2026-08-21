@@ -24,6 +24,7 @@ const resourceApi = withoutTrailingSlash(
 const workspaceOrigin = new URL(workspace).origin;
 const designerOrigin = new URL(designer).origin;
 const requireBuildInfo = process.env.CEDAR_REQUIRE_BUILD_INFO === '1';
+const rejectedCorsOrigin = process.env.CEDAR_CORS_REJECT_ORIGIN;
 
 function fail(message) {
   throw new Error(message);
@@ -131,6 +132,28 @@ async function expectCors(label, origin, method) {
   console.log(`  ok  ${label}`);
 }
 
+async function expectCorsRejected(label, origin, method) {
+  let response;
+  try {
+    response = await fetch(`${resourceApi}/`, {
+      method: 'OPTIONS',
+      redirect: 'manual',
+      headers: {
+        Origin: origin,
+        'Access-Control-Request-Method': method,
+        'Access-Control-Request-Headers': 'Authorization,Content-Type',
+      },
+    });
+  } catch (error) {
+    fail(`${label}: could not reach ${resourceApi}: ${error.message}`);
+  }
+  const allowedOrigin = response.headers.get('access-control-allow-origin');
+  if (allowedOrigin === origin || allowedOrigin === '*') {
+    fail(`${label}: rejected origin was allowed as ${allowedOrigin}`);
+  }
+  console.log(`  ok  ${label}`);
+}
+
 console.log('Split frontend preview contract');
 
 await expectText('Workspace dashboard shell', `${workspace}/dashboard`, '<div id="angular-views-entry"');
@@ -158,6 +181,9 @@ assertNavigationConfig('Designer navigation origins',
 
 await expectCors('Workspace REST preflight', workspaceOrigin, 'GET');
 await expectCors('Designer REST preflight', designerOrigin, 'POST');
+if (rejectedCorsOrigin) {
+  await expectCorsRejected('Unlisted REST origin rejected', rejectedCorsOrigin, 'POST');
+}
 
 if (requireBuildInfo) {
   await expectBuildInfo('Workspace deployed build identity', workspace, 'cedar-workspace',
