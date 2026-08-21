@@ -612,13 +612,30 @@ workspace dirty, an exact revert clears it, and a successful save establishes th
 baseline. The service's unit spec pins those three transitions and defensive copying;
 the CEE browser suite's `host change notifications` group pins text, Material choice,
 controlled-term, temporal, multi-instance, paging and read-only behavior in both viewport
-projects. Extend that group whenever a new mutation path is added.
+projects. It lives in `visual/tests/host-change.spec.ts`, separate from the broad rendering
+matrix, and uses the typed driver in `visual/tests/support/host.ts`; extend it whenever a
+new mutation path is added rather than putting host API assertions back into
+`render.spec.ts`.
+
+Initialization is part of that contract. A canonical loaded instance emits no change.
+If rendering has to normalize an existing temporal value to the field's declared storage
+granularity, the serialized instance really did change, so CEE emits the corresponding
+`valueChanged` event during initialization. A host that wants to observe that must install
+its listener before assigning the artifact. The runtime assertion covers every required
+`CeeChangeDetail` member, while the shipped custom-element declaration gives
+`addEventListener('change', ...)` a `CustomEvent<CeeChangeDetail>` parameter. The legacy
+`eventHandler.message` member has never been emitted and is deprecated until the next
+major version removes it.
 
 Shared Angular subscriptions use `takeUntilDestroyed` with the component's
 `DestroyRef`; do not add component-local `Subscription.EMPTY` or `destroy$`
 variants. The coordinator tier creates and destroys the real editor repeatedly and
 requires its scoped widget registry to return to zero on every cycle. Add equivalent
 teardown assertions when a new scoped registry, overlay owner or scheduler is added.
+This rule includes delayed widget work: external-authority and controlled-term lookup
+debounces, autocomplete panel-closing subscriptions, deferred panel opens and transient
+revert/clear hints all terminate with the field. Their direct unit specs destroy the
+injection scope while each kind of work is pending.
 
 `harness/test/view-sync.spec.ts` is the model-to-widget contract. Its table covers
 editable and read-only rendering for text, numeric, temporal, link, external
@@ -851,6 +868,12 @@ grows as tests are added; treat a *fall* as something to explain. `prepare:all` 
 bundle from `../dist` and regenerates the template fixtures; run it after any
 rebuild.
 
+The browser files are divided by contract. `render.spec.ts` owns the broad visual,
+layout and remaining integration matrix; `temporal.spec.ts` owns the time-picker and
+temporal-normalization behavior; `host-change.spec.ts` owns the public mutation event.
+Shared host operations belong in the typed `tests/support/host.ts` driver. Keep new tests
+with the contract they extend instead of growing `render.spec.ts` back into the only suite.
+
 It no longer *silently* tests a stale bundle if you forget — `npm test` refuses
 to run when `../dist` is newer than the copy in `public/`. That guard exists
 because the suite did exactly that, reporting green against the previous build,
@@ -978,6 +1001,11 @@ failing every spec that imports a decorated class. `decorator.legacy` is
 The root and the harness are on different Vitest versions. `harness/vitest.config.ts`
 sets `root` to the repository, so the harness resolves the root's worker. Upgrade
 both together.
+
+The root `vitest.config.mts` intentionally has no `server.deps.inline` compatibility
+list. That block existed for RxJS 6's package shape and named dependencies removed from
+CEE years ago; RxJS 7 and the current Angular packages resolve without it. Do not restore
+the block unless a current package demonstrates a concrete resolver failure.
 
 **Harness: a suite reports "no tests" but exits green**
 `deps.inline` is matching too broadly and has inlined `vitest` itself, giving
