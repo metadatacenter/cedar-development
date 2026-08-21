@@ -171,3 +171,74 @@ service nginx start
 | `cedarcli dev copy-keycloak-listener` | Copies `cedar-keycloak-event-listener.jar` into Keycloak's `providers/`, then runs `kc.sh build` so Keycloak picks up the provider. |
 | `cedarcli prod configure-frontends` | `sed`-rewrites `window.cedarDomain` and the `content.metadatacenter.org` host in the static dist `index.html`s (openview, bridging, monitoring, artifacts) to the prod `CEDAR_HOST`. |
 | `gulp` (in template-editor) | Builds the Angular template-editor bundle after the CEE `package.json` bump + `npm install`. |
+
+## Split frontend cutover and rollback (migration only)
+
+This section applies only while `cedar-workspace` and `cedar-template-designer` are replacing the
+production monolith. It does not authorize a cutover. Final hostnames, TLS, Keycloak clients, and the
+deployment window must be approved first. The invariant is that **routing is the only cutover
+action**: both extracted applications and the known monolith rollback target are already running,
+and neither cutover nor rollback rebuilds an application or changes stored data.
+
+### Evidence required before routing changes
+
+- Record the monolith commit, version modifier, deployed bundle identity, and current nginx
+  configuration as the rollback target.
+- Save the accepted split deployment record from
+  `cedar-development/ops/e2e/record-split-frontend-deployment.mjs`. Both sources must be clean and
+  its source commits must match the commits approved for the window.
+- Run `smoke:split:deployment` against the deployed hosts with expected commit variables pinned.
+- Run `smoke:split:authenticated` from cold Workspace, Designer, and CEE deep links after the exact
+  Keycloak callbacks and web origins are approved.
+- Verify both certificates, REST CORS, sharing with both test users, old bookmark behavior, and the
+  complete acceptance matrix in the migration plan.
+- Keep the monolith process/image, its static bundle, and its nginx include in place. A deployment
+  that deletes or overwrites them is not cutover-ready.
+
+### Route-only cutover
+
+1. Start the accepted Workspace and Designer payloads without changing public routing.
+2. Probe their health, build-identity endpoints, and browser journeys directly.
+3. Save the active nginx include and obtain its checksum. Prepare a second complete include for the
+   split routes; do not edit a live include incrementally during the window.
+4. Use temporary `302` or `307` compatibility redirects during migration. A cached `301` can outlive
+   rollback and keep browsers pinned to the failed destination.
+5. Install the split include, run `nginx -t`, and stop if validation reports anything other than
+   success.
+6. Reload nginx. Do not stop the monolith and do not rebuild either split application.
+7. Purge the CDN entries listed below, then run the public smoke and old-bookmark checks. Record the
+   resulting deployment ID and response headers with the window evidence.
+
+### One-step rollback
+
+Rollback immediately on authentication failure, an unavailable create/open/save path, incorrect
+permissions, a broken exact return, missing production fixes, or any high-impact Workspace resource
+operation defect.
+
+1. Restore the saved monolith nginx include as one file.
+2. Run `nginx -t`; only after it succeeds, reload nginx.
+3. Purge the same canonical entry points and any compatibility redirect responses.
+4. Run the ordinary monolith smoke, verify cold authenticated deep links, and confirm the recorded
+   monolith version modifier is being served.
+5. Leave the split payloads and evidence intact for diagnosis. Rollback is a routing reversal, not a
+   destructive cleanup.
+
+### Cache invalidation for cutover and rollback
+
+The split images serve `/index.html`, every `/config/` response, and
+`/config/build-info.json` with `Cache-Control: no-store`; HTML/CSS partials revalidate. Keep those
+policies at the public proxy and CDN. A prior cached object can survive a header correction, so both
+cutover and rollback still require an explicit purge.
+
+Purge each affected public origin at least for `/`, `/dashboard`, `/index.html`,
+`/config/version.js`, `/config/url-service.conf.json`, and `/config/build-info.json`, plus every old
+route whose redirect target changed. Purge both the origin retaining the `cedar` hostname and any new
+Designer origin. The CDN provider and credentials are deployment-environment details and must not be
+committed here; record the purge request/result in the window evidence.
+
+After the purge, use a cache-bypassing request and an incognito browser to verify:
+
+- entry/config/build-identity responses carry `no-store` end to end;
+- the served source commits and bundle SHA-256 values equal the accepted deployment record;
+- no permanent redirect was cached for a migration route; and
+- a second cold load returns the same application ownership and version.
