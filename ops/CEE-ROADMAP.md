@@ -111,3 +111,42 @@ commit that opened it.
    means a second dependency such as N3's writer, or accepting N-Quads and naming the menu entry
    honestly. Decide which before the label, the `.ttl` or `.nq` extension and the `text/turtle` or
    `application/n-quads` media type are written into the descriptor.
+
+6. **A quarter of what an embedder downloads is font payload, and most of those glyphs never
+   render.** The shipped bundle measures 632,289 gzip bytes at `2.0.0-dev.20260820.7202334`:
+   475,949 of code and 156,340 of inlined assets, the assets being 136,569 for two font families
+   and about 19,800 for the authority marks. The code figure is unremarkable for what CEE is, one
+   file carrying the Angular runtime, Material and the CDK, the model library and the YAML writer
+   behind it, into a host that provides none of them. The asset figure is avoidable, and reducing
+   it needs no architectural change, which is why this is worth considering before anything harder.
+
+   Roboto is inlined as 21 faces: seven unicode-range subsets at each of three weights, 134,499
+   decoded bytes. Inlining defeats what those ranges are for, since a browser fetches only the
+   subsets a page's characters need while base64 in a script ships all seven whatever the page
+   says. Material Icons is one face carrying the whole glyph set, 58,005 decoded bytes, against the
+   thirteen ligatures CEE names across its templates and its download and field-type descriptors.
+
+   Measured on the shipped file rather than estimated, so it need not be re-derived: removing the
+   fifteen non-Latin Roboto faces leaves 553,053 gzip bytes and saves 79,236; subsetting the icon
+   font to those thirteen glyphs as well leaves 498,325 and saves 133,964 altogether, a fifth of
+   the download. Gzip headroom against the 840,000 limit would go from 207,711 to about 341,700.
+   The same headroom bounds whether a JSON-LD processor can be afforded, so the RDF download and
+   this item are worth deciding in that order.
+
+   Two costs decide whether to take it, and only one of them is technical. Dropping Cyrillic, Greek
+   and Vietnamese means a label in those scripts falls back to the host's system font, which is a
+   decision about who CEDAR serves rather than a cleanup; Hungarian is unaffected, because `hu.json`
+   needs latin-ext and that subset stays. Subsetting the icon font needs a guard, because an icon
+   added later without regenerating the subset renders as a tofu box and nothing fails: a test that
+   collects the ligatures named in the templates and the descriptors and rejects any the subset does
+   not carry. The authority marks account for the rest of the asset figure, and converting the two
+   rasterised ones to vectors would recover part of it as a side effect of settling what those marks
+   should be.
+
+   Two things not to do. Serving the fonts as sibling files would recover all 136,569 bytes and cost
+   the single-artifact contract that the shadow-boundary isolation and the packaging step are built
+   around. Angular and Material are the floor for a component that renders CEDAR forms without help
+   from its host, and the remaining code-side candidates are smaller and harder: zoneless rendering
+   is about 12,000 gzip bytes and a real migration, and lazy YAML needs the model library to expose
+   its writers behind their own entry point, which only becomes cheap if the download path turns
+   asynchronous for other reasons.
