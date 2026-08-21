@@ -1825,6 +1825,13 @@ npm run smoke:split:authenticated
 npm run smoke:split:authenticated:headed
 ```
 
+The local authenticated commands run `smoke:split:keycloak` first. That credential-free preflight
+asks Keycloak to accept each `/silent-check-sso.html` callback and verifies the token endpoint's
+CORS response echoes each exact origin with credentials and POST enabled. A Web Origin is an origin
+only (`http://localhost:4201`), never a route wildcard (`http://localhost:4201/*`); the latter looks
+similar in the admin console but cannot match the browser's `Origin` header. For non-local hosts,
+set `CEDAR_SPLIT_KEYCLOAK_ORIGINS` to a comma-separated list of exact origins.
+
 It first drives Workspace's real **New → Template** gesture, verifies that Designer receives the
 complete Workspace `returnTo` URL, waits for SSO on the Designer origin, and drives Designer's
 create-flow cancel action to prove exact restoration. It then runs the existing
