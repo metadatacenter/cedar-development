@@ -607,6 +607,24 @@ every content/page-break sequence through six children, including leading, trail
 and consecutive breaks. Extend those matrices when adding a new value shape or
 navigation state; a one-off happy-path spec is not a replacement.
 
+Multi-instance navigation state also has one owner:
+`HandlerContext.multiInstanceObjectService`. `DataContext` owns the template and the
+instance document; it does not keep a second reference to the navigation tree. The
+tree alternates deliberately between two typed shapes: a `MultiInstanceInfo`
+container maps child component names to their state, and each
+`MultiInstanceObjectInfo` holds that component's cursor plus one child container per
+element occurrence. Containers use an internal `Map`; component names are not
+dynamic properties on a class. Occurrence counts remain derived from the live
+instance, while cursors remain UI state. Rebuilding records the exact
+template/instance pair so the inner editor does not reconstruct the same tree after
+`DataContext.setInputTemplate` has already done so.
+
+Keep the data-quality report's distinction intact when changing this model. Its
+validity checks inspect the whole instance, but its `valueTree` is a snapshot of the
+occurrence currently displayed. Its recursion now receives a component-state node
+and moves into an occurrence container explicitly; do not restore the old casts that
+treated containers and nodes as interchangeable.
+
 ### Running against the old template parser
 
 **Historical.** The hand-written JSON walk was kept alongside the
