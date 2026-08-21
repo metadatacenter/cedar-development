@@ -112,19 +112,14 @@ commit that opened it.
    honestly. Decide which before the label, the `.ttl` or `.nq` extension and the `text/turtle` or
    `application/n-quads` media type are written into the descriptor.
 
-6. **The TypeScript model library drops numeric and temporal defaults.** CEE now applies every
-   default the library exposes while it builds a new instance: selected choice literals, text and
-   textarea literals, and controlled terms as an IRI/label pair. That happens before rendering, so
-   hidden and later-page fields agree with visible ones, and rendering an explicitly blank supplied
-   instance cannot replace the blank with the template default. `ChildSpec` can generate options and
-   literal or term defaults, and the domain and browser suites cover both a new instance and a blank
-   supplied one.
+6. **Completed: numeric and temporal defaults cross the artifact boundary.** The TypeScript model
+   library now has typed builder, reader and writer contracts for both, with JSON/YAML round trips,
+   Java parity artifacts, datatype-aware validation and coverage of all seven numeric datatypes and
+   every valid temporal type/granularity pairing. Dev snapshot
+   `1.0.0-dev.20260820.137dc79` carries the contract CEE consumes.
 
-   Numeric and temporal defaults remain upstream work. The Java artifact library reads, writes and
-   builds both (`NumericField.withDefaultValue(Number)` and
-   `TemporalField.withDefaultValue(String)`), but the TypeScript library's `ValueConstraintsNumericField`
-   and `ValueConstraintsTemporalField` have no `defaultValue`, their readers do not retain one, and
-   their builders expose no `withDefaultValue`. Add the two typed default contracts, JSON/YAML
-   reader-writer round trips and builder methods there; then map them into CEE's `ValueInfo` and add
-   numeric and temporal cases to the same generated default matrix. Until that model release lands,
-   CEE cannot seed those two kinds without bypassing its artifact boundary and re-reading raw JSON.
+   CEE maps both defaults into `ValueInfo` and seeds them before rendering. Numeric defaults retain
+   their XSD datatype; partial temporal declarations such as `2026`, `2026-08` and `14` are normalized
+   to the complete lexical values an instance stores. The generated domain matrix covers every
+   numeric and temporal combination, and browser tests cover editable, read-only specification and
+   explicitly blank supplied-instance paths. No raw template JSON is reread.
