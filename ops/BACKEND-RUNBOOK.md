@@ -143,32 +143,57 @@ then bring up native as above.
 
 ### Running the native frontends against the containerized backend
 
-Useful while the frontend images cannot build. Every microservice container publishes its port to
-the host, and the native nginx proxies to `127.0.0.1:900x`, so it does not care whether a port
-belongs to a JVM or a container. Stop the container nginx, start the native one, and start only the
-frontends:
+Useful while the frontend images cannot build. Docker nginx can serve the public hostnames and proxy
+to native frontend development servers on the Mac. This was proven on Docker Desktop on 2026-08-21;
+all five UI hostnames returned 200 through Docker nginx, and the browser smoke completed login,
+fixture creation, BioPortal constraint lookup, and template creation.
+
+The main Gulp frontend already binds all interfaces. The four Angular development servers default
+to loopback for safety; opt them into the Docker hybrid bind, and name only frontend services so the
+fifteen native JVMs do not collide with the containers:
 
 ```bash
-docker stop infra-nginx                       # frees 80/443
-startnginx                                    # sudo; the native nginx
-ops/cedar-services.sh start frontend ui-openview ui-content ui-monitoring ui-bridging
+export CEDAR_HOME=$HOME/CEDAR
+source $CEDAR_HOME/cedar-profile-native-develop.sh
+export CEDAR_FRONTEND_BIND_HOST=0.0.0.0
+bash $CEDAR_HOME/cedar-development/ops/cedar-services.sh start \
+  frontend ui-openview ui-content ui-monitoring ui-bridging
 ```
 
-Naming the services matters: a bare `cedar-services.sh start` would also start the fifteen native
-microservices, which collide with the containers.
+Recreate only nginx under the Docker profile, pointing its frontend upstreams at Docker Desktop's
+host name. `CEDAR_NET_GATEWAY` reaches ports published by Docker but not native macOS listeners;
+`host.docker.internal` is required for the latter.
+
+```bash
+export CEDAR_HOME=$HOME/CEDAR
+source $CEDAR_HOME/cedar-development/bin/templates/cedar-profile-docker-eval.sh
+export CEDAR_AUTH_HOST_TARGET="$CEDAR_NGINX_HOST"
+export CEDAR_FRONTEND_EDITOR_HOST=host.docker.internal
+export CEDAR_FRONTEND_CONTENT_HOST=host.docker.internal
+export CEDAR_FRONTEND_OPENVIEW_HOST=host.docker.internal
+export CEDAR_FRONTEND_MONITORING_HOST=host.docker.internal
+export CEDAR_FRONTEND_BRIDGING_HOST=host.docker.internal
+cd $CEDAR_HOME/cedar-docker-deploy/cedar-infrastructure
+docker compose up -d --no-deps --force-recreate nginx
+```
+
+The Docker nginx image sets `proxy_read_timeout` and `proxy_send_timeout` to 180 seconds globally.
+This is deliberate: an unmodified nginx returned 504 at 60.05 seconds for a 65-second upstream;
+with the 180-second timeout, the identical request returned 200 at 65.01 seconds.
+
+The older fallback still works: stop `infra-nginx`, start native nginx on 80/443, and leave the
+frontends on their default loopback bind. Do not run both nginx instances together.
 
 **`cedar-services.sh status` lies in this mode.** It probes ports, and those ports belong to
 containers, so every microservice reads `up / healthy` with the same `~pid` for every row. The `~`
 marks an unmanaged process and is the only signal that nothing native is running. The `BINARY`
 column stays useful — it compares what is running against the built jar.
 
-Proven this far: login, folder and template round-trip over REST, and a Disease field constrained to
-the DOID branch through live BioPortal all pass. The populate-time term suggestion does not — the
-field renders as a plain input rather than a controlled-term picker. The backend is not at fault:
-the template carries the branch constraint and the containerized terminology server answers the
-query. Whether that is a real defect or an artefact of a natively-built frontend against a
-containerized backend is unresolved; the comparison that would settle it is the same browser smoke
-against the native backend.
+The populate-time term suggestion remains the one browser-smoke failure: the expected controlled-term
+picker input does not appear. It is not an nginx timeout—the failure is a 20-second locator wait, and
+nginx and the backend remain responsive. The template carries the branch constraint and the
+containerized terminology server answers the query. Compare the same browser smoke against the
+native backend to decide whether this is a frontend defect or a mixed-topology artifact.
 
 ### Running the native servers against containerized infrastructure
 

@@ -26,6 +26,9 @@ export CEDAR_HOME="${CEDAR_HOME:-$HOME/CEDAR}"
 source "$CEDAR_HOME/cedar-profile-native-develop.sh" >/dev/null 2>&1
 export JAVA_HOME="$(/usr/libexec/java_home -v 17 2>/dev/null)"   # CEDAR + Keycloak need JDK 17
 PATH="$JAVA_HOME/bin:/opt/homebrew/bin:$PATH"                    # /opt/homebrew/bin for node + ng (aux frontends)
+# Loopback is safest for the native-only stack. Set this to 0.0.0.0 when Docker nginx must proxy
+# to the native Angular development servers through host.docker.internal.
+CEDAR_FRONTEND_BIND_HOST="${CEDAR_FRONTEND_BIND_HOST:-127.0.0.1}"
 
 RUN="$CEDAR_HOME/log/run"
 LOGDIR="$CEDAR_HOME/log"
@@ -122,7 +125,7 @@ start_one() {
     ui-*)
       local dir; dir=$(fe_dir "$name")
       [ -d "$dir" ] || { echo "  $name: SRC MISSING ($dir) — skip"; return; }
-      ( cd "$dir" && exec nohup ng serve --port "$app" --host 127.0.0.1 >"$log" 2>&1 ) & ;;
+      ( cd "$dir" && exec nohup ng serve --port "$app" --host "$CEDAR_FRONTEND_BIND_HOST" >"$log" 2>&1 ) & ;;
     *)
       local jar="$CEDAR_HOME/cedar-$name-server/cedar-$name-server-application/target/cedar-$name-server-application-${CEDAR_VERSION}.jar"
       local cfg="$CEDAR_HOME/cedar-$name-server/cedar-$name-server-application/src/main/resources/config.yml"
