@@ -1001,9 +1001,41 @@ left that does not need a host.
     ontologies, but nothing runs it, and an index behind the catalog reports the version it holds
     rather than the one that exists — correctly, and confusingly. Decide what triggers a rebuild.
 
+- **26. One release, one identity — the remaining ways an extraction can diverge from itself.**
+    *Fixed 2026-08-21:* a class asserting several `IAO:0100001` replacements had one of them chosen by
+    axiom iteration order, so identical bytes extracted twice produced different `replaced_by` values
+    and different content hashes. ICTV surfaced it — 19 of its retired virus names name more than one
+    successor, and its two snapshots agreed on every concept, edge, relation and label while disagreeing
+    on identity. The smallest asserted value now wins, with a test that extracts one ontology four times
+    and asserts a single hash. *Open:* nothing else in the extractors is known to depend on iteration
+    order, and nothing checks. Content identity is what pinning, freeze-on-publish and cross-source
+    dedup all rest on, so it deserves a standing guard rather than a fix per instance found: extract a
+    handful of representative ontologies twice in the suite and assert the hashes match. Worth auditing
+    the other single-valued fields chosen from a multi-valued annotation the same way — `label()` already
+    ranks rather than takes the first, which is why it did not have this bug.
+
+- **27. Stop a harvest repainting a snapshot's origin.** A driver stamps its `--backend` on whatever it
+    ingests, and content-hash identity means an identical download merges into the snapshot already
+    held — so the merge rewrites that snapshot's source label. The OLS harvest of 2026-08-20 relabelled
+    123 BioPortal and OBO Foundry releases as `ols` across two runs, which is how `bioportal` came to
+    read 2,495 snapshots instead of 2,562; the labels were restored from the pre-run catalog. The label
+    should describe where a snapshot's bytes actually came from, so a merge must leave it alone and only
+    a first ingest should set it. Until then every driver has to record the labels and put them back,
+    which `harvest-github-releases.sh` does and the other two do not.
+
+- **28. Follow the sources that enumerate their versions.** BioPortal, the other OntoPortals and GitHub
+    all list their versions, so what the catalog is missing is a question with an exact answer — and
+    nothing asks it on a schedule. A weekly poll of a plan of repositories and acronyms, ingesting only
+    what is absent, would keep the store current for the sources where currency is knowable, and would
+    surface a release the moment it appears rather than whenever someone next runs a harvest by hand.
+    The mechanism exists in `harvest-github-releases.sh` and `backfill-tail.sh`; what is missing is the
+    schedule, a plan file under version control, and a decision on how many releases of a
+    weekly-releasing ontology are worth holding. Reasoning under
+    [Keeping Up With Sources That Move](#keeping-up-with-sources-that-move).
+
 ### Cutover
 
-- **26. Ship behind a flag for one release, then delete what it replaces.** The new component is the
+- **29. Ship behind a flag for one release, then delete what it replaces.** The new component is the
     default from the day it lands, with the old picker reachable behind a flag so a blocking gap
     found in real use has a way back. The AngularJS directives, controllers and templates under
     `cedar-template-editor/app/scripts/controlled-term/` come out the release after, together with
@@ -2044,9 +2076,51 @@ ontology, distinct content hashes): GO-basic (2024-01-17 vs 2025-06-01), PATO (2
   proxies it, the allowlist is not an optimisation but the only thing making it reachable at all — before
   allowlisting, a GEMET search returned HTTP 404 rather than falling back to anything.
 
+- 2026-08-20 — the widest non-BioPortal pass so far, over the **served prod catalog**, in four stages.
+  **OLS**: 46 new ontologies (45 clean; DMBA timed out connecting), among them FBBT, MBA, HCAO, ADDICTO,
+  GOLD, PRIDE, COVOC and SEMAPV. **Curated thesauri**: UNESCO (4,595 concepts) and Getty AAT, each under
+  its own authority; LCSH failed, `id.loc.gov/authorities/subjects.rdf.gz` extracting to 0 concepts in
+  15 s so the empty-extraction guard refused it; AGROVOC ingested but is *unusable* — see below.
+  **OBO currency**: 50 ontologies from their canonical PURLs, +2 ontologies and +2 releases, 7 moved to a
+  genuinely newer release than BioPortal's newest submission. **OLS vs BioPortal**: re-ingesting 120
+  ontologies from OLS yielded 8 snapshots — GEO, CAO, REX, COVOC, VARIO, FBBI, MCRO, FIX — the only ones
+  where the two repositories serve different bytes; 7 `latest` tags were recorded and put back, so those
+  8 are pinnable without changing what resolves today. Net: non-BioPortal went 73 → 135 versions and 4 →
+  7 named authorities; 115 ontologies are now carried by more than one source. Prod holds 1,265
+  ontologies · 2,697 versions, index 1,265 ontologies · 14.86M terms.
+
+  Two defects surfaced, both mine to have caused and both now recorded. Every driver **repainted the
+  source label** of any snapshot its download merged into: 123 BioPortal and OBO Foundry releases were
+  relabelled `ols` across the two runs, restored from the pre-run catalog — item 27. And a sweep for
+  unlabelled ontologies flagged 11 of the 46 by comparing each label against its IRI's local name, which
+  is **wrong for a whole family of vocabularies**: schema.org, OWL, PROV, SKOS and REPRODUCE-ME label
+  their terms with the CamelCase local name on purpose, and DHBA, HBA, EC and LIPIDMAPS carry proper
+  names for most classes. Probing the file through OWLAPI settled it — `rdfs:label` of
+  `schema.org/AMRadioChannel` is the string `"AMRadioChannel"`, read correctly. All ten went back into
+  the allowlist. **AGROVOC is the one real case**: `agrovoc_core.nt` carries the concept scheme and the
+  `skos:broader` hierarchy but no labels at all, which live in separate per-language files, so its
+  41,841 concepts are stored under names like `c_b49cb549`. It stays out of the allowlist until a
+  distribution carrying labels is ingested in its place.
+
+- 2026-08-21 — **MEDGEN and ICTV from GitHub releases**, the two largest GitHub-hosted ontologies OLS
+  lists and the term cap had skipped: MEDGEN 468,671 classes / 235,204 edges (10.5 min), ICTV 195,344 /
+  195,329 (5 min), both properly labelled ("Pingueculitis", "Samektorquevirus hominid17"), indexed and
+  allowlisted. Index now 1,266 ontologies · 15.33M terms.
+
+  ICTV arrived as a *second* snapshot beside the one the OLS harvest had taken from the same URL, which
+  should have been impossible: identical bytes (`file_hash` equal) ought to merge. They agreed on every
+  concept, every edge, every relation and all 300,922 labels, and still hashed differently — because 19
+  retired virus names assert more than one `IAO:0100001` replacement and the extractor took whichever
+  the axiom iteration reached first. Content identity was therefore not a function of content. Fixed
+  under item 26, with the finding worth keeping: the two ICTV snapshots are the evidence, and the same
+  bytes now extract to one identity.
+
 **Next iterations** are one command — `ops/harvest-ols-ingest.sh` (source expansion) and
 `ops/harvest-obo-ingest.sh` (OBO release currency), both `<catalog> <snapshotDir> [--max N]`, idempotent,
-skipping already-current acronyms and logging/skipping failures.
+skipping already-current acronyms and logging/skipping failures. Release history from GitHub is a
+third — `ops/harvest-github-releases.sh`, taking a plan of `acronym repo asset-pattern` and bounded by
+`--max-releases` / `--since`. Which sources can be followed rather than merely re-read is set out under
+[Keeping Up With Sources That Move](#keeping-up-with-sources-that-move).
 
 Ordered for the next unattended run, cheapest and most certain first. The catalog is
 `$CEDAR_HOME/cedar-term/prod/catalog.sqlite`; back it up before any write, and re-check roots and edges
@@ -2405,10 +2479,29 @@ is needed; not usable as-is.
 dated at `/version/N/`), PROV-O (`www.w3.org/ns/prov-o.owl`, `prov.ttl`), Time (`www.w3.org/2006/time.ttl`),
 SKOS (`www.w3.org/2009/08/skos-reference/skos.rdf`), FOAF, Dublin Core Terms.
 
-**GO release server / GitHub / Zenodo** — dated OBO releases at
+**GO release server / OBO PURL / Zenodo** — dated OBO releases at
 `release.geneontology.org/{date}/ontology/go-basic.obo`; OBO PURLs (`purl.obolibrary.org/obo/{x}/releases/{date}/{x}.owl`)
 are the reliable versioned front door. Zenodo blocks headless downloads (403); prefer the PURL for the
 same artifact.
+
+**GitHub releases** — the second source of first-class version history, and the only one that reaches
+ontologies no OntoPortal carries. Of the 279 OLS ontologies with a downloadable location, 208 sit
+behind an OBO PURL and **24 are served straight from GitHub** (`raw.githubusercontent.com` or a
+release asset). A `raw` URL on a branch is worth no more than any other current-file URL, but a
+*release* is dated, immutable, and carries named assets whose URLs never move, and the whole list
+comes back from one API call. Measured 2026-08-20:
+
+| Ontology | Repository | Releases | Span |
+|---|---|---|---|
+| MEDGEN | `monarch-initiative/medgen` | 100+ (API page cap) | 2024-09 → 2026-08, weekly |
+| EDAM | `edamontology/edamontology` | 30 | 2014-06 → 2026-06 |
+| ICTV | `EVORA-project/ictv-ontology` | 19 | 2025-07 → 2026-07 |
+| PREFER | `Multiomics-Analytics-Group/prefer_ontology` | 8 | 2025-10 → 2026-07 |
+| SRAO | `FAIRsharing/subject-ontology` | 6 | 2019-09 → 2025-06 |
+| COVOC | `EBISPOT/covoc` | 3 | 2020-08 → 2022-10 |
+
+Not every repository releases: GOLD publishes none and SIO's last was 2015, so for those a branch URL
+is all there is.
 
 ### Recommendations / next steps
 
@@ -2423,5 +2516,55 @@ same artifact.
   `--source bioportal --base-url agroportal` snapshot still records backend `bioportal` (the
   `declared_version` and base-url distinguish it, but the authority is not labelled). And Ontobee needs a
   working download route if it is ever wanted.
-- **Version history** beyond BioPortal comes from OntoPortal submissions and from dated OBO/GO release
-  URLs; OLS and most direct-download vocabularies expose only the current release.
+- **Version history** beyond BioPortal comes from three places: OntoPortal submissions, dated OBO/GO
+  release URLs, and GitHub releases. OLS and most direct-download vocabularies expose only the current
+  release, so an ontology reached through a `fileLocation` gives one snapshot however often it is
+  harvested.
+
+### Keeping Up With Sources That Move
+
+Every harvest so far has been a one-off: a driver run by hand, against whatever the source held that
+day. That is enough to *acquire* an ontology and not enough to *follow* it, and the two differ in what
+they cost. Acquiring is a download; following means knowing when the source has moved, which nothing
+in the store currently asks.
+
+Three properties decide how a source can be followed, and they cut across the repositories rather than
+along them.
+
+**A source that enumerates its versions can be followed exactly.** BioPortal and the other OntoPortals
+list submissions; GitHub lists releases. In both cases one API call returns every version with its
+date, and comparing that list against the catalog says precisely what is missing. This is the only
+kind of source where "up to date" is a question with an answer.
+
+**A source that serves one file can only be re-read.** An OLS `fileLocation`, a w3id URL, a thesaurus
+dump, a `raw.githubusercontent.com` path on a branch: each serves whatever it holds now, with no way
+to ask what it held before or whether this differs from last time without fetching it. Content-hash
+identity makes the re-read cheap in storage — identical bytes merge into the snapshot already held —
+but it costs the download every time, and it can never recover a version that passed unobserved.
+
+**A source with dated addresses can be followed backwards.** OBO PURLs take a release date, and the GO
+release server is a directory of them, so history is reachable by asking for dates rather than by
+being told which exist. Useful for filling in, unhelpful for noticing a change.
+
+The strategy follows from the split. For the enumerable sources, poll the version list on a schedule
+and ingest what the catalog lacks — cheap, exact, and the only ongoing work worth automating.
+`harvest-github-releases.sh` does the GitHub half of this and `backfill-tail.sh` the BioPortal half;
+neither runs on a timer yet, which is what item 28 is for. For the single-file sources, re-read on a
+much slower cadence and accept that the yield is a snapshot only where the file has changed since the
+last pass — the OLS re-ingest of 2026-08-20 measured that yield at **8 ontologies out of 120**, which
+sets the expectation for how often a re-read is worth its download.
+
+Two costs are worth stating before any of this runs on a schedule.
+
+A poll that ingests everything it finds will bury the store in near-duplicates. MEDGEN releases weekly,
+so following it from 2024 is 100 snapshots of one ontology, most differing in a handful of concepts.
+`--max-releases` and `--since` exist for that reason, and the useful default is the newest few plus
+whatever specific older releases a template actually pins.
+
+Ingesting from a second source also moves the `latest` tag, which repoints what production serves.
+Where the point is currency — the OBO Foundry refresh, whose whole purpose is that BioPortal's newest
+submission lags the real release — that move is correct. Where the point is a copy to compare against,
+it is not, and the tags have to be recorded and put back. The OLS re-ingest did exactly that: 7 tags
+restored, so 8 new snapshots became available to pin without changing what anything resolves to today.
+Nothing in the tooling distinguishes these two intentions; the operator does, and gets it wrong
+silently.

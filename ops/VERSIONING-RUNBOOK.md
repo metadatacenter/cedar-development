@@ -67,13 +67,38 @@ a source offers, `--valuesets` files the acronym as a value-set collection, and 
 obofoundry|url` draws from somewhere other than BioPortal. Ingest is idempotent on the content hash
 and refuses to overwrite a good snapshot with an empty extraction, so a re-run costs a download.
 
-Three drivers wrap it for bulk work, each writing a `results.tsv` and carrying on past a failure:
+Six drivers wrap it for bulk work, each writing a `results.tsv` and carrying on past a failure. Three
+draw from BioPortal:
 
 | script | what it does |
 |---|---|
 | `reingest-blank-label.sh` | re-ingests a plan of `acronym\|backend`, for repairing a defect |
 | `backfill-releases.sh` | ingests named submission ids a line, for a short list worked out in advance |
 | `backfill-tail.sh` | plans each ontology as it reaches it, for lists of hundreds |
+
+and three draw from elsewhere:
+
+| script | what it does |
+|---|---|
+| `harvest-ols-ingest.sh` | reads each EBI OLS ontology's `config.fileLocation` and ingests it |
+| `harvest-obo-ingest.sh` | pulls each OBO Foundry ontology's current release from its canonical PURL |
+| `harvest-github-releases.sh` | ingests an ontology's release history from GitHub, one snapshot a release |
+
+The GitHub driver takes a plan naming, per ontology, the repository and a pattern for the asset to
+take from each release:
+
+```
+MEDGEN	monarch-initiative/medgen	^medgen\.ttl\.gz$	OWL
+EDAM	edamontology/edamontology	^EDAM_[0-9.]+\.owl$	OWL
+```
+
+The pattern is per-repository because release assets are named however a project names them, and a
+project can rename them between releases: EDAM's older releases carry `EDAM_1.25.owl` and its newer
+ones do not, so a pattern that matches both is worth checking with `--dry-run` before a long run.
+`--max-releases` bounds how far back each ontology goes and `--since` cuts off by date; without both,
+a weekly-releasing repository plans hundreds of downloads. `GITHUB_TOKEN` raises the API rate limit
+from 60 requests an hour to 5,000, though one request per ontology means the anonymous limit covers
+any plan a night can ingest.
 
 `backfill-tail.sh` asks BioPortal what an ontology has at the moment it gets there and skips
 submissions the catalog already records. Over a thousand ontologies that matters twice: a planning
