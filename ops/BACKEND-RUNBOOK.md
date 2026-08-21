@@ -21,9 +21,10 @@ Three tiers:
   "Running the native servers against containerized infrastructure".
 - **Microservices** — 15 Dropwizard JVMs, one per `cedar-<name>-server` repo. Each is launched as
   `java -jar cedar-<name>-server-application-<version>.jar server .../config.yml`.
-- **Frontends** — the main one is the Angular template editor (`cedar-template-editor`), served by
-  `gulp` on port 4200 and proxied by nginx to `https://cedar.metadatacenter.orgx`. Auxiliary UIs
-  (openview, monitoring, bridging, artifacts, content) exist but are not needed for login.
+- **Frontends** — the production-safe AngularJS monolith (`cedar-template-editor`) is served by
+  `gulp` on port 4200 and proxied by nginx to `https://cedar.metadatacenter.orgx`. During its
+  extraction, `cedar-workspace` (4201) and `cedar-template-designer` (4202) run beside it as preview
+  frontends. The active auxiliary UIs are openview, monitoring, bridging, and content.
 
 ## Environment: two things that must be right first
 
@@ -404,10 +405,15 @@ code. If you changed a shared library, `./mvnw clean install` in the consuming s
 
 ## The controller: `ops/cedar-services.sh`
 
-Manages the 15 microservices + the main frontend (`gulp`) + the 4 auxiliary Angular frontends as
+Manages the 15 microservices + three AngularJS/Gulp frontends + the 4 auxiliary Angular frontends as
 background (`nohup`) processes, each logging to `$CEDAR_HOME/log/`, PIDs tracked in
 `$CEDAR_HOME/log/run/`. It forces `JAVA_HOME=17`, puts `/opt/homebrew/bin` on `PATH` (for `node`/`ng`),
 and sources the profile itself, so it is safe to run standalone.
+
+The Gulp frontends deliberately run side by side: `frontend` is the production monolith on 4200,
+`workspace` is the extracted Workspace preview on 4201, and `designer` is the extracted Template
+Designer preview on 4202. Starting the previews does not change nginx routing or production traffic.
+Use `cedar-services.sh start frontend workspace designer` for the migration comparison set.
 
 The auxiliary frontends are the `ui-*` entries — `ui-openview` (4220), `ui-content` (4240),
 `ui-monitoring` (4300), `ui-bridging` (4340) — each run as `ng serve` from its
@@ -462,7 +468,9 @@ one Terminal tab per service so a developer can watch/restart each. That does no
 | valuerecommender | 9006 | 9106 | | bridge | 9015 | 9115 |
 | resource | 9007 | 9107 | | | | |
 | group | 9009 | 9109 | | frontend (gulp) | 4200 | — |
-| impex | 9008 | 9108 | | Keycloak | 8080 / 8443 (https) | |
+| impex | 9008 | 9108 | | workspace (gulp preview) | 4201 | — |
+| | | | | designer (gulp preview) | 4202 | — |
+| | | | | Keycloak | 8080 / 8443 (https) | |
 
 Admin port = app port + 100; health check at `http://127.0.0.1:<admin>/healthcheck`.
 
@@ -1277,7 +1285,7 @@ The full gate, in order:
 
 ```bash
 cedarcli build java                                                # authoritative full build
-bash $CEDAR_HOME/cedar-development/ops/cedar-services.sh restart    # ALL 21 — pass no names
+bash $CEDAR_HOME/cedar-development/ops/cedar-services.sh restart    # ALL 22 — pass no names
 bash $CEDAR_HOME/cedar-development/ops/cedar-services.sh health     # exit 0 only if all healthy
 bash $CEDAR_HOME/cedar-development/ops/cedar-services.sh status | grep -q STALE \
   && echo "a backend service is STALE — restart the straggler(s) before trusting the run"   # no service on an old jar
@@ -1285,7 +1293,7 @@ cd $CEDAR_HOME/cedar-development/ops/e2e && npm run smoke
 ```
 
 Pass `restart` no service names. With no arguments it restarts everything the script manages,
-which includes the gulp frontend and the five `ui-*` frontends, not only the 15 Dropwizard
+which includes the three gulp frontends and the four `ui-*` frontends, not only the 15 Dropwizard
 services. Naming services explicitly narrows that and is easy to get wrong: a list of the Java
 services alone leaves the frontend running whatever it started with, so the gate cannot catch a
 frontend regression at all. Gate on `health` rather than reading the status table. It no longer

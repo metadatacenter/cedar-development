@@ -1,10 +1,12 @@
 # CEDAR Template Designer — Roadmap
 
-Outstanding work for the template-authoring frontend, `cedar-template-editor`
-(the AngularJS 1.x application that renders the Template Designer at
-`/templates/edit/...`). Distinct from the embeddable metadata editor, whose work
-is tracked in [CEE-ROADMAP.md](./CEE-ROADMAP.md); backend and cross-service work
-is in [BACKEND-ROADMAP.md](./BACKEND-ROADMAP.md).
+Outstanding work for the extracted template-authoring frontend,
+`cedar-template-designer` (the AngularJS 1.x application that renders the
+Template Designer at `/templates/edit/...`). The production
+`cedar-template-editor` monolith remains intact during migration. The Designer
+is distinct from the embeddable metadata editor, whose work is tracked in
+[CEE-ROADMAP.md](./CEE-ROADMAP.md); backend and cross-service work is in
+[BACKEND-ROADMAP.md](./BACKEND-ROADMAP.md).
 
 This roadmap tracks open work only.
 
@@ -79,25 +81,3 @@ sentinel where the schema reads zero as a quantity — and the other two, `maxIt
 and a value set whose term count nobody knew, are one item with it on
 [BACKEND-ROADMAP.md](./BACKEND-ROADMAP.md). The decision binds the meta-schema and both model
 libraries, so it is taken there; only the frontend half is the designer's.
-
-### 3. The legacy metadata editor renders a static rich-text field as an empty box
-
-`runtime-field/richtext.html` binds `$root.getUnescapedContent(field)` in both of its branches, and
-nothing assigns `getUnescapedContent` to `$rootScope`. The function exists on `schemaService`
-(`schema.service.js:575`), on `dataManipulationService` (`data-manipulation.service.js:506`, whose
-comment says "Used in richtext.html"), and on two directive scopes, never on the root. So the
-expression evaluates to `undefined`, and a static rich-text field renders with its label and nothing
-under it.
-
-Reproduced by turning off "Test the new Metadata Editor UI" in Settings, which is what makes
-`!vm.useCee` true in `create-instance.html`, and populating a template whose static field carried
-known markup. The legacy form rendered an empty input where the content belongs; CEE, with the same
-template and the setting back on, rendered the content.
-
-Both service functions return `$sce.trustAsHtml(...)`, which is why they were written and what makes
-wiring the template straight to either of them the worse of the two repairs. The better one returns
-the raw string from the directive's own scope and lets `ngSanitize` decide, which is what the one
-reachable static-content binding (`cedar-runtime-field.directive.html:77`) already does. That choice
-is the Designer's half of markup discoverability in [CEE-ROADMAP.md](./CEE-ROADMAP.md), where the
-three competing policies are set out. Done when a static rich-text field shows its content in the
-legacy editor and an event handler in that content does not fire.

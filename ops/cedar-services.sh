@@ -2,8 +2,8 @@
 # ------------------------------------------------------------------------------
 # cedar-services.sh — start / stop / monitor the CEDAR app tier without 15 consoles.
 #
-# Runs the 15 Dropwizard microservices + the main frontend (gulp) + the 5 auxiliary
-# Angular frontends (ui-openview/content/monitoring/artifacts/bridging, via `ng serve`)
+# Runs the 15 Dropwizard microservices + the production frontend (gulp) + the two
+# split frontend previews (gulp) + the 4 auxiliary Angular frontends (via `ng serve`)
 # as background processes (nohup), each logging to $CEDAR_HOME/log/, PIDs in
 # $CEDAR_HOME/log/run/. One `status` view shows PID / port / health / error-count.
 # Frontend health is port-only (no Dropwizard /healthcheck). The non-essential CEE
@@ -49,6 +49,8 @@ SERVICES=(
   "impex 9008 9108"
   "bridge 9015 9115"
   "frontend 4200 0"
+  "workspace 4201 0"
+  "designer 4202 0"
   "ui-openview 4220 0"
   "ui-content 4240 0"
   "ui-monitoring 4300 0"
@@ -65,11 +67,21 @@ fe_dir() {
   esac
 }
 
+# AngularJS/Gulp frontends. `frontend` remains the production-safe monolith while
+# Workspace and Designer run beside it during the extraction.
+gulp_fe_dir() {
+  case "$1" in
+    frontend)  echo "$CEDAR_HOME/cedar-template-editor" ;;
+    workspace) echo "$CEDAR_HOME/cedar-workspace" ;;
+    designer)  echo "$CEDAR_HOME/cedar-template-designer" ;;
+  esac
+}
+
 svc_field() { local n=$1 f=$2; for s in "${SERVICES[@]}"; do set -- $s; [ "$1" = "$n" ] && { echo "${!f}"; return; }; done; }
 app_port()  { svc_field "$1" 2; }
 admin_port(){ svc_field "$1" 3; }
 pidfile()   { echo "$RUN/$1.pid"; }
-logfile()   { case "$1" in frontend) echo "$LOGDIR/cedar-frontend.log";; ui-*) echo "$LOGDIR/frontend-${1#ui-}.log";; *) echo "$LOGDIR/cedar-$1-server.log";; esac; }
+logfile()   { case "$1" in frontend|workspace|designer) echo "$LOGDIR/cedar-$1.log";; ui-*) echo "$LOGDIR/frontend-${1#ui-}.log";; *) echo "$LOGDIR/cedar-$1-server.log";; esac; }
 alive()     { local p; p=$(cat "$(pidfile "$1")" 2>/dev/null); [ -n "$p" ] && kill -0 "$p" 2>/dev/null; }
 port_open() { nc -z -G1 127.0.0.1 "$1" >/dev/null 2>&1; }
 
@@ -85,7 +97,7 @@ jar_of() { echo "$CEDAR_HOME/cedar-$1-server/cedar-$1-server-application/target/
 # gate meaningless. Compare when the process started against when its jar was written.
 binary_of() {  # echoes current|STALE|- for a service and the pid serving it
   local name=$1 pid=$2 jar started j_epoch p_epoch
-  case "$name" in frontend|ui-*) echo '-'; return;; esac
+  case "$name" in frontend|workspace|designer|ui-*) echo '-'; return;; esac
   jar=$(jar_of "$name")
   [ -n "$pid" ] && [ -f "$jar" ] || { echo '-'; return; }
   started=$(ps -o lstart= -p "$pid" 2>/dev/null) || { echo '-'; return; }
@@ -103,6 +115,10 @@ start_one() {
   case "$name" in
     frontend)
       ( cd "$CEDAR_HOME/cedar-template-editor" && exec nohup gulp >"$log" 2>&1 ) & ;;
+    workspace|designer)
+      local dir; dir=$(gulp_fe_dir "$name")
+      [ -d "$dir" ] || { echo "  $name: SRC MISSING ($dir) — skip"; return; }
+      ( cd "$dir" && exec nohup gulp >"$log" 2>&1 ) & ;;
     ui-*)
       local dir; dir=$(fe_dir "$name")
       [ -d "$dir" ] || { echo "  $name: SRC MISSING ($dir) — skip"; return; }
