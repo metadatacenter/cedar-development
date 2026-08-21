@@ -1841,6 +1841,44 @@ create-save-edit/OpenView/cleanup journey with Workspace as `CEDAR_BASE` and Des
 so this extension does not change the production smoke contract. Remote preview hosts can use the
 same journey by setting both variables explicitly instead of using the localhost npm shortcut.
 
+For a production-shaped local rehearsal, map `workspace.metadatacenter.orgx` and
+`designer.metadatacenter.orgx` to `127.0.0.1`, authorize their exact HTTPS callbacks and Web Origins
+in Keycloak, then generate only their two leaves from the already-trusted development CA. Do not
+regenerate the CA:
+
+```bash
+export CEDAR_HOME=$HOME/CEDAR
+source $CEDAR_HOME/cedar-profile-native-develop.sh
+cd $CEDAR_HOME/cedar-cli
+.venv/bin/python cedar.py cert domains workspace designer
+bash $CEDAR_HOME/cedar-development/ops/install-local-split-hostnames.sh
+```
+
+The installer verifies each SAN, expiry, and CA signature before copying the leaves and tracked
+nginx includes into `/opt/homebrew/etc/nginx/cedar`. It validates the nginx configuration and then
+reloads nginx when direct non-interactive sudo is available, otherwise it uses the CEDAR-scoped
+stop/start helpers. It adds only the two hostname virtual hosts; the monolith virtual host remains
+untouched. Start clean preview images with the hostname-aware cross-application configuration:
+
+```bash
+cd $CEDAR_HOME/cedar-docker-build
+./bin/build-split-preview-frontends.sh
+
+cd $CEDAR_HOME/cedar-docker-deploy/cedar-frontend
+CEDAR_WORKSPACE_FRONTEND_URL=https://workspace.metadatacenter.orgx \
+CEDAR_TEMPLATE_DESIGNER_FRONTEND_URL=https://designer.metadatacenter.orgx \
+docker compose -f docker-compose.preview.yml up -d --wait
+
+cd $CEDAR_HOME/cedar-development/ops/e2e
+npm run smoke:split:hostnames:deployment
+npm run smoke:split:hostnames:authenticated
+```
+
+The current shared Dropwizard CORS filter permits every origin and reflects the requesting origin
+when credentials are enabled. Therefore both local HTTPS origins already work and require no server
+rebuild. Verify the exact echo during the hostname smoke; replace the wildcard with an
+environment-configurable allowlist before staging.
+
 Container and staging deployments add one stronger gate. Each image exposes a no-store
 `/config/build-info.json` containing its baked full source commit, clean/dirty marker, and SHA-256 of
 the exact environment-specific tree nginx serves. Validate both endpoints and optionally pin the
