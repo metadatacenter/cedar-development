@@ -5,10 +5,13 @@ to be read by a human or an LLM agent. It covers the architecture, the bring-up 
 non-obvious gotchas that will otherwise cost hours, and the two helper scripts in this folder.
 
 Scope: the **native-develop** setup (infrastructure as local binaries, microservices as native
-Dropwizard JVMs, frontends via `gulp`). The containerized alternative has its own section below.
+Dropwizard JVMs, frontends via `gulp`). The containerized alternative has a summary below and a
+focused [Docker backend runbook](./DOCKER-BACKEND-RUNBOOK.md).
 
 Known backend work items, and the decisions about what is deliberately not being done, are tracked
 in [BACKEND-ROADMAP.md](./BACKEND-ROADMAP.md).
+Docker deployment work has a narrower execution plan in
+[DOCKER-BACKEND-ROADMAP.md](./DOCKER-BACKEND-ROADMAP.md).
 
 ## Architecture
 
@@ -77,8 +80,10 @@ tab, by design — see below). The controller replaces that with background proc
 
 An alternative to the native bring-up: the same fifteen microservices and the same infrastructure,
 as containers. It is the `cedar-docker-build` images driven by the `cedar-docker-deploy` compose
-stacks. Proven on 2026-08-07 — infrastructure and all fifteen microservices healthy, and the whole
-REST estate green against it (635 assertions, 0 failures).
+stacks. Re-proven on 2026-08-21 — all 70 Java reactor modules built, seven infrastructure and all
+fifteen microservices healthy, and the whole REST estate green (683 assertions, 0 failures in one
+in-network run). See [DOCKER-BACKEND-RUNBOOK.md](./DOCKER-BACKEND-RUNBOOK.md) for the reproducible build,
+deployment, health, and in-network REST acceptance procedure.
 
 **It cannot run beside the native stack.** Both want 80/443, 3306, 27017, 6379, 9200, 7474/7687,
 8080 and the 9xxx range. Take the native one down first with `cedarcli stop all`, which unlike
@@ -92,13 +97,24 @@ Docker bridge gateway; the Docker one pins every container to an address on `192
 ```bash
 export CEDAR_HOME=$HOME/CEDAR
 source $CEDAR_HOME/cedar-development/bin/templates/cedar-profile-docker-eval.sh
+# The profile defaults to the hybrid mode where nginx is native. Full Docker needs its nginx
+# container for Keycloak discovery and token-signing keys.
+export CEDAR_AUTH_HOST_TARGET="$CEDAR_NGINX_HOST"
 
 cedarcli docker validate                    # every stack parses, every variable is defined
-cedarcli docker build infrastructure        # and microservices, if the images are not built
+cedarcli docker build infrastructure
+cedarcli build java                         # optional when using the published Nexus JARs
+cedarcli docker build microservices --local # freshly built checkout JARs
+# Or omit --local to download 2.9.2-SNAPSHOT application JARs from Nexus.
 cedarcli docker one-time-setup              # network + certificate volumes
 cedarcli docker start infrastructure -d
 cedarcli docker start microservices -d
 ```
+
+The snapshot images are not currently published under the Docker Hub names hard-coded by Compose.
+For locally built snapshots, use `docker compose up -d --pull never` in each backend project. Nexus
+can store the images, but selecting a Nexus prefix in the builder and Compose is still a roadmap
+item; the historical `CEDAR_DOCKERHUB` instructions require manual retagging.
 
 Certificates come from `$CEDAR_HOME/CEDAR_CA` when it exists, and only fall back to the expired set
 bundled in `cedar-docker-deploy/cedar-assets` when it does not.
@@ -116,11 +132,11 @@ export NODE_TLS_REJECT_UNAUTHORIZED=0
 npm run smoke:rest
 ```
 
-The artifact server has no answer here. The suites reach it on `localhost:9001`, which is the native
-stack's port; the container publishes none, deliberately, since nothing outside the container network
-should address a server that authorizes on global roles alone. So the checks that read it to confirm a
-write landed cannot pass against containers until either that port is published for the run or those
-checks learn to ask the resource server instead.
+The artifact server publishes no host port, deliberately, since nothing outside the container
+network should address a server that authorizes on global roles alone. A host-side REST run therefore
+passes the public estate but ends the `contract` and `freeze` suites with `fetch failed`. Run the
+suite from an ephemeral Node container on `cedarnet`, as documented in the Docker runbook, to test
+those internal cross-store contracts without exposing Artifact.
 
 To get back to the native stack, `cedarcli docker stop microservices` and `stop infrastructure`,
 then bring up native as above.
