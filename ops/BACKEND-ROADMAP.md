@@ -1402,31 +1402,73 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   against the same backend data. That proves the separation mechanics; it does not authorize an
   environment cutover.
 
-  **Staging is the acceptance environment.** Ratify its exact Workspace and Designer hostnames;
-  issue their certificates; configure exact Keycloak callbacks and Web Origins; inventory every
-  legitimate browser client and activate `CEDAR_CORS_ALLOWED_ORIGINS`; deploy clean,
-  provenance-stamped Workspace and Designer payloads beside the monolith. The Workspace build must
-  pin the CEE version accepted for the window. `propagate-cee-release.mjs --check <CEE_VERSION>` must
-  pass all seven consumer manifests, and the Workspace-served CEE sha256 must equal the published
-  package artifact—not merely report the same version label.
+  **Staging is the acceptance environment. Complete every infrastructure gate before changing a
+  canonical route:**
 
-  Run the full staging matrix before changing canonical routes: cold and expired sessions on each
-  origin; exact Designer and CEE `returnTo`; folders, search, sharing and permissions with two users;
-  create/edit/save/delete for templates, fields and instances; live terminology; JSON/YAML and
-  OpenView; old bookmarks; positive CORS plus an unlisted-origin negative control; build identities,
-  cache headers, and CDN behavior. Rehearse the complete nginx route-table swap and one-step monolith
-  restoration without rebuilding or stopping any payload. Record the accepted source commits,
-  served-tree hashes, CEE hash, Keycloak client state, CORS list, nginx include checksum, and rollback
-  target.
+  1. **Names and DNS:** ratify the exact Workspace and Designer HTTPS hostnames; create their DNS
+     records to the staging ingress; preserve the staging monolith name; and record the intended
+     canonical and compatibility routes. The two new payloads must also be reachable for direct
+     pre-cutover health checks.
+  2. **TLS certificates:** issue certificates from the environment's approved CA with the exact
+     Workspace and Designer DNS names in the SAN extension. Install the full chain and private key on
+     every terminating ingress, keep keys out of Git, and verify file ownership, SNI selection, SANs,
+     chain trust, expiry, and HTTPS redirects. Add both certificates to the ordinary renewal and
+     expiry-monitoring process; do not replace or stop renewing the monolith certificate.
+  3. **Nginx and frontend configuration:** add independent virtual hosts and upstreams for ports or
+     services serving Workspace and Designer; validate the complete config with `nginx -t`; configure
+     SPA fallback, no-store for entry/config/build-info responses, immutable caching only for
+     content-addressed assets, and the temporary 302/307 legacy-route redirects. Supply absolute
+     `workspaceFrontend`, `templateDesignerFrontend`, OpenView, monitoring, Keycloak, and REST URLs for
+     staging—no localhost or production fallback is acceptable.
+  4. **Keycloak:** add each exact HTTPS callback (`https://<host>/*`) and exact Web Origin
+     (`https://<host>`, with no path) to the selected staging public client. Preserve the monolith
+     entries during coexistence. Decide and document whether staging and production will continue with
+     one migration client or use a client per frontend, then verify login, logout, SSO, cold deep links,
+     and expired-session recovery from both new origins.
+  5. **Backend CORS:** inventory every staging browser origin still in use, including the monolith and
+     OpenView, and set the exact comma-separated `CEDAR_CORS_ALLOWED_ORIGINS` on every REST service that
+     installs the shared CORS filter. Rebuild and rolling-redeploy those services, then require positive
+     credentialed preflights from every approved origin and rejection of a deliberately unlisted origin.
+  6. **Payload and CEE identity:** deploy clean, provenance-stamped Workspace and Designer payloads
+     beside the monolith. `propagate-cee-release.mjs --check <CEE_VERSION>` must pass all seven consumer
+     manifests; the Workspace-served CEE sha256 must equal the published package artifact—not merely
+     report the same version label. Record source commits, served-tree hashes, image digests, CEE hash,
+     runtime configuration, Keycloak client export, CORS list, certificate fingerprints and expiries,
+     and the nginx include checksum.
+  7. **Acceptance and rollback:** run cold and expired sessions; exact Designer and CEE `returnTo`;
+     folders, search, sharing and permissions with two users; create/edit/save/delete for templates,
+     fields and instances; live terminology; JSON/YAML and OpenView; old bookmarks; CORS controls;
+     cache headers; and CDN behavior. Rehearse the complete nginx route-table swap and one-step monolith
+     restoration without rebuilding or stopping any payload. A rollback must also leave the previous
+     monolith certificate, Keycloak entries, CORS origin, and static payload valid.
 
-  **Production repeats the accepted operation rather than inventing a new one.** Deploy the same
-  immutable payload identities alongside the still-running monolith, verify them directly, save the
-  active nginx include, then switch only the complete route table. Use temporary 302/307 compatibility
-  redirects, purge the affected entry/config/redirect objects, and run the public authenticated smoke
-  plus old-bookmark checks. Roll back immediately by restoring the saved monolith include on any
-  authentication, create/open/save, permission, exact-return, or material parity failure. Keep the
-  monolith image, static bundle, configuration, and CEE pin deployable for the agreed soak; retire it
-  only after that window closes and the fix-forward ledgers are reconciled.
+  **Production repeats the accepted operation rather than inventing a new one. Complete these gates:**
+
+  1. Create the final DNS records and lower any affected canonical-name TTL far enough ahead of the
+     window to make rollback timely. Issue, install, verify, monitor, and test-renew the final Workspace
+     and Designer certificates before exposing the new routes. Keep every certificate required by the
+     monolith and compatibility hostnames valid throughout the rollback soak.
+  2. Add the exact production Keycloak callbacks and Web Origins without removing the monolith entries.
+     Activate the exact production CORS inventory through a rolling backend deployment, retaining each
+     old origin for as long as users or rollback can reach it. Pass login/SSO and positive/negative CORS
+     checks before the route switch.
+  3. Deploy the exact immutable Workspace, Designer, and CEE payload identities accepted in staging
+     alongside the still-running monolith. Verify them through their final SNI hostnames or a controlled
+     host-header probe, and reject any changed source SHA, image digest, served-tree hash, CEE hash, or
+     runtime endpoint.
+  4. Save the active nginx include and its checksum, install and validate the complete split include,
+     then switch only that route table. Use temporary 302/307 compatibility redirects, purge affected
+     entry/config/redirect objects from every cache/CDN layer, and run the public authenticated journey,
+     old-bookmark checks, direct health probes, and build-identity checks.
+  5. Roll back immediately by restoring the saved monolith include on any authentication,
+     create/open/save, permission, exact-return, TLS, CORS, or material parity failure. The rollback must
+     not require DNS propagation, certificate issuance, a frontend rebuild, a Keycloak edit, or a backend
+     redeploy. Keep the monolith image, static bundle, configuration, certificate, Keycloak entries,
+     CORS origin, and CEE pin deployable for the agreed soak.
+  6. Only after the soak closes and fix-forward ledgers are reconciled may operations raise DNS TTLs,
+     remove obsolete monolith callbacks or CORS origins, stop renewing unused certificates, remove
+     compatibility redirects, or retire the monolith payload. Capture each removal as a separate,
+     reversible cleanup change.
 
   This item is complete only when staging acceptance and rollback evidence are signed off, production
   has passed the same gates, the soak closes without a rollback trigger, and the ordinary deployment
