@@ -141,13 +141,13 @@ npm run test:ci
 
 It runs these stages in order and stops at the first failure:
 
-1. Fast Vitest unit specs under `src/`, in jsdom (`test:unit:ci`).
-2. Angular's native Vitest/TestBed coordinator tier, compiling the real wrapper,
+1. Lint and both TypeScript programs (`lint`, `typecheck`).
+2. Fast Vitest unit specs under `src/`, in jsdom (`test:unit:ci`).
+3. Angular's native Vitest/TestBed coordinator tier, compiling the real wrapper,
    editor and renderer templates with coverage thresholds (`test:coordinator`).
-3. The Vitest domain harness with V8 coverage (`test:domain:coverage`).
-4. A production build of the web component.
-5. Fixture preparation and the Playwright browser suite at desktop and narrow
-   viewport sizes (`test:visual`).
+4. The Vitest domain harness with V8 coverage (`test:domain:coverage`).
+5. A production build of the web component, fixture preparation and the Playwright
+   browser suite at desktop and narrow viewport sizes (`test:visual`).
 6. The npm package, staged from the bundle stage 5 just built and then verified
    byte-for-byte against the source each file came from
    (`package:npm:prebuilt`).
@@ -405,9 +405,15 @@ on reflex.
 
 ### What CI runs
 
-`.github/workflows/test.yml` runs the same gate on every pull request and on
-pushes to `main`, `develop` and the `cee-angular-**` branches, with a
-thirty-minute ceiling. Two of its choices are deliberate and expensive to rediscover.
+`.github/workflows/test.yml` runs the same release gate on every pull request and
+on pushes to `main`, `develop` and the `cee-angular-**` branches. It is split for
+latency, not semantics: the `prepare` job builds once, runs lint, type checking,
+unit, coordinator and domain coverage, verifies the staged npm package, audits the
+runtime tree and uploads `dist`; four `visual` jobs restore that exact build and run
+Playwright with `--shard=1/4` through `--shard=4/4`. A shard failure fails the gate,
+and `fail-fast` is off so one failure does not hide results from the other three.
+The local `npm run test:ci` remains the one-command serial equivalent. Two of CI's
+choices are deliberate and expensive to rediscover.
 
 **The runner is `ubuntu-24.04-arm`, and the visual suite runs in a container.**
 Screenshot baselines record a machine's text rasterisation as much as the
@@ -498,6 +504,14 @@ aggregate. All four carry a 90% statement and 85% branch floor. These grouped
 thresholds are part of `npm run test:ci`, so a domain regression fails CI even
 when every test assertion still passes.
 
+The broad floors are backed by focused tripwires where churn is most dangerous.
+The domain harness holds `ActiveComponentRegistryService` at 75% statements / 65%
+branches and `TemplateRepresentationFactory` at 95% / 95%. The root unit suite
+holds the artifact-input coordinator at 90% statements / 85% branches, the config
+coordinator at 95% / 95%, and the wrapper at 70% / 60%. Do not replace those with
+one global percentage: a heavily covered serializer can otherwise conceal an
+untested artifact transition or widget-sync branch.
+
 Branches sit below statements because Vitest 4 counts them differently, not
 because the suite is weaker: it replaced the old V8 mapping with AST-aware
 remapping and offers no way back, and source that cleared 90% everywhere under
@@ -560,6 +574,16 @@ after rendering does not replay one; hosts that use it register the handler befo
 the artifact. The visual host still waits for fonts and layout after that signal,
 because screenshot stability is a stronger condition than editor readiness.
 
+Artifact intake has one owner: `ArtifactInputCoordinator` in the wrapper. It parses
+an instance and builds a candidate `DataContext` / `HandlerContext` before publishing
+anything, then advances one artifact revision. A rejected candidate changes neither
+the live state nor the set-once claims. The inner editor receives those completed
+contexts plus the revision and must not deserialize the raw host inputs again.
+`WrapperConfigCoordinator` owns the independent configuration lifecycle and reapplies
+the one accepted config whenever artifact intake publishes a replacement context.
+Keep those responsibilities separate: artifact arrival order must not become config
+state, and the renderer must not become a second parser.
+
 Model-to-widget synchronization has one owner: the wrapper-scoped
 `RenderSchedulerService`. Artifact input, multi-instance paging and mutation, and
 page-break navigation update model state synchronously and schedule their registry
@@ -568,6 +592,20 @@ cancels the previous one, so rapid inputs cannot apply stale state to a newer
 component tree. Destroying the editor scope cancels pending work. Do not introduce a
 local `setTimeout` to wait for a widget; schedule the whole post-render transition
 through this service instead.
+
+Shared Angular subscriptions use `takeUntilDestroyed` with the component's
+`DestroyRef`; do not add component-local `Subscription.EMPTY` or `destroy$`
+variants. The coordinator tier creates and destroys the real editor repeatedly and
+requires its scoped widget registry to return to zero on every cycle. Add equivalent
+teardown assertions when a new scoped registry, overlay owner or scheduler is added.
+
+`harness/test/view-sync.spec.ts` is the model-to-widget contract. Its table covers
+editable and read-only rendering for text, numeric, temporal, link, external
+authority, controlled-term and checkbox values across a multi-element occurrence
+whose next child is missing. `harness/test/pagination-invariants.spec.ts` enumerates
+every content/page-break sequence through six children, including leading, trailing
+and consecutive breaks. Extend those matrices when adding a new value shape or
+navigation state; a one-off happy-path spec is not a replacement.
 
 ### Running against the old template parser
 
@@ -855,8 +893,9 @@ npm run test:unit:ci
 
 This is the headless, single-run form included in `npm run test:ci`. The root
 `npm test` runs the same specs through Vitest, and `test:watch` is the
-interactive form. The unit layer is small; do not treat it as a substitute for
-the domain and browser stages.
+interactive form. It enforces the focused artifact/config/wrapper thresholds named
+under domain coverage above. The unit layer is small; do not treat it as a substitute
+for the domain and browser stages.
 
 The coordination layer has a separate Angular-aware tier:
 
@@ -866,10 +905,11 @@ npm run test:coordinator
 
 This is Angular's native Vitest builder, not the root hand-written Vitest config.
 It initializes `TestBed`, compiles component templates and styles, and renders the
-real wrapper → editor → renderer tree. It also tests scheduler supersession and
-teardown. Coverage is deliberately limited to those coordinator files and fails
-below 45% statements, 35% branches, 55% functions, or 45% lines. The root runner
-excludes `*.coordinator.spec.ts`; adding a TestBed spec anywhere else is therefore
+real wrapper → editor → renderer tree. It also tests scheduler supersession,
+pending-work cancellation, and repeated wrapper teardown with an empty scoped
+registry after every cycle. Coverage is deliberately limited to those coordinator
+files and fails below 45% statements, 35% branches, 55% functions, or 45% lines. The
+root runner excludes `*.coordinator.spec.ts`; adding a TestBed spec anywhere else is therefore
 a configuration error rather than an accidentally half-working test.
 
 ---

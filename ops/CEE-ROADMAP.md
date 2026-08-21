@@ -7,6 +7,17 @@ libraries still answer differently, is in
 [BACKEND-ROADMAP.md](./BACKEND-ROADMAP.md). The reasoning behind an item is in the
 commit that opened it.
 
+The August 2026 structural hardening pass is complete. Host artifact intake now has
+one transactional owner, configuration is a separate collaborator, and the inner
+editor only renders an already-built model state. Model-to-widget synchronization is
+pinned across editable/read-only literal, numeric, temporal, link, authority,
+controlled-term and multi-value fields; page-break pagination is checked over every
+generated boundary layout through six children. Shared widget subscriptions use
+Angular destroy scopes, repeated editor construction/destruction is exercised, and
+CI holds focused coverage floors for the artifact boundary, component registry and
+page representation while running the browser suite in four shards. The numbered
+items below are the remaining product work, not cleanup left by that pass.
+
 1. **M3 theme adapter and palette.** Replace the M2 compatibility theme with M3 inside
    `_cee-material-theme.scss` as a deliberate visual migration, not a mechanical upgrade:
    choose the CEDAR and neutral palettes, preserve CEE-owned layout, typography, status,
