@@ -1874,6 +1874,31 @@ npm run smoke:split:hostnames:deployment
 npm run smoke:split:hostnames:authenticated
 ```
 
+This is an intentional coexistence mode, not a routing cutover:
+
+- `https://cedar.metadatacenter.orgx` continues to serve the monolith on port 4200.
+- `https://workspace.metadatacenter.orgx` serves the extracted Workspace on port 4201.
+- `https://designer.metadatacenter.orgx` serves the extracted Designer on port 4202.
+
+All three use the same Keycloak realm and backend data. Keycloak SSO bridges authentication, while
+browser-local AngularJS state remains origin-specific and cross-application return state travels in
+the validated `returnTo` URL. Starting or stopping the `*-preview` containers changes neither the
+monolith nor stored CEDAR data. The suffix describes their migration deployment role; repositories
+and user-facing hostnames do not carry it.
+
+Workspace is also a mandatory CEE release consumer. After publishing any stable or development CEE
+version, propagate and verify all seven consumer manifests rather than updating only the historical
+frontends:
+
+```bash
+node $CEDAR_HOME/cedar-development/ops/propagate-cee-release.mjs --apply <CEE_VERSION>
+node $CEDAR_HOME/cedar-development/ops/propagate-cee-release.mjs --check <CEE_VERSION>
+```
+
+Then rebuild the Workspace preview image and rerun the deployment and authenticated hostname smokes.
+The detailed release, registry, build, and served-hash procedure is in
+[CEE-RUNBOOK.md](./CEE-RUNBOOK.md#release).
+
 The shared Dropwizard CORS filter reads `CEDAR_CORS_ALLOWED_ORIGINS` as a comma-separated list of
 Jetty origin patterns. An unset or blank value retains the historical `*` default, so introducing
 the setting does not silently change an existing environment. Set the value before starting or

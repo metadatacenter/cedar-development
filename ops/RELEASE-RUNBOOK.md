@@ -28,6 +28,16 @@ It runs **~1h50m–2h30m** (a clean run is ~1:48). It is **not atomic** — fail
 **commit** phase (git pushes) and the **deploy** tail (Nexus/npm). State it writes under `~/.cedar/`:
 `last_plan_content.sh` (the full plan, written up front) and `last_release_{version,next_dev_version,tag,pre_branch,post_branch}` (the rollback handles, written during prepare).
 
+CEE releases independently and is excluded from `release all-in-one`. Publishing CEE is not complete
+operationally until its exact version has been propagated to all seven consumer manifests, including
+the extracted Workspace, and those changes are committed in their owning repositories. Follow
+[CEE-RUNBOOK.md](./CEE-RUNBOOK.md#release) and require this gate before building a staging or
+production frontend payload:
+
+```bash
+node $CEDAR_HOME/cedar-development/ops/propagate-cee-release.mjs --check <CEE_VERSION>
+```
+
 ## Prerequisites — do these before anything
 
 **Auth.** An expired GitHub token makes a private-repo `git pull` hang forever at a silent
@@ -146,7 +156,7 @@ then resume.
 
 ## Branch layout for the deploy
 
-The ~48 release repos deploy from `main`; the 5 `skip_from_release` frontend repos build from
+The ~48 release repos deploy from `main`; the 6 `skip_from_release` frontend repos build from
 `develop`. `all-in-one` arranges this itself. If you ever end up doing a manual deploy after a blanket
 checkout, put the `skip_from_release` repos back on `develop` first, or their (older) `main` may not
 even build.

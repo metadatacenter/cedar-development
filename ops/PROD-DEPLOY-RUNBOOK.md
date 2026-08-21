@@ -24,8 +24,9 @@ Prod runs the released code from **`main`** at `$CEDAR_HOME`, built in place. A 
    they must be reverted so the pull is clean.
 2. **Pulls the release** onto `main` and **bumps `CEDAR_VERSION_MODIFIER`** (cache-buster — see
    Gotchas) in `set-env-internal.sh`.
-3. **Rebuilds** all Java + configures the static frontends for the prod domain, and **rebuilds the
-   embeddable-editor frontend** to the intended CEE version (the hot-patch, done properly this time).
+3. **Rebuilds** all Java + configures the static frontends for the prod domain, and **rebuilds every
+   served CEE host** to the intended CEE version. During the split migration that means both the
+   monolith and Workspace, not only the historical frontend.
 4. **Migrates the databases** — the app MySQL (on the app host, as root) and the **log DB on a
    separate host**.
 5. **Restarts** Java, then bounces nginx.
@@ -103,14 +104,30 @@ cedarcli prod configure-frontends      # rewrite window.cedarDomain + content do
 cedarcli git status                    # all green; release is on main
 ```
 
-### 6 · Rebuild the embeddable-editor frontend to the intended CEE version
-This is the hot-patch from step 1, applied the right way — through `package.json` and a real build.
+### 6 · Verify and rebuild every CEE host to the intended version
+
+CEE propagation belongs in source control before deployment; do not hand-edit a package manifest on
+the production host. The release's consumer commits must have been produced by the checked helper,
+which includes Workspace and all existing consumers. Verify all seven pins, then build both CEDAR
+hosts while they coexist:
+
 ```bash
-goeditor
-#   edit package.json → set the cedar-embeddable-editor (CEE) version
-npm install
-gulp                                   # build the template-editor bundle
+export CEDAR_CEE_VERSION=<CEE_VERSION>
+node $CEDAR_HOME/cedar-development/ops/propagate-cee-release.mjs --check "$CEDAR_CEE_VERSION"
+
+cd $CEDAR_HOME/cedar-template-editor
+npm ci
+npx gulp
+
+cd $CEDAR_HOME/cedar-workspace
+npm ci
+npx gulp
 ```
+
+If Workspace has not yet been deployed in that environment, its committed pin still must pass the
+check; skip only the environment-local Workspace build. Once it is a staging or production payload,
+omitting its build is a deployment failure. Compare each served CEE bundle hash with the package
+staged by the CEE release before changing routes.
 
 ### 7 · Database migrations
 **App MySQL — as root, on the app host:**
@@ -142,8 +159,9 @@ service nginx start
 
 - `cedarcli status` — all Java services up on the new build.
 - `cedarcli check versions` — every repo at the expected version + modifier.
-- Load the prod UI in a fresh/incognito browser and confirm the new version + working CEE editor
-  (a stale bundle here means the modifier didn't change or the CDN wasn't purged — see below).
+- Load the monolith and, while migration is active, Workspace in fresh/incognito browser sessions;
+  confirm both serve the intended CEE hash and can create/edit an instance (a stale bundle means the
+  modifier didn't change, the image was not rebuilt, or the CDN was not purged — see below).
 
 ## Gotchas
 
@@ -170,7 +188,8 @@ service nginx start
 | `cedarcli check versions` | Verifies every repo reports the expected version (incl. the modifier). |
 | `cedarcli dev copy-keycloak-listener` | Copies `cedar-keycloak-event-listener.jar` into Keycloak's `providers/`, then runs `kc.sh build` so Keycloak picks up the provider. |
 | `cedarcli prod configure-frontends` | `sed`-rewrites `window.cedarDomain` and the `content.metadatacenter.org` host in the static dist `index.html`s (openview, bridging, monitoring, artifacts) to the prod `CEDAR_HOST`. |
-| `gulp` (in template-editor) | Builds the Angular template-editor bundle after the CEE `package.json` bump + `npm install`. |
+| `propagate-cee-release.mjs --check` | Proves all seven CEE manifests and lockfiles—including Workspace—pin the exact release from the correct registry. |
+| `gulp` (in template-editor or Workspace) | Copies the pinned CEE bundle and builds that AngularJS host. |
 
 ## Split frontend cutover and rollback (migration only)
 
@@ -211,6 +230,8 @@ and makes no realm, hostname, production Compose, or data change.
 - Run `smoke:split:deployment` against the deployed hosts with expected commit variables pinned.
 - Run `smoke:split:authenticated` from cold Workspace, Designer, and CEE deep links after the exact
   Keycloak callbacks and web origins are approved.
+- Run `propagate-cee-release.mjs --check <CEE_VERSION>` and verify the Workspace-served CEE sha256
+  equals the release artifact accepted for the window.
 - Verify both certificates, REST CORS, sharing with both test users, old bookmark behavior, and the
   complete acceptance matrix in the migration plan.
 - Keep the monolith process/image, its static bundle, and its nginx include in place. A deployment

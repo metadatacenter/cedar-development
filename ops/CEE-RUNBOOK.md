@@ -1,11 +1,12 @@
 # CEDAR Embeddable Editor (CEE) — Development Runbook
 
 Building, running and testing **CEE** (`cedar-embeddable-editor`) locally.
-Everything here has been run on macOS (Apple silicon), against CEE 1.6.0, which is
-Angular 22. That release is what npmjs serves as `latest`, what all seven embedding
-manifests name, and what the local frontends resolve, verified by the sha256 of the
-bundle rather than by the version each reports. `main` and `develop` both carry it:
-the Angular 14.3 `main` the older notes warn about is behind the release.
+Everything here has been run on macOS (Apple silicon), against Angular 22. The latest
+stable release documented here is CEE 1.6.0; the local integration estate currently
+pins the same 2.0.0 development snapshot in all seven embedding manifests, including
+the extracted Workspace. Consumer coherence is verified from manifests and lockfiles,
+and deployed identity is verified by the bundle sha256 rather than only by the version
+each host reports.
 
 Sibling runbooks:
 - [CEE-ROADMAP.md](./CEE-ROADMAP.md) — where CEE currently is, and the open
@@ -196,10 +197,13 @@ every consumer **copies** it into its own served output, so each needs a second
 step:
 
 ```bash
-# CEDAR workspace (`cedar-template-editor`) — needs the CEDAR profile sourced, or the gulpfile refuses to start
+# Extracted Workspace — needs the CEDAR profile sourced, or the gulpfile refuses to start
+cd $CEDAR_HOME/cedar-workspace && npx gulp copy:cee
+
+# Production monolith while migration is in progress
 cd $CEDAR_HOME/cedar-template-editor && npx gulp copy:cee
 
-# openview, artifacts, bridging — the copy happens during the Angular build
+# OpenView and Bridging — the copy happens during the Angular build
 cd $CEDAR_HOME/cedar-openview/cedar-openview-src && npx ng build
 ```
 
@@ -234,10 +238,11 @@ Ask what each host actually serves before believing anything about appearance:
 ```bash
 curl -s http://localhost:4220/node_modules/cedar-embeddable-editor/cedar-embeddable-editor.js | shasum -a 256
 curl -s http://localhost:4200/third_party_components/cedar-embeddable-editor/cedar-embeddable-editor.js | shasum -a 256
+curl -s http://localhost:4201/third_party_components/cedar-embeddable-editor/cedar-embeddable-editor.js | shasum -a 256
 shasum -a 256 $CEDAR_HOME/cedar-embeddable-editor/dist-npm/cedar-embeddable-editor/cedar-embeddable-editor.js
 ```
 
-Three matching hashes mean the hosts agree and any remaining difference is theirs
+Four matching hashes mean the hosts agree and any remaining difference is theirs
 rather than CEE's — configuration, or something the host page sets. openview sets
 `readOnlyMode: true`, for instance, so it legitimately shows no bound hints and no
 clear buttons. `window.cedarEmbeddableEditorVersion` names the build in a page
@@ -272,11 +277,12 @@ scope and this is the only package taken from Nexus:
 "cedar-embeddable-editor": "npm:@org.metadatacenter/cedar-embeddable-editor@2.0.0-dev.20260818.6dca9bf"
 ```
 
-All six manifests already carry the `@org.metadatacenter:registry` line an alias
+All seven manifests already carry the `@org.metadatacenter:registry` line an alias
 needs. Install, then get the bundle into what each host serves:
 
 | Host | Install | Then |
 |---|---|---|
+| `cedar-workspace` | plain | `npx gulp copy:cee` (needs the profile sourced) |
 | `cedar-template-editor` | plain | `npx gulp copy:cee` (needs the profile sourced) |
 | `cedar-bridging` | plain | `cedarcli build this` |
 | `cedar-openview` | `--legacy-peer-deps` | `cedarcli build this` — it copies `dist/cedar-openview` into `cedar-openview-dist` |
@@ -286,8 +292,10 @@ needs. Install, then get the bundle into what each host serves:
 A build refreshes what is on disk. A **running `ng serve` still serves what it
 started with**, because a `node_modules` swap is not a source change, so
 `ui-openview` and `ui-bridging` need restarting; the same
-`.angular/cache` caveat above applies to openview. The CEDAR workspace needs no
-restart — it serves the file `copy:cee` wrote, so the copy is the deploy.
+`.angular/cache` caveat above applies to openview. Native Workspace and monolith
+Gulp servers need no restart — each serves the file `copy:cee` wrote, so the copy is
+the deploy. A Workspace preview image must instead be rebuilt and recreated because
+its CEE bundle was copied into the image.
 
 ```bash
 bash $CEDAR_HOME/cedar-development/ops/cedar-services.sh restart ui-openview ui-bridging
@@ -303,7 +311,8 @@ and checking the wrong file reads exactly like a failed deploy:
 
 | Host | Where the bundle is |
 |---|---|
-| CEDAR workspace (`cedar-template-editor`) | `/third_party_components/cedar-embeddable-editor/cedar-embeddable-editor.js` |
+| Extracted Workspace (`cedar-workspace`) | `/third_party_components/cedar-embeddable-editor/cedar-embeddable-editor.js` |
+| Production monolith (`cedar-template-editor`) | `/third_party_components/cedar-embeddable-editor/cedar-embeddable-editor.js` |
 | openview | `/node_modules/cedar-embeddable-editor/cedar-embeddable-editor.js` |
 | bridging | bundled, not served as a file — it is imported in `app.module.ts`. **Which bundle depends on which build**: the running `ng serve` splits it into `vendor.js`, and the checked-in production dist emits no `vendor.js` at all, carrying it in `main.js`. |
 
@@ -321,6 +330,7 @@ mistaken for one.
 ```bash
 curl -s http://127.0.0.1:4220/node_modules/cedar-embeddable-editor/cedar-embeddable-editor.js | shasum -a 256
 curl -sk https://cedar.metadatacenter.orgx/third_party_components/cedar-embeddable-editor/cedar-embeddable-editor.js | shasum -a 256
+curl -sk https://workspace.metadatacenter.orgx/third_party_components/cedar-embeddable-editor/cedar-embeddable-editor.js | shasum -a 256
 curl -s http://127.0.0.1:4340/vendor.js | grep -c '<the load-trace stamp>'
 grep -c '<the load-trace stamp>' $CEDAR_HOME/cedar-bridging/cedar-bridging-dist/main.js
 ```
@@ -1191,11 +1201,12 @@ instead, where the dev versions do not exist.
 
 `main` is owned by the release process. Work lands on `develop`.
 
-There is one publish target: the unscoped `cedar-embeddable-editor` on public npmjs, under the
-default `latest` tag. 1.6.0 is the current release, and the seven embedding manifests name it as a
-plain version. `scripts/npm-package.mjs` generates the published manifest, hardcoding that name and
-writing no `publishConfig`, so the package goes to `registry.npmjs.org` and the root manifest's own
-`name` and `publishConfig` are not what publishes.
+There is one stable publish target: the unscoped `cedar-embeddable-editor` on public npmjs, under the
+default `latest` tag. 1.6.0 is the latest stable release documented here. The local integration
+estate currently exercises a later development snapshot through the scoped Nexus alias in all seven
+embedding manifests. `scripts/npm-package.mjs` generates the published manifest, hardcoding the
+stable package name and writing no `publishConfig`, so a stable package goes to
+`registry.npmjs.org`; the root manifest's own `name` and `publishConfig` are not what publishes.
 
 Dev snapshots are a second channel: the scoped `@org.metadatacenter/cedar-embeddable-editor` on
 Stanford Nexus under a `dev` tag, versioned `<next>-dev.<date>.<sha>`. It was retired for a while and
@@ -1325,22 +1336,24 @@ curl -s "https://nexus.bmir.stanford.edu/repository/npm-cedar/@org.metadatacente
 
 ### 5 · Propagate
 
-Six manifests across four repos depend on CEE. Each names one exact version, resolved from npmjs:
+Seven manifests across five repos depend on CEE. Workspace is a required consumer alongside the
+production monolith and the existing auxiliary/demo frontends. A stable release names one exact
+version resolved from npmjs:
 
 ```json
 "cedar-embeddable-editor": "1.6.0"
 ```
 
-All six are pinned to `1.6.0`, and their lockfiles record the npmjs tarball
-(`registry.npmjs.org/cedar-embeddable-editor/-/cedar-embeddable-editor-1.6.0.tgz`) with its integrity
-hash, so what installs is reproducible. Installing needs no credential; only publishing does.
+Its lockfiles record the npmjs tarball and integrity hash, so what installs is reproducible.
+Installing needs no credential; only publishing does. A development snapshot instead uses the
+scoped Nexus alias described above.
 
-Each repo still carries an `.npmrc` holding `@org.metadatacenter:registry` against Nexus. No consumer
-depends on a scoped package any more, so those lines do nothing today; they are what an alias pin
-would need if a dev channel ever returns.
+Each repo carries an `.npmrc` holding `@org.metadatacenter:registry` against Nexus, which is required
+while a development snapshot is pinned and harmless for a stable npmjs release.
 
 | Repo | Manifest | Install |
 |---|---|---|
+| `cedar-workspace` | `package.json` | plain |
 | `cedar-template-editor` | `package.json` | plain |
 | `cedar-bridging` | `cedar-bridging-src/package.json` | plain |
 | `cedar-openview` | `cedar-openview-src/package.json` | `--legacy-peer-deps` |
@@ -1351,19 +1364,36 @@ Two repos fail a plain `npm install` on a peer conflict that has nothing to do w
 `ngx-youtube-player-14` demands `@angular/common@^14.1.3` from projects on Angular 15 and 16. Both
 predate this wiring and both need `--legacy-peer-deps`.
 
-Propagating a release means editing the version in each manifest, reinstalling, and rebuilding.
+Propagate all seven pins with the checked cross-repository helper. It updates each manifest and
+lockfile using the appropriate npm peer-dependency mode, then fails unless Workspace and every
+existing consumer resolve the exact version from the correct registry:
+
+```bash
+export CEDAR_HOME=/path/to/CEDAR
+node $CEDAR_HOME/cedar-development/ops/propagate-cee-release.mjs --apply <CEE_VERSION>
+node $CEDAR_HOME/cedar-development/ops/propagate-cee-release.mjs --check <CEE_VERSION>
+```
+
+Never replace the helper with a remembered consumer list: its tested inventory is the guard that
+keeps Workspace wired into every CEE release. Review and commit the resulting manifest and lockfile
+changes in each owning repository separately.
+
+Propagating a release also means rebuilding each deployed consumer.
 Confirm the bytes rather than the version string: the sha256 that `package:npm:prebuilt` prints should
 appear in each consumer's `node_modules`, and again wherever that consumer stages the bundle —
-`app/third_party_components/` for the CEDAR workspace, `dist/cedar-openview/node_modules/` for
-OpenView.
+`app/third_party_components/` for both Workspace and the monolith,
+`dist/cedar-openview/node_modules/` for OpenView.
 
 ```bash
 gobridging  && npm install && cd .. && cedarcli build this
+cd $CEDAR_HOME/cedar-workspace && npx gulp copy:cee
+cd $CEDAR_HOME/cedar-template-editor && npx gulp copy:cee
 ```
 
 A rebuild is what reaches a running frontend; the manifest edit and the install only change what
-resolves. `cedar-template-editor` also picks the version up on the `npm install` + `gulp` that a prod
-deploy runs ([PROD-DEPLOY-RUNBOOK.md](./PROD-DEPLOY-RUNBOOK.md) step 6).
+resolves. Both Workspace and `cedar-template-editor` copy the installed bundle during Gulp. The
+production deployment procedure must build whichever of those two payloads the environment serves,
+and during migration builds both ([PROD-DEPLOY-RUNBOOK.md](./PROD-DEPLOY-RUNBOOK.md) step 6).
 
 ### Gotchas
 
@@ -1371,6 +1401,7 @@ deploy runs ([PROD-DEPLOY-RUNBOOK.md](./PROD-DEPLOY-RUNBOOK.md) step 6).
   the root manifest and packs the whole source tree.
 - **Staging refuses a stale bundle** rather than shipping one. `browser bundle does not match its
   manifest` means run `npm run test:visual` again; it is the guard working, not a fault.
-- **Reaching prod is a separate step.** Publishing does nothing for prod until the template editor is
-  rebuilt against the new version *and* `CEDAR_VERSION_MODIFIER` is bumped so clients drop the cached
-  bundle (PROD-DEPLOY-RUNBOOK + frontend-caching).
+- **Reaching an environment is a separate step.** Publishing does nothing there until every served
+  CEE host—including Workspace and the monolith during migration—is rebuilt against the new version,
+  its served hash is verified, and the environment cache-buster/CDN entries are changed or purged
+  (PROD-DEPLOY-RUNBOOK + frontend-caching).

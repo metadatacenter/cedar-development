@@ -1395,9 +1395,46 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   and never could succeed. Nothing is saved server-side until after the block, so a failed attempt
   leaves no orphan template.
 
+- **21. Switch the extracted Workspace and Template Designer over in staging, then production.**
+  Local coexistence is complete: the monolith remains on `cedar.metadatacenter.orgx`, Workspace and
+  Designer run on their own trusted HTTPS origins, Keycloak SSO spans them, the provenance gate
+  passes, and the complete Workspace → Designer → CEE → OpenView authenticated journey passes
+  against the same backend data. That proves the separation mechanics; it does not authorize an
+  environment cutover.
+
+  **Staging is the acceptance environment.** Ratify its exact Workspace and Designer hostnames;
+  issue their certificates; configure exact Keycloak callbacks and Web Origins; inventory every
+  legitimate browser client and activate `CEDAR_CORS_ALLOWED_ORIGINS`; deploy clean,
+  provenance-stamped Workspace and Designer payloads beside the monolith. The Workspace build must
+  pin the CEE version accepted for the window. `propagate-cee-release.mjs --check <CEE_VERSION>` must
+  pass all seven consumer manifests, and the Workspace-served CEE sha256 must equal the published
+  package artifact—not merely report the same version label.
+
+  Run the full staging matrix before changing canonical routes: cold and expired sessions on each
+  origin; exact Designer and CEE `returnTo`; folders, search, sharing and permissions with two users;
+  create/edit/save/delete for templates, fields and instances; live terminology; JSON/YAML and
+  OpenView; old bookmarks; positive CORS plus an unlisted-origin negative control; build identities,
+  cache headers, and CDN behavior. Rehearse the complete nginx route-table swap and one-step monolith
+  restoration without rebuilding or stopping any payload. Record the accepted source commits,
+  served-tree hashes, CEE hash, Keycloak client state, CORS list, nginx include checksum, and rollback
+  target.
+
+  **Production repeats the accepted operation rather than inventing a new one.** Deploy the same
+  immutable payload identities alongside the still-running monolith, verify them directly, save the
+  active nginx include, then switch only the complete route table. Use temporary 302/307 compatibility
+  redirects, purge the affected entry/config/redirect objects, and run the public authenticated smoke
+  plus old-bookmark checks. Roll back immediately by restoring the saved monolith include on any
+  authentication, create/open/save, permission, exact-return, or material parity failure. Keep the
+  monolith image, static bundle, configuration, and CEE pin deployable for the agreed soak; retire it
+  only after that window closes and the fix-forward ledgers are reconciled.
+
+  This item is complete only when staging acceptance and rollback evidence are signed off, production
+  has passed the same gates, the soak closes without a rollback trigger, and the ordinary deployment
+  and CEE release procedures build Workspace as a first-class target rather than a migration exception.
+
 ## Production data
 
-- **21. Repair the production schema artifacts that can reject correctly shaped CEE instances.** The
+- **22. Repair the production schema artifacts that can reject correctly shaped CEE instances.** The
   permission-scoped production audit found 76 inherently-multiple fields deployed as JSON objects in
   31 stored schema artifacts: 23 templates and 8 elements. Every case is a multiple-select list; no
   object-shaped checkbox or attribute-value deployment was found. CEE correctly serializes these
@@ -1444,7 +1481,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   rerun the audit to `COMPLETE_FOR_KEY`. Never delete a store artifact merely because its search entry
   is inconsistent.
 
-- **22. Write `sourceSystem` onto the production value constraints, so that its absence means something.**
+- **23. Write `sourceSystem` onto the production value constraints, so that its absence means something.**
   A controlled-term constraint may name the system serving its vocabulary, and both model libraries read
   an absent `sourceSystem` as BioPortal —
   [the value-constraint shape](VERSIONING-ROADMAP.md#6-the-value-constraint-shape) defines the field and
