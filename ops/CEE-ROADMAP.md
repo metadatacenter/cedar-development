@@ -16,7 +16,12 @@ generated boundary layout through six children. Shared widget subscriptions use
 Angular destroy scopes, repeated editor construction/destruction is exercised, and
 CI holds focused coverage floors for the artifact boundary, component registry and
 page representation while running the browser suite in four shards. The numbered
-items below are the remaining product work, not cleanup left by that pass.
+items below are the remaining product work, not cleanup left by that pass. CEE's
+host signal is now model-based as well: every real field or multi-instance mutation
+publishes a structured `change` carrying its path and validation report, while DOM
+traffic, paging and no-op writes do not. The CEDAR workspace compares the resulting
+metadata with its last loaded or successfully saved baseline, so an edit marks dirty,
+an exact revert clears it, and a save rebases it.
 
 1. **M3 theme adapter and palette.** Replace the M2 compatibility theme with M3 inside
    `_cee-material-theme.scss` as a deliberate visual migration, not a mechanical upgrade:
@@ -40,14 +45,14 @@ items below are the remaining product work, not cleanup left by that pass.
    the Material typography config from one token, so it is the cheapest of these and still
    needs the pixel test. Every route re-baselines the visual suite; do the palette decision
    in [THEMING.md](../../cedar-embeddable-editor/THEMING.md) and the mechanism in one change.
-3. **Markup discoverability.** Have the Template Designer's rich-text editor declare or
+3. **Markup discoverability.** Have the CEDAR workspace's template rich-text editor declare or
    enforce what an embedder will actually render, since its `Source` button accepts markup
    CEE will strip. Three policies decide what survives, and none of them derives from
    another. CEE sanitizes with DOMPurify against an allowlist of 36 tags and 25 attributes,
    refuses `ng-*` and `on*` outright, and admits a `data:` image only as raster. The
-   Designer's `rich-text-config-service.conf.json` gives CKEditor a toolbar, a height and a
+   workspace's `rich-text-config-service.conf.json` gives CKEditor a toolbar, a height and a
    UI colour and no content filtering at all, so what constrains authoring is CKEditor's
-   automatic ACF, derived from its own enabled plugin set. The Designer's legacy render path
+   automatic ACF, derived from its own enabled plugin set. The workspace's legacy render path
    hands a plain string to `ng-bind-html`, which leaves the decision to `ngSanitize`. An
    author gets no signal from any of the three: nothing objects while they type, and the
    field goes blank in CEE.
@@ -55,8 +60,8 @@ items below are the remaining product work, not cleanup left by that pass.
    `TEMPLATE_MARKUP_POLICY` in `template-markup-policy.ts` is the obvious single source of
    truth, and nothing reads it — not the spec, which imports only `sanitizeTemplateMarkup`,
    and not the README, although its own comment claims both. So the first decision is whether
-   it joins CEE's public API, letting the Designer configure itself from one declaration, or
-   stays internal while the allowlist is duplicated in the Designer's JSON, where it will
+   it joins CEE's public API, letting the workspace configure itself from one declaration, or
+   stays internal while the allowlist is duplicated in the workspace's JSON, where it will
    drift on the first edit to either side. Enforcing costs a mechanical translation of the
    allowlist into ACF rules plus `disallowedContent` approximations for the two rules ACF
    cannot express; declaring costs help text and a save-time warning and leaves the preview
@@ -82,7 +87,7 @@ items below are the remaining product work, not cleanup left by that pass.
 5. **Offer the instance as RDF, which the editor CEE replaced already did.** The download menu
    holds seven views — the instance as JSON-LD and as YAML in both shapes, the template as JSON
    Schema and as YAML in both, and the data quality report — and no RDF. The legacy metadata
-   editor in the Template Designer has an RDF panel beside its JSON-LD and YAML ones, produced by
+   editor in the CEDAR workspace has an RDF panel beside its JSON-LD and YAML ones, produced by
    `jsonld.toRDF(form, {format: 'application/nquads'})` in `create-instance.controller.js`, so a
    host that moves to CEE loses a serialization it had. That makes this parity rather than a new
    feature, and it is the argument for doing it at all: nobody has asked for Turtle, and someone
@@ -92,7 +97,7 @@ items below are the remaining product work, not cleanup left by that pass.
    so the translation is mechanical, but the edge cases are not — `@type` coercion, the nested
    containers an element occurrence produces, and the property IRIs an attribute-value pair mints
    are exactly where a hand-rolled writer would quietly differ from every other JSON-LD consumer.
-   `jsonld.js` is the reference implementation and is what the Designer already uses, which also
+   `jsonld.js` is the reference implementation and is what the workspace already uses, which also
    means its output is the thing to diff against.
 
    Four costs to weigh before starting, in the order they will bite.
@@ -118,7 +123,7 @@ items below are the remaining product work, not cleanup left by that pass.
    either way.
 
    **Turtle and N-Quads are different answers.** A JSON-LD processor emits N-Quads natively, which
-   is what the Designer shows under the label "RDF"; Turtle is what a person reads, and getting it
+   is what the workspace shows under the label "RDF"; Turtle is what a person reads, and getting it
    means a second dependency such as N3's writer, or accepting N-Quads and naming the menu entry
    honestly. Decide which before the label, the `.ttl` or `.nq` extension and the `text/turtle` or
    `application/n-quads` media type are written into the descriptor.
@@ -166,21 +171,20 @@ items below are the remaining product work, not cleanup left by that pass.
    person saving it.** CEE works out what is wrong before any save happens. `dataQualityReport`
    carries `isValid`, how many required fields the template declares against how many the instance
    fills, and a `problems` list whose entries each name a code, a path, the field, its declared input
-   type, a message and the offending value. The Template Designer reads none of that.
+   type, a message and the offending value. The CEDAR workspace reads none of that
+   when deciding whether to save.
    `saveInstance` in `create-instance.controller.js` takes `cee.currentMetadata` and posts it, and
    the only validation anybody sees arrives afterwards, from the server's `CEDAR-Validation-Status`
    response header. Even that arrives thin: the call passes the header alone while `logValidation`
    takes a report as its second argument, so the branch that would parse errors and warnings never
    runs, and what reaches the header indicator is a bare state.
 
-   A host cannot learn validity from the change event either, because the event does not carry it.
-   The only `change` events CEE constructs are the multi-pager's, whose `detail` is
-   `{message: 'multiInstanceAdded'}` and its two siblings; every other one is a native DOM `change`
-   forwarded across the shadow boundary with `detail` undefined. OpenView's `onFormChange` reads
-   `event.detail.validity` alongside `event.detail.title` and `event.detail.description`, which is a
-   contract from the editor CEE replaced: for a forwarded native event the guard `if (event &&
-   event.detail)` is false and the block never runs, and for a multi-instance event all three
-   properties are undefined.
+   CEE now supplies the information at the right boundary: every model-changing `change` event
+   carries `validity`, `dataQualityReport`, `title` and `description`. The CEDAR workspace currently
+   uses that event only to recompute dirty state, so save behavior and validation presentation are
+   still the open product decision here. OpenView also still has an `onFormChange` handler written
+   for the editor CEE replaced; its template does not bind that handler to CEE, so the newly restored
+   event contract does not by itself revive OpenView's title, description or validity plumbing.
 
    Decide what saving an invalid instance should mean, which is a product question before a
    technical one. CEDAR stores instances its own server considers invalid, and an author part-way
@@ -188,25 +192,5 @@ items below are the remaining product work, not cleanup left by that pass.
    answer. Worth weighing instead: a save that names what is wrong and asks for confirmation, and a
    save that proceeds but reports from CEE's report rather than from the response header, since the
    report knows the path and the message while the header knows only that something failed. Either
-   way the fix is mostly in the hosts, and the part that belongs to CEE is a validity signal a host
-   can act on at the moment of change rather than a getter it must remember to read.
-
-8. **Whether a field is dirty is inferred from a DOM event, and probably not correctly.** The
-   Template Designer's whole notion of unsaved work is
-   `cee.addEventListener('change', () => UIUtilService.setDirty(true))`, cleared only after a
-   successful save. What that listens to is whatever bubbles out of `(change)="forwardChange($event)"`
-   on CEE's root element, which is native `change` events from the controls inside plus the
-   multi-pager's three custom ones. Nothing in that signal says which field changed, whether the
-   instance now differs from what was loaded, or whether an edit was undone: a value typed and then
-   retyped identically, or cleared back to what it was, leaves the form dirty, and a control that
-   emits `change` without altering the instance marks work that does not exist.
-
-   `valueChanged(path, value)` has been declared on `CeeEventHandler` since before this was written
-   and is called from nowhere, so a host that wants a real per-field signal has none to use — the one
-   method named `valueChanged` in the widgets belongs to the attribute-value component and is
-   unrelated. Establishing what the current behaviour actually is comes first, because the failure
-   modes above are derived from reading the wiring rather than observed: a browser test that edits a
-   field, reverts it, pages between occurrences and toggles read-only, asserting what the host
-   receives at each step, would either clear the suspicion or name the defect precisely. Then decide
-   what CEE should publish — the declared callback, a dirty getter, or paths on the change event —
-   and let the Designer's flag follow from it rather than from event traffic.
+   way the remaining fix is host behavior: CEE now supplies a validity signal at the moment of
+   change, and the CEDAR workspace must decide how to present and act on it.

@@ -196,7 +196,7 @@ every consumer **copies** it into its own served output, so each needs a second
 step:
 
 ```bash
-# Template Designer — needs the CEDAR profile sourced, or the gulpfile refuses to start
+# CEDAR workspace (`cedar-template-editor`) — needs the CEDAR profile sourced, or the gulpfile refuses to start
 cd $CEDAR_HOME/cedar-template-editor && npx gulp copy:cee
 
 # openview, artifacts, bridging — the copy happens during the Angular build
@@ -222,7 +222,7 @@ compile and nothing else. Do not trust the restart on its own: check the hash.
 
 This is worth knowing because of how it presents. A dev server started before the
 symlink existed went on serving the **1.5.2** it had installed from npmjs, for a
-day, while the Template Designer served `1.6.0-dev` from the same symlink. The
+day, while the CEDAR workspace served `1.6.0-dev` from the same symlink. The
 symptoms were smaller type, a different typeface and no field-type icons in
 openview alone — which reads as a CEE styling bug in one host, and sends you
 looking at stylesheets and the shadow boundary rather than at which file is being
@@ -286,7 +286,7 @@ needs. Install, then get the bundle into what each host serves:
 A build refreshes what is on disk. A **running `ng serve` still serves what it
 started with**, because a `node_modules` swap is not a source change, so
 `ui-openview`, `ui-artifacts` and `ui-bridging` need restarting; the same
-`.angular/cache` caveat above applies to openview. The Template Designer needs no
+`.angular/cache` caveat above applies to openview. The CEDAR workspace needs no
 restart — it serves the file `copy:cee` wrote, so the copy is the deploy.
 
 ```bash
@@ -303,7 +303,7 @@ and checking the wrong file reads exactly like a failed deploy:
 
 | Host | Where the bundle is |
 |---|---|
-| Template Designer | `/third_party_components/cedar-embeddable-editor/cedar-embeddable-editor.js` |
+| CEDAR workspace (`cedar-template-editor`) | `/third_party_components/cedar-embeddable-editor/cedar-embeddable-editor.js` |
 | openview | `/node_modules/cedar-embeddable-editor/cedar-embeddable-editor.js` |
 | artifacts, bridging | bundled, not served as a file — it is imported in `app.module.ts`. **Which bundle depends on which build**: the running `ng serve` splits it into `vendor.js`, and the checked-in production dist emits no `vendor.js` at all, carrying it in `main.js`. |
 
@@ -592,6 +592,27 @@ cancels the previous one, so rapid inputs cannot apply stale state to a newer
 component tree. Destroying the editor scope cancels pending work. Do not introduce a
 local `setTimeout` to wait for a widget; schedule the whole post-render transition
 through this service instead.
+
+Model-to-host mutation reporting also has one owner: `HandlerContext` reports a
+successful field or multi-instance operation to the wrapper, and the wrapper compares
+the serialized instance with the last serialization it published before emitting a
+composed, bubbling `change`. This is a model contract, not forwarded browser traffic:
+focus, blur, paging, read-only controls and a no-op write emit nothing. The detail is
+`CeeChangeDetail` and carries the operation, component path, value, validity, full
+data-quality report, title and description. Field mutations also invoke the optional
+`eventHandler.valueChanged(path, value)` callback. Keep the serialization comparison
+at the wrapper boundary; reporting directly from widgets will miss non-native controls
+and will duplicate events when control implementations change.
+
+CEE deliberately does not own a dirty flag. The CEDAR workspace knows when persistence
+succeeded, so `CeeDirtyTrackerService` in `cedar-template-editor` snapshots
+`cee.currentMetadata` after load and after a successful create/update, then structurally
+compares that baseline after every CEE model-change event. An edit therefore marks the
+workspace dirty, an exact revert clears it, and a successful save establishes the new
+baseline. The service's unit spec pins those three transitions and defensive copying;
+the CEE browser suite's `host change notifications` group pins text, Material choice,
+controlled-term, temporal, multi-instance, paging and read-only behavior in both viewport
+projects. Extend that group whenever a new mutation path is added.
 
 Shared Angular subscriptions use `takeUntilDestroyed` with the component's
 `DestroyRef`; do not add component-local `Subscription.EMPTY` or `destroy$`
@@ -1306,7 +1327,7 @@ predate this wiring and both need `--legacy-peer-deps`.
 Propagating a release means editing the version in each manifest, reinstalling, and rebuilding.
 Confirm the bytes rather than the version string: the sha256 that `package:npm:prebuilt` prints should
 appear in each consumer's `node_modules`, and again wherever that consumer stages the bundle —
-`app/third_party_components/` for the Template Designer, `dist/cedar-openview/node_modules/` for
+`app/third_party_components/` for the CEDAR workspace, `dist/cedar-openview/node_modules/` for
 OpenView.
 
 ```bash
