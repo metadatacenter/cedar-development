@@ -7,6 +7,8 @@
   "scripts": {
     "smoke": "node login-smoke-test.mjs",
     "smoke:headed": "HEADED=1 node login-smoke-test.mjs",
+    "smoke:split:authenticated": "CEDAR_BASE=http://localhost:4201 CEDAR_DESIGNER_BASE=http://localhost:4202 node login-smoke-test.mjs",
+    "smoke:split:authenticated:headed": "CEDAR_BASE=http://localhost:4201 CEDAR_DESIGNER_BASE=http://localhost:4202 HEADED=1 node login-smoke-test.mjs",
     "smoke:rest": "node rest-smoke.mjs",
     "smoke:split": "node split-frontend-smoke.mjs"
   },

@@ -1798,7 +1798,24 @@ The defaults target `http://localhost:4201`, `http://localhost:4202`, the profil
 the native resource service on port 9007. For a remote preview deployment, set
 `CEDAR_WORKSPACE_PREVIEW`, `CEDAR_DESIGNER_PREVIEW`, `CEDAR_AUTH_URL`, and `CEDAR_RESOURCE_API`.
 This check intentionally stops at the authentication boundary; it does not enter credentials or
-mutate data. Run the full Playwright smoke after the preview origins are authorized in Keycloak.
+mutate data. After the preview origins are authorized in Keycloak, run the split-aware form of the
+full Playwright journey:
+
+```bash
+cd $CEDAR_HOME/cedar-development/ops/e2e
+npm run smoke:split:authenticated
+# or watch the cross-origin login/navigation journey:
+npm run smoke:split:authenticated:headed
+```
+
+It first drives Workspace's real **New → Template** gesture, verifies that Designer receives the
+complete Workspace `returnTo` URL, waits for SSO on the Designer origin, and drives Designer's
+create-flow cancel action to prove exact restoration. It then runs the existing
+folder/template/controlled-term/CEE
+create-save-edit/OpenView/cleanup journey with Workspace as `CEDAR_BASE` and Designer as
+`CEDAR_DESIGNER_BASE`. The ordinary `npm run smoke` leaves both values on the production monolith,
+so this extension does not change the production smoke contract. Remote preview hosts can use the
+same journey by setting both variables explicitly instead of using the localhost npm shortcut.
 
 Needs the app tier up (frontend, resource, user, group, artifact at least — `cedar-services.sh
 status`). Credentials and base URL come from the profile environment, with the local-dev values
