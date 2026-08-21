@@ -1460,6 +1460,20 @@ cd $CEDAR_HOME/cedar-<name> && ./mvnw --batch-mode deploy --settings .m2/nexus-s
 # needs BMIR_NEXUS_USERNAME and BMIR_NEXUS_PASSWORD in the environment
 ```
 
+The extracted AngularJS frontends publish to the npm repository on Nexus, not through Maven. They
+remain outside `release all-in-one` during migration and are excluded from the generic frontend/all
+deploy selectors. Publishing them therefore requires the explicit command and never changes a
+running environment:
+
+```bash
+cedarcli deploy split-frontends --dry-run
+cedarcli deploy split-frontends
+```
+
+That plan runs `npm ci` and `npm publish` in exactly `cedar-workspace` and
+`cedar-template-designer`; each manifest's `publishConfig` selects the CEDAR Nexus npm repository.
+It does not build a Docker image, edit nginx, or start a frontend.
+
 To see whether a repository's published snapshot is behind its source, compare the Nexus timestamp
 against the commits that touched the build:
 
@@ -1858,7 +1872,9 @@ The installer verifies each SAN, expiry, and CA signature before copying the lea
 nginx includes into `/opt/homebrew/etc/nginx/cedar`. It validates the nginx configuration and then
 reloads nginx when direct non-interactive sudo is available, otherwise it uses the CEDAR-scoped
 stop/start helpers. It adds only the two hostname virtual hosts; the monolith virtual host remains
-untouched. Start clean preview images with the hostname-aware cross-application configuration:
+untouched. Local development can run native Gulp servers with
+`cedarcli start frontend split-frontends`. The following image-based variant is optional local test
+infrastructure only; staging and production do not require or use it:
 
 ```bash
 cd $CEDAR_HOME/cedar-docker-build
@@ -1886,6 +1902,34 @@ the validated `returnTo` URL. Starting or stopping the `*-preview` containers ch
 monolith nor stored CEDAR data. The suffix describes their migration deployment role; repositories
 and user-facing hostnames do not carry it.
 
+### Native staging payloads (no Docker)
+
+Staging follows the existing monolith deployment model. Publish the npm artifacts on the release
+host with the explicit command above, but deploy from approved Git commits on the staging host. The
+staging profile must set `CEDAR_FRONTEND_BEHAVIOR=server`, the normal CEDAR host/REST variables, and
+the two exact HTTPS origins:
+
+```bash
+export CEDAR_WORKSPACE_FRONTEND_URL=https://<workspace-staging-host>
+export CEDAR_TEMPLATE_DESIGNER_FRONTEND_URL=https://<designer-staging-host>
+
+cedarcli git status                 # both checkouts must be clean
+cedarcli git pull                   # or check out the exact approved commits/tags
+cedarcli build split-frontends --server-payload
+```
+
+The last command refuses a dirty source checkout, runs `npm ci` and Gulp for both repositories, and
+writes a no-store `app/config/build-info.json` containing the package version, full source commit,
+version modifier, and SHA-256 of the exact generated tree. Gulp exits in `server` mode. Native nginx
+serves `$CEDAR_HOME/cedar-workspace/app` and `$CEDAR_HOME/cedar-template-designer/app` directly, so
+there is no frontend container and no long-running Gulp service on staging. Install and validate the
+two static-root virtual hosts, certificates, Keycloak entries, and backend CORS list separately;
+then run the deployment and authenticated smokes before any route switch.
+
+`cedarcli build split-frontends` without `--server-payload` only installs the locked dependencies.
+`cedarcli start|stop frontend split-frontends` is for the local `develop` profile on ports 4201 and
+4202, not for a staging static payload.
+
 Workspace is also a mandatory CEE release consumer. After publishing any stable or development CEE
 version, propagate and verify all seven consumer manifests rather than updating only the historical
 frontends:
@@ -1895,7 +1939,8 @@ node $CEDAR_HOME/cedar-development/ops/propagate-cee-release.mjs --apply <CEE_VE
 node $CEDAR_HOME/cedar-development/ops/propagate-cee-release.mjs --check <CEE_VERSION>
 ```
 
-Then rebuild the Workspace preview image and rerun the deployment and authenticated hostname smokes.
+Then regenerate the native Workspace server payload (or rebuild an optional local preview image) and
+rerun the deployment and authenticated hostname smokes.
 The detailed release, registry, build, and served-hash procedure is in
 [CEE-RUNBOOK.md](./CEE-RUNBOOK.md#release).
 
@@ -1927,10 +1972,10 @@ unlisted origin receives `Access-Control-Allow-Origin`. Keep paths and trailing 
 origin entries. Retain the wildcard only as a temporary compatibility default; an environment is
 not allowlist-accepted until the negative control passes.
 
-Container and staging deployments add one stronger gate. Each image exposes a no-store
-`/config/build-info.json` containing its baked full source commit, clean/dirty marker, and SHA-256 of
-the exact environment-specific tree nginx serves. Validate both endpoints and optionally pin the
-expected commits:
+Every accepted staging payload adds one stronger gate. Native builds and optional preview images
+both expose a no-store `/config/build-info.json` containing the full source commit, clean/dirty
+marker, and SHA-256 of the exact environment-specific tree nginx serves. Validate both endpoints
+and optionally pin the expected commits:
 
 ```bash
 CEDAR_EXPECT_WORKSPACE_COMMIT=$(git -C "$CEDAR_HOME/cedar-workspace" rev-parse HEAD) \

@@ -1414,8 +1414,10 @@ Coverage and test-infrastructure work. The active REST integration suites live i
      every terminating ingress, keep keys out of Git, and verify file ownership, SNI selection, SANs,
      chain trust, expiry, and HTTPS redirects. Add both certificates to the ordinary renewal and
      expiry-monitoring process; do not replace or stop renewing the monolith certificate.
-  3. **Nginx and frontend configuration:** add independent virtual hosts and upstreams for ports or
-     services serving Workspace and Designer; validate the complete config with `nginx -t`; configure
+  3. **Nginx and frontend configuration:** staging has no Docker prerequisite. Add independent
+     virtual hosts whose roots are the native `cedar-workspace/app` and
+     `cedar-template-designer/app` trees, matching the existing monolith pattern; validate the
+     complete config with `nginx -t`; configure
      SPA fallback, no-store for entry/config/build-info responses, immutable caching only for
      content-addressed assets, and the temporary 302/307 legacy-route redirects. Supply absolute
      `workspaceFrontend`, `templateDesignerFrontend`, OpenView, monitoring, Keycloak, and REST URLs for
@@ -1429,10 +1431,14 @@ Coverage and test-infrastructure work. The active REST integration suites live i
      OpenView, and set the exact comma-separated `CEDAR_CORS_ALLOWED_ORIGINS` on every REST service that
      installs the shared CORS filter. Rebuild and rolling-redeploy those services, then require positive
      credentialed preflights from every approved origin and rejection of a deliberately unlisted origin.
-  6. **Payload and CEE identity:** deploy clean, provenance-stamped Workspace and Designer payloads
-     beside the monolith. `propagate-cee-release.mjs --check <CEE_VERSION>` must pass all seven consumer
+  6. **Payload and CEE identity:** explicitly publish the two npm packages to Nexus with
+     `cedarcli deploy split-frontends`, check out the approved Git commits on staging, and generate
+     clean native static trees with `cedarcli build split-frontends --server-payload`. Deploy those
+     provenance-stamped Workspace and Designer payloads beside the monolith.
+     `propagate-cee-release.mjs --check <CEE_VERSION>` must pass all seven consumer
      manifests; the Workspace-served CEE sha256 must equal the published package artifact—not merely
-     report the same version label. Record source commits, served-tree hashes, image digests, CEE hash,
+     report the same version label. Record npm versions and integrity, source commits, served-tree
+     hashes, CEE hash,
      runtime configuration, Keycloak client export, CORS list, certificate fingerprints and expiries,
      and the nginx include checksum.
   7. **Acceptance and rollback:** run cold and expired sessions; exact Designer and CEE `returnTo`;
@@ -1452,10 +1458,11 @@ Coverage and test-infrastructure work. The active REST integration suites live i
      Activate the exact production CORS inventory through a rolling backend deployment, retaining each
      old origin for as long as users or rollback can reach it. Pass login/SSO and positive/negative CORS
      checks before the route switch.
-  3. Deploy the exact immutable Workspace, Designer, and CEE payload identities accepted in staging
-     alongside the still-running monolith. Verify them through their final SNI hostnames or a controlled
-     host-header probe, and reject any changed source SHA, image digest, served-tree hash, CEE hash, or
-     runtime endpoint.
+  3. Check out the exact Workspace and Designer release commits accepted in staging and regenerate
+     their native server payloads alongside the still-served monolith. Verify them through their final
+     SNI hostnames or a controlled host-header probe, and reject any changed npm version/integrity,
+     source SHA, served-tree hash, CEE hash, or runtime endpoint. Do not introduce Docker as a cutover
+     dependency.
   4. Save the active nginx include and its checksum, install and validate the complete split include,
      then switch only that route table. Use temporary 302/307 compatibility redirects, purge affected
      entry/config/redirect objects from every cache/CDN layer, and run the public authenticated journey,
@@ -1463,8 +1470,8 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   5. Roll back immediately by restoring the saved monolith include on any authentication,
      create/open/save, permission, exact-return, TLS, CORS, or material parity failure. The rollback must
      not require DNS propagation, certificate issuance, a frontend rebuild, a Keycloak edit, or a backend
-     redeploy. Keep the monolith image, static bundle, configuration, certificate, Keycloak entries,
-     CORS origin, and CEE pin deployable for the agreed soak.
+     redeploy. Keep the monolith process or static payload, bundle, configuration, certificate,
+     Keycloak entries, CORS origin, and CEE pin deployable for the agreed soak.
   6. Only after the soak closes and fix-forward ledgers are reconciled may operations raise DNS TTLs,
      remove obsolete monolith callbacks or CORS origins, stop renewing unused certificates, remove
      compatibility redirects, or retire the monolith payload. Capture each removal as a separate,

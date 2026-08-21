@@ -119,15 +119,17 @@ cd $CEDAR_HOME/cedar-template-editor
 npm ci
 npx gulp
 
-cd $CEDAR_HOME/cedar-workspace
-npm ci
-npx gulp
+# Only after Workspace and Designer are deployed in this environment. The production profile must
+# provide their exact HTTPS origins and CEDAR_FRONTEND_BEHAVIOR=server.
+cedarcli build split-frontends --server-payload
 ```
 
 If Workspace has not yet been deployed in that environment, its committed pin still must pass the
-check; skip only the environment-local Workspace build. Once it is a staging or production payload,
-omitting its build is a deployment failure. Compare each served CEE bundle hash with the package
-staged by the CEE release before changing routes.
+check; skip only the environment-local split payload build. Once the extracted applications are a
+staging or production payload, omitting the native build is a deployment failure. The command runs
+`npm ci` and Gulp from clean Git checkouts, writes each no-store build identity, and exits; nginx
+serves the two generated `app` trees directly. It uses no Docker. Compare the Workspace-served CEE
+bundle hash with the package staged by the CEE release before changing routes.
 
 ### 7 · Database migrations
 **App MySQL — as root, on the app host:**
@@ -187,8 +189,10 @@ service nginx start
 | `gocedar` / `goeditor` | cd to `$CEDAR_HOME` / to the template-editor frontend (profile aliases). |
 | `cedarcli check versions` | Verifies every repo reports the expected version (incl. the modifier). |
 | `cedarcli dev copy-keycloak-listener` | Copies `cedar-keycloak-event-listener.jar` into Keycloak's `providers/`, then runs `kc.sh build` so Keycloak picks up the provider. |
-| `cedarcli prod configure-frontends` | `sed`-rewrites `window.cedarDomain` and the `content.metadatacenter.org` host in the static dist `index.html`s (openview, bridging, monitoring, artifacts) to the prod `CEDAR_HOST`. |
+| `cedarcli prod configure-frontends` | `sed`-rewrites `window.cedarDomain` and the content host in the active OpenView, Bridging, and Monitoring static `index.html` files to the production `CEDAR_HOST`. |
 | `propagate-cee-release.mjs --check` | Proves all seven CEE manifests and lockfiles—including Workspace—pin the exact release from the correct registry. |
+| `cedarcli deploy split-frontends` | Explicitly publishes the two current npm package versions to Nexus; generic frontend/all deploy commands exclude them. It does not change an environment. |
+| `cedarcli build split-frontends --server-payload` | On a native host, refuses dirty split checkouts, runs `npm ci` + Gulp, and writes the static payload identities nginx serves. |
 | `gulp` (in template-editor or Workspace) | Copies the pinned CEE bundle and builds that AngularJS host. |
 
 ## Split frontend cutover and rollback (migration only)
@@ -234,12 +238,13 @@ and makes no realm, hostname, production Compose, or data change.
   equals the release artifact accepted for the window.
 - Verify both certificates, REST CORS, sharing with both test users, old bookmark behavior, and the
   complete acceptance matrix in the migration plan.
-- Keep the monolith process/image, its static bundle, and its nginx include in place. A deployment
+- Keep the monolith process or static payload, its bundle, and its nginx include in place. A deployment
   that deletes or overwrites them is not cutover-ready.
 
 ### Route-only cutover
 
-1. Start the accepted Workspace and Designer payloads without changing public routing.
+1. Generate the accepted native Workspace and Designer static trees and install their nginx virtual
+   hosts without changing canonical public routing.
 2. Probe their health, build-identity endpoints, and browser journeys directly.
 3. Save the active nginx include and obtain its checksum. Prepare a second complete include for the
    split routes; do not edit a live include incrementally during the window.

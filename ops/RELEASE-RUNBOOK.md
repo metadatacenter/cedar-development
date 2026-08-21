@@ -38,6 +38,22 @@ production frontend payload:
 node $CEDAR_HOME/cedar-development/ops/propagate-cee-release.mjs --check <CEE_VERSION>
 ```
 
+Workspace and Template Designer are also independent of `release all-in-one` while migration is in
+progress. Their exact current versions publish as npm packages to the CEDAR Nexus repository through
+one deliberately named selector:
+
+```bash
+cedarcli deploy split-frontends --dry-run
+cedarcli deploy split-frontends
+```
+
+The generic `cedarcli deploy frontends` and `cedarcli deploy all` selectors exclude them. The
+explicit plan runs `npm ci` and `npm publish` in only the two extracted repositories. Publication is
+an artifact operation, not an environment deployment: native staging/production checks out the
+approved Git commits and runs `cedarcli build split-frontends --server-payload`; nginx then serves
+the generated `app` trees directly. No Docker host is required. Keep them excluded from the global
+version/tag/merge release until staging acceptance authorizes their normal release membership.
+
 ## Prerequisites — do these before anything
 
 **Auth.** An expired GitHub token makes a private-repo `git pull` hang forever at a silent
