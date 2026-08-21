@@ -1394,16 +1394,24 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   fourteen affected checklist fields, but every reported parent artifact and path is a separate patch
   target. Updating a standalone element does not rewrite copies already embedded in templates.
 
-  Make this a narrow, idempotent store repair rather than an edit through the legacy Template Designer
-  or a blanket REST resave. Extend the existing artifact patch tool with a rule that wraps only a
-  confirmed object-shaped inherently-multiple child in the canonical array deployment while preserving
-  the child body, identifier, property mapping, constraints and parent metadata. It must refuse an
-  ambiguous shape, make no change when rerun, report by default, and write only under `--apply`. Do not
-  combine this repair with the unrelated normalization that an ordinary artifact update performs.
+  The rule is written. Check 32 in `ops/cedar_artifact_patch.py` wraps a confirmed object-shaped
+  inherently-multiple child in the canonical array deployment, preserving the child body,
+  identifier, property mapping, constraints and parent metadata, and recursing into an element
+  embedded in a template so a copy is repaired where it sits. It refuses an ambiguous shape,
+  reporting without a repair where existing bounds contradict each other; it makes no change when
+  rerun, because a child it has already wrapped is an array; and it reports by default and writes
+  only under `--apply`. Three tests in `ops/test_cedar_artifact_patch.py` cover the lossless repair
+  of direct and nested deployments, the standalone-field exclusion, and the bounds cases. What
+  remains of this item is the production run, and the paragraphs below are that run. Keep it a
+  narrow store repair rather than an edit through the legacy Template Designer or a blanket REST
+  resave, and do not combine it with the unrelated normalization an ordinary artifact update
+  performs.
 
   Rehearse against a production copy and require the dry run to match the captured manifest: 31
-  artifacts and 76 paths, subject to an explicitly reviewed drift report if production changes first.
-  Before applying, take a recoverable backup and retain the before/after documents and patch manifest.
+  artifacts and 76 paths, subject to an explicitly reviewed drift report if production changes
+  first. Those counts exist only as this prose, so capture them as a fixture beside the tool first,
+  or the dry run has nothing to be checked against. Before applying, take a recoverable backup and
+  retain the before/after documents and patch manifest.
   Treat this as data repair rather than authored modification: preserve root IDs, version/publication
   state and provenance timestamps. Afterward, require both model libraries to read every repaired
   artifact, populate representative single- and multi-instance elements in CEE, and validate the
