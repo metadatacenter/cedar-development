@@ -1782,6 +1782,24 @@ npm run smoke          # headless, ~30 s
 npm run smoke:headed   # watch it in a real browser
 ```
 
+The extracted Workspace and Template Designer also have a fast, credential-free contract smoke.
+It proves that both preview route shells and independent AngularJS bootstraps are being served, the
+Workspace carries its pinned CEE bundle, both applications agree on their navigation and Keycloak
+origins, and the live resource service accepts authenticated CORS preflights from both origins:
+
+```bash
+cd $CEDAR_HOME/cedar-development
+ops/cedar-services.sh start workspace designer
+cd ops/e2e
+npm run smoke:split
+```
+
+The defaults target `http://localhost:4201`, `http://localhost:4202`, the profile's auth host, and
+the native resource service on port 9007. For a remote preview deployment, set
+`CEDAR_WORKSPACE_PREVIEW`, `CEDAR_DESIGNER_PREVIEW`, `CEDAR_AUTH_URL`, and `CEDAR_RESOURCE_API`.
+This check intentionally stops at the authentication boundary; it does not enter credentials or
+mutate data. Run the full Playwright smoke after the preview origins are authorized in Keycloak.
+
 Needs the app tier up (frontend, resource, user, group, artifact at least — `cedar-services.sh
 status`). Credentials and base URL come from the profile environment, with the local-dev values
 as fallbacks. The UI gestures reuse the selectors verified by the tutorial runner, which now lives

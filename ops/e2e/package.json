@@ -7,7 +7,8 @@
   "scripts": {
     "smoke": "node login-smoke-test.mjs",
     "smoke:headed": "HEADED=1 node login-smoke-test.mjs",
-    "smoke:rest": "node rest-smoke.mjs"
+    "smoke:rest": "node rest-smoke.mjs",
+    "smoke:split": "node split-frontend-smoke.mjs"
   },
   "dependencies": {
     "playwright": "^1.48.0"
