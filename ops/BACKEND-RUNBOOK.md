@@ -156,8 +156,10 @@ fifteen native JVMs do not collide with the containers:
 export CEDAR_HOME=$HOME/CEDAR
 source $CEDAR_HOME/cedar-profile-native-develop.sh
 export CEDAR_FRONTEND_BIND_HOST=0.0.0.0
+export CEDAR_WORKSPACE_FRONTEND_URL=https://workspace.metadatacenter.orgx
+export CEDAR_TEMPLATE_DESIGNER_FRONTEND_URL=https://designer.metadatacenter.orgx
 bash $CEDAR_HOME/cedar-development/ops/cedar-services.sh start \
-  frontend ui-openview ui-content ui-monitoring ui-bridging
+  frontend workspace designer ui-openview ui-content ui-monitoring ui-bridging
 ```
 
 Recreate only nginx under the Docker profile, pointing its frontend upstreams at Docker Desktop's
@@ -173,6 +175,8 @@ export CEDAR_FRONTEND_CONTENT_HOST=host.docker.internal
 export CEDAR_FRONTEND_OPENVIEW_HOST=host.docker.internal
 export CEDAR_FRONTEND_MONITORING_HOST=host.docker.internal
 export CEDAR_FRONTEND_BRIDGING_HOST=host.docker.internal
+export CEDAR_FRONTEND_WORKSPACE_HOST=host.docker.internal
+export CEDAR_FRONTEND_DESIGNER_HOST=host.docker.internal
 cd $CEDAR_HOME/cedar-docker-deploy/cedar-infrastructure
 docker compose up -d --no-deps --force-recreate nginx
 ```
