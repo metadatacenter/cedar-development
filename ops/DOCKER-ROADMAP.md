@@ -5,11 +5,8 @@ The required runtime is seven infrastructure, fifteen Java microservice, and sev
 containers (29 total). Its build inventory also includes two Java bases (31 core images); four
 optional admin images bring `cedarcli docker build all` to 35.
 
-The current state is a proven local development deployment, not yet a release delivery path: all
-35 images build, all 29 required containers become healthy, the backend passes its 683-assertion
-REST gate, all seven public frontend routes return 200, and an authenticated Workspace-to-Designer
-browser path passes. A fresh machine still cannot pull the snapshot image set named by Compose. The
-operating procedure is in [DOCKER-RUNBOOK.md](./DOCKER-RUNBOOK.md).
+This roadmap contains open work only. The current deployment and its operating procedures are in
+[DOCKER-RUNBOOK.md](./DOCKER-RUNBOOK.md).
 
 ## P0 — make a fresh-machine deployment repeatable
 
@@ -64,11 +61,6 @@ conflicts, verifies the network/cert volumes, applies an explicit pull policy, s
 microservices, then frontends, waits for all 29 health checks, and prints failed-container logs. It
 must also support the 22-container backend as an explicit `--no-frontends` hybrid choice. Add the
 symmetric aggregate status and stop commands.
-
-The per-stack foundation is now current: every `cedarcli docker start <stack>` accepts
-`--pull always`, `--pull missing`, or `--pull never` and defaults to `never`; failures from Compose
-and validation now propagate to the CLI exit code. The orchestration, conflict check, bounded wait,
-and automatic failure-log collection described above remain to be built.
 
 Acceptance criteria:
 
@@ -149,23 +141,9 @@ Build and test every supported architecture explicitly, or declare amd64-only if
 contract. Record Docker/Compose minimum versions and CPU, memory, and disk requirements for a cold
 29-container start and representative REST/browser runs.
 
-## Frontend lifecycle and remaining delivery work
+## Frontend delivery
 
-The 2026-08-21 implementation promoted all seven frontend images into the normal local Docker
-lifecycle while preserving both native modes:
-
-- the proven development hybrid serves seven frontends from native Node.js processes through Docker
-  nginx, while all 22 backend containers remain in Docker;
-- the all-Docker mode serves all seven payloads from seven frontend containers over `cedarnet`; and
-- the native-only stack continues to use the same source-owned build and serve commands as before.
-
-Container construction is owned entirely by `cedar-docker-build`, runtime topology by
-`cedar-docker-deploy`, and immutable npm staging by `cedar-development`. The frontend source
-repositories contain no Dockerfiles, entrypoints, or nginx configuration. The retired two-image
-preview Compose file and preview-only builder have been removed so there is one all-Docker
-frontend lifecycle rather than two competing ones.
-
-### F1. Make hybrid mode explicit and self-validating
+### 12. Make hybrid mode explicit and self-validating
 
 Replace the manual environment override block with a named profile or CLI workflow that starts only
 the native frontends, recreates nginx with `host.docker.internal` upstreams, and validates every
@@ -179,13 +157,10 @@ Acceptance criteria:
 - stopping the hybrid frontends leaves the Docker backend and its data untouched; and
 - the request path and source ownership remain documented in the Docker runbook.
 
-### F2. Publish the seven frontend images to Nexus
+### 13. Publish the seven frontend images to Nexus
 
-The image inputs are solved locally: all seven clean source commits are published to the npm Nexus
-repository using immutable `2.9.2-dev.<timestamp>.g<commit>` versions, each Dockerfile verifies its
-package identity and full `gitHead`, and the seven images build together. The remaining work is the
-frontend portion of P0 item 1: publish the resulting Docker images to Nexus using the configurable
-registry prefix and include them in the 31-image core release manifest.
+Publish the frontend portion of item 1 using the configurable registry prefix and include all seven
+images in the 31-image core release manifest.
 
 Acceptance criteria:
 
@@ -195,13 +170,10 @@ Acceptance criteria:
 - neither repository credential nor environment-specific URL is baked into a reusable image; and
 - publishing a failed or partial set cannot update the deployable alias.
 
-### F3. Establish the split-frontend acceptance and rollback gate
+### 14. Establish the split-frontend acceptance and rollback gate
 
-The local production-shaped HTTPS gate passed on 2026-08-21: seven containers were healthy, all
-seven public hostnames returned 200 through container-to-container nginx routing, and an existing
-authenticated Chrome session completed Workspace → Smoke Tests → template → Designer without
-console errors. Retain the broader credential-free contract, Keycloak origin preflight, bundle
-recorder, and long-request regression as CI/staging gates.
+Add the credential-free contract, Keycloak origin preflight, bundle recorder, authenticated browser
+path, and long-request regression to CI and staging gates.
 
 Acceptance criteria:
 
@@ -211,27 +183,12 @@ Acceptance criteria:
 - a request exceeding 60 seconds succeeds under the documented 180-second proxy timeout; and
 - rollback selects a complete previous routing configuration and image digest pair.
 
-### F4. Promote into the normal Docker frontend lifecycle — completed locally
-
-Workspace and Designer are now in the normal frontend Compose project, the seven-image build group,
-and ordinary `cedarcli docker start frontends` lifecycle. Native frontend and native backend modes
-remain supported. Registry publication and staging promotion remain gated by F2 and F3; local
-promotion does not by itself authorize a production routing change.
-
-Acceptance criteria:
-
-- one reviewed change covers build, deploy, CLI, documentation, and tests;
-- normal startup either starts the complete approved frontend set or fails before partial creation;
-- no hostname can fall through to another frontend's default nginx virtual host;
-- rollback restores the preceding complete frontend set without changing backend data; and
-- the native hybrid remains available until the image-based path meets the same staging gates.
-
 ## Recommended delivery slices
 
-1. **Nexus pull path:** items 1-3. Outcome: a fresh machine can pull and authenticate correctly.
-2. **One-command deployment:** item 4. Outcome: repeatable operator experience and useful failures.
-3. **Release gate:** items 5-6. Outcome: the digest that passed is the digest promoted.
-4. **Durability and hardening:** items 7-11. Outcome: recoverable, auditable operation beyond a
-   developer workstation.
-5. **Frontend delivery:** F1-F4. Outcome: keep native and hybrid modes, publish the locally proven
-   seven-image set to Nexus, and promote only tested image digests through staging and production.
+- **Nexus pull path:** items 1-3. Outcome: a fresh machine can pull and authenticate correctly.
+- **One-command deployment:** item 4. Outcome: repeatable operator experience and useful failures.
+- **Release gate:** items 5-6. Outcome: the digest that passed is the digest promoted.
+- **Durability and hardening:** items 7-11. Outcome: recoverable, auditable operation beyond a
+  developer workstation.
+- **Frontend delivery:** items 12-14. Outcome: keep native and hybrid modes, publish the seven-image
+  set to Nexus, and promote only tested image digests through staging and production.
