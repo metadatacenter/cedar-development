@@ -1,24 +1,30 @@
-# CEDAR Docker Backend Runbook
+# CEDAR Docker Runbook
 
-This is the focused operating guide for the CEDAR backend in Docker: seven infrastructure
-containers and fifteen Java microservices. The backend is the deployment unit covered by the
-build, health, and REST acceptance gates. An optional native-frontend hybrid is documented here as
-an attachment to that backend; frontend images and admin tools are not included in the 22-container
-backend count.
+This is the operating guide for CEDAR's Docker deployment: seven infrastructure containers,
+fifteen Java microservices, and seven frontend containers. Those 29 containers form the required
+all-Docker runtime. The 22-container backend can also run with seven native frontend development
+servers as a supported hybrid. Four admin-tool containers are optional and excluded from both core
+counts.
 
 The broader native and hybrid guide remains in [BACKEND-RUNBOOK.md](./BACKEND-RUNBOOK.md). Work
 needed to make this a registry-driven, production-ready deployment is tracked in
-[DOCKER-BACKEND-ROADMAP.md](./DOCKER-BACKEND-ROADMAP.md).
+[DOCKER-ROADMAP.md](./DOCKER-ROADMAP.md).
 
 ## Current verdict
 
-The backend **can be deployed locally with Docker today**, provided its images are built locally.
-It was re-proven on 2026-08-21 on Apple Silicon with Docker Engine 29.6.2 and Compose 5.3.1:
+The complete application **can be deployed locally with Docker today**, provided its images are
+built locally. It was re-proven on 2026-08-21 on Apple Silicon with Docker Engine 29.6.2 and
+Compose 5.3.1:
 
 - all 70 Java reactor modules built successfully on JDK 17 with `-DskipTests`;
 - all 24 backend images built: seven infrastructure, two Java bases, and fifteen microservices;
-- all 22 runtime containers became healthy; and
-- all 19 REST suites passed in one in-network run: 683 assertions, 0 failures.
+- all 22 backend runtime containers became healthy;
+- all 19 REST suites passed in one in-network run: 683 assertions, 0 failures;
+- all seven frontend images built from exact immutable npm artifacts;
+- all 29 required runtime containers became healthy and all seven public UI hostnames returned 200;
+  and
+- an authenticated browser opened Workspace's Smoke Tests template in Designer without console
+  errors.
 
 This is not yet a pull-and-run snapshot deployment. The Compose files and Docker builder hard-code
 the `metadatacenter` Docker Hub namespace, and `2.9.2-SNAPSHOT` infrastructure images are not
@@ -32,8 +38,9 @@ P0 registry work in the roadmap is complete.
 | --- | ---: | --- |
 | Infrastructure | 7 | 80/443, 3306, 6379, 7474/7687, 8080/8443, 9200/9300, 27017 |
 | Microservices | 15 | 9002-9015; Artifact's 9001 is intentionally internal only |
-| Frontends (optional all-Docker mode) | 7 | 4200-4202, 4220, 4240, 4300, 4340 |
+| Frontends (all-Docker mode) | 7 | 4200-4202, 4220, 4240, 4300, 4340 |
 | Frontends (alternative hybrid mode) | 0 containers / 7 macOS processes | Same seven ports |
+| Admin tools (optional) | 4 | Environment-configured admin ports |
 
 The two estates use different storage. Docker uses named volumes; the native stack uses its own
 Homebrew/local data. `docker compose down` retains named volumes and therefore retains Docker data.
@@ -48,9 +55,12 @@ Homebrew/local data. `docker compose down` retains named volumes and therefore r
 - Custom local certificates in `$CEDAR_HOME/CEDAR_CA`. The setup otherwise falls back to the
   bundled certificate set, which may be expired.
 
-Docker and native CEDAR cannot run together: they claim the same infrastructure and 9xxx ports.
-Stop native CEDAR first, then verify that the ports are actually free. Legacy microservice shutdown
-messages only work when a service is listening on its stop port, and may leave unmanaged JVMs alive.
+The Docker backend and native backend cannot run together: they claim the same infrastructure and
+9xxx ports. Native and containerized frontends likewise cannot share their seven frontend ports.
+The supported hybrid is deliberate: Docker owns the backend and public nginx while the seven native
+frontend servers replace the seven frontend containers. Stop conflicting native components first,
+then verify that the ports are actually free. Legacy microservice shutdown messages only work when
+a service is listening on its stop port, and may leave unmanaged JVMs alive.
 
 ```bash
 export CEDAR_HOME=$HOME/CEDAR
@@ -69,7 +79,7 @@ source `/set-env-external.sh`, and Compose later resolves the terminology bind m
 `/cedar-term`, which Docker Desktop rejects.
 
 The checked-in Docker evaluation profile defaults authentication to `host-gateway` for the hybrid
-mode where nginx is native. A complete Docker backend must override it to the nginx container.
+mode where nginx is native. A complete Docker deployment must override it to the nginx container.
 Without this override, health checks can pass but bearer-token validation returns 500 when a server
 cannot fetch Keycloak signing keys.
 
@@ -88,8 +98,9 @@ Keep that shell for all commands below.
 cedarcli docker validate
 ```
 
-This currently validates all four Compose projects. The infrastructure and microservice results
-must both be `OK`; frontend and admin validation does not authorize starting them.
+This validates all four Compose projects. Infrastructure, microservices, and frontend must be `OK`
+for the required all-Docker runtime. Admin must also parse cleanly even though starting that stack
+is optional.
 
 ## Build or obtain the images
 
@@ -121,6 +132,20 @@ cedarcli docker build microservices
 Both paths currently tag images locally as `metadatacenter/cedar-*:2.9.2-SNAPSHOT`. Do not assume
 that this name means the image was published to Docker Hub or Nexus.
 
+### Frontend images
+
+All seven frontend images are part of the normal build group. They consume exact immutable npm
+prereleases pinned in `cedar-docker-build/bin/cedar-images-base.sh`; they do not use a moving npm
+`2.9.2-SNAPSHOT`.
+
+```bash
+cedarcli docker build frontends
+```
+
+The full core build inventory is 31 images: seven infrastructure images, two Java bases, fifteen
+microservices, and seven frontends. `cedarcli docker build all` additionally builds the four
+optional admin images, for 35 total.
+
 ## One-time Docker setup
 
 Run this before the first deployment, or after intentionally recreating the CEDAR network and
@@ -138,7 +163,7 @@ docker network inspect cedarnet >/dev/null
 docker volume inspect cedar_cert cedar_ca >/dev/null
 ```
 
-## Start the backend
+## Start the Docker deployment
 
 With locally built snapshot images, use `--pull never` so Compose cannot substitute a remote image
 or fail while looking for an unpublished Docker Hub tag.
@@ -148,6 +173,9 @@ cd $CEDAR_HOME/cedar-docker-deploy/cedar-infrastructure
 docker compose up -d --pull never
 
 cd $CEDAR_HOME/cedar-docker-deploy/cedar-microservices
+docker compose up -d --pull never
+
+cd $CEDAR_HOME/cedar-docker-deploy/cedar-frontend
 docker compose up -d --pull never
 ```
 
@@ -162,7 +190,11 @@ registry-driven deployment work is complete.
 ```bash
 cedarcli docker start infrastructure -d
 cedarcli docker start microservices -d
+cedarcli docker start frontends -d
 ```
+
+Omit the frontend start only for the documented native-frontend hybrid. Admin tools remain
+independent and optional: `cedarcli docker start admin -d`.
 
 ## Health gate
 
@@ -435,20 +467,22 @@ publish Artifact merely to satisfy the harness; use the in-network gate above.
 
 ## Stop, restart, and preserve data
 
-Stop microservices before infrastructure:
+Stop frontends, then microservices, then infrastructure:
 
 ```bash
+cedarcli docker stop frontends
 cedarcli docker stop microservices
 cedarcli docker stop infrastructure
 ```
 
-Or use `docker compose down` in those two directories. This removes containers and the Compose
-networks but retains named data volumes. A subsequent start reuses the data.
+Or use `docker compose down` in the corresponding three directories (only the backend two in
+hybrid mode). This removes containers and the Compose networks but retains named data volumes. A
+subsequent start reuses the data.
 
 Do not add `-v`, run `cedarcli docker remove volumes`, or delete named volumes during an ordinary
 restart. Those are destructive data-reset operations and need a backup plus explicit intent.
 
-After both Docker projects are down and the ports are clear, source the native profile again before
+After the Docker projects are down and the ports are clear, source the native profile again before
 restarting native CEDAR. Never mix values from the native and Docker profiles in one shell.
 
 ## Known limitations
@@ -457,11 +491,12 @@ restarting native CEDAR. Never mix values from the native and Docker profiles in
 - Image names hard-code `metadatacenter`; the historical `CEDAR_DOCKERHUB`/Nexus guidance only
   supports manual tag/push/pull and Compose cannot select that registry.
 - The Docker profile is shared with hybrid operation and defaults auth routing to `host-gateway`.
-- The CLI has no backend-only aggregate start/wait command and no pull-policy option.
+- The CLI has explicit per-stack pull policies but no aggregate start/wait command that sequences
+  the complete deployment and collects failed-container logs.
 - Artifact is intentionally private to `cedarnet`; host-only test runners cannot exercise its
   cross-store contract directly.
 - Java build success means compilation/package success because `cedarcli build java` uses
   `-DskipTests`.
-- The runtime OpenSearch image is 2.19.1 while `cedar-parent` declares Java clients 2.19.2. The
-  current REST gate passes, but this pairing should be made an explicit, mechanically checked
-  decision.
+- The runtime OpenSearch image is 2.19.1 while `cedar-parent` declares Java clients 2.19.2. This is
+  accepted because their compatibility contract is the shared 2.19 line; Docker-build CI enforces
+  that major/minor pairing mechanically.

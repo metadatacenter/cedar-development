@@ -6,12 +6,12 @@ non-obvious gotchas that will otherwise cost hours, and the two helper scripts i
 
 Scope: the **native-develop** setup (infrastructure as local binaries, microservices as native
 Dropwizard JVMs, frontends via `gulp`). The containerized alternative has a summary below and a
-focused [Docker backend runbook](./DOCKER-BACKEND-RUNBOOK.md).
+focused [Docker runbook](./DOCKER-RUNBOOK.md).
 
 Known backend work items, and the decisions about what is deliberately not being done, are tracked
 in [BACKEND-ROADMAP.md](./BACKEND-ROADMAP.md).
 Docker deployment work has a narrower execution plan in
-[DOCKER-BACKEND-ROADMAP.md](./DOCKER-BACKEND-ROADMAP.md).
+[DOCKER-ROADMAP.md](./DOCKER-ROADMAP.md).
 
 ## Architecture
 
@@ -84,7 +84,7 @@ stacks. Re-proven on 2026-08-21 — all 70 Java reactor modules built, seven inf
 fifteen microservices healthy, the whole REST estate green (683 assertions, 0 failures in one
 in-network run), and all seven frontend containers healthy. All seven public UI hostnames returned
 200 through Docker nginx; the authenticated Workspace-to-Designer template-open journey also
-passed. See [DOCKER-BACKEND-RUNBOOK.md](./DOCKER-BACKEND-RUNBOOK.md) for the reproducible build,
+passed. See [DOCKER-RUNBOOK.md](./DOCKER-RUNBOOK.md) for the reproducible build,
 deployment, health, and acceptance procedures.
 
 **It cannot run beside the native stack.** Both want 80/443, 3306, 27017, 6379, 9200, 7474/7687,
@@ -172,7 +172,7 @@ nginx on the API hostnames and are proxied over `cedarnet` to the Java container
 
 These are seven independent Node.js processes: three legacy AngularJS applications use Gulp and
 four newer Angular applications use Angular CLI. The focused Docker procedure, verification, stop
-path, and three-mode comparison are in [DOCKER-BACKEND-RUNBOOK.md](./DOCKER-BACKEND-RUNBOOK.md).
+path, and three-mode comparison are in [DOCKER-RUNBOOK.md](./DOCKER-RUNBOOK.md).
 
 The three Gulp frontends already bind all interfaces. The four Angular development servers default
 to loopback for safety; opt them into the Docker hybrid bind, and name only frontend services so the

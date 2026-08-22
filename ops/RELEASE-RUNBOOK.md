@@ -59,7 +59,7 @@ checks out the approved Git commits and runs `cedarcli build split-frontends --s
 nginx then serves the generated `app` trees directly. No Docker host is required. Keep them
 excluded from the global version/tag/merge release until staging acceptance authorizes their normal
 release membership. The other five frontend Docker inputs use the same staging helper directly;
-the complete seven-target procedure is in the Docker backend runbook.
+the complete seven-target procedure is in the Docker runbook.
 
 ## Prerequisites — do these before anything
 

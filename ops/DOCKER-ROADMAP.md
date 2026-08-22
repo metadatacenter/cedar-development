@@ -1,27 +1,30 @@
-# CEDAR Docker Backend Roadmap
+# CEDAR Docker Roadmap
 
-Primary scope: make the seven infrastructure and fifteen Java microservice containers a repeatable,
-registry-backed deployment. Frontend images and admin tools remain outside the 24-image backend
-release count. The native-frontend hybrid and the separate Workspace/Designer image migration are
-tracked in a parallel lane below so their deployment boundary is explicit.
+Primary scope: make the complete CEDAR container estate a repeatable, registry-backed deployment.
+The required runtime is seven infrastructure, fifteen Java microservice, and seven frontend
+containers (29 total). Its build inventory also includes two Java bases (31 core images); four
+optional admin images bring `cedarcli docker build all` to 35.
 
-The current state is a useful development deployment, not yet a release delivery path: all images
-build and the entire backend passes its REST gate, but a fresh machine cannot pull the snapshot image
-set named by Compose. The focused operating procedure is in
-[DOCKER-BACKEND-RUNBOOK.md](./DOCKER-BACKEND-RUNBOOK.md).
+The current state is a proven local development deployment, not yet a release delivery path: all
+35 images build, all 29 required containers become healthy, the backend passes its 683-assertion
+REST gate, all seven public frontend routes return 200, and an authenticated Workspace-to-Designer
+browser path passes. A fresh machine still cannot pull the snapshot image set named by Compose. The
+operating procedure is in [DOCKER-RUNBOOK.md](./DOCKER-RUNBOOK.md).
 
 ## P0 — make a fresh-machine deployment repeatable
 
-### 1. Publish the 24 backend images to Nexus
+### 1. Publish the 31 core images to Nexus
 
-Publish seven infrastructure images, `cedar-java`, `cedar-microservice`, and fifteen server images
-after a successful backend image build. Keep the human-readable version tag and also publish an
-immutable commit/build tag or digest so a deployment can be reproduced after a mutable snapshot is
-rebuilt.
+Publish seven infrastructure images, `cedar-java`, `cedar-microservice`, fifteen server images, and
+seven frontend images after successful builds and acceptance gates. Keep the human-readable version
+tag and also publish an immutable commit/build tag or digest so a deployment can be reproduced after
+a mutable snapshot is rebuilt. Publish the four admin images as a separately optional set if those
+tools remain supported.
 
 Acceptance criteria:
 
-- a clean Docker engine can authenticate to Nexus and pull all 24 images for one release manifest;
+- a clean Docker engine can authenticate to Nexus and pull all 31 core images for one release
+  manifest;
 - images are pushed only after the Java build and image build succeed;
 - a manifest records image name, version, source commit, platform, and digest;
 - no registry credential is baked into an image, repository, or Compose file; and
@@ -44,7 +47,7 @@ Acceptance criteria:
 ### 3. Split full-Docker and hybrid profiles
 
 The current evaluation profile defaults `CEDAR_AUTH_HOST_TARGET=host-gateway` for native nginx, but
-the full Docker backend requires `$CEDAR_NGINX_HOST`. Make the deployment mode explicit instead of
+the full Docker deployment requires `$CEDAR_NGINX_HOST`. Make the deployment mode explicit instead of
 requiring an easy-to-miss override.
 
 Acceptance criteria:
@@ -54,12 +57,13 @@ Acceptance criteria:
 - a token-verification probe is part of startup acceptance; and
 - sourcing either profile without `CEDAR_HOME` fails immediately with a useful error.
 
-### 4. Add one backend deployment command
+### 4. Add one complete deployment command
 
-Add a `cedarcli docker start backend` (or `deploy backend`) workflow that validates configuration,
-checks port conflicts, verifies the network/cert volumes, applies an explicit pull policy, starts
-infrastructure then microservices, waits for all 22 health checks, and prints failed-container logs.
-Add the symmetric `status backend` and `stop backend` commands.
+Add a `cedarcli docker start all` (or `deploy`) workflow that validates configuration, checks port
+conflicts, verifies the network/cert volumes, applies an explicit pull policy, starts infrastructure,
+microservices, then frontends, waits for all 29 health checks, and prints failed-container logs. It
+must also support the 22-container backend as an explicit `--no-frontends` hybrid choice. Add the
+symmetric aggregate status and stop commands.
 
 The per-stack foundation is now current: every `cedarcli docker start <stack>` accepts
 `--pull always`, `--pull missing`, or `--pull never` and defaults to `never`; failures from Compose
@@ -143,9 +147,9 @@ plain-HTTP MySQL repository with signature checking disabled from the shared mic
 
 Build and test every supported architecture explicitly, or declare amd64-only if that is the actual
 contract. Record Docker/Compose minimum versions and CPU, memory, and disk requirements for a cold
-22-container start and a representative REST run.
+29-container start and representative REST/browser runs.
 
-## Parallel frontend migration lane
+## Frontend lifecycle and remaining delivery work
 
 The 2026-08-21 implementation promoted all seven frontend images into the normal local Docker
 lifecycle while preserving both native modes:
@@ -179,8 +183,9 @@ Acceptance criteria:
 
 The image inputs are solved locally: all seven clean source commits are published to the npm Nexus
 repository using immutable `2.9.2-dev.<timestamp>.g<commit>` versions, each Dockerfile verifies its
-package identity and full `gitHead`, and the seven images build together. The remaining work is to
-publish the resulting Docker images to Nexus using the configurable registry prefix planned in P0.
+package identity and full `gitHead`, and the seven images build together. The remaining work is the
+frontend portion of P0 item 1: publish the resulting Docker images to Nexus using the configurable
+registry prefix and include them in the 31-image core release manifest.
 
 Acceptance criteria:
 
@@ -224,7 +229,7 @@ Acceptance criteria:
 ## Recommended delivery slices
 
 1. **Nexus pull path:** items 1-3. Outcome: a fresh machine can pull and authenticate correctly.
-2. **One-command backend:** item 4. Outcome: repeatable operator experience and useful failures.
+2. **One-command deployment:** item 4. Outcome: repeatable operator experience and useful failures.
 3. **Release gate:** items 5-6. Outcome: the digest that passed is the digest promoted.
 4. **Durability and hardening:** items 7-11. Outcome: recoverable, auditable operation beyond a
    developer workstation.
