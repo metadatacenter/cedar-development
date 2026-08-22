@@ -165,7 +165,31 @@ cedarcli docker start microservices -d
 
 ## Health gate
 
-There must be exactly 22 running CEDAR backend containers and every one must report `healthy`:
+Use the Docker-aware status command for the normal all-Docker gate. It checks the expected Compose
+inventory for infrastructure, microservices, and all seven frontends, and exits nonzero when a
+required container is missing, stopped, unhealthy, or still starting. The top-level
+`cedarcli status` remains the native process/host-port diagnostic and will report false failures for
+Docker-internal ports.
+
+```bash
+cedarcli docker status
+```
+
+For the 22-container backend with native frontends, exclude the frontend Compose project:
+
+```bash
+cedarcli docker status --no-frontends
+```
+
+Admin tools are optional and excluded from the normal result. Require them explicitly when that
+stack is part of the deployment:
+
+```bash
+cedarcli docker status --include-admin
+```
+
+For a backend-only inventory view, there must be exactly 22 running backend containers and every
+one must report `healthy`:
 
 ```bash
 docker ps \
