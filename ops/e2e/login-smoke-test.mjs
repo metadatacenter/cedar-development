@@ -559,12 +559,10 @@ async function enableOpenView(page, folderId, templateName) {
 // point of the check: openness means "anyone with the link", so it must not borrow
 // the logged-in session.
 //
-// "Presented" here means OpenView resolved the open grant and handed the template to
-// CEE to render: OpenView mounts its `cedar-embeddable-editor` element only when the
-// template resolves (`*ngIf="template && !artifactStatus"`), and shows an error page
-// otherwise, so the element's presence is the signal. What CEE renders *inside* — the
-// name, the fields — is deliberately not asserted here; that belongs to later,
-// dedicated OpenView-rendering tests.
+// "Presented" here means OpenView resolved the open grant and CEE actually upgraded and
+// rendered the template. Merely finding the tag is not enough: a missing CEE script leaves the
+// unknown custom element attached while the page shows only its footer, which used to let this
+// check pass. Require a registered custom element, rendered shadow content, and the template name.
 //
 // The OpenView server's view of the grant can lag the make-open command by a moment,
 // and the app fetches once per load and latches an error, so reload while the editor
@@ -575,18 +573,33 @@ async function verifyPresentedInOpenView(browser, templateId) {
     viewport: { width: 1280, height: 900 },
   });
   const p = await anon.newPage();
+  const pageErrors = [];
+  p.on('pageerror', error => pageErrors.push(error.message));
   const url = `${OPENVIEW_FRONTEND}/templates/${enc(templateId)}`;
   const editor = p.locator('cedar-embeddable-editor');
   try {
     for (let attempt = 1; attempt <= 5; attempt++) {
       await p.goto(url, { waitUntil: 'domcontentloaded' });
-      try { await editor.waitFor({ state: 'attached', timeout: 12_000 }); return; }
+      try {
+        await editor.waitFor({ state: 'attached', timeout: 12_000 });
+        await p.waitForFunction((expectedName) => {
+          const cee = document.querySelector('cedar-embeddable-editor');
+          if (!customElements.get('cedar-embeddable-editor') || !cee?.shadowRoot) return false;
+          return cee.shadowRoot.querySelectorAll('*').length > 0
+            && cee.shadowRoot.textContent.includes(expectedName);
+        }, TEMPLATE_NAME, { timeout: 12_000 });
+        if (pageErrors.length > 0) {
+          throw new Error(`OpenView raised browser errors: ${pageErrors.join(' | ')}`);
+        }
+        return;
+      }
       catch { await p.waitForTimeout(2500); } // grant not propagated yet — reload and retry
     }
     await mkdir(FAIL_DIR, { recursive: true });
     const shot = resolve(FAIL_DIR, `openview-${Date.now()}.png`);
     await p.screenshot({ path: shot, fullPage: true }).catch(() => {});
-    throw new Error(`OpenView did not present the open template — CEE never mounted; screenshot: ${shot}`);
+    const errors = pageErrors.length > 0 ? `; browser errors: ${pageErrors.join(' | ')}` : '';
+    throw new Error(`OpenView did not present the open template — CEE never rendered${errors}; screenshot: ${shot}`);
   } finally {
     await anon.close();
   }
