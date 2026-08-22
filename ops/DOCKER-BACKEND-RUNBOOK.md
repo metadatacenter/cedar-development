@@ -32,7 +32,8 @@ P0 registry work in the roadmap is complete.
 | --- | ---: | --- |
 | Infrastructure | 7 | 80/443, 3306, 6379, 7474/7687, 8080/8443, 9200/9300, 27017 |
 | Microservices | 15 | 9002-9015; Artifact's 9001 is intentionally internal only |
-| Native frontends (optional hybrid) | 0 containers / 7 macOS processes | 4200-4202, 4220, 4240, 4300, 4340 |
+| Frontends (optional all-Docker mode) | 7 | 4200-4202, 4220, 4240, 4300, 4340 |
+| Frontends (alternative hybrid mode) | 0 containers / 7 macOS processes | Same seven ports |
 
 The two estates use different storage. Docker uses named volumes; the native stack uses its own
 Homebrew/local data. `docker compose down` retains named volumes and therefore retains Docker data.
@@ -287,18 +288,77 @@ bash $CEDAR_HOME/cedar-development/ops/cedar-services.sh stop \
   frontend workspace designer ui-openview ui-content ui-monitoring ui-bridging
 ```
 
-Three frontend deployment modes must remain distinct:
+Three frontend deployment modes remain distinct:
 
 | Mode | Where frontend code is served | How it is started | Current status |
 | --- | --- | --- | --- |
 | Native hybrid | Seven macOS development-server processes | `cedar-services.sh` plus nginx host overrides above | Proven local development mode |
-| Split-image preview | Workspace and Designer containers on `cedarnet` | `docker-compose.preview.yml` | Opt-in migration test only |
-| Normal Docker frontend stack | Existing frontend containers from `docker-compose.yml` | `cedarcli docker start frontends` | Unchanged; does not include Workspace or Designer |
+| All-Docker frontends | Seven containers on `cedarnet` | `cedarcli docker start frontends -d` | Proven on 2026-08-21 |
+| Native-only stack | Seven native development servers | Native profile and native nginx | Preserved; Docker work does not change it |
 
-Do not run native Workspace/Designer and their preview containers on the same published ports.
-The preview image workflow is documented in
-`cedar-docker-deploy/cedar-frontend/README.md`. Promotion into the normal frontend Compose stack is
-an explicit roadmap decision, not an automatic consequence of the nginx wiring.
+Do not run native and containerized frontends on the same published ports. The normal frontend
+Compose stack now contains Template Editor, Workspace, Designer, OpenView, Content, Monitoring, and
+Bridging. Each application has its own image and private nginx; infrastructure nginx remains the
+single public TLS and routing layer.
+
+### All-Docker frontend deployment
+
+The frontend source repositories remain Docker-agnostic. All Dockerfiles, entrypoints, and private
+nginx configurations are in `cedar-docker-build`; Compose topology is in `cedar-docker-deploy`.
+Each image downloads one exact npm package from Nexus. Because npm versions are immutable, a Maven-
+style moving `2.9.2-SNAPSHOT` package is not valid. The pinned package inputs instead use
+`2.9.2-dev.<UTC-commit-time>.g<12-char-commit>` versions from clean source commits.
+
+Publish a new source commit when needed, then copy the printed version into the corresponding
+`CEDAR_*_NPM_VERSION` declaration in `cedar-docker-build/bin/cedar-images-base.sh`:
+
+```bash
+export CEDAR_HOME=$HOME/CEDAR
+bash $CEDAR_HOME/cedar-development/ops/publish-frontend-package.sh \
+  main|workspace|designer|openview|content|monitoring|bridging
+```
+
+The helper stages the package without modifying the source checkout, records the full commit as
+`gitHead`, refuses dirty repositories, and is idempotent for the same commit. Never substitute the
+moving `dev` dist-tag in an image build. The Dockerfile verifies the package identity and records
+its full source commit and tarball SHA-256 inside the image.
+
+Stop all native frontend listeners, build and start the seven images, then recreate only the public
+nginx with the Docker profile's reserved frontend addresses:
+
+```bash
+export CEDAR_HOME=$HOME/CEDAR
+bash $CEDAR_HOME/cedar-development/ops/cedar-services.sh stop \
+  frontend workspace designer ui-openview ui-content ui-monitoring ui-bridging
+
+source $CEDAR_HOME/cedar-development/bin/templates/cedar-profile-docker-eval.sh
+export CEDAR_AUTH_HOST_TARGET="$CEDAR_NGINX_HOST"
+cedarcli docker build frontends
+cedarcli docker start frontends -d
+
+cd $CEDAR_HOME/cedar-docker-deploy/cedar-infrastructure
+docker compose up -d --no-deps --force-recreate nginx
+```
+
+That final recreation is essential after hybrid operation: it removes the captured
+`host.docker.internal` upstream values. Confirm `nginx -T` names the reserved `192.168.17.*`
+frontend addresses, all seven frontend containers are healthy, and all seven public hostnames
+return 200. The 2026-08-21 browser acceptance then opened the Smoke Tests folder in Workspace and
+opened its template in Designer without console errors.
+
+```bash
+docker exec infra-nginx nginx -T 2>/dev/null | grep -A1 'upstream cedar-frontend'
+docker ps --filter 'name=frontend-' --format '{{.Names}}\t{{.Status}}'
+for host in cedar workspace designer openview content monitoring bridging; do
+  curl -sk -o /dev/null -w "$host %{http_code}\n" \
+    "https://${host}.metadatacenter.orgx/"
+done
+```
+
+To return to the hybrid, run `cedarcli docker stop frontends`, start the seven native processes,
+and repeat the `host.docker.internal` nginx override block in the preceding section. Backend
+containers and named data volumes are untouched by either frontend switch. The concise topology
+and package procedure is also in `cedar-docker-deploy/cedar-frontend/README.md`.
 
 ## REST acceptance gate
 

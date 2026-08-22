@@ -81,9 +81,11 @@ tab, by design — see below). The controller replaces that with background proc
 An alternative to the native bring-up: the same fifteen microservices and the same infrastructure,
 as containers. It is the `cedar-docker-build` images driven by the `cedar-docker-deploy` compose
 stacks. Re-proven on 2026-08-21 — all 70 Java reactor modules built, seven infrastructure and all
-fifteen microservices healthy, and the whole REST estate green (683 assertions, 0 failures in one
-in-network run). See [DOCKER-BACKEND-RUNBOOK.md](./DOCKER-BACKEND-RUNBOOK.md) for the reproducible build,
-deployment, health, and in-network REST acceptance procedure.
+fifteen microservices healthy, the whole REST estate green (683 assertions, 0 failures in one
+in-network run), and all seven frontend containers healthy. All seven public UI hostnames returned
+200 through Docker nginx; the authenticated Workspace-to-Designer template-open journey also
+passed. See [DOCKER-BACKEND-RUNBOOK.md](./DOCKER-BACKEND-RUNBOOK.md) for the reproducible build,
+deployment, health, and acceptance procedures.
 
 **It cannot run beside the native stack.** Both want 80/443, 3306, 27017, 6379, 9200, 7474/7687,
 8080 and the 9xxx range. Take the native one down first with `cedarcli stop all`, which unlike
@@ -120,10 +122,10 @@ Certificates come from `$CEDAR_HOME/CEDAR_CA` when it exists, and only fall back
 bundled in `cedar-docker-deploy/cedar-assets` when it does not.
 
 **The 22-container backend proof does not start a frontend Compose project.** Do not infer frontend
-status from a 22/22 backend health result. The currently proven interactive mode runs all seven
-frontends natively through Docker nginx; the extracted Workspace and Designer images also have a
-separate opt-in preview Compose file. Neither fact adds those two applications to the unchanged
-normal Docker frontend stack. Running the REST estate without frontends still needs the two services
+status from a 22/22 backend health result. `cedarcli docker start frontends -d` starts a separate
+seven-container project containing Template Editor, Workspace, Designer, OpenView, Content,
+Monitoring, and Bridging. The native-frontend hybrid remains supported as an alternative. Running
+the REST estate without frontends still needs the two services
 that have no vhost addressed directly, and Keycloak addressed on its published port, because
 container addresses are not routable from macOS:
 
@@ -1538,9 +1540,13 @@ cedarcli deploy split-frontends --dry-run
 cedarcli deploy split-frontends
 ```
 
-That plan runs `npm ci` and `npm publish` in exactly `cedar-workspace` and
-`cedar-template-designer`; each manifest's `publishConfig` selects the CEDAR Nexus npm repository.
-It does not build a Docker image, edit nginx, or start a frontend.
+That plan runs `npm ci` in exactly `cedar-workspace` and `cedar-template-designer`, then calls the
+staging helper that publishes immutable commit-derived prereleases without changing either working
+tree. npm cannot overwrite a `2.9.2-SNAPSHOT` version like Maven; the published version is instead
+`2.9.2-dev.<UTC-commit-time>.g<12-char-commit>` and carries the full source commit as `gitHead`.
+Each manifest's `publishConfig` selects the CEDAR Nexus npm repository. The command does not build a
+Docker image, edit nginx, or start a frontend. The same helper accepts all seven Docker frontend
+targets when their pinned image inputs need advancing.
 
 To see whether a repository's published snapshot is behind its source, compare the Nexus timestamp
 against the commits that touched the build:
@@ -1941,17 +1947,21 @@ nginx includes into `/opt/homebrew/etc/nginx/cedar`. It validates the nginx conf
 reloads nginx when direct non-interactive sudo is available, otherwise it uses the CEDAR-scoped
 stop/start helpers. It adds only the two hostname virtual hosts; the monolith virtual host remains
 untouched. Local development can run native Gulp servers with
-`cedarcli start frontend split-frontends`. The following image-based variant is optional local test
-infrastructure only; staging and production do not require or use it:
+`cedarcli start frontend split-frontends`. The all-Docker variant uses the normal seven-frontend
+stack. Stop native listeners first because both modes publish the same ports:
 
 ```bash
-cd $CEDAR_HOME/cedar-docker-build
-./bin/build-split-preview-frontends.sh
+export CEDAR_HOME=$HOME/CEDAR
+bash $CEDAR_HOME/cedar-development/ops/cedar-services.sh stop \
+  frontend workspace designer ui-openview ui-content ui-monitoring ui-bridging
 
-cd $CEDAR_HOME/cedar-docker-deploy/cedar-frontend
-CEDAR_WORKSPACE_FRONTEND_URL=https://workspace.metadatacenter.orgx \
-CEDAR_TEMPLATE_DESIGNER_FRONTEND_URL=https://designer.metadatacenter.orgx \
-docker compose -f docker-compose.preview.yml up -d --wait
+source $CEDAR_HOME/cedar-development/bin/templates/cedar-profile-docker-eval.sh
+export CEDAR_AUTH_HOST_TARGET="$CEDAR_NGINX_HOST"
+cedarcli docker build frontends
+cedarcli docker start frontends -d
+
+cd $CEDAR_HOME/cedar-docker-deploy/cedar-infrastructure
+docker compose up -d --no-deps --force-recreate nginx
 
 cd $CEDAR_HOME/cedar-development/ops/e2e
 npm run smoke:split:hostnames:deployment
@@ -1966,9 +1976,8 @@ This is an intentional coexistence mode, not a routing cutover:
 
 All three use the same Keycloak realm and backend data. Keycloak SSO bridges authentication, while
 browser-local AngularJS state remains origin-specific and cross-application return state travels in
-the validated `returnTo` URL. Starting or stopping the `*-preview` containers changes neither the
-monolith nor stored CEDAR data. The suffix describes their migration deployment role; repositories
-and user-facing hostnames do not carry it.
+the validated `returnTo` URL. Starting or stopping the frontend Compose project changes neither the
+backend containers nor stored CEDAR data.
 
 ### Native staging payloads (no Docker)
 

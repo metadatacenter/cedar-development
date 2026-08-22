@@ -191,7 +191,7 @@ service nginx start
 | `cedarcli dev copy-keycloak-listener` | Copies `cedar-keycloak-event-listener.jar` into Keycloak's `providers/`, then runs `kc.sh build` so Keycloak picks up the provider. |
 | `cedarcli prod configure-frontends` | `sed`-rewrites `window.cedarDomain` and the content host in the active OpenView, Bridging, and Monitoring static `index.html` files to the production `CEDAR_HOST`. |
 | `propagate-cee-release.mjs --check` | Proves all seven CEE manifests and lockfiles—including Workspace—pin the exact release from the correct registry. |
-| `cedarcli deploy split-frontends` | Explicitly publishes the two current npm package versions to Nexus; generic frontend/all deploy commands exclude them. It does not change an environment. |
+| `cedarcli deploy split-frontends` | Publishes immutable commit-derived npm prereleases for Workspace and Designer to Nexus; generic frontend/all deploy commands exclude them. It does not change an environment or modify either working tree. |
 | `cedarcli build split-frontends --server-payload` | On a native host, refuses dirty split checkouts, runs `npm ci` + Gulp, and writes the static payload identities nginx serves. |
 | `gulp` (in template-editor or Workspace) | Copies the pinned CEE bundle and builds that AngularJS host. |
 

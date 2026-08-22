@@ -142,18 +142,19 @@ contract. Record Docker/Compose minimum versions and CPU, memory, and disk requi
 
 ## Parallel frontend migration lane
 
-The current modes are intentionally different:
+The 2026-08-21 implementation promoted all seven frontend images into the normal local Docker
+lifecycle while preserving both native modes:
 
 - the proven development hybrid serves seven frontends from native Node.js processes through Docker
   nginx, while all 22 backend containers remain in Docker;
-- `docker-compose.preview.yml` can run only the extracted Workspace and Designer images on
-  `cedarnet`; and
-- the normal `cedar-frontend/docker-compose.yml` remains unchanged and does not start Workspace or
-  Designer.
+- the all-Docker mode serves all seven payloads from seven frontend containers over `cedarnet`; and
+- the native-only stack continues to use the same source-owned build and serve commands as before.
 
-Docker nginx now has Workspace and Designer virtual hosts for both the native hybrid and the
-opt-in preview. That routing support is not approval to promote the two images into the normal
-frontend lifecycle.
+Container construction is owned entirely by `cedar-docker-build`, runtime topology by
+`cedar-docker-deploy`, and immutable npm staging by `cedar-development`. The frontend source
+repositories contain no Dockerfiles, entrypoints, or nginx configuration. The retired two-image
+preview Compose file and preview-only builder have been removed so there is one all-Docker
+frontend lifecycle rather than two competing ones.
 
 ### F1. Make hybrid mode explicit and self-validating
 
@@ -169,26 +170,28 @@ Acceptance criteria:
 - stopping the hybrid frontends leaves the Docker backend and its data untouched; and
 - the request path and source ownership remain documented in the Docker runbook.
 
-### F2. Publish Workspace and Designer preview images to Nexus
+### F2. Publish the seven frontend images to Nexus
 
-Publish `cedar-frontend-workspace` and `cedar-frontend-template-designer` only after their source,
-image, and split-contract gates pass. Use the same configurable registry prefix planned in P0, but
-keep a frontend release manifest separate from the 24-image backend manifest until promotion.
+The image inputs are solved locally: all seven clean source commits are published to the npm Nexus
+repository using immutable `2.9.2-dev.<timestamp>.g<commit>` versions, each Dockerfile verifies its
+package identity and full `gitHead`, and the seven images build together. The remaining work is to
+publish the resulting Docker images to Nexus using the configurable registry prefix planned in P0.
 
 Acceptance criteria:
 
-- a clean Docker engine can pull both images from Nexus by immutable digest;
+- a clean Docker engine can pull all seven images from Nexus by immutable digest;
 - image metadata records the complete source commit and whether the source tree was dirty;
-- runtime configuration identifies the public Workspace and Designer origins;
+- a frontend release manifest maps all seven npm versions, source commits, image tags, and digests;
 - neither repository credential nor environment-specific URL is baked into a reusable image; and
-- publishing a failed or partial pair cannot update the deployable preview alias.
+- publishing a failed or partial set cannot update the deployable alias.
 
 ### F3. Establish the split-frontend acceptance and rollback gate
 
-Run the preview on its production-shaped HTTPS hostnames and preserve evidence from the credential-
-free contract, Keycloak origin preflight, authenticated cross-origin navigation journey, and bundle
-recorder. Include the nginx long-request regression because the hybrid originally exposed the
-default 60-second timeout.
+The local production-shaped HTTPS gate passed on 2026-08-21: seven containers were healthy, all
+seven public hostnames returned 200 through container-to-container nginx routing, and an existing
+authenticated Chrome session completed Workspace → Smoke Tests → template → Designer without
+console errors. Retain the broader credential-free contract, Keycloak origin preflight, bundle
+recorder, and long-request regression as CI/staging gates.
 
 Acceptance criteria:
 
@@ -198,19 +201,20 @@ Acceptance criteria:
 - a request exceeding 60 seconds succeeds under the documented 180-second proxy timeout; and
 - rollback selects a complete previous routing configuration and image digest pair.
 
-### F4. Promote into the normal Docker frontend lifecycle only by explicit decision
+### F4. Promote into the normal Docker frontend lifecycle — completed locally
 
-After staging acceptance, decide whether to add Workspace and Designer to the normal frontend
-Compose project, image manifest, CLI build/start groups, status output, and volume cleanup. Until
-then, keep `docker-compose.preview.yml` opt-in and keep the native hybrid as the development path.
+Workspace and Designer are now in the normal frontend Compose project, the seven-image build group,
+and ordinary `cedarcli docker start frontends` lifecycle. Native frontend and native backend modes
+remain supported. Registry publication and staging promotion remain gated by F2 and F3; local
+promotion does not by itself authorize a production routing change.
 
 Acceptance criteria:
 
-- promotion is one reviewed change across build, deploy, CLI, documentation, and tests;
+- one reviewed change covers build, deploy, CLI, documentation, and tests;
 - normal startup either starts the complete approved frontend set or fails before partial creation;
 - no hostname can fall through to another frontend's default nginx virtual host;
 - rollback restores the preceding complete frontend set without changing backend data; and
-- the native hybrid is retired only after the image-based path meets the same functional gates.
+- the native hybrid remains available until the image-based path meets the same staging gates.
 
 ## Recommended delivery slices
 
@@ -219,5 +223,5 @@ Acceptance criteria:
 3. **Release gate:** items 5-6. Outcome: the digest that passed is the digest promoted.
 4. **Durability and hardening:** items 7-11. Outcome: recoverable, auditable operation beyond a
    developer workstation.
-5. **Frontend migration:** F1-F4. Outcome: retain the proven hybrid now, publish and validate the
-   split images independently, then promote them only after an explicit staging decision.
+5. **Frontend delivery:** F1-F4. Outcome: keep native and hybrid modes, publish the locally proven
+   seven-image set to Nexus, and promote only tested image digests through staging and production.

@@ -48,11 +48,18 @@ cedarcli deploy split-frontends
 ```
 
 The generic `cedarcli deploy frontends` and `cedarcli deploy all` selectors exclude them. The
-explicit plan runs `npm ci` and `npm publish` in only the two extracted repositories. Publication is
-an artifact operation, not an environment deployment: native staging/production checks out the
-approved Git commits and runs `cedarcli build split-frontends --server-payload`; nginx then serves
-the generated `app` trees directly. No Docker host is required. Keep them excluded from the global
-version/tag/merge release until staging acceptance authorizes their normal release membership.
+explicit plan runs `npm ci`, then stages and publishes an immutable prerelease from each clean
+commit without changing either working tree. npm cannot overwrite `2.9.2-SNAPSHOT` the way Maven
+can; versions therefore have the form `2.9.2-dev.<UTC-commit-time>.g<12-char-commit>`, carry the
+full commit as `gitHead`, and use the `dev` dist-tag only as a convenience pointer. Docker builds
+pin the exact version and never consume that moving tag.
+
+Publication is an artifact operation, not an environment deployment: native staging/production
+checks out the approved Git commits and runs `cedarcli build split-frontends --server-payload`;
+nginx then serves the generated `app` trees directly. No Docker host is required. Keep them
+excluded from the global version/tag/merge release until staging acceptance authorizes their normal
+release membership. The other five frontend Docker inputs use the same staging helper directly;
+the complete seven-target procedure is in the Docker backend runbook.
 
 ## Prerequisites — do these before anything
 
