@@ -24,6 +24,16 @@ export CEDAR_NET_SUBNET=127.0.0.0
 source ${CEDAR_DEVELOP_HOME}/bin/util/set-env-generic.sh
 
 #------------------------------------------------------
+# The local terminology store, off: every ontology is served through BioPortal. Staging carries no
+# catalog, and an empty path is what turns the store off — cedar-services.sh passes no
+# -DterminologyStore.* flags without one, which is also cedar-main.yml's shipped default.
+#
+# Said here rather than left out, because leaving it out gave the same behaviour for a reason nobody
+# reading this file could see: the allowlist and the local-only flag arrive armed from
+# set-env-generic.sh and stay inert only while this is blank. Point it at a catalog to switch over.
+export CEDAR_TERMINOLOGY_STORE_CATALOG=""
+
+#------------------------------------------------------
 # CEDAR aliases and colors for Local Development
 source ${CEDAR_DEVELOP_HOME}/bin/util/set-dev-aliases.sh
 source ${CEDAR_DEVELOP_HOME}/bin/util/set-infra-aliases-centos.sh

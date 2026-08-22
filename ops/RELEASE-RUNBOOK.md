@@ -3,7 +3,7 @@
 How to cut a CEDAR release with `cedarcli release all-in-one` — connect, verify, dry-run the
 versions, run it, watch it, and recover if it stalls. Written to be followed by a human with no
 tooling beyond a terminal, or read by an LLM agent. This is the **release** counterpart to
-[DEVELOPMENT-RUNBOOK.md](./DEVELOPMENT-RUNBOOK.md) (which covers running CEDAR locally).
+[BACKEND-RUNBOOK.md](./BACKEND-RUNBOOK.md) (which covers running CEDAR locally).
 
 A companion visual — a live phase timeline + this same command sequence in tabs — is
 [cedar-release-monitor.html](./cedar-release-monitor.html) (open in a browser; no build step).
@@ -21,12 +21,45 @@ CEDAR is a ~53-repo monorepo; a release touches ~48 of them. `all-in-one` runs e
 4. **Commit** — per repo: merge the tag into `main` + push, merge the post-branch into `develop` + push.
 5. **Cleanup** — delete the temporary `release/pre|post` branches.
 6. **Checkout main** — release repos onto `main`.
-7. **Deploy develop** — publish `<NEXT>` snapshots (rebuild frontends + `mvn deploy` + `npm publish`).
+7. **Deploy develop** — publish `<NEXT>` snapshots (rebuild frontends + `./mvnw deploy` + `npm publish`).
 8. **Deploy main** — publish the `<VER>` release to Nexus + npm.
 
 It runs **~1h50m–2h30m** (a clean run is ~1:48). It is **not atomic** — failures cluster in the
 **commit** phase (git pushes) and the **deploy** tail (Nexus/npm). State it writes under `~/.cedar/`:
 `last_plan_content.sh` (the full plan, written up front) and `last_release_{version,next_dev_version,tag,pre_branch,post_branch}` (the rollback handles, written during prepare).
+
+CEE releases independently and is excluded from `release all-in-one`. Publishing CEE is not complete
+operationally until its exact version has been propagated to all seven consumer manifests, including
+the extracted Workspace, and those changes are committed in their owning repositories. Follow
+[CEE-RUNBOOK.md](./CEE-RUNBOOK.md#release) and require this gate before building a staging or
+production frontend payload:
+
+```bash
+node $CEDAR_HOME/cedar-development/ops/propagate-cee-release.mjs --check <CEE_VERSION>
+```
+
+Workspace and Template Designer are also independent of `release all-in-one` while migration is in
+progress. Their exact current versions publish as npm packages to the CEDAR Nexus repository through
+one deliberately named selector:
+
+```bash
+cedarcli deploy split-frontends --dry-run
+cedarcli deploy split-frontends
+```
+
+The generic `cedarcli deploy frontends` and `cedarcli deploy all` selectors exclude them. The
+explicit plan runs `npm ci`, then stages and publishes an immutable prerelease from each clean
+commit without changing either working tree. npm cannot overwrite `2.9.2-SNAPSHOT` the way Maven
+can; versions therefore have the form `2.9.2-dev.<UTC-commit-time>.g<12-char-commit>`, carry the
+full commit as `gitHead`, and use the `dev` dist-tag only as a convenience pointer. Docker builds
+pin the exact version and never consume that moving tag.
+
+Publication is an artifact operation, not an environment deployment: native staging/production
+checks out the approved Git commits and runs `cedarcli build split-frontends --server-payload`;
+nginx then serves the generated `app` trees directly. No Docker host is required. Keep them
+excluded from the global version/tag/merge release until staging acceptance authorizes their normal
+release membership. The other five frontend Docker inputs use the same staging helper directly;
+the complete seven-target procedure is in the Docker runbook.
 
 ## Prerequisites — do these before anything
 
@@ -138,7 +171,7 @@ then resume.
 
 | Signature | Meaning | Recovery |
 |-----------|---------|----------|
-| `status code: 5xx … BUILD FAILURE` on `mvn deploy` | transient Nexus 5xx | retry |
+| `status code: 5xx … BUILD FAILURE` on `./mvnw deploy` | transient Nexus 5xx | retry |
 | `git pull` hangs at `Username:` | expired PAT + empty credential store | refresh PAT, re-cache; keep `GIT_TERMINAL_PROMPT=0` set |
 | `RPC failed; curl 92 Stream error in the HTTP/2 framing layer` | transient push | retry (or `git config http.version HTTP/1.1`) |
 | `remote: fatal error in commit_refs` / `remote rejected main -> main` | transient GitHub backend | retry the push, then `release commit` |
@@ -146,7 +179,7 @@ then resume.
 
 ## Branch layout for the deploy
 
-The ~48 release repos deploy from `main`; the 5 `skip_from_release` frontend repos build from
+The ~48 release repos deploy from `main`; the 6 `skip_from_release` frontend repos build from
 `develop`. `all-in-one` arranges this itself. If you ever end up doing a manual deploy after a blanket
 checkout, put the `skip_from_release` repos back on `develop` first, or their (older) `main` may not
 even build.

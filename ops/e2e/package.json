@@ -7,7 +7,20 @@
   "scripts": {
     "smoke": "node login-smoke-test.mjs",
     "smoke:headed": "HEADED=1 node login-smoke-test.mjs",
-    "smoke:rest": "node rest-smoke.mjs"
+    "smoke:split:keycloak": "NODE_TLS_REJECT_UNAUTHORIZED=0 node keycloak-split-client-smoke.mjs",
+    "smoke:split:authenticated": "npm run smoke:split:keycloak && CEDAR_BASE=http://localhost:4201 CEDAR_DESIGNER_BASE=http://localhost:4202 node login-smoke-test.mjs",
+    "smoke:split:authenticated:headed": "npm run smoke:split:keycloak && CEDAR_BASE=http://localhost:4201 CEDAR_DESIGNER_BASE=http://localhost:4202 HEADED=1 node login-smoke-test.mjs",
+    "smoke:split:hostnames:keycloak": "CEDAR_AUTH_URL=https://auth.metadatacenter.orgx CEDAR_SPLIT_KEYCLOAK_ORIGINS=https://workspace.metadatacenter.orgx,https://designer.metadatacenter.orgx npm run smoke:split:keycloak",
+    "smoke:split:hostnames": "NODE_TLS_REJECT_UNAUTHORIZED=0 CEDAR_WORKSPACE_PREVIEW=https://workspace.metadatacenter.orgx CEDAR_DESIGNER_PREVIEW=https://designer.metadatacenter.orgx CEDAR_AUTH_URL=https://auth.metadatacenter.orgx CEDAR_RESOURCE_API=https://resource.metadatacenter.orgx node split-frontend-smoke.mjs",
+    "smoke:split:hostnames:deployment": "CEDAR_REQUIRE_BUILD_INFO=1 npm run smoke:split:hostnames",
+    "smoke:split:hostnames:authenticated": "npm run smoke:split:hostnames:keycloak && CEDAR_BASE=https://workspace.metadatacenter.orgx CEDAR_DESIGNER_BASE=https://designer.metadatacenter.orgx node login-smoke-test.mjs",
+    "smoke:split:hostnames:authenticated:headed": "npm run smoke:split:hostnames:keycloak && CEDAR_BASE=https://workspace.metadatacenter.orgx CEDAR_DESIGNER_BASE=https://designer.metadatacenter.orgx HEADED=1 node login-smoke-test.mjs",
+    "smoke:rest": "node rest-smoke.mjs",
+    "smoke:split": "node split-frontend-smoke.mjs",
+    "smoke:split:deployment": "CEDAR_REQUIRE_BUILD_INFO=1 node split-frontend-smoke.mjs",
+    "smoke:routing:split": "CEDAR_ROUTING_MODE=split node split-routing-rehearsal-smoke.mjs",
+    "smoke:routing:rollback": "CEDAR_ROUTING_MODE=rollback node split-routing-rehearsal-smoke.mjs",
+    "record:split:deployment": "node record-split-frontend-deployment.mjs"
   },
   "dependencies": {
     "playwright": "^1.48.0"

@@ -14,9 +14,14 @@ export const HOST = env.CEDAR_HOST ?? 'metadatacenter.orgx';
 export const RESOURCE = env.CEDAR_RESOURCE_BASE ?? `https://resource.${HOST}`;
 export const USER_SERVER = env.CEDAR_USER_BASE ?? `https://user.${HOST}`;
 export const GROUP_SERVER = env.CEDAR_GROUP_BASE ?? `https://group.${HOST}`;
-// The artifact server, addressed directly. The resource server proxies every artifact write and read
-// to it, so the contract suite compares the two sides of that hop.
-export const ARTIFACT_SERVER = env.CEDAR_ARTIFACT_BASE ?? `https://artifact.${HOST}`;
+// The artifact server, addressed directly on its port rather than through `artifact.${HOST}`. The
+// resource server proxies every artifact write and read to it, so the contract suite compares the two
+// sides of that hop — but the vhost is closed. The artifact server holds no resource-level ACL and
+// authorizes on global roles alone, so anything that reaches it can read or change any artifact in
+// the installation; production and this host both answer 404 there, and only the internal address
+// remains. Reaching it at all is a property of running the suite beside the stack.
+export const ARTIFACT_SERVER = env.CEDAR_ARTIFACT_BASE
+  ?? `http://${env.CEDAR_ARTIFACT_SERVER_HOST ?? 'localhost'}:${env.CEDAR_ARTIFACT_HTTP_PORT ?? '9001'}`;
 export const TERMINOLOGY = env.CEDAR_TERMINOLOGY_BASE ?? `https://terminology.${HOST}`;
 // The OpenView *server*, not the OpenView frontend. `openview.${HOST}` is the AngularJS app; the API
 // has no vhost of its own, so it is addressed directly on its port.
@@ -152,6 +157,7 @@ export async function call(auth, method, path, body, opts = {}) {
   const text = await res.text();
   let json;
   try { json = text ? JSON.parse(text) : undefined; } catch { /* not JSON — keep the text */ }
+  if (method === 'POST' && res.status === 201) noteCreated(json, opts.base);
   return { status: res.status, body: json, text, headers: res.headers };
 }
 
@@ -205,8 +211,11 @@ function fixture(name) {
  *
  * Loaded from fixtures rather than written inline: the meta-schema requires a `properties` block
  * naming `@context`, `@id`, `oslc:modifiedBy` and more, which is knowledge that belongs with the
- * schema. See fixtures/README.md. The identifier is stripped because a create carrying one is
- * refused — and must be restored for an update, which requires it.
+ * schema. See fixtures/README.md.
+ *
+ * The identifier is nulled rather than dropped, which is what a client says when it wants one
+ * assigned: a create carrying a real IRI is refused, and so is one leaving the key out, because an
+ * absent key cannot be told from a forgotten one. An update needs the real identifier restored.
  */
 export function artifactBody(kind, name, extra = {}) {
   const files = {
@@ -216,7 +225,7 @@ export function artifactBody(kind, name, extra = {}) {
     instance: 'minimal-instance.json',
   };
   const body = fixture(files[kind]);
-  delete body['@id'];
+  body['@id'] = null;
   body['schema:name'] = name;
   body['schema:description'] = `Created by the REST suites (${RUN})`;
   return Object.assign(body, extra);
@@ -234,6 +243,41 @@ export const KINDS = [
 
 const registry = [];
 
+/** Where each kind is addressed, for a path built from an identifier alone. */
+const COLLECTION_PATH = {
+  instance: '/template-instances',
+  template: '/templates',
+  element: '/template-elements',
+  field: '/template-fields',
+  folder: '/folders',
+};
+
+// Every folder and artifact a POST minted, in creation order, each attributed to the suite that was
+// running when it appeared, alongside the identifiers teardown was told about. Comparing the two is
+// what catches a suite that creates without registering: teardown reports only the deletions it was
+// asked for, so such a suite leaves a subtree behind inside a run that passes. One run left
+// thirty-two artifacts in the first user's home exactly that way.
+const created = [];
+const registeredIds = new Set();
+
+/**
+ * The kind a resource is, read off the identifier it was assigned rather than the endpoint that
+ * assigned it: publish, create-draft and copy each mint a new artifact from a path naming the old
+ * one, so the request path is not what says which collection the result landed in.
+ */
+function kindOfId(id) {
+  return Object.entries(COLLECTION_PATH).find(([, path]) => id.includes(`${path}/`))?.[0];
+}
+
+function noteCreated(json, base) {
+  if (base && base !== RESOURCE) return;   // a group belongs to the group server's own teardown
+  const id = json?.['@id'];
+  if (typeof id !== 'string') return;
+  const kind = kindOfId(id);
+  if (!kind || created.some(c => c.id === id)) return;
+  created.push({ kind, id, name: json['schema:name'] ?? json.schema_name ?? '(unnamed)', suite: currentSuite });
+}
+
 /**
  * Registers something for deletion. Newest first, so teardown unwinds in dependency order. An
  * optional credential covers the things the first user cannot delete — a category belongs to the
@@ -242,6 +286,35 @@ const registry = [];
  */
 export function cleanup(kind, path, name, auth, base) {
   registry.unshift({ kind, path, name, auth, base });
+  registeredIds.add(decodeURIComponent(path.slice(path.lastIndexOf('/') + 1)));
+}
+
+/**
+ * Deletes what the run created and never registered, and names the suite that created each one.
+ * Deleting keeps the stack clean for the next run; reporting is what stops a leak from riding along
+ * inside a passing run, which is how a whole working subtree survived unnoticed.
+ */
+async function sweepUnregistered(auth) {
+  const suspects = created.filter(c => !registeredIds.has(c.id));
+  let swept = 0;
+  for (const kind of ['instance', 'template', 'element', 'field', 'folder']) {
+    // Newest first within a kind: a nested folder is created after the folder holding it, and a
+    // folder still holding anything cannot be deleted.
+    for (const item of suspects.filter(s => s.kind === kind).reverse()) {
+      const path = `${COLLECTION_PATH[kind]}/${enc(item.id)}`;
+      const probe = await call(auth, 'GET', path);
+      if (probe.status >= 400) continue;   // the suite deleted it itself, so nothing leaked
+      bad(`teardown: ${kind} "${item.name}" is left behind by the "${item.suite}" suite`,
+          `created but never registered with cleanup(); ${item.id}`);
+      const del = await call(auth, 'DELETE', path);
+      if (del.status !== 204 && del.status !== 200) {
+        bad(`teardown: ${kind} "${item.name}" could not be swept`, `${del.status}: ${(del.text ?? '').slice(0, 200)}`);
+        continue;
+      }
+      swept++;
+    }
+  }
+  return swept;
 }
 
 /**
@@ -269,6 +342,10 @@ export async function teardown(auth) {
     }
     removed++;
   }
+  const swept = await sweepUnregistered(auth);
   if (removed) console.log(`\n  cleaned up ${removed} resource(s)`);
+  if (swept) console.log(`  swept ${swept} unregistered resource(s) — see the failures above`);
   registry.length = 0;
+  created.length = 0;
+  registeredIds.clear();
 }

@@ -2,12 +2,12 @@
 # ------------------------------------------------------------------------------
 # cedar-services.sh — start / stop / monitor the CEDAR app tier without 15 consoles.
 #
-# Runs the 15 Dropwizard microservices + the main frontend (gulp) + the 5 auxiliary
-# Angular frontends (ui-openview/content/monitoring/artifacts/bridging, via `ng serve`)
+# Runs the 15 Dropwizard microservices + the production frontend (gulp) + the two
+# split frontend previews (gulp) + the 4 auxiliary Angular frontends (via `ng serve`)
 # as background processes (nohup), each logging to $CEDAR_HOME/log/, PIDs in
 # $CEDAR_HOME/log/run/. One `status` view shows PID / port / health / error-count.
 # Frontend health is port-only (no Dropwizard /healthcheck). The non-essential CEE
-# demos (cee-dev/demo.cee/docs.cee) are NOT managed here — cedarcli doesn't start them
+# demos (cee-dev/demo.cee) are NOT managed here — cedarcli doesn't start them
 # by default either.
 #
 # Infra (Keycloak, Mongo, Neo4j, MySQL, Redis, OpenSearch, nginx) is NOT managed here —
@@ -26,6 +26,9 @@ export CEDAR_HOME="${CEDAR_HOME:-$HOME/CEDAR}"
 source "$CEDAR_HOME/cedar-profile-native-develop.sh" >/dev/null 2>&1
 export JAVA_HOME="$(/usr/libexec/java_home -v 17 2>/dev/null)"   # CEDAR + Keycloak need JDK 17
 PATH="$JAVA_HOME/bin:/opt/homebrew/bin:$PATH"                    # /opt/homebrew/bin for node + ng (aux frontends)
+# Loopback is safest for the native-only stack. Set this to 0.0.0.0 when Docker nginx must proxy
+# to the native Angular development servers through host.docker.internal.
+CEDAR_FRONTEND_BIND_HOST="${CEDAR_FRONTEND_BIND_HOST:-127.0.0.1}"
 
 RUN="$CEDAR_HOME/log/run"
 LOGDIR="$CEDAR_HOME/log"
@@ -49,10 +52,11 @@ SERVICES=(
   "impex 9008 9108"
   "bridge 9015 9115"
   "frontend 4200 0"
+  "workspace 4201 0"
+  "designer 4202 0"
   "ui-openview 4220 0"
   "ui-content 4240 0"
   "ui-monitoring 4300 0"
-  "ui-artifacts 4320 0"
   "ui-bridging 4340 0"
 )
 
@@ -62,8 +66,17 @@ fe_dir() {
     ui-openview)   echo "$CEDAR_HOME/cedar-openview/cedar-openview-src" ;;
     ui-content)    echo "$CEDAR_HOME/cedar-content-distribution" ;;
     ui-monitoring) echo "$CEDAR_HOME/cedar-monitoring/cedar-monitoring-src" ;;
-    ui-artifacts)  echo "$CEDAR_HOME/cedar-artifacts/cedar-artifacts-src" ;;
     ui-bridging)   echo "$CEDAR_HOME/cedar-bridging/cedar-bridging-src" ;;
+  esac
+}
+
+# AngularJS/Gulp frontends. `frontend` remains the production-safe monolith while
+# Workspace and Designer run beside it during the extraction.
+gulp_fe_dir() {
+  case "$1" in
+    frontend)  echo "$CEDAR_HOME/cedar-template-editor" ;;
+    workspace) echo "$CEDAR_HOME/cedar-workspace" ;;
+    designer)  echo "$CEDAR_HOME/cedar-template-designer" ;;
   esac
 }
 
@@ -71,7 +84,7 @@ svc_field() { local n=$1 f=$2; for s in "${SERVICES[@]}"; do set -- $s; [ "$1" =
 app_port()  { svc_field "$1" 2; }
 admin_port(){ svc_field "$1" 3; }
 pidfile()   { echo "$RUN/$1.pid"; }
-logfile()   { case "$1" in frontend) echo "$LOGDIR/cedar-frontend.log";; ui-*) echo "$LOGDIR/frontend-${1#ui-}.log";; *) echo "$LOGDIR/cedar-$1-server.log";; esac; }
+logfile()   { case "$1" in frontend|workspace|designer) echo "$LOGDIR/cedar-$1.log";; ui-*) echo "$LOGDIR/frontend-${1#ui-}.log";; *) echo "$LOGDIR/cedar-$1-server.log";; esac; }
 alive()     { local p; p=$(cat "$(pidfile "$1")" 2>/dev/null); [ -n "$p" ] && kill -0 "$p" 2>/dev/null; }
 port_open() { nc -z -G1 127.0.0.1 "$1" >/dev/null 2>&1; }
 
@@ -87,7 +100,7 @@ jar_of() { echo "$CEDAR_HOME/cedar-$1-server/cedar-$1-server-application/target/
 # gate meaningless. Compare when the process started against when its jar was written.
 binary_of() {  # echoes current|STALE|- for a service and the pid serving it
   local name=$1 pid=$2 jar started j_epoch p_epoch
-  case "$name" in frontend|ui-*) echo '-'; return;; esac
+  case "$name" in frontend|workspace|designer|ui-*) echo '-'; return;; esac
   jar=$(jar_of "$name")
   [ -n "$pid" ] && [ -f "$jar" ] || { echo '-'; return; }
   started=$(ps -o lstart= -p "$pid" 2>/dev/null) || { echo '-'; return; }
@@ -105,10 +118,14 @@ start_one() {
   case "$name" in
     frontend)
       ( cd "$CEDAR_HOME/cedar-template-editor" && exec nohup gulp >"$log" 2>&1 ) & ;;
+    workspace|designer)
+      local dir; dir=$(gulp_fe_dir "$name")
+      [ -d "$dir" ] || { echo "  $name: SRC MISSING ($dir) — skip"; return; }
+      ( cd "$dir" && exec nohup gulp >"$log" 2>&1 ) & ;;
     ui-*)
       local dir; dir=$(fe_dir "$name")
       [ -d "$dir" ] || { echo "  $name: SRC MISSING ($dir) — skip"; return; }
-      ( cd "$dir" && exec nohup ng serve --port "$app" --host 127.0.0.1 >"$log" 2>&1 ) & ;;
+      ( cd "$dir" && exec nohup ng serve --port "$app" --host "$CEDAR_FRONTEND_BIND_HOST" >"$log" 2>&1 ) & ;;
     *)
       local jar="$CEDAR_HOME/cedar-$name-server/cedar-$name-server-application/target/cedar-$name-server-application-${CEDAR_VERSION}.jar"
       local cfg="$CEDAR_HOME/cedar-$name-server/cedar-$name-server-application/src/main/resources/config.yml"
@@ -121,6 +138,10 @@ start_one() {
         opts="-DterminologyStore.catalogPath=$CEDAR_TERMINOLOGY_STORE_CATALOG -DterminologyStore.localOntologies=$CEDAR_TERMINOLOGY_LOCAL_ONTOLOGIES"
         [ -n "$CEDAR_TERMINOLOGY_LOCAL_ROOTS_ONTOLOGIES" ] && opts="$opts -DterminologyStore.localRootsOntologies=$CEDAR_TERMINOLOGY_LOCAL_ROOTS_ONTOLOGIES"
         [ -n "$CEDAR_TERMINOLOGY_LOCAL_ONLY" ] && opts="$opts -DterminologyStore.localOnly=$CEDAR_TERMINOLOGY_LOCAL_ONLY"
+        # The cross-snapshot search index, which POST /search and /search/hierarchy need. Its own
+        # variable because it is its own file: the catalog can be served without it, and those two
+        # endpoints then report themselves unavailable rather than answering from BioPortal.
+        [ -n "$CEDAR_TERMINOLOGY_STORE_INDEX" ] && opts="$opts -DterminologyStore.searchIndexPath=$CEDAR_TERMINOLOGY_STORE_INDEX"
       fi
       nohup java $opts -jar "$jar" server "$cfg" >"$log" 2>&1 & ;;
   esac
@@ -170,8 +191,11 @@ status() {
     port_open "$(app_port "$name")" && port_disp="up" || port_disp="down"
     h=$(health_of "$name"); [ "$h" = healthy ] && up=$((up+1))
     bin=$(binary_of "$name" "$own"); [ "$bin" = STALE ] && stale=$((stale+1))
-    # Exclude logback's own configuration chatter, which mentions appenders named FILE-ERROR
-    errs=$(grep -iE "ERROR|Exception" "$(logfile "$name")" 2>/dev/null | grep -cv "|-INFO in"); errs=${errs:-0}
+    # Exclude logback's own configuration chatter. Its internal status lines all take the
+    # form "|-LEVEL in <class>" (INFO/WARN/ERROR/…), and one WARN reports an appender named
+    # FILE-ERROR "not referenced" — which the old "|-INFO in"-only filter let through as a
+    # phantom error. Real application errors have no "|-" prefix (e.g. "ERROR [ts] logger:").
+    errs=$(grep -iE "ERROR|Exception" "$(logfile "$name")" 2>/dev/null | grep -cvE "\|-(INFO|WARN|ERROR|TRACE|DEBUG) in "); errs=${errs:-0}
     printf "%-18s %-8s %-6s %-10s %-8s %s\n" "$name" "$pid_disp" "$port_disp" "$h" "$bin" "$errs"
   done < <(names)
   echo "-------------------------------------------------------------"

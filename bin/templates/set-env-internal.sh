@@ -61,7 +61,6 @@ export CEDAR_CA_COMMON_NAME=${CEDAR_HOST}
 export CEDAR_CA_EMAIL=metadatacenter@gmail.com
 
 # Field, element, template validation
-export CEDAR_VALIDATION_ENABLED="true"
 
 # CaDSR data
 export CEDAR_CADSR_ADMIN_USER_API_KEY="0000111122223333444455556666777788889999aaaabbbbccccddddeeeefffe"

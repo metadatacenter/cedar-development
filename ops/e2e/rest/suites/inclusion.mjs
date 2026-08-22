@@ -19,7 +19,7 @@ export const name = 'inclusion';
  */
 function templateEmbedding(elementObject, name) {
   const tmpl = JSON.parse(readFileSync(resolve(FIXTURES, 'minimal-template.json'), 'utf8'));
-  delete tmpl['@id'];
+  tmpl['@id'] = null;
   tmpl['schema:name'] = name;
   const field = 'embeddedElement';
   tmpl.properties[field] = elementObject;
@@ -35,7 +35,7 @@ function templateEmbedding(elementObject, name) {
   return tmpl;
 }
 
-export async function run({ user1, folderId }) {
+export async function run({ user1, user2, folderId }) {
   const auth = user1.auth;
 
   suite('inclusion: the affected-tree preview finds templates that embed an element');
@@ -80,6 +80,60 @@ export async function run({ user1, folderId }) {
     if (checkStatus(empty, 200, 'previewing a standalone artifact returns')) {
       check(Object.keys(empty.body?.templates ?? {}).length === 0 && Object.keys(empty.body?.elements ?? {}).length === 0,
           'and its affected tree is empty', `it was ${JSON.stringify(empty.body).slice(0, 160)}`);
+    }
+  }
+
+  suite('inclusion: the affected tree carries only what the caller may read');
+
+  // The graph query behind the tree matches on the inclusion arc, which says nothing about who may see
+  // the artifacts it finds. Two templates embed the same element and only one is shared, so what the
+  // second user gets back separates "everything that embeds it" from "everything they may read".
+  const privateLabel = `Inclusion Private ${RUN}`;
+  const priv = await call(auth, 'POST', `/templates?folder_id=${enc(folderId)}`, templateEmbedding(elementObject, privateLabel));
+  if (checkStatus(priv, 201, 'a second template embedding the same element is created')) {
+    const pid = priv.body['@id'];
+    cleanup('template', `/templates/${enc(pid)}`, privateLabel);
+
+    const shareRead = at => call(auth, 'PUT', `${at}/permissions`, {
+      owner: { '@id': user1.profile['@id'] },
+      userPermissions: [{ user: { '@id': user2.profile['@id'] }, permission: 'read' }],
+      groupPermissions: [],
+    });
+    // Read on the element, because previewing it requires it; read on one template and nothing on the
+    // other, which is the whole of the fixture.
+    checkStatus(await shareRead(`/template-elements/${enc(eid)}`), 200, 'the element is shared with the second user');
+    checkStatus(await shareRead(`/templates/${enc(tid)}`), 200, 'one of the two embedding templates is shared with them');
+
+    const theirs = await call(user2.auth, 'POST', '/command/inclusions-subgraph-preview', { '@id': eid });
+    if (checkStatus(theirs, 200, 'the second user can preview the element shared with them')) {
+      const seen = Object.keys(theirs.body?.templates ?? {});
+      check(seen.includes(tid), 'the template shared with them is in their affected tree',
+          `they saw ${seen.join(', ') || '(none)'}`);
+      check(!seen.includes(pid), 'the template they have no grant on is not',
+          `they saw ${seen.join(', ') || '(none)'}`);
+    }
+
+    // The owner still sees both, so the filtering above is the caller's access rather than a tree that
+    // lost an entry for some other reason.
+    const mine = await call(auth, 'POST', '/command/inclusions-subgraph-preview', { '@id': eid });
+    if (checkStatus(mine, 200, 'the owner previews the same element')) {
+      const seen = Object.keys(mine.body?.templates ?? {});
+      check(seen.includes(tid) && seen.includes(pid), 'and sees both embedding templates',
+          `the owner saw ${seen.join(', ') || '(none)'}`);
+    }
+
+    // Reading a target is not authority to rewrite it.
+    checkStatus(await call(user2.auth, 'POST', '/command/inclusions-subgraph-update',
+        { '@id': eid, templates: { [tid]: { operation: 'update' } } }), 403,
+        'propagating into a template they may read but not write is refused');
+
+    // And a target they cannot see is not a target: it never enters their tree, so nothing is planned
+    // for it and nothing is written.
+    const unseen = await call(user2.auth, 'POST', '/command/inclusions-subgraph-update',
+        { '@id': eid, templates: { [pid]: { operation: 'update' } } });
+    if (checkStatus(unseen, 200, 'naming a template they cannot see succeeds')) {
+      check((unseen.body?.outcomes ?? []).length === 0, 'having planned no work at all',
+          `outcomes were ${JSON.stringify(unseen.body?.outcomes ?? []).slice(0, 200)}`);
     }
   }
 

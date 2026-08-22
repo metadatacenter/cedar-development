@@ -1,2 +1,5 @@
 node_modules/
 failures/
+
+# Saved browser session for the smoke (holds live tokens)
+.auth/

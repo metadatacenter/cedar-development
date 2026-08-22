@@ -7,6 +7,7 @@ import { suite, check, checkStatus, call, cleanup, enc, RUN } from '../lib.mjs';
 
 const FIXTURES = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', 'fixtures');
 const load = name => JSON.parse(readFileSync(resolve(FIXTURES, name), 'utf8'));
+const yaml = name => readFileSync(resolve(FIXTURES, name), 'utf8');
 
 export const name = 'validation';
 
@@ -17,7 +18,7 @@ export async function run({ user1, folderId }) {
   // instance is based on and refuses with 400 when it cannot be found. So the instance fixture needs
   // a template that actually exists, which means creating one first.
   const host = await call(auth, 'POST', `/templates?folder_id=${folderId ? encodeURIComponent(folderId) : ''}`,
-      Object.assign(load('minimal-template.json'), { '@id': undefined, 'schema:name': `Validation Host ${RUN}` }));
+      Object.assign(load('minimal-template.json'), { '@id': null, 'schema:name': `Validation Host ${RUN}` }));
   let hostId;
   if (checkStatus(host, 201, 'a host template is created for instance validation')) {
     hostId = host.body['@id'];
@@ -156,10 +157,11 @@ export async function run({ user1, folderId }) {
 
   // The meta-schema types @id as ["string","null"] and requires the key, so an artifact that has not
   // been created yet carries @id: null — and that one shape both validates and creates, so the
-  // validate-then-create workflow needs no placeholder. The other two shapes reveal the asymmetry the
-  // roadmap weighs: omitting @id creates but does not validate (validation wants the key present),
-  // while a real IRI validates but create refuses it (create mints the id). It is create's acceptance
-  // of the omitted key, not validation's strictness, that lets a createable body fail validation.
+  // validate-then-create workflow needs no placeholder. The other two are refused, each by the rule
+  // that only the server assigns an identifier: omitting the key leaves nothing to tell "assign me
+  // one" from "I forgot", and a real IRI asserts an identity nothing can resolve and the server is
+  // about to replace. Create used to accept the omitted key, which made it the one shape that created
+  // here and failed validation there.
   const base = () => Object.assign(load('minimal-template.json'), { 'schema:name': `Id Shape ${RUN}` });
   const validate = body => call(auth, 'POST', '/command/validate?resource_type=template', body);
   const create = async (body, label) => {
@@ -176,14 +178,81 @@ export async function run({ user1, folderId }) {
   check((await validate(omitted)).body?.validates === 'false',
       'an omitted @id does not validate — the meta-schema requires the key be present',
       'it validated, so the required-key rule is not being applied');
-  checkStatus(await create(omitted, 'Id Shape omitted'), 201,
-      'yet an omitted @id creates — the leniency the roadmap questions');
+  check((await create(omitted, 'Id Shape omitted')).status === 400,
+      'and an omitted @id does not create either — the key is how a client asks for one',
+      'create accepted a body with no @id key');
 
   const realId = base();
   realId['@id'] = 'https://repo.metadatacenter.orgx/templates/11111111-1111-1111-1111-111111111111';
   check((await validate(realId)).body?.validates === 'true', 'a real IRI validates', 'it did not');
   check((await create(realId, 'Id Shape iri')).status === 400,
       'but create refuses a client-supplied IRI — it mints the id itself', 'create did not refuse it');
+
+  suite('the identifier shapes a YAML body may take');
+
+  // The same question over YAML, and the answer is the mirror image for two of the three shapes —
+  // deliberately, because the two dialects say "no identifier yet" differently. JSON carries the key
+  // with null in it, because the meta-schema requires the key. YAML has no such requirement and no use
+  // for a placeholder, so the authoring form simply omits it and the transcoder refuses an explicit
+  // null, naming the alternative. A real IRI is refused in both.
+  const asYaml = { contentType: 'application/yaml' };
+  const yamlTemplate = shape => {
+    const full = yaml('template-full.yml');
+    if (shape === 'omitted') return full.replace(/^id: .*\n/m, '');
+    if (shape === 'null') return full.replace(/^id: .*$/m, 'id: null');
+    return full.replace(/^id: .*$/m, 'id: https://repo.metadatacenter.orgx/templates/11111111-1111-1111-1111-111111111111');
+  };
+  const createYaml = async (shape, label) => {
+    const r = await call(auth, 'POST', `/templates?folder_id=${enc(folderId)}`, yamlTemplate(shape), asYaml);
+    if (r.status === 201 && r.body?.['@id']) cleanup('template', `/templates/${enc(r.body['@id'])}`, label);
+    return r;
+  };
+
+  const yamlOmitted = await createYaml('omitted', `Yaml Id omitted ${RUN}`);
+  if (checkStatus(yamlOmitted, 201, 'a YAML body that omits the identifier creates — omission is how YAML asks')) {
+    const yamlId = yamlOmitted.body['@id'];
+    check(!!yamlId, 'and the server assigned one', 'no identifier came back');
+
+    const put = await call(auth, 'PUT', `/templates/${enc(yamlId)}`,
+        yaml('template-full.yml').replace(/^id: .*$/m, `id: ${yamlId}`), asYaml);
+    checkStatus(put, 200, 'and an update naming that identifier is accepted');
+
+    const putWithout = await call(auth, 'PUT', `/templates/${enc(yamlId)}`, yamlTemplate('omitted'), asYaml);
+    check(putWithout.status === 400,
+        'while an update that omits it is refused — an update says which artifact it is updating',
+        `expected 400, got ${putWithout.status}`);
+  }
+
+  const yamlNull = await createYaml('null', `Yaml Id null ${RUN}`);
+  check(yamlNull.status === 400 && /omit the key/.test(yamlNull.text ?? ''),
+      'an explicit null is refused, and the refusal names omission as the way to ask',
+      `${yamlNull.status}: ${(yamlNull.text ?? '').slice(0, 160)}`);
+
+  const yamlIri = await createYaml('iri', `Yaml Id iri ${RUN}`);
+  check(yamlIri.status === 400,
+      'and a real IRI is refused over YAML as it is over JSON — the server assigns identifiers',
+      `expected 400, got ${yamlIri.status}`);
+
+  // Validate negotiates YAML, which is what lets a client that authors in YAML check its work before
+  // sending it. It was JSON only, and a YAML body reached Jackson and answered 500 — a server error for
+  // the client's own business, on the one write-adjacent route that did not accept what the write
+  // routes do.
+  for (const [fixture, kind] of [['template-minimal.yml', 'template'], ['template-full.yml', 'template'],
+                                 ['element-full.yml', 'element'], ['field-minimal.yml', 'field']]) {
+    const validated = await call(auth, 'POST', `/command/validate?resource_type=${kind}`, yaml(fixture), asYaml);
+    check(validated.status === 200 && validated.body?.validates === 'true',
+        `${fixture} validates as YAML`,
+        `${validated.status}: ${(validated.text ?? '').slice(0, 160)}`);
+  }
+
+  // And a body it cannot read is the client's mistake, so it answers 400 rather than 500 — which is
+  // what this route used to do with any YAML at all.
+  const unreadable = await call(auth, 'POST', '/command/validate?resource_type=template',
+      'type: template\nname: X\nid: https://repo.metadatacenter.org/templates/11111111-1111-1111-1111-111111111111\n',
+      asYaml);
+  check(unreadable.status === 400,
+      'YAML that cannot be read answers 400, not 500',
+      `${unreadable.status}: ${(unreadable.text ?? '').slice(0, 160)}`);
 
   return {};
 }

@@ -10,7 +10,7 @@ for a session rooted in any repo under the container.
 
 Full operational knowledge (architecture, bring-up sequence, gotchas, port map) lives in:
 
-**`cedar-development/ops/DEVELOPMENT-RUNBOOK.md`**
+**`cedar-development/ops/BACKEND-RUNBOOK.md`**
 
 Helper scripts are in `cedar-development/ops/`:
 - `cedar-services.sh` — start / stop / **status** / watch / logs for the microservices + frontends,
@@ -23,6 +23,77 @@ Helper scripts are in `cedar-development/ops/`:
 - `cedar_usage_matrix.py` — reduce that harvest to the atomic-target usage matrix: one row per
   distinct `(kind, acronym, target)` terminology lookup production performs, for comparing two
   terminology-server implementations (current vs SQLite-backed).
+- `cedar_artifact_patch.py` — find and repair the defects stored artifacts carry rather than code: an
+  empty `pav:derivedFrom` or `@id`, a forbidden `_ui.pages`, an unnamed attribute, a temporal field
+  with no `temporalType`, an orphan `@context` term, a legacy constraint shape, a static field the
+  schema demands of every instance. Reads a tree of artifact files or a Mongo store, reports by
+  default, writes only under `--apply`.
+- `cedar_artifact_rest_audit.py` — GET-only, permission-scoped production inventory for the hardened
+  identifier and attribute-name rules. Defaults to the template/element schema-safety pass and can
+  enumerate all four artifact kinds through `/search-deep` with `--types all`; it streams JSONL
+  findings and checkpoints `processed/total` every 300 artifacts. It never writes an artifact and
+  never stores or prints the API key.
+
+## Ops docs: roadmaps and runbooks
+
+Twelve documents under `cedar-development/ops/`, paired by area: a runbook says how to run, build,
+release and deploy; a roadmap tracks open work. Findings and measurements sit with whichever of the
+pair they belong to rather than in files of their own, so start from the pair for your area and
+search within it.
+
+Item numbers on a roadmap are for referring to items in conversation, nothing more. They are not
+stable handles. **Numbering is contiguous and has no gaps: when an item is removed, renumber the
+rest and fix the cross-references that named them.** Number in document order. **Never refer to a
+numbered item — or to a phase number — in a commit or check-in message**; describe the concrete
+change and the surface it affects.
+
+The backend — the microservices, the shared Java libraries, the stack itself:
+- [BACKEND-RUNBOOK.md](ops/BACKEND-RUNBOOK.md) — architecture, bring-up, the `cedar-services.sh`
+  controller, port map, the expensive gotchas, building and testing (including which integration
+  baseline each microservice meets), continuous integration and snapshot publishing, the e2e smoke
+  test, and the current framework state.
+- [BACKEND-ROADMAP.md](ops/BACKEND-ROADMAP.md) — cross-cutting backend work across the
+  microservices, the shared libraries, and the test and ops tooling.
+
+The embeddable editor (CEE) and the TypeScript model library it consumes:
+- [CEE-RUNBOOK.md](ops/CEE-RUNBOOK.md) — the Node version (one now, 24.19.0, read that first),
+  running the app, the test gate and what CI runs, checking output against the CEDAR model,
+  building the model library, and cutting and publishing an npm release.
+- [CEE-ROADMAP.md](ops/CEE-ROADMAP.md) — CEE's open work: what the finished Angular 14 → 22 march
+  left behind, styling and theming, the host contract, plus the model library's own items and
+  adoption status.
+
+Terminology versioning, the authoring surface included — `cedar-term-picker`, the Web Component
+replacing the Workbench's controlled-term picker, is tracked here rather than in a pair of its own,
+because it exists to author versioned constraints:
+- [VERSIONING-RUNBOOK.md](ops/VERSIONING-RUNBOOK.md) — running it: the store on disk, ingesting and
+  rebuilding the index, serving the store from the terminology server, and building, testing and
+  running the picker.
+- [VERSIONING-ROADMAP.md](ops/VERSIONING-ROADMAP.md) — everything else about versioning in one
+  document: the model and why it is that (content-hash identity, the constraint shape,
+  freeze-on-publish, multilingual labels), the numbered items still open across the model, the store
+  and the picker, the request and response shapes of `POST /search` and `GET /search/hierarchy`, and
+  the findings — what the picker replaces and has built, the ingestion tracker, the BioPortal
+  reconciliation log, and the survey of ingesting from other repositories. A finished item leaves
+  the numbered list and joins the built paragraph at the top; the numbers are not stable handles.
+
+The MCP servers under `$CEDAR_HOME/mcp` — the four that let a language model author, look at,
+resolve terms for and store CEDAR artifacts:
+- [MCP-RUNBOOK.md](ops/MCP-RUNBOOK.md) — what each server is for, building and configuring them, the
+  client-restart rule a rebuilt jar depends on, testing, upgrading the CEE bundle `cedar-cee-mcp`
+  serves, and the dependency conflict that leaves a freshly built jar unable to start.
+- [MCP-ROADMAP.md](ops/MCP-ROADMAP.md) — building and releasing them with everything else, which
+  they are outside of today, and what that costs when a tool description is the only documentation
+  the calling model ever reads.
+
+The rest:
+- [RELEASE-RUNBOOK.md](ops/RELEASE-RUNBOOK.md) — `cedarcli release all-in-one` across the ~48
+  versioned repos, front and back. CEE, the TypeScript model library and three others are
+  `skip_from_release` and publish themselves.
+- [PROD-DEPLOY-RUNBOOK.md](ops/PROD-DEPLOY-RUNBOOK.md) — deploying CEDAR to production.
+- [TEMPLATE-DESIGNER-ROADMAP.md](ops/TEMPLATE-DESIGNER-ROADMAP.md) — the AngularJS Template Designer
+  frontend (`cedar-template-editor`).
+- [WORDPRESS-RUNBOOK.md](ops/WORDPRESS-RUNBOOK.md) — the CEDAR WordPress site.
 
 ## The four things that bite first (don't skip)
 
@@ -37,7 +108,7 @@ Helper scripts are in `cedar-development/ops/`:
    `launchctl setenv OPENSEARCH_JAVA_HOME "$(/usr/libexec/java_home -v 17)"; brew services restart opensearch`.
 4. **Login shows a browser cert error but `curl -sk` works** → the local `.orgx` TLS **leaves expired**
    (~824-day life; the CEDAR CA is fine). Re-issue them from the CA and `sudo nginx -s reload` — full
-   sequence in `cedar-development/ops/DEVELOPMENT-RUNBOOK.md` ("Browser blocks login with a cert error"). Check with:
+   sequence in `cedar-development/ops/BACKEND-RUNBOOK.md` ("Browser blocks login with a cert error"). Check with:
    `echo | openssl s_client -connect cedar.metadatacenter.orgx:443 -servername cedar.metadatacenter.orgx 2>/dev/null | openssl x509 -noout -dates`.
 
 ## Bring it up
@@ -57,24 +128,30 @@ suggestion, ~30 s): `cd cedar-development/ops/e2e && npm run smoke` — details 
 ## Building and testing
 
 - `cedarcli build java` is the authoritative full build (dependency order: parent → libraries →
-  servers). Build `cedar-parent` before consumers, or they pick up stale managed versions and fail
-  quietly. Never pipe `mvn` through `head`/`grep -m`: SIGPIPE can kill the reactor mid-build under a
-  clean exit. Redirect to a file.
+  servers). It builds every repo with `-DskipTests`, so a green build says the stack compiles and
+  nothing more. Run a suite separately, with `mvn` in the repo. Build `cedar-parent` before
+  consumers, or they pick up stale managed versions and fail quietly. Never pipe `mvn` through
+  `head`/`grep -m`: SIGPIPE can kill the reactor mid-build under a clean exit. Redirect to a file.
 - Every server suite runs backend-free (in-memory auth + embedded Neo4j/Mongo/MariaDB from
-  `cedar-test-support-library`); only terminology (live BioPortal) and bridge (live stack) need
-  externals. Tests boot on `19xxx` ports (dev + 10000) so a running dev stack never collides.
+  `cedar-test-support-library`). No suite needs an external service: the tests that do call one are
+  tagged and excluded by default, terminology's under `bioportal` and bridge's under `datacite`.
+  Tests boot on `19xxx` ports (dev + 10000) so a running dev stack never collides.
+- GitHub Actions builds every Java repo on push and PR to `develop`, and a merge to `develop`
+  publishes that repo's snapshot to Nexus. Downstream builds and the Docker images resolve CEDAR
+  artifacts from Nexus, never from a checkout, so an unpublished snapshot breaks a consumer that
+  did not change. Details in the runbook, "Continuous integration".
 - Suites verify logic; a **redeploy + `ops/e2e` smoke run verifies reality**. Always redeploy and
   smoke after changes to inter-service HTTP, validation, or startup wiring: real runtime bugs have
   passed green suites.
 - Full operational, build, test, and dependency-state detail lives in the runbook
-  (`cedar-development/ops/DEVELOPMENT-RUNBOOK.md`).
+  (`cedar-development/ops/BACKEND-RUNBOOK.md`).
 
 ## Version locks and framework state
 
 - **Locked: Java 17, and the persistence/infra server versions** (Mongo, MySQL, Neo4j, Redis,
   OpenSearch, Keycloak). Client libraries may move; those servers may not.
 - Current framework baseline (Dropwizard version, namespace, what's migrated) lives in the runbook —
-  `cedar-development/ops/DEVELOPMENT-RUNBOOK.md`, "Version locks and framework state". Don't restate it here.
+  `cedar-development/ops/BACKEND-RUNBOOK.md`, "Version locks and framework state". Don't restate it here.
 
 ## Conventions
 

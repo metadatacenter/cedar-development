@@ -16,11 +16,8 @@
 //   * regenerate-search-index, generate-empty-search-index and the rules equivalents — destructive
 //     admin operations that would wipe the local index out from under the rest of the run.
 //   * load-valuesets-ontology and its status — long-running, and dependent on live BioPortal.
-//   * command/annotations/doi — DataCite, external and stateful.
 //   * auth-user-callback — Keycloak's own callback, not a user-facing route.
 //   * templates/recommend and /recommend — need a built rules index, which is its own fixture problem.
-//   * search-deep — expensive by design.
-//   * inclusions-subgraph-preview/update — niche, and destructive on real data.
 //
 // Requires the stack up: cedar-services.sh health.
 import { argv } from 'node:process';
@@ -44,8 +41,9 @@ import * as pagination from './rest/suites/pagination.mjs';
 import * as contract from './rest/suites/contract.mjs';
 import * as inclusion from './rest/suites/inclusion.mjs';
 import * as apidocs from './rest/suites/apidocs.mjs';
+import * as freeze from './rest/suites/freeze.mjs';
 
-const ALL = [folders, artifacts, versioning, groups, sharing, groupSharing, openness, categories, validation, search, finding, authentication, pagination, negotiation, download, contract, inclusion, apidocs];
+const ALL = [folders, artifacts, versioning, groups, sharing, groupSharing, openness, categories, validation, search, finding, authentication, pagination, negotiation, download, contract, inclusion, apidocs, freeze];
 
 const requested = argv.slice(2).filter(a => !a.startsWith('-'));
 const selected = requested.length
@@ -60,6 +58,30 @@ if (requested.length && selected.length !== requested.length) {
 
 const started = Date.now();
 let auth1;
+let ran = 'nothing';
+
+// Interrupting the run must still clean up after it. Node runs no `finally` on a signal, so a run
+// killed part-way through leaves its whole working subtree in the first user's home and nothing
+// reports it afterwards — thirty-two artifacts from one such run sat there for thirteen hours,
+// through several later runs that each cleaned up after themselves and passed.
+//
+// The handler records the interruption and returns rather than tearing down itself. Installing a
+// handler at all suppresses the default exit, so the run carries on: a teardown started from here
+// deletes artifacts out from under suites that are still using them, which turns one interruption
+// into a screenful of unrelated failures. The suite loop reads the flag between suites, and the
+// existing `finally` does the cleanup. A second signal is the way out of a suite that will not
+// return, at the cost of the cleanup this exists to perform.
+let interrupted = false;
+for (const signal of ['SIGINT', 'SIGTERM']) {
+  process.on(signal, () => {
+    if (interrupted) {
+      console.log(`\n${signal} again — exiting without cleaning up`);
+      process.exit(130);
+    }
+    interrupted = true;
+    console.log(`\n${signal} — finishing the current suite, then tearing down`);
+  });
+}
 
 try {
   const { user1, user2, admin } = await actors();
@@ -82,12 +104,17 @@ try {
 
   const ctx = { user1, user2, admin, homeFolderId, folderId };
   for (const s of selected) {
+    if (interrupted) {
+      console.log(`\nstopping after "${ran}" — ${selected.length - selected.indexOf(s)} suite(s) not run`);
+      break;
+    }
     try {
       await s.run(ctx);
     } catch (e) {
       suite(s.name);
       check(false, `suite "${s.name}" threw`, e.stack ?? e.message);
     }
+    ran = s.name;
   }
 
 } catch (e) {
@@ -99,5 +126,8 @@ try {
 
 const { passed, failed } = summary();
 const seconds = ((Date.now() - started) / 1000).toFixed(1);
-console.log(`\n${failed ? 'FAIL' : 'PASS'}: ${passed} passed, ${failed} failed, ${seconds}s`);
-process.exit(failed ? 1 : 0);
+// An interrupted run is neither pass nor fail: it cleaned up after itself, but it never reached the
+// suites it did not run, so reporting PASS on what it managed would read as a verdict on the estate.
+const verdict = interrupted ? 'INTERRUPTED' : failed ? 'FAIL' : 'PASS';
+console.log(`\n${verdict}: ${passed} passed, ${failed} failed, ${seconds}s`);
+process.exit(interrupted ? 130 : failed ? 1 : 0);

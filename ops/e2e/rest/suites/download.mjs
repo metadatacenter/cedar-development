@@ -100,17 +100,23 @@ export async function run({ user1, folderId }) {
         `expected 200 + yaml, got ${xy.status} / ${xy.headers.get('content-type')}`);
   }
 
-  suite('download: the compact form is export-only, not writable back');
+  suite('download: a compact body creates a new artifact rather than writing one back');
 
-  // The asymmetry worth pinning: you can download compact YAML, but it cannot be re-created from it —
-  // it is a lossy, human-facing form. Mirrors the write contract the negotiation suite pins.
+  // The compact form describes an artifact being authored: it carries no identifier, because a
+  // repository assigns that on save. So a compact download can be POSTed — and what it creates is a
+  // new artifact, not an overwrite of the one it came from. That is the asymmetry worth pinning now:
+  // the form cannot name a stored artifact, so it cannot silently replace one.
   if (compactTemplateYaml) {
     const back = await call(auth, 'POST', `/templates?folder_id=${enc(folderId)}`,
         compactTemplateYaml, { contentType: GET_YAML });
-    check(back.status === 400, 'a compact YAML download cannot be POSTed back as a create',
-        `expected 400, got ${back.status}: ${(back.text ?? '').slice(0, 160)}`);
-    if (back.status === 201 && back.body?.['@id']) {
-      cleanup('template', `/templates/${enc(back.body['@id'])}`, 'compact round-trip (unexpected)');
+    check(back.status === 201, 'a compact YAML download is accepted as a create',
+        `expected 201, got ${back.status}: ${(back.text ?? '').slice(0, 160)}`);
+    const createdId = back.body?.['@id'];
+    check(Boolean(createdId) && createdId !== baseTemplateId,
+        'and what it creates is a new artifact, not the one it was downloaded from',
+        `downloaded ${baseTemplateId}, created ${createdId}`);
+    if (createdId) {
+      cleanup('template', `/templates/${enc(createdId)}`, 'compact create');
     }
   }
 
