@@ -155,8 +155,9 @@ The microservice project encodes its dependency chain in health conditions. Arti
 start first; Resource, Submission, Worker, and Monitor follow as their dependencies become healthy.
 A cold start can take several minutes.
 
-The equivalent convenience commands are shown below, but they do not currently expose a pull
-policy. Prefer the direct Compose commands for local snapshots.
+The equivalent convenience commands default to `--pull never`, which is the safe policy for the
+current locally built snapshots. Pass `--pull missing` or `--pull always` explicitly after the
+registry-driven deployment work is complete.
 
 ```bash
 cedarcli docker start infrastructure -d

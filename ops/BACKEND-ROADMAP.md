@@ -405,11 +405,12 @@ Frontend work for the embeddable editor is tracked separately in
   below: containers become the deployment artifact, starting with the services and following with the
   data stores.
 
-  `cedar-docker-build` holds 34 image definitions and two shell scripts that build every image and push
-  it to `cedar-dockerhub.bmir.stanford.edu`. `cedar-docker-deploy` holds four compose files —
-  infrastructure (7 services), microservices (17), frontend (6), admin (4) — plus a bundled CA and leaf
-  certificates. `cedarcli docker` drives it: `one-time-setup` creates the network and the certificate
-  volumes, then `start`/`stop` per stack. The address plan lives in
+  `cedar-docker-build` holds 35 image definitions. `cedarcli docker build` is the authoritative
+  builder; a legacy release script still hard-codes `cedar-dockerhub.bmir.stanford.edu` pending the
+  registry work in the Docker roadmap. `cedar-docker-deploy` holds four compose files —
+  infrastructure (7 services), microservices (15), frontend (7), admin (4) — plus a bundled CA and
+  leaf certificates. `cedarcli docker` drives build, validation, Docker-aware status, one-time
+  network/certificate setup, and per-stack start/stop. The address plan lives in
   `bin/templates/cedar-profile-docker-eval.sh`, which the Docker path requires and the native profile
   cannot substitute for.
 
@@ -726,7 +727,8 @@ Frontend work for the embeddable editor is tracked separately in
      Compose version, since the stacks use healthcheck conditions and `include` arrived in Compose
      5.3.
 
-  3. **Verify every download, not just pin it.** Audited 2026-08-09 across all 34 images. The
+  3. **Verify every download, not just pin it.** Audited 2026-08-09 across the then-current 34
+     images; the seven-frontend promotion now makes 35. The
      estate pins versions well and verifies downloads badly, and the two are not the same property:
      a pin says *which* bytes you meant to fetch, a signature or a digest says you got them. The
      step above closes the first half; this one closes the second, and a rollback is only as good as
@@ -1057,17 +1059,16 @@ Frontend work for the embeddable editor is tracked separately in
   hosts against the native stack's 26; the two that remain are CEE's — `demo.cee` and `demo-dist.cee`.
   CEE itself is not a candidate for a container: it is a web component, built to a single JS file and
   embedded in a host page, with no process to run. `demo-dist.cee` is plain nginx over a built
-  directory, the same shape as the six frontend images, so it is one more image if the site is meant to
+  directory, the same shape as the seven frontend images, so it is one more image if the site is meant to
   be hosted at all — the runbook classes the demos as non-essential and not started by default, and its
   native server block still names `cedar-cee-demo`, the checkout's old directory name, so it serves a
   path that does not exist. `demo.cee` proxies a live `ng serve` and belongs to development only.
 
-  **Only one of the two hybrids is safe, and the other has a latency cliff.** The runbook's supported
-  mixture — container nginx stopped, native nginx up, native frontends against containerized services
-  — works because the native nginx proxies to `127.0.0.1:900x` and does not care whether a port
-  belongs to a JVM or a container. The inverse, leaving `infra-nginx` up in front of native
-  frontends, is not equivalent: its `cedar-frontend` upstream is `host.docker.internal:4200`, so every
-  request leaves the VM to reach the host. Measured over the Template Designer's 175 script files, six
+  **The Docker-nginx/native-frontend hybrid originally exposed a latency cliff.** The older mixture —
+  container nginx stopped, native nginx up, native frontends against containerized services — works
+  because the native nginx proxies to `127.0.0.1:900x`. Leaving `infra-nginx` up in front of native
+  frontends instead sends frontend requests through `host.docker.internal`. Before the timeout fix,
+  measurements over the Template Designer's 175 script files, six
   concurrent, four rounds: direct to gulp, 17–50 ms in total with the worst single request at 2–19 ms;
   through the container nginx, 48–76 ms on three rounds and **60,104 ms on the fourth, with one
   request stalling 60,059 ms** — nginx's default `proxy_read_timeout`. Median stayed at 2 ms either
@@ -1092,10 +1093,11 @@ Frontend work for the embeddable editor is tracked separately in
   reached its own teardown, so it left nothing behind — a partial teardown had been the other visible
   symptom. Cause removed, symptom gone, which is the only test that settles a diagnosis this indirect.
 
-  So this is a reason to finish the frontend images rather than a bug to chase: once the frontends are
-  containers, nothing crosses `host.docker.internal` and the cliff is gone. Until then the documented
-  swap is the mode to be in, and raising `waitSeconds` would only widen the window that a 60-second
-  stall still closes.
+  The frontend images remove the host hop entirely in all-Docker mode. The hybrid itself was also
+  made usable on 2026-08-21: Docker nginx now sets `proxy_read_timeout` and
+  `proxy_send_timeout` to 180 seconds, and a controlled 65-second upstream returned 200 instead of
+  the old 60-second 504. The Docker runbook records both supported hybrids and the explicit
+  `host.docker.internal` overrides. Raising RequireJS `waitSeconds` is still not a transport fix.
 
   Two things this hunt did not fix, and both are the Template Designer's. RequireJS still sits at its
   default `waitSeconds`, and a dashboard load still refetches two hundred scripts whose `?v=` argument

@@ -114,9 +114,10 @@ cedarcli docker start microservices -d
 ```
 
 The snapshot images are not currently published under the Docker Hub names hard-coded by Compose.
-For locally built snapshots, use `docker compose up -d --pull never` in each backend project. Nexus
-can store the images, but selecting a Nexus prefix in the builder and Compose is still a roadmap
-item; the historical `CEDAR_DOCKERHUB` instructions require manual retagging.
+The `cedarcli docker start` commands therefore default to `--pull never`; the equivalent direct
+command is `docker compose up -d --pull never`. Nexus can store the images, but selecting a Nexus
+prefix in the builder and Compose is still a roadmap item; the historical `CEDAR_DOCKERHUB`
+instructions require manual retagging.
 
 Certificates come from `$CEDAR_HOME/CEDAR_CA` when it exists, and only fall back to the expired set
 bundled in `cedar-docker-deploy/cedar-assets` when it does not.
@@ -1097,8 +1098,10 @@ export JAVA_HOME=$(/usr/libexec/java_home -v 17)
 $CEDAR_HOME/cedar-cli/.venv/bin/python $CEDAR_HOME/cedar-cli/cedar.py <command>
 ```
 
-Command groups: `docker` (one-time-setup / start / stop), `start` (all/infra/microservices/frontends),
-`stop`, `build`, `deploy`, `status`, `check`, `cert`, `dev`. On macOS `start` uses AppleScript to open
+The `docker` group covers build, validation, Docker-aware status, per-stack start/stop, one-time
+network/certificate setup, and destructive removal. The native groups include `start`
+(all/infra/microservices/frontends), `stop`, `build`, `deploy`, `status`, `check`, `cert`, and `dev`.
+On macOS native `start` uses AppleScript to open
 Terminal tabs (`use_osa = platform.system()=='Darwin'`), which is why headless bring-up uses the
 underlying `services-generic/*.sh` scripts or `cedar-services.sh` instead.
 

@@ -61,6 +61,11 @@ checks port conflicts, verifies the network/cert volumes, applies an explicit pu
 infrastructure then microservices, waits for all 22 health checks, and prints failed-container logs.
 Add the symmetric `status backend` and `stop backend` commands.
 
+The per-stack foundation is now current: every `cedarcli docker start <stack>` accepts
+`--pull always`, `--pull missing`, or `--pull never` and defaults to `never`; failures from Compose
+and validation now propagate to the CLI exit code. The orchestration, conflict check, bounded wait,
+and automatic failure-log collection described above remain to be built.
+
 Acceptance criteria:
 
 - `--pull always`, `--pull missing`, and `--pull never` are explicit choices;
