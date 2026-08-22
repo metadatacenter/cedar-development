@@ -175,30 +175,38 @@ next major release.
    its writers behind their own entry point, which only becomes cheap if the download path turns
    asynchronous for other reasons.
 
-7. **Nothing stops an instance CEE already knows is invalid from being saved, and nothing tells the
-   person saving it.** CEE works out what is wrong before any save happens. `dataQualityReport`
-   carries `isValid`, how many required fields the template declares against how many the instance
-   fills, and a `problems` list whose entries each name a code, a path, the field, its declared input
-   type, a message and the offending value. The CEDAR workspace reads none of that
-   when deciding whether to save.
-   `saveInstance` in `create-instance.controller.js` takes `cee.currentMetadata` and posts it, and
-   the only validation anybody sees arrives afterwards, from the server's `CEDAR-Validation-Status`
-   response header. Even that arrives thin: the call passes the header alone while `logValidation`
-   takes a report as its second argument, so the branch that would parse errors and warnings never
-   runs, and what reaches the header indicator is a bare state.
+7. **Make validation actionable before REST refuses the write.** Invalid template instances no
+   longer enter the repository through the artifact REST API. Since the persistence-boundary
+   hardening in `release-2.9.2`, both create and update validate against the referenced template,
+   return HTTP 400 with `INVALID_DATA`, `VALIDATION_ERROR` and the full `validationReport` when that
+   validation fails, and do not store the submitted instance. The legacy `skip_validation` query
+   parameter remains in the create signature for wire compatibility but is deliberately ignored;
+   a regression test pins that it cannot admit an invalid instance. Any older invalid instance
+   already in the store is a data-repair concern, not permission for the current UI to create
+   another one.
 
-   CEE now supplies the information at the right boundary: every model-changing `change` event
-   carries `validity`, `dataQualityReport`, `title` and `description`. The CEDAR workspace currently
-   uses that event only to recompute dirty state, so save behavior and validation presentation are
-   still the open product decision here. OpenView also still has an `onFormChange` handler written
-   for the editor CEE replaced; its template does not bind that handler to CEE, so the newly restored
-   event contract does not by itself revive OpenView's title, description or validity plumbing.
+   The remaining defect is the save experience. CEE already calculates `dataQualityReport` — its
+   validity, required-field counts and path-addressed problems — and every model-changing `change`
+   event carries that report with `validity`, `title` and `description`. The CEDAR workspace's
+   listener ignores the event payload and uses the notification only to recompute dirty state.
+   Its Save action copies `cee.currentMetadata` and calls create or update without a local
+   validation decision. When REST refuses the request, Workspace hands the response to the generic
+   backend-error presenter; there is no translation for these validation keys and the structured
+   report is available only inside technical response detail. The person learns that the save
+   failed after a round trip, but is not shown which field to fix.
 
-   Decide what saving an invalid instance should mean, which is a product question before a
-   technical one. CEDAR stores instances its own server considers invalid, and an author part-way
-   through a long form has a good reason to save one, so refusing the save is probably the wrong
-   answer. Worth weighing instead: a save that names what is wrong and asks for confirmation, and a
-   save that proceeds but reports from CEE's report rather than from the response header, since the
-   report knows the path and the message while the header knows only that something failed. Either
-   way the remaining fix is host behavior: CEE now supplies a validity signal at the moment of
-   change, and the CEDAR workspace must decide how to present and act on it.
+   Define the host contract before choosing the button behavior. Prove over the shared instance
+   corpus which CEE problems correspond to REST-invalid JSON Schema and which are advisory data
+   quality findings; do not disable saving on a stronger client-side notion and silently turn a
+   warning into a new server rule. For a state REST will reject, Workspace may disable Save or let
+   the click open the same explanation, but it must present the summary, path and message, take the
+   author to the affected field where possible, keep the document dirty, and make no claim that an
+   invalid draft was stored. A server-side `validationReport` remains authoritative and must be
+   rendered through the same presentation if the validators disagree or the template changes
+   between edit and save.
+
+   Pin the integration with host tests for invalid-to-valid and valid-to-invalid transitions,
+   multiple problems across pages and repeated elements, an advisory-only report, a rejected create,
+   a rejected update, correction followed by a successful save, and a deliberately divergent server
+   report. The item is complete when validation is useful before the request and equally useful when
+   the server is the first component to detect the problem.
