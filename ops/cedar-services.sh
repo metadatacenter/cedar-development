@@ -121,7 +121,11 @@ start_one() {
     workspace|designer)
       local dir; dir=$(gulp_fe_dir "$name")
       [ -d "$dir" ] || { echo "  $name: SRC MISSING ($dir) — skip"; return; }
-      ( cd "$dir" && exec nohup gulp >"$log" 2>&1 ) & ;;
+      ( cd "$dir" \
+        && export CEDAR_FRONTEND_PORT="$app" \
+        && export CEDAR_WORKSPACE_FRONTEND_URL="${CEDAR_WORKSPACE_FRONTEND_URL:-https://workspace.${CEDAR_HOST}}" \
+        && export CEDAR_TEMPLATE_DESIGNER_FRONTEND_URL="${CEDAR_TEMPLATE_DESIGNER_FRONTEND_URL:-https://designer.${CEDAR_HOST}}" \
+        && exec nohup gulp >"$log" 2>&1 ) & ;;
     ui-*)
       local dir; dir=$(fe_dir "$name")
       [ -d "$dir" ] || { echo "  $name: SRC MISSING ($dir) — skip"; return; }
