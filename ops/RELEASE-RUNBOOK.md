@@ -55,8 +55,8 @@ cedarcli deploy split-frontends
 
 The generic `cedarcli deploy frontends` and `cedarcli deploy all` selectors exclude them. The
 explicit plan runs `npm ci`, then stages and publishes an immutable prerelease from each clean
-commit without changing either working tree. npm cannot overwrite `2.9.2-SNAPSHOT` the way Maven
-can; versions therefore have the form `2.9.2-dev.<UTC-commit-time>.g<12-char-commit>`, carry the
+commit without changing either working tree. npm cannot overwrite `<NEXT>-SNAPSHOT` the way Maven
+can; versions therefore have the form `<NEXT>-dev.<UTC-commit-time>.g<12-char-commit>`, carry the
 full commit as `gitHead`, and use the `dev` dist-tag only as a convenience pointer. Docker builds
 pin the exact version and never consume that moving tag.
 

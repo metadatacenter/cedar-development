@@ -9,6 +9,17 @@ normal Maven snapshot such as `<NEXT>-SNAPSHOT`. A train job checks out exact co
 disposable workspace, changes their CEDAR versions only there, and publishes a version such as
 `<NEXT>-dev.YYYYMMDD.HHMM` to the immutable `cedar-maven-dev` Nexus repository.
 
+Keep the three identities distinct:
+
+| Identity | Meaning | May its bytes change? |
+| --- | --- | --- |
+| `<NEXT>-SNAPSHOT` | Native-development convenience version on `develop` | Yes |
+| `<NEXT>-dev.YYYYMMDD.HHMM` | One recorded development build train | No |
+| `<RELEASE>` | A formal CEDAR release | No |
+
+Operators never type the timestamp for a new train. `cedarcli` allocates it. The only train ID an
+operator supplies is an existing one passed to `--resume` or `--train`.
+
 ## One-time administration
 
 The Nexus hosted Maven repository must be named `cedar-maven-dev`, use the **Release** version

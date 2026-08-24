@@ -12,9 +12,9 @@ needed to make this a registry-driven, production-ready deployment is tracked in
 
 ## Current verdict
 
-The complete application **can be deployed locally with Docker today**. Images can be built from a
-completed immutable development train or directly from checked-out Java source. It was re-proven
-on 2026-08-21 on Apple Silicon with Docker Engine 29.6.2 and
+The complete application **can be deployed locally with Docker today**. Images can be pulled as a
+completed immutable development train or built directly from checked-out source. A clean pull of a
+newly completed train was re-proven on 2026-08-24 on Apple Silicon with Docker Engine 29.6.2 and
 Compose 5.3.1:
 
 - all 70 Java reactor modules built successfully on JDK 17 with `-DskipTests`;
@@ -24,8 +24,9 @@ Compose 5.3.1:
 - all seven frontend images built from exact immutable npm artifacts;
 - all 29 core runtime containers became healthy and all seven public UI hostnames returned 200;
   and
-- an authenticated browser opened Workspace's Smoke Tests template in Designer without console
-  errors.
+- the authenticated browser smoke created a template in Workspace, edited and populated it,
+  exercised BioPortal suggestions, saved and re-edited an instance, downloaded JSON and YAML, and
+  rendered it anonymously through OpenView before cleaning up.
 
 The builder, Compose projects, CLI validation, and cleanup use `CEDAR_IMAGE_PREFIX` for the 29
 runtime images. `CEDAR_BASE_IMAGE_PREFIX` can place the two Java bases in a separate internal

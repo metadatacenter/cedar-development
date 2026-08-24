@@ -100,25 +100,27 @@ Docker bridge gateway; the Docker one pins every container to an address on `192
 ```bash
 export CEDAR_HOME=$HOME/CEDAR
 source $CEDAR_HOME/cedar-development/bin/templates/cedar-profile-docker.sh
-# The profile defaults to the hybrid mode where nginx is native. Full Docker needs its nginx
-# container for Keycloak discovery and token-signing keys.
-export CEDAR_AUTH_HOST_TARGET="$CEDAR_NGINX_HOST"
-
-cedarcli docker validate                    # every stack parses, every variable is defined
-cedarcli docker build infrastructure
-cedarcli build java                         # optional when using the published Nexus JARs
-cedarcli docker build microservices --local # freshly built checkout JARs
-# Or omit --local to download 2.9.2-SNAPSHOT application JARs from Nexus.
-cedarcli docker one-time-setup              # network + certificate volumes
-cedarcli docker start infrastructure -d
-cedarcli docker start microservices -d
+cedarcli docker validate
+cedarcli docker one-time-setup
+cedarcli docker start all --mode full --pull missing
+cedarcli docker status
 ```
 
-The `cedarcli docker start` commands default to `--pull never`; the equivalent direct command is
-`docker compose up -d --pull never`. This uses the locally built image set. To build and deploy from
-another registry, export `CEDAR_IMAGE_PREFIX=<registry-host>:<port>/<namespace>` before sourcing the
-Docker profile. Use `--pull missing` or `--pull always` only after confirming that the complete
-selected version has been published there.
+An ordinary aggregate start selects the current completed Docker train; `--pull missing` downloads
+only images absent from this machine. To deploy from another registry, export
+`CEDAR_IMAGE_PREFIX=<registry-host>:<port>/<namespace>` before sourcing the Docker profile. The
+complete selected train must exist under that prefix.
+
+The checked-out-source alternative is explicit and does not claim to reproduce a published train:
+
+```bash
+cedarcli build java
+cedarcli docker build core --local
+cedarcli docker start all --mode full --local --pull never
+```
+
+`--pull never` is for images already built or pulled on this machine. `--pull always` checks the
+registry even when a local image exists.
 
 Certificates come from `$CEDAR_HOME/CEDAR_CA` when it exists, and only fall back to the expired set
 bundled in `cedar-docker-deploy/cedar-assets` when it does not.
@@ -1501,7 +1503,7 @@ that job installs `libssl1.1` on the runner first; without it `mongod` cannot st
 resource test errors out. Moving the tests onto a newer MongoDB would drop that step, at the cost of
 testing against a different engine than production runs.
 
-### Publishing snapshots
+### Mutable development snapshots and immutable build trains
 
 Twenty-seven of the repositories deploy their snapshot to Nexus at the end of a successful build.
 The step is gated on a real push to `develop`, so a pull request verifies and stops, and a build
@@ -1510,11 +1512,23 @@ modules are other repositories, which publish themselves, and deploying from the
 would give one artifact two publishers.
 
 This matters more than it first appears. Everything downstream resolves CEDAR artifacts from Nexus
-rather than from a checkout — the servers take the libraries from there, and each microservice
-Docker image fetches its own jar by coordinate in `install_deps.sh`. An unpublished snapshot is
-therefore invisible: the code is on GitHub, and every consumer still compiles against, or ships, the
-previously published jar. The failure surfaces far from its cause, as a compile error or a failing
-test in a repository that has not changed.
+rather than from a checkout. Mutable `<NEXT>-SNAPSHOT` artifacts remain a convenience for ordinary
+native development, where a developer expects the latest successful `develop` build. They are not
+a deployment identity: the bytes behind one snapshot name can change at any time.
+
+Docker and integration deployments use an immutable build train instead. `cedarcli build train`
+allocates a version such as `<NEXT>-dev.YYYYMMDD.HHMM`, captures the exact source commits, builds
+parent, libraries, and services in dependency order, and publishes into the no-redeploy
+`cedar-maven-dev` repository. Docker consumes that train version, never the mutable snapshot. A
+failed job resumes only from its recorded source manifest:
+
+```bash
+cedarcli build train
+cedarcli build train --resume <TRAIN>
+```
+
+Create a new train, rather than resuming, when newer source commits must be included. The complete
+procedure and Nexus state layout are in [BUILD-TRAIN-RUNBOOK.md](./BUILD-TRAIN-RUNBOOK.md).
 
 The verification asks for fresh snapshots (`--update-snapshots`) for the same reason from the other
 direction. Maven checks a snapshot for updates once a day by default and the runner restores a
@@ -1543,8 +1557,8 @@ cedarcli deploy split-frontends
 
 That plan runs `npm ci` in exactly `cedar-workspace` and `cedar-template-designer`, then calls the
 staging helper that publishes immutable commit-derived prereleases without changing either working
-tree. npm cannot overwrite a `2.9.2-SNAPSHOT` version like Maven; the published version is instead
-`2.9.2-dev.<UTC-commit-time>.g<12-char-commit>` and carries the full source commit as `gitHead`.
+tree. npm cannot overwrite a `<NEXT>-SNAPSHOT` version like Maven; the published version is instead
+`<NEXT>-dev.<UTC-commit-time>.g<12-char-commit>` and carries the full source commit as `gitHead`.
 Each manifest's `publishConfig` selects the CEDAR Nexus npm repository. The command does not build a
 Docker image, edit nginx, or start a frontend. The same helper accepts all seven Docker frontend
 targets when their pinned image inputs need advancing.
@@ -1553,7 +1567,7 @@ To see whether a repository's published snapshot is behind its source, compare t
 against the commits that touched the build:
 
 ```bash
-curl -s https://nexus.bmir.stanford.edu/repository/snapshots/org/metadatacenter/<artifact>/2.9.2-SNAPSHOT/maven-metadata.xml \
+curl -s https://nexus.bmir.stanford.edu/repository/snapshots/org/metadatacenter/<artifact>/<NEXT>-SNAPSHOT/maven-metadata.xml \
   | grep -o '<lastUpdated>[^<]*'
 git -C $CEDAR_HOME/<repo> log --since=<that timestamp> origin/develop -- 'src' '*/src' 'pom.xml' '*/pom.xml'
 ```
