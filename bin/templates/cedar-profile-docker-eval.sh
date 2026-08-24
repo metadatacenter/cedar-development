@@ -38,15 +38,11 @@ export CEDAR_KEYCLOAK_HOST=192.168.17.206
 export CEDAR_NGINX_HOST=192.168.17.207
 
 #------------------------------------------------------
-# Where a container resolves auth.<host>, which is how every server reaches the realm to verify a
-# bearer token. This is deliberately not CEDAR_NGINX_HOST: that is the nginx *container's* address on
-# cedarnet, and the two are only the same when nginx runs as a container. Native nginx owns 80/443
-# here, so the servers must reach the host instead, and `host-gateway` is how a container names it.
-#
-# Set it to ${CEDAR_NGINX_HOST} when the whole estate runs in Docker and infra-nginx serves 443.
-# Getting this wrong is silent until a token is verified: the request reaches the server, the server
-# cannot fetch the realm's signing keys, and a valid token comes back 500.
-export CEDAR_AUTH_HOST_TARGET=host-gateway
+# Every supported Docker mode runs the public nginx in the infrastructure project. Java containers
+# therefore resolve auth.<host> to that container. cedarcli reapplies this value in its child
+# environment when it starts an aggregate deployment, so a stale shell override cannot silently
+# break bearer-token verification.
+export CEDAR_AUTH_HOST_TARGET=${CEDAR_NGINX_HOST}
 
 #------------------------------------------------------
 # The terminology store is read where it is mounted inside the container, not where it lives on the
@@ -75,13 +71,24 @@ export CEDAR_USER_SERVER_HOST=192.168.17.105
 export CEDAR_VALUERECOMMENDER_SERVER_HOST=192.168.17.106
 export CEDAR_WORKER_SERVER_HOST=192.168.17.111
 
-export CEDAR_FRONTEND_EDITOR_HOST=192.168.17.151
-export CEDAR_FRONTEND_CONTENT_HOST=192.168.17.152
-export CEDAR_FRONTEND_OPENVIEW_HOST=192.168.17.153
-export CEDAR_FRONTEND_MONITORING_HOST=192.168.17.154
-export CEDAR_FRONTEND_BRIDGING_HOST=192.168.17.156
-export CEDAR_FRONTEND_WORKSPACE_HOST=192.168.17.157
-export CEDAR_FRONTEND_DESIGNER_HOST=192.168.17.158
+# Container addresses are topology, while the corresponding *_HOST values below are nginx
+# upstreams. cedarcli changes only the upstreams when it selects hybrid mode; keeping these separate
+# means the frontend Compose project remains valid while nginx routes to host.docker.internal.
+export CEDAR_FRONTEND_EDITOR_CONTAINER_HOST=192.168.17.151
+export CEDAR_FRONTEND_CONTENT_CONTAINER_HOST=192.168.17.152
+export CEDAR_FRONTEND_OPENVIEW_CONTAINER_HOST=192.168.17.153
+export CEDAR_FRONTEND_MONITORING_CONTAINER_HOST=192.168.17.154
+export CEDAR_FRONTEND_BRIDGING_CONTAINER_HOST=192.168.17.156
+export CEDAR_FRONTEND_WORKSPACE_CONTAINER_HOST=192.168.17.157
+export CEDAR_FRONTEND_DESIGNER_CONTAINER_HOST=192.168.17.158
+
+export CEDAR_FRONTEND_EDITOR_HOST=${CEDAR_FRONTEND_EDITOR_CONTAINER_HOST}
+export CEDAR_FRONTEND_CONTENT_HOST=${CEDAR_FRONTEND_CONTENT_CONTAINER_HOST}
+export CEDAR_FRONTEND_OPENVIEW_HOST=${CEDAR_FRONTEND_OPENVIEW_CONTAINER_HOST}
+export CEDAR_FRONTEND_MONITORING_HOST=${CEDAR_FRONTEND_MONITORING_CONTAINER_HOST}
+export CEDAR_FRONTEND_BRIDGING_HOST=${CEDAR_FRONTEND_BRIDGING_CONTAINER_HOST}
+export CEDAR_FRONTEND_WORKSPACE_HOST=${CEDAR_FRONTEND_WORKSPACE_CONTAINER_HOST}
+export CEDAR_FRONTEND_DESIGNER_HOST=${CEDAR_FRONTEND_DESIGNER_CONTAINER_HOST}
 
 #------------------------------------------------------
 # CEDAR admin stack host ports

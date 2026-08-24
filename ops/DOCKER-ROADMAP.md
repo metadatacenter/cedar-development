@@ -7,9 +7,12 @@ administration images bring `cedarcli docker build all` to 35. Current deploymen
 procedures are in [DOCKER-RUNBOOK.md](./DOCKER-RUNBOOK.md).
 
 The local build and deployment path is working: `cedarcli` builds dependency bases before their
-consumers, validates all four Compose stacks, starts each stack, and reports aggregate runtime
-health. Full 29-container deployments and both REST and browser smoke suites have passed locally.
-The numbered items below are the remaining delivery and operational work.
+consumers and validates all four Compose stacks. Its aggregate workflow preflights the host, selects
+full-Docker, native-frontend hybrid, or backend-only routing without mutating the shell, starts each
+layer in dependency order, waits for health and route acceptance, records the active mode, and stops
+the deployment without deleting data. Full 29-container deployments and both REST and browser smoke
+suites have passed locally. The numbered items below are the remaining delivery and operational
+work.
 
 1. **Parameterize the registry and image namespace everywhere.** The build scripts have an image
    prefix, but CEDAR base-image `FROM` lines, Compose image references, image discovery, and removal
@@ -34,55 +37,37 @@ The numbered items below are the remaining delivery and operational work.
    atomically, rollback must select the previous complete digest set, and operators must be able to
    query which manifest a running environment uses.
 
-4. **Make full-Docker and hybrid deployment explicit and self-validating.** Today the evaluation
-   profile and manual overrides decide whether authentication and the seven frontend routes target
-   containers or native host processes. Replace that implicit state with named full-Docker and
-   hybrid modes. Apply all auth and frontend routing changes as one operation, show the selected
-   mode in generated configuration and status output, and validate token verification plus every
-   expected frontend route before reporting readiness. Recreating nginx must not silently switch
-   modes. Native-only deployment must continue to work, and stopping native frontends in hybrid
-   mode must leave the Docker backend and its data untouched.
-
-5. **Add aggregate start-and-wait and stop workflows.** `cedarcli docker status` already checks the
-   complete selected estate; add a matching `cedarcli docker start all` or `deploy` workflow and an
-   aggregate stop. Before creating containers, validate configuration, ports, the Docker network,
-   certificate volume, and the selected deployment mode. Make pull behavior explicit, start
-   infrastructure before microservices and frontends, wait for health, and identify an unhealthy
-   container with bounded logs on timeout. Support the 22-container backend with `--no-frontends`,
-   permit locally built images without an accidental pull, and keep named data volumes on ordinary
-   stop.
-
-6. **Run the complete Docker backend REST gate in CI.** Bring up the 22-container backend and run
+4. **Run the complete Docker backend REST gate in CI.** Bring up the 22-container backend and run
    all 19 REST suites from `cedarnet`, keeping the Artifact service private while preserving the
    cross-store assertions used locally. Wait for 22/22 healthy services, fail on topology-related
    connection errors, and clean fixtures on success, failure, timeout, and cancellation. On
    failure, retain the resolved Compose model, container health and inspect output, and bounded
    service logs as CI artifacts.
 
-7. **Make persistence, backup, restore, and upgrade operations explicit.** Document each named
+5. **Make persistence, backup, restore, and upgrade operations explicit.** Document each named
    volume, its owner, and the backup and restore procedure for MongoDB, MySQL, Neo4j, Redis, and
    OpenSearch. Prove the procedures by restoring into a disposable stack and passing a targeted
    REST gate. Any image upgrade that changes an on-disk format needs a migration and rollback plan.
    Keep destructive volume removal clearly separate from ordinary stop and restart commands.
 
-8. **Produce and enforce image supply-chain evidence.** Generate an SBOM and build provenance for
+6. **Produce and enforce image supply-chain evidence.** Generate an SBOM and build provenance for
    every published image, scan its operating-system and application layers, and sign the published
    digest. Make those checks publication gates. Vulnerability exceptions need a named owner,
    justification, and expiry date rather than a silent waiver.
 
-9. **Remove the remaining non-reproducible or weakly verified build inputs.** Pin external base
+7. **Remove the remaining non-reproducible or weakly verified build inputs.** Pin external base
    images by digest, avoid blanket package upgrades in image builds, pin installed operating-system
    packages where practical, and verify every downloaded distribution. Replace the remaining
    plain-HTTP MongoDB package source even though its packages are signature-checked. Keep automated
    dependency updates as reviewed changes that rebuild and exercise the complete affected image
    set.
 
-10. **Declare supported platforms and realistic resource requirements.** Build and test each
+8. **Declare supported platforms and realistic resource requirements.** Build and test each
     supported architecture explicitly, or state that amd64 is the contract if that is what CEDAR
     supports. Record minimum Docker and Compose versions and measured CPU, memory, and disk needs
     for a cold 29-container start, the REST gate, and the authenticated browser smoke test.
 
-11. **Turn the existing split-frontend checks into a release gate.** The repository already has
+9. **Turn the existing split-frontend checks into a release gate.** The repository already has
     shell, route, bundle-identity, CORS, Keycloak-origin, authenticated-navigation, deployment
     recording, rollback-rehearsal, and long-request checks. Run the relevant credential-free checks
     in CI and the authenticated path against staging before promotion. Preserve evidence mapping
