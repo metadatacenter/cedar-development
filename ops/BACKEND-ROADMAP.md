@@ -1561,3 +1561,28 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   ride on this one. Background work with no deadline of its own. Its value lands at the terminology
   cutover, which means it has to be finished before a second source system is served, not before
   anything else.
+
+## Documentation consolidation
+
+- **24. Decide whether to retire `cedar-mkdocs-developer`.** Its current release and production
+  deployment pages now point to the maintained runbooks in `cedar-development/ops`, and its generated
+  `site/` tree is no longer versioned. What remains potentially unique is a small set of Neo4j
+  diagnostic and repair recipes, cron-job notes, user/domain/certificate maintenance procedures, and
+  the explicitly labelled 2019–2023 archive. That material is useful, but a standalone documentation
+  repository is not automatically the right permanent owner for it.
+
+  Start with an ownership and consumer inventory: check repository and Read the Docs settings, inbound
+  links, search indexing, release/deployment references, and any team workflow that still edits or
+  serves this site. Classify every non-archived page as live, superseded, or historical. Move live
+  operational knowledge beside the tooling it describes: cross-cutting runbooks and Neo4j repair
+  procedures into `cedar-development/ops`, `cedar-util` cron instructions into `cedar-util`, and public
+  user/developer material into `cedar-mkdocs`. Do not copy a live procedure into two repositories.
+
+  Before retirement, decide whether the dated archive has value beyond Git history. If it does, retain
+  one clearly non-executable archive in the canonical operations documentation; otherwise rely on the
+  repository history. Then replace the repository home page with a short tombstone linking each new
+  owner, disable any stale documentation build, update inbound links, and verify that a clean search
+  finds no current instructions that still depend on the old location. Archive the GitHub repository
+  only after the operations owners approve that inventory and the migrated pages pass their ordinary
+  documentation build. If the inventory finds an active audience or a useful publication boundary,
+  keep the repository and record that decision instead of retiring it by assumption.
