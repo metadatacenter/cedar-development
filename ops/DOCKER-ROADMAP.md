@@ -1,194 +1,91 @@
 # CEDAR Docker Roadmap
 
-Primary scope: make the complete CEDAR container estate a repeatable, registry-backed deployment.
-The required runtime is seven infrastructure, fifteen Java microservice, and seven frontend
-containers (29 total). Its build inventory also includes two Java bases (31 core images); four
-optional admin images bring `cedarcli docker build all` to 35.
+Open work for making the complete CEDAR container estate a repeatable, registry-backed deployment.
+The runtime is seven infrastructure, fifteen Java microservice, and seven frontend containers (29
+total). The build also produces two Java base images, for 31 core images; four optional
+administration images bring `cedarcli docker build all` to 35. Current deployment and operating
+procedures are in [DOCKER-RUNBOOK.md](./DOCKER-RUNBOOK.md).
 
-This roadmap contains open work only. The current deployment and its operating procedures are in
-[DOCKER-RUNBOOK.md](./DOCKER-RUNBOOK.md).
+The local build and deployment path is working: `cedarcli` builds dependency bases before their
+consumers, validates all four Compose stacks, starts each stack, and reports aggregate runtime
+health. Full 29-container deployments and both REST and browser smoke suites have passed locally.
+The numbered items below are the remaining delivery and operational work.
 
-## P0 — make a fresh-machine deployment repeatable
+1. **Parameterize the registry and image namespace everywhere.** The build scripts have an image
+   prefix, but CEDAR base-image `FROM` lines, Compose image references, image discovery, and removal
+   still assume `metadatacenter/...`. Make the build CLI, Dockerfiles, Compose projects, CI, and
+   release tooling consume one setting, defaulting to `metadatacenter` for compatibility. A Nexus
+   prefix must make `docker compose pull` and `up` use Nexus without retagging, and validation must
+   reject malformed or inconsistent values. Add a static CI check that prevents new hard-coded
+   CEDAR image references.
 
-### 1. Publish the 31 core images to Nexus
+2. **Publish complete core-image releases to Nexus.** Publish the seven infrastructure images, two
+   Java bases, fifteen servers, and seven frontends only after their source and image builds pass.
+   Keep a readable release tag, but identify the deployable set by immutable digests so rebuilding
+   a mutable development version cannot change an existing deployment. Record each image's source
+   commit, input artifact or npm package version, platform, and digest. A clean Docker engine must
+   be able to authenticate and pull all 31 images, and a failed or partial build must never update
+   the deployable alias. Treat the four administration images as a separate optional set.
 
-Publish seven infrastructure images, `cedar-java`, `cedar-microservice`, fifteen server images, and
-seven frontend images after successful builds and acceptance gates. Keep the human-readable version
-tag and also publish an immutable commit/build tag or digest so a deployment can be reproduced after
-a mutable snapshot is rebuilt. Publish the four admin images as a separately optional set if those
-tools remain supported.
+3. **Define release promotion and rollback around one image manifest.** Generate a manifest for
+   the complete digest set that passed CI and promote that same set through development, staging,
+   and production without rebuilding it. Environment-specific deployment manifests may change
+   configuration, but not image bytes. Production promotion must update metadata or aliases
+   atomically, rollback must select the previous complete digest set, and operators must be able to
+   query which manifest a running environment uses.
 
-Acceptance criteria:
+4. **Make full-Docker and hybrid deployment explicit and self-validating.** Today the evaluation
+   profile and manual overrides decide whether authentication and the seven frontend routes target
+   containers or native host processes. Replace that implicit state with named full-Docker and
+   hybrid modes. Apply all auth and frontend routing changes as one operation, show the selected
+   mode in generated configuration and status output, and validate token verification plus every
+   expected frontend route before reporting readiness. Recreating nginx must not silently switch
+   modes. Native-only deployment must continue to work, and stopping native frontends in hybrid
+   mode must leave the Docker backend and its data untouched.
 
-- a clean Docker engine can authenticate to Nexus and pull all 31 core images for one release
-  manifest;
-- images are pushed only after the Java build and image build succeed;
-- a manifest records image name, version, source commit, platform, and digest;
-- no registry credential is baked into an image, repository, or Compose file; and
-- failed or partial builds cannot update the deployable alias.
+5. **Add aggregate start-and-wait and stop workflows.** `cedarcli docker status` already checks the
+   complete selected estate; add a matching `cedarcli docker start all` or `deploy` workflow and an
+   aggregate stop. Before creating containers, validate configuration, ports, the Docker network,
+   certificate volume, and the selected deployment mode. Make pull behavior explicit, start
+   infrastructure before microservices and frontends, wait for health, and identify an unhealthy
+   container with bounded logs on timeout. Support the 22-container backend with `--no-frontends`,
+   permit locally built images without an accidental pull, and keep named data volumes on ordinary
+   stop.
 
-### 2. Parameterize the registry and namespace everywhere
+6. **Run the complete Docker backend REST gate in CI.** Bring up the 22-container backend and run
+   all 19 REST suites from `cedarnet`, keeping the Artifact service private while preserving the
+   cross-store assertions used locally. Wait for 22/22 healthy services, fail on topology-related
+   connection errors, and clean fixtures on success, failure, timeout, and cancellation. On
+   failure, retain the resolved Compose model, container health and inspect output, and bounded
+   service logs as CI artifacts.
 
-Replace hard-coded `metadatacenter/...` references in Dockerfiles and Compose with one image prefix,
-for example `CEDAR_IMAGE_PREFIX=nexus.example:port/metadatacenter`, defaulting to
-`metadatacenter` for compatibility. The build CLI, base-image `FROM` lines, Compose projects, CI,
-and release tooling must consume the same value.
+7. **Make persistence, backup, restore, and upgrade operations explicit.** Document each named
+   volume, its owner, and the backup and restore procedure for MongoDB, MySQL, Neo4j, Redis, and
+   OpenSearch. Prove the procedures by restoring into a disposable stack and passing a targeted
+   REST gate. Any image upgrade that changes an on-disk format needs a migration and rollback plan.
+   Keep destructive volume removal clearly separate from ordinary stop and restart commands.
 
-Acceptance criteria:
+8. **Produce and enforce image supply-chain evidence.** Generate an SBOM and build provenance for
+   every published image, scan its operating-system and application layers, and sign the published
+   digest. Make those checks publication gates. Vulnerability exceptions need a named owner,
+   justification, and expiry date rather than a silent waiver.
 
-- `CEDAR_IMAGE_PREFIX=metadatacenter` preserves today's local/Docker Hub names;
-- setting the Nexus prefix makes `docker compose pull` and `up` use Nexus without retagging;
-- `cedarcli docker validate` fails when a required prefix/version is malformed or inconsistent; and
-- a static CI check prevents a new hard-coded CEDAR image reference.
+9. **Remove the remaining non-reproducible or weakly verified build inputs.** Pin external base
+   images by digest, avoid blanket package upgrades in image builds, pin installed operating-system
+   packages where practical, and verify every downloaded distribution. Replace the remaining
+   plain-HTTP MongoDB package source even though its packages are signature-checked. Keep automated
+   dependency updates as reviewed changes that rebuild and exercise the complete affected image
+   set.
 
-### 3. Split full-Docker and hybrid profiles
+10. **Declare supported platforms and realistic resource requirements.** Build and test each
+    supported architecture explicitly, or state that amd64 is the contract if that is what CEDAR
+    supports. Record minimum Docker and Compose versions and measured CPU, memory, and disk needs
+    for a cold 29-container start, the REST gate, and the authenticated browser smoke test.
 
-The current evaluation profile defaults `CEDAR_AUTH_HOST_TARGET=host-gateway` for native nginx, but
-the full Docker deployment requires `$CEDAR_NGINX_HOST`. Make the deployment mode explicit instead of
-requiring an easy-to-miss override.
-
-Acceptance criteria:
-
-- the full-Docker profile routes `auth.<host>` to the nginx container by default;
-- the hybrid profile routes it to `host-gateway` by default;
-- a token-verification probe is part of startup acceptance; and
-- sourcing either profile without `CEDAR_HOME` fails immediately with a useful error.
-
-### 4. Add one complete deployment command
-
-Add a `cedarcli docker start all` (or `deploy`) workflow that validates configuration, checks port
-conflicts, verifies the network/cert volumes, applies an explicit pull policy, starts infrastructure,
-microservices, then frontends, waits for all 29 health checks, and prints failed-container logs. It
-must also support the 22-container backend as an explicit `--no-frontends` hybrid choice. Add the
-symmetric aggregate status and stop commands.
-
-Acceptance criteria:
-
-- `--pull always`, `--pull missing`, and `--pull never` are explicit choices;
-- local builds can be started without an accidental registry lookup;
-- startup times out with the unhealthy container and its last logs named;
-- native port conflicts fail before containers are partially created; and
-- ordinary stop retains all named data volumes.
-
-## P1 — turn the working deployment into a release gate
-
-### 5. Run the backend REST estate in CI from `cedarnet`
-
-Use the in-network test topology from the Docker runbook so Artifact remains private while all
-cross-store assertions run. Preserve logs and the Compose model as build artifacts on failure.
-
-Acceptance criteria:
-
-- all 19 REST suites run after 22/22 containers become healthy;
-- the gate has zero topology-related `fetch failed` exceptions;
-- fixture cleanup runs on pass, failure, timeout, and cancellation; and
-- CI captures container health, inspect output, and bounded logs for every failed service.
-
-### 6. Define a release manifest and promotion model
-
-Do not rebuild the same release separately for development, staging, and production. Promote the
-tested digests in Nexus and generate an environment-specific deployment manifest that changes
-configuration, not image bytes.
-
-Acceptance criteria:
-
-- staging consumes exactly the digests that passed CI;
-- production promotion changes aliases/metadata without rebuilding;
-- rollback selects the prior digest set; and
-- the deployed manifest is queryable from the running environment.
-
-### 7. Make persistence operations explicit
-
-Document each named volume, ownership, backup command, restore command, and upgrade compatibility
-for MongoDB, MySQL, Neo4j, Redis, and OpenSearch. Test backup and restore against a disposable stack.
-
-Acceptance criteria:
-
-- operators can identify which volume holds each durable dataset;
-- a restore drill recreates a working backend and passes a targeted REST gate;
-- image upgrades that change on-disk formats require a migration plan; and
-- destructive volume removal is kept outside ordinary stop/restart commands.
-
-### 8. Align and check coupled versions
-
-Resolve the current OpenSearch 2.19.1 server versus 2.19.2 Java-client declaration intentionally,
-then enforce the chosen compatibility rule in CI. Extend the same mechanism to other coupled
-components rather than relying on prose.
-
-Acceptance criteria:
-
-- CI reads the Docker version manifest and Java dependency declarations and checks the rule;
-- a mismatched unsupported pair fails before image publication; and
-- the runbook records the compatibility policy, not a hand-maintained duplicate version list.
-
-## P2 — harden supply chain and operations
-
-### 9. Produce SBOMs, provenance, scans, and signatures
-
-Generate an SBOM and build provenance for every image, scan OS and application layers, and sign the
-published digest. Establish an exception process with owners and expiry dates rather than silently
-accepting vulnerabilities.
-
-### 10. Remove non-reproducible and unverified build inputs
-
-Pin base images by digest, stop blanket package updates in deployable builds, pin installed OS
-packages where practical, and verify every downloaded distribution. In particular, remove the
-plain-HTTP MySQL repository with signature checking disabled from the shared microservice image.
-
-### 11. Declare supported platforms and resource floors
-
-Build and test every supported architecture explicitly, or declare amd64-only if that is the actual
-contract. Record Docker/Compose minimum versions and CPU, memory, and disk requirements for a cold
-29-container start and representative REST/browser runs.
-
-## Frontend delivery
-
-### 12. Make hybrid mode explicit and self-validating
-
-Replace the manual environment override block with a named profile or CLI workflow that starts only
-the native frontends, recreates nginx with `host.docker.internal` upstreams, and validates every
-route. Preserve native-only and full-Docker defaults.
-
-Acceptance criteria:
-
-- the selected mode is visible in generated configuration and status output;
-- all seven frontend hostnames are checked against their expected upstream port;
-- recreating nginx cannot silently switch a hybrid deployment to reserved container addresses;
-- stopping the hybrid frontends leaves the Docker backend and its data untouched; and
-- the request path and source ownership remain documented in the Docker runbook.
-
-### 13. Publish the seven frontend images to Nexus
-
-Publish the frontend portion of item 1 using the configurable registry prefix and include all seven
-images in the 31-image core release manifest.
-
-Acceptance criteria:
-
-- a clean Docker engine can pull all seven images from Nexus by immutable digest;
-- image metadata records the complete source commit and whether the source tree was dirty;
-- a frontend release manifest maps all seven npm versions, source commits, image tags, and digests;
-- neither repository credential nor environment-specific URL is baked into a reusable image; and
-- publishing a failed or partial set cannot update the deployable alias.
-
-### 14. Establish the split-frontend acceptance and rollback gate
-
-Add the credential-free contract, Keycloak origin preflight, bundle recorder, authenticated browser
-path, and long-request regression to CI and staging gates.
-
-Acceptance criteria:
-
-- Workspace and Designer shells, navigation origins, Keycloak callbacks, and REST CORS pass;
-- Workspace-to-Designer SSO and exact `returnTo` restoration pass in a browser;
-- the deployed source commits and generated bundle digests are recorded;
-- a request exceeding 60 seconds succeeds under the documented 180-second proxy timeout; and
-- rollback selects a complete previous routing configuration and image digest pair.
-
-## Recommended delivery slices
-
-- **Nexus pull path:** items 1-3. Outcome: a fresh machine can pull and authenticate correctly.
-- **One-command deployment:** item 4. Outcome: repeatable operator experience and useful failures.
-- **Release gate:** items 5-6. Outcome: the digest that passed is the digest promoted.
-- **Durability and hardening:** items 7-11. Outcome: recoverable, auditable operation beyond a
-  developer workstation.
-- **Frontend delivery:** items 12-14. Outcome: keep native and hybrid modes, publish the seven-image
-  set to Nexus, and promote only tested image digests through staging and production.
+11. **Turn the existing split-frontend checks into a release gate.** The repository already has
+    shell, route, bundle-identity, CORS, Keycloak-origin, authenticated-navigation, deployment
+    recording, rollback-rehearsal, and long-request checks. Run the relevant credential-free checks
+    in CI and the authenticated path against staging before promotion. Preserve evidence mapping
+    the seven frontend source commits and bundle digests to the tested image manifest, retain the
+    regression proving requests longer than 60 seconds work with the documented proxy timeout, and
+    make rollback restore one previously tested routing configuration and digest set.
