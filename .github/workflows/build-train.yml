@@ -1,0 +1,103 @@
+name: Immutable development build train
+
+run-name: Build train ${{ inputs.version }}${{ inputs.resume && ' (resume)' || '' }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Immutable version, for example 2.9.3-dev.20260824.1847
+        required: true
+        type: string
+      resume:
+        description: Resume the already-recorded source manifest
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: cedar-development-build-train
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      BMIR_NEXUS_USERNAME: ${{ secrets.BMIR_NEXUS_USERNAME }}
+      BMIR_NEXUS_PASSWORD: ${{ secrets.BMIR_NEXUS_PASSWORD }}
+      TRAIN_VERSION: ${{ inputs.version }}
+      TRAIN_WORKSPACE: ${{ github.workspace }}/CEDAR
+      TRAIN_STATE: ${{ github.workspace }}/build-trains
+
+    steps:
+      - name: Check out the train controller
+        uses: actions/checkout@v7
+        with:
+          ref: develop
+          path: controller
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Check Nexus credentials
+        run: |
+          test -n "$BMIR_NEXUS_USERNAME" || { echo 'BMIR_NEXUS_USERNAME is unavailable to cedar-development'; exit 1; }
+          test -n "$BMIR_NEXUS_PASSWORD" || { echo 'BMIR_NEXUS_PASSWORD is unavailable to cedar-development'; exit 1; }
+
+      - name: Check out the build-train state branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          state_url="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          if git ls-remote --exit-code --heads "$state_url" build-trains >/dev/null 2>&1; then
+            git clone --quiet --depth 1 --branch build-trains "$state_url" "$TRAIN_STATE"
+          else
+            mkdir -p "$TRAIN_STATE"
+            git -C "$TRAIN_STATE" init --quiet
+            git -C "$TRAIN_STATE" checkout --quiet --orphan build-trains
+            git -C "$TRAIN_STATE" remote add origin "$state_url"
+            touch "$TRAIN_STATE/.gitkeep"
+          fi
+          git -C "$TRAIN_STATE" config user.name github-actions[bot]
+          git -C "$TRAIN_STATE" config user.email 41898282+github-actions[bot]@users.noreply.github.com
+
+      - name: Capture or restore the source manifest
+        run: |
+          args=(--version "$TRAIN_VERSION")
+          if [ "${{ inputs.resume }}" = "true" ]; then
+            args=(--resume "$TRAIN_VERSION")
+          fi
+          python3 controller/ops/build_train.py prepare \
+            "${args[@]}" \
+            --workspace "$TRAIN_WORKSPACE" \
+            --state "$TRAIN_STATE"
+
+      - name: Record the source manifest before publication
+        run: |
+          git -C "$TRAIN_STATE" add .
+          if ! git -C "$TRAIN_STATE" diff --cached --quiet; then
+            git -C "$TRAIN_STATE" commit -m "Record build train $TRAIN_VERSION"
+            git -C "$TRAIN_STATE" push origin HEAD:build-trains
+          fi
+
+      - name: Build and publish the Maven train
+        run: |
+          python3 controller/ops/build_train.py build \
+            --version "$TRAIN_VERSION" \
+            --workspace "$TRAIN_WORKSPACE"
+
+      - name: Verify and advance the completed-train pointer
+        run: |
+          python3 controller/ops/build_train.py complete \
+            --version "$TRAIN_VERSION" \
+            --state "$TRAIN_STATE"
+          git -C "$TRAIN_STATE" add .
+          git -C "$TRAIN_STATE" commit -m "Complete build train $TRAIN_VERSION"
+          git -C "$TRAIN_STATE" push origin HEAD:build-trains

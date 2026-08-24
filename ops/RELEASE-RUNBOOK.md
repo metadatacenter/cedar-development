@@ -38,6 +38,12 @@ production frontend payload:
 node $CEDAR_HOME/cedar-development/ops/propagate-cee-release.mjs --check <CEE_VERSION>
 ```
 
+Immutable development build trains are separate from `release all-in-one`. They do not merge,
+tag, or alter any source repository; they publish a consistent development artifact set from exact
+commits for Docker and integration use. See
+[BUILD-TRAIN-RUNBOOK.md](./BUILD-TRAIN-RUNBOOK.md). The existing mutable snapshot phases remain in
+the release procedure until the train path has completed its rollout.
+
 Workspace and Template Designer are also independent of `release all-in-one` while migration is in
 progress. Their exact current versions publish as npm packages to the CEDAR Nexus repository through
 one deliberately named selector:

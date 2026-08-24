@@ -11,12 +11,14 @@ consumers, applies one validated image prefix across builds and Compose, and val
 Compose stacks. Its aggregate workflow preflights the host, selects
 full-Docker, native-frontend hybrid, or backend-only routing without mutating the shell, starts each
 layer in dependency order, waits for health and route acceptance, records the active mode, and stops
-the deployment without deleting data. Full 29-container deployments and both REST and browser smoke
-suites have passed locally. The numbered items below are the remaining delivery and operational
-work.
+the deployment without deleting data. Java development artifacts can now be published as one
+immutable build train, and Docker build/start resolve the most recently completed train or an exact
+older train. Full 29-container deployments and both REST and browser smoke suites have passed
+locally. The numbered items below are the remaining delivery and operational work.
 
-1. **Publish complete core-image releases to Nexus.** Publish the seven infrastructure images, two
-   Java bases, fifteen servers, and seven frontends only after their source and image builds pass.
+1. **Publish complete core-image trains to Nexus.** Extend the completed Java train into the seven
+   infrastructure images, two Java bases, fifteen servers, and seven frontends, and publish only
+   after their source and image builds pass.
    Keep a readable release tag, but identify the deployable set by immutable digests so rebuilding
    a mutable development version cannot change an existing deployment. Record each image's source
    commit, input artifact or npm package version, platform, and digest. A clean Docker engine must

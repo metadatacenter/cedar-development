@@ -12,8 +12,9 @@ needed to make this a registry-driven, production-ready deployment is tracked in
 
 ## Current verdict
 
-The complete application **can be deployed locally with Docker today**, provided its images are
-built locally. It was re-proven on 2026-08-21 on Apple Silicon with Docker Engine 29.6.2 and
+The complete application **can be deployed locally with Docker today**. Images can be built from a
+completed immutable development train or directly from checked-out Java source. It was re-proven
+on 2026-08-21 on Apple Silicon with Docker Engine 29.6.2 and
 Compose 5.3.1:
 
 - all 70 Java reactor modules built successfully on JDK 17 with `-DskipTests`;
@@ -29,7 +30,8 @@ Compose 5.3.1:
 The builder, Compose projects, CLI validation, and cleanup all use `CEDAR_IMAGE_PREFIX`. It defaults
 to the compatible `metadatacenter` Docker Hub namespace and can instead name a Nexus Docker
 registry. Registry selection is ready, but publication of a complete, tested CEDAR image set is
-still roadmap work. Use local builds unless the complete version you need has been published.
+still roadmap work. The Maven artifacts behind an image build are already selected as one
+immutable train; publishing the resulting complete image set is the next step.
 
 ## What runs
 
@@ -118,9 +120,28 @@ is optional.
 
 ## Build or obtain the images
 
-There are two supported build paths today.
+There are two supported build paths today. Train creation, state, and recovery are described in
+[BUILD-TRAIN-RUNBOOK.md](./BUILD-TRAIN-RUNBOOK.md).
 
-### Checked-out Java source: strongest verification
+### Completed build train: normal published-artifact build
+
+An ordinary Docker build reads the completed-train pointer recorded by `cedar-development`. All
+groups receive that train's version as their image tag, and the Java images download that exact
+immutable Maven version from `cedar-maven-dev`:
+
+```bash
+cedarcli docker build infrastructure
+cedarcli docker build microservices
+cedarcli docker build frontends
+```
+
+Select a particular completed train instead of the current pointer when reproducing it:
+
+```bash
+cedarcli docker build microservices --train <TRAIN>
+```
+
+### Checked-out Java source: explicit local build
 
 This is the path used for the 2026-08-21 deployment proof. The Java build installs the parent,
 shared libraries, the 70-module server reactor, and clients in dependency order. It deliberately
@@ -129,22 +150,14 @@ fat JAR into its server image and clears the staged file after the build.
 
 ```bash
 cedarcli build java
-cedarcli docker build infrastructure
+cedarcli docker build infrastructure --local
 cedarcli docker build microservices --local
+cedarcli docker build frontends --local
 ```
 
-### Published Maven snapshots on Nexus: faster image build
-
-When the current development Java artifacts are known to be current on Nexus, omit `--local`.
-Each server image downloads its application JAR by Maven coordinate during `install_deps.sh`.
-
-```bash
-cedarcli docker build infrastructure
-cedarcli docker build microservices
-```
-
-Both paths tag images locally under `CEDAR_IMAGE_PREFIX`, using the development version declared by
-the Docker build manifest. Do not assume that a local tag means the image was published.
+The local path keeps the development version declared by the Docker build manifest. It does not
+claim to reproduce a published train. Both paths tag images locally under `CEDAR_IMAGE_PREFIX`; do
+not assume that a local tag means the image was published.
 
 ### Frontend images
 
@@ -186,6 +199,10 @@ runs the same 22 containers without requiring any frontend routes, which is usef
 ```bash
 cedarcli docker start all --mode full --pull never
 ```
+
+Start resolves the current completed train, matching an ordinary build. Use `--train <TRAIN>` to
+select an exact completed train. When the images came from `docker build --local`, add `--local` to
+start so Compose selects the development tag instead.
 
 `--pull never` uses the images already present on the machine and fails if one is absent. This is
 the safe choice for locally built development images. Use `--pull missing` to fetch only absent
