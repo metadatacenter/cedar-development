@@ -2,8 +2,7 @@
 
 Building, running and testing **CEE** (`cedar-embeddable-editor`) locally.
 Everything here has been run on macOS (Apple silicon), against Angular 22. The latest
-stable release documented here is CEE 1.6.0; the local integration estate currently
-pins the same 2.0.0 development snapshot in all seven embedding manifests, including
+stable release documented here is CEE 2.0.1, and all seven embedding manifests pin it, including
 the extracted Workspace. Consumer coherence is verified from manifests and lockfiles,
 and deployed identity is verified by the bundle sha256 rather than only by the version
 each host reports.
@@ -159,7 +158,7 @@ can be pointed at to try an unpublished build, by symlinking its
 Build Into the Frontends". A fresh clone has no `dist-npm/` until something stages
 it, so **run the gate, or `npm run package:npm:prebuilt` alone, before expecting a
 symlinked consumer to serve CEE.** Nothing is symlinked at present: every consumer
-holds the installed 1.6.0 from npmjs.
+holds the installed 2.0.1 from npmjs.
 
 `dist-npm/` used to be committed, and the stage used to be a drift check
 (`check:staged`) rather than a staging step. That arrangement cost more than it
@@ -319,7 +318,7 @@ and checking the wrong file reads exactly like a failed deploy:
 For the first two, compare sha256 against the staged bundle. For the bundled case
 there is no file to hash: grep the bundle for the load-trace stamp, which names
 one build exactly. The version string alone is not enough — the bundle holds every
-dependency's version, so a bare `1.6.0` in it may belong to something else
+dependency's version, so a bare `2.0.1` in it may belong to something else
 entirely.
 
 Ask the dev server for `vendor.js` and the dist for `main.js`. Grepping the other
@@ -1202,15 +1201,17 @@ instead, where the dev versions do not exist.
 `main` is owned by the release process. Work lands on `develop`.
 
 There is one stable publish target: the unscoped `cedar-embeddable-editor` on public npmjs, under the
-default `latest` tag. 1.6.0 is the latest stable release documented here. The local integration
-estate currently exercises a later development snapshot through the scoped Nexus alias in all seven
-embedding manifests. `scripts/npm-package.mjs` generates the published manifest, hardcoding the
-stable package name and writing no `publishConfig`, so a stable package goes to
-`registry.npmjs.org`; the root manifest's own `name` and `publishConfig` are not what publishes.
+default `latest` tag. 2.0.1 is the latest stable release, published 2026-08-21, and all seven
+embedding manifests pin it plain from npmjs. The registry goes from 1.5.2 straight to it: 1.6.0 was
+published on 2026-08-12 and unpublished from npmjs afterwards, so a manifest still naming 1.6.0
+cannot install, and the tarball it named cannot be fetched for comparison.
+`scripts/npm-package.mjs` generates the published manifest, hardcoding the stable package name and
+writing no `publishConfig`, so a stable package goes to `registry.npmjs.org`; the root manifest's
+own `name` and `publishConfig` are not what publishes.
 
 Dev snapshots are a second channel: the scoped `@org.metadatacenter/cedar-embeddable-editor` on
 Stanford Nexus under a `dev` tag, versioned `<next>-dev.<date>.<sha>`. It was retired for a while and
-is live again — `dev` currently names `2.0.0-dev.20260818.6dca9bf`. Reach it from an embedding app
+is live again — `dev` currently names `2.0.0-dev.20260820.a8cc4cc`. Reach it from an embedding app
 through an npm alias, since npm routes by scope and this is the only package taken from Nexus.
 
 `scripts/npm-package.mjs` derives the channel from the version rather than taking it as a flag: a
@@ -1247,7 +1248,7 @@ A token is a credential — keep it in `~/.npmrc` only, never in a repo or these
 
 ### 1 · Bump the version
 
-A release version is plain semver — `1.6.0`. Only **two** files hold it by hand:
+A release version is plain semver — `2.0.1`. Only **two** files hold it by hand:
 
 | File | Occurrences |
 |---|---|
@@ -1262,8 +1263,8 @@ committed artifact, predate that script and the ignore.)
 
 Then add a `## [X.Y.Z] - <date>` section to `CHANGELOG.md`, and bump the load-trace stamp in
 `src/app/modules/shared/components/cedar-embeddable-metadata-editor/cedar-embeddable-metadata-editor.component.ts`
-→ `private static INNER_VERSION = '<YYYY-MM-DD HH:MM>';`, the time the bump was written. 1.6.0 stamps
-`'2026-08-12 17:12'`.
+→ `private static INNER_VERSION = '<YYYY-MM-DD HH:MM>';`, the time the bump was written. 2.0.1 stamps
+`'2026-08-21 15:09'`.
 
 > `ceeVersion` derives from `package.json` and is exposed as `window.cedarEmbeddableEditorVersion`,
 > so bumping `package.json` is what drives the visible version. `INNER_VERSION` is only the stamp
@@ -1334,14 +1335,60 @@ read the tags off Nexus, where `dev` should be the only one:
 curl -s "https://nexus.bmir.stanford.edu/repository/npm-cedar/@org.metadatacenter%2fcedar-embeddable-editor" | python3 -c "import json,sys; print(json.load(sys.stdin)['dist-tags'])"
 ```
 
-### 5 · Propagate
+### 5 · Tag the release, and draft its notes
+
+Nothing in the publish records which commit was staged, and `npm publish` will happily ship a dirty
+working tree. Tag as soon as the publish succeeds, on the commit that bumped the version rather
+than the merge that later carried it to `main`. That is what every earlier `release-<version>` tag
+names, and it is the tree the package was built from:
+
+```bash
+git tag -a release-2.0.1 <bump-commit> -m "CEE 2.0.1"
+git push origin release-2.0.1
+```
+
+If the tag is added later and the commit is no longer obvious, the published package identifies it.
+Three of its files are copied rather than generated — `README.md`, `CHANGELOG.md` and
+`license.txt` — so `npm pack cedar-embeddable-editor@<version>` and a hash of those three against
+each candidate commit settles which tree was staged. That is what distinguishes the bump commit on
+`develop` from the merge on `main`, which can differ in nothing else.
+
+Then draft the release notes against the tag:
+
+```bash
+gh release create release-2.0.1 --draft --title "CEE 2.0.1" --notes-file <notes.md>
+```
+
+CEE's notes follow the shape 2.0.1's carry, which is not the one
+[cedar-project's releases](https://github.com/metadatacenter/cedar-project/releases) use — those
+announce a platform deployment to the people who use the Workbench, and CEE ships a package to the
+people who embed it. One opening line names the release and links the npm package. One paragraph
+says what most of the release is, in specifics. Then the changelog's own headings — Added, Changed,
+Removed, Fixed, Security — each bullet led by a bold clause naming the thing that changed, with
+`Fixed` grouped under bold labels once it runs long. The pre-release-builds note and the link to
+the full changelog close it.
+
+A bullet is one or two sentences — 20 to 30 words, 45 at the outside. It says what changed and, if
+it is not obvious, what was wrong before; the reasoning behind it stays in `CHANGELOG.md`, which is
+where a reader who wants it will look. Lead with the concrete subject: "A `change` event naming the
+field that changed" is a bullet, while "a host is told what changed rather than that something did"
+is a riddle whose answer is the bullet.
+
+`CHANGELOG.md` is the source for the notes and not their shape. It records every change; the notes
+select the ones an embedder has to act on or would want to know about, and say what each is for.
+Publish the draft once someone has read it.
+
+Releases before 2.0.1 carry tags but no GitHub release; 1.6.0's tag was added retroactively, at
+`8a9e3693`.
+
+### 6 · Propagate
 
 Seven manifests across five repos depend on CEE. Workspace is a required consumer alongside the
 production monolith and the existing auxiliary/demo frontends. A stable release names one exact
 version resolved from npmjs:
 
 ```json
-"cedar-embeddable-editor": "1.6.0"
+"cedar-embeddable-editor": "2.0.1"
 ```
 
 Its lockfiles record the npmjs tarball and integrity hash, so what installs is reproducible.
