@@ -217,8 +217,6 @@ def prepare(args: argparse.Namespace) -> None:
     if args.resume:
         if not manifest_path.exists():
             raise RuntimeError(f"train {version} has no recorded source manifest")
-        if completed_path.exists():
-            raise RuntimeError(f"train {version} is already complete")
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         repositories = manifest["repositories"]
     else:

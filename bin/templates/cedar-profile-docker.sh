@@ -20,6 +20,7 @@ export CEDAR_NET_SUBNET=192.168.17.0
 # Keep the Docker Hub namespace for compatibility. Set this before sourcing the profile to build,
 # pull, run, inspect, and remove the same image set from another registry and namespace.
 export CEDAR_IMAGE_PREFIX="${CEDAR_IMAGE_PREFIX:-metadatacenter}"
+export CEDAR_BASE_IMAGE_PREFIX="${CEDAR_BASE_IMAGE_PREFIX:-${CEDAR_IMAGE_PREFIX}}"
 
 #------------------------------------------------------
 # CEDAR generic environment variables

@@ -1,0 +1,53 @@
+{
+  "publicPrefix": "nexus.bmir.stanford.edu/docker-cedar",
+  "internalPrefix": "nexus.bmir.stanford.edu/docker-cedar-internal",
+  "groups": {
+    "javaBase": [
+      "cedar-java"
+    ],
+    "microserviceBase": [
+      "cedar-microservice"
+    ],
+    "infrastructure": [
+      "cedar-infra-keycloak",
+      "cedar-infra-mongo",
+      "cedar-infra-mysql",
+      "cedar-infra-neo4j",
+      "cedar-infra-nginx",
+      "cedar-infra-opensearch",
+      "cedar-infra-redis-persistent"
+    ],
+    "microservices": [
+      "cedar-server-artifact",
+      "cedar-server-bridge",
+      "cedar-server-group",
+      "cedar-server-impex",
+      "cedar-server-messaging",
+      "cedar-server-monitor",
+      "cedar-server-openview",
+      "cedar-server-repo",
+      "cedar-server-resource",
+      "cedar-server-schema",
+      "cedar-server-submission",
+      "cedar-server-terminology",
+      "cedar-server-user",
+      "cedar-server-valuerecommender",
+      "cedar-server-worker"
+    ],
+    "frontends": [
+      "cedar-frontend-content",
+      "cedar-frontend-main",
+      "cedar-frontend-monitoring",
+      "cedar-frontend-bridging",
+      "cedar-frontend-openview",
+      "cedar-frontend-workspace",
+      "cedar-frontend-template-designer"
+    ]
+  },
+  "optionalImages": [
+    "cedar-admin-kibana",
+    "cedar-admin-phpmyadmin",
+    "cedar-admin-redis-commander",
+    "cedar-admin-tool"
+  ]
+}

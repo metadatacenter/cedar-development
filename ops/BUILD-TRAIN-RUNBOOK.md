@@ -1,8 +1,8 @@
 # CEDAR Development Build Trains
 
-A build train is one immutable, internally consistent set of development artifacts. It solves the
-failure mode where one repository publishes a new Maven `SNAPSHOT` while another repository—or a
-Docker build—still sees an older member of the same nominal version.
+A build train is one immutable, internally consistent set of development artifacts and container
+images. It solves the failure mode where one repository publishes a new Maven `SNAPSHOT` while
+another repository—or a Docker build—still sees an older member of the same nominal version.
 
 Native development does not change. The `develop` branches and checked-out POMs continue to use a
 normal Maven snapshot such as `<NEXT>-SNAPSHOT`. A train job checks out exact commits into a
@@ -12,8 +12,10 @@ disposable workspace, changes their CEDAR versions only there, and publishes a v
 ## One-time administration
 
 The Nexus hosted Maven repository must be named `cedar-maven-dev`, use the **Release** version
-policy, and have **Disable redeploy** selected. Anonymous read access is sufficient for Docker
-builds; the GitHub Actions account needs add/browse/read rights.
+policy, and have **Disable redeploy** selected. The two Docker hosted repositories are
+`docker-cedar`, for the 29 runtime images, and `docker-cedar-internal`, for the two Java base
+images. Both use HTTPS path-based routing and **Disable redeploy**. Anonymous read access is
+sufficient for deployments; the GitHub Actions account needs write and read access.
 
 The `cedar-development` repository needs access to the existing organization secrets
 `BMIR_NEXUS_USERNAME` and `BMIR_NEXUS_PASSWORD`. Its Actions workflow also needs permission to
@@ -51,6 +53,17 @@ After publication, the workflow queries Nexus for the libraries and runtime appl
 by Docker. Only a complete inventory creates `completed/<TRAIN>.json` and advances `current.json`.
 A partial or failed train can never become current.
 
+The workflow then records the expected Docker plan and builds the image estate in dependency
+order. `cedar-java` and `cedar-microservice` publish to the internal repository. Seven
+infrastructure, fifteen microservice, and seven frontend images publish to the runtime repository.
+Independent images build in parallel; the Java bases remain ordered. Every image records the train,
+the exact `cedar-docker-build` commit, and the source-manifest digest as OCI labels.
+
+The final job removes local copies and pulls each of the 31 images from Nexus. It verifies the
+labels and records the registry digest and platform for every image. Only then does it create
+`docker/completed/<TRAIN>.json` and advance `docker/current.json`. The four administration images
+are optional and are not part of this pointer.
+
 ## Resume a failed train
 
 ```bash
@@ -58,9 +71,10 @@ cedarcli build train --resume <TRAIN>
 ```
 
 Resume requires `trains/<TRAIN>.json` on the `build-trains` branch and checks out the commits in that
-manifest—not whatever is now at the head of `develop`. Identical files already present in Nexus are
-accepted; missing files are uploaded. If the train is already complete, or any existing file has
-different bytes, resume stops.
+manifest—not whatever is now at the head of `develop`. Identical Maven files already present in
+Nexus are accepted; missing files are uploaded. When Maven publication is already complete, resume
+skips it and continues with Docker. A Docker tag already present is accepted only when its train and
+source-manifest labels match; a different image is a hard failure.
 
 Use a new train rather than resume when you want to include a source change. A train ID always means
 one fixed commit set.
@@ -72,13 +86,16 @@ The `build-trains` branch is machine-owned operational state, separate from norm
 - `trains/<TRAIN>.json` records the source commits, source snapshot version, frontend npm inputs,
   and target Maven repository;
 - `completed/<TRAIN>.json` records successful Nexus verification; and
-- `current.json` points to the most recently completed train.
+- `current.json` points to the most recently completed Maven train;
+- `docker/trains/<TRAIN>.json` records the exact 31-image publication plan;
+- `docker/completed/<TRAIN>.json` records the verified image digests; and
+- `docker/current.json` points to the most recently completed Docker train.
 
 The source manifest is never rewritten. The current pointer moves only after completion.
 
 ## Use a train for Docker
 
-Ordinary Docker builds resolve `current.json` automatically:
+Ordinary Docker builds resolve the Maven `current.json` automatically:
 
 ```bash
 cedarcli docker build infrastructure
@@ -94,8 +111,9 @@ cedarcli docker build microservices --train <TRAIN>
 cedarcli docker start all --mode full --train <TRAIN> --pull never
 ```
 
-`--train` first requires a completion record, so an incomplete publication cannot be selected.
-Starting without `--train` resolves the current completed train as well.
+`--train` on a build first requires Maven completion. Starting without `--train` resolves
+`docker/current.json`, so a clean deployment never guesses that a Maven-complete train also has a
+complete image set. An explicit start likewise requires the Docker completion record.
 
 The local-source path remains explicit and independent of published trains:
 

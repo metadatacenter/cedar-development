@@ -27,11 +27,11 @@ Compose 5.3.1:
 - an authenticated browser opened Workspace's Smoke Tests template in Designer without console
   errors.
 
-The builder, Compose projects, CLI validation, and cleanup all use `CEDAR_IMAGE_PREFIX`. It defaults
-to the compatible `metadatacenter` Docker Hub namespace and can instead name a Nexus Docker
-registry. Registry selection is ready, but publication of a complete, tested CEDAR image set is
-still roadmap work. The Maven artifacts behind an image build are already selected as one
-immutable train; publishing the resulting complete image set is the next step.
+The builder, Compose projects, CLI validation, and cleanup use `CEDAR_IMAGE_PREFIX` for the 29
+runtime images. `CEDAR_BASE_IMAGE_PREFIX` can place the two Java bases in a separate internal
+repository and otherwise defaults to the runtime prefix. The central build train publishes the
+split Nexus inventory and advances a Docker pointer only after all 31 images have been pulled back
+and their provenance labels and registry digests verified.
 
 ## What runs
 
@@ -92,21 +92,30 @@ source $CEDAR_HOME/cedar-development/bin/templates/cedar-profile-docker.sh
 
 Keep that shell for all commands below.
 
-### Select the image registry and namespace
+### Select the image registries and namespaces
 
-The default image prefix is `metadatacenter`. To build and run images in another registry, set one
-repository prefix before sourcing the Docker profile:
+The default image prefix is `metadatacenter`. To build and run images in another registry, set the
+runtime repository prefix before sourcing the Docker profile. Set the internal prefix only when the
+two Java bases live elsewhere:
 
 ```bash
 export CEDAR_IMAGE_PREFIX=<registry-host>:<port>/<namespace>
+export CEDAR_BASE_IMAGE_PREFIX=<registry-host>:<port>/<internal-namespace>
 source $CEDAR_HOME/cedar-development/bin/templates/cedar-profile-docker.sh
 ```
 
 Use Docker image syntax, not a URL: omit `https://`, an image tag, and a trailing slash. For a
-private registry, run `docker login <registry-host>:<port>` first. The one setting controls local
-image tags, CEDAR base-image inheritance, Compose pulls and starts, and the CEDAR image set selected
-by `cedarcli docker remove`. Changing it after a build selects a different image set; rebuild under
-the new prefix or use `--pull missing` or `--pull always` to obtain it.
+private registry, run `docker login <registry-host>:<port>` first. The runtime prefix controls
+Compose pulls and starts. The base prefix controls `FROM` resolution and the tags assigned to
+`cedar-java` and `cedar-microservice`. `cedarcli docker remove images` covers both. Changing either
+after a build selects a different image set.
+
+The CEDAR Nexus publication uses HTTPS path routing:
+
+```bash
+export CEDAR_IMAGE_PREFIX=nexus.bmir.stanford.edu/docker-cedar
+export CEDAR_BASE_IMAGE_PREFIX=nexus.bmir.stanford.edu/docker-cedar-internal
+```
 
 ## Validate configuration
 
@@ -123,9 +132,23 @@ is optional.
 There are two supported build paths today. Train creation, state, and recovery are described in
 [BUILD-TRAIN-RUNBOOK.md](./BUILD-TRAIN-RUNBOOK.md).
 
+Create and publish a new immutable Maven and Docker train with:
+
+```bash
+cedarcli build train
+```
+
+The workflow publishes the Java train, builds the two internal bases and 29 runtime images, then
+pulls and verifies all 31 before advancing `docker/current.json`. Resume a failed publication with
+the train ID printed by the original command:
+
+```bash
+cedarcli build train --resume <TRAIN>
+```
+
 ### Completed build train: normal published-artifact build
 
-An ordinary Docker build reads the completed-train pointer recorded by `cedar-development`. All
+An ordinary Docker build reads the completed Maven-train pointer recorded by `cedar-development`. All
 groups receive that train's version as their image tag, and the Java images download that exact
 immutable Maven version from `cedar-maven-dev`:
 
@@ -133,6 +156,8 @@ immutable Maven version from `cedar-maven-dev`:
 cedarcli docker build infrastructure
 cedarcli docker build microservices
 cedarcli docker build frontends
+# Or build the same 31-image core inventory in one command:
+cedarcli docker build core
 ```
 
 Select a particular completed train instead of the current pointer when reproducing it:
@@ -200,9 +225,9 @@ runs the same 22 containers without requiring any frontend routes, which is usef
 cedarcli docker start all --mode full --pull never
 ```
 
-Start resolves the current completed train, matching an ordinary build. Use `--train <TRAIN>` to
-select an exact completed train. When the images came from `docker build --local`, add `--local` to
-start so Compose selects the development tag instead.
+Start resolves the current completed Docker train, which can lag the Maven pointer while images are
+still building. Use `--train <TRAIN>` to select an exact Docker-complete train. When the images came
+from `docker build --local`, add `--local` to start so Compose selects the development tag instead.
 
 `--pull never` uses the images already present on the machine and fails if one is absent. This is
 the safe choice for locally built development images. Use `--pull missing` to fetch only absent
