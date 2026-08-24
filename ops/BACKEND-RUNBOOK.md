@@ -62,9 +62,10 @@ bash $CEDAR_UTIL_BIN/services-generic/startinfra.sh     # mongo, mysql, opensear
 # Redis and OpenSearch fail outright, which is harmless. Mongo is the one to watch: it binds
 # 127.0.0.1 where Docker binds the wildcard, so it starts, wins every connection, and nothing warns.
 
-# 2. app tier — use the controller here instead of 15 Terminal tabs
-bash $CEDAR_HOME/cedar-development/ops/cedar-services.sh start
-bash $CEDAR_HOME/cedar-development/ops/cedar-services.sh status
+# 2. app tier — cedarcli runs every process in the background
+cedarcli start microservices
+cedarcli start frontends
+cedarcli native status
 
 # 3. log in
 open https://cedar.metadatacenter.orgx    # test1@test.com / test1   (also test2@test.com / test2)
@@ -73,8 +74,8 @@ open https://cedar.metadatacenter.orgx    # test1@test.com / test1   (also test2
 (cd ops/e2e && npm run smoke)
 ```
 
-`cedarcli start all` does the same thing but opens ~15 Terminal tabs (one foreground process per
-tab, by design — see below). The controller replaces that with background processes + one status view.
+`cedarcli start all` runs both steps above, including native infrastructure. It does not open or
+control a terminal application. Each application has its own PID file and log instead.
 
 ## The containerized stack
 
@@ -490,9 +491,8 @@ The auxiliary frontends are the `ui-*` entries — `ui-openview` (4220), `ui-con
 `ui-monitoring` (4300), `ui-bridging` (4340) — each run as `ng serve` from its
 `cedar-<name>[-src]` source dir (see `fe_dir()`). They are named `ui-*` because `openview`/`monitor`/
 `bridge` are already microservice names. Their health is **port-only** (no Dropwizard `/healthcheck`).
-`cedarcli start frontends` starts the same set but opens a macOS Terminal tab per app; this controller
-runs them headless instead. The non-essential CEE demos (`cee-dev`/`demo.cee`) are not managed here —
-`cedarcli` doesn't start them by default either.
+`cedarcli start frontends` starts all seven through this controller. The non-essential CEE demos
+(`cee-dev`/`demo.cee`) are not managed here — `cedarcli` doesn't start them by default either.
 
 ```bash
 cedar-services.sh start [name...]     # start all, or only the named services
@@ -520,12 +520,12 @@ tab-started service onto the current build. When either warning prints, `restart
 confirm `status` shows every service `current`, not merely `healthy`, before trusting a verification
 gate.
 
-## Why the app tier is "tab-per-service" by design
+## How native processes are managed
 
-`cedarcli start microservices` runs `start-dw-server.sh <name>` for each service, and that script
-runs `java -jar … server config.yml` in the **foreground** (no `nohup`, no `&`). The intended UX is
-one Terminal tab per service so a developer can watch/restart each. That does not scale to eyeballing
-15 consoles — which is exactly why `cedar-services.sh` exists (background + single status view).
+`cedarcli start microservices` and `cedarcli start frontends` delegate to `cedar-services.sh`.
+Applications run in the background; the CLI never opens iTerm or Terminal. Use `cedarcli native
+status`, `cedarcli native watch`, `cedarcli native logs <name>`, or `cedarcli native restart
+[name...]` instead of keeping a console open for each process.
 
 ## Port map
 
@@ -1099,11 +1099,9 @@ $CEDAR_HOME/cedar-cli/.venv/bin/python $CEDAR_HOME/cedar-cli/cedar.py <command>
 ```
 
 The `docker` group covers build, validation, Docker-aware status, per-stack start/stop, one-time
-network/certificate setup, and destructive removal. The native groups include `start`
-(all/infra/microservices/frontends), `stop`, `build`, `deploy`, `status`, `check`, `cert`, and `dev`.
-On macOS native `start` uses AppleScript to open
-Terminal tabs (`use_osa = platform.system()=='Darwin'`), which is why headless bring-up uses the
-underlying `services-generic/*.sh` scripts or `cedar-services.sh` instead.
+network/certificate setup, and destructive removal. Native `start` and `stop` manage infrastructure
+and the application groups without terminal automation. The `native` group exposes application
+status, health, logs, restart, and the continuously refreshing status view.
 
 ## Building CEDAR
 

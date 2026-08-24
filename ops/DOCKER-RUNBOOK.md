@@ -346,8 +346,7 @@ source $CEDAR_HOME/cedar-profile-native-develop.sh
 export CEDAR_FRONTEND_BIND_HOST=0.0.0.0
 export CEDAR_WORKSPACE_FRONTEND_URL=https://workspace.metadatacenter.orgx
 export CEDAR_TEMPLATE_DESIGNER_FRONTEND_URL=https://designer.metadatacenter.orgx
-bash $CEDAR_HOME/cedar-development/ops/cedar-services.sh start \
-  frontend workspace designer ui-openview ui-content ui-monitoring ui-bridging
+cedarcli start frontends
 ```
 
 Start the Docker backend from a Docker-profile shell in `hybrid` mode. The CLI stops any Docker
@@ -384,15 +383,14 @@ met those expectations while all 22 backend containers remained healthy.
 Stop only the native frontends without touching the Docker backend:
 
 ```bash
-bash $CEDAR_HOME/cedar-development/ops/cedar-services.sh stop \
-  frontend workspace designer ui-openview ui-content ui-monitoring ui-bridging
+cedarcli stop frontends
 ```
 
 Three frontend deployment modes remain distinct:
 
 | Mode | Where frontend code is served | How it is started | Current status |
 | --- | --- | --- | --- |
-| Native hybrid | Seven macOS development-server processes | `cedar-services.sh`, then `cedarcli docker start all --mode hybrid` | Proven local development mode |
+| Native hybrid | Seven macOS development-server processes | `cedarcli start frontends`, then `cedarcli docker start all --mode hybrid` | Proven local development mode |
 | All-Docker frontends | Seven containers on `cedarnet` | `cedarcli docker start all --mode full` | Proven on 2026-08-21 |
 | Native-only stack | Seven native development servers | Native profile and native nginx | Preserved; Docker work does not change it |
 
@@ -429,8 +427,7 @@ operation:
 
 ```bash
 export CEDAR_HOME=$HOME/CEDAR
-bash $CEDAR_HOME/cedar-development/ops/cedar-services.sh stop \
-  frontend workspace designer ui-openview ui-content ui-monitoring ui-bridging
+cedarcli stop frontends
 
 source $CEDAR_HOME/cedar-development/bin/templates/cedar-profile-docker.sh
 cedarcli docker build frontends
