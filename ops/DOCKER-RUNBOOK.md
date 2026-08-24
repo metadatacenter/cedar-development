@@ -85,7 +85,7 @@ authentication hostname to that container.
 ```bash
 export CEDAR_HOME=$HOME/CEDAR
 export JAVA_HOME=$(/usr/libexec/java_home -v 17)
-source $CEDAR_HOME/cedar-development/bin/templates/cedar-profile-docker-eval.sh
+source $CEDAR_HOME/cedar-development/bin/templates/cedar-profile-docker.sh
 ```
 
 Keep that shell for all commands below.
@@ -97,7 +97,7 @@ repository prefix before sourcing the Docker profile:
 
 ```bash
 export CEDAR_IMAGE_PREFIX=<registry-host>:<port>/<namespace>
-source $CEDAR_HOME/cedar-development/bin/templates/cedar-profile-docker-eval.sh
+source $CEDAR_HOME/cedar-development/bin/templates/cedar-profile-docker.sh
 ```
 
 Use Docker image syntax, not a URL: omit `https://`, an image tag, and a trailing slash. For a
@@ -315,7 +315,7 @@ only in the child processes and are recorded after the checks pass.
 
 ```bash
 export CEDAR_HOME=$HOME/CEDAR
-source $CEDAR_HOME/cedar-development/bin/templates/cedar-profile-docker-eval.sh
+source $CEDAR_HOME/cedar-development/bin/templates/cedar-profile-docker.sh
 cedarcli docker start all --mode hybrid --pull never
 ```
 
@@ -390,7 +390,7 @@ export CEDAR_HOME=$HOME/CEDAR
 bash $CEDAR_HOME/cedar-development/ops/cedar-services.sh stop \
   frontend workspace designer ui-openview ui-content ui-monitoring ui-bridging
 
-source $CEDAR_HOME/cedar-development/bin/templates/cedar-profile-docker-eval.sh
+source $CEDAR_HOME/cedar-development/bin/templates/cedar-profile-docker.sh
 cedarcli docker build frontends
 cedarcli docker start all --mode full --pull never
 ```
@@ -421,7 +421,7 @@ backend without involving any frontend.
 
 ```bash
 export CEDAR_HOME=$HOME/CEDAR
-source $CEDAR_HOME/cedar-development/bin/templates/cedar-profile-docker-eval.sh
+source $CEDAR_HOME/cedar-development/bin/templates/cedar-profile-docker.sh
 
 docker run --rm --network cedarnet \
   --add-host resource.metadatacenter.orgx:"$CEDAR_NGINX_HOST" \

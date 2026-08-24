@@ -411,7 +411,7 @@ Frontend work for the embeddable editor is tracked separately in
   infrastructure (7 services), microservices (15), frontend (7), admin (4) — plus a bundled CA and
   leaf certificates. `cedarcli docker` drives build, validation, Docker-aware status, one-time
   network/certificate setup, and per-stack start/stop. The address plan lives in
-  `bin/templates/cedar-profile-docker-eval.sh`, which the Docker path requires and the native profile
+  `bin/templates/cedar-profile-docker.sh`, which the Docker path requires and the native profile
   cannot substitute for.
 
   The images layer three deep. `cedar-java` is a Temurin 17 JRE on UBI9; `cedar-microservice` adds the
@@ -503,9 +503,9 @@ Frontend work for the embeddable editor is tracked separately in
   recreate, with no JDK, Maven or checkout on the box. Two things put it within reach. The
   `cedar-microservices` compose passes every infrastructure host through as a bare environment name,
   so the values come from whichever profile is sourced at `up` time, and `set-env-generic.sh` derives
-  all of them from `CEDAR_NET_GATEWAY`. A per-environment Docker profile is therefore the docker-eval
-  profile with the seven infrastructure host overrides removed and the gateway pointed at the Docker
-  bridge instead of `127.0.0.1`. Server-to-server traffic stays on `cedarnet` at its pinned
+  all of them from `CEDAR_NET_GATEWAY`. A per-environment Docker profile is therefore the current
+  Docker profile with the seven infrastructure host overrides removed and the gateway pointed at
+  the Docker bridge instead of `127.0.0.1`. Server-to-server traffic stays on `cedarnet` at its pinned
   addresses; the `extra_hosts` entry for `auth.<host>`, the healthchecks and the restart policies are
   unchanged. Avoid `network_mode: host`. It would let the existing profile work untouched, at the
   cost of the address plan, the port mapping, and any chance of standing a second version beside the
@@ -959,7 +959,7 @@ Frontend work for the embeddable editor is tracked separately in
      verification item, which is the only place that could run it.
 
      Still open: whether the two-profile split grates enough to smooth. The stack starts under the
-     docker-eval profile while the servers run under the native one, which is a second shell rather
+     Docker profile while the servers run under the native one, which is a second shell rather
      than a re-source. Across a single store it is a minor irritation and not obviously worth a
      third profile.
 

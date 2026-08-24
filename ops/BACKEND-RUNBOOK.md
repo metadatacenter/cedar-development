@@ -98,7 +98,7 @@ Docker bridge gateway; the Docker one pins every container to an address on `192
 
 ```bash
 export CEDAR_HOME=$HOME/CEDAR
-source $CEDAR_HOME/cedar-development/bin/templates/cedar-profile-docker-eval.sh
+source $CEDAR_HOME/cedar-development/bin/templates/cedar-profile-docker.sh
 # The profile defaults to the hybrid mode where nginx is native. Full Docker needs its nginx
 # container for Keycloak discovery and token-signing keys.
 export CEDAR_AUTH_HOST_TARGET="$CEDAR_NGINX_HOST"
@@ -194,7 +194,7 @@ host name. `CEDAR_NET_GATEWAY` reaches ports published by Docker but not native 
 
 ```bash
 export CEDAR_HOME=$HOME/CEDAR
-source $CEDAR_HOME/cedar-development/bin/templates/cedar-profile-docker-eval.sh
+source $CEDAR_HOME/cedar-development/bin/templates/cedar-profile-docker.sh
 export CEDAR_AUTH_HOST_TARGET="$CEDAR_NGINX_HOST"
 export CEDAR_FRONTEND_EDITOR_HOST=host.docker.internal
 export CEDAR_FRONTEND_CONTENT_HOST=host.docker.internal
@@ -234,13 +234,13 @@ from `CEDAR_NET_GATEWAY`, the native profile sets it to `127.0.0.1`, and the sta
 store to the host on the same `CEDAR_*_PORT` variables the servers already read.
 
 **Redis has moved.** Swap it with the native stack running, from a second shell — the stack needs
-the docker-eval profile for the container's pinned address, and the servers keep running under the
+the Docker profile for the container's pinned address, and the servers keep running under the
 native one:
 
 ```bash
 brew services stop redis                      # frees 6379
 export CEDAR_HOME=$HOME/CEDAR
-source $CEDAR_HOME/cedar-development/bin/templates/cedar-profile-docker-eval.sh
+source $CEDAR_HOME/cedar-development/bin/templates/cedar-profile-docker.sh
 cd $CEDAR_HOME/cedar-docker-deploy/cedar-infrastructure
 docker compose up -d redis-persistent
 ```
@@ -263,7 +263,7 @@ talking to something else. `redis-cli -p 6379 info server` should report `redis_
 
 ```bash
 brew services stop opensearch                 # frees 9200
-docker compose up -d opensearch               # from cedar-infrastructure, docker-eval profile
+docker compose up -d opensearch               # from cedar-infrastructure, Docker profile
 cedarat search-regenerateIndex                # native profile; rebuilds from Mongo + Neo4j
 cedarat rules-regenerateIndex
 ```
@@ -363,7 +363,7 @@ still correctly returns `401` — so the failure looks like a server bug rather 
 The log says `java.net.NoRouteToHostException`.
 
 **The Keycloak container cannot reach a native resource server.** Its event listener posts user
-lifecycle events to `CEDAR_RESOURCE_SERVER_HOST`, which under the docker-eval profile is a
+lifecycle events to `CEDAR_RESOURCE_SERVER_HOST`, which under the Docker profile is a
 `192.168.17.x` container address that does not exist when the servers are native, so the log fills
 with `NoRouteToHostException`. Login, token verification and the whole REST estate are unaffected —
 only event propagation is, so new-user provisioning is the thing to watch. Point it at
@@ -1958,7 +1958,7 @@ export CEDAR_HOME=$HOME/CEDAR
 bash $CEDAR_HOME/cedar-development/ops/cedar-services.sh stop \
   frontend workspace designer ui-openview ui-content ui-monitoring ui-bridging
 
-source $CEDAR_HOME/cedar-development/bin/templates/cedar-profile-docker-eval.sh
+source $CEDAR_HOME/cedar-development/bin/templates/cedar-profile-docker.sh
 export CEDAR_AUTH_HOST_TARGET="$CEDAR_NGINX_HOST"
 cedarcli docker build frontends
 cedarcli docker start frontends -d
