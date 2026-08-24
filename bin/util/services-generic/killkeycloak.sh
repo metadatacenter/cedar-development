@@ -5,7 +5,12 @@ echo ---------------------------------------------------------------------------
 echo
 
 echo Keycloak processes:
-ps ax | grep "[Q]uarkusEntryPoint"
+pids=$(ps ax | grep "[Q]uarkusEntryPoint" | awk '{print $1}')
+if [ -z "$pids" ]; then
+  echo "No Keycloak process is running."
+  exit 0
+fi
+ps -p $pids -o pid=,stat=,command=
 
 echo Kill them all:
-kill `ps ax | grep "[Q]uarkusEntryPoint" | awk '{print $1}'`
+kill $pids

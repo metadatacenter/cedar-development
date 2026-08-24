@@ -94,6 +94,55 @@ port_open() { nc -z -G1 127.0.0.1 "$1" >/dev/null 2>&1; }
 port_owner() { lsof -ti "tcp:$1" -sTCP:LISTEN 2>/dev/null | head -1; }
 owner_of()  { local p; p=$(cat "$(pidfile "$1")" 2>/dev/null); if [ -n "$p" ] && kill -0 "$p" 2>/dev/null; then echo "$p"; else port_owner "$(app_port "$1")"; fi; }
 
+# npm/gulp commonly has a non-listening wrapper above the Node process that owns the port. Killing
+# only the listener can leave that wrapper alive long enough to replace it. Stop the wrapper when it
+# is recognisably part of the same frontend, but never climb into an interactive shell or terminal.
+listener_root() {
+  local owner=$1 parent command
+  parent=$(ps -o ppid= -p "$owner" 2>/dev/null | tr -d ' ')
+  [ -n "$parent" ] && [ "$parent" -gt 1 ] || { echo "$owner"; return; }
+  command=$(ps -o command= -p "$parent" 2>/dev/null)
+  case "$command" in
+    *"npm exec gulp"*|*"npx gulp"*|*"ng serve"*|*"node"*"gulp"*) echo "$parent" ;;
+    *) echo "$owner" ;;
+  esac
+}
+
+terminate_tree() {
+  local pid=$1 child
+  for child in $(pgrep -P "$pid" 2>/dev/null); do terminate_tree "$child"; done
+  kill -TERM "$pid" 2>/dev/null || true
+}
+
+stop_port_processes() {
+  local name=$1 port=$2 managed=$3 owner root attempt
+  if [ -n "$managed" ] && kill -0 "$managed" 2>/dev/null; then
+    terminate_tree "$managed"
+  fi
+  attempt=0
+  while owner=$(port_owner "$port") && [ -n "$owner" ] && [ "$attempt" -lt 10 ]; do
+    root=$(listener_root "$owner")
+    terminate_tree "$root"
+    sleep 0.5
+    attempt=$((attempt+1))
+  done
+  owner=$(port_owner "$port")
+  if [ -n "$owner" ]; then
+    root=$(listener_root "$owner")
+    kill -KILL "$root" 2>/dev/null || true
+    sleep 0.5
+  fi
+  ! port_open "$port"
+}
+
+remove_launchd_job() {
+  local name=$1 label="org.metadatacenter.cedar.native.$1"
+  [ "$(uname -s)" = Darwin ] || return 0
+  if launchctl print "gui/$(id -u)/$label" >/dev/null 2>&1; then
+    launchctl remove "$label" >/dev/null 2>&1 || true
+  fi
+}
+
 jar_of() { echo "$CEDAR_HOME/cedar-$1-server/cedar-$1-server-application/target/cedar-$1-server-application-${CEDAR_VERSION}.jar"; }
 
 # A service can be healthy and still be serving code from before the last build, which makes a green
@@ -154,19 +203,33 @@ start_one() {
 }
 
 stop_one() {
-  local name=$1 p; p=$(cat "$(pidfile "$name")" 2>/dev/null)
+  local name=$1 p result=0; p=$(cat "$(pidfile "$name")" 2>/dev/null)
+  local port; port=$(app_port "$name")
+  # Retire jobs created by the former launchd experiment before touching their processes;
+  # otherwise KeepAlive immediately replaces every PID that stop terminates.
+  remove_launchd_job "$name"
   if [ -n "$p" ] && kill -0 "$p" 2>/dev/null; then
-    pkill -TERM -P "$p" 2>/dev/null; kill -TERM "$p" 2>/dev/null; echo "  stopped $name (pid $p)"
+    if stop_port_processes "$name" "$port" "$p"; then
+      echo "  stopped $name (pid $p)"
+    else
+      echo "  $name: FAILED TO STOP — port $port is still open" >&2
+      result=1
+    fi
   else
     # No pidfile, but something may still hold the port. Stopping it is the whole point of stop:
     # leaving it up is how a restart silently keeps serving the previous build.
     local owner; owner=$(port_owner "$(app_port "$name")")
     if [ -n "$owner" ]; then
-      pkill -TERM -P "$owner" 2>/dev/null; kill -TERM "$owner" 2>/dev/null
-      echo "  stopped $name (pid $owner, adopted — it had no pidfile, started outside this script)"
+      if stop_port_processes "$name" "$port" ""; then
+        echo "  stopped $name (pid $owner, adopted — it had no pidfile, started outside this script)"
+      else
+        echo "  $name: FAILED TO STOP — port $port is still open" >&2
+        result=1
+      fi
     else echo "  $name: not running"; fi
   fi
   rm -f "$(pidfile "$name")"
+  return "$result"
 }
 
 names() { if [ $# -gt 0 ]; then printf '%s\n' "$@"; else for s in "${SERVICES[@]}"; do set -- $s; echo "$1"; done; fi; }
@@ -212,8 +275,8 @@ status() {
 cmd="${1:-status}"; shift 2>/dev/null
 case "$cmd" in
   start)   echo "Starting CEDAR app tier (JDK 17)..."; while read -r n; do start_one "$n"; sleep 3; done < <(names "$@") ;;
-  stop)    while read -r n; do stop_one "$n"; done < <(names "$@") ;;
-  restart) "$0" stop "$@"; sleep 2; "$0" start "$@" ;;
+  stop)    failed=0; while read -r n; do stop_one "$n" || failed=1; done < <(names "$@"); exit "$failed" ;;
+  restart) "$0" stop "$@" || exit $?; sleep 2; "$0" start "$@" ;;
   status)  status ;;
   watch)   while true; do clear; date; status; sleep 5; done ;;
   health)  bad=0; while read -r n; do [ "$(health_of "$n")" = healthy ] || bad=1; done < <(names); exit $bad ;;
