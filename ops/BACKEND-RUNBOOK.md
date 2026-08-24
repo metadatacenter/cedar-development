@@ -113,11 +113,11 @@ cedarcli docker start infrastructure -d
 cedarcli docker start microservices -d
 ```
 
-The snapshot images are not currently published under the Docker Hub names hard-coded by Compose.
-The `cedarcli docker start` commands therefore default to `--pull never`; the equivalent direct
-command is `docker compose up -d --pull never`. Nexus can store the images, but selecting a Nexus
-prefix in the builder and Compose is still a roadmap item; the historical `CEDAR_DOCKERHUB`
-instructions require manual retagging.
+The `cedarcli docker start` commands default to `--pull never`; the equivalent direct command is
+`docker compose up -d --pull never`. This uses the locally built image set. To build and deploy from
+another registry, export `CEDAR_IMAGE_PREFIX=<registry-host>:<port>/<namespace>` before sourcing the
+Docker profile. Use `--pull missing` or `--pull always` only after confirming that the complete
+selected version has been published there.
 
 Certificates come from `$CEDAR_HOME/CEDAR_CA` when it exists, and only fall back to the expired set
 bundled in `cedar-docker-deploy/cedar-assets` when it does not.
@@ -304,7 +304,7 @@ into the volume with a one-off container before starting the service:
 $CEDAR_HOME/neo4j/bin/neo4j stop
 $CEDAR_HOME/neo4j/bin/neo4j-admin database dump neo4j --to-path=/tmp/neodump
 docker run --rm -v neo4j_data:/data -v /tmp/neodump:/dump --entrypoint sh \
-  metadatacenter/cedar-infra-neo4j:${CEDAR_DOCKER_VERSION} \
+  ${CEDAR_IMAGE_PREFIX}/cedar-infra-neo4j:${CEDAR_DOCKER_VERSION} \
   -c 'neo4j-admin database load neo4j --from-path=/dump --overwrite-destination=true'
 docker compose up -d neo4j
 ```

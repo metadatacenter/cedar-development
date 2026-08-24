@@ -26,10 +26,10 @@ Compose 5.3.1:
 - an authenticated browser opened Workspace's Smoke Tests template in Designer without console
   errors.
 
-This is not yet a pull-and-run development deployment. The Compose files and Docker builder
-hard-code the `metadatacenter` Docker Hub namespace, and the development infrastructure images used
-for the local proof were not published there. Nexus can hold these images, but registry selection
-is not wired into Compose yet. Use local builds until the registry work in the roadmap is complete.
+The builder, Compose projects, CLI validation, and cleanup all use `CEDAR_IMAGE_PREFIX`. It defaults
+to the compatible `metadatacenter` Docker Hub namespace and can instead name a Nexus Docker
+registry. Registry selection is ready, but publication of a complete, tested CEDAR image set is
+still roadmap work. Use local builds unless the complete version you need has been published.
 
 ## What runs
 
@@ -90,6 +90,22 @@ source $CEDAR_HOME/cedar-development/bin/templates/cedar-profile-docker-eval.sh
 
 Keep that shell for all commands below.
 
+### Select the image registry and namespace
+
+The default image prefix is `metadatacenter`. To build and run images in another registry, set one
+repository prefix before sourcing the Docker profile:
+
+```bash
+export CEDAR_IMAGE_PREFIX=<registry-host>:<port>/<namespace>
+source $CEDAR_HOME/cedar-development/bin/templates/cedar-profile-docker-eval.sh
+```
+
+Use Docker image syntax, not a URL: omit `https://`, an image tag, and a trailing slash. For a
+private registry, run `docker login <registry-host>:<port>` first. The one setting controls local
+image tags, CEDAR base-image inheritance, Compose pulls and starts, and the CEDAR image set selected
+by `cedarcli docker remove`. Changing it after a build selects a different image set; rebuild under
+the new prefix or use `--pull missing` or `--pull always` to obtain it.
+
 ## Validate configuration
 
 ```bash
@@ -127,8 +143,8 @@ cedarcli docker build infrastructure
 cedarcli docker build microservices
 ```
 
-Both paths tag images locally with the development version declared by the Docker build manifest.
-Do not assume that a local tag means the image was published to Docker Hub or Nexus.
+Both paths tag images locally under `CEDAR_IMAGE_PREFIX`, using the development version declared by
+the Docker build manifest. Do not assume that a local tag means the image was published.
 
 ### Frontend images
 
@@ -469,9 +485,8 @@ restarting native CEDAR. Never mix values from the native and Docker profiles in
 
 ## Known limitations
 
-- Snapshot images are buildable but not currently pullable through the checked-in Compose path.
-- Image names hard-code `metadatacenter`; the historical `CEDAR_DOCKERHUB`/Nexus guidance only
-  supports manual tag/push/pull and Compose cannot select that registry.
+- Registry selection is implemented, but a complete tested snapshot image set is not yet published
+  automatically; confirm availability before relying on `--pull missing` or `--pull always`.
 - Artifact is intentionally private to `cedarnet`; host-only test runners cannot exercise its
   cross-store contract directly.
 - Java build success means compilation/package success because `cedarcli build java` uses
