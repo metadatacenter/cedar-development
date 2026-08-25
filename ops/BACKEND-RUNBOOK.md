@@ -63,8 +63,8 @@ bash $CEDAR_UTIL_BIN/services-generic/startinfra.sh     # mongo, mysql, opensear
 # 127.0.0.1 where Docker binds the wildcard, so it starts, wins every connection, and nothing warns.
 
 # 2. app tier — cedarcli runs every process in the background
-cedarcli start microservices
-cedarcli start frontends
+cedarcli native start microservices
+cedarcli native start frontends
 cedarcli native status
 
 # 3. log in
@@ -74,7 +74,7 @@ open https://cedar.metadatacenter.orgx    # test1@test.com / test1   (also test2
 (cd ops/e2e && npm run smoke)
 ```
 
-`cedarcli start all` runs both steps above, including native infrastructure. It does not open or
+`cedarcli native start all` runs both steps above, including native infrastructure. It does not open or
 control a terminal application. Each application has its own PID file and log instead.
 
 ## The containerized stack
@@ -89,7 +89,7 @@ passed. See [DOCKER-RUNBOOK.md](./DOCKER-RUNBOOK.md) for the reproducible build,
 deployment, health, and acceptance procedures.
 
 **It cannot run beside the native stack.** Both want 80/443, 3306, 27017, 6379, 9200, 7474/7687,
-8080 and the 9xxx range. Take the native one down first with `cedarcli stop all`, which unlike
+8080 and the 9xxx range. Take the native one down first with `cedarcli native stop all`, which unlike
 `cedar-services.sh stop` also stops the infrastructure. Storage is separate — the containers use
 their own named volumes and never touch `/opt/homebrew/var/*`, so the two estates keep independent
 data.
@@ -115,7 +115,9 @@ The checked-out-source alternative is explicit and does not claim to reproduce a
 
 ```bash
 cedarcli build java
-cedarcli docker build core --local
+cedarcli docker build infra --local
+cedarcli docker build microservices --local
+cedarcli docker build frontends --local
 cedarcli docker start all --mode full --local --pull never
 ```
 
@@ -466,8 +468,8 @@ and nowhere else; `ops/check_version_pairing.py` then checks it still pairs with
 `cedar-parent` ships.
 
 The image name is the source repository minus its `cedar-` prefix, for all fifteen servers and the
-admin tool. `cedarcli docker build` also takes `all`, a group (`infrastructure`, `microservices`,
-`frontends`, `admin`), or any image name, and always builds the CEDAR bases an image is built `FROM`
+admin tool. `cedarcli docker build` also takes `all`, a group (`infra`, `microservices`, `frontends`,
+`admin`), a component target such as `frontend workspace`, or any image name. It always builds the CEDAR bases an image is built `FROM`
 first — which a bare `docker build` does not, and which is how a stale base silently gets used.
 
 **Build clean when a library changed.** `./mvnw install` without `clean` can re-shade a fat jar around
@@ -493,7 +495,7 @@ The auxiliary frontends are the `ui-*` entries — `ui-openview` (4220), `ui-con
 `ui-monitoring` (4300), `ui-bridging` (4340) — each run as `ng serve` from its
 `cedar-<name>[-src]` source dir (see `fe_dir()`). They are named `ui-*` because `openview`/`monitor`/
 `bridge` are already microservice names. Their health is **port-only** (no Dropwizard `/healthcheck`).
-`cedarcli start frontends` starts all seven through this controller. The non-essential CEE demos
+`cedarcli native start frontends` starts all seven through this controller. The non-essential CEE demos
 (`cee-dev`/`demo.cee`) are not managed here — `cedarcli` doesn't start them by default either.
 
 ```bash
@@ -524,7 +526,8 @@ gate.
 
 ## How native processes are managed
 
-`cedarcli start microservices` and `cedarcli start frontends` delegate to `cedar-services.sh`.
+`cedarcli native start microservices` and `cedarcli native start frontends` delegate to
+`cedar-services.sh`.
 Applications run in the background; the CLI never opens iTerm or Terminal. Use `cedarcli native
 status`, `cedarcli native watch`, `cedarcli native logs <name>`, or `cedarcli native restart
 [name...]` instead of keeping a console open for each process.
@@ -1516,15 +1519,15 @@ rather than from a checkout. Mutable `<NEXT>-SNAPSHOT` artifacts remain a conven
 native development, where a developer expects the latest successful `develop` build. They are not
 a deployment identity: the bytes behind one snapshot name can change at any time.
 
-Docker and integration deployments use an immutable build train instead. `cedarcli build train`
+Docker and integration deployments use an immutable build train instead. `cedarcli publish train`
 allocates a version such as `<NEXT>-dev.YYYYMMDD.HHMM`, captures the exact source commits, builds
 parent, libraries, and services in dependency order, and publishes into the no-redeploy
 `cedar-maven-dev` repository. Docker consumes that train version, never the mutable snapshot. A
 failed job resumes only from its recorded source manifest:
 
 ```bash
-cedarcli build train
-cedarcli build train --resume <TRAIN>
+cedarcli publish train
+cedarcli publish train --resume <TRAIN>
 ```
 
 Create a new train, rather than resuming, when newer source commits must be included. The complete
@@ -1547,12 +1550,12 @@ cd $CEDAR_HOME/cedar-<name> && ./mvnw --batch-mode deploy --settings .m2/nexus-s
 
 The extracted AngularJS frontends publish to the npm repository on Nexus, not through Maven. They
 remain outside `release all-in-one` during migration and are excluded from the generic frontend/all
-deploy selectors. Publishing them therefore requires the explicit command and never changes a
+publish selectors. Publishing them therefore requires the explicit command and never changes a
 running environment:
 
 ```bash
-cedarcli deploy split-frontends --dry-run
-cedarcli deploy split-frontends
+cedarcli publish split-frontends --dry-run
+cedarcli publish split-frontends
 ```
 
 That plan runs `npm ci` in exactly `cedar-workspace` and `cedar-template-designer`, then calls the
@@ -1962,7 +1965,7 @@ nginx includes into `/opt/homebrew/etc/nginx/cedar`. It validates the nginx conf
 reloads nginx when direct non-interactive sudo is available, otherwise it uses the CEDAR-scoped
 stop/start helpers. It adds only the two hostname virtual hosts; the monolith virtual host remains
 untouched. Local development can run native Gulp servers with
-`cedarcli start frontend split-frontends`. The all-Docker variant uses the normal seven-frontend
+`cedarcli native start frontend split-frontends`. The all-Docker variant uses the normal seven-frontend
 stack. Stop native listeners first because both modes publish the same ports:
 
 ```bash
@@ -2019,7 +2022,7 @@ two static-root virtual hosts, certificates, Keycloak entries, and backend CORS 
 then run the deployment and authenticated smokes before any route switch.
 
 `cedarcli build split-frontends` without `--server-payload` only installs the locked dependencies.
-`cedarcli start|stop frontend split-frontends` is for the local `develop` profile on ports 4201 and
+`cedarcli native start|stop frontend split-frontends` is for the local `develop` profile on ports 4201 and
 4202, not for a staging static payload.
 
 Workspace is also a mandatory CEE release consumer. After publishing any stable or development CEE

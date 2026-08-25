@@ -31,7 +31,8 @@ Prod runs the released code from **`main`** at `$CEDAR_HOME`, built in place. A 
    separate host**.
 5. **Restarts** Java, then bounces nginx.
 
-> **Downtime window.** Java is down from `cedarcli stop java` until `cedarcli start java` — do the
+> **Downtime window.** Java is down from `cedarcli native stop microservices` until
+> `cedarcli native start microservices` — do the
 > build *before* stopping Java to keep the window short. The **log DB migration causes no downtime**:
 > the log DB is written only by the worker draining Redis, asynchronously, so it can be migrated while
 > the rest of the system is up (or even before the window).
@@ -97,8 +98,8 @@ cedarcli build all             # this deploy: ~0:11:24
 
 ### 5 · Redeploy backend + configure frontends (Java goes down here)
 ```bash
-cedarcli stop java
-cedarcli status                        # confirm Java services are down
+cedarcli native stop microservices
+cedarcli native status                 # confirm Java services are down
 cedarcli dev copy-keycloak-listener    # copy the event-listener jar into Keycloak, then kc.sh build
 cedarcli prod configure-frontends      # rewrite window.cedarDomain + content domain in the dist index.html's
 cedarcli git status                    # all green; release is on main
@@ -147,7 +148,7 @@ ssh youruser@<prod-log-db-host>        # if refused from prod, hop from the stag
 
 ### 8 · Start Java, then bounce nginx
 ```bash
-cedarcli start java                    # end of the downtime window
+cedarcli native start microservices    # end of the downtime window
 ```
 nginx runs as root, not `cedar`:
 ```bash
@@ -159,7 +160,7 @@ service nginx start
 
 ## Verify
 
-- `cedarcli status` — all Java services up on the new build.
+- `cedarcli native status` — all Java services up on the new build.
 - `cedarcli check versions` — every repo at the expected version + modifier.
 - Load the monolith and, while migration is active, Workspace in fresh/incognito browser sessions;
   confirm both serve the intended CEE hash and can create/edit an instance (a stale bundle means the
@@ -191,7 +192,7 @@ service nginx start
 | `cedarcli dev copy-keycloak-listener` | Copies `cedar-keycloak-event-listener.jar` into Keycloak's `providers/`, then runs `kc.sh build` so Keycloak picks up the provider. |
 | `cedarcli prod configure-frontends` | `sed`-rewrites `window.cedarDomain` and the content host in the active OpenView, Bridging, and Monitoring static `index.html` files to the production `CEDAR_HOST`. |
 | `propagate-cee-release.mjs --check` | Proves all seven CEE manifests and lockfiles—including Workspace—pin the exact release from the correct registry. |
-| `cedarcli deploy split-frontends` | Publishes immutable commit-derived npm prereleases for Workspace and Designer to Nexus; generic frontend/all deploy commands exclude them. It does not change an environment or modify either working tree. |
+| `cedarcli publish split-frontends` | Publishes immutable commit-derived npm prereleases for Workspace and Designer to Nexus; generic frontend/all publish commands exclude them. It does not change an environment or modify either working tree. |
 | `cedarcli build split-frontends --server-payload` | On a native host, refuses dirty split checkouts, runs `npm ci` + Gulp, and writes the static payload identities nginx serves. |
 | `gulp` (in template-editor or Workspace) | Copies the pinned CEE bundle and builds that AngularJS host. |
 

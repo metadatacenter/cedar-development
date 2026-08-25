@@ -67,7 +67,7 @@ a service is listening on its stop port, and may leave unmanaged JVMs alive.
 ```bash
 export CEDAR_HOME=$HOME/CEDAR
 source $CEDAR_HOME/cedar-profile-native-develop.sh
-cedarcli stop all
+cedarcli native stop all
 
 # The expected result is no listeners. Stop any remaining service from its owning terminal or
 # process controller; do not use a broad `pkill java`, which can kill unrelated JVMs.
@@ -136,7 +136,7 @@ There are two supported build paths today. Train creation, state, and recovery a
 Create and publish a new immutable Maven and Docker train with:
 
 ```bash
-cedarcli build train
+cedarcli publish train
 ```
 
 The workflow publishes the Java train, builds the two internal bases and 29 runtime images, then
@@ -144,7 +144,7 @@ pulls and verifies all 31 before advancing `docker/current.json`. Resume a faile
 the train ID printed by the original command:
 
 ```bash
-cedarcli build train --resume <TRAIN>
+cedarcli publish train --resume <TRAIN>
 ```
 
 ### Completed build train: normal published-artifact build
@@ -154,11 +154,9 @@ groups receive that train's version as their image tag, and the Java images down
 immutable Maven version from `cedar-maven-dev`:
 
 ```bash
-cedarcli docker build infrastructure
+cedarcli docker build infra
 cedarcli docker build microservices
 cedarcli docker build frontends
-# Or build the same 31-image core inventory in one command:
-cedarcli docker build core
 ```
 
 Select a particular completed train instead of the current pointer when reproducing it:
@@ -176,7 +174,7 @@ fat JAR into its server image and clears the staged file after the build.
 
 ```bash
 cedarcli build java
-cedarcli docker build infrastructure --local
+cedarcli docker build infra --local
 cedarcli docker build microservices --local
 cedarcli docker build frontends --local
 ```
@@ -219,8 +217,7 @@ docker volume inspect cedar_cert cedar_ca >/dev/null
 ## Start the Docker deployment
 
 Select the topology explicitly. `full` runs all 29 core containers. `hybrid` runs the 22-container
-backend and routes Docker nginx to the seven frontend development servers on the host. `backend`
-runs the same 22 containers without requiring any frontend routes, which is useful for REST work.
+backend and routes Docker nginx to the seven frontend development servers on the host.
 
 ```bash
 cedarcli docker start all --mode full --pull never
@@ -233,7 +230,7 @@ from `docker build --local`, add `--local` to start so Compose selects the devel
 `--pull never` uses the images already present on the machine and fails if one is absent. This is
 the safe choice for locally built development images. Use `--pull missing` to fetch only absent
 images, or `--pull always` when the deployment must refresh every image from its configured
-registry. Add `--include-admin` to start the four optional administration containers and
+registry. Use the separate `admin` target for optional administration containers. Use
 `--timeout SECONDS` to change the ten-minute readiness deadline.
 
 The command validates all Compose projects, checks the Docker daemon, `cedarnet`, certificate
@@ -250,7 +247,7 @@ when recreating nginx, but they do not perform the aggregate preflight or readin
 
 The aggregate start records its successful mode under `$CEDAR_HOME/.cedar`. The Docker-aware status
 command reads that mode, checks the appropriate Compose inventory and acceptance probes, and exits
-nonzero when a required container or route is not ready. The top-level `cedarcli status` remains the
+nonzero when a required container or route is not ready. `cedarcli native status` is the separate
 native process/host-port diagnostic and will report false failures for Docker-internal ports.
 
 ```bash
@@ -262,18 +259,17 @@ Override the recorded expectation only when diagnosing another topology:
 ```bash
 cedarcli docker status --mode full
 cedarcli docker status --mode hybrid
-cedarcli docker status --mode backend
 ```
 
-Admin tools are optional and excluded from the normal result. Require them explicitly when that
-stack is part of the deployment:
+Admin tools are optional and managed separately from the aggregate deployment:
 
 ```bash
-cedarcli docker status --include-admin
+cedarcli docker start admin --detach
+cedarcli docker stop admin
 ```
 
-For a backend-only deployment, there must be exactly 22 running backend containers and every one
-must report `healthy`:
+For a hybrid deployment, there must be exactly 22 running backend containers and every one must
+report `healthy`:
 
 ```bash
 docker ps \
@@ -347,7 +343,7 @@ source $CEDAR_HOME/cedar-profile-native-develop.sh
 export CEDAR_FRONTEND_BIND_HOST=0.0.0.0
 export CEDAR_WORKSPACE_FRONTEND_URL=https://workspace.metadatacenter.orgx
 export CEDAR_TEMPLATE_DESIGNER_FRONTEND_URL=https://designer.metadatacenter.orgx
-cedarcli start frontends
+cedarcli native start frontends
 ```
 
 Start the Docker backend from a Docker-profile shell in `hybrid` mode. The CLI stops any Docker
@@ -384,14 +380,14 @@ met those expectations while all 22 backend containers remained healthy.
 Stop only the native frontends without touching the Docker backend:
 
 ```bash
-cedarcli stop frontends
+cedarcli native stop frontends
 ```
 
 Three frontend deployment modes remain distinct:
 
 | Mode | Where frontend code is served | How it is started | Current status |
 | --- | --- | --- | --- |
-| Native hybrid | Seven macOS development-server processes | `cedarcli start frontends`, then `cedarcli docker start all --mode hybrid` | Proven local development mode |
+| Native hybrid | Seven macOS development-server processes | `cedarcli native start frontends`, then `cedarcli docker start all --mode hybrid` | Proven local development mode |
 | All-Docker frontends | Seven containers on `cedarnet` | `cedarcli docker start all --mode full` | Proven on 2026-08-21 |
 | Native-only stack | Seven native development servers | Native profile and native nginx | Preserved; Docker work does not change it |
 
@@ -428,7 +424,7 @@ operation:
 
 ```bash
 export CEDAR_HOME=$HOME/CEDAR
-cedarcli stop frontends
+cedarcli native stop frontends
 
 source $CEDAR_HOME/cedar-development/bin/templates/cedar-profile-docker.sh
 cedarcli docker build frontends
@@ -509,9 +505,8 @@ Stop the core Docker deployment in reverse dependency order:
 cedarcli docker stop all
 ```
 
-If the optional administration stack was started outside the recorded aggregate deployment, add
-`--include-admin`. An administration stack selected by `start all --include-admin` is remembered
-and stopped automatically. The command removes containers and Compose-owned networks but retains
+The command does not stop the optional administration stack. Manage that independently with
+`cedarcli docker stop admin`. Stopping removes containers and Compose-owned networks but retains
 named data volumes, so a subsequent start reuses the data.
 
 Individual stop commands remain available when changing one part of a development deployment, for

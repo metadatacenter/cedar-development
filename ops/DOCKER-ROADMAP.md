@@ -8,8 +8,8 @@ procedures are in [DOCKER-RUNBOOK.md](./DOCKER-RUNBOOK.md).
 
 The local build and deployment path is working: `cedarcli` builds dependency bases before their
 consumers, applies one validated image prefix across builds and Compose, and validates all four
-Compose stacks. Its aggregate workflow preflights the host, selects
-full-Docker, native-frontend hybrid, or backend-only routing without mutating the shell, starts each
+Compose stacks. Its aggregate workflow preflights the host, selects full-Docker or native-frontend
+hybrid routing without mutating the shell, starts each
 layer in dependency order, waits for health and route acceptance, records the active mode, and stops
 the deployment without deleting data. Java development artifacts can now be published as one
 immutable build train, and Docker build/start resolve the most recently completed train or an exact

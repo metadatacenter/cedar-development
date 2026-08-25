@@ -38,7 +38,7 @@ write repository contents. The workflow uses that permission only for the dedica
 Run this from a configured CEDAR shell:
 
 ```bash
-cedarcli build train
+cedarcli publish train
 ```
 
 The CLI reads the next version from `cedar-parent`, adds the current UTC minute, and dispatches the
@@ -78,7 +78,7 @@ are optional and are not part of this pointer.
 ## Resume a failed train
 
 ```bash
-cedarcli build train --resume <TRAIN>
+cedarcli publish train --resume <TRAIN>
 ```
 
 Resume requires `trains/<TRAIN>.json` on the `build-trains` branch and checks out the commits in that
@@ -109,7 +109,7 @@ The source manifest is never rewritten. The current pointer moves only after com
 Ordinary Docker builds resolve the Maven `current.json` automatically:
 
 ```bash
-cedarcli docker build infrastructure
+cedarcli docker build infra
 cedarcli docker build microservices
 cedarcli docker build frontends
 ```
@@ -130,8 +130,10 @@ The local-source path remains explicit and independent of published trains:
 
 ```bash
 cedarcli build java
+cedarcli docker build infra --local
 cedarcli docker build microservices --local
-cedarcli docker start all --mode backend --local --pull never
+cedarcli docker build frontends --local
+cedarcli docker start all --mode full --local --pull never
 ```
 
 Local images keep the development tag declared in `cedar-docker-build`; they are not evidence that

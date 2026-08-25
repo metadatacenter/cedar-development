@@ -61,6 +61,12 @@ export CEDAR_AUTH_HOST_TARGET=${CEDAR_NGINX_HOST}
 # The read-only bind mount stays either way, so switching is this line and a container recreate.
 export CEDAR_TERMINOLOGY_STORE_CATALOG=/cedar/term/prod/catalog.sqlite
 
+# The cross-snapshot search index, the second file of the store and a separate variable because it
+# is separately optional: a catalog can be served without one. Without it POST /search and
+# GET /search/hierarchy refuse a query that names no source, because answering corpus-wide would
+# mean opening every snapshot in the catalog, and cedar-term-picker searches corpus-wide first.
+export CEDAR_TERMINOLOGY_STORE_INDEX=/cedar/term/prod/search-index.sqlite
+
 export CEDAR_ARTIFACT_SERVER_HOST=192.168.17.101
 export CEDAR_BRIDGE_SERVER_HOST=192.168.17.115
 export CEDAR_GROUP_SERVER_HOST=192.168.17.109

@@ -16,7 +16,7 @@ Choose the guide by task:
 
 - **Native backend and native stack:** `cedar-development/ops/BACKEND-RUNBOOK.md`
 - **Maven and Docker build trains:** `cedar-development/ops/BUILD-RUNBOOK.md`
-- **Full-Docker, hybrid and backend-only stacks:** `cedar-development/ops/DOCKER-RUNBOOK.md`
+- **Full-Docker and hybrid stacks:** `cedar-development/ops/DOCKER-RUNBOOK.md`
 - **Open Docker delivery work:** `cedar-development/ops/DOCKER-ROADMAP.md`
 - **Releases:** `cedar-development/ops/RELEASE-RUNBOOK.md`
 - **Production deployment:** `cedar-development/ops/PROD-DEPLOY-RUNBOOK.md`
@@ -66,8 +66,8 @@ The backend — the microservices, the shared Java libraries, the stack itself:
 - [BUILD-RUNBOOK.md](ops/BUILD-RUNBOOK.md) — creating, resuming and consuming immutable development
   build trains across Maven artifacts and Docker images, including their Nexus and state-branch
   layout.
-- [DOCKER-RUNBOOK.md](ops/DOCKER-RUNBOOK.md) — building and operating the full-Docker, native-frontend
-  hybrid and backend-only container stacks.
+- [DOCKER-RUNBOOK.md](ops/DOCKER-RUNBOOK.md) — building and operating the full-Docker and
+  native-frontend hybrid container stacks.
 - [DOCKER-ROADMAP.md](ops/DOCKER-ROADMAP.md) — remaining registry-backed delivery, promotion,
   rollback, image-verification and persistence work.
 
@@ -173,5 +173,5 @@ suggestion, ~30 s): `cd cedar-development/ops/e2e && npm run smoke` — details 
 
 - Commit/push only when asked. Several `cedar-*` repos may be edited by parallel sessions —
   check `git status` and stage specific files; never blanket `git add -A`.
-- `cedar-cli` is the control CLI (build/deploy/start/stop); on macOS its `start` opens Terminal
+- `cedar-cli` is the control CLI (build/publish/start/stop); on macOS its `start` opens Terminal
   tabs, which is why `cedar-services.sh` exists for headless/background management.

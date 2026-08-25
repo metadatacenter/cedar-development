@@ -205,6 +205,15 @@ next major release.
    rendered through the same presentation if the validators disagree or the template changes
    between edit and save.
 
+   One advisory-only divergence is measured, so it need not be re-derived. A field declaring
+   `requiredValue: true` under `minItems: 0` is reported unfilled by CEE when it holds no
+   occurrences, while the canonical validator accepts the empty array the template's JSON Schema
+   asks for, `requiredValue` being a `_valueConstraints` notion that validator does not enforce.
+   Compatibility case 081 is that shape, and it is the only one of the 178 corpus, compatibility
+   and HuBMAP fixtures where the two disagree. Disabling Save on `isValid` would therefore refuse
+   a document REST would store, which is the failure this item exists to avoid.
+   `harness/test/report-shape.spec.ts` pins the behavior.
+
    Pin the integration with host tests for invalid-to-valid and valid-to-invalid transitions,
    multiple problems across pages and repeated elements, an advisory-only report, a rejected create,
    a rejected update, correction followed by a successful save, and a deliberately divergent server

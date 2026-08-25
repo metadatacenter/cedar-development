@@ -16,16 +16,16 @@ A companion visual — a live phase timeline + this same command sequence in tab
 CEDAR is a ~53-repo monorepo; a release touches ~48 of them. `all-in-one` runs eight phases in order:
 
 1. **Checkout develop** — put the release repos on `develop`.
-2. **Deploy snapshot** — build + deploy the current develop snapshot to Nexus/npm.
+2. **Publish snapshot** — build and publish the current develop snapshot to Nexus/npm.
 3. **Prepare** — `versions:set <VER>` across every repo, create `release/pre-<VER>` + `release/post-<NEXT>` branches, tag `release-<VER>`. (Bigger than it looks — it stamps every POM/package.)
 4. **Commit** — per repo: merge the tag into `main` + push, merge the post-branch into `develop` + push.
 5. **Cleanup** — delete the temporary `release/pre|post` branches.
 6. **Checkout main** — release repos onto `main`.
-7. **Deploy develop** — publish `<NEXT>` snapshots (rebuild frontends + `./mvnw deploy` + `npm publish`).
+7. **Publish develop** — publish `<NEXT>` snapshots (rebuild frontends + `./mvnw deploy` + `npm publish`).
 8. **Deploy main** — publish the `<VER>` release to Nexus + npm.
 
 It runs **~1h50m–2h30m** (a clean run is ~1:48). It is **not atomic** — failures cluster in the
-**commit** phase (git pushes) and the **deploy** tail (Nexus/npm). State it writes under `~/.cedar/`:
+**commit** phase (git pushes) and the **publish** tail (Nexus/npm). State it writes under `~/.cedar/`:
 `last_plan_content.sh` (the full plan, written up front) and `last_release_{version,next_dev_version,tag,pre_branch,post_branch}` (the rollback handles, written during prepare).
 
 CEE releases independently and is excluded from `release all-in-one`. Publishing CEE is not complete
@@ -49,11 +49,11 @@ progress. Their exact current versions publish as npm packages to the CEDAR Nexu
 one deliberately named selector:
 
 ```bash
-cedarcli deploy split-frontends --dry-run
-cedarcli deploy split-frontends
+cedarcli publish split-frontends --dry-run
+cedarcli publish split-frontends
 ```
 
-The generic `cedarcli deploy frontends` and `cedarcli deploy all` selectors exclude them. The
+The generic `cedarcli publish frontends` and `cedarcli publish all` selectors exclude them. The
 explicit plan runs `npm ci`, then stages and publishes an immutable prerelease from each clean
 commit without changing either working tree. npm cannot overwrite `<NEXT>-SNAPSHOT` the way Maven
 can; versions therefore have the form `<NEXT>-dev.<UTC-commit-time>.g<12-char-commit>`, carry the
@@ -183,9 +183,9 @@ then resume.
 | `remote: fatal error in commit_refs` / `remote rejected main -> main` | transient GitHub backend | retry the push, then `release commit` |
 | merge conflict on generated `*-editor-*.js` / `*-form-*.js` in the distribution repo | dist-file conflict | resolve (take all), commit, push, finish the plan by hand |
 
-## Branch layout for the deploy
+## Branch layout for publication
 
-The ~48 release repos deploy from `main`; the 6 `skip_from_release` frontend repos build from
-`develop`. `all-in-one` arranges this itself. If you ever end up doing a manual deploy after a blanket
+The ~48 release repos publish from `main`; the 6 `skip_from_release` frontend repos build from
+`develop`. `all-in-one` arranges this itself. If you ever end up doing a manual publication after a blanket
 checkout, put the `skip_from_release` repos back on `develop` first, or their (older) `main` may not
 even build.

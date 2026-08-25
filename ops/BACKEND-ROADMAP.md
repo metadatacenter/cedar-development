@@ -549,7 +549,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   saved plan script record which mode ran.
 
   Two places the flag must not silently reach. `ReleasePrepareShellTaskFactory` hardcodes
-  `./mvnw clean install -DskipTests` and `DeployShellTaskFactory` hardcodes `./mvnw deploy -DskipTests`, so
+  `./mvnw clean install -DskipTests` and `PublishShellTaskFactory` hardcodes `./mvnw deploy -DskipTests`, so
   release and deploy builds never run tests whatever the flag says. Extend them deliberately or state
   it; do not leave `--tests` looking as though it covers them.
 
@@ -692,7 +692,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
      installs the shared CORS filter. Rebuild and rolling-redeploy those services, then require positive
      credentialed preflights from every approved origin and rejection of a deliberately unlisted origin.
   6. **Payload and CEE identity:** explicitly publish the two npm packages to Nexus with
-     `cedarcli deploy split-frontends`, check out the approved Git commits on staging, and generate
+     `cedarcli publish split-frontends`, check out the approved Git commits on staging, and generate
      clean native static trees with `cedarcli build split-frontends --server-payload`. Deploy those
      provenance-stamped Workspace and Designer payloads beside the monolith.
      `propagate-cee-release.mjs --check <CEE_VERSION>` must pass all seven consumer
