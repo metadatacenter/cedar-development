@@ -40,7 +40,7 @@ and their provenance labels and registry digests verified.
 | --- | ---: | --- |
 | Infrastructure | 7 | 80/443, 3306, 6379, 7474/7687, 8080/8443, 9200/9300, 27017 |
 | Microservices | 15 | 9002-9015; Artifact's 9001 is intentionally internal only |
-| Frontends (all-Docker mode) | 7 | 4200-4202, 4220, 4240, 4300, 4340 |
+| Frontends (`docker` mode) | 7 | 4200-4202, 4220, 4240, 4300, 4340 |
 | Frontends (alternative hybrid mode) | 0 containers / 7 macOS processes | Same seven ports |
 | Admin tools (optional) | 4 | Environment-configured admin ports |
 
@@ -122,35 +122,35 @@ docker start frontend-main frontend-workspace frontend-template-designer fronten
 
 Each stage needs the one before it healthy.
 
-## Set the Docker environment
+## Configure the deployment mode
 
-`CEDAR_HOME` must be exported **before** the profile is sourced. A missing value makes the profile
-source `/set-env-external.sh`, and Compose later resolves the terminology bind mount as
-`/cedar-term`, which Docker Desktop rejects.
+`cedarcli mode` selects one persistent topology before any native or Docker operation is allowed.
+It starts nothing. It loads and validates the required profile internally, validates all four
+Compose projects for `docker` and `hybrid`, pins Java 17 for native commands, and records the choice
+in `$CEDAR_HOME/.cedar/mode.json`. Subsequent commands work from a bare shell; cedarcli supplies the
+selected profile to its own child processes rather than changing the calling shell.
 
-The Docker profile defines the fixed container topology. The aggregate CLI applies the selected
-frontend routing only to its Docker child processes, so it does not mutate this shell. All supported
-Docker modes run the infrastructure nginx container; Java services consequently resolve the public
-authentication hostname to that container.
-
-```bash
-export CEDAR_HOME=$HOME/CEDAR
-export JAVA_HOME=$(/usr/libexec/java_home -v 17)
-source $CEDAR_HOME/cedar-development/bin/templates/cedar-profile-docker.sh
-```
-
-Keep that shell for all commands below.
+The three choices are `native`, `hybrid`, and `docker`. A second selection is rejected. To switch,
+stop the selected deployment, run `cedarcli mode --clear`, then configure the new mode. Native mode
+rejects every Docker command; Docker mode rejects every native command. Hybrid permits Docker
+backend operations and native frontend operations, while rejecting the opposite combinations. The
+CLI also reconciles that choice with the runtime: native commands are refused while a recorded or
+running CEDAR Compose project exists; Docker starts are refused while verified native services are
+still running; and hybrid Docker starts allow native frontend processes but reject native backend
+processes. Stop commands for the selected estate remain available so a conflict can be recovered
+without killing the other estate.
 
 ### Select the image registries and namespaces
 
 The default image prefix is `metadatacenter`. To build and run images in another registry, set the
-runtime repository prefix before sourcing the Docker profile. Set the internal prefix only when the
-two Java bases live elsewhere:
+runtime repository prefix before configuring `docker` or `hybrid`. The mode record retains both
+prefixes for later bare-shell commands. Set the internal prefix only when the two Java bases live
+elsewhere:
 
 ```bash
 export CEDAR_IMAGE_PREFIX=<registry-host>:<port>/<namespace>
 export CEDAR_BASE_IMAGE_PREFIX=<registry-host>:<port>/<internal-namespace>
-source $CEDAR_HOME/cedar-development/bin/templates/cedar-profile-docker.sh
+cedarcli mode docker
 ```
 
 Use Docker image syntax, not a URL: omit `https://`, an image tag, and a trailing slash. For a
@@ -164,6 +164,14 @@ The CEDAR Nexus publication uses HTTPS path routing:
 ```bash
 export CEDAR_IMAGE_PREFIX=nexus.bmir.stanford.edu/docker-cedar
 export CEDAR_BASE_IMAGE_PREFIX=nexus.bmir.stanford.edu/docker-cedar-internal
+```
+
+After setting any installation-specific values, configure the topology. For the complete container
+deployment:
+
+```bash
+export CEDAR_HOME=$HOME/CEDAR
+cedarcli mode docker
 ```
 
 ## Validate configuration
@@ -264,11 +272,11 @@ docker volume inspect cedar_cert cedar_ca >/dev/null
 
 ## Start the Docker deployment
 
-Select the topology explicitly. `full` runs all 29 core containers. `hybrid` runs the 22-container
-backend and routes Docker nginx to the seven frontend development servers on the host.
+The configured `docker` mode runs all 29 core containers. Configured `hybrid` mode runs the
+22-container backend and routes Docker nginx to the seven frontend development servers on the host.
 
 ```bash
-cedarcli docker start all --mode full --pull never
+cedarcli docker start all --pull never
 ```
 
 Start resolves the current completed Docker train, which can lag the Maven pointer while images are
@@ -286,27 +294,21 @@ volumes, and published ports, and then starts infrastructure, microservices, fro
 selected, and optional admin tools in dependency order. It waits after each stage. A timeout names
 the unhealthy services and prints at most 100 recent log lines for each. Finally, it verifies that
 a backend container can reach Keycloak's signing configuration and checks the public frontend
-routes in `full` and `hybrid` modes.
+routes in `docker` and `hybrid` modes.
 
 Individual stack commands remain available for troubleshooting. They preserve the recorded mode
 when recreating nginx, but they do not perform the aggregate preflight or readiness sequence.
 
 ## Health gate
 
-The aggregate start records its successful mode under `$CEDAR_HOME/.cedar`. The Docker-aware status
-command reads that mode, checks the appropriate Compose inventory and acceptance probes, and exits
-nonzero when a required container or route is not ready. `cedarcli native status` is the separate
-native process/host-port diagnostic and will report false failures for Docker-internal ports.
+The Docker-aware status command reads the configured CEDAR mode, checks the appropriate Compose
+inventory and acceptance probes, and exits nonzero when a required container or route is not ready.
+It also reports the completed image train recorded by the last successful aggregate Docker start.
+`cedarcli native status` is rejected in hybrid and Docker modes because its host-port inventory
+would report false backend failures.
 
 ```bash
 cedarcli docker status
-```
-
-Override the recorded expectation only when diagnosing another topology:
-
-```bash
-cedarcli docker status --mode full
-cedarcli docker status --mode hybrid
 ```
 
 Admin tools are optional and managed separately from the aggregate deployment:
@@ -380,35 +382,28 @@ Each frontend has its own Node.js process; there is no shared frontend server:
 The three Gulp applications are legacy AngularJS applications. The four `ui-*` applications use
 Angular CLI. Both kinds are Node.js processes; the difference is their historical build toolchain.
 
-Start only the seven frontends from a native-profile shell. The two absolute split-frontend URLs
-are build-time inputs written into the generated application configuration. The Angular CLI servers
-default to loopback, so `CEDAR_FRONTEND_BIND_HOST=0.0.0.0` is required for Docker Desktop to reach
-them.
+Configure hybrid once, then start only the seven native frontends. Cedarcli loads the native profile,
+binds the frontend servers to `0.0.0.0`, and supplies the absolute Workspace and Designer URLs to
+those child processes. Backend-native targets are rejected in this mode.
 
 ```bash
 export CEDAR_HOME=$HOME/CEDAR
-source $CEDAR_HOME/cedar-profile-native-develop.sh
-export CEDAR_FRONTEND_BIND_HOST=0.0.0.0
-export CEDAR_WORKSPACE_FRONTEND_URL=https://workspace.metadatacenter.orgx
-export CEDAR_TEMPLATE_DESIGNER_FRONTEND_URL=https://designer.metadatacenter.orgx
+cedarcli mode hybrid
 cedarcli native start frontends
 ```
 
-Start the Docker backend from a Docker-profile shell in `hybrid` mode. The CLI stops any Docker
+Start the Docker backend under the same configured mode. The CLI stops any Docker
 frontend project, points all seven nginx upstreams at `host.docker.internal`, recreates affected
-containers, and waits for the backend and public frontend routes. The mode-specific values exist
-only in the child processes and are recorded after the checks pass.
+containers, and waits for the backend and public frontend routes. Docker-frontend targets are
+rejected in hybrid mode.
 
 ```bash
-export CEDAR_HOME=$HOME/CEDAR
-source $CEDAR_HOME/cedar-development/bin/templates/cedar-profile-docker.sh
-cedarcli docker start all --mode hybrid --pull never
+cedarcli docker start all --pull never
 ```
 
-If switching from a running full-Docker deployment, first run `cedarcli docker stop frontends`, then
-start the native frontend servers, and finally select hybrid mode as above. Once hybrid is recorded,
-an individual infrastructure restart preserves its host upstreams instead of silently reverting
-nginx to container addresses.
+To switch from a running Docker deployment, stop it, clear `docker` mode, configure `hybrid`, then
+start the native frontends and Docker backend as above. An individual infrastructure restart keeps
+the configured hybrid upstreams instead of silently reverting nginx to container addresses.
 
 Verify the public shells, Keycloak origins, navigation origins, and REST CORS:
 
@@ -435,9 +430,9 @@ Three frontend deployment modes remain distinct:
 
 | Mode | Where frontend code is served | How it is started | Current status |
 | --- | --- | --- | --- |
-| Native hybrid | Seven macOS development-server processes | `cedarcli native start frontends`, then `cedarcli docker start all --mode hybrid` | Proven local development mode |
-| All-Docker frontends | Seven containers on `cedarnet` | `cedarcli docker start all --mode full` | Proven on 2026-08-21 |
-| Native-only stack | Seven native development servers | Native profile and native nginx | Preserved; Docker work does not change it |
+| Native hybrid | Seven macOS development-server processes | `cedarcli mode hybrid`, then native frontends and `cedarcli docker start all` | Proven local development mode |
+| All-Docker frontends | Seven containers on `cedarnet` | `cedarcli mode docker`, then `cedarcli docker start all` | Proven on 2026-08-21 |
+| Native-only stack | Seven native development servers | `cedarcli mode native`, then `cedarcli native start all` | Preserved; Docker work does not change it |
 
 Do not run native and containerized frontends on the same published ports. The normal frontend
 Compose stack now contains Template Editor, Workspace, Designer, OpenView, Content, Monitoring, and
@@ -466,17 +461,18 @@ The helper stages the package without modifying the source checkout, records the
 moving `dev` dist-tag in an image build. The Dockerfile verifies the package identity and records
 its full source commit and tarball SHA-256 inside the image.
 
-Stop all native frontend listeners, build the seven images, and select full mode. The aggregate
+Stop the hybrid deployment, clear its mode, and configure Docker mode. The aggregate
 command starts the frontend containers and restores nginx's container upstreams as part of the same
 operation:
 
 ```bash
 export CEDAR_HOME=$HOME/CEDAR
 cedarcli native stop frontends
-
-source $CEDAR_HOME/cedar-development/bin/templates/cedar-profile-docker.sh
+cedarcli docker stop all
+cedarcli mode --clear
+cedarcli mode docker
 cedarcli docker build frontends
-cedarcli docker start all --mode full --pull never
+cedarcli docker start all --pull never
 ```
 
 The mode switch removes captured `host.docker.internal` upstream values before checking all seven
@@ -492,8 +488,8 @@ for host in cedar workspace designer openview content monitoring bridging; do
 done
 ```
 
-To return to hybrid, stop the Docker frontend project, start the seven native processes, and run
-`cedarcli docker start all --mode hybrid`. Backend data volumes are untouched by either frontend
+To return to hybrid, stop the Docker deployment, clear and reconfigure the mode, then start the
+seven native frontends and the Docker aggregate. Backend data volumes are untouched by either mode
 switch. The concise topology and package procedure is also in
 `cedar-docker-deploy/cedar-frontend/README.md`.
 
@@ -501,7 +497,8 @@ switch. The concise topology and package procedure is also in
 
 The repository's REST suites create and clean up their own fixtures. Run them from an ephemeral Node
 container on `cedarnet`; this reaches the deliberately unexposed Artifact service and tests the
-backend without involving any frontend.
+backend without involving any frontend. This is a direct `docker run`, not a cedarcli command, so
+the shell must load the Docker profile to obtain the container addresses used below.
 
 ```bash
 export CEDAR_HOME=$HOME/CEDAR

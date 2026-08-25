@@ -8,13 +8,14 @@ procedures are in [DOCKER-RUNBOOK.md](./DOCKER-RUNBOOK.md).
 
 The local build and deployment path is working: `cedarcli` builds dependency bases before their
 consumers, applies one validated image prefix across builds and Compose, and validates all four
-Compose stacks. Its aggregate workflow preflights the host, selects full-Docker or native-frontend
-hybrid routing without mutating the shell, starts each
-layer in dependency order, waits for health and route acceptance, records the active mode, and stops
-the deployment without deleting data. Java development artifacts can now be published as one
-immutable build train, and Docker build/start resolve the most recently completed train or an exact
-older train. Full 29-container deployments and both REST and browser smoke suites have passed
-locally. The numbered items below are the remaining delivery and operational work.
+Compose stacks. A persistent `native`, `hybrid`, or `docker` mode validates the required profiles
+without mutating the shell, rejects commands from the wrong runtime surface, and supplies the right
+profile internally even from a bare shell. The aggregate Docker workflow preflights the host, starts
+each layer in dependency order, waits for health and route acceptance, records the selected image
+train, and stops the deployment without deleting data. Java development artifacts can now be
+published as one immutable build train, and Docker build/start resolve the most recently completed
+train or an exact older train. Full 29-container deployments and both REST and browser smoke suites
+have passed locally. The numbered items below are the remaining delivery and operational work.
 
 1. **Complete the Docker release, promotion, and rollback pipeline.** Run the 22-container backend
    and all 19 REST suites on an 8-vCPU Linux runner with 32 GB of RAM and 300 GB of SSD storage, or

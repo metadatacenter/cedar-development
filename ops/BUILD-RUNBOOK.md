@@ -109,6 +109,7 @@ The source manifest is never rewritten. The current pointer moves only after com
 Ordinary Docker builds resolve the Maven `current.json` automatically:
 
 ```bash
+cedarcli mode docker
 cedarcli docker build infra
 cedarcli docker build microservices
 cedarcli docker build frontends
@@ -119,7 +120,7 @@ reproducing or diagnosing it:
 
 ```bash
 cedarcli docker build microservices --train <TRAIN>
-cedarcli docker start all --mode full --train <TRAIN> --pull never
+cedarcli docker start all --train <TRAIN> --pull never
 ```
 
 `--train` on a build first requires Maven completion. Starting without `--train` resolves
@@ -133,7 +134,7 @@ cedarcli build java
 cedarcli docker build infra --local
 cedarcli docker build microservices --local
 cedarcli docker build frontends --local
-cedarcli docker start all --mode full --local --pull never
+cedarcli docker start all --local --pull never
 ```
 
 Local images keep the development tag declared in `cedar-docker-build`; they are not evidence that

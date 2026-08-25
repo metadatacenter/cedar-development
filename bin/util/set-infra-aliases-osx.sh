@@ -21,4 +21,4 @@ alias stopredis='$CEDAR_UTIL_BIN/services-osx/stopredis.sh'
 
 #CEDAR server aliases
 alias starteditor='goeditor && gulp'
-alias stopeditor='kill `pgrep gulp`'
+alias stopeditor='$CEDAR_HOME/cedar-development/ops/cedar-services.sh stop frontend'

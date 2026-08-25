@@ -26,10 +26,12 @@ if uname -a | grep buntu > /dev/null 2>&1
     source $CEDAR_UTIL_BIN/set-infra-aliases-osx.sh
 fi
 
-stopmongo
-killkk
-stopsearch
-stopneo
-stopredis
-stopmysql
-stopnginx
+CEDAR_INFRA_FAILED=0
+stopmongo || CEDAR_INFRA_FAILED=1
+killkk || CEDAR_INFRA_FAILED=1
+stopsearch || CEDAR_INFRA_FAILED=1
+stopneo || CEDAR_INFRA_FAILED=1
+stopredis || CEDAR_INFRA_FAILED=1
+stopmysql || CEDAR_INFRA_FAILED=1
+stopnginx || CEDAR_INFRA_FAILED=1
+exit "${CEDAR_INFRA_FAILED}"

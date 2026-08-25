@@ -29,17 +29,18 @@ Three tiers:
   extraction, `cedar-workspace` (4201) and `cedar-template-designer` (4202) run beside it as preview
   frontends. The active auxiliary UIs are openview, monitoring, bridging, and content.
 
-## Environment: two things that must be right first
+## Environment: select the native mode first
 
-**1. Source the profile with `CEDAR_HOME` already exported.** The profile reads `CEDAR_HOME`; if it
-is unset when you source, key variables come out empty.
+`cedarcli mode native` loads and validates the native profile internally, pins Java 17 for its child
+processes, and records the selection without starting anything. Later native commands work from a
+bare shell. Direct shell scripts still require the profile to be sourced explicitly.
 
 ```bash
 export CEDAR_HOME=$HOME/CEDAR
-source $CEDAR_HOME/cedar-profile-native-develop.sh    # ~191 CEDAR_* vars, CEDAR_HOST=metadatacenter.orgx
+cedarcli mode native
 ```
 
-**2. `JAVA_HOME` must be JDK 17.** CEDAR services and Keycloak require Java 17. The machine's default
+`JAVA_HOME` must be JDK 17 for commands run directly rather than through cedarcli. CEDAR services and Keycloak require Java 17. The machine's default
 `java` is newer (23/25) and **Keycloak crashes on it** (`Failed to start caches … getSubject is
 supported only if a security manager is allowed` — the SecurityManager was disabled in JDK 18+).
 
@@ -53,24 +54,14 @@ Keycloak/services will fail the same way. The helper scripts here force Java 17 
 ## Bring-up sequence
 
 ```bash
-# 0. one-time (only needed for the Docker cert volumes / network; harmless to skip in pure native)
-cedarcli docker one-time-setup
-
-# 1. infrastructure (local binaries + Homebrew services)
-bash $CEDAR_UTIL_BIN/services-generic/startinfra.sh     # mongo, mysql, opensearch, neo4j, redis, keycloak, nginx
-# startinfra.sh still starts all seven natively, and the four now in containers lose their ports.
-# Redis and OpenSearch fail outright, which is harmless. Mongo is the one to watch: it binds
-# 127.0.0.1 where Docker binds the wildcard, so it starts, wins every connection, and nothing warns.
-
-# 2. app tier — cedarcli runs every process in the background
-cedarcli native start microservices
-cedarcli native start frontends
+# cedarcli loads the native profile and starts infrastructure, services, and frontends.
+cedarcli native start all
 cedarcli native status
 
-# 3. log in
+# Log in
 open https://cedar.metadatacenter.orgx    # test1@test.com / test1   (also test2@test.com / test2)
 
-# 4. optional: prove the stack end to end (login, folder + template round-trip; ~30 s)
+# Optional: prove the stack end to end (login, folder + template round-trip; ~30 s)
 (cd ops/e2e && npm run smoke)
 ```
 
@@ -94,21 +85,22 @@ deployment, health, and acceptance procedures.
 their own named volumes and never touch `/opt/homebrew/var/*`, so the two estates keep independent
 data.
 
-It needs its own profile. The native profile sets `CEDAR_NET_GATEWAY=127.0.0.1`, which cannot be a
-Docker bridge gateway; the Docker one pins every container to an address on `192.168.17.0/24`.
+Stop native mode before selecting Docker mode. The CLI validates the Docker profile and Compose
+projects when the mode is configured, then supplies that profile internally to later Docker calls.
 
 ```bash
 export CEDAR_HOME=$HOME/CEDAR
-source $CEDAR_HOME/cedar-development/bin/templates/cedar-profile-docker.sh
-cedarcli docker validate
+cedarcli native stop all
+cedarcli mode --clear
+cedarcli mode docker
 cedarcli docker one-time-setup
-cedarcli docker start all --mode full --pull missing
+cedarcli docker start all --pull missing
 cedarcli docker status
 ```
 
 An ordinary aggregate start selects the current completed Docker train; `--pull missing` downloads
 only images absent from this machine. To deploy from another registry, export
-`CEDAR_IMAGE_PREFIX=<registry-host>:<port>/<namespace>` before sourcing the Docker profile. The
+`CEDAR_IMAGE_PREFIX=<registry-host>:<port>/<namespace>` before `cedarcli mode docker`. The
 complete selected train must exist under that prefix.
 
 The checked-out-source alternative is explicit and does not claim to reproduce a published train:
@@ -118,7 +110,7 @@ cedarcli build java
 cedarcli docker build infra --local
 cedarcli docker build microservices --local
 cedarcli docker build frontends --local
-cedarcli docker start all --mode full --local --pull never
+cedarcli docker start all --local --pull never
 ```
 
 `--pull never` is for images already built or pulled on this machine. `--pull always` checks the
@@ -127,10 +119,11 @@ registry even when a local image exists.
 Certificates come from `$CEDAR_HOME/CEDAR_CA` when it exists, and only fall back to the expired set
 bundled in `cedar-docker-deploy/cedar-assets` when it does not.
 
-**The 22-container backend proof does not start a frontend Compose project.** Do not infer frontend
-status from a 22/22 backend health result. `cedarcli docker start frontends -d` starts a separate
-seven-container project containing Template Editor, Workspace, Designer, OpenView, Content,
-Monitoring, and Bridging. The native-frontend hybrid remains supported as an alternative. Running
+**The 22-container hybrid backend does not start a frontend Compose project.** Do not infer frontend
+container status from a 22/22 backend health result. In configured Docker mode,
+`cedarcli docker start frontends --detach` starts the separate seven-container project containing
+Template Editor, Workspace, Designer, OpenView, Content, Monitoring, and Bridging. Hybrid mode
+rejects that command and permits `cedarcli native start frontends` instead. Running
 the REST estate without frontends still needs the two services
 that have no vhost addressed directly, and Keycloak addressed on its published port, because
 container addresses are not routable from macOS:
@@ -179,38 +172,22 @@ These are seven independent Node.js processes: three legacy AngularJS applicatio
 four newer Angular applications use Angular CLI. The focused Docker procedure, verification, stop
 path, and three-mode comparison are in [DOCKER-RUNBOOK.md](./DOCKER-RUNBOOK.md).
 
-The three Gulp frontends already bind all interfaces. The four Angular development servers default
-to loopback for safety; opt them into the Docker hybrid bind, and name only frontend services so the
-fifteen native JVMs do not collide with the containers:
+Select hybrid mode once, then start the native frontend tier and the Docker deployment. The CLI
+loads both profiles for the commands that need them, binds the Angular development servers so
+Docker nginx can reach them, and refuses any native backend operation that would collide with the
+containers:
 
 ```bash
 export CEDAR_HOME=$HOME/CEDAR
-source $CEDAR_HOME/cedar-profile-native-develop.sh
-export CEDAR_FRONTEND_BIND_HOST=0.0.0.0
-export CEDAR_WORKSPACE_FRONTEND_URL=https://workspace.metadatacenter.orgx
-export CEDAR_TEMPLATE_DESIGNER_FRONTEND_URL=https://designer.metadatacenter.orgx
-bash $CEDAR_HOME/cedar-development/ops/cedar-services.sh start \
-  frontend workspace designer ui-openview ui-content ui-monitoring ui-bridging
+cedarcli mode hybrid
+cedarcli native start frontends
+cedarcli docker start all --pull never
 ```
 
-Recreate only nginx under the Docker profile, pointing its frontend upstreams at Docker Desktop's
-host name. `CEDAR_NET_GATEWAY` reaches ports published by Docker but not native macOS listeners;
-`host.docker.internal` is required for the latter.
-
-```bash
-export CEDAR_HOME=$HOME/CEDAR
-source $CEDAR_HOME/cedar-development/bin/templates/cedar-profile-docker.sh
-export CEDAR_AUTH_HOST_TARGET="$CEDAR_NGINX_HOST"
-export CEDAR_FRONTEND_EDITOR_HOST=host.docker.internal
-export CEDAR_FRONTEND_CONTENT_HOST=host.docker.internal
-export CEDAR_FRONTEND_OPENVIEW_HOST=host.docker.internal
-export CEDAR_FRONTEND_MONITORING_HOST=host.docker.internal
-export CEDAR_FRONTEND_BRIDGING_HOST=host.docker.internal
-export CEDAR_FRONTEND_WORKSPACE_HOST=host.docker.internal
-export CEDAR_FRONTEND_DESIGNER_HOST=host.docker.internal
-cd $CEDAR_HOME/cedar-docker-deploy/cedar-infrastructure
-docker compose up -d --no-deps --force-recreate nginx
-```
+Hybrid mode points all seven Docker nginx frontend upstreams at `host.docker.internal`. Docker's
+ordinary network gateway reaches published container ports but not native macOS listeners, so that
+special host name is required. To change modes, stop the current deployment, run
+`cedarcli mode --clear`, and select the replacement mode.
 
 The Docker nginx image sets `proxy_read_timeout` and `proxy_send_timeout` to 180 seconds globally.
 This is deliberate: an unmodified nginx returned 504 at 60.05 seconds for a 65-second upstream;
@@ -219,10 +196,10 @@ with the 180-second timeout, the identical request returned 200 at 65.01 seconds
 The older fallback still works: stop `infra-nginx`, start native nginx on 80/443, and leave the
 frontends on their default loopback bind. Do not run both nginx instances together.
 
-**`cedar-services.sh status` lies in this mode.** It probes ports, and those ports belong to
-containers, so every microservice reads `up / healthy` with the same `~pid` for every row. The `~`
-marks an unmanaged process and is the only signal that nothing native is running. The `BINARY`
-column stays useful — it compares what is running against the built jar.
+Use `cedarcli docker status` in hybrid mode. `cedarcli native status` is deliberately rejected because
+the backend ports belong to containers. If the lower-level `cedar-services.sh status` is run directly,
+container-owned host ports are marked `!pid`; native start, stop, and restart refuse to signal those
+foreign owners.
 
 The populate-time term suggestion remains the one browser-smoke failure: the expected controlled-term
 picker input does not appear. It is not an nginx timeout—the failure is a 20-second locator wait, and
@@ -508,21 +485,21 @@ cedar-services.sh logs <name>         # tail -f a service log
 cedar-services.sh health              # exit 0 only if every service is healthy (for scripts)
 ```
 
-It **skips services already listening on their port** (so it won't collide with ones you started in
-tabs) and **reports any service whose jar isn't built**. Health uses the Dropwizard admin
-`/healthcheck` endpoint (200 = healthy, 500 = unhealthy).
+It recognizes a native service already listening on its port, including one started in a terminal,
+and **reports any service whose jar or configuration is not built/present**. An occupied port is not
+treated as proof of ownership: if the listener is not the expected CEDAR jar or frontend process in
+the expected source directory, start and stop both fail without signalling it. Health uses the
+Dropwizard admin `/healthcheck` endpoint (200 = healthy, 500 = unhealthy).
 
 Two columns exist so a green table cannot hide a stale one. **BINARY** compares when a process started
 against when its jar was written: `STALE` means the service is serving a jar older than the build, so
-its health says nothing about your latest code. **PID** shows `~pid` (a leading tilde) for a process
-listening on the port that this script does not own — one started in a tab or left over from a previous
-session, with no pidfile. Both were added after a real miss: the group and messaging servers ran a
-two-day-old jar for a full session while `status` reported them healthy, because `stop` only ever
-consulted the pidfile and so skipped them, and `restart` therefore left them up. `stop` now **adopts**
-a tilde process — kills whoever actually holds the port — so a plain `restart` brings even a
-tab-started service onto the current build. When either warning prints, `restart` clears it. Always
-confirm `status` shows every service `current`, not merely `healthy`, before trusting a verification
-gate.
+its health says nothing about your latest code. **PID** shows `~pid` (a leading tilde) only for a
+verified CEDAR process listening without this controller's pidfile — for example, one started in a
+terminal. `stop` may safely adopt that verified process, so `restart` brings it onto the current
+build. `!pid` marks a foreign listener, including Docker Desktop's shared host-port process; lifecycle
+commands refuse to touch it. Stale pidfiles are likewise ignored unless the live PID still matches the
+expected service. Always confirm `status` shows every service `current`, not merely `healthy`, before
+trusting a verification gate.
 
 ## How native processes are managed
 
@@ -1970,13 +1947,11 @@ stack. Stop native listeners first because both modes publish the same ports:
 
 ```bash
 export CEDAR_HOME=$HOME/CEDAR
-bash $CEDAR_HOME/cedar-development/ops/cedar-services.sh stop \
-  frontend workspace designer ui-openview ui-content ui-monitoring ui-bridging
-
-source $CEDAR_HOME/cedar-development/bin/templates/cedar-profile-docker.sh
-export CEDAR_AUTH_HOST_TARGET="$CEDAR_NGINX_HOST"
+cedarcli native stop frontends
+cedarcli mode --clear
+cedarcli mode docker
 cedarcli docker build frontends
-cedarcli docker start frontends -d
+cedarcli docker start frontends --detach
 
 cd $CEDAR_HOME/cedar-docker-deploy/cedar-infrastructure
 docker compose up -d --no-deps --force-recreate nginx
