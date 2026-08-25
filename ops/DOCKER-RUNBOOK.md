@@ -131,7 +131,7 @@ is optional.
 ## Build or obtain the images
 
 There are two supported build paths today. Train creation, state, and recovery are described in
-[BUILD-TRAIN-RUNBOOK.md](./BUILD-TRAIN-RUNBOOK.md).
+[BUILD-RUNBOOK.md](./BUILD-RUNBOOK.md).
 
 Create and publish a new immutable Maven and Docker train with:
 

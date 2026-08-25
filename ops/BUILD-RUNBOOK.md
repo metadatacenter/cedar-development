@@ -1,4 +1,4 @@
-# CEDAR Development Build Trains
+# CEDAR Build Runbook
 
 A build train is one immutable, internally consistent set of development artifacts and container
 images. It solves the failure mode where one repository publishes a new Maven `SNAPSHOT` while

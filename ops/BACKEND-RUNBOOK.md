@@ -1528,7 +1528,7 @@ cedarcli build train --resume <TRAIN>
 ```
 
 Create a new train, rather than resuming, when newer source commits must be included. The complete
-procedure and Nexus state layout are in [BUILD-TRAIN-RUNBOOK.md](./BUILD-TRAIN-RUNBOOK.md).
+procedure and Nexus state layout are in [BUILD-RUNBOOK.md](./BUILD-RUNBOOK.md).
 
 The verification asks for fresh snapshots (`--update-snapshots`) for the same reason from the other
 direction. Maven checks a snapshot for updates once a day by default and the runner restores a
