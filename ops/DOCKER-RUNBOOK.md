@@ -56,6 +56,9 @@ Homebrew/local data. `docker compose down` retains named volumes and therefore r
 - A JDK 17 selected through `JAVA_HOME` when compiling Java.
 - Custom local certificates in `$CEDAR_HOME/CEDAR_CA`. The setup otherwise falls back to the
   bundled certificate set, which may be expired.
+- At least 32 GB of memory allocated to Docker's virtual machine wherever the terminology server
+  reads a local store. The reason, and what too small an allocation looks like from the outside,
+  are in [Sizing Docker's Virtual Machine](#sizing-dockers-virtual-machine).
 
 The Docker backend and native backend cannot run together: they claim the same infrastructure and
 9xxx ports. Native and containerized frontends likewise cannot share their seven frontend ports.
@@ -73,6 +76,51 @@ cedarcli native stop all
 # process controller; do not use a broad `pkill java`, which can kill unrelated JVMs.
 lsof -nP -iTCP -sTCP:LISTEN | grep -E ':(80|443|3306|6379|7474|7687|8080|8443|9200|9300|27017|90[0-9][0-9])\b'
 ```
+
+## Sizing Docker's Virtual Machine
+
+Docker Desktop gives its virtual machine a fixed slice of host memory, and the default is smaller
+than the CEDAR stack needs once the terminology server reads a local store. The 29 core containers
+hold about 13 GB resident. A 16 GB virtual machine leaves roughly 1.4 GB for everything else, and
+the container processes start evicting and swapping.
+
+The terminology server pays for that, because a corpus-wide search reads an 8.2 GB SQLite index.
+Measured 2026-08-25 on the same image and the same data, the two-letter query `ce` took between 5.8
+and 77 seconds across runs against a 16 GB virtual machine. Raising the allocation to 32 GB held it
+between 4.95 and 5.06 seconds over six consecutive runs. The larger allocation buys consistency
+rather than speed: the fast result was always reachable, and only became repeatable.
+
+The extra memory does not cache the index. A bind mount delivers the store, and virtiofs serves it
+from the host's page cache rather than the guest's, so reading all 8.2 GB inside a container leaves
+the guest's `buff/cache` where it was. The allocation relieves the container processes instead.
+
+Latency that swings by a factor of ten reads as a defect in the query and is not one, so check the
+allocation before reading any code:
+
+```bash
+docker run --rm --privileged --pid=host alpine nsenter -t 1 -m -u -n -i free -m
+```
+
+An `available` figure below the size of the store's index means the virtual machine is too small.
+Raise it in Docker Desktop's resource settings, which restarts the daemon and stops all 29
+containers.
+
+Start them again in place rather than through `cedarcli docker start all` whenever a container is
+pinned to an image the aggregate start would not choose. That command recreates each container from
+Compose, and Compose resolves every image afresh from the configured registry and namespace, so a
+locally built image pinned into one service is lost.
+
+```bash
+docker start infra-mongo infra-mysql infra-neo4j infra-opensearch infra-redis-persistent \
+             infra-keycloak
+docker start server-artifact server-repo server-schema server-terminology server-user \
+             server-valuerecommender server-resource server-impex server-group server-submission \
+             server-worker server-messaging server-openview server-monitor server-bridge
+docker start frontend-main frontend-workspace frontend-template-designer frontend-openview \
+             frontend-content frontend-monitoring frontend-bridging infra-nginx
+```
+
+Each stage needs the one before it healthy.
 
 ## Set the Docker environment
 

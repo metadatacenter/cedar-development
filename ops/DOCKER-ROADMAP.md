@@ -41,3 +41,16 @@ locally. The numbered items below are the remaining delivery and operational wor
    Restore into a disposable stack and pass a targeted REST gate. Any image upgrade that changes an
    on-disk format needs a migration and rollback plan. Keep destructive volume removal clearly
    separate from ordinary stop and restart commands.
+
+4. **Publish images for both architectures.** Every image the train publishes carries a single
+   `linux/amd64` manifest, so the whole estate runs emulated on Apple Silicon. Measured 2026-08-25
+   against a 32 GB virtual machine, a native `arm64` terminology server answered corpus-wide
+   searches 1.4 to 1.6 times faster across five queries, and the gain was uniform rather than
+   concentrated in one query shape. Every layer already supports the change: the Temurin base
+   publishes `arm64`, the two CEDAR base images only install packages and copy scripts, the
+   application arrives as a jar, and the one native dependency, the SQLite JDBC driver, already
+   ships an `aarch64` library. Building the chain locally on an Apple Silicon host therefore
+   produces working `arm64` images today, but they carry a train's tag while holding something the
+   train never published, which is a trap rather than a route. Build with `buildx` for both
+   architectures and publish one manifest list a tag, so a host pulls its own architecture and the
+   train stays a single set of digests.

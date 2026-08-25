@@ -25,6 +25,22 @@ Sibling runbooks:
 - `snapshots/<ACRONYM>/<version-id>.sqlite` — one file a release, holding its concepts, labels,
   edges and closure.
 
+The index file carries three SQL indexes, `term_by_acronym`, `term_by_iri` and `name_by_term`, and
+`SearchIndexJob` creates all three. A file built before `term_by_iri` existed does not have it, and
+nothing reports the absence. A corpus-wide search fetches the names of a page of hits by IRI alone,
+because hits drawn from the whole corpus carry no acronym to narrow by, and without `term_by_iri`
+that lookup scans all 15.3 million terms. It runs twice a request, once for classes and once for
+branches. Measured 2026-08-25, adding the index took a corpus-wide search for "disease" from 32
+seconds to 1.8 seconds. Confirm a store has it, and add it to one that predates it with the
+terminology server stopped. Building it takes a few seconds and about 0.8 GB.
+
+```bash
+sqlite3 $CEDAR_HOME/cedar-term/prod/search-index.sqlite \
+  "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='term';"
+sqlite3 $CEDAR_HOME/cedar-term/prod/search-index.sqlite \
+  "CREATE INDEX IF NOT EXISTS term_by_iri ON term(iri);"
+```
+
 A snapshot's identity is a content hash over its own concepts, labels and edges, so correcting a
 snapshot in place changes the release's identity rather than repairing it. Re-ingesting is the
 repair, and it mints a new version id. **The file name is not the identity** — 1,061 of the 2,460
