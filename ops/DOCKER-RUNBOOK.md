@@ -135,10 +135,24 @@ stop the selected deployment, run `cedarcli mode --clear`, then configure the ne
 rejects every Docker command; Docker mode rejects every native command. Hybrid permits Docker
 backend operations and native frontend operations, while rejecting the opposite combinations. The
 CLI also reconciles that choice with the runtime: native commands are refused while a recorded or
-running CEDAR Compose project exists; Docker starts are refused while verified native services are
-still running; and hybrid Docker starts allow native frontend processes but reject native backend
-processes. Stop commands for the selected estate remain available so a conflict can be recovered
-without killing the other estate.
+running CEDAR Compose project exists; Docker starts are refused while verified native applications
+or host infrastructure listeners are still running; and hybrid Docker starts allow native frontend
+processes but reject native backend processes and leftover Docker frontend containers. Stop commands
+on an allowed surface remain available when the selected mode and runtime disagree. In particular,
+hybrid permits Docker frontend stops even though it refuses Docker frontend starts, so a stale
+frontend project can be removed without changing modes first.
+
+Mode clearing checks the components owned by the selected topology. In native mode, stop the native
+applications and infrastructure. In hybrid mode, stop the native frontends and Docker deployment.
+In Docker mode, stop the Docker deployment. The CLI refuses to discard the mode while those
+components remain because doing so would remove the normal command path used to stop them. If the
+optional admin project is running, stop it separately with `cedarcli docker stop admin`; the core
+aggregate deliberately does not include it.
+
+Keep Docker running until `cedarcli docker stop all` completes. If Docker was deliberately shut down
+first, Compose cannot confirm or perform teardown. In that recovery case only, use `cedarcli mode
+--clear --force` to discard the inactive Docker deployment record. It does not stop containers and
+is refused when the daemon reports any running CEDAR Compose project.
 
 ### Select the image registries and namespaces
 
@@ -555,13 +569,27 @@ The command does not stop the optional administration stack. Manage that indepen
 named data volumes, so a subsequent start reuses the data.
 
 Individual stop commands remain available when changing one part of a development deployment, for
-example stopping Docker frontends before starting their native replacements.
+example stopping Docker frontends before starting their native replacements. Cleanup commands do
+not enforce the ordinary runtime-consistency gate: a mismatched deployment record must not make the
+command needed to repair that mismatch unavailable. Native process stops still verify the expected
+JAR or frontend source directory before sending a signal.
+
+If Docker is unavailable, aggregate stop fails once before invoking Compose. Start Docker and rerun
+the stop normally. If Docker will remain shut down and the intent is only to abandon its saved mode,
+use `cedarcli mode --clear --force`; this clears CLI state, not Docker resources.
 
 Do not add `-v`, run `cedarcli docker remove volumes`, or delete named volumes during an ordinary
 restart. Those are destructive data-reset operations and need a backup plus explicit intent.
 
-After the Docker projects are down and the ports are clear, source the native profile again before
-restarting native CEDAR. Never mix values from the native and Docker profiles in one shell.
+After the Docker projects are down and the ports are clear, clear the Docker mode and select native:
+
+```bash
+cedarcli mode --clear
+cedarcli mode native
+```
+
+The CLI supplies the selected profile internally; do not mix native and Docker profile values in the
+calling shell.
 
 ## Known limitations
 

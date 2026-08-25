@@ -21,6 +21,8 @@
 #   ./cedar-services.sh watch               # refreshing status (Ctrl-C to exit)
 #   ./cedar-services.sh logs <name>         # tail -f a service log
 #   ./cedar-services.sh health              # exit 0 only if every service is healthy
+#   ./cedar-services.sh running              # verified native applications, one per line
+#   ./cedar-services.sh running-infra        # host listeners on native infrastructure ports
 # ------------------------------------------------------------------------------
 export CEDAR_HOME="${CEDAR_HOME:-$HOME/CEDAR}"
 if [ "${CEDAR_SERVICES_INSPECT_ONLY:-false}" != true ]; then
@@ -65,6 +67,22 @@ SERVICES=(
   "ui-bridging 4340 0"
 )
 
+# These are the host ports used by the native infrastructure tier. The inspection command below
+# reports anything outside Docker that is listening on them. Some services (notably Homebrew
+# MySQL, Redis and nginx) have no CEDAR-specific process marker, so the occupied port is the only
+# reliable fact available when deciding whether a Docker topology can start safely.
+INFRASTRUCTURE_PORTS=(
+  "nginx-http 80"
+  "nginx-https 443"
+  "mongodb 27017"
+  "mysql 3306"
+  "redis 6379"
+  "opensearch 9200"
+  "neo4j-http 7474"
+  "neo4j-bolt 7687"
+  "keycloak 8080"
+)
+
 # ng-serve source dir for each aux (ui-*) frontend
 fe_dir() {
   case "$1" in
@@ -96,8 +114,18 @@ port_open() { nc -z -G1 127.0.0.1 "$1" >/dev/null 2>&1; }
 # because it owns a CEDAR port: Docker Desktop proxies many published ports through one host process,
 # and killing that process takes down the entire Docker daemon.
 port_owner() { lsof -ti "tcp:$1" -sTCP:LISTEN 2>/dev/null | head -1; }
+port_owners() { lsof -nP -tiTCP:"$1" -sTCP:LISTEN 2>/dev/null | sort -nu; }
 process_command() { ps -p "$1" -o command= 2>/dev/null; }
 process_cwd() { lsof -a -p "$1" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -1; }
+
+is_docker_port_forwarder() {
+  local command
+  command=$(process_command "$1")
+  case "$command" in
+    *com.docker.backend*|*Docker.app*|*docker-proxy*|*rootlesskit*|*vpnkit*|*gvproxy*|*podman*) return 0 ;;
+  esac
+  return 1
+}
 
 expected_frontend_dir() {
   case "$1" in
@@ -128,6 +156,18 @@ is_service_process() {
       case "$command" in *"$prefix"*.jar*) return 0 ;; esac
       ;;
   esac
+  return 1
+}
+
+service_port_owner() {
+  local name=$1 port=$2 pid
+  while read -r pid; do
+    [ -n "$pid" ] || continue
+    if is_service_process "$name" "$pid"; then
+      echo "$pid"
+      return 0
+    fi
+  done < <(port_owners "$port")
   return 1
 }
 
@@ -345,12 +385,15 @@ status() {
     p=$(cat "$(pidfile "$name")" 2>/dev/null)
     if [ -n "$p" ] && kill -0 "$p" 2>/dev/null && is_service_process "$name" "$p"; then pid_disp="$p"; own="$p"
     else
-      own=$(port_owner "$(app_port "$name")")
-      if [ -n "$own" ] && is_service_process "$name" "$own"; then
+      own=$(service_port_owner "$name" "$(app_port "$name")")
+      if [ -n "$own" ]; then
         pid_disp="~$own"; unmanaged=$((unmanaged+1))
-      elif [ -n "$own" ]; then
-        pid_disp="!$own"; foreign=$((foreign+1)); own=""
-      else pid_disp="-"; fi
+      else
+        own=$(port_owner "$(app_port "$name")")
+        if [ -n "$own" ]; then
+          pid_disp="!$own"; foreign=$((foreign+1)); own=""
+        else pid_disp="-"; fi
+      fi
     fi
     port_open "$(app_port "$name")" && port_disp="up" || port_disp="down"
     h=$(health_of "$name"); [ "$h" = healthy ] && up=$((up+1))
@@ -378,11 +421,33 @@ running() {
       echo "$name"
       continue
     fi
-    owner=$(port_owner "$(app_port "$name")")
-    if [ -n "$owner" ] && is_service_process "$name" "$owner"; then
+    owner=$(service_port_owner "$name" "$(app_port "$name")")
+    if [ -n "$owner" ]; then
       echo "$name"
     fi
   done < <(names "$@")
+}
+
+running_infrastructure() {
+  local name port pid found
+  for service in "${INFRASTRUCTURE_PORTS[@]}"; do
+    set -- $service
+    name=$1
+    port=$2
+    found=false
+    while read -r pid; do
+      [ -n "$pid" ] || continue
+      found=true
+      if ! is_docker_port_forwarder "$pid"; then
+        echo "$name (port $port, pid $pid)"
+      fi
+    done < <(port_owners "$port")
+    # A listener can occasionally be visible to connect(2) while its owning process is hidden
+    # from lsof. Report that uncertainty rather than allowing a mode switch to collide with it.
+    if [ "$found" = false ] && port_open "$port"; then
+      echo "$name (port $port, owner unknown)"
+    fi
+  done
 }
 
 if [ "${CEDAR_SERVICES_LIBRARY_ONLY:-false}" = true ]; then
@@ -397,7 +462,8 @@ case "$cmd" in
   status)  status ;;
   watch)   while true; do clear; date; status; sleep 5; done ;;
   running) running "$@" ;;
+  running-infra) running_infrastructure ;;
   health)  bad=0; while read -r n; do [ "$(health_of "$n")" = healthy ] || bad=1; done < <(names); exit $bad ;;
   logs)    [ -n "$1" ] && tail -f "$(logfile "$1")" || echo "usage: $0 logs <service>" ;;
-  *) echo "usage: $0 {start|stop|restart|status|watch|running|logs <name>|health} [name...]" ;;
+  *) echo "usage: $0 {start|stop|restart|status|watch|running|running-infra|logs <name>|health} [name...]" ;;
 esac
