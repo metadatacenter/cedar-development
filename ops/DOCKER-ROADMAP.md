@@ -16,12 +16,13 @@ immutable build train, and Docker build/start resolve the most recently complete
 older train. Full 29-container deployments and both REST and browser smoke suites have passed
 locally. The numbered items below are the remaining delivery and operational work.
 
-1. **Define release promotion and rollback around one image manifest.** Generate a manifest for
-   the complete digest set that passed CI and promote that same set through development, staging,
-   and production without rebuilding it. Environment-specific deployment manifests may change
-   configuration, but not image bytes. Production promotion must update metadata or aliases
-   atomically, rollback must select the previous complete digest set, and operators must be able to
-   query which manifest a running environment uses.
+1. **Add environment promotion and rollback for completed image manifests.** The build train already
+   records the 31 verified registry digests in `docker/completed/<TRAIN>.json` and advances
+   `docker/current.json`. Add explicit development, staging, and production pointers that promote
+   that same completed digest set without rebuilding it. Promotion must update the selected
+   environment atomically, rollback must select a previously completed manifest, and operators
+   must be able to query which manifest and digests a running environment uses. Environment-specific
+   deployment configuration may change; image bytes may not.
 
 2. **Run the complete Docker backend REST gate in CI.** Bring up the 22-container backend and run
    all 19 REST suites from `cedarnet`, keeping the Artifact service private while preserving the
