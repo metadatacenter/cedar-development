@@ -1741,10 +1741,26 @@ then fetches the first artifact. Each terminal checkpoint therefore reports `pro
 the exact unique audit set, percentage, elapsed time and ETA, as well as both batch and cumulative
 affected-artifact counts. The JSONL is streamed and flushed after every artifact,
 and the adjacent `production-schema-findings-summary.json` is atomically checkpointed every **300
-artifacts**. Both output files are owner-only, and the streamed findings path refuses a symlink.
+artifacts**. The adjacent `production-schema-findings-refs.jsonl` stores the exact enumerated refs and
+an append-only completion record for every processed artifact. All three output files are owner-only,
+and the streamed findings and refs paths refuse symlinks.
 `--progress-every` changes the interval and `--limit` makes an explicitly labelled sample run. Ctrl-C
-and request failures retain partial output. A complete run normally exits zero even when it finds
-defects; `--fail-on-findings` makes findings exit 1, while an incomplete run exits 2.
+and request failures retain partial output. Resume the same audit without re-enumerating or truncating
+findings by repeating the original arguments and adding `--resume`:
+
+```bash
+python3 ops/cedar_artifact_rest_audit.py \
+  --server https://resource.metadatacenter.org \
+  --out production-schema-findings.jsonl \
+  --resume
+```
+
+Resume validates the server, selected types, limit, ruleset and exact script SHA against the refs
+header. It skips completion records, and also treats an artifact ID already present in findings as
+complete to close the small crash window between flushing its findings and recording completion.
+Artifacts with no findings are still resumable because their completion lives in the refs sidecar.
+A complete run normally exits zero even when it finds defects; `--fail-on-findings` makes findings
+exit 1, while an incomplete run exits 2.
 
 Every summary carries an audit ruleset version, SHA-256 of the exact script that ran, and the source
 revisions whose reader and server behavior the rules mirror. It also separates counts of finding rows
@@ -1857,6 +1873,8 @@ enumeration is not a browse test). `verify` emits a per-ontology readiness repor
 `ops/cedar_term_gate.sh verify` is the one-command gate: it stands up a throwaway local-store instance
 (all ingested ontologies, strict `localOnly`) on the 19xxx test ports, verifies it against the goldens
 on both gates (integrated-search and `--roots`), prints the ready sets, and tears the instance down.
+If the throwaway instance does not become healthy within the startup window, the command exits 1
+before running either differ and points to `$TERM_REPORT_DIR/term-gate-instance.log` (or its default).
 `cedar_term_gate.sh record` re-records the BioPortal goldens (drift refresh) from a BioPortal-proxy
 instance — run it on a cadence (BioPortal content drifts; ours is pinned), monthly is ample given the
 measured ~0.03%/day, additive pace of change. Paths default to

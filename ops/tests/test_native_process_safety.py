@@ -119,6 +119,24 @@ class NativeProcessSafetyTest(unittest.TestCase):
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertEqual("", result.stdout.strip())
 
+    def test_health_checks_only_the_named_services(self):
+        result = self.run_library(
+            'names() { printf "%s\\n" "$@"; }; '
+            'health_of() { [ "$1" = terminology ] && echo healthy || echo down; }; '
+            'health terminology'
+        )
+
+        self.assertEqual(0, result.returncode, result.stderr)
+
+    def test_health_fails_when_a_selected_service_is_unhealthy(self):
+        result = self.run_library(
+            'names() { printf "%s\\n" "$@"; }; '
+            'health_of() { echo down; }; '
+            'health terminology'
+        )
+
+        self.assertNotEqual(0, result.returncode)
+
     def test_status_defers_docker_owned_services_to_docker_status(self):
         result = self.run_library(
             'names() { printf "group\\nartifact\\n"; }; '

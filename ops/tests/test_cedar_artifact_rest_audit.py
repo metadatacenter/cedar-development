@@ -12,6 +12,7 @@ import unittest
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from unittest import mock
 
 
 SCRIPT = Path(__file__).parents[1] / "cedar_artifact_rest_audit.py"
@@ -581,6 +582,67 @@ class RestIntegrationTests(unittest.TestCase):
             self.assertEqual(report["duplicateSearchRowsSkipped"], 1)
             self.assertEqual(report["listingErrors"], 1)
             self.assertIn("[final 1/1 100.0%]", stdout.getvalue())
+
+    def test_resume_reuses_refs_appends_findings_and_skips_completed_artifacts(self):
+        template_id = "https://repo.example/templates/t1"
+        _FakeCedarHandler.artifacts[("template", template_id)]["_ui"] = {"pages": []}
+        origin = f"http://127.0.0.1:{self.server.server_port}"
+        with tempfile.TemporaryDirectory() as directory:
+            findings = Path(directory) / "findings.jsonl"
+            summary = Path(directory) / "summary.json"
+            refs = Path(directory) / "refs.jsonl"
+            arguments = [
+                "--server", origin,
+                "--allow-http",
+                "--types", "template,element",
+                "--page-size", "1",
+                "--progress-every", "1",
+                "--out", str(findings),
+                "--summary", str(summary),
+                "--refs", str(refs),
+            ]
+            previous = os.environ.get("CEDAR_API_KEY")
+            os.environ["CEDAR_API_KEY"] = "test-secret"
+            original_audit_common = audit.audit_common
+            calls = 0
+
+            def interrupt_second_artifact(ref, artifact):
+                nonlocal calls
+                calls += 1
+                if calls == 2:
+                    raise KeyboardInterrupt
+                return original_audit_common(ref, artifact)
+
+            try:
+                with mock.patch.object(audit, "audit_common", side_effect=interrupt_second_artifact), \
+                        contextlib.redirect_stdout(io.StringIO()), \
+                        contextlib.redirect_stderr(io.StringIO()):
+                    first_result = audit.main(arguments)
+                first_findings = findings.read_text()
+                first_summary = json.loads(summary.read_text())
+                self.assertEqual(first_result, 2)
+                self.assertEqual(first_summary["status"], "PARTIAL_INTERRUPTED")
+                self.assertEqual(first_summary["artifactsProcessed"], 1)
+                self.assertEqual(len(refs.read_text().splitlines()), 4)  # manifest, two refs, completion
+
+                _FakeCedarHandler.requests = []
+                with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                    resumed_result = audit.main([*arguments, "--resume"])
+            finally:
+                if previous is None:
+                    os.environ.pop("CEDAR_API_KEY", None)
+                else:
+                    os.environ["CEDAR_API_KEY"] = previous
+
+            self.assertEqual(resumed_result, 0)
+            self.assertEqual(findings.read_text(), first_findings)
+            report = json.loads(summary.read_text())
+            self.assertEqual(report["status"], "COMPLETE_FOR_KEY")
+            self.assertEqual(report["completion"], {"percent": 100.0, "processed": 2, "target": 2})
+            self.assertEqual(report["findingsByRule"], {"ui-pages-forbidden": 1})
+            self.assertEqual(report["refsFile"], str(refs))
+            self.assertFalse(any("/search-deep" in path for _, path, _ in _FakeCedarHandler.requests))
+            self.assertEqual(refs.stat().st_mode & 0o077, 0)
 
 if __name__ == "__main__":
     unittest.main()

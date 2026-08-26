@@ -35,6 +35,7 @@ allowlist() { sqlite3 "$CATALOG" "SELECT group_concat(acronym) FROM (SELECT acro
 verify() {
   local jar="$APP/target/cedar-terminology-server-application-${CEDAR_VERSION}.jar"
   local cfg="$APP/src/main/resources/config.yml"
+  local instance_log="$REPORT_DIR/term-gate-instance.log"
   [ -f "$jar" ] || { echo "build the terminology app jar first: $jar" >&2; exit 1; }
 
   echo "== launching throwaway local-store instance on :$PORT (all ontologies, localOnly) =="
@@ -42,10 +43,14 @@ verify() {
     nohup java -DterminologyStore.catalogPath="$CATALOG" \
       -DterminologyStore.localOntologies="$(allowlist)" \
       -DterminologyStore.localOnly=true \
-      -jar "$jar" server "$cfg" >"$REPORT_DIR/term-gate-instance.log" 2>&1 &
+      -jar "$jar" server "$cfg" >"$instance_log" 2>&1 &
   local pid=$!
   trap 'kill "$pid" 2>/dev/null || true' EXIT
   for _ in $(seq 1 40); do curl -sk --max-time 3 "http://localhost:$ADMIN/healthcheck" >/dev/null 2>&1 && break; sleep 2; done
+  if ! curl -sk --max-time 3 "http://localhost:$ADMIN/healthcheck" >/dev/null 2>&1; then
+    echo "terminology gate instance did not become healthy on admin port $ADMIN; see $instance_log" >&2
+    exit 1
+  fi
 
   echo "== integrated-search gate =="
   python3 "$OPS/cedar_termdiff.py" verify --matrix "$MATRIX" --goldens "$GOLDENS" \

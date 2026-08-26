@@ -20,7 +20,7 @@
 #   ./cedar-services.sh status              # one-shot table
 #   ./cedar-services.sh watch               # refreshing status (Ctrl-C to exit)
 #   ./cedar-services.sh logs <name>         # tail -f a service log
-#   ./cedar-services.sh health              # exit 0 only if every service is healthy
+#   ./cedar-services.sh health [name...]    # exit 0 only if all selected services are healthy
 #   ./cedar-services.sh running              # verified native applications, one per line
 #   ./cedar-services.sh running-infra        # host listeners on native infrastructure ports
 # ------------------------------------------------------------------------------
@@ -390,6 +390,14 @@ health_of() {  # echoes healthy|UNHEALTHY|starting|down
   case "$code" in 200) echo healthy;; 500) echo UNHEALTHY;; *) port_open "$app" && echo starting || echo down;; esac
 }
 
+health() {
+  local bad=0 n
+  while read -r n; do
+    [ "$(health_of "$n")" = healthy ] || bad=1
+  done < <(names "$@")
+  return "$bad"
+}
+
 status() {
   printf "%-18s %-8s %-8s %-10s %-8s %s\n" SERVICE PID PORT HEALTH BINARY "ERRORS(log)"
   printf "%-18s %-8s %-8s %-10s %-8s %s\n" "------" "---" "----" "------" "------" "-----------"
@@ -504,7 +512,7 @@ case "$cmd" in
   watch)   while true; do clear; date; status; sleep 5; done ;;
   running) running "$@" ;;
   running-infra) running_infrastructure ;;
-  health)  bad=0; while read -r n; do [ "$(health_of "$n")" = healthy ] || bad=1; done < <(names); exit $bad ;;
+  health)  health "$@"; exit $? ;;
   logs)    [ -n "$1" ] && tail -f "$(logfile "$1")" || echo "usage: $0 logs <service>" ;;
   *) echo "usage: $0 {start|stop|restart|status|watch|running|running-infra|logs <name>|health} [name...]" ;;
 esac
