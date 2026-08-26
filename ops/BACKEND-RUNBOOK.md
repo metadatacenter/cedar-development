@@ -63,6 +63,15 @@ export JAVA_HOME=$(/usr/libexec/java_home -v 17)
 The native controller and `cedarcli` select JDK 17 for managed processes. Set `JAVA_HOME` yourself
 only for direct Java or Keycloak commands outside the CLI.
 
+**Keycloak TLS verification is secure by default.** Both the bearer-token client that fetches realm
+JWKS and the admin client that sends the CEDAR administrator password use the JVM truststore and
+hostname verification unless `CEDAR_KEYCLOAK_ALLOW_INSECURE_TLS=true`. That flag is a
+development-only escape hatch: the native profile sets it because its locally issued `.orgx` leaves
+are not installed in the workstation JVM truststore. The Docker images import the CEDAR development
+CA and therefore leave the flag unset. Never set it in staging or production; ensure the JVM
+truststore contains the Keycloak issuer CA, leave the flag absent or `false`, and exercise both token
+verification and one admin operation after deployment.
+
 ## Bring-up sequence
 
 ```bash

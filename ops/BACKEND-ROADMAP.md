@@ -13,6 +13,13 @@ Frontend work for the embeddable editor is tracked separately in
 
 ## Recently completed
 
+- **Keycloak TLS verification defaults to secure (2026-08-26).** The bearer-token/JWKS client and
+  the password-bearing admin client no longer install trust-all behavior unconditionally. Both use
+  the JVM truststore and hostname verification by default; the single
+  `CEDAR_KEYCLOAK_ALLOW_INSECURE_TLS` escape hatch defaults to `false`, is covered on both client
+  paths, and is enabled only by the native-development profile for locally issued `.orgx` leaves.
+  Docker continues to import the CEDAR development CA instead of using the bypass.
+
 - **Worker delivery, health and job control (2026-08-25).** The four Redis queues consumed by the
   worker now atomically claim into processing lists and acknowledge only after successful handling;
   unacknowledged work is restored in FIFO order after reconnect or restart. Clone, app-log and
@@ -411,11 +418,15 @@ Frontend work for the embeddable editor is tracked separately in
   release review and check upstream/security advisories for each release instead of describing the
   current pins as a maintained baseline.
 
-- **11. Point the token-verification client at a truststore in production.** Token-signature verification
-  fetches the realm's signing keys over HTTPS; on the local stack that client trusts the self-signed
-  `.orgx` certificate (`disableTrustManager` in `KeycloakDeploymentProvider`, matching the admin
-  client). A real deployment should instead trust a truststore holding the realm CA. Small, and only
-  matters outside local dev.
+- **11. Prove secure Keycloak TLS in every deployed environment.** This was a code vulnerability, not
+  merely a future truststore configuration task: the bearer-token client disabled certificate and
+  hostname checks while fetching signing keys, and the admin client sent the CEDAR administrator
+  password through a trust-all manager. Both clients now default to JVM certificate and hostname
+  verification, with only an explicit native-development flag able to restore the bypass. The
+  remaining deployment gate is to confirm that staging and production leave
+  `CEDAR_KEYCLOAK_ALLOW_INSECURE_TLS` absent or `false`, trust the Keycloak issuer CA, and pass both a
+  JWKS-backed token verification and a read-only admin operation. Never solve a failed trust check by
+  enabling the development flag.
 
 - **12. Stop using the hardcoded BioPortal key.** `Constants.BP_PUBLIC_API_KEY` in
   `cedar-terminology-server` holds a literal BioPortal key, and `Cache` sends it on the four calls
