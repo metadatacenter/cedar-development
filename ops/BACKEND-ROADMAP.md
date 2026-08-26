@@ -391,13 +391,33 @@ Frontend work for the embeddable editor is tracked separately in
   problem — every Java repository now carries a wrapper at 3.9.14 and CI invokes `./mvnw` — except
   inside the build images, which still `microdnf -y install maven` unversioned.
 
-- **10. Point the token-verification client at a truststore in production.** Token-signature verification
+- **10. Move the server framework to Dropwizard 5 / Jetty 12 / Jakarta EE 10.** The current
+  Dropwizard 4.0.17 baseline holds every server on Jetty 11.0.26, Jersey 3.0.18 and Hibernate
+  6.1.7.Final. Jetty 11 and Hibernate 6.1 are both end-of-life upstream lines, so pinning their last
+  releases does not restore community security maintenance. Dropwizard 5 is the coordinated escape:
+  its supported bundle moves to Jetty 12, Jersey 3.1, Hibernate 6.6 and the Jakarta EE 10 APIs.
+
+  Treat this as a framework migration, not part of the Java 21 item above. Dropwizard 5 still runs on
+  Java 17, while the EE10 move changes servlet artifacts, Jetty handlers, Hibernate behavior and the
+  BOM versions currently overridden in `cedar-parent`. Inventory direct Jetty/Jersey/Hibernate and
+  Jakarta API usage first; move the parent and shared libraries as one converged set; then rebuild all
+  server reactors, boot every shaded application, run the JUnit and REST estates, and compare the
+  dependency trees and shaded contents for mixed EE9/EE10 artifacts. Remove parent overrides that
+  merely hold the old Dropwizard bundle together rather than carrying them forward by default.
+
+  The acceptance gate is all fifteen servers starting on the new bundle with no split Jakarta API,
+  Jetty 11, Jersey 3.0 or Hibernate 6.1 artifacts left in their runtime jars, followed by the real-stack
+  smoke. Until this lands, record Jetty 11 and Hibernate 6.1 as explicitly accepted EOL dependencies in
+  release review and check upstream/security advisories for each release instead of describing the
+  current pins as a maintained baseline.
+
+- **11. Point the token-verification client at a truststore in production.** Token-signature verification
   fetches the realm's signing keys over HTTPS; on the local stack that client trusts the self-signed
   `.orgx` certificate (`disableTrustManager` in `KeycloakDeploymentProvider`, matching the admin
   client). A real deployment should instead trust a truststore holding the realm CA. Small, and only
   matters outside local dev.
 
-- **11. Stop using the hardcoded BioPortal key.** `Constants.BP_PUBLIC_API_KEY` in
+- **12. Stop using the hardcoded BioPortal key.** `Constants.BP_PUBLIC_API_KEY` in
   `cedar-terminology-server` holds a literal BioPortal key, and `Cache` sends it on the four calls
   that populate the ontology and value-set caches (`findOntology` twice, `findAllOntologies`,
   `findAllValueSets`). Those are the server's own calls rather than calls made for a signed-in user,
@@ -413,7 +433,7 @@ Frontend work for the embeddable editor is tracked separately in
   require external coordination with BioPortal rather than another CEDAR endpoint. BioPortal
   rate-limits per key, and a burnt quota surfaces to users as controlled terms silently not existing,
   because the picker latches its empty cache for the life of the page: the same defect as the
-  term-picker ontology-list item (18).
+  term-picker ontology-list item (19).
 
   The *safety* half of this is now done, on both `develop` and the `versioned-terminology-server`
   branch: a cold or rate-limited fetch that returns a handful of ontologies instead of the full ~1300
@@ -424,7 +444,7 @@ Frontend work for the embeddable editor is tracked separately in
   ("DOID (DOID)" instead of "Human Disease Ontology (DOID)") behind a green health check. What remains
   here is the code-owned cause: read `CEDAR_BIOPORTAL_API_KEY` from config and delete the constant.
 
-- **12. Identify API keys by a non-secret id, not the secret in the URL.** The API-key management routes
+- **13. Identify API keys by a non-secret id, not the secret in the URL.** The API-key management routes
   carry the full secret in the path — `POST /{id}/api-keys/{key}/regenerate` and
   `DELETE /{id}/api-keys/{key}` — so the key lands in nginx access logs, request traces, monitoring and
   browser history. The cheap leaks are already closed (the not-found error no longer echoes the key and
@@ -433,7 +453,7 @@ Frontend work for the embeddable editor is tracked separately in
   (`/api-keys/{keyId}`), keeping the secret out of the path. Breaking change: cedar-cli and the profile
   UI call these routes, so it needs a coordinated client update.
 
-- **13. Adopt Renovate, so a version that falls behind says so.** Every pin in this estate is
+- **14. Adopt Renovate, so a version that falls behind says so.** Every pin in this estate is
   maintained by someone remembering to look at it, and the measurement above is what that produces:
   the Docker OpenSearch image sat at 1.3.6 while the servers shipped the 2.19 client, for about two
   years, and nothing anywhere reported it. Renovate is a bot that reads the files a repository
@@ -495,7 +515,7 @@ Frontend work for the embeddable editor is tracked separately in
   manager is what makes them watchable again. Adopting no bot at all remains a coherent choice — the
   versions are at least in one place now — but it means those six are watched by nobody, as before.
 
-- **14. Separate CEDAR dependency convergence from the Keycloak provider platform lock.** The eleven
+- **15. Separate CEDAR dependency convergence from the Keycloak provider platform lock.** The eleven
   apparent test-classpath splits are not eleven candidates for one global version. Re-measuring all
   thirty Maven roots divides them into three different problems, and blindly managing the newer side
   in `cedar-parent` would make the Keycloak event listener compile against libraries its server does
@@ -545,7 +565,7 @@ Frontend work for the embeddable editor is tracked separately in
 Coverage and test-infrastructure work. The active REST integration suites live in
 `ops/e2e/rest/suites/`; the JUnit matrices and boot-smoke live in the per-server modules.
 
-- **15. Decide whether the build runs the tests, expose the choice, and report continued failures
+- **16. Decide whether the build runs the tests, expose the choice, and report continued failures
   honestly.** The Java build skips its tests again: every Java repo is built with
   `./mvnw clean install -DskipTests`, and the `CEDAR_DEV_SKIP_TESTS` escape hatch is gone with the
   default it modified. That restores the behaviour the build had before, and it means a green
@@ -602,7 +622,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   "Execution succeeded!" and exits 0. A build that continued past a failure must record it, say so in
   the closing panel, and exit non-zero.
 
-- **16. Deepen the core-workflow tests instead of growing the headline count.** The JUnit matrices and the
+- **17. Deepen the core-workflow tests instead of growing the headline count.** The JUnit matrices and the
   REST suites now give the system respectable horizontal coverage: routes boot, authentication and
   permission boundaries are pinned, and create/read/update/delete, sharing, search, versioning and the
   cross-service hop all execute against the real stack. Much of that is deliberately
@@ -616,7 +636,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
      graph update, for create, rename, publish, draft and delete. Assert the operation either rolls back
      or leaves a detectable, recoverable state — never a silently orphaned artifact, a stale graph node
      or a half-published version. This is the write-path counterpart to the read-path degradation-tests
-     item (17), which asks only that a service not 500 when a dependency is down.
+     item (18), which asks only that a service not 500 when a dependency is down.
   2. **Retry and idempotency.** Repeat a write after a timeout or an ambiguous response. Publish, draft,
      move, delete, permission change and DOI-set must not produce a duplicate version, a duplicate graph
      node or divergent state.
@@ -641,7 +661,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   versions or search projection disagreeing. The present suite protects the behavioural skeleton; this
   item protects the integrity of state when operations fail or are repeated.
 
-- **17. Add degradation tests.** Nothing asserts how a service behaves when a dependency it needs is
+- **18. Add degradation tests.** Nothing asserts how a service behaves when a dependency it needs is
   unavailable. The cost of that gap is known: reading any folder whose creator could not be resolved
   returned 500 for as long as the defect existed, because `UserSummaryCache` let Guava's
   "loader returned null" signal escape instead of degrading to the no-display-name path the callers
@@ -649,7 +669,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   asserts the API degrades rather than 500s. Bear in mind that queue writes are already best-effort
   by design (`AppLoggerQueueService`, the worker and NCBI queues), so those are the pattern to match.
 
-- **18. Retry the ontology-list load in the term picker (frontend, `cedar-template-editor`).** This is a
+- **19. Retry the ontology-list load in the term picker (frontend, `cedar-template-editor`).** This is a
   change to the Angular frontend, not to any microservice or test suite — it lands in
   `cedar-template-editor`, and so needs a frontend owner to review and push it (see the note below).
   It is the last piece of this defect still outstanding, and the fix is already written: it is open as
@@ -694,7 +714,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   and never could succeed. Nothing is saved server-side until after the block, so a failed attempt
   leaves no orphan template.
 
-- **19. Switch the extracted Workspace and Template Designer over in staging, then production.**
+- **20. Switch the extracted Workspace and Template Designer over in staging, then production.**
   Local coexistence is complete: the monolith remains on `cedar.metadatacenter.orgx`, Workspace and
   Designer run on their own trusted HTTPS origins, Keycloak SSO spans them, the provenance gate
   passes, and the complete Workspace → Designer → CEE → OpenView authenticated journey passes
@@ -782,7 +802,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
 
 ## Production data
 
-- **20. Repair the production schema artifacts that can reject correctly shaped CEE instances.** The
+- **21. Repair the production schema artifacts that can reject correctly shaped CEE instances.** The
   permission-scoped production audit found 76 inherently-multiple fields deployed as JSON objects in
   31 stored schema artifacts: 23 templates and 8 elements. Every case is a multiple-select list; no
   object-shaped checkbox or attribute-value deployment was found. CEE correctly serializes these
@@ -829,7 +849,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   rerun the audit to `COMPLETE_FOR_KEY`. Never delete a store artifact merely because its search entry
   is inconsistent.
 
-- **21. Write `sourceSystem` onto the production value constraints, so that its absence means something.**
+- **22. Write `sourceSystem` onto the production value constraints, so that its absence means something.**
   A controlled-term constraint may name the system serving its vocabulary, and both model libraries read
   an absent `sourceSystem` as BioPortal —
   [the value-constraint shape](VERSIONING-ROADMAP.md#6-the-value-constraint-shape) defines the field and
@@ -861,7 +881,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
 
 ## Documentation consolidation
 
-- **22. Decide whether to retire `cedar-mkdocs-developer`.** Its current release and production
+- **23. Decide whether to retire `cedar-mkdocs-developer`.** Its current release and production
   deployment pages now point to the maintained runbooks in `cedar-development/ops`, and its generated
   `site/` tree is no longer versioned. What remains potentially unique is a small set of Neo4j
   diagnostic and repair recipes, cron-job notes, user/domain/certificate maintenance procedures, and
