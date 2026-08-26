@@ -584,6 +584,25 @@ On the current Compose topology, the host run cannot reach Artifact on port 9001
 `contract` and `freeze` suites end in `fetch failed` even though their public API work passed. Do not
 publish Artifact merely to satisfy the harness; use the in-network gate above.
 
+## Browser acceptance gate
+
+Run the authenticated browser journey from the host after the REST gate:
+
+```bash
+export CEDAR_HOME=$HOME/CEDAR
+source $CEDAR_HOME/cedar-development/bin/templates/cedar-profile-docker.sh
+cd $CEDAR_HOME/cedar-development/ops/e2e
+npm run smoke:docker
+```
+
+The Docker profile records container bridge addresses for service-to-service traffic. Those
+addresses are not host-routable on Docker Desktop for macOS, so `smoke:docker` deliberately uses the
+published localhost ports for its REST setup and teardown while the browser continues through the
+production-shaped HTTPS hostnames. Do not replace it with plain `npm run smoke` for this topology.
+The journey logs in, creates and constrains a template, populates and re-edits an instance through
+CEE, verifies JSON and YAML getters, opens it anonymously through OpenView, and removes everything
+created by that run.
+
 ## Stop, restart, and preserve data
 
 Stop the core Docker deployment in reverse dependency order:

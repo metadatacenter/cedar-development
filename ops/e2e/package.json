@@ -6,6 +6,7 @@
   "description": "End-to-end smoke test: log in to CEDAR through Keycloak, create a folder and a template inside it, then delete both",
   "scripts": {
     "smoke": "node login-smoke-test.mjs",
+    "smoke:docker": "CEDAR_RESOURCE_BASE=https://resource.metadatacenter.orgx CEDAR_USER_BASE=http://127.0.0.1:9005 CEDAR_GROUP_BASE=http://127.0.0.1:9009 CEDAR_KEYCLOAK_BASE=http://127.0.0.1:8080 CEDAR_OPENVIEW_BASE=http://127.0.0.1:9013 CEDAR_WORKER_BASE=http://127.0.0.1:9011 CEDAR_TERMINOLOGY_BASE=https://terminology.metadatacenter.orgx NODE_TLS_REJECT_UNAUTHORIZED=0 node login-smoke-test.mjs",
     "smoke:headed": "HEADED=1 node login-smoke-test.mjs",
     "smoke:split:keycloak": "NODE_TLS_REJECT_UNAUTHORIZED=0 node keycloak-split-client-smoke.mjs",
     "smoke:split:authenticated": "npm run smoke:split:keycloak && CEDAR_BASE=http://localhost:4201 CEDAR_DESIGNER_BASE=http://localhost:4202 node login-smoke-test.mjs",
