@@ -35,7 +35,18 @@ write repository contents. The workflow uses that permission only for the dedica
 
 ## Create a train
 
-Run this from a configured CEDAR shell:
+Run the side-effect-free preflight from a configured CEDAR shell first:
+
+```bash
+cedarcli publish train --dry-run
+```
+
+This allocates a prospective ID, checks GitHub CLI authentication and the workflow on `develop`,
+rejects an existing train ID, validates that the source-capture and TypeScript model → CEE →
+frontend configurations agree, and prints the exact dispatch command. It does not start GitHub
+Actions, publish an artifact, or write a manifest.
+
+Then create the train:
 
 ```bash
 cedarcli publish train
@@ -99,6 +110,15 @@ and platform for every image. Only then does it create
 are optional and are not part of this pointer.
 
 ## Resume a failed train
+
+Inspect the resume without dispatching it:
+
+```bash
+cedarcli publish train --resume <TRAIN_ID> --dry-run
+```
+
+The preflight requires the immutable source manifest and reports the first incomplete stage. Then
+resume it:
 
 ```bash
 cedarcli publish train --resume <TRAIN_ID>
