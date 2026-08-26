@@ -515,13 +515,30 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   versions or search projection disagreeing. The present suite protects the behavioural skeleton; this
   item protects the integrity of state when operations fail or are repeated.
 
-- **16. Add degradation tests.** Nothing asserts how a service behaves when a dependency it needs is
-  unavailable. The cost of that gap is known: reading any folder whose creator could not be resolved
-  returned 500 for as long as the defect existed, because `UserSummaryCache` let Guava's
-  "loader returned null" signal escape instead of degrading to the no-display-name path the callers
-  already handled. A cheap form is one test per server that points a dependency at a dead port and
-  asserts the API degrades rather than 500s. Bear in mind that queue writes are already best-effort
-  by design (`AppLoggerQueueService`, the worker and NCBI queues), so those are the pattern to match.
+- **16. Complete the degradation matrix.** The first tranche landed on 2026-08-26. The shared HTTP
+  proxy now classifies connection failures as `503 Service Unavailable`; the common exception boundary
+  does the same for Neo4j connection/session failures and MongoDB selection, socket and failover
+  failures; and neither mapper serializes the source exception, stack, host or URL back to the caller.
+  Real HTTP tests pin a stopped artifact-server dependency at the resource and monitor servers, a
+  stopped MongoDB at the artifact server, a stopped Neo4j at the user server, and a stopped OpenSearch
+  at the value-recommender server. OpenView's Mongo read boundary has direct coverage. The original
+  `UserSummaryCache` null-loader defect has its own recovery regression, so an unavailable creator
+  lookup degrades to an absent display name rather than taking down folder reads.
+
+  The asynchronous side is no longer an untested analogy. Redis outage/recovery is covered for the
+  shared best-effort producers, and worker tests cover claim/retry/dead-letter behavior for permission,
+  clone, app-log and value-recommender queues, bounded value-recommender batches, Redis-unavailable
+  startup recovery, consumer failure state, dead-letter health and the worker's Redis, OpenSearch and
+  Neo4j health checks. Artifact health separately proves that a failed Mongo ping is unhealthy.
+
+  What remains is a server-by-server completion pass, not a blank slate. Add direct stopped-dependency
+  HTTP tests for the resource server's OpenSearch search/index paths, representative group/resource
+  Neo4j reads beyond the shared user-server proof, MySQL-backed messaging/log reads, and the Keycloak
+  admin lookup used by user summaries. Then inventory the remaining synchronous external clients and
+  either pin their documented partial-result behavior or require a sanitized 503. Do not add a dead-port
+  test to a thin server merely to reach a count: each test must cross a dependency boundary that server
+  actually owns, and must assert status, stable client message, absence of internal connection details,
+  and recovery or unaffected endpoints where the contract promises either.
 
 - **17. Switch the extracted Workspace and Template Designer over in staging, then production.**
   Local coexistence is complete: the monolith remains on `cedar.metadatacenter.orgx`, Workspace and

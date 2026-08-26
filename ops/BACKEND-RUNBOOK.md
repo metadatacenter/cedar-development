@@ -1309,10 +1309,10 @@ started in a static `@BeforeAll` and stopped in `@AfterAll`. Do not use the JUni
 `DropwizardAppExtension`: its version bundled with Dropwizard 2.1 is binary-incompatible with the
 current JUnit platform.
 
-Rough suite sizes: artifact 1307 (parameterized CRUD over four artifact types on embedded Mongo),
-microservice-libraries 810 over seven modules (server-rest 249, workspace-operations 182,
-search-operations 178), artifact-library 800, terminology 246 (61 more excluded under `bioportal`),
-model-validation 220, resource 78, cadsr-tools 70, core-library 56, user 11, group 10, and a
+Rough suite sizes: artifact 1334 (parameterized CRUD over four artifact types on embedded Mongo),
+server-rest 281, workspace-operations 182, search-operations 178, artifact-library 800,
+terminology 246 (61 more excluded under `bioportal`), model-validation 220, resource 78,
+cadsr-tools 70, core-library 57, user 22, group 10, and a
 one-to-seven-test boot-and-config tier on the remaining thin servers.
 
 ### What the suites actually cover
@@ -1440,8 +1440,12 @@ Where the coverage is thin, stated plainly so nobody reads the class count as re
   the largest single coverage win available.
 - **The thin servers have three classes each** — config, boot, routes. That is a real net, and it is
   what caught the media-type 505, but it means "starts and refuses strangers", not "is correct".
-- **Most dependency failures and the deployed proxy boundary remain uncovered** (see the degradation
-  item on the roadmap). Concurrent edits are covered both over HTTP and directly at the Mongo
+- **Dependency coverage is partial but now deliberate** (see the degradation item on the roadmap).
+  The shared proxy, exception mapper, worker queues and health checks are covered, with real HTTP
+  dead-port tests for artifact/MongoDB, resource-to-artifact, monitor-to-artifact, user/Neo4j and
+  value-recommender/OpenSearch, plus OpenView's store boundary. Resource search/index degradation,
+  representative group/resource graph reads, MySQL-backed reads and the Keycloak admin lookup still
+  need endpoint coverage. Concurrent edits are covered both over HTTP and directly at the Mongo
   compare-and-swap boundary. Pagination is covered on a folder's contents and search (`pagination`
   suite); the other paged listings are not.
 
