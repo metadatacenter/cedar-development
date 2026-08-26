@@ -269,8 +269,9 @@ Three ways out were measured on 2026-08-26 and none is an improvement. Bounding 
 grouping is slower, because taking the best N first makes SQLite sort the whole match set where
 grouping it uses a temp b-tree. Indexing the label text and answering page one from the
 labels that start with the query is exact in principle, since ranks 0 to 4 all outrank 5 to 7 and
-twenty-five of them settle the page. But a broad prefix scans as much as it saves, `ce` taking 6,969 ms, and the
-tie-break on name length sees only the prefix rows, which moved 16 of 25 results for "acid". FTS5's
+twenty-five of them settle the page. But a broad prefix scans as much as it saves, `ce` taking
+6,969 ms, and the tie-break on name length sees only the prefix rows, which moved 16 of 25 results
+for "acid". FTS5's
 own relevance ordering is genuinely faster, 2 to 3 times, and ranks badly for choosing a term:
 "disease" leads with `disease-disease association`, "acid" with `acidipropionibacterium`. The
 exact-match ladder is what makes the current order worth having.
