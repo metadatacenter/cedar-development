@@ -93,11 +93,13 @@ from its captured commit, and enforces this graph before publishing anything:
 3. every deployed CEE consumer pins that exact CEE alias and integrity in its source manifest and
    lockfile; and
 4. all seven frontend packages are present at their commit-derived immutable versions. Missing
-   frontend packages are published from the clean captured checkout; an existing version is
+   frontend packages are packed from `git archive HEAD`, so untracked and ignored local build
+   output cannot enter a commit-identified artifact; an existing version is
    accepted only when its `gitHead` is identical. The publisher requires the captured
    `package-lock.json`, normalizes its root identity to the immutable package version, and includes
-   it as `npm-shrinkwrap.json` in the tarball. Shrinkwrapped artifacts use the `p2` packaging suffix
-   after the commit-derived version, so a pre-lock tarball from the same source commit cannot be
+   it as `npm-shrinkwrap.json` in the tarball. Committed-source, shrinkwrapped artifacts use the
+   `p3` packaging suffix after the commit-derived version, so an earlier working-tree or pre-lock
+   tarball from the same source commit cannot be
    mistaken for the new package format; npm completion also opens the tarball and hashes the lock.
 
 The model and CEE artifacts retain their own full release gates; the train will not manufacture one
@@ -124,6 +126,11 @@ labels, hashes the embedded manifest in every frontend container, and records th
 and platform for every image. Only then does it create
 `docker/completed/<TRAIN_ID>.json` and advance `docker/current.json`. The four administration images
 are optional and are not part of this pointer.
+
+At deployment time, `cedarcli docker start` reads that completion record again. It applies the
+selected pull policy, requires every selected local image tag to carry the recorded repository
+digest, and then starts Compose with pulling disabled. A tag that is absent, locally rebuilt, or
+now resolves to different registry content is rejected before any service starts.
 
 ## Resume a failed train
 

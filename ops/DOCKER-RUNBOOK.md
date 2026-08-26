@@ -359,6 +359,20 @@ images, or `--pull always` when the deployment must refresh every image from its
 registry. Use the separate `admin` target for optional administration containers. Use
 `--timeout SECONDS` to change the ten-minute readiness deadline.
 
+For a published train, every pull policy is followed by the same fail-closed gate: the CLI loads
+`docker/completed/<TRAIN_ID>.json` and compares each selected tag's `RepoDigests` with the verified
+digest in that record. Compose is then forced to `--pull never` so it cannot re-resolve a tag
+between verification and start. This also makes resume safe: a pre-existing tag is reused only
+when its registry digest matches the completion record.
+
+The fifteen Java services run as the fixed non-root identity `10001:10001`. Before starting that
+stack, the CLI prepares the log, Resource state, and Terminology cache named volumes once and marks
+each migrated volume with `.cedar-owner-10001`. This makes volumes created by older root-running
+images safe to reuse without deleting their data. The brief ownership container runs as root with
+`--pull=never` from the already selected Artifact image; the service containers themselves remain
+non-root. The shared CA stays read-only, and each service imports it into its own user-writable
+truststore.
+
 The command validates all Compose projects, checks the Docker daemon, `cedarnet`, certificate
 volumes, and published ports, and then starts infrastructure, microservices, and frontends when
 selected by the configured mode. It waits after each stage. A timeout names the unhealthy services
@@ -366,8 +380,9 @@ and prints at most 100 recent log lines for each. Finally, it verifies that a ba
 reach Keycloak's signing configuration and checks the public frontend routes in `docker` and
 `hybrid` modes. The aggregate deliberately excludes the optional admin project.
 
-Individual stack commands remain available for troubleshooting. They preserve the recorded mode
-when recreating nginx, but they do not perform the aggregate preflight or readiness sequence.
+Individual stack commands remain available for troubleshooting. Published-train starts retain the
+same digest and volume-ownership gates. They preserve the recorded mode when recreating nginx, but
+they do not perform the aggregate preflight or readiness sequence.
 
 ## Health gate
 

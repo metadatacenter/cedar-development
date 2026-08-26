@@ -15,7 +15,10 @@ each layer in dependency order, waits for health and route acceptance, records t
 train, and stops the deployment without deleting data. Java development artifacts can now be
 published as one immutable build train, and Docker build/start resolve the most recently completed
 train or an exact older train. Full 29-container deployments and both REST and browser smoke suites
-have passed locally. The numbered items below are the remaining delivery and operational work.
+have passed locally. Train consumption now checks selected local tags against the completion
+record's registry digests before Compose starts, and Java services run as UID/GID 10001 with an
+automatic one-time ownership migration for existing named volumes. The numbered items below are
+the remaining delivery and operational work.
 
 1. **Complete the Docker release, promotion, and rollback pipeline.** Run the 22-container backend
    and all 19 REST suites on an 8-vCPU Linux runner with 32 GB of RAM and 300 GB of SSD storage, or
@@ -35,7 +38,10 @@ have passed locally. The numbered items below are the remaining delivery and ope
    its operating-system and application layers, sign the published digest, and make these checks
    publication gates. Vulnerability exceptions need a named owner, justification, and expiry date.
    Keep automated dependency updates as reviewed changes that rebuild and exercise the complete
-   affected image set.
+   affected image set. The public nginx edge and Temurin 17 runtime were brought to current stable
+   patch lines on 2026-08-26; continue that cadence rather than treating reproducible pins as frozen
+   dependencies. The repository exposes a Renovate Dependency Dashboard when the hosted bot runs,
+   but installation and authorization of that external GitHub App remains an organization task.
 
 3. **Prove persistence, backup, restore, and upgrade operations.** Document each named volume, its
    owner, and the backup and restore procedure for MongoDB, MySQL, Neo4j, Redis, and OpenSearch.

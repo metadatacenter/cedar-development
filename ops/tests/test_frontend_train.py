@@ -118,7 +118,7 @@ class FrontendTrainTest(unittest.TestCase):
             self.assertEqual(MODEL_VERSION, plan["cee"]["model"]["version"])
             self.assertEqual(CEE_VERSION, plan["frontends"][0]["ceeVersion"])
             self.assertEqual(
-                f"2.9.3-dev.20260825220426.g{app_sha[:12]}.p2",
+                f"2.9.3-dev.20260825220426.g{app_sha[:12]}.p3",
                 plan["dockerInputs"]["CEDAR_APP_NPM_VERSION"],
             )
             self.assertEqual(
@@ -256,6 +256,41 @@ class FrontendTrainTest(unittest.TestCase):
             archive = next(root.glob("*.tgz"))
             with tarfile.open(archive, "r:gz") as stream:
                 self.assertIn("package/npm-shrinkwrap.json", stream.getnames())
+
+    def test_publish_source_archive_excludes_ignored_worktree_artifacts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write(root / "package.json", {"name": "app", "version": "1.0.0"})
+            write(root / "package-lock.json", {
+                "name": "app", "version": "1.0.0", "lockfileVersion": 3,
+                "packages": {"": {"name": "app", "version": "1.0.0"}},
+            })
+            (root / ".gitignore").write_text("dist/\n", encoding="utf-8")
+            committed = root / "src" / "committed.js"
+            committed.parent.mkdir()
+            committed.write_text("committed\n", encoding="utf-8")
+            commit(root)
+            ignored = root / "dist" / "polluted.js"
+            ignored.parent.mkdir()
+            ignored.write_text("ignored local artifact\n", encoding="utf-8")
+
+            archive = root / "head.tar"
+            with archive.open("wb") as output:
+                subprocess.run(
+                    ["git", "-C", str(root), "archive", "--format=tar", "HEAD"],
+                    check=True, stdout=output,
+                )
+            with tarfile.open(archive) as stream:
+                names = stream.getnames()
+            self.assertIn("src/committed.js", names)
+            self.assertNotIn("dist/polluted.js", names)
+
+            publisher = (
+                Path(frontend_train.__file__).parent / "publish-frontend-package.sh"
+            ).read_text(encoding="utf-8")
+            self.assertIn('git -C "${repo_dir}" archive --format=tar HEAD', publisher)
+            self.assertIn('npm pack "${archived_package_dir}"', publisher)
+            self.assertNotIn('npm pack "${package_dir}"', publisher)
 
     def test_completion_includes_verified_runtime_packages(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -76,7 +76,7 @@ if [[ "${manifest_version}" == *-SNAPSHOT ]]; then
 else
   version_base=${manifest_version%%-*}
 fi
-package_version="${version_base}-dev.${commit_timestamp}.${short_commit}.p2"
+package_version="${version_base}-dev.${commit_timestamp}.${short_commit}.p3"
 
 if existing_commit=$(npm view "${package_name}@${package_version}" gitHead \
   --registry "${registry}" --json 2>/dev/null); then
@@ -102,7 +102,19 @@ cleanup() {
 }
 trap cleanup EXIT
 
-npm pack "${package_dir}" --pack-destination "${staging_dir}" --loglevel=error >/dev/null
+source_dir="${staging_dir}/source"
+mkdir -p "${source_dir}"
+# The package identity names a Git commit, so its bytes must come from that commit as well. Packing
+# the working tree would allow ignored build output to enter an otherwise clean repository.
+git -C "${repo_dir}" archive --format=tar HEAD | tar -xf - -C "${source_dir}"
+archived_package_dir="${source_dir}/${package_path}"
+if [ ! -f "${archived_package_dir}/package.json" ] || \
+   [ ! -f "${archived_package_dir}/package-lock.json" ]; then
+  echo "Committed frontend package metadata is missing from ${repo_name}:${package_path}" >&2
+  exit 1
+fi
+
+npm pack "${archived_package_dir}" --pack-destination "${staging_dir}" --loglevel=error >/dev/null
 package_tarball=("${staging_dir}"/*.tgz)
 if [ ! -f "${package_tarball[0]}" ]; then
   echo "npm pack did not produce a tarball for ${package_name}" >&2
@@ -115,7 +127,7 @@ npm pkg set \
   "gitHead=${source_commit}" \
   --prefix "${staging_dir}/package"
 node "${SCRIPT_DIR}/stage-npm-shrinkwrap.mjs" \
-  "${package_dir}/package-lock.json" \
+  "${archived_package_dir}/package-lock.json" \
   "${staging_dir}/package/npm-shrinkwrap.json" \
   "${package_name}" \
   "${package_version}"

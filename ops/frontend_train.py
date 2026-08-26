@@ -24,7 +24,7 @@ ROOT = Path(__file__).resolve().parent
 DEFAULT_CONFIG = ROOT / "frontend-train.json"
 TRAIN_RE = re.compile(r"^\d+\.\d+\.\d+-dev\.\d{8}\.\d{4}$")
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
-FRONTEND_PACKAGE_FORMAT = "p2"
+FRONTEND_PACKAGE_FORMAT = "p3"
 
 
 def load_json(path: Path) -> dict:
