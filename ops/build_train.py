@@ -231,13 +231,15 @@ def prepare(args: argparse.Namespace) -> None:
 
     if not args.resume:
         manifest = {
-            "schemaVersion": 1,
+            "schemaVersion": 2,
             "version": version,
             "createdAt": dt.datetime.now(dt.timezone.utc).isoformat(),
             "sourceBranch": config["sourceBranch"],
             "sourceVersion": source_version,
             "mavenRepository": config["mavenRepository"],
             "repositories": repositories,
+            # These are compatibility defaults from cedar-docker-build. The npm train replaces
+            # every CEDAR package pin with versions derived from its captured source commits.
             "frontendPackages": frontend_inputs(args.workspace),
         }
         write_json(manifest_path, manifest)

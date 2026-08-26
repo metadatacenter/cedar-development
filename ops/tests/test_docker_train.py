@@ -38,7 +38,29 @@ class DockerTrainTest(unittest.TestCase):
         source_path = root / "trains" / f"{VERSION}.json"
         write(source_path, source)
         write(root / "completed" / f"{VERSION}.json", {"version": VERSION})
+        write(root / "npm" / "completed" / f"{VERSION}.json", {
+            "version": VERSION,
+            "planSha256": "d" * 64,
+            "sourceManifestSha256": hashlib.sha256(source_path.read_bytes()).hexdigest(),
+            "dockerInputs": {"CEDAR_WORKSPACE_NPM_VERSION": "2.9.3-dev.example"},
+            "packages": [],
+        })
         return hashlib.sha256(source_path.read_bytes()).hexdigest()
+
+    @staticmethod
+    def frontend_hash(source_hash: str) -> str:
+        npm = {
+            "version": VERSION,
+            "planSha256": "d" * 64,
+            "sourceManifestSha256": source_hash,
+            "dockerInputs": {"CEDAR_WORKSPACE_NPM_VERSION": "2.9.3-dev.example"},
+            "packages": [],
+        }
+        content = (json.dumps(
+            docker_train.runtime_manifest(VERSION, source_hash, npm),
+            indent=2, sort_keys=True,
+        ) + "\n").encode()
+        return hashlib.sha256(content).hexdigest()
 
     def test_plan_records_exactly_two_internal_and_twenty_nine_runtime_images(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -70,6 +92,7 @@ class DockerTrainTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             state = Path(directory)
             source_hash = self.make_state(state)
+            frontend_hash = self.frontend_hash(source_hash)
             docker_train.record_plan(argparse.Namespace(
                 config=docker_train.DEFAULT_CONFIG,
                 version=VERSION,
@@ -87,11 +110,13 @@ class DockerTrainTest(unittest.TestCase):
                         "org.metadatacenter.cedar.image": image,
                         "org.metadatacenter.cedar.train": VERSION,
                         "org.metadatacenter.cedar.source-manifest-sha256": source_hash,
+                        "org.metadatacenter.cedar.frontend-manifest-sha256": frontend_hash,
                         "org.opencontainers.image.revision": "b" * 40,
                     }},
                 }
 
             inspect.side_effect = inspected
+            run.return_value.stdout = frontend_hash + "  /usr/local/share/cedar-build-manifest.json\n"
             docker_train.verify(argparse.Namespace(
                 config=docker_train.DEFAULT_CONFIG,
                 version=VERSION,

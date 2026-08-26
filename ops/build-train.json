@@ -36,7 +36,17 @@
     "cedar-docker-build",
     "cedar-docker-deploy",
     "cedar-development",
-    "cedar-cli"
+    "cedar-cli",
+    "cedar-model-typescript-library",
+    "cedar-embeddable-editor",
+    "cedar-template-editor",
+    "cedar-workspace",
+    "cedar-template-designer",
+    "cedar-openview",
+    "cedar-content-distribution",
+    "cedar-monitoring",
+    "cedar-bridging",
+    "cedar-component-demo"
   ],
   "mavenRepositories": [
     "cedar-parent",

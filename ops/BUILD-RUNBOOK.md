@@ -44,8 +44,9 @@ cedarcli publish train
 The CLI reads the next version from `cedar-parent`, adds the current UTC minute, and dispatches the
 `cedar-development` workflow. The train ID is allocated automatically; operators do not choose it.
 
-The workflow first records the exact `develop` commit of every Java, Docker, CLI, and orchestration
-repository. It then builds Maven in the dependency order already encoded by the CEDAR reactors:
+The workflow first records the exact `develop` commit of every Java, npm, frontend, Docker, CLI,
+and orchestration repository. It then builds Maven in the dependency order already encoded by the
+CEDAR reactors:
 
 1. `cedar-parent`
 2. `cedar-libraries` and its six library repositories
@@ -64,14 +65,36 @@ After publication, the workflow queries Nexus for the libraries and runtime appl
 by Docker. Only a complete inventory creates `completed/<TRAIN_ID>.json` and advances `current.json`.
 A partial or failed train can never become current.
 
+Next, the workflow creates `npm/trains/<TRAIN_ID>.json`. It derives each frontend package version
+from its captured commit, and enforces this graph before publishing anything:
+
+1. the scoped TypeScript model package already exists in Nexus at the version in its published
+   manifest and has the captured model commit as `gitHead`;
+2. CEE pins that exact model version in both of its manifests and lockfiles, and the scoped CEE
+   package already exists with the captured CEE commit;
+3. every deployed CEE consumer pins that exact CEE alias and integrity in its source manifest and
+   lockfile; and
+4. all seven frontend packages are present at their commit-derived immutable versions. Missing
+   frontend packages are published from the clean captured checkout; an existing version is
+   accepted only when its `gitHead` is identical.
+
+The model and CEE artifacts retain their own full release gates; the train will not manufacture one
+by bypassing those gates. It stops with an instruction to publish the missing prerequisite first.
+After publication, the workflow downloads every npm tarball, verifies its registry integrity and
+records a SHA-256 in `npm/completed/<TRAIN_ID>.json`. Only then does `npm/current.json` advance.
+
 The workflow then records the expected Docker plan and builds the image estate in dependency
 order. `cedar-java` and `cedar-microservice` publish to the internal repository. Seven
 infrastructure, fifteen microservice, and seven frontend images publish to the runtime repository.
-Independent images build in parallel; the Java bases remain ordered. Every image records the train,
-the exact `cedar-docker-build` commit, and the source-manifest digest as OCI labels.
+Independent images build in parallel; the Java bases remain ordered. The verified npm plan supplies
+the frontend build arguments, overriding compatibility defaults in `cedar-images-base.sh`. Every
+image records the train, the exact `cedar-docker-build` commit, the source-manifest digest, and the
+npm/frontend-manifest digest as OCI labels. Each frontend image also contains the complete graph at
+`/usr/local/share/cedar-build-manifest.json`.
 
 The final job removes local copies and pulls each of the 31 images from Nexus. It verifies the
-labels and records the registry digest and platform for every image. Only then does it create
+labels, hashes the embedded manifest in every frontend container, and records the registry digest
+and platform for every image. Only then does it create
 `docker/completed/<TRAIN_ID>.json` and advance `docker/current.json`. The four administration images
 are optional and are not part of this pointer.
 
@@ -84,8 +107,10 @@ cedarcli publish train --resume <TRAIN_ID>
 Resume requires `trains/<TRAIN_ID>.json` on the `build-trains` branch and checks out the commits in that
 manifest—not whatever is now at the head of `develop`. Identical Maven files already present in
 Nexus are accepted; missing files are uploaded. When Maven publication is already complete, resume
-skips it and continues with Docker. A Docker tag already present is accepted only when its train and
-source-manifest labels match; a different image is a hard failure.
+skips it and continues with npm and Docker. npm artifacts are accepted only when their `gitHead`,
+integrity, and tarball bytes match the recorded graph. A Docker tag already present is accepted only
+when its train, source-manifest, and frontend-manifest labels match; a different image is a hard
+failure.
 
 Use a new train rather than resume when you want to include a source change. A train ID always means
 one fixed commit set.
@@ -94,15 +119,24 @@ one fixed commit set.
 
 The `build-trains` branch is machine-owned operational state, separate from normal development:
 
-- `trains/<TRAIN_ID>.json` records the source commits, source snapshot version, frontend npm inputs,
-  and target Maven repository;
+- `trains/<TRAIN_ID>.json` records the source commits, source snapshot version, compatibility npm
+  defaults, and target Maven repository;
 - `completed/<TRAIN_ID>.json` records successful Nexus verification; and
 - `current.json` points to the most recently completed Maven train;
+- `npm/trains/<TRAIN_ID>.json` records the expected TypeScript model → CEE → frontend graph;
+- `npm/completed/<TRAIN_ID>.json` records registry integrities and downloaded tarball hashes;
+- `npm/current.json` points to the most recently completed npm graph;
 - `docker/trains/<TRAIN_ID>.json` records the exact 31-image publication plan;
 - `docker/completed/<TRAIN_ID>.json` records the verified image digests; and
 - `docker/current.json` points to the most recently completed Docker train.
 
 The source manifest is never rewritten. The current pointer moves only after completion.
+
+Inspect a train without opening the state branch manually:
+
+```bash
+cedarcli publish train-status <TRAIN_ID>
+```
 
 ## Use a train for Docker
 

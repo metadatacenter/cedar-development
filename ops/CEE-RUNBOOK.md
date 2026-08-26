@@ -1425,6 +1425,12 @@ Never replace the helper with a remembered consumer list: its tested inventory i
 keeps Workspace wired into every CEE release. Review and commit the resulting manifest and lockfile
 changes in each owning repository separately.
 
+An immutable development build train does not replace this propagation step or CEE's release gate.
+It captures the resulting commits and then checks the same exact aliases and lockfile integrities
+again. The train requires the scoped model package first, then the scoped CEE package, publishes the
+wired frontend packages, and finally supplies those verified versions to the Docker builds. See
+[BUILD-RUNBOOK.md](./BUILD-RUNBOOK.md) for the persisted `npm/trains` and `npm/completed` records.
+
 Propagating a release also means rebuilding each deployed consumer.
 Confirm the bytes rather than the version string: the sha256 that `package:npm:prebuilt` prints should
 appear in each consumer's `node_modules`, and again wherever that consumer stages the bundle —

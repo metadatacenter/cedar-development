@@ -24,6 +24,15 @@ DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 MANIFEST_SHA_RE = re.compile(r"^[0-9a-f]{64}$")
 CHECKOUT_REPOSITORIES = ("cedar-cli", "cedar-docker-build")
+FRONTEND_IMAGES = (
+    "cedar-frontend-main",
+    "cedar-frontend-workspace",
+    "cedar-frontend-template-designer",
+    "cedar-frontend-openview",
+    "cedar-frontend-content",
+    "cedar-frontend-monitoring",
+    "cedar-frontend-bridging",
+)
 
 
 def run(arguments: list[str], cwd: Path | None = None, capture: bool = False,
@@ -102,6 +111,28 @@ def require_maven_completion(version: str, state: Path | None = None) -> dict:
     return payload
 
 
+def require_npm_completion(version: str, state: Path | None = None) -> dict:
+    relative = f"npm/completed/{validate_train(version)}.json"
+    payload = fetch_json(relative) if state is None else load_json(state / relative)
+    if payload.get("version") != version:
+        raise RuntimeError(f"npm completion record does not describe {version}")
+    plan_hash = payload.get("planSha256", "")
+    if not MANIFEST_SHA_RE.fullmatch(plan_hash):
+        raise RuntimeError(f"npm completion record for {version} has no valid plan digest")
+    return payload
+
+
+def runtime_manifest(version: str, source_hash: str, npm_completion: dict) -> dict:
+    return {
+        "schemaVersion": 1,
+        "train": version,
+        "sourceManifestSha256": source_hash,
+        "npmPlanSha256": npm_completion["planSha256"],
+        "dockerInputs": npm_completion["dockerInputs"],
+        "packages": npm_completion["packages"],
+    }
+
+
 def core_images(config: dict) -> list[str]:
     ordered = []
     for group in ("javaBase", "microserviceBase", "infrastructure", "microservices", "frontends"):
@@ -139,6 +170,9 @@ def record_plan(args: argparse.Namespace) -> None:
     version = validate_train(args.version)
     source, content = source_manifest(version, args.state)
     require_maven_completion(version, args.state)
+    npm = require_npm_completion(version, args.state)
+    if npm.get("sourceManifestSha256") != manifest_sha(content):
+        raise RuntimeError("npm completion was verified against a different source manifest")
     repositories = source.get("repositories", {})
     for repository in CHECKOUT_REPOSITORIES:
         if not SHA_RE.fullmatch(repositories.get(repository, "")):
@@ -152,14 +186,17 @@ def record_plan(args: argparse.Namespace) -> None:
         for image in core_images(config)
     ]
     plan = {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "version": version,
         "createdAt": dt.datetime.now(dt.timezone.utc).isoformat(),
         "javaManifest": f"trains/{version}.json",
         "javaCompletion": f"completed/{version}.json",
+        "npmPlan": f"npm/trains/{version}.json",
+        "npmCompletion": f"npm/completed/{version}.json",
+        "npmPlanSha256": npm["planSha256"],
         "sourceManifestSha256": manifest_sha(content),
         "repositories": {name: repositories[name] for name in CHECKOUT_REPOSITORIES},
-        "frontendPackages": source.get("frontendPackages", {}),
+        "frontendPackages": npm["dockerInputs"],
         "images": images,
     }
     destination = args.state / "docker" / "trains" / f"{version}.json"
@@ -192,6 +229,9 @@ def checkout(args: argparse.Namespace) -> None:
     version = validate_train(args.version)
     source, content = source_manifest(version, args.state)
     require_maven_completion(version, args.state)
+    npm = require_npm_completion(version, args.state)
+    if npm.get("sourceManifestSha256") != manifest_sha(content):
+        raise RuntimeError("npm completion was verified against a different source manifest")
     args.workspace.mkdir(parents=True, exist_ok=True)
     if any(args.workspace.iterdir()):
         raise RuntimeError(f"Docker workspace is not empty: {args.workspace}")
@@ -203,16 +243,32 @@ def checkout(args: argparse.Namespace) -> None:
     (args.workspace / ".cedar-train-manifest-sha256").write_text(
         manifest_sha(content) + "\n", encoding="utf-8"
     )
+    embedded = runtime_manifest(version, manifest_sha(content), npm)
+    embedded_content = (json.dumps(embedded, indent=2, sort_keys=True) + "\n").encode()
+    embedded_hash = manifest_sha(embedded_content)
+    (args.workspace / ".cedar-frontend-manifest-sha256").write_text(
+        embedded_hash + "\n", encoding="utf-8"
+    )
+    (args.workspace / ".cedar-frontend-inputs.json").write_text(
+        json.dumps(npm["dockerInputs"], sort_keys=True) + "\n", encoding="utf-8"
+    )
+    docker_build = args.workspace / "cedar-docker-build"
+    for image in FRONTEND_IMAGES:
+        (docker_build / image / "cedar-build-manifest.json").write_bytes(embedded_content)
     print(f"Checked out Docker builder inputs for {version}.")
 
 
-def expected_labels(image: str, version: str, source_hash: str) -> dict[str, str]:
+def expected_labels(image: str, version: str, source_hash: str,
+                    frontend_hash: str) -> dict[str, str]:
     if not MANIFEST_SHA_RE.fullmatch(source_hash):
         raise RuntimeError("source manifest digest is not a lowercase SHA-256")
+    if not MANIFEST_SHA_RE.fullmatch(frontend_hash):
+        raise RuntimeError("frontend manifest digest is not a lowercase SHA-256")
     return {
         "org.metadatacenter.cedar.image": image,
         "org.metadatacenter.cedar.train": version,
         "org.metadatacenter.cedar.source-manifest-sha256": source_hash,
+        "org.metadatacenter.cedar.frontend-manifest-sha256": frontend_hash,
     }
 
 
@@ -231,6 +287,18 @@ def verify_labels(reference: str, inspected: dict, expected: dict[str, str]) -> 
         raise RuntimeError(f"{reference} has incorrect provenance labels: {', '.join(wrong)}")
 
 
+def verify_embedded_manifest(image: str, reference: str, expected_hash: str) -> None:
+    if image not in FRONTEND_IMAGES:
+        return
+    result = run([
+        "docker", "run", "--rm", "--entrypoint", "sha256sum", reference,
+        "/usr/local/share/cedar-build-manifest.json",
+    ], capture=True)
+    actual = result.stdout.split()[0] if result.stdout.split() else ""
+    if actual != expected_hash:
+        raise RuntimeError(f"{reference} contains the wrong cedar-build-manifest.json")
+
+
 def remote_exists(reference: str) -> bool:
     result = run(["docker", "manifest", "inspect", reference], capture=True, check=False)
     return result.returncode == 0
@@ -246,12 +314,17 @@ def publish_image(args: argparse.Namespace) -> None:
     if not source_hash_path.exists():
         raise RuntimeError("Docker workspace has no source-manifest digest; run checkout first")
     source_hash = source_hash_path.read_text(encoding="utf-8").strip()
-    expected = expected_labels(args.image, version, source_hash)
+    frontend_hash_path = args.workspace / ".cedar-frontend-manifest-sha256"
+    if not frontend_hash_path.exists():
+        raise RuntimeError("Docker workspace has no frontend-manifest digest; run checkout first")
+    frontend_hash = frontend_hash_path.read_text(encoding="utf-8").strip()
+    expected = expected_labels(args.image, version, source_hash, frontend_hash)
     reference = reference_for(config, args.image, version)
 
     if remote_exists(reference):
         run(["docker", "pull", reference])
         verify_labels(reference, inspect_image(reference), expected)
+        verify_embedded_manifest(args.image, reference, frontend_hash)
         print(f"Verified already-published image {reference}.")
         return
 
@@ -261,7 +334,10 @@ def publish_image(args: argparse.Namespace) -> None:
         "CEDAR_IMAGE_PREFIX": config["publicPrefix"],
         "CEDAR_BASE_IMAGE_PREFIX": config["internalPrefix"],
         "CEDAR_TRAIN_MANIFEST_SHA256": source_hash,
+        "CEDAR_FRONTEND_MANIFEST_SHA256": frontend_hash,
     })
+    inputs = load_json(args.workspace / ".cedar-frontend-inputs.json")
+    environment.update({name: str(value) for name, value in inputs.items()})
     cli = args.workspace / "cedar-cli" / "cedar.py"
     run([
         sys.executable,
@@ -274,9 +350,11 @@ def publish_image(args: argparse.Namespace) -> None:
         version,
     ], environment=environment)
     verify_labels(reference, inspect_image(reference), expected)
+    verify_embedded_manifest(args.image, reference, frontend_hash)
     run(["docker", "push", reference])
     run(["docker", "pull", reference])
     verify_labels(reference, inspect_image(reference), expected)
+    verify_embedded_manifest(args.image, reference, frontend_hash)
     print(f"Published and verified {reference}.")
 
 
@@ -299,6 +377,13 @@ def verify(args: argparse.Namespace) -> None:
         raise RuntimeError(f"Docker train {version} has no recorded plan")
     plan = load_json(plan_path)
     source_hash = plan.get("sourceManifestSha256", "")
+    npm = require_npm_completion(version, args.state)
+    if npm.get("sourceManifestSha256") != source_hash:
+        raise RuntimeError("npm completion was verified against a different source manifest")
+    embedded = runtime_manifest(version, source_hash, npm)
+    frontend_hash = manifest_sha((json.dumps(embedded, indent=2, sort_keys=True) + "\n").encode())
+    if plan.get("npmPlanSha256") != npm.get("planSha256"):
+        raise RuntimeError("Docker plan and npm completion name different npm manifests")
     expected_images = core_images(config)
     if [entry.get("image") for entry in plan.get("images", [])] != expected_images:
         raise RuntimeError("recorded Docker plan does not contain the configured 31 core images")
@@ -309,7 +394,10 @@ def verify(args: argparse.Namespace) -> None:
         run(["docker", "image", "rm", "--force", reference], check=False, capture=True)
         run(["docker", "pull", reference])
         inspected = inspect_image(reference)
-        verify_labels(reference, inspected, expected_labels(image, version, source_hash))
+        verify_labels(
+            reference, inspected, expected_labels(image, version, source_hash, frontend_hash)
+        )
+        verify_embedded_manifest(image, reference, frontend_hash)
         verified.append({
             "image": image,
             "reference": reference,
@@ -323,11 +411,13 @@ def verify(args: argparse.Namespace) -> None:
 
     completed_at = dt.datetime.now(dt.timezone.utc).isoformat()
     completion = {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "version": version,
         "completedAt": completed_at,
         "plan": f"docker/trains/{version}.json",
         "sourceManifestSha256": source_hash,
+        "npmPlanSha256": npm["planSha256"],
+        "frontendManifestSha256": frontend_hash,
         "images": verified,
     }
     write_json(args.state / "docker" / "completed" / f"{version}.json", completion)
