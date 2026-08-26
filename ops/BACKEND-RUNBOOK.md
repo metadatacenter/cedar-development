@@ -895,16 +895,18 @@ TypeScript, while both emit the same bytes for it.
   source $CEDAR_HOME/cedar-profile-native-develop.sh          # sets CEDAR_CA_HOME, CEDAR_CA_PASSWORD, CEDAR_CA_*
   SSL=/opt/homebrew/etc/nginx/cedar/ssl
   cp -r "$SSL" /tmp/cedar-ssl-backup                          # optional but wise (reversible)
-  : > "$CEDAR_CA_HOME/index.txt"; mkdir -p "$CEDAR_CA_HOME/newcerts"   # reset issued-cert DB so openssl re-issues same subjects
-  $CEDAR_HOME/cedar-cli/.venv/bin/python $CEDAR_HOME/cedar-cli/cedar.py cert domains   # re-sign all leaves (SAN preserved, 824 days)
+  $CEDAR_HOME/cedar-cli/.venv/bin/python $CEDAR_HOME/cedar-cli/cedar.py cert setup     # safe to repeat; preserves CA state
+  $CEDAR_HOME/cedar-cli/.venv/bin/python $CEDAR_HOME/cedar-cli/cedar.py cert domains --force   # renew all leaves (SAN preserved, 824 days)
   for d in "$CEDAR_CA_HOME"/certs/*/; do sub=$(basename "$d"); tgt="$SSL/$sub"; [ -d "$tgt" ] || continue;
     crt=$(ls "$d"*.crt | head -1); cp "$crt" "${crt%.crt}.key" "$tgt/"; done   # install into nginx ssl dirs
   sudo nginx -s reload                                        # nginx master runs as root → needs sudo
   ```
   Notes: `cedar cert domains` writes leaves to `$CEDAR_CA_HOME/certs/<subdomain>/`, but nginx reads from
   `$SSL/<subdomain>/` — hence the copy step. The subdomain dir names match on both sides. Skipping the
-  `index.txt` reset makes `openssl ca` fail with "There is already a certificate for …". The reload is
-  the only step that needs your password (the master is a root process; there is no passwordless sudo).
+  `--force` option protects existing leaves from accidental replacement. Renewal keeps the CA issuance
+  history and writes each replacement atomically, so a failed OpenSSL command leaves the prior leaf in
+  place. The reload is the only step that needs your password (the master is a root process; there is no
+  passwordless sudo).
 
 - **`brew services start mongodb-community@5.0` breaks MongoDB** → it fails with
   `launchctl bootstrap gui/<uid> ... exited with 5`, and running it again keeps failing because it
@@ -1933,7 +1935,7 @@ regenerate the CA:
 export CEDAR_HOME=$HOME/CEDAR
 source $CEDAR_HOME/cedar-profile-native-develop.sh
 cd $CEDAR_HOME/cedar-cli
-.venv/bin/python cedar.py cert domains workspace designer
+.venv/bin/python cedar.py cert domains workspace designer --force
 bash $CEDAR_HOME/cedar-development/ops/install-local-split-hostnames.sh
 ```
 
