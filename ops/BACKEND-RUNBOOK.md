@@ -1200,10 +1200,12 @@ shaded jar is sound: it holds exactly one merged `META-INF/.../Log4j2Plugins.dat
 ~700-byte single-artifact version), a `Main-Class` in its manifest, and `java -jar <jar>` boots with
 no `StatusLogger` "Unrecognized format specifier" errors.
 
-Only the deployable modules shade. The shared libraries publish thin jars — as of 2026-08-11
-`cedar-model-library` holds 18 classes, `cedar-rest-library` 2, `cedar-config-library` 90 and
-`cedar-core-library` 149, each its own and nothing else. Until then all four declared the shade
-plugin themselves, so `cedar-config-library` shipped 12,516 classes, and `createDependencyReducedPom`
+Only the deployable modules shade. The shared libraries publish thin jars — as of 2026-08-26,
+the two HTTP parameter-constant classes formerly released from `cedar-rest-library` live in
+`cedar-model-library`, and the REST library is retired from the build and release trains.
+`cedar-config-library` and `cedar-core-library` likewise publish only their own classes. Before the
+thin-jar cleanup these libraries declared the shade plugin themselves, so `cedar-config-library`
+shipped 12,516 classes, and `createDependencyReducedPom`
 dropped the bundled dependencies from the published pom, leaving a consumer to resolve Jackson, Guava
 or another CEDAR library out of whichever jar its classpath reached first. Keep a library thin: its
 pom should declare what it uses and publish that, so every consumer resolves each dependency from the
@@ -2139,9 +2141,12 @@ The detailed release, registry, build, and served-hash procedure is in
 
 The shared Dropwizard CORS filter reads `CEDAR_CORS_ALLOWED_ORIGINS` as a comma-separated list of
 Jetty origin patterns. An unset or blank value retains the historical `*` default, so introducing
-the setting does not silently change an existing environment. Set the value before starting or
-restarting the backend services. Inventory every legitimate browser origin first: do not configure
-only Workspace and Designer while the monolith, OpenView, or another browser client is still in use.
+the setting does not silently change an existing environment. The filter sets `allowCredentials`
+explicitly: an exact origin list enables credentials, while any list containing the global `*`
+forces credentials off. Never combine `*` with credentials or mix it into an exact allowlist; the
+entire list will be treated as credentialless. Set the value before starting or restarting the
+backend services. Inventory every legitimate browser origin first: do not configure only Workspace
+and Designer while the monolith, OpenView, or another browser client is still in use.
 
 The local stack currently retains the backward-compatible wildcard. Its positive preflights from
 both local HTTPS origins pass and require no rebuild. Before staging, publish the updated shared
