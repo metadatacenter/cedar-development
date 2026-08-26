@@ -12,12 +12,6 @@
           <snapshots><enabled>false</enabled></snapshots>
         </repository>
         <repository>
-          <id>bmir-nexus-snapshots</id>
-          <url>https://nexus.bmir.stanford.edu/repository/snapshots/</url>
-          <releases><enabled>false</enabled></releases>
-          <snapshots><enabled>true</enabled></snapshots>
-        </repository>
-        <repository>
           <id>bmir-nexus-releases</id>
           <url>https://nexus.bmir.stanford.edu/repository/releases/</url>
           <releases><enabled>true</enabled></releases>
@@ -32,11 +26,6 @@
   <servers>
     <server>
       <id>cedar-maven-dev</id>
-      <username>${env.BMIR_NEXUS_USERNAME}</username>
-      <password>${env.BMIR_NEXUS_PASSWORD}</password>
-    </server>
-    <server>
-      <id>bmir-nexus-snapshots</id>
       <username>${env.BMIR_NEXUS_USERNAME}</username>
       <password>${env.BMIR_NEXUS_PASSWORD}</password>
     </server>

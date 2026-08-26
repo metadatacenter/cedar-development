@@ -187,14 +187,51 @@ def stamp_pom(pom: Path, source: str, target: str) -> bool:
 
 def stamp_workspace(config: dict, workspace: Path, source: str, target: str) -> int:
     changed = 0
+    for pom in maven_poms(config, workspace):
+        changed += int(stamp_pom(pom, source, target))
+    if not changed:
+        raise RuntimeError(f"no POM contained source version {source}")
+    return changed
+
+
+def maven_poms(config: dict, workspace: Path) -> list[Path]:
+    poms: list[Path] = []
     for repository in config["mavenRepositories"]:
         for pom in (workspace / repository).rglob("pom.xml"):
             if any(part in {"target", ".git"} for part in pom.parts):
                 continue
-            changed += int(stamp_pom(pom, source, target))
-    if not changed:
-        raise RuntimeError(f"no POM contained source version {source}")
-    return changed
+            poms.append(pom)
+    return sorted(poms)
+
+
+def assert_no_snapshot_poms(config: dict, workspace: Path) -> None:
+    snapshots = [
+        pom.relative_to(workspace).as_posix()
+        for pom in maven_poms(config, workspace)
+        if "-SNAPSHOT" in pom.read_text(encoding="utf-8")
+    ]
+    if snapshots:
+        preview = ", ".join(snapshots[:10])
+        remainder = f" (and {len(snapshots) - 10} more)" if len(snapshots) > 10 else ""
+        raise RuntimeError(
+            "stamped train workspace still contains -SNAPSHOT in: " + preview + remainder
+        )
+
+
+def assert_no_local_maven_snapshots(local_repository: Path) -> None:
+    group_root = local_repository / "org" / "metadatacenter"
+    snapshots = sorted(
+        path.relative_to(local_repository).as_posix()
+        for path in group_root.rglob("*")
+        if path.is_dir() and path.name.endswith("-SNAPSHOT")
+    ) if group_root.exists() else []
+    if snapshots:
+        preview = ", ".join(snapshots[:10])
+        remainder = f" (and {len(snapshots) - 10} more)" if len(snapshots) > 10 else ""
+        raise RuntimeError(
+            "job-local Maven repository contains org.metadatacenter snapshot paths: "
+            + preview + remainder
+        )
 
 
 def frontend_inputs(workspace: Path) -> dict[str, str]:
@@ -245,6 +282,7 @@ def prepare(args: argparse.Namespace) -> None:
         write_json(manifest_path, manifest)
 
     stamp_workspace(config, args.workspace, manifest["sourceVersion"], version)
+    assert_no_snapshot_poms(config, args.workspace)
     print(f"Prepared {version} from {len(repositories)} exact repository commits.")
 
 
@@ -270,6 +308,7 @@ def build(args: argparse.Namespace) -> None:
         ]
         print(f"\n=== {phase['name']}: {phase['repository']} ({version}) ===", flush=True)
         run(command, cwd=repository)
+    assert_no_local_maven_snapshots(local_repository)
     publish_local_repository(local_repository, config["mavenRepository"], version)
 
 

@@ -72,6 +72,13 @@ same manifest produces stable archive timestamps. Publication uploads only the r
 already exists, the workflow requires identical bytes and skips it; different bytes are a hard
 failure. This is what makes recovery compatible with Nexus's no-redeploy rule.
 
+The train Maven settings expose release repositories only. Immediately after stamping, the
+controller rejects any configured POM that still contains `-SNAPSHOT`, including a nonstandard
+property or dependency the selective stamper did not rewrite. After all Maven phases finish—but
+before publication—it also rejects any `org/metadatacenter/**/**-SNAPSHOT` version directory in the
+job-local repository. These two gates prevent a mutable snapshot from being resolved into a jar
+published under an immutable train version.
+
 After publication, the workflow queries Nexus for the libraries and runtime applications required
 by Docker. Only a complete inventory creates `completed/<TRAIN_ID>.json` and advances `current.json`.
 A partial or failed train can never become current.
