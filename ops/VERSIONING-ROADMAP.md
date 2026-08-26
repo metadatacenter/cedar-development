@@ -25,7 +25,10 @@ extractor no longer reads as a new release, while a pin naming a superseded read
 and says that it does), and a constrained lookup that no longer costs what its ontology is large
 (the index carries the ontology beside the text, so narrowing a search narrows what it reads, and an
 ontology past a quarter of a million terms is answered from the index rather than by comparing every
-label its snapshot holds — NCBITAXON in 103 ms where it took 905) — lives in git and the design
+label its snapshot holds — NCBITAXON in 103 ms where it took 905, and where the routed answer
+differs it has been the substring match at fault: GAZ answers "acid" with two places rather than
+twenty-five, having dropped those with "acid" inside `Placid` and `Almonacid`) — lives in git and
+the design
 doc. The numbered items track only what remains, in three buckets: **Pending** (to build),
 **Testing** (built, needs live verification), and **Future** (deferred / needs a decision /
 speculative). Items are numbered continuously.
@@ -1047,22 +1050,6 @@ left that does not need a host.
     the flag — carrying both indefinitely means two pickers writing constraints in two ways, which
     is worse than either. Set the date the old one goes when the flag goes in, rather than leaving
     it to be noticed.
-
-- **28. Decide whether a routed answer's shape is the one an author wants.** An ontology past the
-    routing threshold is answered from the index, which matches whole tokens by prefix where its
-    snapshot matched a substring anywhere, and counts to a cap where the snapshot counted exactly.
-    Usually the two barely differ: PR returns 4,392 against 4,509, LOINC 6,101 against 6,120. GAZ
-    returns 2 against 25, because a gazetteer buries the query inside longer words, and MESH
-    reports 10,000 against 21,297 because that is where the count stops. Neither is wrong and both
-    are visible to whoever reads the list, so the question is whether an author searching a
-    gazetteer wants the shorter, better-ranked answer or the longer one. Settle it by looking at
-    what the divergent ontologies are actually used for.
-
-    The threshold itself was measured rather than chosen, and only against the probe "acid". It
-    looks well placed: across the nine locally-served ontologies above it, every one is answered
-    faster from the index, and the margin narrows toward the line rather than crossing it — 8.1
-    times for NCBITAXON's 2.8 million terms, 2.3 for MESH, 1.2 for RH-MESH and 1.1 for CCO just
-    above the cut. A second probe could still move it, and CHEBI sits just below.
 
 ## The Search API
 

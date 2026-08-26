@@ -217,12 +217,17 @@ that did not produce them.
 
 Two things a routed answer does differently, both deliberate and both visible to whoever reads it.
 
-It finds fewer. The index matches whole tokens by prefix where a snapshot matches a substring
-anywhere in a label. Usually the two agree closely: PR returns 4,392 against 4,509 and LOINC 6,101
-against 6,120. A vocabulary whose terms bury the query inside longer words diverges sharply, though,
-and GAZ answers "acid" with 2 where its snapshot answers with 25. It ranks better in exchange.
-Searching NCBITAXON for "Escherichia" the snapshot leads with short labels carrying the word in a
-synonym, `Muvirus mu` and `Inovirus M13`, where the index leads with `Escherichia` itself.
+It finds fewer, and so far always the right fewer. The index matches whole tokens by prefix where a
+snapshot matches a substring anywhere in a label. Usually the two agree closely: PR returns 4,392
+against 4,509 and LOINC 6,101 against 6,120. Where they diverge it has been the substring match at
+fault. GAZ answers "acid" with 2 against its snapshot's 25, and the 23 it drops are `Lake Placid`
+six times over, `Almonacid de Toledo`, `Villacidro` and `Saint-Placide` — "acid" sitting inside
+another word. What it keeps is `Acid Factory Brook` and `Municipality of Acidara`, and "placid"
+still finds Lake Placid.
+
+It ranks better too. Searching NCBITAXON for "Escherichia" the snapshot leads with short labels
+carrying the word in a synonym, `Muvirus mu` and `Inovirus M13`, where the index leads with
+`Escherichia` itself.
 
 It counts to a cap rather than exactly, so MESH reports 10,000 matches where its snapshot reports
 21,297. The page an author reads is unaffected; the total above it is. Counting exactly means
