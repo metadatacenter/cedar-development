@@ -146,9 +146,12 @@ Each release repo should show `main` at `<VER>` and `develop` at `<NEXT>`.
 
 ## Gotchas
 
-- **The exit code lies.** On a mid-run failure cedarcli prints `Execution halted because of an error!`
-  but still exits `0`. **Never trust `$?`.** Confirm success by grepping the log for
-  `Execution succeeded` *and* the absence of `Execution halted` / `Return code: [1-9]` / `remote rejected`.
+- **Trust the exit code only after refreshing `cedar-cli`.** Current `cli.sh` and its Linux-oriented
+  `python3` variant `cli3.sh` preserve the Python process's status across their trailing navigation
+  handling. Hosts on an older CLI checkout—especially a build host whose alias still sources an old
+  `cli3.sh`—can still turn a mid-run failure into exit `0`; on those hosts, grep for
+  `Execution succeeded` and the absence of `Execution halted` / `Return code: [1-9]` /
+  `remote rejected`. Keep those log checks as release evidence even after updating the wrapper.
 - **`cedarcli git checkout main` is a blanket checkout of every repo** — it ignores `skip_from_release`
   and sweeps the frontend template repos onto their stale `main`. Don't use it to "prep" a deploy;
   `all-in-one` sets the branch layout up itself.
