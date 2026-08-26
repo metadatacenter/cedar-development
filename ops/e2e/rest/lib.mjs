@@ -161,6 +161,28 @@ export async function call(auth, method, path, body, opts = {}) {
   return { status: res.status, body: json, text, headers: res.headers };
 }
 
+/**
+ * Update an artifact using the revision from a fresh GET. Artifact PUTs are conditional: callers
+ * must send the ETag they read in If-Match so a concurrent save cannot silently overwrite them.
+ * Keep that protocol in the harness rather than repeating a preflight GET in every suite.
+ *
+ * A caller that already has the current response may pass opts.current. All other options are
+ * forwarded to the PUT, including YAML content types and alternate base URLs.
+ */
+export async function updateArtifact(auth, path, body, opts = {}) {
+  const { current, ...requestOpts } = opts;
+  const read = current ?? await call(auth, 'GET', path, undefined,
+      requestOpts.base ? { base: requestOpts.base } : {});
+  const revision = read.headers?.get('etag');
+  return call(auth, 'PUT', path, body, {
+    ...requestOpts,
+    headers: {
+      ...(requestOpts.headers ?? {}),
+      ...(revision ? { 'If-Match': revision } : {}),
+    },
+  });
+}
+
 /** A request against the group server, which owns groups and their membership. */
 export function group(auth, method, path, body, opts = {}) {
   return call(auth, method, path, body, { ...opts, base: GROUP_SERVER });

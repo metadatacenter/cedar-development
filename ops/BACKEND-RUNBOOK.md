@@ -1183,6 +1183,47 @@ or another CEDAR library out of whichever jar its classpath reached first. Keep 
 pom should declare what it uses and publish that, so every consumer resolves each dependency from the
 artifact that owns it.
 
+## Artifact write and diagnostic contracts
+
+Artifact creation and replacement use different authorization checks even though both can arrive as
+`PUT /.../{id}`: an absent id requires that artifact type's `CREATE` permission, while an existing id
+requires `UPDATE`. Do not collapse this back to a route-level update check; custom roles need the
+distinction even though the default roles normally grant both permissions.
+
+Every successful artifact create, single-artifact read and update returns a strong revision `ETag`.
+The read service derives the public content and revision from the same Mongo document, so the ETag
+can never describe a newer replacement than the body it accompanies.
+An update of an existing artifact must send that exact value in `If-Match`:
+
+```text
+GET /templates/{id}             -> ETag: "7"
+PUT /templates/{id} If-Match:"7" -> ETag: "8"
+```
+
+A missing `If-Match` returns `428 Precondition Required`; a stale value returns `412 Precondition
+Failed`. The Mongo replacement predicates on both `@id` and the internal `_cedarRevision`, so the
+check remains atomic when two requests pass the HTTP read check at the same time. Legacy documents
+without the internal field read as revision zero and acquire revision one on their first conditional
+update. `_cedarRevision` is storage metadata and must never appear in public artifact JSON.
+
+The shared AngularJS backend service stores the ETag on each in-memory artifact representation and
+adds that representation's value to its later `PUT`. Do not replace this with a URL-global latest
+value: two in-page editors can hold different representations of the same URL, and borrowing the
+newer editor's ETag would recreate lost updates. Internal server read-modify-write operations must
+likewise forward the ETag from their own preceding `GET`; fetching a fresh ETag immediately before
+writing would defeat the concurrency guarantee. CORS allows the `If-Match` request header and exposes
+the `ETag` response header to browser JavaScript.
+
+Template-instance validation is unconditional. `skip_validation=true` remains accepted only for
+wire compatibility and does not bypass validation or storage checks. If a privileged bypass is ever
+needed again, introduce a separately authorized internal operation rather than reviving the public
+query switch.
+
+Artifact-server health contains both `message` and `mongo`. `/healthcheck` must be non-green when the
+Mongo ping fails; a passing placeholder check alone is not sufficient evidence that artifact traffic
+will work. Insight endpoints are operationally sensitive: `/insight/thread-details` exposes stack and
+thread state and, like every other insight route, requires an authenticated administrator.
+
 ## Testing CEDAR
 
 Every server's test suite runs backend-free: no live Keycloak, Neo4j, Mongo, MySQL, or Redis. The
@@ -1339,9 +1380,10 @@ Where the coverage is thin, stated plainly so nobody reads the class count as re
   the largest single coverage win available.
 - **The thin servers have three classes each** — config, boot, routes. That is a real net, and it is
   what caught the media-type 505, but it means "starts and refuses strangers", not "is correct".
-- **Nothing covers** dependency failure (see the degradation item on the roadmap), the proxy boundary
-  between services, or concurrent edits. Pagination is now covered on a folder's contents and search
-  (`pagination` suite); the other paged listings are not.
+- **Most dependency failures and the deployed proxy boundary remain uncovered** (see the degradation
+  item on the roadmap). Concurrent edits are covered both over HTTP and directly at the Mongo
+  compare-and-swap boundary. Pagination is covered on a folder's contents and search (`pagination`
+  suite); the other paged listings are not.
 
 One hard constraint when adding to the resource server: **eight test classes that boot a server is the
 ceiling** for that module. Each boots into the shared JVM and creates a Neo4j driver whose Netty

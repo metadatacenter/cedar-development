@@ -11,14 +11,26 @@ Frontend work for the embeddable editor is tracked separately in
 [CEE-ROADMAP.md](./CEE-ROADMAP.md), and the MCP servers in
 [MCP-ROADMAP.md](./MCP-ROADMAP.md).
 
+## Recently completed
+
+- **Artifact write integrity and diagnostics (2026-08-25).** Artifact responses now carry a strong
+  revision `ETag`, and updates require the matching `If-Match`. Mongo replacements compare the id and
+  revision atomically, so concurrent writers receive `412 Precondition Failed` instead of silently
+  overwriting each other; a missing precondition receives `428 Precondition Required`. The resource
+  and artifact servers also distinguish create-by-`PUT` from update-by-`PUT` when checking role
+  permissions. Browser clients retain the ETag on each loaded representation and send that value,
+  internal read-modify-write flows forward the exact value they read, and CORS permits `If-Match`
+  and exposes `ETag`.
+
+  The adjacent audit findings are closed too: instance validation is unconditional even when the
+  legacy `skip_validation=true` query parameter is supplied; artifact health now includes a Mongo
+  ping; and all insight routes, including thread details, require an authenticated administrator.
+  The thread report also allocates one result map per thread. HTTP, direct Mongo compare-and-swap,
+  permission, validation, health, route-authentication and thread-report regressions pin the fixes.
+
 ## Next
 
 ### Features
-
-- **1. Decide on concurrency control.** There is no `ETag`, `If-Match` or `@Version` anywhere in the
-  stack, so two users editing one template is a silent lost update: the second save wins and the
-  first user is never told. This is a design item rather than a coverage item, since no test can be
-  written until the API offers the conditional-request machinery.
 
 - **2. A published artifact can be deleted, contradicting the docs.** The docs say a published
   artifact is permanent, but `DELETE` on one succeeds. The guard in
