@@ -13,6 +13,22 @@ Frontend work for the embeddable editor is tracked separately in
 
 ## Recently completed
 
+- **Worker delivery, health and job control (2026-08-25).** The four Redis queues consumed by the
+  worker now atomically claim into processing lists and acknowledge only after successful handling;
+  unacknowledged work is restored in FIFO order after reconnect or restart. Clone, app-log and
+  permission handlers retry and dead-letter poison messages, while value-recommender claims bounded
+  batches of 100 instead of draining an unbounded backlog. Tests cover acknowledgement, recovery,
+  ordering, retry, dead-letter transfer and the batch ceiling.
+
+  Worker health now probes Redis, OpenSearch and Neo4j and reports stopped consumers, unresolved
+  processing failures and every worker dead-letter depth. Inclusion-subgraph regeneration uses a
+  managed single-flight executor and returns a tracked job (`202`), rejects overlap (`409`), and
+  exposes authenticated status and failure details. The adjacent audit items were already closed in
+  current code: deleted graph resources remove orphaned search documents without dereferencing null;
+  every shared insight route requires the `monitorManager` role; and Docker publishes worker
+  application port 9011 but not admin port 9111. Unit, route-authentication, health and live Docker
+  regressions pin the behavior.
+
 - **Artifact write integrity and diagnostics (2026-08-25).** Artifact responses now carry a strong
   revision `ETag`, and updates require the matching `If-Match`. Mongo replacements compare the id and
   revision atomically, so concurrent writers receive `412 Precondition Failed` instead of silently
@@ -24,8 +40,8 @@ Frontend work for the embeddable editor is tracked separately in
 
   The adjacent audit findings are closed too: instance validation is unconditional even when the
   legacy `skip_validation=true` query parameter is supplied; artifact health now includes a Mongo
-  ping; and all insight routes, including thread details, require an authenticated administrator.
-  The thread report also allocates one result map per thread. HTTP, direct Mongo compare-and-swap,
+  ping; and all insight routes, including thread details, require the `monitorManager` role. The
+  thread report also allocates one result map per thread. HTTP, direct Mongo compare-and-swap,
   permission, validation, health, route-authentication and thread-report regressions pin the fixes.
 
 ## Next

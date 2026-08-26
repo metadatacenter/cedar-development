@@ -13,7 +13,7 @@
 // not own outright, so a regression that reopened the hole could not damage real data mid-run. An
 // earlier version aimed a permission change at the first user's home folder; back when forged writes
 // were honoured it was accepted, and the home folder's ownership had to be repaired by hand.
-import { suite, check, call, cleanup, authHeader, enc, RUN, GROUP_SERVER, OPENVIEW } from '../lib.mjs';
+import { suite, check, call, cleanup, authHeader, enc, RUN, GROUP_SERVER, OPENVIEW, WORKER } from '../lib.mjs';
 
 export const name = 'authentication';
 
@@ -115,6 +115,7 @@ export async function run({ user1, user2, homeFolderId, folderId }) {
     { what: 'resource server, listing contents', base: undefined, path: `/folders/${enc(homeFolderId)}/contents` },
     { what: 'resource server, searching', base: undefined, path: '/search?q=anything&limit=1' },
     { what: 'group server, listing groups', base: GROUP_SERVER, path: '/groups' },
+    { what: 'worker server, reading thread details', base: WORKER, path: '/insight/thread-details' },
   ];
   const cleanlyRefused = [
     { what: 'no Authorization header', headers: {} },
@@ -136,6 +137,11 @@ export async function run({ user1, user2, homeFolderId, folderId }) {
           res.status < 400
               ? `it was ACCEPTED with ${res.status} — this is not a valid credential`
               : `expected 401, got ${res.status}: ${(res.text ?? '').slice(0, 160)}`);
+      if (route.base === WORKER) {
+        check(!res.text?.includes('"stack-trace"') && !res.text?.includes('"lock-info"'),
+            `${credential.what} → worker denial contains no thread report`,
+            'the request was denied, but its response still contained thread-diagnostic fields');
+      }
     }
   }
 

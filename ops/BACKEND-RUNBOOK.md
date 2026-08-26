@@ -549,6 +549,10 @@ status`, `cedarcli native watch`, `cedarcli native logs <name>`, or `cedarcli na
 
 Admin port = app port + 100; health check at `http://127.0.0.1:<admin>/healthcheck`.
 
+In Docker only the application port is published to the host. Admin connectors bind loopback inside
+their container for the Compose health check and are not host-mapped; do not add `9111:9111` (or any
+other admin mapping) to the core Compose stack. Native admin connectors likewise bind `127.0.0.1`.
+
 Auxiliary frontends (Angular `ng serve`, port-only health): `ui-openview` 4220, `ui-content` 4240,
 `ui-monitoring` 4300, `ui-bridging` 4340. Non-essential CEE demos (not started by
 default): `demo.cee` 4260, `cee-dev` 4400.
@@ -567,19 +571,24 @@ the persistent Redis on 6379:
 | valuerecommender | `CEDAR-QUEUE-valuerecommender` | templates whose recommender rules need regenerating |
 | cloneInstances | `CEDAR-QUEUE-cloneInstances` | bulk instance-clone requests |
 
-The search-permission queue is the one worth watching. The worker server consumes it with `BLPOP`,
-which removes an event before the event is processed, so an event the worker cannot apply is already
-off the queue by the time it fails. The consumer retries three times a second apart — enough to ride
-out a brief Neo4j or OpenSearch blip — and then moves the raw message to a dead-letter queue named
-after the queue it came from:
+The four queues consumed by the worker (`searchPermission`, `cloneInstances`, `appLog` and
+`valuerecommender`) use a claim/acknowledge protocol. A claim atomically moves the oldest message to
+`<queue>-processing`; only successful handling removes it. On worker restart, anything left in the
+processing list is restored ahead of newer messages in FIFO order. Clone, app-log and permission
+handlers retry three times before atomically moving the raw message to `<queue>-dead-letter`.
+Value-recommender polls claim at most 100 messages, rather than draining an unbounded backlog into
+memory, and a failed batch is retried before its messages are dead-lettered.
+
+The search-permission queue is the most security-sensitive one, but every worker dead-letter queue
+is worth watching. For example:
 
 ```bash
 redis-cli llen CEDAR-QUEUE-search-permission-dead-letter
 ```
 
-Zero is the expected reading. Anything above zero means the search index's permissions are behind the
-graph for the resources those events name: the graph is authoritative and correct, and search will
-show the wrong people the wrong things until the events are applied. Nothing retries them on its own.
+Zero is the expected reading. A nonzero search-permission value means the search index's permissions
+are behind the graph for the resources those events name; the other suffixes mean clone, application
+log or recommender work needs attention. Nothing retries dead-lettered work on its own.
 
 Read what is parked before deciding anything. Each entry is the original JSON event, carrying the
 resource id, the event type and the time it was created:
@@ -600,9 +609,9 @@ A message that cannot be parsed is parked on its first failure rather than retri
 will not make it parse. Such a message will never apply, so drop it once the log has been read
 rather than replaying it.
 
-When the dead-letter queue itself cannot be reached — Redis is down, which is often why the event
-failed in the first place — the worker logs that the message is lost and says so plainly. That is the
-one case where an event disappears, and the log is the only record of it.
+When the dead-letter transfer itself cannot reach Redis, the message remains in the processing list
+whenever Redis retained the earlier claim and is recovered on the next consumer initialization. The
+worker logs the failed transfer; inspect both `-processing` and `-dead-letter` after restoring Redis.
 
 Rebuilding the index from the graph fixes permission drift whatever its cause, since the graph is the
 source of truth. It reads the resources from the folder server, indexes them into a new index, then
@@ -1222,7 +1231,23 @@ query switch.
 Artifact-server health contains both `message` and `mongo`. `/healthcheck` must be non-green when the
 Mongo ping fails; a passing placeholder check alone is not sufficient evidence that artifact traffic
 will work. Insight endpoints are operationally sensitive: `/insight/thread-details` exposes stack and
-thread state and, like every other insight route, requires an authenticated administrator.
+thread state and, like every other insight route, requires an authenticated user with the
+`monitorManager` role (`MONITOR_READ`).
+
+Worker health is dependency- and work-aware. Its admin `/healthcheck` includes named `redis`,
+`opensearch`, `neo4j` and `queue-consumers` checks in addition to Dropwizard's generic checks. The
+consumer check fails when a processor thread stops, its latest processing attempt remains failed, a
+dead-letter list is nonempty, or Redis cannot report dead-letter depth. A green worker therefore
+means its three main datastores answer and all four queue consumers can still make clean progress;
+it does not merely mean the HTTP process is alive.
+
+Inclusion-subgraph regeneration is a tracked single-flight worker job. An authorized
+`POST /command/regenerate-inclusion-subgraph` returns `202 Accepted`, a job document, and a
+`Location` header for `GET /command/regenerate-inclusion-subgraph/{jobId}`. While that job is queued
+or running, another POST returns `409 Conflict` with the active job and the same status location.
+Status records expose queued, running, succeeded and failed states, including timestamps and an
+error for failures. The latest 100 records are retained in worker memory, so a worker restart loses
+history and interrupts a running regeneration; resubmit after confirming the old process stopped.
 
 ## Testing CEDAR
 

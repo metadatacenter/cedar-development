@@ -27,6 +27,8 @@ export const TERMINOLOGY = env.CEDAR_TERMINOLOGY_BASE ?? `https://terminology.${
 // has no vhost of its own, so it is addressed directly on its port.
 export const OPENVIEW = env.CEDAR_OPENVIEW_BASE
   ?? `http://${env.CEDAR_OPENVIEW_SERVER_HOST ?? 'localhost'}:${env.CEDAR_OPENVIEW_HTTP_PORT ?? '9013'}`;
+export const WORKER = env.CEDAR_WORKER_BASE
+  ?? `http://${env.CEDAR_WORKER_SERVER_HOST ?? 'localhost'}:${env.CEDAR_WORKER_HTTP_PORT ?? '9011'}`;
 const KEYCLOAK = env.CEDAR_KEYCLOAK_BASE
   ?? `http://${env.CEDAR_KEYCLOAK_HOST ?? '127.0.0.1'}:${env.CEDAR_KEYCLOAK_HTTP_PORT ?? '8080'}`;
 const REALM = env.CEDAR_KEYCLOAK_REALM ?? 'CEDAR';

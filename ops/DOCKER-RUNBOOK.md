@@ -551,6 +551,7 @@ docker run --rm --network cedarnet \
   -e CEDAR_ARTIFACT_BASE=http://server-artifact:9001 \
   -e CEDAR_TERMINOLOGY_BASE=https://terminology.metadatacenter.orgx \
   -e CEDAR_OPENVIEW_BASE=http://server-openview:9013 \
+  -e CEDAR_WORKER_BASE=http://server-worker:9011 \
   -e CEDAR_KEYCLOAK_BASE=http://infra-keycloak:8080 \
   -e CEDAR_ADMIN_USER_API_KEY \
   -e CEDAR_FRONTEND_local_USER1_LOGIN \
@@ -561,9 +562,9 @@ docker run --rm --network cedarnet \
 ```
 
 Resource and Terminology deliberately go through containerized nginx so this also covers their
-published API and Swagger UI routes. Artifact stays on its internal service address. Expected: 19
-suites pass and the final result is `PASS` (683 assertions on 2026-08-21). The first invocation may
-pull `node:20-alpine`.
+published API and Swagger UI routes. Artifact stays on its internal service address, and Worker is
+addressed directly because its diagnostic-authentication checks have no nginx vhost. Expected: 19
+suites pass and the final result is `PASS`. The first invocation may pull `node:20-alpine`.
 
 A host-side run is useful for testing published ports and nginx:
 
