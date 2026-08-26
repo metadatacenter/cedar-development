@@ -48,7 +48,7 @@ Frontend work for the embeddable editor is tracked separately in
 
 ### Features
 
-- **2. A published artifact can be deleted, contradicting the docs.** The docs say a published
+- **1. A published artifact can be deleted, contradicting the docs.** The docs say a published
   artifact is permanent, but `DELETE` on one succeeds. The guard in
   `AbstractResourceServerResource.executeArtifactDelete` was briefly re-enabled and then **reverted by
   deliberate decision**: blocking deletion strands published artifacts and the folders holding them with
@@ -59,7 +59,7 @@ Frontend work for the embeddable editor is tracked separately in
   through folder deletion). Immutability of published content is a separate guarantee and is
   unaffected either way — that one is enforced.
 
-- **3. Clean up the DataCite DOI minting workflow.** Treat minting as one explicit, auditable lifecycle
+- **2. Clean up the DataCite DOI minting workflow.** Treat minting as one explicit, auditable lifecycle
   rather than a preparatory GET followed by a loosely coupled POST. The mutation endpoint must itself
   enforce write access and the source artifact's open/published requirements — today those checks are
   made only by the GET, so a caller can bypass them by invoking the POST directly. It also computes the
@@ -79,7 +79,7 @@ Frontend work for the embeddable editor is tracked separately in
   failure, and repeated publish. Keep normal tests offline; add only an opt-in DataCite sandbox smoke
   test for the final wire contract and credential/configuration check.
 
-- **4. Settle the sharing and permission model, then write it down.** This is the umbrella item: the
+- **3. Settle the sharing and permission model, then write it down.** This is the umbrella item: the
   pieces below are each small, and separately each looks like a quirk, but together they say the model
   was never specified in one place, so every surface decided for itself. Controlled sharing is what
   CEDAR is for, which makes this the part most worth being deliberate about. All of it is now pinned by
@@ -170,7 +170,7 @@ Frontend work for the embeddable editor is tracked separately in
   `GroupMembershipAuthorizationMatrixTest`, `GroupSharingRevocationIntegrationTest`,
   `ArtifactLifecycleMatrixTest` and `ops/e2e/rest/suites/categories.mjs`.
 
-- **5. Decide whether the artifact server is allowed to have no authorization of its own.** The
+- **4. Decide whether the artifact server is allowed to have no authorization of its own.** The
   workspace model in the item above lives in Neo4j and is enforced by the resource server. The
   artifact server, which holds the artifacts themselves in Mongo, consults none of it. Every path in
   `AbstractArtifactCrudResource` — create, find, find-all, update, delete — asks the same two
@@ -210,7 +210,7 @@ Frontend work for the embeddable editor is tracked separately in
   levels mean, and this one asks which services are entitled to ignore them. A model that is
   specified but only enforced at one of two doors is not yet specified.
 
-- **6. Decide the contract for `title`/`internalName` across the YAML and JSON serializations.** A CEDAR
+- **5. Decide the contract for `title`/`internalName` across the YAML and JSON serializations.** A CEDAR
   artifact carries two names. The JSON has a JSON-Schema `title` (and `description`) alongside
   `schema:name` (and `schema:description`); the YAML has only `name` (and `description`). In the model
   the two are independent — the artifact library calls the JSON-Schema one `internalName` — but the
@@ -235,7 +235,7 @@ Frontend work for the embeddable editor is tracked separately in
   library's `YamlTitleDerivation` / `YamlJsonConstraintParity` specs; this item is the design decision
   those tests currently encode by default.
 
-- **7. Decide what a count of zero means, and how "unknown" is written.** Three keys use zero as a
+- **6. Decide what a count of zero means, and how "unknown" is written.** Three keys use zero as a
   sentinel where the schema gives zero a quantity, and the answer to any one of them is the answer to
   all three.
 
@@ -283,7 +283,7 @@ Frontend work for the embeddable editor is tracked separately in
 
 ### Infrastructure
 
-- **8. Upgrade the persistence and infrastructure servers.** These versions are pinned in the Docker
+- **7. Upgrade the persistence and infrastructure servers.** These versions are pinned in the Docker
   build manifest, while the client libraries have moved on. The
   [Docker roadmap](./DOCKER-ROADMAP.md) owns the shared build and deployment lock; this item owns the
   remaining server upgrades. Order them by risk, lowest first:
@@ -350,6 +350,17 @@ Frontend work for the embeddable editor is tracked separately in
   one piece of work per store. Production is the part this item still owns: the same versions, but
   rehearsed on a copy of production data and gated on the end-to-end smoke. Where the order above and
   the Docker roadmap disagree, the Docker roadmap governs, since it sequences the remaining work.
+
+- **8. Decide whether the schema server should exist.** Its entire HTTP surface is an index page, but
+  it still inherits the full microservice bootstrap: a Neo4j user service, Keycloak token
+  verification, and the persistent Redis application-log queue. That costs an application process,
+  an image, a CI build, a deployment and infrastructure connections in every environment without
+  serving a schema API.
+
+  Either retire the service and remove it from the native and Docker estates, or record the role it
+  is reserved for and give it a deliberately minimal bootstrap that does not initialize dependencies
+  its index page never uses. Whichever route is chosen must update the service inventory, health and
+  smoke expectations, build train, Compose projects and deployment documentation together.
 
 - **9. Move the build and runtime to Java 21.** The stack is locked to Java 17 — the zsh profile pins it
   and the build enforces it. 21 is the next LTS and the natural target, but the lock exists for a
