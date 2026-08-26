@@ -265,16 +265,30 @@ twenty-five, so a query matching 1.7 million names groups 1.7 million rows. Scop
 because there is nothing to scope to, and the page is small because the group-by is what is
 expensive, not the page.
 
-Three ways out were measured on 2026-08-26 and none is an improvement. Bounding the rows before
-grouping is slower, because taking the best N first makes SQLite sort the whole match set where
-grouping it uses a temp b-tree. Indexing the label text and answering page one from the
-labels that start with the query is exact in principle, since ranks 0 to 4 all outrank 5 to 7 and
-twenty-five of them settle the page. But a broad prefix scans as much as it saves, `ce` taking
-6,969 ms, and the tie-break on name length sees only the prefix rows, which moved 16 of 25 results
-for "acid". FTS5's
-own relevance ordering is genuinely faster, 2 to 3 times, and ranks badly for choosing a term:
-"disease" leads with `disease-disease association`, "acid" with `acidipropionibacterium`. The
-exact-match ladder is what makes the current order worth having.
+Three ways out have been measured, and the measurements are worth more care than they were given.
+Bounding the rows before grouping was recorded as slower on a comparison where only one side was
+measured correctly, so that verdict is withdrawn rather than upheld. FTS5's own relevance ordering
+is genuinely 2 to 3 times faster and ranks badly for choosing a term, leading "disease" with
+`disease-disease association` and "acid" with `acidipropionibacterium`; that verdict stands, because
+it rests on the results rather than the timings.
+
+The third was tried twice. Filling a page from the labels a query begins is exact while it fills,
+since ranks 0 to 4 all outrank 5 to 7, and it is much faster: with the label text indexed, "cell"
+fell from 5,609 ms to 148 and "acid" from 850 to 28 on the same twenty-five labels. It shipped on
+2026-08-26 and was withdrawn the same day. Exact *while it fills* is the whole difficulty. Where the
+prefixes run out, the next page comes from the full ranking in a slightly different order, and a
+label can arrive on both pages: "leukaemia" has forty such labels, so page one came from prefixes,
+page two could not, and four labels appeared twice in a picker that appends pages into one list.
+Making the two orders agree needs the tie-break on shortest matching name computed over every
+matched row, which is the work being avoided. A composite order, the prefix labels first and then
+the full ranking with those labels excluded, would be consistent across pages and is the way to try
+it a third time.
+
+The first attempt at this was also recorded here as measured-and-rejected, on numbers from a harness
+that bound its parameters in the wrong order and so searched for a bare token instead of a prefix.
+It reported 9 of 25 results agreeing where the truth was that they agreed exactly. Two conclusions
+in this section came from that harness; a measurement of a corpus-wide query returning in single-
+digit milliseconds is the tell, and means the query matched nothing.
 
 What is left is not a tuning problem. Ranking a large match set by a ladder SQLite cannot index
 costs what it costs, so the ways left change what is asked rather than how it is answered. The
