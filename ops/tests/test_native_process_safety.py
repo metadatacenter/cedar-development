@@ -119,6 +119,48 @@ class NativeProcessSafetyTest(unittest.TestCase):
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertEqual("", result.stdout.strip())
 
+    def test_status_defers_docker_owned_services_to_docker_status(self):
+        result = self.run_library(
+            'names() { printf "group\\nartifact\\n"; }; '
+            'service_port_owner() { return 1; }; '
+            'port_owner() { [ "$1" = 9009 ] && echo 4242; }; '
+            'port_open() { [ "$1" = 9009 ]; }; '
+            'process_command() { echo "/Applications/Docker.app/Contents/MacOS/com.docker.backend"; }; '
+            'docker_service_running() { [ "$1" = artifact ]; }; '
+            'binary_of() { echo -; }; '
+            'logfile() { echo "$CEDAR_HOME/missing.log"; }; '
+            'health_of() { echo SHOULD_NOT_BE_USED; }; '
+            'status'
+        )
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertRegex(result.stdout, r"group\s+docker\s+up\s+docker")
+        self.assertRegex(result.stdout, r"artifact\s+docker\s+internal\s+docker")
+        self.assertIn("run cedarcli docker status for container health", result.stdout)
+        self.assertNotIn("native healthy:", result.stdout)
+        self.assertNotIn("!4242", result.stdout)
+        self.assertNotIn("SHOULD_NOT_BE_USED", result.stdout)
+        self.assertNotIn("ERROR:", result.stdout)
+
+    def test_status_keeps_a_real_foreign_listener_as_an_error(self):
+        result = self.run_library(
+            'names() { echo group; }; '
+            'service_port_owner() { return 1; }; '
+            'port_owner() { echo 4242; }; '
+            'port_open() { return 0; }; '
+            'process_command() { echo "python unrelated.py"; }; '
+            'docker_service_running() { return 1; }; '
+            'binary_of() { echo -; }; '
+            'logfile() { echo "$CEDAR_HOME/missing.log"; }; '
+            'health_of() { echo starting; }; '
+            'status'
+        )
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertRegex(result.stdout, r"group\s+!4242\s+up\s+starting")
+        self.assertIn("ERROR: 1 service port(s) marked !pid", result.stdout)
+        self.assertNotIn("cedarcli docker status", result.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

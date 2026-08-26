@@ -13,9 +13,9 @@ needed to make this a registry-driven, production-ready deployment is tracked in
 ## Current verdict
 
 The complete application **can be deployed locally with Docker today**. Images can be pulled as a
-completed immutable development train or built directly from checked-out source. A clean pull of a
-newly completed train was re-proven on 2026-08-24 on Apple Silicon with Docker Engine 29.6.2 and
-Compose 5.3.1:
+completed immutable development train or built directly from checked-out source. A clean pull and
+runtime acceptance of a completed train was re-proven on 2026-08-24 on Apple Silicon with Docker
+Engine 29.6.2 and Compose 5.3.1:
 
 - all 70 Java reactor modules built successfully on JDK 17 with `-DskipTests`;
 - all 24 backend images built: seven infrastructure, two Java bases, and fifteen microservices;
@@ -28,11 +28,14 @@ Compose 5.3.1:
   exercised BioPortal suggestions, saved and re-edited an instance, downloaded JSON and YAML, and
   rendered it anonymously through OpenView before cleaning up.
 
+The complete Maven → npm → Docker publication chain also completed successfully on 2026-08-26.
+That run recorded and verified the TypeScript model, CEE, and seven frontend package inputs before
+building the images. It then pulled all 31 images back from Nexus and verified their source and
+frontend-manifest provenance before advancing the deployable Docker pointer.
+
 The builder, Compose projects, CLI validation, and cleanup use `CEDAR_IMAGE_PREFIX` for the 29
 runtime images. `CEDAR_BASE_IMAGE_PREFIX` can place the two Java bases in a separate internal
-repository and otherwise defaults to the runtime prefix. The central build train publishes the
-split Nexus inventory and advances a Docker pointer only after all 31 images have been pulled back
-and their provenance labels and registry digests verified.
+repository and otherwise defaults to the runtime prefix.
 
 ## What runs
 
@@ -50,10 +53,14 @@ Homebrew/local data. `docker compose down` retains named volumes and therefore r
 ## Prerequisites
 
 - Docker Engine with Compose v2; Compose 5.3 or newer is the known-good version.
-- A complete `$CEDAR_HOME` checkout, including `cedar-development`, `cedar-docker-build`,
-  `cedar-docker-deploy`, the Java parent/libraries/aggregators, and all fifteen server repositories.
+- For a normal published-image deployment: `cedar-cli`, `cedar-development`,
+  `cedar-docker-build`, and `cedar-docker-deploy`. After installing the CLI,
+  `cedarcli git clone docker` retrieves the latter three.
+- The complete Java source tree only when building microservice images from checked-out source.
+  Hybrid mode additionally needs all seven frontend source repositories and their native Node
+  toolchains.
 - `$CEDAR_HOME/set-env-external.sh` and `set-env-internal.sh` configured for the installation.
-- A JDK 17 selected through `JAVA_HOME` when compiling Java.
+- A JDK 17 only when compiling Java; pulling and running a published train does not require it.
 - Custom local certificates in `$CEDAR_HOME/CEDAR_CA`. The setup otherwise falls back to the
   bundled certificate set, which may be expired.
 - At least 32 GB of memory allocated to Docker's virtual machine wherever the terminology server
@@ -226,15 +233,24 @@ Image builds do not require a selected deployment mode: they consume the Docker 
 explicit registry/train inputs without reading a runtime profile. Commands that manage or inspect a
 deployment remain gated by the configured `docker` or `hybrid` mode.
 
-Create and publish a new immutable Maven and Docker train with:
+Create and publish a new immutable Maven, npm, and Docker train with:
 
 ```bash
 cedarcli publish train
 ```
 
-The workflow publishes the Java train, builds the two internal bases and 29 runtime images, then
-pulls and verifies all 31 before advancing `docker/current.json`. Resume a failed publication with
-the train ID printed by the original command:
+The workflow records one source manifest, then completes three ordered publication stages:
+
+1. It compiles and publishes the immutable Maven graph.
+2. It records the npm dependency graph, requires the separately released TypeScript model and CEE
+   packages, publishes the seven frontend packages, and verifies every tarball, integrity value,
+   and source commit.
+3. It builds the two internal bases and 29 runtime images from those Maven and npm inputs, then
+   pulls and verifies all 31 before advancing `docker/current.json`.
+
+The Maven, npm, and Docker completion pointers move independently and only after their own stage
+has passed. A failed train never becomes the current deployable Docker train. Resume a failed
+publication with the train ID printed by the original command:
 
 ```bash
 cedarcli publish train --resume <TRAIN_ID>
@@ -242,15 +258,20 @@ cedarcli publish train --resume <TRAIN_ID>
 
 ### Completed build train: normal published-artifact build
 
-An ordinary Docker build reads the completed Maven-train pointer recorded by `cedar-development`. All
-groups receive that train's version as their image tag, and the Java images download that exact
-immutable Maven version from `cedar-maven-dev`:
+An ordinary Docker build reads the completed Maven-train pointer recorded by `cedar-development`.
+The infrastructure and Java images receive that train's version as their image tag, and the Java
+images download that exact immutable Maven version from `cedar-maven-dev`:
 
 ```bash
 cedarcli docker build infra
 cedarcli docker build microservices
-cedarcli docker build frontends
 ```
+
+Do not use an interactive frontend build to claim reproduction of the frontend portion of a
+published train. The central workflow injects the train's verified npm graph and embedded frontend
+manifest; a normal shell build instead uses the compatibility package pins in the checked-out
+Docker manifest. Pull the published images for an exact train, or use the explicit local path below
+for development work.
 
 Select a particular completed train instead of the current pointer when reproducing it:
 
@@ -278,13 +299,16 @@ not assume that a local tag means the image was published.
 
 ### Frontend images
 
-All seven frontend images are part of the normal build group. They consume exact immutable npm
-prereleases pinned in `cedar-docker-build/bin/cedar-images-base.sh`; they do not use a moving npm
-snapshot version.
+All seven frontend images are part of the normal build group. A published train derives an
+immutable package version from each captured frontend commit, verifies the corresponding Nexus
+tarball, and passes those exact versions into the image build. Each frontend image contains
+`/usr/local/share/cedar-build-manifest.json`, which records the train, source-manifest digest, npm
+plan digest, package commits, integrity values, and tarball hashes. Publication verifies the file
+and its digest label after pushing and pulling the image.
 
-```bash
-cedarcli docker build frontends
-```
+`cedar-docker-build/bin/cedar-images-base.sh` retains exact package pins as compatibility defaults
+for a local shell build. They are not the source of truth for a published train, and neither path
+uses a moving npm snapshot or dist-tag.
 
 The full core build inventory is 31 images: seven infrastructure images, two Java bases, fifteen
 microservices, and seven frontends. `cedarcli docker build all` additionally builds the four
@@ -331,11 +355,11 @@ registry. Use the separate `admin` target for optional administration containers
 `--timeout SECONDS` to change the ten-minute readiness deadline.
 
 The command validates all Compose projects, checks the Docker daemon, `cedarnet`, certificate
-volumes, and published ports, and then starts infrastructure, microservices, frontends when
-selected, and optional admin tools in dependency order. It waits after each stage. A timeout names
-the unhealthy services and prints at most 100 recent log lines for each. Finally, it verifies that
-a backend container can reach Keycloak's signing configuration and checks the public frontend
-routes in `docker` and `hybrid` modes.
+volumes, and published ports, and then starts infrastructure, microservices, and frontends when
+selected by the configured mode. It waits after each stage. A timeout names the unhealthy services
+and prints at most 100 recent log lines for each. Finally, it verifies that a backend container can
+reach Keycloak's signing configuration and checks the public frontend routes in `docker` and
+`hybrid` modes. The aggregate deliberately excludes the optional admin project.
 
 Individual stack commands remain available for troubleshooting. They preserve the recorded mode
 when recreating nginx, but they do not perform the aggregate preflight or readiness sequence.
@@ -352,12 +376,22 @@ would report false backend failures.
 cedarcli docker status
 ```
 
+Do not use `cedar-services.sh status` as a container health check. If that lower-level native
+controller is run directly, it labels container-owned rows `docker` in both PID and HEALTH, labels
+Artifact's unexposed port `internal`, and points back to `cedarcli docker status`. Those labels say
+which runtime owns the service; only the Docker-aware command reads Compose health and acceptance
+probes.
+
 Admin tools are optional and managed separately from the aggregate deployment:
 
 ```bash
-cedarcli docker start admin --detach
+cedarcli docker build admin --train <TRAIN_ID>
+cedarcli docker start admin --train <TRAIN_ID> --pull never --detach
 cedarcli docker stop admin
 ```
+
+The four admin images are outside the verified 31-image Docker-train pointer. Build them explicitly
+for the train used by the deployment before starting them.
 
 For a hybrid deployment, there must be exactly 22 running backend containers and every one must
 report `healthy`:
@@ -484,23 +518,22 @@ single public TLS and routing layer.
 
 The frontend source repositories remain Docker-agnostic. All Dockerfiles, entrypoints, and private
 nginx configurations are in `cedar-docker-build`; Compose topology is in `cedar-docker-deploy`.
-Each image downloads one exact npm package from Nexus. Because npm versions are immutable, a
-Maven-style moving snapshot package is not valid. The pinned inputs use development prereleases
-derived from clean source commits.
+Each image downloads one immutable npm package from Nexus. The build train derives the seven
+package versions from the captured source commits, publishes and verifies those packages, then
+injects their exact identities into the Docker build. The TypeScript model and CEE releases must
+already have passed their own release gates; the train verifies those shared inputs before it
+publishes any frontend package.
 
-Publish a new source commit when needed, then copy the printed version into the corresponding
-`CEDAR_*_NPM_VERSION` declaration in `cedar-docker-build/bin/cedar-images-base.sh`:
+Commit the frontend source changes and publish the coordinated train:
 
 ```bash
-export CEDAR_HOME=$HOME/CEDAR
-bash $CEDAR_HOME/cedar-development/ops/publish-frontend-package.sh \
-  main|workspace|designer|openview|content|monitoring|bridging
+cedarcli publish train
 ```
 
-The helper stages the package without modifying the source checkout, records the full commit as
-`gitHead`, refuses dirty repositories, and is idempotent for the same commit. Never substitute the
-moving `dev` dist-tag in an image build. The Dockerfile verifies the package identity and records
-its full source commit and tarball SHA-256 inside the image.
+The train refuses dirty or mismatched source, records each package commit and registry integrity,
+and embeds that npm graph in every frontend image. Use the resulting completed Docker train when
+the deployment must be reproducible. Do not substitute a moving npm dist-tag or treat the
+compatibility pins used by an interactive shell build as published-train provenance.
 
 Stop the hybrid deployment, clear its mode, and configure Docker mode. The aggregate
 command starts the frontend containers and restores nginx's container upstreams as part of the same
@@ -512,13 +545,23 @@ cedarcli native stop frontends
 cedarcli docker stop all
 cedarcli mode --clear
 cedarcli mode docker
-cedarcli docker build frontends
-cedarcli docker start all --pull never
+cedarcli docker start all --pull missing
 ```
 
 The mode switch removes captured `host.docker.internal` upstream values before checking all seven
 frontend containers and public routes. The 2026-08-21 browser acceptance then opened the Smoke
 Tests folder in Workspace and opened its template in Designer without console errors.
+
+For a one-off image experiment using the compatibility package pins in the checked-out Docker
+manifest, use the explicit local path:
+
+```bash
+cedarcli docker build frontends --local
+cedarcli docker start all --local --pull never
+```
+
+A local build is useful for development but is not a completed train and must not be promoted as
+one.
 
 ```bash
 docker exec infra-nginx nginx -T 2>/dev/null | grep -A1 'upstream cedar-frontend'
@@ -531,7 +574,7 @@ done
 
 To return to hybrid, stop the Docker deployment, clear and reconfigure the mode, then start the
 seven native frontends and the Docker aggregate. Backend data volumes are untouched by either mode
-switch. The concise topology and package procedure is also in
+switch. The concise Compose routing contract is also in
 `cedar-docker-deploy/cedar-frontend/README.md`.
 
 ## REST acceptance gate
@@ -640,8 +683,11 @@ calling shell.
 
 ## Known limitations
 
-- Registry selection is implemented, but a complete tested snapshot image set is not yet published
-  automatically; confirm availability before relying on `--pull missing` or `--pull always`.
+- Published build-train images currently target `linux/amd64`. Docker Desktop runs them through
+  emulation on Apple Silicon; native multi-architecture publication remains roadmap work.
+- An interactive frontend image build uses compatibility package pins and does not reconstruct the
+  verified npm graph of a published train. Use published images for exact reproduction or `--local`
+  for an explicitly local experiment.
 - Artifact is intentionally private to `cedarnet`; host-only test runners cannot exercise its
   cross-store contract directly.
 - Java build success means compilation/package success because `cedarcli build java` uses

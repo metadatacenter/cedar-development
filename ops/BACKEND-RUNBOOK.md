@@ -217,8 +217,9 @@ frontends on their default loopback bind. Do not run both nginx instances togeth
 
 Use `cedarcli docker status` in hybrid mode. `cedarcli native status` is deliberately rejected because
 the backend ports belong to containers. If the lower-level `cedar-services.sh status` is run directly,
-container-owned host ports are marked `!pid`; native start, stop, and restart refuse to signal those
-foreign owners.
+container-owned services are marked `docker` in the PID and HEALTH columns. This describes ownership,
+not readiness; the footer points to `cedarcli docker status` for the authoritative container health
+check. Native start, stop, and restart still refuse to signal Docker's port-forwarding process.
 
 The populate-time term suggestion remains the one browser-smoke failure: the expected controlled-term
 picker input does not appear. It is not an nginx timeout—the failure is a 20-second locator wait, and
@@ -518,10 +519,14 @@ against when its jar was written: `STALE` means the service is serving a jar old
 its health says nothing about your latest code. **PID** shows `~pid` (a leading tilde) only for a
 verified CEDAR process listening without this controller's pidfile — for example, one started in a
 terminal. `stop` may safely adopt that verified process, so `restart` brings it onto the current
-build. `!pid` marks a foreign listener, including Docker Desktop's shared host-port process; lifecycle
-commands refuse to touch it. Stale pidfiles are likewise ignored unless the live PID still matches the
-expected service. Always confirm `status` shows every service `current`, not merely `healthy`, before
-trusting a verification gate.
+build. `docker` in the PID and HEALTH columns means the port belongs to Docker; Artifact is also
+recognized through its running container because its application port is intentionally private to
+`cedarnet`, and its PORT column reads `internal`. These labels do not claim that a container is
+healthy: use `cedarcli docker status`, as the table footer says. `!pid` is reserved for a genuinely
+foreign listener. Lifecycle commands refuse to touch either Docker's forwarding process or a foreign
+owner. Stale pidfiles are likewise ignored unless the live PID still matches the expected service.
+For a native deployment, always confirm `status` shows every service `current`, not merely `healthy`,
+before trusting a verification gate.
 
 ## How native processes are managed
 

@@ -127,6 +127,21 @@ is_docker_port_forwarder() {
   return 1
 }
 
+# Artifact is deliberately private to cedarnet and therefore has no host listener to inspect. A
+# direct container check lets status describe its owner without pretending that this native script
+# can assess the container's health. Keep the Compose project check so an unrelated container that
+# happens to use the same name is not accepted as CEDAR.
+docker_service_running() {
+  local name=$1 container project details
+  case "$name" in
+    artifact) container="server-artifact"; project="cedar-microservices" ;;
+    *) return 1 ;;
+  esac
+  command -v docker >/dev/null 2>&1 || return 1
+  details=$(docker inspect --format '{{.State.Running}} {{index .Config.Labels "com.docker.compose.project"}}' "$container" 2>/dev/null) || return 1
+  [ "$details" = "true $project" ]
+}
+
 expected_frontend_dir() {
   case "$1" in
     frontend) echo "$CEDAR_HOME/cedar-template-editor" ;;
@@ -376,12 +391,12 @@ health_of() {  # echoes healthy|UNHEALTHY|starting|down
 }
 
 status() {
-  printf "%-18s %-8s %-6s %-10s %-8s %s\n" SERVICE PID PORT HEALTH BINARY "ERRORS(log)"
-  printf "%-18s %-8s %-6s %-10s %-8s %s\n" "------" "---" "----" "------" "------" "-----------"
-  local up=0 total=0 stale=0 unmanaged=0 foreign=0
+  printf "%-18s %-8s %-8s %-10s %-8s %s\n" SERVICE PID PORT HEALTH BINARY "ERRORS(log)"
+  printf "%-18s %-8s %-8s %-10s %-8s %s\n" "------" "---" "----" "------" "------" "-----------"
+  local up=0 total=0 stale=0 unmanaged=0 foreign=0 docker_owned=0
   while read -r name; do
     total=$((total+1))
-    local p own pid_disp port_disp h bin errs
+    local p own pid_disp port_disp h bin errs docker_row=false
     p=$(cat "$(pidfile "$name")" 2>/dev/null)
     if [ -n "$p" ] && kill -0 "$p" 2>/dev/null && is_service_process "$name" "$p"; then pid_disp="$p"; own="$p"
     else
@@ -391,22 +406,48 @@ status() {
       else
         own=$(port_owner "$(app_port "$name")")
         if [ -n "$own" ]; then
-          pid_disp="!$own"; foreign=$((foreign+1)); own=""
+          if is_docker_port_forwarder "$own"; then
+            pid_disp="docker"; docker_row=true; docker_owned=$((docker_owned+1)); own=""
+          else
+            pid_disp="!$own"; foreign=$((foreign+1)); own=""
+          fi
+        elif docker_service_running "$name"; then
+          pid_disp="docker"; docker_row=true; docker_owned=$((docker_owned+1)); own=""
         else pid_disp="-"; fi
       fi
     fi
-    port_open "$(app_port "$name")" && port_disp="up" || port_disp="down"
-    h=$(health_of "$name"); [ "$h" = healthy ] && up=$((up+1))
+    if port_open "$(app_port "$name")"; then
+      port_disp="up"
+    elif [ "$docker_row" = true ]; then
+      port_disp="internal"
+    else
+      port_disp="down"
+    fi
+    if [ "$docker_row" = true ]; then
+      h="docker"
+    else
+      h=$(health_of "$name"); [ "$h" = healthy ] && up=$((up+1))
+    fi
     bin=$(binary_of "$name" "$own"); [ "$bin" = STALE ] && stale=$((stale+1))
-    # Exclude logback's own configuration chatter. Its internal status lines all take the
-    # form "|-LEVEL in <class>" (INFO/WARN/ERROR/…), and one WARN reports an appender named
-    # FILE-ERROR "not referenced" — which the old "|-INFO in"-only filter let through as a
-    # phantom error. Real application errors have no "|-" prefix (e.g. "ERROR [ts] logger:").
-    errs=$(grep -iE "ERROR|Exception" "$(logfile "$name")" 2>/dev/null | grep -cvE "\|-(INFO|WARN|ERROR|TRACE|DEBUG) in "); errs=${errs:-0}
-    printf "%-18s %-8s %-6s %-10s %-8s %s\n" "$name" "$pid_disp" "$port_disp" "$h" "$bin" "$errs"
+    if [ "$docker_row" = true ]; then
+      # These files belong to an earlier native run. Container logs and health belong to cedarcli.
+      errs="-"
+    else
+      # Exclude logback's own configuration chatter. Its internal status lines all take the
+      # form "|-LEVEL in <class>" (INFO/WARN/ERROR/…), and one WARN reports an appender named
+      # FILE-ERROR "not referenced" — which the old "|-INFO in"-only filter let through as a
+      # phantom error. Real application errors have no "|-" prefix (e.g. "ERROR [ts] logger:").
+      errs=$(grep -iE "ERROR|Exception" "$(logfile "$name")" 2>/dev/null | grep -cvE "\|-(INFO|WARN|ERROR|TRACE|DEBUG) in "); errs=${errs:-0}
+    fi
+    printf "%-18s %-8s %-8s %-10s %-8s %s\n" "$name" "$pid_disp" "$port_disp" "$h" "$bin" "$errs"
   done < <(names)
   echo "-------------------------------------------------------------"
-  echo "healthy: $up / $total   (login at https://cedar.$CEDAR_HOST once frontend + resource/user are healthy)"
+  if [ "$docker_owned" -gt 0 ]; then
+    [ "$total" -gt "$docker_owned" ] && echo "native healthy: $up / $((total-docker_owned))"
+    echo "Docker-owned services are marked docker; run cedarcli docker status for container health."
+  else
+    echo "healthy: $up / $total   (login at https://cedar.$CEDAR_HOST once frontend + resource/user are healthy)"
+  fi
   [ "$stale" -gt 0 ] && echo "WARNING: $stale service(s) marked STALE — running a jar older than the build. Run: $0 restart"
   [ "$unmanaged" -gt 0 ] && echo "WARNING: $unmanaged service(s) marked ~pid — started outside this script. restart now adopts them."
   [ "$foreign" -gt 0 ] && echo "ERROR: $foreign service port(s) marked !pid belong to non-CEDAR processes. Native start/stop will not touch them."
