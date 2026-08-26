@@ -1608,6 +1608,40 @@ that job installs `libssl1.1` on the runner first; without it `mongod` cannot st
 resource test errors out. Moving the tests onto a newer MongoDB would drop that step, at the cost of
 testing against a different engine than production runs.
 
+### Automated dependency updates
+
+The Mend-hosted Renovate GitHub App runs for `cedar-parent` and `cedar-docker-build`. Both
+repositories keep `renovate.json` on `main`, because the hosted app reads configuration from the
+default branch, and on `develop`, where the actual work lands. `baseBranchPatterns` is set to
+`develop`, so Renovate branches and pull requests must target `develop`, never `main`. Changes to a
+config therefore need a config-only pull request to `main` as well as the ordinary `develop` commit.
+
+`cedar-parent` is the Java dependency control point. Its config reads Maven through the CEDAR Nexus
+pull-through proxy, avoiding Maven Central's hosted-runner rate limit; groups the Dropwizard,
+Metrics, Jetty, Jersey and Hibernate baseline; does not offer Java 17 changes; and leaves Keycloak
+updates behind dashboard approval. `cedar-docker-build` watches the locked server variables in
+`bin/cedar-images-base.sh` through its custom manager as well as ordinary Dockerfile and Actions
+references. It groups the locked server updates and keeps platform-changing updates behind
+approval. Neither repository permits automerge, and both impose a fourteen-day minimum release age.
+
+Each repository has a Renovate **Dependency Dashboard** issue for approving held updates and
+retrying or rebasing branches. A scan can also be started from the repository's **Actions → Run
+Renovate scan** control at `https://developer.mend.io/github/metadatacenter/<repository>`. The
+**Create/Rebase** action discards manual commits on each selected Renovate branch before recreating
+it, so select only branches whose edits are intentionally being replaced.
+
+Validate either config with the same current Renovate generation the hosted service runs:
+
+```bash
+npm exec --yes --package=renovate@latest -- renovate-config-validator renovate.json
+```
+
+Every Renovate pull request runs the repository's normal suite. In addition,
+`ops/check_version_pairing.py` runs in both `cedar-parent` and `cedar-docker-build` CI, checking the
+client versions from the parent POM against the locked server images in the Docker manifest. That
+check is the invariant Renovate cannot infer: a syntactically valid update is not safe when it moves
+only one half of a client/server pair.
+
 ### Mutable development snapshots and immutable build trains
 
 Twenty-seven of the repositories deploy their snapshot to Nexus at the end of a successful build.
