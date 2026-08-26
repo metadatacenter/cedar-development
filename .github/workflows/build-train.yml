@@ -121,7 +121,7 @@ jobs:
     env:
       BMIR_NEXUS_USERNAME: ${{ secrets.BMIR_NEXUS_USERNAME }}
       BMIR_NEXUS_PASSWORD: ${{ secrets.BMIR_NEXUS_PASSWORD }}
-      NPM_CONFIG_USERCONFIG: ${{ runner.temp }}/cedar-npmrc
+      NPM_CONFIG_USERCONFIG: ${{ github.workspace }}/cedar-npmrc
 
     steps:
       - name: Check out the train controller
