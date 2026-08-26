@@ -1047,10 +1047,11 @@ left that does not need a host.
 - **28. Give a snapshot a text index, or stop asking it to search.** A snapshot answers
     `integrated-search` by comparing every concept's label with `LIKE '%term%'`, which no index can
     serve, so a lookup reads the whole ontology. That is why the cost tracks size: 3 ms in UO's 574
-    concepts, 61 ms in NCIT's, and about 800 ms in NCBITAXON's 761,814 — past the point where an
+    concepts, 61 ms in NCIT's, and about 800 ms in NCBITAXON's 2,854,537 — past the point where an
     author waits on each keystroke. Measured 2026-08-25, the cost is nearly all fixed. A query
     matching nothing costs 759 ms and one matching 163,097 concepts costs 885 ms, because the scan
-    happens either way.
+    happens either way, and the store call is essentially all of it: 758 ms of a 796 ms
+    request.
 
     The cross-snapshot index already answers this shape in milliseconds, having FTS5 where a
     snapshot has none, but it holds one version an ontology and carries neither the branch path nor
@@ -1058,12 +1059,12 @@ left that does not need a host.
     text index, which changes the schema and costs a re-ingest of all 2,460, or to route only the
     ontologies large enough to hurt through the index and accept the thinner answer for them.
 
-    Settle one thing first, because it decides how much either is worth. The same statement run by
-    hand against the same file in the same container takes 71 ms warm and 318 ms cold, against the
-    server's 760. Twelve of twelve profile samples inside the request sit in SQL execution, so the
-    time is not going anywhere else, and the statement matches the reconstruction. Something about
-    how the server executes it accounts for the rest, and finding that may be cheaper than either
-    fix.
+    An earlier note here recorded an unexplained tenfold gap between the server and the same
+    statement run by hand, and there is none: the hand-run was against the wrong file.
+    NCBITAXON has two snapshots, and the one carrying a release date holds 761,814 concepts
+    where the one tagged `latest` — the one a lookup actually reads — holds 2,854,537 in 2.1 GB.
+    Picking a snapshot by `released_at` rather than by the tag is an easy way to measure the
+    wrong ontology and then conclude the server is at fault.
 
 ## The Search API
 
