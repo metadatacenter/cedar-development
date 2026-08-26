@@ -222,6 +222,10 @@ is optional.
 There are two supported build paths today. Train creation, state, and recovery are described in
 [BUILD-RUNBOOK.md](./BUILD-RUNBOOK.md).
 
+Image builds do not require a selected deployment mode: they consume the Docker manifest and their
+explicit registry/train inputs without reading a runtime profile. Commands that manage or inspect a
+deployment remain gated by the configured `docker` or `hybrid` mode.
+
 Create and publish a new immutable Maven and Docker train with:
 
 ```bash

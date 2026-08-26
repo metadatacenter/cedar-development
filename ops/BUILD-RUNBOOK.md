@@ -106,8 +106,10 @@ The source manifest is never rewritten. The current pointer moves only after com
 
 ## Use a train for Docker
 
-Docker commands require `docker` or `hybrid` mode. On a dedicated Docker host, inspect the current
-selection first:
+Image builds are topology-independent and may run without a configured deployment mode; this is
+how the isolated train jobs build from only their pinned CLI and Docker-builder checkouts. Starting,
+stopping, inspecting, or otherwise managing a deployment still requires `docker` or `hybrid` mode.
+On a dedicated Docker host, inspect the current selection first:
 
 ```bash
 cedarcli mode
