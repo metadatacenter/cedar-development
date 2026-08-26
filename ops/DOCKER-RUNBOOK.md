@@ -63,15 +63,35 @@ Homebrew/local data. `docker compose down` retains named volumes and therefore r
 The Docker backend and native backend cannot run together: they claim the same infrastructure and
 9xxx ports. Native and containerized frontends likewise cannot share their seven frontend ports.
 The supported hybrid is deliberate: Docker owns the backend and public nginx while the seven native
-frontend servers replace the seven frontend containers. Stop conflicting native components first,
-then verify that the ports are actually free. Legacy microservice shutdown messages only work when
-a service is listening on its stop port, and may leave unmanaged JVMs alive.
+frontend servers replace the seven frontend containers.
+
+Begin by asking the CLI which topology currently owns the machine:
 
 ```bash
 export CEDAR_HOME=$HOME/CEDAR
-source $CEDAR_HOME/cedar-profile-native-develop.sh
-cedarcli native stop all
+cedarcli mode
+```
 
+If it reports `native`, stop that stack and clear the selection:
+
+```bash
+cedarcli native stop all
+cedarcli mode --clear
+```
+
+If it reports `hybrid`, stop both owned surfaces before clearing:
+
+```bash
+cedarcli native stop frontends
+cedarcli docker stop all
+cedarcli mode --clear
+```
+
+If it reports `docker`, run `cedarcli docker stop all` and then `cedarcli mode --clear`. If no mode
+is set, there is nothing to clear. After the selected deployment is stopped, verify that the ports
+are actually free:
+
+```bash
 # The expected result is no listeners. Stop any remaining service from its owning terminal or
 # process controller; do not use a broad `pkill java`, which can kill unrelated JVMs.
 lsof -nP -iTCP -sTCP:LISTEN | grep -E ':(80|443|3306|6379|7474|7687|8080|8443|9200|9300|27017|90[0-9][0-9])\b'
@@ -164,7 +184,6 @@ elsewhere:
 ```bash
 export CEDAR_IMAGE_PREFIX=<registry-host>:<port>/<namespace>
 export CEDAR_BASE_IMAGE_PREFIX=<registry-host>:<port>/<internal-namespace>
-cedarcli mode docker
 ```
 
 Use Docker image syntax, not a URL: omit `https://`, an image tag, and a trailing slash. For a
@@ -214,7 +233,7 @@ pulls and verifies all 31 before advancing `docker/current.json`. Resume a faile
 the train ID printed by the original command:
 
 ```bash
-cedarcli publish train --resume <TRAIN>
+cedarcli publish train --resume <TRAIN_ID>
 ```
 
 ### Completed build train: normal published-artifact build
@@ -232,7 +251,7 @@ cedarcli docker build frontends
 Select a particular completed train instead of the current pointer when reproducing it:
 
 ```bash
-cedarcli docker build microservices --train <TRAIN>
+cedarcli docker build microservices --train <TRAIN_ID>
 ```
 
 ### Checked-out Java source: explicit local build
@@ -298,7 +317,7 @@ cedarcli docker start all --pull never
 ```
 
 Start resolves the current completed Docker train, which can lag the Maven pointer while images are
-still building. Use `--train <TRAIN>` to select an exact Docker-complete train. When the images came
+still building. Use `--train <TRAIN_ID>` to select an exact Docker-complete train. When the images came
 from `docker build --local`, add `--local` to start so Compose selects the development tag instead.
 
 `--pull never` uses the images already present on the machine and fails if one is absent. This is
@@ -448,7 +467,7 @@ Three frontend deployment modes remain distinct:
 
 | Mode | Where frontend code is served | How it is started | Current status |
 | --- | --- | --- | --- |
-| Native hybrid | Seven macOS development-server processes | `cedarcli mode hybrid`, then native frontends and `cedarcli docker start all` | Proven local development mode |
+| Hybrid | Seven macOS development-server processes | `cedarcli mode hybrid`, then native frontends and `cedarcli docker start all` | Proven local development mode |
 | All-Docker frontends | Seven containers on `cedarnet` | `cedarcli mode docker`, then `cedarcli docker start all` | Proven on 2026-08-21 |
 | Native-only stack | Seven native development servers | `cedarcli mode native`, then `cedarcli native start all` | Preserved; Docker work does not change it |
 

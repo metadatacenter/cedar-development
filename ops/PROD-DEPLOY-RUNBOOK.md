@@ -50,7 +50,13 @@ sudo su - cedar
 tmux ls            # reuse an existing session if one is running
 tmux               # else start one
 gocedar            # cd $CEDAR_HOME
+cedarcli mode       # production must report native
 ```
+
+If this host predates persistent mode selection and reports that no mode is set, run
+`cedarcli mode native` once. Stop if it reports `docker` or `hybrid`; do not change a production
+topology until the deployment using that mode has been identified and stopped through its own
+command surface.
 
 ### 1 · Reconcile local state — revert any hot-patches
 Prod can drift from git when someone live-patches the box. Check, and discard working-tree edits so
@@ -92,7 +98,7 @@ gocedar
 ### 4 · Build (Java still running — keep the downtime window short)
 ```bash
 cedarcli check versions        # every repo reports the expected version + new modifier
-cedarcli clean maven all
+cedarcli maven clean all
 cedarcli build all             # this deploy: ~0:11:24
 ```
 

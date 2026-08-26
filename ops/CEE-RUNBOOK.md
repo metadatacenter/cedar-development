@@ -106,7 +106,7 @@ emitting that set, so the command silently produced a truncated or empty bundle
 rather than failing. `visual/resolve-build-output.mjs` decides what the build
 actually emitted, and whether joining is even the right operation for it.
 
-`cedarcli build this` and `cedarcli build frontends` run this same pipeline, plus
+`cedarcli build this --wd "$PWD"` and `cedarcli build frontends` run this same pipeline, plus
 the two installs and the staging step, from `build_command_list` on CEE's entry in
 `cedar-cli/org/metadatacenter/config/ReposFactory.py`. Until August 2026 the CLI
 instead reassembled the output itself with that hardcoded `cat`, which by then
@@ -283,9 +283,9 @@ needs. Install, then get the bundle into what each host serves:
 |---|---|---|
 | `cedar-workspace` | plain | `npx gulp copy:cee` (needs the profile sourced) |
 | `cedar-template-editor` | plain | `npx gulp copy:cee` (needs the profile sourced) |
-| `cedar-bridging` | plain | `cedarcli build this` |
-| `cedar-openview` | `--legacy-peer-deps` | `cedarcli build this` — it copies `dist/cedar-openview` into `cedar-openview-dist` |
-| `cedar-component-demo` (Angular) | `--legacy-peer-deps` | `cedarcli build this` |
+| `cedar-bridging` | plain | `cedarcli build this --wd "$PWD"` |
+| `cedar-openview` | `--legacy-peer-deps` | `cedarcli build this --wd "$PWD"` — it copies `dist/cedar-openview` into `cedar-openview-dist` |
+| `cedar-component-demo` (Angular) | `--legacy-peer-deps` | `cedarcli build this --wd "$PWD"` |
 | `cedar-component-demo` (Ember, React) | plain | nothing — they run from source |
 
 A build refreshes what is on disk. A **running `ng serve` still serves what it
@@ -1432,7 +1432,7 @@ appear in each consumer's `node_modules`, and again wherever that consumer stage
 `dist/cedar-openview/node_modules/` for OpenView.
 
 ```bash
-gobridging  && npm install && cd .. && cedarcli build this
+gobridging  && npm install && cd .. && cedarcli build this --wd "$PWD"
 cd $CEDAR_HOME/cedar-workspace && npx gulp copy:cee
 cd $CEDAR_HOME/cedar-template-editor && npx gulp copy:cee
 ```

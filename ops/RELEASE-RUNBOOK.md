@@ -103,7 +103,7 @@ gocedar
 
 ### 1 · Refresh + pre-flight build
 ```bash
-cedarcli git checkout develop && cedarcli git pull && cedarcli clean maven all
+cedarcli git checkout develop && cedarcli git pull && cedarcli maven clean all
 exec bash -l                 # re-read the freshly-pulled env / aliases / cedarcli
 export GIT_TERMINAL_PROMPT=0
 cedarcli build all           # ~20 min; catches bad merges before the long run

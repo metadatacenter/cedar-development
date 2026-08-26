@@ -19,9 +19,9 @@ Three tiers:
 
 - **Infrastructure** — Keycloak (auth), MongoDB, MySQL, Neo4j, Redis, OpenSearch (search index),
   and nginx (TLS termination + reverse proxy for `*.metadatacenter.orgx`). In native-develop these
-  run as containers, except **nginx**, which is still native and still owns 80/443. All six locked
-  servers — Redis, OpenSearch, Mongo, Neo4j, MySQL and Keycloak — moved on 2026-08-08. See
-  "Running the native servers against containerized infrastructure".
+  are host services managed by the native infrastructure scripts. Docker mode owns containerized
+  infrastructure; hybrid mode owns the Docker backend and native frontends. The three supported
+  modes deliberately do not include native JVMs over an independently assembled Docker data tier.
 - **Microservices** — 15 Dropwizard JVMs, one per `cedar-<name>-server` repo. Each is launched as
   `java -jar cedar-<name>-server-application-<version>.jar server .../config.yml`.
 - **Frontends** — the production-safe AngularJS monolith (`cedar-template-editor`) is served by
@@ -31,14 +31,26 @@ Three tiers:
 
 ## Environment: select the native mode first
 
-`cedarcli mode native` loads and validates the native profile internally, pins Java 17 for its child
-processes, and records the selection without starting anything. Later native commands work from a
-bare shell. Direct shell scripts still require the profile to be sourced explicitly.
+Begin by checking which topology owns the machine. If no mode is selected, select `native` once.
+That loads and validates the native profile internally, pins Java 17 for its child processes, and
+records the selection without starting anything. Later native commands work from a bare shell.
+Direct shell scripts still require the profile to be sourced explicitly.
 
 ```bash
 export CEDAR_HOME=$HOME/CEDAR
+cedarcli mode
+```
+
+If the result says no mode is set:
+
+```bash
 cedarcli mode native
 ```
+
+If it reports `docker` or `hybrid`, stop the components owned by that topology and clear the mode
+before selecting native. The complete transition commands are in the
+[Docker runbook](./DOCKER-RUNBOOK.md#prerequisites). Do not select a second mode over a running
+deployment.
 
 `JAVA_HOME` must be JDK 17 for commands run directly rather than through cedarcli. CEDAR services and Keycloak require Java 17. The machine's default
 `java` is newer (23/25) and **Keycloak crashes on it** (`Failed to start caches … getSubject is
@@ -48,8 +60,8 @@ supported only if a security manager is allowed` — the SecurityManager was dis
 export JAVA_HOME=$(/usr/libexec/java_home -v 17)
 ```
 
-Your `~/.zshrc` already pins Java 17; your `~/.bashrc` pins 21 — **use the zsh shell**, or the
-Keycloak/services will fail the same way. The helper scripts here force Java 17 themselves.
+The native controller and `cedarcli` select JDK 17 for managed processes. Set `JAVA_HOME` yourself
+only for direct Java or Keycloak commands outside the CLI.
 
 ## Bring-up sequence
 
@@ -141,8 +153,15 @@ passes the public estate but ends the `contract` and `freeze` suites with `fetch
 suite from an ephemeral Node container on `cedarnet`, as documented in the Docker runbook, to test
 those internal cross-store contracts without exposing Artifact.
 
-To get back to the native stack, `cedarcli docker stop microservices` and `stop infrastructure`,
-then bring up native as above.
+To get back to the native stack, stop the complete Docker deployment, clear its mode, and select
+native before starting anything on the host:
+
+```bash
+cedarcli docker stop all
+cedarcli mode --clear
+cedarcli mode native
+cedarcli native start all
+```
 
 ### Running the native frontends against the containerized backend
 
@@ -172,10 +191,10 @@ These are seven independent Node.js processes: three legacy AngularJS applicatio
 four newer Angular applications use Angular CLI. The focused Docker procedure, verification, stop
 path, and three-mode comparison are in [DOCKER-RUNBOOK.md](./DOCKER-RUNBOOK.md).
 
-Select hybrid mode once, then start the native frontend tier and the Docker deployment. The CLI
-loads both profiles for the commands that need them, binds the Angular development servers so
-Docker nginx can reach them, and refuses any native backend operation that would collide with the
-containers:
+Select hybrid mode once, then start the native frontend tier and the Docker deployment. If another
+mode is already selected, stop its owned components and clear it first. The CLI loads both profiles
+for the commands that need them, binds the Angular development servers so Docker nginx can reach
+them, and refuses any native backend operation that would collide with the containers:
 
 ```bash
 export CEDAR_HOME=$HOME/CEDAR
@@ -207,13 +226,16 @@ nginx and the backend remain responsive. The template carries the branch constra
 containerized terminology server answers the query. Compare the same browser smoke against the
 native backend to decide whether this is a frontend defect or a mixed-topology artifact.
 
-### Running the native servers against containerized infrastructure
+### Legacy diagnostic split: native servers against containerized infrastructure
 
-The opposite split, and the one development wants: the data stores in containers, the fifteen JVMs
-native, so the edit-compile-run loop survives and the versions underneath it stop drifting with
-`brew upgrade`. Nothing needs reconfiguring. `set-env-generic.sh` derives every infrastructure host
-from `CEDAR_NET_GATEWAY`, the native profile sets it to `127.0.0.1`, and the stack publishes every
-store to the host on the same `CEDAR_*_PORT` variables the servers already read.
+This older diagnostic arrangement puts selected data stores in containers while the JVMs remain
+native. It is not one of the three CLI modes and is not a supported aggregate deployment. The
+procedures below use direct Homebrew, Docker, and maintenance commands intentionally; do not infer
+that `cedarcli mode native` or `hybrid` owns this mixed runtime.
+
+`set-env-generic.sh` derives every infrastructure host from `CEDAR_NET_GATEWAY`, the native profile
+sets it to `127.0.0.1`, and the containers publish the selected stores on the same host ports the
+servers already read.
 
 **Redis has moved.** Swap it with the native stack running, from a second shell — the stack needs
 the Docker profile for the container's pinned address, and the servers keep running under the
@@ -430,7 +452,7 @@ By default every image fetches its jar from Nexus while it builds, so an image c
 that has already been published. `--local` builds against the checkout instead:
 
 ```bash
-cd $CEDAR_HOME/cedar-artifact-server && cedarcli build this
+cd $CEDAR_HOME/cedar-artifact-server && cedarcli build this --wd "$PWD"
 cedarcli docker build artifact-server --local
 ```
 
@@ -892,14 +914,14 @@ TypeScript, while both emit the same bytes for it.
 
   ```bash
   export CEDAR_HOME=$HOME/CEDAR
-  source $CEDAR_HOME/cedar-profile-native-develop.sh          # sets CEDAR_CA_HOME, CEDAR_CA_PASSWORD, CEDAR_CA_*
+  CEDAR_CA_HOME=$CEDAR_HOME/CEDAR_CA
   SSL=/opt/homebrew/etc/nginx/cedar/ssl
   cp -r "$SSL" /tmp/cedar-ssl-backup                          # optional but wise (reversible)
-  $CEDAR_HOME/cedar-cli/.venv/bin/python $CEDAR_HOME/cedar-cli/cedar.py cert setup     # safe to repeat; preserves CA state
-  $CEDAR_HOME/cedar-cli/.venv/bin/python $CEDAR_HOME/cedar-cli/cedar.py cert domains --force   # renew all leaves (SAN preserved, 824 days)
+  cedarcli cert setup                                          # safe to repeat; preserves CA state
+  cedarcli cert domains --force                                # renew all leaves (SAN preserved, 824 days)
   for d in "$CEDAR_CA_HOME"/certs/*/; do sub=$(basename "$d"); tgt="$SSL/$sub"; [ -d "$tgt" ] || continue;
     crt=$(ls "$d"*.crt | head -1); cp "$crt" "${crt%.crt}.key" "$tgt/"; done   # install into nginx ssl dirs
-  sudo nginx -s reload                                        # nginx master runs as root → needs sudo
+  sudo "$(brew --prefix)/bin/nginx" -s reload                 # nginx master runs as root → needs sudo
   ```
   Notes: `cedar cert domains` writes leaves to `$CEDAR_CA_HOME/certs/<subdomain>/`, but nginx reads from
   `$SSL/<subdomain>/` — hence the copy step. The subdomain dir names match on both sides. Skipping the
@@ -972,7 +994,7 @@ TypeScript, while both emit the same bytes for it.
 - **A microservice shows `down` in status with no jar** → that server was never built. Build it:
   ```bash
   mvn -o -f $CEDAR_HOME/cedar-<name>-server/pom.xml install -DskipTests   # -o = offline; drop it if a dep is missing
-  # or: cedarcli build (see cedar-cli)
+  # or: cedarcli build java
   ```
   (Seen unbuilt in this environment: schema, repo, submission, valuerecommender, openview, monitor.)
   `schema` is needed for template operations; `resource`/`user`/`artifact`/`terminology`/`group` are
@@ -1072,13 +1094,12 @@ TypeScript, while both emit the same bytes for it.
 
 ## cedarcli (headless invocation)
 
-`cedarcli` is a shell alias (`source $CEDAR_HOME/cedar-cli/cli.sh`) that activates a venv and runs
-`cedar.py`. To drive it non-interactively (no alias):
+`cedarcli` is normally a shell alias (`source $CEDAR_HOME/cedar-cli/cli.sh`) that activates a venv
+and runs `cedar.py`. To drive it non-interactively, invoke the same Python entry point. The selected
+mode must already be recorded; the CLI loads its profile and JDK internally:
 
 ```bash
 export CEDAR_HOME=$HOME/CEDAR
-source $CEDAR_HOME/cedar-profile-native-develop.sh >/dev/null 2>&1
-export JAVA_HOME=$(/usr/libexec/java_home -v 17)
 $CEDAR_HOME/cedar-cli/.venv/bin/python $CEDAR_HOME/cedar-cli/cedar.py <command>
 ```
 
@@ -1090,9 +1111,9 @@ status, health, logs, restart, and the continuously refreshing status view.
 ## Building CEDAR
 
 `cedarcli build java` is the authoritative full build. It compiles and installs the whole Java
-stack in dependency order: `cedar-parent`, then `cedar-microservice-libraries`, then the fifteen
-servers. Inside a single repo, `cedarcli build this` builds just that repo. Both need the profile
-sourced and `JAVA_HOME` pinned to 17.
+stack in dependency order: parent, libraries, project, and clients. Inside a single repo,
+`cedarcli build this --wd "$PWD"` builds just that repo. The CLI loads the selected profile and pins
+JDK 17 for these child processes.
 
 **Maven comes from the wrapper, not from the machine.** Every Java repository carries `mvnw` pinned
 to 3.9.14, CI invokes it, and `cedarcli` does too, so the build tool is the same everywhere instead
@@ -1506,7 +1527,7 @@ failed job resumes only from its recorded source manifest:
 
 ```bash
 cedarcli publish train
-cedarcli publish train --resume <TRAIN>
+cedarcli publish train --resume <TRAIN_ID>
 ```
 
 Create a new train, rather than resuming, when newer source commits must be included. The complete
@@ -1933,9 +1954,7 @@ regenerate the CA:
 
 ```bash
 export CEDAR_HOME=$HOME/CEDAR
-source $CEDAR_HOME/cedar-profile-native-develop.sh
-cd $CEDAR_HOME/cedar-cli
-.venv/bin/python cedar.py cert domains workspace designer --force
+cedarcli cert domains workspace designer --force
 bash $CEDAR_HOME/cedar-development/ops/install-local-split-hostnames.sh
 ```
 
