@@ -159,6 +159,64 @@ grep -E "terminology store enabled|Cross-snapshot search index" $CEDAR_HOME/log/
 UMLS-licensed sources — SNOMEDCT, MEDDRA, RCD, ICPC2P — cannot be held locally and can never be
 pinned.
 
+## What a Lookup Costs
+
+`cedar_term_bench.py` times the lookup paths against whatever the server is serving, drawing its
+query strings from the index so that every lookup matches something. Run it against a warm server
+and against nothing else: a benchmark and the e2e smoke sharing one deployment turned a 30-second
+smoke into a 78-second one, which reads as a regression until you notice what else was running.
+
+```bash
+python3 $CEDAR_HOME/cedar-development/ops/cedar_term_bench.py 30
+```
+
+An ontology-constrained `integrated-search`, the shape the authoring UI asks for, costs what the
+ontology is large enough to make it cost. Measured 2026-08-25 on the 1,266-ontology store:
+
+| ontology | terms | p50 |
+|---|---|---|
+| UO | 574 | 3 ms |
+| DOID | 19,578 | 10 ms |
+| MONDO | 36,070 | 24 ms |
+| NCIT | 206,860 | 61 ms |
+| NCBITAXON | 2,854,537 | 824 ms |
+
+The relationship is close enough to linear above about twenty thousand terms to suggest a scan
+rather than a seek, which puts NCBITAXON alone outside an interactive budget. Page size does not
+enter into it: 10 results and 100 cost the same, because the work is in matching and ranking rather
+than in building the answer. A shorter prefix costs more than a longer one, for the obvious reason.
+
+A lookup is answered on the calling thread's own connection to each store it reads. That is worth
+knowing when changing one: a store opened to write keeps the single connection its transactions
+belong to, and only the three places that open a store to serve ask for the other mode. Sharing one
+connection is what the server used to do, and it answered one lookup at a time however many arrived
+— 16 requests a second whether one was in flight or sixteen, with latency climbing to 995 ms.
+Throughput now rises with concurrency to about 98 requests a second and latency holds near 70 ms.
+
+## When a Lookup Is Slow
+
+Reach for the query before the server. `POST /search` puts each token of a query to the index as a
+prefix match, and a token of one or two characters matches most of the index: `"d"*` reaches seven
+million names where `"mannitol"*` reaches 2,398. Punctuation makes such tokens without anyone typing
+them, because the index splits on it. Chemical and strain names are built out of exactly those
+fragments.
+
+A query with a long token in it holds its short tokens back and applies them afterwards, so
+`D-mannitol` costs about what `mannitol` costs. A query with nothing long in it cannot: every token
+of `L-alpha-amino acid`, `1,2,5` and `ce` is short, one of them is broad, and the query pays for it.
+Those are the queries left to answer, and answering them needs the index's own term statistics —
+FTS5 keeps them, reachable through an `fts5vocab` table — so that the narrowest token drives the
+match instead of the longest being assumed to.
+
+Confirm which case you are in before reading any code, since the two look identical from outside:
+
+```bash
+sqlite3 $CEDAR_HOME/cedar-term/prod/search-index.sqlite \
+  "SELECT COUNT(*) FROM name_fts WHERE name_fts MATCH '\"ce\"*';"
+```
+
+A count in the millions is the query, not the server.
+
 ## Running the Picker
 
 `$CEDAR_HOME/cedar-term-picker`, default branch `develop`. Node 24.19.0, the version `.nvmrc` pins.

@@ -43,6 +43,12 @@ Helper scripts are in `cedar-development/ops/`:
   findings and checkpoints `processed/total` every 300 artifacts. It never writes an artifact and
   never stores or prints the API key.
 
+- `cedar_term_bench.py` — times the terminology server's lookup paths against whatever it is
+  serving, drawing query strings from the served index so every lookup matches something. Reports
+  the latency distribution by ontology size, by query breadth and by page size. Give it a warm
+  server and an otherwise idle stack: a benchmark competing with the e2e smoke makes each look like
+  a regression in the other.
+
 ## Ops docs: roadmaps and runbooks
 
 The documents under `cedar-development/ops/` include paired roadmaps and runbooks by area: a runbook
