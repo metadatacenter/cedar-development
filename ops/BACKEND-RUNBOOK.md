@@ -760,14 +760,25 @@ it a virtual environment rather than `--break-system-packages`:
 python3 -m venv /tmp/cedar-patch && /tmp/cedar-patch/bin/pip install pymongo
 ```
 
-Three things about a run are worth knowing before trusting its numbers. `--items` narrows it to the
+Four things about a run are worth knowing before trusting its numbers. `--items` narrows it to the
 checks you mean, using the stable check numbers printed by the report, which matters because a full
-run over a large store reads every artifact. The `*-original.json` files in a tree are skipped: those are preprod
+run over a large store reads every artifact. Report mode defaults to all nine checks, but `--apply`
+is refused unless `--items` is supplied explicitly and names at least one check. The
+`*-original.json` files in a tree are skipped: those are preprod
 captures kept beside their corrected copies so a defect stays legible, and `--include-originals` reads
 them but cannot be combined with `--apply`. And a repair is offered only where the correction is
 settled — a populated `_ui.pages`, an artifact whose own `@id` is empty, an empty attribute name with
 something keyed by it, and a constraint whose acronym the terminology catalog cannot resolve are all
 reported and left alone, since each needs a decision the script has no grounds to make.
+
+Every Mongo apply creates a new pre-image directory before connecting. By default it is a timestamped
+`cedar-artifact-patch-backup-*` directory under the caller's working directory; production work should
+name a durable, nonexistent destination explicitly with `--backup-dir`. Each replaced document is
+written there as canonical Mongo Extended JSON with its SHA-256. Immediately before replacement the
+tool hashes a fresh read and refuses a mismatch; the replacement itself matches the complete original
+pre-image atomically and increments `_cedarRevision`. A save that races either check is preserved, the
+repair run stops, and the process exits `2`. The backups are tool-side rollback material, but they do
+not replace the deployment's ordinary database backup and restore procedure.
 
 Check 32 is the multi-select incident repair. It inspects only field deployments inside templates and
 elements; a standalone field artifact is the reusable inner definition and is intentionally left
@@ -779,8 +790,9 @@ before considering a write:
 
 ```bash
 python3 ops/cedar_artifact_patch.py --mongo mongodb://localhost:27017 --db cedar --items 32
-# only after reviewing the JSON report and a database backup:
-python3 ops/cedar_artifact_patch.py --mongo mongodb://localhost:27017 --db cedar --items 32 --apply
+# only after reviewing the JSON report and taking the ordinary database backup:
+python3 ops/cedar_artifact_patch.py --mongo mongodb://localhost:27017 --db cedar \
+  --items 32 --apply --backup-dir /var/backups/cedar-artifact-patch-<RUN_ID>
 ```
 
 A corpus run reports one unreadable file, and it is meant to be unreadable. `cee-suite/086` is not
