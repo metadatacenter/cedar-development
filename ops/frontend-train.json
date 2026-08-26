@@ -87,5 +87,12 @@
       "lock": "cedar-cee-demo-react/package-lock.json"
     }
   ],
+  "runtimePackages": [
+    {
+      "name": "@webcomponents/webcomponentsjs",
+      "versionVariable": "CEDAR_OPENVIEW_WEBCOMPONENTS_NPM_VERSION",
+      "registry": "https://registry.npmjs.org/"
+    }
+  ],
   "dockerCeeVersionVariable": "CEDAR_OPENVIEW_CEE_NPM_VERSION"
 }

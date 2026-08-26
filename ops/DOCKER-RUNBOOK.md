@@ -304,7 +304,12 @@ immutable package version from each captured frontend commit, verifies the corre
 tarball, and passes those exact versions into the image build. Each frontend image contains
 `/usr/local/share/cedar-build-manifest.json`, which records the train, source-manifest digest, npm
 plan digest, package commits, integrity values, and tarball hashes. Publication verifies the file
-and its digest label after pushing and pulling the image.
+and its digest label after pushing and pulling the image. During a train build, the Dockerfile also
+requires its downloaded application tarball to match the recorded SHA-256 before extracting it.
+Main, Workspace, and Template Designer then use `npm ci` with the shrinkwrap vendored into the
+published package; OpenView extracts its verified CEE and webcomponents tarballs directly. Thus a
+rebuild does not re-resolve transitive package versions. The local `--local` compatibility path may
+still consume an older package without a shrinkwrap, but it is explicitly not a reproducible train.
 
 `cedar-docker-build/bin/cedar-images-base.sh` retains exact package pins as compatibility defaults
 for a local shell build. They are not the source of truth for a published train, and neither path

@@ -7,12 +7,14 @@ import argparse
 import base64
 import datetime as dt
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
 import re
 import subprocess
 import sys
+import tarfile
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -22,6 +24,7 @@ ROOT = Path(__file__).resolve().parent
 DEFAULT_CONFIG = ROOT / "frontend-train.json"
 TRAIN_RE = re.compile(r"^\d+\.\d+\.\d+-dev\.\d{8}\.\d{4}$")
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+FRONTEND_PACKAGE_FORMAT = "p2"
 
 
 def load_json(path: Path) -> dict:
@@ -103,7 +106,7 @@ def frontend_version(repository: Path, manifest_version: str, revision: str) -> 
         ["git", "show", "-s", "--format=%cd", "--date=format:%Y%m%d%H%M%S", revision],
         cwd=repository, text=True, capture_output=True, check=True,
     ).stdout.strip()
-    return f"{base}-dev.{timestamp}.g{revision[:12]}"
+    return f"{base}-dev.{timestamp}.g{revision[:12]}.{FRONTEND_PACKAGE_FORMAT}"
 
 
 def record_plan(args: argparse.Namespace) -> None:
@@ -167,6 +170,7 @@ def record_plan(args: argparse.Namespace) -> None:
             "packagePath": frontend["packagePath"],
             "npmVersionVariable": frontend["npmVersionVariable"],
             "ceeVersion": cee_version if "ceeConsumer" in frontend else None,
+            "requiresShrinkwrap": True,
         })
     for consumer in config.get("additionalCeeConsumers", []):
         consumer_root, revision = repository_root(
@@ -183,6 +187,19 @@ def record_plan(args: argparse.Namespace) -> None:
             "ceeVersion": cee_version,
         })
     docker_inputs[config["dockerCeeVersionVariable"]] = cee_version
+    runtime_packages = []
+    for package in config.get("runtimePackages", []):
+        version_variable = package["versionVariable"]
+        version = docker_inputs.get(version_variable)
+        if not version:
+            raise RuntimeError(
+                f"runtime package {package['name']} has no Docker input {version_variable}"
+            )
+        runtime_packages.append({
+            "name": package["name"],
+            "version": version,
+            "registry": package["registry"],
+        })
 
     plan = {
         "schemaVersion": 1,
@@ -203,6 +220,7 @@ def record_plan(args: argparse.Namespace) -> None:
             "model": {"name": model_name, "version": model_version},
         },
         "frontends": packages,
+        "runtimePackages": runtime_packages,
         "additionalCeeConsumers": additional_consumers,
         "dockerInputs": dict(sorted(docker_inputs.items())),
     }
@@ -216,7 +234,10 @@ def record_plan(args: argparse.Namespace) -> None:
         print(f"npm plan for {args.version} is already recorded.")
         return
     write_json(destination, plan)
-    print(f"Recorded npm dependency graph with {len(packages) + 2} immutable packages.")
+    print(
+        f"Recorded npm dependency graph with "
+        f"{len(packages) + len(runtime_packages) + 2} immutable packages."
+    )
 
 
 def authorization_header() -> dict[str, str]:
@@ -253,9 +274,10 @@ def verify_record(registry: str, expected: dict) -> dict:
     identity = f"{expected['name']}@{expected['version']}"
     if record is None:
         raise RuntimeError(f"npm registry is missing {identity}")
-    if record.get("gitHead") != expected["revision"]:
+    revision = expected.get("revision")
+    if revision and record.get("gitHead") != revision:
         raise RuntimeError(
-            f"{identity} gitHead is {record.get('gitHead')!r}, expected {expected['revision']}"
+            f"{identity} gitHead is {record.get('gitHead')!r}, expected {revision}"
         )
     distribution = record.get("dist", {})
     tarball_url = distribution.get("tarball")
@@ -269,15 +291,29 @@ def verify_record(registry: str, expected: dict) -> dict:
     actual_integrity = base64.b64encode(hashlib.new(algorithm, tarball).digest()).decode()
     if actual_integrity != encoded:
         raise RuntimeError(f"{identity} tarball does not match registry integrity")
-    return {
+    shrinkwrap_sha256 = None
+    if expected.get("requiresShrinkwrap"):
+        try:
+            with tarfile.open(fileobj=io.BytesIO(tarball), mode="r:gz") as archive:
+                shrinkwrap = archive.extractfile("package/npm-shrinkwrap.json")
+                if shrinkwrap is None:
+                    raise KeyError("package/npm-shrinkwrap.json")
+                shrinkwrap_sha256 = sha256_bytes(shrinkwrap.read())
+        except (KeyError, tarfile.TarError) as error:
+            raise RuntimeError(f"{identity} tarball has no readable npm-shrinkwrap.json") from error
+    verified = {
         "name": expected["name"],
         "version": expected["version"],
-        "repository": expected["repository"],
-        "revision": expected["revision"],
         "integrity": integrity,
         "tarball": tarball_url,
         "tarballSha256": sha256_bytes(tarball),
     }
+    for field in ("repository", "revision"):
+        if expected.get(field):
+            verified[field] = expected[field]
+    if shrinkwrap_sha256:
+        verified["shrinkwrapSha256"] = shrinkwrap_sha256
+    return verified
 
 
 def publish_frontends(args: argparse.Namespace) -> None:
@@ -319,6 +355,8 @@ def complete(args: argparse.Namespace) -> None:
     verified = []
     for expected in (plan["model"], plan["cee"], *plan["frontends"]):
         verified.append(verify_record(plan["registry"], expected))
+    for expected in plan.get("runtimePackages", []):
+        verified.append(verify_record(expected["registry"], expected))
     completed_at = dt.datetime.now(dt.timezone.utc).isoformat()
     completion = {
         "schemaVersion": 1,

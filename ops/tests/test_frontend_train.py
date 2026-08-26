@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import tarfile
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -92,6 +93,11 @@ class FrontendTrainTest(unittest.TestCase):
                                "npmVersionVariable": "CEDAR_APP_NPM_VERSION",
                                "ceeConsumer": {"manifest": "package.json",
                                                "lock": "package-lock.json"}}],
+                "runtimePackages": [{
+                    "name": "@webcomponents/webcomponentsjs",
+                    "versionVariable": "CEDAR_WEB_COMPONENTS_NPM_VERSION",
+                    "registry": "https://registry.npmjs.org/",
+                }],
                 "dockerCeeVersionVariable": "CEDAR_OPENVIEW_CEE_NPM_VERSION",
             }
             write(config_path, config)
@@ -112,12 +118,17 @@ class FrontendTrainTest(unittest.TestCase):
             self.assertEqual(MODEL_VERSION, plan["cee"]["model"]["version"])
             self.assertEqual(CEE_VERSION, plan["frontends"][0]["ceeVersion"])
             self.assertEqual(
-                f"2.9.3-dev.20260825220426.g{app_sha[:12]}",
+                f"2.9.3-dev.20260825220426.g{app_sha[:12]}.p2",
                 plan["dockerInputs"]["CEDAR_APP_NPM_VERSION"],
             )
             self.assertEqual(
                 CEE_VERSION, plan["dockerInputs"]["CEDAR_OPENVIEW_CEE_NPM_VERSION"]
             )
+            self.assertEqual([{
+                "name": "@webcomponents/webcomponentsjs",
+                "version": "2.8.0",
+                "registry": "https://registry.npmjs.org/",
+            }], plan["runtimePackages"])
 
     def test_exact_alias_rejects_a_range(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -143,6 +154,138 @@ class FrontendTrainTest(unittest.TestCase):
         }), patch.object(frontend_train, "fetch", return_value=tarball):
             verified = frontend_train.verify_record("https://registry.example/", expected)
         self.assertEqual(hashlib.sha256(tarball).hexdigest(), verified["tarballSha256"])
+
+    def test_registry_verification_accepts_a_pinned_third_party_without_git_head(self):
+        tarball = b"pinned third-party tarball"
+        integrity = "sha512-" + base64.b64encode(hashlib.sha512(tarball).digest()).decode()
+        expected = {"name": "third-party", "version": "1.2.3"}
+        with patch.object(frontend_train, "registry_record", return_value={
+            "dist": {"tarball": "https://registry.example/third-party.tgz", "integrity": integrity},
+        }), patch.object(frontend_train, "fetch", return_value=tarball):
+            verified = frontend_train.verify_record("https://registry.example/", expected)
+        self.assertEqual("1.2.3", verified["version"])
+        self.assertNotIn("revision", verified)
+
+    def test_frontend_verification_requires_and_hashes_the_vendored_shrinkwrap(self):
+        with tempfile.TemporaryDirectory() as directory:
+            archive_path = Path(directory) / "frontend.tgz"
+            shrinkwrap = b'{"lockfileVersion":3}\n'
+            content = Path(directory) / "npm-shrinkwrap.json"
+            content.write_bytes(shrinkwrap)
+            with tarfile.open(archive_path, "w:gz") as archive:
+                archive.add(content, arcname="package/npm-shrinkwrap.json")
+            tarball = archive_path.read_bytes()
+        integrity = "sha512-" + base64.b64encode(hashlib.sha512(tarball).digest()).decode()
+        expected = {
+            "name": "frontend", "version": "1.2.3", "revision": "a" * 40,
+            "requiresShrinkwrap": True,
+        }
+        with patch.object(frontend_train, "registry_record", return_value={
+            "gitHead": "a" * 40,
+            "dist": {"tarball": "https://registry.example/frontend.tgz", "integrity": integrity},
+        }), patch.object(frontend_train, "fetch", return_value=tarball):
+            verified = frontend_train.verify_record("https://registry.example/", expected)
+        self.assertEqual(hashlib.sha256(shrinkwrap).hexdigest(), verified["shrinkwrapSha256"])
+
+        with tempfile.TemporaryDirectory() as directory:
+            archive_path = Path(directory) / "frontend-without-lock.tgz"
+            content = Path(directory) / "package.json"
+            content.write_text('{}\n', encoding="utf-8")
+            with tarfile.open(archive_path, "w:gz") as archive:
+                archive.add(content, arcname="package/package.json")
+            unlocked_tarball = archive_path.read_bytes()
+        unlocked_integrity = "sha512-" + base64.b64encode(
+            hashlib.sha512(unlocked_tarball).digest()
+        ).decode()
+        with patch.object(frontend_train, "registry_record", return_value={
+            "gitHead": "a" * 40,
+            "dist": {"tarball": "https://registry.example/frontend.tgz",
+                     "integrity": unlocked_integrity},
+        }), patch.object(frontend_train, "fetch", return_value=unlocked_tarball):
+            with self.assertRaisesRegex(RuntimeError, "no readable npm-shrinkwrap"):
+                frontend_train.verify_record("https://registry.example/", expected)
+
+    def test_staged_shrinkwrap_preserves_graph_and_updates_package_identity(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "package-lock.json"
+            destination = root / "npm-shrinkwrap.json"
+            write(source, {
+                "name": "app",
+                "version": "2.9.3-SNAPSHOT",
+                "lockfileVersion": 3,
+                "packages": {
+                    "": {"name": "app", "version": "2.9.3-SNAPSHOT",
+                         "dependencies": {"dependency": "^1.0.0"}},
+                    "node_modules/dependency": {
+                        "version": "1.2.3", "integrity": "sha512-pinned",
+                    },
+                },
+            })
+            subprocess.run([
+                "node", str(Path(frontend_train.__file__).parent / "stage-npm-shrinkwrap.mjs"),
+                str(source), str(destination), "app", VERSION,
+            ], check=True)
+            shrinkwrap = json.loads(destination.read_text(encoding="utf-8"))
+            self.assertEqual(VERSION, shrinkwrap["version"])
+            self.assertEqual(VERSION, shrinkwrap["packages"][""]["version"])
+            self.assertEqual(
+                "sha512-pinned",
+                shrinkwrap["packages"]["node_modules/dependency"]["integrity"],
+            )
+
+    def test_npm_pack_includes_the_staged_shrinkwrap(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            package = root / "package"
+            package.mkdir()
+            write(package / "package.json", {"name": "app", "version": VERSION})
+            write(root / "package-lock.json", {
+                "name": "app", "version": "2.9.3-SNAPSHOT", "lockfileVersion": 3,
+                "packages": {"": {"name": "app", "version": "2.9.3-SNAPSHOT"}},
+            })
+            subprocess.run([
+                "node", str(Path(frontend_train.__file__).parent / "stage-npm-shrinkwrap.mjs"),
+                str(root / "package-lock.json"), str(package / "npm-shrinkwrap.json"),
+                "app", VERSION,
+            ], check=True)
+            subprocess.run([
+                "npm", "pack", str(package), "--pack-destination", str(root),
+                "--ignore-scripts", "--loglevel=error",
+            ], check=True, stdout=subprocess.DEVNULL)
+            archive = next(root.glob("*.tgz"))
+            with tarfile.open(archive, "r:gz") as stream:
+                self.assertIn("package/npm-shrinkwrap.json", stream.getnames())
+
+    def test_completion_includes_verified_runtime_packages(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory)
+            plan = {
+                "version": VERSION,
+                "sourceManifestSha256": "a" * 64,
+                "registry": "https://registry.example/npm/",
+                "model": {"name": "model", "version": "1", "revision": "a" * 40},
+                "cee": {"name": "cee", "version": "2", "revision": "b" * 40},
+                "frontends": [{"name": "app", "version": "3", "revision": "c" * 40}],
+                "runtimePackages": [{
+                    "name": "runtime", "version": "4",
+                    "registry": "https://registry.npmjs.org/",
+                }],
+                "dockerInputs": {},
+            }
+            write(state / "npm" / "trains" / f"{VERSION}.json", plan)
+
+            def verified(registry, expected):
+                return {"name": expected["name"], "version": expected["version"],
+                        "tarballSha256": "d" * 64, "registryUsed": registry}
+
+            with patch.object(frontend_train, "verify_record", side_effect=verified):
+                frontend_train.complete(argparse.Namespace(version=VERSION, state=state))
+            completion = frontend_train.load_json(
+                state / "npm" / "completed" / f"{VERSION}.json"
+            )
+            runtime = next(item for item in completion["packages"] if item["name"] == "runtime")
+            self.assertEqual("https://registry.npmjs.org/", runtime["registryUsed"])
 
 
 if __name__ == "__main__":

@@ -94,12 +94,18 @@ from its captured commit, and enforces this graph before publishing anything:
    lockfile; and
 4. all seven frontend packages are present at their commit-derived immutable versions. Missing
    frontend packages are published from the clean captured checkout; an existing version is
-   accepted only when its `gitHead` is identical.
+   accepted only when its `gitHead` is identical. The publisher requires the captured
+   `package-lock.json`, normalizes its root identity to the immutable package version, and includes
+   it as `npm-shrinkwrap.json` in the tarball. Shrinkwrapped artifacts use the `p2` packaging suffix
+   after the commit-derived version, so a pre-lock tarball from the same source commit cannot be
+   mistaken for the new package format; npm completion also opens the tarball and hashes the lock.
 
 The model and CEE artifacts retain their own full release gates; the train will not manufacture one
 by bypassing those gates. It stops with an instruction to publish the missing prerequisite first.
 After publication, the workflow downloads every npm tarball, verifies its registry integrity and
-records a SHA-256 in `npm/completed/<TRAIN_ID>.json`. Only then does `npm/current.json` advance.
+records a SHA-256 in `npm/completed/<TRAIN_ID>.json`. This includes the public webcomponents runtime
+tarball OpenView copies alongside the already verified CEE tarball. Only then does
+`npm/current.json` advance.
 
 The workflow then records the expected Docker plan and builds the image estate in dependency
 order. `cedar-java` and `cedar-microservice` publish to the internal repository. Seven
@@ -108,7 +114,10 @@ Independent images build in parallel; the Java bases remain ordered. The verifie
 the frontend build arguments, overriding compatibility defaults in `cedar-images-base.sh`. Every
 image records the train, the exact `cedar-docker-build` commit, the source-manifest digest, and the
 npm/frontend-manifest digest as OCI labels. Each frontend image also contains the complete graph at
-`/usr/local/share/cedar-build-manifest.json`.
+`/usr/local/share/cedar-build-manifest.json`. A train build compares each downloaded application
+tarball to that graph before extraction. The three source-package images install with `npm ci` from
+the vendored shrinkwrap; OpenView extracts the exact verified CEE and webcomponents tarballs
+directly, without resolving an npm dependency graph during the image build.
 
 The final job removes local copies and pulls each of the 31 images from Nexus. It verifies the
 labels, hashes the embedded manifest in every frontend container, and records the registry digest

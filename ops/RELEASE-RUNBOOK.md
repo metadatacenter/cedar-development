@@ -56,8 +56,9 @@ cedarcli publish split-frontends
 The generic `cedarcli publish frontends` and `cedarcli publish all` selectors exclude them. The
 explicit plan runs `npm ci`, then stages and publishes an immutable prerelease from each clean
 commit without changing either working tree. npm cannot overwrite `<NEXT>-SNAPSHOT` the way Maven
-can; versions therefore have the form `<NEXT>-dev.<UTC-commit-time>.g<12-char-commit>`, carry the
-full commit as `gitHead`, and use the `dev` dist-tag only as a convenience pointer. Docker builds
+can; versions therefore have the form `<NEXT>-dev.<UTC-commit-time>.g<12-char-commit>.p2`, where
+`p2` identifies the shrinkwrapped package format. They carry the full commit as `gitHead` and use
+the `dev` dist-tag only as a convenience pointer. Docker builds
 pin the exact version and never consume that moving tag.
 
 Publication is an artifact operation, not an environment deployment: native staging/production

@@ -8,6 +8,7 @@
 set -euo pipefail
 
 : "${CEDAR_HOME:?CEDAR_HOME must point to the CEDAR checkout root}"
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 case "${1:-}" in
   main)
@@ -75,7 +76,7 @@ if [[ "${manifest_version}" == *-SNAPSHOT ]]; then
 else
   version_base=${manifest_version%%-*}
 fi
-package_version="${version_base}-dev.${commit_timestamp}.${short_commit}"
+package_version="${version_base}-dev.${commit_timestamp}.${short_commit}.p2"
 
 if existing_commit=$(npm view "${package_name}@${package_version}" gitHead \
   --registry "${registry}" --json 2>/dev/null); then
@@ -113,12 +114,18 @@ npm pkg set \
   "version=${package_version}" \
   "gitHead=${source_commit}" \
   --prefix "${staging_dir}/package"
+node "${SCRIPT_DIR}/stage-npm-shrinkwrap.mjs" \
+  "${package_dir}/package-lock.json" \
+  "${staging_dir}/package/npm-shrinkwrap.json" \
+  "${package_name}" \
+  "${package_version}"
 
 staged_name=$(node -p "require('${staging_dir}/package/package.json').name")
 staged_version=$(node -p "require('${staging_dir}/package/package.json').version")
 staged_commit=$(node -p "require('${staging_dir}/package/package.json').gitHead")
 if [ "${staged_name}" != "${package_name}" ] || [ "${staged_version}" != "${package_version}" ] || \
-   [ "${staged_commit}" != "${source_commit}" ]; then
+   [ "${staged_commit}" != "${source_commit}" ] || \
+   [ ! -f "${staging_dir}/package/npm-shrinkwrap.json" ]; then
   echo "Staged npm package identity does not match its source" >&2
   exit 1
 fi
