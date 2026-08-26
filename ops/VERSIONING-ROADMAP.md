@@ -1053,13 +1053,13 @@ left that does not need a host.
 
 - **28. Bound what a serving process holds open.** Every snapshot ever resolved stays cached for the
     life of the process, the map having no eviction and only a clear on close. Since 2026-08-26 each
-    cached store also hands out up to sixteen connections, one a reading thread, with eight more for the
-    index. So the ceiling is the corpus: 1,266 ontologies at sixteen connections is twenty thousand,
+    cached store also hands out up to sixteen connections, one a reading thread, with eight
+    more for the index. So the ceiling is the corpus: 1,266 ontologies at sixteen connections is twenty thousand,
     and a pinned constraint opens a superseded snapshot beside the current one, and every re-ingest
     strands the store it replaced. Nothing here is fast growth — a serving process was holding
     sixteen sqlite descriptors and 523 MB after a day of use, which is why it wants a bound before
-    it wants attention. Evict what is neither current nor recently pinned, and cap connections across
-    all stores rather than per store, since the per-store limit is what multiplies.
+    it wants attention. Evict what is neither current nor recently pinned, and cap connections
+    across all stores rather than per store, since the per-store limit is what multiplies.
 
 - **29. Let a keyboard reach what a mouse reaches, and say what is happening.** A row answers a click
     with `mark`, which opens the detail and the hierarchy, and a double click with `choose`, which
