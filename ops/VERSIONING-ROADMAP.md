@@ -1051,6 +1051,26 @@ left that does not need a host.
     is worse than either. Set the date the old one goes when the flag goes in, rather than leaving
     it to be noticed.
 
+- **28. Bound what a serving process holds open.** Every snapshot ever resolved stays cached for the
+    life of the process, the map having no eviction and only a clear on close. Since 2026-08-26 each
+    cached store also hands out up to sixteen connections, one a reading thread, with eight more for the
+    index. So the ceiling is the corpus: 1,266 ontologies at sixteen connections is twenty thousand,
+    and a pinned constraint opens a superseded snapshot beside the current one, and every re-ingest
+    strands the store it replaced. Nothing here is fast growth — a serving process was holding
+    sixteen sqlite descriptors and 523 MB after a day of use, which is why it wants a bound before
+    it wants attention. Evict what is neither current nor recently pinned, and cap connections across
+    all stores rather than per store, since the per-store limit is what multiplies.
+
+- **29. Let a keyboard reach what a mouse reaches, and say what is happening.** A row answers a click
+    with `mark`, which opens the detail and the hierarchy, and a double click with `choose`, which
+    commits the constraint. It answers Enter with `choose`. So an author working from the keyboard
+    commits without the look that a mouse gets for free, and there is no binding that marks without
+    choosing. The template carries five `aria-*` attributes and one `role`, that one a status line
+    for a blocked selection: the rows are bare focusable divs with no row semantics, the tab strip
+    has no tablist, and neither searching nor an error is announced. Give Enter the marking and a
+    focused control the committing, name the rows and tabs, and let the status line carry the states
+    an author cannot see.
+
 ## The Search API
 
 The request and response shapes of `POST /search` and `GET /search/hierarchy`, the endpoints the
