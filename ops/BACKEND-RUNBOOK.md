@@ -381,7 +381,11 @@ lifecycle events to `CEDAR_RESOURCE_SERVER_HOST`, which under the Docker profile
 `192.168.17.x` container address that does not exist when the servers are native, so the log fills
 with `NoRouteToHostException`. Login, token verification and the whole REST estate are unaffected —
 only event propagation is, so new-user provisioning is the thing to watch. Point it at
-`host.docker.internal` if that matters to you.
+`host.docker.internal` if that matters to you. The callback runs on a matching
+`cedar-angular-app` `LOGIN`, not on Keycloak registration itself, so a later login is the retry. A
+transport failure is logged with its cause; a non-2xx response is logged with status, URL, event
+type and user id. Treat either message as a provisioning failure rather than accepting a healthy
+login as proof that the CEDAR account exists.
 
 **Stopping native Mongo needs `db.shutdownServer()`, not the Homebrew service.** Two things bite
 here. `brew services start mongodb-community@5.0` now fails: Homebrew refuses the `mongodb/brew` tap

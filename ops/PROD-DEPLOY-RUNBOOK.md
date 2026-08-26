@@ -93,6 +93,9 @@ the edited `set-env-internal.sh` *and* any profile/alias/`cedarcli` changes the 
 exit               # leaves this tmux; back to the cedar login shell
 tmux               # fresh session = fresh env
 gocedar
+
+# Certificate and hostname verification must stay enabled outside native development.
+test "${CEDAR_KEYCLOAK_ALLOW_INSECURE_TLS:-false}" = false
 ```
 
 ### 4 · Build (Java still running — keep the downtime window short)
@@ -168,6 +171,17 @@ service nginx start
 
 - `cedarcli native status` — all Java services up on the new build.
 - `cedarcli check versions` — every repo at the expected version + modifier.
+- Confirm `CEDAR_KEYCLOAK_ALLOW_INSECURE_TLS` is absent or `false`. Never use the native-development
+  bypass to make a staging or production certificate failure disappear; install the Keycloak issuer
+  CA in the JVM truststore and correct the hostname instead.
+- With the restarted servers' signing-key cache cold, sign in once through `cedar-angular-app` as a
+  designated non-admin acceptance user and call that user's `/users/{id}/summary` endpoint with the
+  fresh bearer token. A 200 response exercises both secure paths: bearer verification fetches the
+  realm JWKS, and the summary performs a read-only Keycloak admin-client lookup.
+- That same login must produce one matching provisioning callback. Confirm the CEDAR account is
+  usable, and inspect the Keycloak output for the test interval. Any
+  `CEDAR user provisioning callback failed` line or callback transport exception fails deployment;
+  Keycloak login success alone is not evidence that CEDAR provisioned the account.
 - Load the monolith and, while migration is active, Workspace in fresh/incognito browser sessions;
   confirm both serve the intended CEE hash and can create/edit an instance (a stale bundle means the
   modifier didn't change, the image was not rebuilt, or the CDN was not purged — see below).

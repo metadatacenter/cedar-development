@@ -13,6 +13,12 @@ Frontend work for the embeddable editor is tracked separately in
 
 ## Recently completed
 
+- **Keycloak account provisioning is tested and observable (2026-08-26).** A matching
+  `cedar-angular-app` login is covered as exactly one resource-server callback with the expected
+  JSON payload and API-key authorization header; non-matching events and clients are covered as no
+  callback. Transport exceptions retain their cause in the Keycloak log, and non-2xx callback
+  responses are reported with status, URL, event type and user id instead of being ignored.
+
 - **Keycloak TLS verification defaults to secure (2026-08-26).** The bearer-token/JWKS client and
   the password-bearing admin client no longer install trust-all behavior unconditionally. Both use
   the JVM truststore and hostname verification by default; the single
@@ -568,8 +574,10 @@ Frontend work for the embeddable editor is tracked separately in
   admin tool must contain none of the unused provider stack, and the event listener must match the
   Keycloak platform. Run the whole estate's 7,814 tests, package the listener, boot Keycloak with it
   installed and trigger one event, then exercise one read-only admin-tool Keycloak operation. The
-  last two are required because the admin tool has only a configuration test and the event listener
-  has no tests at all.
+  last two remain integration gates even though the admin TLS construction and the listener's event
+  selection, callback payload and authorization header now have focused tests: a unit test cannot
+  prove that Keycloak loads the packaged provider or that a deployed admin operation reaches the
+  configured realm.
 
 ## Testing
 
