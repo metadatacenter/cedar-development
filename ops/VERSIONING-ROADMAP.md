@@ -1056,12 +1056,13 @@ left that does not need a host.
     reports 10,000 against 21,297 because that is where the count stops. Neither is wrong and both
     are visible to whoever reads the list, so the question is whether an author searching a
     gazetteer wants the shorter, better-ranked answer or the longer one. Settle it by looking at
-    what the divergent ontologies are actually used for, and by checking DDSS, the one routed
-    ontology whose snapshot could not be measured against it because it refuses a pinned constraint.
+    what the divergent ontologies are actually used for.
 
-    The threshold itself was measured rather than chosen, and only against the probe "acid". The
-    ontologies nearest it, CHEBI just below and BERO and CCO just above, are the ones a second
-    probe could move.
+    The threshold itself was measured rather than chosen, and only against the probe "acid". It
+    looks well placed: across the nine locally-served ontologies above it, every one is answered
+    faster from the index, and the margin narrows toward the line rather than crossing it — 8.1
+    times for NCBITAXON's 2.8 million terms, 2.3 for MESH, 1.2 for RH-MESH and 1.1 for CCO just
+    above the cut. A second probe could still move it, and CHEBI sits just below.
 
 ## The Search API
 

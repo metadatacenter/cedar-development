@@ -204,9 +204,13 @@ Throughput now rises with concurrency to about 98 requests a second and latency 
 
 ## Which Store Answers
 
-An ontology is answered from the index when it holds at least 250,000 terms, when the constraint
-names no version, and when the index holds the release the catalog currently serves. The version
-conditions are not caution: the index keeps one version an ontology, so a constraint naming an older
+An ontology is answered from the index when the store serves it at all, when it holds at least
+250,000 terms, when the constraint names no version, and when the index holds the release the
+catalog currently serves. The first condition is easy to forget while reading timings: DDSS and
+MEDGEN are both large enough to route and neither is in the served allowlist, so both go to
+BioPortal, and a BioPortal round trip timed beside local ones reads as a slow routed answer.
+
+The version conditions are not caution: the index keeps one version an ontology, so a constraint naming an older
 release has to be answered from the snapshot that holds it, and a re-ingest can move the current
 version before the index catches up, which would otherwise attribute terms to a release that did not
 produce them.
