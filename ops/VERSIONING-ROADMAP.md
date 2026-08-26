@@ -19,12 +19,16 @@ hierarchy drawn at the release chosen, and "latest" recorded as no version at al
 synonym capture (every language preserved outside content identity, backfilled across the served
 catalog) and served on the local read path (multilingual + synonym search recall, synonyms on class
 detail, `lang=<code>` on the class and integrated-search endpoints), `owl:Ontology`-header identity
-recovery for acronym-only ontologies, and a release list that offers releases rather than
+recovery for acronym-only ontologies, a release list that offers releases rather than
 re-extractions of them (grouped on the raw-bytes hash the catalog already recorded, so a fix to an
 extractor no longer reads as a new release, while a pin naming a superseded reading still resolves
-and says that it does) — lives in git and the design doc. The numbered items track only
-what remains, in three buckets: **Pending** (to build), **Testing** (built, needs live verification),
-and **Future** (deferred / needs a decision / speculative). Items are numbered continuously.
+and says that it does), and a constrained lookup that no longer costs what its ontology is large
+(the index carries the ontology beside the text, so narrowing a search narrows what it reads, and an
+ontology past a quarter of a million terms is answered from the index rather than by comparing every
+label its snapshot holds — NCBITAXON in 103 ms where it took 905) — lives in git and the design
+doc. The numbered items track only what remains, in three buckets: **Pending** (to build),
+**Testing** (built, needs live verification), and **Future** (deferred / needs a decision /
+speculative). Items are numbered continuously.
 
 The sections after the numbered items are findings rather than plans, and stay put: what
 [the term picker](#the-term-picker) replaces and has built, the running
@@ -1044,27 +1048,20 @@ left that does not need a host.
     is worse than either. Set the date the old one goes when the flag goes in, rather than leaving
     it to be noticed.
 
-- **28. Give a snapshot a text index, or stop asking it to search.** A snapshot answers
-    `integrated-search` by comparing every concept's label with `LIKE '%term%'`, which no index can
-    serve, so a lookup reads the whole ontology. That is why the cost tracks size: 3 ms in UO's 574
-    concepts, 61 ms in NCIT's, and about 800 ms in NCBITAXON's 2,854,537 — past the point where an
-    author waits on each keystroke. Measured 2026-08-25, the cost is nearly all fixed. A query
-    matching nothing costs 759 ms and one matching 163,097 concepts costs 885 ms, because the scan
-    happens either way, and the store call is essentially all of it: 758 ms of a 796 ms
-    request.
+- **28. Decide whether a routed answer's shape is the one an author wants.** An ontology past the
+    routing threshold is answered from the index, which matches whole tokens by prefix where its
+    snapshot matched a substring anywhere, and counts to a cap where the snapshot counted exactly.
+    Usually the two barely differ: PR returns 4,392 against 4,509, LOINC 6,101 against 6,120. GAZ
+    returns 2 against 25, because a gazetteer buries the query inside longer words, and MESH
+    reports 10,000 against 21,297 because that is where the count stops. Neither is wrong and both
+    are visible to whoever reads the list, so the question is whether an author searching a
+    gazetteer wants the shorter, better-ranked answer or the longer one. Settle it by looking at
+    what the divergent ontologies are actually used for, and by checking DDSS, the one routed
+    ontology whose snapshot could not be measured against it because it refuses a pinned constraint.
 
-    The cross-snapshot index already answers this shape in milliseconds, having FTS5 where a
-    snapshot has none, but it holds one version an ontology and carries neither the branch path nor
-    the examples a snapshot-scoped answer returns. So the choice is to give each snapshot its own
-    text index, which changes the schema and costs a re-ingest of all 2,460, or to route only the
-    ontologies large enough to hurt through the index and accept the thinner answer for them.
-
-    An earlier note here recorded an unexplained tenfold gap between the server and the same
-    statement run by hand, and there is none: the hand-run was against the wrong file.
-    NCBITAXON has two snapshots, and the one carrying a release date holds 761,814 concepts
-    where the one tagged `latest` — the one a lookup actually reads — holds 2,854,537 in 2.1 GB.
-    Picking a snapshot by `released_at` rather than by the tag is an easy way to measure the
-    wrong ontology and then conclude the server is at fault.
+    The threshold itself was measured rather than chosen, and only against the probe "acid". The
+    ontologies nearest it, CHEBI just below and BERO and CCO just above, are the ones a second
+    probe could move.
 
 ## The Search API
 

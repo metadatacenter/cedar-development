@@ -170,21 +170,30 @@ smoke into a 78-second one, which reads as a regression until you notice what el
 python3 $CEDAR_HOME/cedar-development/ops/cedar_term_bench.py 30
 ```
 
-An ontology-constrained `integrated-search`, the shape the authoring UI asks for, costs what the
-ontology is large enough to make it cost. Measured 2026-08-25 on the 1,266-ontology store:
+An ontology-constrained `integrated-search`, the shape the authoring UI asks for, is answered from
+one of two places, and which one decides what it costs.
 
-| ontology | terms | p50 |
-|---|---|---|
-| UO | 574 | 3 ms |
-| DOID | 19,578 | 10 ms |
-| MONDO | 36,070 | 24 ms |
-| NCIT | 206,860 | 61 ms |
-| NCBITAXON | 2,854,537 | 824 ms |
+A snapshot carries no text index. It answers by comparing every label it holds against the query, so
+it costs what the ontology is large: 3 ms in UO's 574 terms, 10 in DOID's 19,578, 61 in NCIT's
+206,860. Page size does not enter into it, since 10 results and 100 cost the same, and a shorter
+prefix costs more than a longer one for the obvious reason.
 
-The relationship is close enough to linear above about twenty thousand terms to suggest a scan
-rather than a seek, which puts NCBITAXON alone outside an interactive budget. Page size does not
-enter into it: 10 results and 100 cost the same, because the work is in matching and ranking rather
-than in building the answer. A shorter prefix costs more than a longer one, for the obvious reason.
+The cross-snapshot index costs what the query matches instead, bounded by the ontology because the
+ontology is indexed alongside the text. Past about a quarter of a million terms that is much the
+cheaper, so an ontology above [the routing threshold](#which-store-answers) is answered from the
+index. Measured 2026-08-26 through the same request, with a pinned version forcing the snapshot for
+comparison:
+
+| ontology | terms | from the index | from its snapshot |
+|---|---|---|---|
+| NCBITAXON | 2,854,537 | 103 ms | 905 ms |
+| GAZ | 668,838 | 71 ms | 268 ms |
+| MESH | 355,402 | 177 ms | 381 ms |
+| LOINC | 297,723 | 108 ms | 252 ms |
+| CCO | 264,891 | 73 ms | 132 ms |
+
+Below the threshold the exchange reverses and the snapshot stays quicker. DOID answers in 9 ms from
+its snapshot against 42 from the index, which is why this is a threshold rather than a switch.
 
 A lookup is answered on the calling thread's own connection to each store it reads. That is worth
 knowing when changing one: a store opened to write keeps the single connection its transactions
@@ -192,6 +201,31 @@ belong to, and only the three places that open a store to serve ask for the othe
 connection is what the server used to do, and it answered one lookup at a time however many arrived
 — 16 requests a second whether one was in flight or sixteen, with latency climbing to 995 ms.
 Throughput now rises with concurrency to about 98 requests a second and latency holds near 70 ms.
+
+## Which Store Answers
+
+An ontology is answered from the index when it holds at least 250,000 terms, when the constraint
+names no version, and when the index holds the release the catalog currently serves. The version
+conditions are not caution: the index keeps one version an ontology, so a constraint naming an older
+release has to be answered from the snapshot that holds it, and a re-ingest can move the current
+version before the index catches up, which would otherwise attribute terms to a release that did not
+produce them.
+
+Two things a routed answer does differently, both deliberate and both visible to whoever reads it.
+
+It finds fewer. The index matches whole tokens by prefix where a snapshot matches a substring
+anywhere in a label. Usually the two agree closely: PR returns 4,392 against 4,509 and LOINC 6,101
+against 6,120. A vocabulary whose terms bury the query inside longer words diverges sharply, though,
+and GAZ answers "acid" with 2 where its snapshot answers with 25. It ranks better in exchange.
+Searching NCBITAXON for "Escherichia" the snapshot leads with short labels carrying the word in a
+synonym, `Muvirus mu` and `Inovirus M13`, where the index leads with `Escherichia` itself.
+
+It counts to a cap rather than exactly, so MESH reports 10,000 matches where its snapshot reports
+21,297. The page an author reads is unaffected; the total above it is. Counting exactly means
+fetching every match, which when tried made DDSS slower than the snapshot it replaced.
+
+To see which store answered, pin the constraint to the version the catalog serves and compare: a
+pinned constraint is always answered from its snapshot.
 
 ## When a Lookup Is Slow
 
