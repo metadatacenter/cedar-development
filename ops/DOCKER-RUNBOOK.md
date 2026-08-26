@@ -274,8 +274,12 @@ certificate volumes. It creates `cedarnet` at `192.168.17.0/24`, plus external c
 It removes an existing `cedarnet` while recreating it, so do not run it under a live CEDAR stack.
 
 ```bash
-cedarcli docker one-time-setup
+cedarcli docker setup one-time-setup
 ```
+
+For repair work, the same `docker setup` group exposes the three constituent operations as
+`create-network`, `create-certificates-volume`, and `copy-certificates`. The aggregate command is
+the normal first-deployment path.
 
 Confirm the network and certificate volumes exist:
 

@@ -93,7 +93,7 @@ export CEDAR_HOME=$HOME/CEDAR
 cedarcli native stop all
 cedarcli mode --clear
 cedarcli mode docker
-cedarcli docker one-time-setup
+cedarcli docker setup one-time-setup
 cedarcli docker start all --pull missing
 cedarcli docker status
 ```
