@@ -454,7 +454,7 @@ hop, and the dist that ships is now produced on the same Node that exercised it.
 
 Lint runs first, as the opening stage of `test:ci` rather than as a separate CI
 step, so the gate has one definition locally and in CI. Warnings do not fail the
-build: the pre-existing `any` debt is baselined per file in `eslint.config.mjs`.
+build.
 The toolchain matches the framework — `angular-eslint` 22, `typescript-eslint` 8,
 ESLint 9, flat config in `eslint.config.mjs`.
 
@@ -537,7 +537,7 @@ To run one file (note: paths are relative to the repo root, not `harness/`,
 because `vitest.config.ts` sets `root` to the repo):
 
 ```bash
-npx vitest run harness/test/controlled-terms.spec.ts
+npm --prefix harness run test -- harness/test/controlled-terms.spec.ts
 ```
 
 ### Reading a template from YAML
@@ -778,37 +778,35 @@ Instance is invalid. Found 1 error(s)
 ### The same check, in the harness
 
 Running Maven is not something to do per-edit, so the domain harness runs the
-equivalent check on every `npm run test:domain` and `npm run test:ci` with
-`ajv-draft-04`:
+corresponding checks on every `npm run test:domain` and `npm run test:ci`.
+`harness/src/instance-conformance.ts` keeps the two validators explicit and
+independent:
+
+- `validateWithModel` parses the template and instance through the TypeScript
+  model library and runs `InstanceValidator` over the result.
+- `validateWithRawSchema` runs the exact emitted JSON-LD against the untouched
+  Draft-04 template with `ajv-draft-04`, before a model reader can normalize a
+  legacy shape or repair a contradiction.
+
+The two specs that exercise those adapters are:
 
 ```bash
-npx vitest run harness/test/model-conformance.spec.ts
+npm --prefix harness run test -- \
+  harness/test/instance-conformance.spec.ts \
+  harness/test/instance-schema-population.spec.ts
 ```
 
-For each corpus template it builds CEE's instance and validates it against that
-template. **34 of 37 pass.** The three that do not are listed by name in
-`KNOWN_NON_CONFORMANT` at the top of the file with what is wrong with each, and
-a separate test asserts the failing set *equals* that list — so a template that
-starts conforming fails just as loudly as one that stops. The number is a
-defect count. It has gone 0 → 31 → 34 and should only go up.
+`instance-conformance.spec.ts` builds fresh and populated instances across the
+field/cardinality matrix and builds an empty instance for each of the **37 corpus
+templates**. Every corpus template must report **zero model errors**. There is no
+exception list and no partial-pass corpus contract; the populated matrix separately
+pins the expected incomplete-state errors for part-filled choice fields.
 
-All three remaining failures are defects in the templates themselves — 001 has
-no `@id`, 003 will not compile, and 029 contradicts itself by offering literal
-choices under an IRI-only schema. [CEE-ROADMAP.md](./CEE-ROADMAP.md) carries what
-is open on each.
-
-That corpus check starts from empty instances. The complementary saveability
-gate populates every value-bearing field through the real CEE handler, crosses
+`instance-schema-population.spec.ts` is the complementary saveability gate. It
+populates every value-bearing field through the real CEE handler, crosses
 single/multiple field cardinality with all seven root and one-/two-level element
-placements, and validates each emitted instance twice:
-
-```bash
-npx vitest run harness/test/instance-schema-population.spec.ts
-```
-
-`InstanceValidator` checks the parsed TypeScript model. `ajv-draft-04` checks
-the exact template object before any model reader can normalize it. Both are
-required. In August 2026 the model-only path hid stored multi-select fields whose
+placements, and requires **zero errors from both validators**. Both verdicts are
+needed: in August 2026 the model-only path hid stored multi-select fields whose
 widget semantics emitted arrays while their raw JSON Schema still required an
 object; the resource server rejected those instances on save. The exact captured
 nested template and all five placements from that incident are permanent
@@ -816,34 +814,29 @@ regressions in the same file. `template-consistency.spec.ts` separately scans
 the independent, HuBMAP, and visual corpora for any checkbox, attribute-value,
 or `multipleChoice: true` list field not declared as an array.
 
-### Why the harness check can be trusted
+### Where the Java tie-break is recorded
 
-ajv is not the Java validator, so the agreement has to be demonstrated rather
-than assumed:
+The harness does not mirror the Java library's fixtures or maintain an ajv/Java
+agreement suite. When the two TypeScript-side checks leave a model question in
+doubt, run the canonical library through `ops/cedar_validate.sh` and record the
+measured verdict in the focused regression whose behavior depends on it. The
+comments and paired cases in `harness/test/cardinality.spec.ts` are the current
+examples: they name the artifact mutation, the Java command and the distinct
+verdicts for an omitted element and an empty array.
 
-```bash
-npx vitest run harness/test/validator-agreement.spec.ts
-```
-
-This runs the canonical library's *own* instance fixtures through ajv — the
-seven it requires to pass and the nine mutations it requires to fail — and
-checks the verdicts match. All 17 do. It skips itself if
-`cedar-model-validation-library` is not checked out beside CEE.
-
-The failing half is the informative one: a validator that accepted everything
-would pass the seven. If a future CEDAR release tightens a rule ajv does not
-implement, this is where it surfaces, rather than in a quietly over-optimistic
-conformance number.
+That keeps the Java decision beside the CEE behavior it settles without vendoring
+another repository's conformance fixtures into this one. `ajv-draft-04` remains
+an independent server-facing check, not a substitute for the canonical validator.
 
 ### When to run which
 
 Change the emitter, the envelope, or `data-object-builder.handler.ts` →
-`model-conformance.spec.ts`, which the domain and unified gates run anyway.
+run both conformance specs above, which the domain and unified gates run anyway.
 
 Upgrade the model library, take a new CEDAR release, or find yourself arguing
-with the harness about what the model requires → run Maven. The Java suite is
-the tie-breaker, and `validator-agreement.spec.ts` is where its verdict gets
-written back down into the harness.
+with the harness about what the model requires → run Maven. Use
+`ops/cedar_validate.sh` for the disputed artifact and write the Java verdict into
+the focused regression it settles.
 
 About to put an artifact into production, or holding one artifact whose verdict you
 actually need → `ops/cedar_validate.sh`. This is the gate itself rather than an
