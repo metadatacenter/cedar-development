@@ -72,6 +72,11 @@ same manifest produces stable archive timestamps. Publication uploads only the r
 already exists, the workflow requires identical bytes and skips it; different bytes are a hard
 failure. This is what makes recovery compatible with Nexus's no-redeploy rule.
 
+The train is immutable artifact assembly, not a second test runner: its Maven phases deliberately
+use `-DskipTests`. Run `cedarcli build java` (tests are on by default) or confirm the per-repository
+CI checks for the captured commits before dispatching a train. The train still aborts immediately on
+any compilation, packaging, publication, or verification failure.
+
 The train Maven settings expose release repositories only. Immediately after stamping, the
 controller rejects any configured POM that still contains `-SNAPSHOT`, including a nonstandard
 property or dependency the selective stamper did not rewrite. After all Maven phases finish—but

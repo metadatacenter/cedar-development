@@ -13,6 +13,15 @@ Frontend work for the embeddable editor is tracked separately in
 
 ## Recently completed
 
+- **CLI builds test by default and report continued failures honestly (2026-08-26).** Every
+  `cedarcli build` command that can reach Java now runs the unit and embedded integration suites by
+  default and exposes the paired `--tests` / `--skip-tests` option; frontend-only commands do not
+  advertise an inert flag. Generated plans record the selected mode. Release preparation,
+  publication, and immutable train assembly remain documented `-DskipTests` paths. In the CLI's
+  deliberate continue-on-error operations, failed shell commands are retained while later work runs,
+  the closing panel lists the failed tasks, and the process exits nonzero. Focused regressions pin
+  default/skip plan generation, command scope, continued execution, and the final exit status.
+
 - **Keycloak account provisioning is tested and observable (2026-08-26).** A matching
   `cedar-angular-app` login is covered as exactly one resource-server callback with the expected
   JSON payload and API-key authorization header; non-matching events and clients are covered as no
@@ -450,7 +459,7 @@ Frontend work for the embeddable editor is tracked separately in
   require external coordination with BioPortal rather than another CEDAR endpoint. BioPortal
   rate-limits per key, and a burnt quota surfaces to users as controlled terms silently not existing,
   because the picker latches its empty cache for the life of the page: the same defect as the
-  term-picker ontology-list item (19).
+  now-fixed term-picker ontology-list failure.
 
   The *safety* half of this is now done, on both `develop` and the `versioned-terminology-server`
   branch: a cold or rate-limited fetch that returns a handful of ontologies instead of the full ~1300
@@ -584,64 +593,7 @@ Frontend work for the embeddable editor is tracked separately in
 Coverage and test-infrastructure work. The active REST integration suites live in
 `ops/e2e/rest/suites/`; the JUnit matrices and boot-smoke live in the per-server modules.
 
-- **16. Decide whether the build runs the tests, expose the choice, and report continued failures
-  honestly.** The Java build skips its tests again: every Java repo is built with
-  `./mvnw clean install -DskipTests`, and the `CEDAR_DEV_SKIP_TESTS` escape hatch is gone with the
-  default it modified. That restores the behaviour the build had before, and it means a green
-  `cedarcli build` says the stack compiles and nothing more. Whichever way it settles reaches every
-  Java repo in the generated plan, since `build this`, `build parent`, `build libraries`, `build
-  project`, `build clients` and `build java` all expand through `BuildOperator`.
-
-  **The default is the decision.** Running them is defensible: every suite is backend-free — in-memory
-  auth and embedded Neo4j, Mongo, MariaDB and Redis — so a build needs nothing up, a full run is 3,749
-  tests in under seven minutes, and a green build would then mean what CI means by it. Against it: the
-  build is the inner loop, and seven minutes on every rebuild of a repo whose tests were green ten
-  minutes ago is the cost that made the switch worth having in the first place. The default has flipped
-  four times in the CLI's history, which is the argument for settling it as a documented default with a
-  visible flag rather than as an environment variable somebody exports once and forgets.
-
-  One obstacle to running them is already gone. The log flood that made an all-tests build unusable was
-  one ~105-line Jedis stack trace per HTTP request: the suites point Redis at a dead port because queue
-  writes are best-effort, and every expected failure logged its full cause. A recurring queue failure
-  now logs the trace once and thereafter its type, message and a running total, so the drop stays
-  visible and countable while the frames are printed once. The resource-server application tests fell
-  from 400,192 lines (36 MB) to 13,555, and the queue services carry assertions that an unavailable
-  queue drops and counts without failing the caller.
-
-  **The option shape.** Typer offers a paired boolean, which is the right primitive: one option, one
-  default, no way to pass both halves.
-
-  ```python
-  tests: bool = typer.Option(False, "--tests/--skip-tests",
-                             help="Run the Java test suites. Default: skip.")
-  ```
-
-  It belongs on the seven `build` commands that can reach a Java repo — `this`, `parent`, `libraries`,
-  `project`, `clients`, `java`, `all` — and not on `frontends`, where it would be inert and so a lie in
-  `--help`. `BuildOperator.expand` is static and reached through the operator registry, so the value
-  travels as a setting rather than a parameter: put `skip_tests` on `CedarCliSettings` beside
-  `do_fail_on_error`, marked from the command through a `GlobalContext` classmethod, which is the
-  pattern `mark_do_not_fail` already establishes. Carrying it on the plan instead would be cleaner and
-  is only worth it if the value ever needs to vary per repo. The plan dump needs no work: the task is
-  already named `Maven clean install` or `Maven clean install skip tests`, so `--dump-plan` and the
-  saved plan script record which mode ran.
-
-  Two places the flag must not silently reach. `ReleasePrepareShellTaskFactory` hardcodes
-  `./mvnw clean install -DskipTests` and `PublishShellTaskFactory` hardcodes `./mvnw deploy -DskipTests`, so
-  release and deploy builds never run tests whatever the flag says. Extend them deliberately or state
-  it; do not leave `--tests` looking as though it covers them.
-
-  Worth doing in the same pass: `CEDAR_DEV_BUILD_FRONTENDS` is the precedent this item invokes, and it
-  has the same shape. Promoting it to `--frontends` / `--no-frontends` costs little extra and gives the
-  CLI one convention rather than two — the skipped tasks are currently named
-  `"… skipped because of CEDAR_DEV_BUILD_FRONTENDS"`, so their titles have to move with it either way.
-
-  The remaining acceptance criterion is honest failure reporting. On failure with `fail_on_error` set,
-  `PlanExecutor` exits 1 correctly. With it unset the error is disregarded and the run still prints
-  "Execution succeeded!" and exits 0. A build that continued past a failure must record it, say so in
-  the closing panel, and exit non-zero.
-
-- **17. Deepen the core-workflow tests instead of growing the headline count.** The JUnit matrices and the
+- **16. Deepen the core-workflow tests instead of growing the headline count.** The JUnit matrices and the
   REST suites now give the system respectable horizontal coverage: routes boot, authentication and
   permission boundaries are pinned, and create/read/update/delete, sharing, search, versioning and the
   cross-service hop all execute against the real stack. Much of that is deliberately
@@ -655,7 +607,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
      graph update, for create, rename, publish, draft and delete. Assert the operation either rolls back
      or leaves a detectable, recoverable state — never a silently orphaned artifact, a stale graph node
      or a half-published version. This is the write-path counterpart to the read-path degradation-tests
-     item (18), which asks only that a service not 500 when a dependency is down.
+     item (17), which asks only that a service not 500 when a dependency is down.
   2. **Retry and idempotency.** Repeat a write after a timeout or an ambiguous response. Publish, draft,
      move, delete, permission change and DOI-set must not produce a duplicate version, a duplicate graph
      node or divergent state.
@@ -680,7 +632,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   versions or search projection disagreeing. The present suite protects the behavioural skeleton; this
   item protects the integrity of state when operations fail or are repeated.
 
-- **18. Add degradation tests.** Nothing asserts how a service behaves when a dependency it needs is
+- **17. Add degradation tests.** Nothing asserts how a service behaves when a dependency it needs is
   unavailable. The cost of that gap is known: reading any folder whose creator could not be resolved
   returned 500 for as long as the defect existed, because `UserSummaryCache` let Guava's
   "loader returned null" signal escape instead of degrading to the no-display-name path the callers
@@ -688,52 +640,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   asserts the API degrades rather than 500s. Bear in mind that queue writes are already best-effort
   by design (`AppLoggerQueueService`, the worker and NCBI queues), so those are the pattern to match.
 
-- **19. Retry the ontology-list load in the term picker (frontend, `cedar-template-editor`).** This is a
-  change to the Angular frontend, not to any microservice or test suite — it lands in
-  `cedar-template-editor`, and so needs a frontend owner to review and push it (see the note below).
-  It is the last piece of this defect still outstanding, and the fix is already written: it is open as
-  PR #1014 (`fix/term-picker-ontology-retry`) on `cedar-template-editor`, awaiting a frontend owner's
-  review and merge. The smoke half is done too, so until the PR lands the symptom is worked around
-  rather than fixed.
-
-  The template editor loads BioPortal's ontology list once per page load.
-  `controlledTermDataService.init()` starts three cache loads and sets `initialized = true` on the
-  next line, before any of them has returned, so the flag records that loading *began* rather than
-  that it produced anything. When the ontology load fails, which is likeliest just after a redeploy
-  while the terminology server is cold and BioPortal adds seconds, the empty cache is latched for the
-  life of the page: every later `init()` sees the flag and returns. The user gets a transient warning
-  toast from `handleServerError`, after which the "Add ontologies" box simply sits there empty,
-  reading as BioPortal having no ontologies. Only a page reload recovers. Same defect class as the
-  `UserSummaryCache` 500: a failed lookup latching its failure instead of retrying or degrading.
-
-  Two things make the fix less trivial than "set the flag later", and both need respecting:
-
-  Success cannot be read from the promises. `AuthorizedBackendService.doCall` sends failures to its
-  error callback and returns that callback's value, and `handleServerError` returns the error rather
-  than rethrowing, so the promise resolves either way and `$q.all` resolves on a total failure. The
-  usable signal is whether `ontologiesCache` ended up with entries, which is also the condition that
-  produces the visible symptom.
-
-  Un-latching naively would be a request storm. `init()` is called from all ten getters, which is why
-  the latch exists at all: leaving the flag `false` after a failure fires three requests per getter
-  call. A working shape needs an in-flight guard so concurrent getters share one load, plus a floor
-  on how often a failed load may be retried.
-
-  This design is implemented in PR #1014 (`fix/term-picker-ontology-retry`): it replaces the single
-  `initialized` boolean in `controlled-term-data.service.js` with a small state machine that retries
-  instead of latching, and honours both constraints above — success is read from `ontologiesCache`,
-  and an in-flight guard keeps concurrent getters sharing one load. What remains is not writing the fix
-  but landing it: a frontend owner needs to review and merge the PR, since committing to
-  `cedar-template-editor` needs an owner comfortable with the frontend.
-
-  The end-to-end smoke no longer depends on this being fixed, which is what makes it a roadmap item
-  rather than a blocker. Its create-template-and-constrain block retries as a unit, each attempt
-  starting from the designer deep link, because that page load is the only thing that gives the
-  service a fresh attempt; re-running the ontology search inside the picker reads the same empty cache
-  and never could succeed. Nothing is saved server-side until after the block, so a failed attempt
-  leaves no orphan template.
-
-- **20. Switch the extracted Workspace and Template Designer over in staging, then production.**
+- **18. Switch the extracted Workspace and Template Designer over in staging, then production.**
   Local coexistence is complete: the monolith remains on `cedar.metadatacenter.orgx`, Workspace and
   Designer run on their own trusted HTTPS origins, Keycloak SSO spans them, the provenance gate
   passes, and the complete Workspace → Designer → CEE → OpenView authenticated journey passes
@@ -821,7 +728,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
 
 ## Production data
 
-- **21. Repair the production schema artifacts that can reject correctly shaped CEE instances.** The
+- **19. Repair the production schema artifacts that can reject correctly shaped CEE instances.** The
   permission-scoped production audit found 76 inherently-multiple fields deployed as JSON objects in
   31 stored schema artifacts: 23 templates and 8 elements. Every case is a multiple-select list; no
   object-shaped checkbox or attribute-value deployment was found. CEE correctly serializes these
@@ -868,7 +775,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   rerun the audit to `COMPLETE_FOR_KEY`. Never delete a store artifact merely because its search entry
   is inconsistent.
 
-- **22. Write `sourceSystem` onto the production value constraints, so that its absence means something.**
+- **20. Write `sourceSystem` onto the production value constraints, so that its absence means something.**
   A controlled-term constraint may name the system serving its vocabulary, and both model libraries read
   an absent `sourceSystem` as BioPortal —
   [the value-constraint shape](VERSIONING-ROADMAP.md#6-the-value-constraint-shape) defines the field and
@@ -900,7 +807,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
 
 ## Documentation consolidation
 
-- **23. Decide whether to retire `cedar-mkdocs-developer`.** Its current release and production
+- **21. Decide whether to retire `cedar-mkdocs-developer`.** Its current release and production
   deployment pages now point to the maintained runbooks in `cedar-development/ops`, and its generated
   `site/` tree is no longer versioned. What remains potentially unique is a small set of Neo4j
   diagnostic and repair recipes, cron-job notes, user/domain/certificate maintenance procedures, and

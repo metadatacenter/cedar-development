@@ -1166,11 +1166,14 @@ Java is not pinned this tightly. The enforcer requires `[17,18)` and CI asks for
 only, while the runtime image ships an exact Temurin build — so the thing that runs the servers is
 pinned harder than the thing that compiles them. The roadmap carries that, with the Java 21 move.
 
-The build skips the tests: every Java repo is built with `./mvnw clean install -DskipTests`, so a green
-`cedarcli build` means the stack compiles, not that it passes. Run a suite separately, with `mvn` in
-the repo. Every suite is backend-free, so nothing needs to be up for it. Making the build run the
-tests, with `--tests` / `--skip-tests` to choose, is an open item on
-[BACKEND-ROADMAP.md](./BACKEND-ROADMAP.md).
+The CLI build runs the Java test suites by default: every Java repo is built with
+`./mvnw clean install`, so a green `cedarcli build` means its unit and embedded integration suites
+passed as well as compiled. Every suite is backend-free, so nothing needs to be up. The seven build
+commands that can reach Java — `this`, `parent`, `libraries`, `project`, `clients`, `java`, and
+`all` — accept the paired `--tests` / `--skip-tests` option; use `--skip-tests` explicitly for a
+fast compile/install loop. Frontend-only build commands do not expose an inert Java-test option.
+Release preparation, Maven publication, and immutable build-train assembly remain explicit
+`-DskipTests` paths; verify with the default CLI build or repository CI before invoking them.
 
 Order is not optional. A server compiled against a stale `cedar-parent` picks up the parent's old
 managed versions and plugin configuration, which fails silently rather than loudly (see the
