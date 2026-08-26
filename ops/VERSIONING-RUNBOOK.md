@@ -210,10 +210,10 @@ catalog currently serves. The first condition is easy to forget while reading ti
 MEDGEN are both large enough to route and neither is in the served allowlist, so both go to
 BioPortal, and a BioPortal round trip timed beside local ones reads as a slow routed answer.
 
-The version conditions are not caution: the index keeps one version an ontology, so a constraint naming an older
-release has to be answered from the snapshot that holds it, and a re-ingest can move the current
-version before the index catches up, which would otherwise attribute terms to a release that did not
-produce them.
+The version conditions are not caution. The index keeps one version an ontology, so a constraint
+naming an older release has to be answered from the snapshot that holds it, and a re-ingest can move
+the current version before the index catches up, which would otherwise attribute terms to a release
+that did not produce them.
 
 Two things a routed answer does differently, both deliberate and both visible to whoever reads it.
 
