@@ -239,6 +239,7 @@ next major release.
 
    The migration is complete only when the existing external-map success and unreachable-map fallback
    browser cases pass, two editors retain isolated language stores and prefixes, the built-in English
-   and Hungarian maps still render, the full typecheck/lint/unit gates pass, and the production bundle
-   remains under both size limits. Remove the pin paragraph when those checks are green on the new
-   dependency; leaving it behind would turn this item into the same stale workaround it records.
+   and Hungarian maps still render, the source, harness and visual TypeScript programs plus the full
+   lint/unit gates pass, and the production bundle remains under both size limits. Remove the pin
+   paragraph when those checks are green on the new dependency; leaving it behind would turn this
+   item into the same stale workaround it records.

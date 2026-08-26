@@ -2,8 +2,9 @@
 
 Building, running and testing **CEE** (`cedar-embeddable-editor`) locally.
 Everything here has been run on macOS (Apple silicon), against Angular 22. The latest
-stable release documented here is CEE 2.0.1, and all seven embedding manifests pin it, including
-the extracted Workspace. Consumer coherence is verified from manifests and lockfiles,
+stable release documented here is CEE 2.0.1; all seven embedding manifests, including
+the extracted Workspace, currently pin the scoped Nexus snapshot
+`2.0.2-dev.20260824.48283fb`. Consumer coherence is verified from manifests and lockfiles,
 and deployed identity is verified by the bundle sha256 rather than only by the version
 each host reports.
 
@@ -141,7 +142,8 @@ npm run test:ci
 
 It runs these stages in order and stops at the first failure:
 
-1. Lint and both TypeScript programs (`lint`, `typecheck`).
+1. Lint and all three TypeScript programs — source, domain harness and visual suite
+   (`lint`, `typecheck`).
 2. Fast Vitest unit specs under `src/`, in jsdom (`test:unit:ci`).
 3. Angular's native Vitest/TestBed coordinator tier, compiling the real wrapper,
    editor and renderer templates with coverage thresholds (`test:coordinator`).
@@ -158,7 +160,7 @@ can be pointed at to try an unpublished build, by symlinking its
 Build Into the Frontends". A fresh clone has no `dist-npm/` until something stages
 it, so **run the gate, or `npm run package:npm:prebuilt` alone, before expecting a
 symlinked consumer to serve CEE.** Nothing is symlinked at present: every consumer
-holds the installed 2.0.1 from npmjs.
+holds the installed scoped Nexus snapshot `2.0.2-dev.20260824.48283fb`.
 
 `dist-npm/` used to be committed, and the stage used to be a drift check
 (`check:staged`) rather than a staging step. That arrangement cost more than it
@@ -351,8 +353,8 @@ The visual suite needs no install of its own: it runs in Playwright's container,
 which carries the browsers, and installs its dependencies there against a named
 volume. It does need Docker running.
 
-The gate should report 0 lint problems and, on 17 August 2026, 152 unit tests, 2,117
-domain tests and 416 Playwright tests.
+The gate should report 0 lint problems and, on 26 August 2026, at least 223 unit tests,
+2,897 domain tests and 473 Playwright tests.
 
 Read those as floors rather than as targets. Their only use is catching a suite that
 silently ran nothing — a filter matching no file, a project that failed to start —
@@ -454,7 +456,9 @@ hop, and the dist that ships is now produced on the same Node that exercised it.
 
 Lint runs first, as the opening stage of `test:ci` rather than as a separate CI
 step, so the gate has one definition locally and in CI. Warnings do not fail the
-build.
+build. Lint covers source and visual TypeScript; `typecheck` runs strict, no-emit
+programs for source, the domain harness and the visual suite. Playwright transpilation
+is not the visual suite's type checker.
 The toolchain matches the framework — `angular-eslint` 22, `typescript-eslint` 8,
 ESLint 9, flat config in `eslint.config.mjs`.
 
@@ -1194,8 +1198,10 @@ instead, where the dev versions do not exist.
 `main` is owned by the release process. Work lands on `develop`.
 
 There is one stable publish target: the unscoped `cedar-embeddable-editor` on public npmjs, under the
-default `latest` tag. 2.0.1 is the latest stable release, published 2026-08-21, and all seven
-embedding manifests pin it plain from npmjs. The registry goes from 1.5.2 straight to it: 1.6.0 was
+default `latest` tag. 2.0.1 is the latest stable release, published 2026-08-21. All seven
+embedding manifests currently pin the scoped Nexus snapshot `2.0.2-dev.20260824.48283fb`;
+the propagation check confirms the matching manifest and lockfile resolution in every consumer.
+The stable registry goes from 1.5.2 straight to 2.0.1: 1.6.0 was
 published on 2026-08-12 and unpublished from npmjs afterwards, so a manifest still naming 1.6.0
 cannot install, and the tarball it named cannot be fetched for comparison.
 `scripts/npm-package.mjs` generates the published manifest, hardcoding the stable package name and
