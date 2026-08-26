@@ -219,3 +219,26 @@ next major release.
    a rejected update, correction followed by a successful save, and a deliberately divergent server
    report. The item is complete when validation is useful before the request and equally useful when
    the server is the first component to detect the problem.
+8. **Move the translation boundary onto the Angular 22-supported line.** CEE deliberately remains
+   on `@ngx-translate/core` 14 and `@ngx-translate/http-loader` 7 until this migration lands. Their
+   open Angular peer ranges kept the framework march green without making either 2022-era package
+   current. As measured 2026-08-26, the stable line is 18 for both packages; core 18 supports Angular
+   18–22, TypeScript 6 and RxJS 7, which is CEE's stack, but upgrading it is an API migration rather
+   than a lockfile refresh. It removes `TranslateModule`, `USE_STORE` and `USE_DEFAULT_LANG`, and
+   replaces the default-language API CEE calls with the fallback-language API. Keep the two present
+   major pins visible in `package.json` until the whole boundary can move in one change; do not let a
+   framework bump or a broad dependency update imply that the compatibility was reviewed.
+
+   Upgrade core to 18 and remove `@ngx-translate/http-loader` rather than carrying a second package
+   for one GET. `FallbackTranslateLoader` already owns the configured prefix, tracing, error recovery
+   and built-in maps; have it request `<prefix><language>.json` through `HttpClient` as a
+   `TranslationMap`. Replace the root and child `TranslateModule` wiring with the v18 provider and
+   standalone pipe/directive APIs, move `setDefaultLang` to `setFallbackLang`, and update the real-
+   service tests without renaming CEE's public `defaultLanguage` and `fallbackLanguage` configuration
+   keys — those describe CEE's selected and recovery languages and are not ngx-translate API names.
+
+   The migration is complete only when the existing external-map success and unreachable-map fallback
+   browser cases pass, two editors retain isolated language stores and prefixes, the built-in English
+   and Hungarian maps still render, the full typecheck/lint/unit gates pass, and the production bundle
+   remains under both size limits. Remove the pin paragraph when those checks are green on the new
+   dependency; leaving it behind would turn this item into the same stale workaround it records.
