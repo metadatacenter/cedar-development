@@ -403,6 +403,18 @@ Artifact's unexposed port `internal`, and points back to `cedarcli docker status
 which runtime owns the service; only the Docker-aware command reads Compose health and acceptance
 probes.
 
+## Keycloak signing keys
+
+The development realm seed contains realm settings and test accounts, but no signing, encryption,
+HMAC, or AES key provider material. Keycloak generates a unique set of providers when it imports the
+realm for the first time. Keep exported provider material out of both the Keycloak image source and
+the native `os-mirror` copy; repository tests reject it in both locations.
+
+Rebuilding the image does not rotate an existing realm because Keycloak stores its providers in
+MySQL. If a database has been copied from another installation, create fresh providers in that realm
+and remove the copied providers before treating the installation as trusted. Rotating providers
+invalidates tokens signed with the previous key, so users must sign in again.
+
 Admin tools are optional and managed separately from the aggregate deployment:
 
 ```bash
