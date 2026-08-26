@@ -277,9 +277,16 @@ own relevance ordering is genuinely faster, 2 to 3 times, and ranks badly for ch
 exact-match ladder is what makes the current order worth having.
 
 What is left is not a tuning problem. Ranking a large match set by a ladder SQLite cannot index
-costs what it costs, so the ways forward change what is asked rather than how: a minimum query
-length before searching the whole corpus, a debounce, or a curated subset searched first. An author
-who narrows to an ontology is already served quickly, which is the path the picker pushes toward.
+costs what it costs, so the ways left change what is asked rather than how it is answered. The
+picker takes the first of them: it will not search the whole corpus for fewer than three characters,
+and says so instead. That removes the worst of the cost rather than the shape of it. Typing towards
+"cellular" cost 4,200 ms at "ce" and 2,512 at "cel", and the query that now runs first, at "cellu",
+costs 539, so a corpus-wide answer is still measured in hundreds of milliseconds. What remains
+unexplored is a curated subset searched ahead of the rest.
+
+Narrowing lifts the floor, in the picker and in the cost. A search naming one source reads only that
+ontology and answers in tens of milliseconds, which is why an author hunting a two-letter code
+narrows first, and why the floor applies only while nothing is narrowed.
 
 Confirm which case you are in before reading any code, since the two look identical from outside:
 
@@ -325,6 +332,14 @@ pin a version, and gets each hit's whole ancestry rather than the one step the i
 `includeVersions` asks a source block for the releases it can be pinned to, which is what the row's
 release list shows — fetched when a row first opens it rather than with every search, since a
 corpus-wide query touches a hundred sources and an author opens one.
+
+The picker does not ask for everything it could. A query of fewer than three characters naming no
+source is declined in the component rather than sent, because those are the queries that cost most
+and mean least — the characters an author passes through on the way to a word. It says so instead,
+after a pause long enough that someone still typing never sees it. Narrowing lifts the floor, since
+a search naming a source is answered in tens of milliseconds. Two consequences worth knowing when
+reading the server's logs: a picker session shows no request for the first two characters typed, and
+the server's own refusal below two characters is no longer what an author is shown.
 
 Both endpoints are unauthenticated, like `integrated-search`. That is deliberate, and it is also the
 one thing the server is inconsistent about: `/bioportal/ontologies` and
