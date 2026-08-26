@@ -369,8 +369,9 @@ The fifteen Java services run as the fixed non-root identity `10001:10001`. Befo
 stack, the CLI prepares the log, Resource state, and Terminology cache named volumes once and marks
 each migrated volume with `.cedar-owner-10001`. This makes volumes created by older root-running
 images safe to reuse without deleting their data. The brief ownership container runs as root with
-`--pull=never` from the already selected Artifact image; the service containers themselves remain
-non-root. The shared CA stays read-only, and each service imports it into its own user-writable
+`--pull=never` from an already selected microservice image (Artifact for aggregate starts); the
+service containers themselves remain non-root. The shared CA stays read-only, and each service
+imports it into its own user-writable
 truststore.
 
 The command validates all Compose projects, checks the Docker daemon, `cedarnet`, certificate
