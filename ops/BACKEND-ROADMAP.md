@@ -11,61 +11,6 @@ Frontend work for the embeddable editor is tracked separately in
 [CEE-ROADMAP.md](./CEE-ROADMAP.md), and the MCP servers in
 [MCP-ROADMAP.md](./MCP-ROADMAP.md).
 
-## Recently completed
-
-- **CLI builds test by default and report continued failures honestly (2026-08-26).** Every
-  `cedarcli build` command that can reach Java now runs the unit and embedded integration suites by
-  default and exposes the paired `--tests` / `--skip-tests` option; frontend-only commands do not
-  advertise an inert flag. Generated plans record the selected mode. Release preparation,
-  publication, and immutable train assembly remain documented `-DskipTests` paths. In the CLI's
-  deliberate continue-on-error operations, failed shell commands are retained while later work runs,
-  the closing panel lists the failed tasks, and the process exits nonzero. Focused regressions pin
-  default/skip plan generation, command scope, continued execution, and the final exit status.
-
-- **Keycloak account provisioning is tested and observable (2026-08-26).** A matching
-  `cedar-angular-app` login is covered as exactly one resource-server callback with the expected
-  JSON payload and API-key authorization header; non-matching events and clients are covered as no
-  callback. Transport exceptions retain their cause in the Keycloak log, and non-2xx callback
-  responses are reported with status, URL, event type and user id instead of being ignored.
-
-- **Keycloak TLS verification defaults to secure (2026-08-26).** The bearer-token/JWKS client and
-  the password-bearing admin client no longer install trust-all behavior unconditionally. Both use
-  the JVM truststore and hostname verification by default; the single
-  `CEDAR_KEYCLOAK_ALLOW_INSECURE_TLS` escape hatch defaults to `false`, is covered on both client
-  paths, and is enabled only by the native-development profile for locally issued `.orgx` leaves.
-  Docker continues to import the CEDAR development CA instead of using the bypass.
-
-- **Worker delivery, health and job control (2026-08-25).** The four Redis queues consumed by the
-  worker now atomically claim into processing lists and acknowledge only after successful handling;
-  unacknowledged work is restored in FIFO order after reconnect or restart. Clone, app-log and
-  permission handlers retry and dead-letter poison messages, while value-recommender claims bounded
-  batches of 100 instead of draining an unbounded backlog. Tests cover acknowledgement, recovery,
-  ordering, retry, dead-letter transfer and the batch ceiling.
-
-  Worker health now probes Redis, OpenSearch and Neo4j and reports stopped consumers, unresolved
-  processing failures and every worker dead-letter depth. Inclusion-subgraph regeneration uses a
-  managed single-flight executor and returns a tracked job (`202`), rejects overlap (`409`), and
-  exposes authenticated status and failure details. The adjacent audit items were already closed in
-  current code: deleted graph resources remove orphaned search documents without dereferencing null;
-  every shared insight route requires the `monitorManager` role; and Docker publishes worker
-  application port 9011 but not admin port 9111. Unit, route-authentication, health and live Docker
-  regressions pin the behavior.
-
-- **Artifact write integrity and diagnostics (2026-08-25).** Artifact responses now carry a strong
-  revision `ETag`, and updates require the matching `If-Match`. Mongo replacements compare the id and
-  revision atomically, so concurrent writers receive `412 Precondition Failed` instead of silently
-  overwriting each other; a missing precondition receives `428 Precondition Required`. The resource
-  and artifact servers also distinguish create-by-`PUT` from update-by-`PUT` when checking role
-  permissions. Browser clients retain the ETag on each loaded representation and send that value,
-  internal read-modify-write flows forward the exact value they read, and CORS permits `If-Match`
-  and exposes `ETag`.
-
-  The adjacent audit findings are closed too: instance validation is unconditional even when the
-  legacy `skip_validation=true` query parameter is supplied; artifact health now includes a Mongo
-  ping; and all insight routes, including thread details, require the `monitorManager` role. The
-  thread report also allocates one result map per thread. HTTP, direct Mongo compare-and-swap,
-  permission, validation, health, route-authentication and thread-report regressions pin the fixes.
-
 ## Next
 
 ### Features
@@ -479,69 +424,7 @@ Frontend work for the embeddable editor is tracked separately in
   (`/api-keys/{keyId}`), keeping the secret out of the path. Breaking change: cedar-cli and the profile
   UI call these routes, so it needs a coordinated client update.
 
-- **14. Adopt Renovate, so a version that falls behind says so.** Every pin in this estate is
-  maintained by someone remembering to look at it, and the measurement above is what that produces:
-  the Docker OpenSearch image sat at 1.3.6 while the servers shipped the 2.19 client, for about two
-  years, and nothing anywhere reported it. Renovate is a bot that reads the files a repository
-  already has — `pom.xml`, `Dockerfile`, workflow files — works out what each dependency is pinned
-  to, compares that against what upstream has published, and opens a pull request for each one that
-  is behind, with the changelog in the body. It decides nothing and merges nothing. The point is
-  that drift becomes visible the week it happens rather than whenever somebody next measures.
-
-  **What is in place.** `cedar-docker-build/renovate.json`, committed 2026-08-08 and validated
-  against Renovate's own config validator. It watches the six locked server versions in
-  `bin/cedar-images-base.sh` through a custom manager keyed on the `# renovate:` comments above each
-  one, groups them so they arrive as a single reviewable decision, sets a fourteen-day minimum
-  release age, disables automerge everywhere, and holds Keycloak behind dashboard approval because
-  what pins Keycloak is CEDAR's own code rather than the lock. It is inert: a config file is read by
-  Renovate and does not cause Renovate to run.
-
-  **Decide how it runs.** Two routes, and the difference is who holds write access.
-
-  - The **Mend-hosted GitHub App**, installed on the `metadatacenter` org. Free, since these
-    repositories are public. Installing it is a browser flow with an owner's approval — there is no
-    API for it — and it grants a third party standing write access to org repositories. The org
-    already runs `travis-ci`, `sonarqubecloud` and `gitguardian` on the same terms.
-  - **Self-hosted in Actions**: a scheduled workflow running `renovatebot/github-action` with a token
-    that can open pull requests. Nobody external gets standing access; the cost is a token to manage
-    and some runner minutes.
-
-  Expect a burst on the first run, whichever route: it opens pull requests for everything currently
-  behind, and a dependency-dashboard issue. The concurrency limit and release age in the config exist
-  to blunt that.
-
-  **Then extend it to the Java repositories, where it is cheaper than it looks.** Renovate reads
-  Maven natively — versions declared in `<properties>` and referenced as `${...}` in the same POM —
-  so no custom manager and no annotation comments are needed, unlike the shell manifest. And the
-  parent-POM rule pays off again: `cedar-parent` holds 93 version properties and is where every
-  dependency version in the estate is declared, while the roughly thirty child POMs name
-  dependencies without versions and so have nothing for a bot to update. One repository configured,
-  the whole Java estate covered.
-
-  Three things to settle before turning it on there, or the first run is worse than useless. The
-  framework baseline moves as a set — Dropwizard, Jetty, Jersey and Hibernate hold together, and a
-  lone Jetty bump breaks it — so those want grouping. Java 17 is locked and must not be offered.
-  And `keycloak.version` would be offered 26.7.1, which cannot build, because
-  `keycloak-adapter-core` stops at 25.0.3; it needs the same dashboard approval the Docker side
-  already gives it.
-
-  **One gap this opens.** `ops/check_version_pairing.py` runs in `cedar-docker-build` CI, so it
-  guards the server half of each pair. A Renovate pull request that moved `opensearch.version` in
-  `cedar-parent` would not be checked against the image — the same drift, arriving from the other
-  direction. Run the check on `cedar-parent` pull requests as well, as part of configuring the Java
-  side.
-
-  **What it does not do,** and what therefore stays elsewhere: it does not know invariants. Nothing
-  tells it that an OpenSearch server must match the client `cedar-parent` ships, which is why that
-  lives in a check rather than in any bot's configuration.
-
-  Worth recording one consequence of the declaration this item follows. Centralizing the six server
-  versions into a shell manifest put them somewhere **Dependabot cannot see**: it reads `pom.xml` and
-  `Dockerfile`, and the Dockerfiles now carry `ARG` rather than literal versions. Renovate's custom
-  manager is what makes them watchable again. Adopting no bot at all remains a coherent choice — the
-  versions are at least in one place now — but it means those six are watched by nobody, as before.
-
-- **15. Separate CEDAR dependency convergence from the Keycloak provider platform lock.** The eleven
+- **14. Separate CEDAR dependency convergence from the Keycloak provider platform lock.** The eleven
   apparent test-classpath splits are not eleven candidates for one global version. Re-measuring all
   thirty Maven roots divides them into three different problems, and blindly managing the newer side
   in `cedar-parent` would make the Keycloak event listener compile against libraries its server does
@@ -593,7 +476,7 @@ Frontend work for the embeddable editor is tracked separately in
 Coverage and test-infrastructure work. The active REST integration suites live in
 `ops/e2e/rest/suites/`; the JUnit matrices and boot-smoke live in the per-server modules.
 
-- **16. Deepen the core-workflow tests instead of growing the headline count.** The JUnit matrices and the
+- **15. Deepen the core-workflow tests instead of growing the headline count.** The JUnit matrices and the
   REST suites now give the system respectable horizontal coverage: routes boot, authentication and
   permission boundaries are pinned, and create/read/update/delete, sharing, search, versioning and the
   cross-service hop all execute against the real stack. Much of that is deliberately
@@ -632,7 +515,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   versions or search projection disagreeing. The present suite protects the behavioural skeleton; this
   item protects the integrity of state when operations fail or are repeated.
 
-- **17. Add degradation tests.** Nothing asserts how a service behaves when a dependency it needs is
+- **16. Add degradation tests.** Nothing asserts how a service behaves when a dependency it needs is
   unavailable. The cost of that gap is known: reading any folder whose creator could not be resolved
   returned 500 for as long as the defect existed, because `UserSummaryCache` let Guava's
   "loader returned null" signal escape instead of degrading to the no-display-name path the callers
@@ -640,7 +523,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   asserts the API degrades rather than 500s. Bear in mind that queue writes are already best-effort
   by design (`AppLoggerQueueService`, the worker and NCBI queues), so those are the pattern to match.
 
-- **18. Switch the extracted Workspace and Template Designer over in staging, then production.**
+- **17. Switch the extracted Workspace and Template Designer over in staging, then production.**
   Local coexistence is complete: the monolith remains on `cedar.metadatacenter.orgx`, Workspace and
   Designer run on their own trusted HTTPS origins, Keycloak SSO spans them, the provenance gate
   passes, and the complete Workspace → Designer → CEE → OpenView authenticated journey passes
@@ -728,7 +611,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
 
 ## Production data
 
-- **19. Repair the production schema artifacts that can reject correctly shaped CEE instances.** The
+- **18. Repair the production schema artifacts that can reject correctly shaped CEE instances.** The
   permission-scoped production audit found 76 inherently-multiple fields deployed as JSON objects in
   31 stored schema artifacts: 23 templates and 8 elements. Every case is a multiple-select list; no
   object-shaped checkbox or attribute-value deployment was found. CEE correctly serializes these
@@ -775,7 +658,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   rerun the audit to `COMPLETE_FOR_KEY`. Never delete a store artifact merely because its search entry
   is inconsistent.
 
-- **20. Write `sourceSystem` onto the production value constraints, so that its absence means something.**
+- **19. Write `sourceSystem` onto the production value constraints, so that its absence means something.**
   A controlled-term constraint may name the system serving its vocabulary, and both model libraries read
   an absent `sourceSystem` as BioPortal —
   [the value-constraint shape](VERSIONING-ROADMAP.md#6-the-value-constraint-shape) defines the field and
@@ -807,7 +690,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
 
 ## Documentation consolidation
 
-- **21. Decide whether to retire `cedar-mkdocs-developer`.** Its current release and production
+- **20. Decide whether to retire `cedar-mkdocs-developer`.** Its current release and production
   deployment pages now point to the maintained runbooks in `cedar-development/ops`, and its generated
   `site/` tree is no longer versioned. What remains potentially unique is a small set of Neo4j
   diagnostic and repair recipes, cron-job notes, user/domain/certificate maintenance procedures, and
