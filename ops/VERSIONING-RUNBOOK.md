@@ -204,9 +204,17 @@ fragments.
 A query with a long token in it holds its short tokens back and applies them afterwards, so
 `D-mannitol` costs about what `mannitol` costs. A query with nothing long in it cannot: every token
 of `L-alpha-amino acid`, `1,2,5` and `ce` is short, one of them is broad, and the query pays for it.
-Those are the queries left to answer, and answering them needs the index's own term statistics —
-FTS5 keeps them, reachable through an `fts5vocab` table — so that the narrowest token drives the
-match instead of the longest being assumed to.
+Those are the queries left to answer.
+
+Choosing the tokens by how selective they actually are, rather than by assuming a long one is
+narrow, is the obvious next idea and was measured on 2026-08-25 as worse. FTS5 keeps the counts and
+an `fts5vocab` table reaches them cheaply, but doclist size turns out to predict what a query costs
+poorly: what a match costs depends on how its doclists overlap, and holding back a broad token that
+was usefully narrowing the intersection costs more than the token was costing. Over 300 labels drawn
+from six ontologies, every threshold tried matched the shipped rule's speedup at best while making
+29 to 39 of the queries more than half as slow again, where the shipped rule makes none of them
+slower. The setting that finally answered `L-alpha-amino acid` was the worst of them overall. The
+remaining queries need a different idea rather than a better threshold.
 
 Confirm which case you are in before reading any code, since the two look identical from outside:
 
