@@ -499,9 +499,8 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   1. **Partial multi-store failure.** Inject a failure between the artifact-store write and the Neo4j
      graph update, for create, rename, publish, draft and delete. Assert the operation either rolls back
      or leaves a detectable, recoverable state — never a silently orphaned artifact, a stale graph node
-     or a half-published version. This is the write-path counterpart to the read-path degradation-tests
-     completed read-path degradation work, which asks only that a service not 500 when a dependency
-     is down.
+     or a half-published version. This is the write-path counterpart to the completed read-path
+     degradation work, which asks only that a service not 500 when a dependency is down.
   2. **Retry and idempotency.** Repeat a write after a timeout or an ambiguous response. Publish, draft,
      move, delete, permission change and DOI-set must not produce a duplicate version, a duplicate graph
      node or divergent state.
