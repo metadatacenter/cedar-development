@@ -608,13 +608,15 @@ the persistent Redis on 6379:
 | valuerecommender | `CEDAR-QUEUE-valuerecommender` | templates whose recommender rules need regenerating |
 | cloneInstances | `CEDAR-QUEUE-cloneInstances` | bulk instance-clone requests |
 
-The four queues consumed by the worker (`searchPermission`, `cloneInstances`, `appLog` and
-`valuerecommender`) use a claim/acknowledge protocol. A claim atomically moves the oldest message to
-`<queue>-processing`; only successful handling removes it. On worker restart, anything left in the
+All five consumers use a claim/acknowledge protocol. A claim atomically moves the oldest message to
+`<queue>-processing`; only successful handling removes it. On service restart, anything left in the
 processing list is restored ahead of newer messages in FIFO order. Clone, app-log and permission
 handlers retry three times before atomically moving the raw message to `<queue>-dead-letter`.
 Value-recommender polls claim at most 100 messages, rather than draining an unbounded backlog into
-memory, and a failed batch is retried before its messages are dead-lettered.
+memory, and a failed batch is retried before its messages are dead-lettered. The submission server's
+NCBI consumer acknowledges handled submissions, dead-letters malformed ones, and wakes for shutdown
+by interrupting its blocking connection; it does not enqueue the old JSON `null` sentinel or log an
+empty one-second blocking-pop timeout as an error.
 
 The search-permission queue is the most security-sensitive one, but every worker dead-letter queue
 is worth watching. For example:
@@ -1336,6 +1338,26 @@ request into a connection timeout and can make the HTTP client time out first, p
 failures unrelated to the behavior under test. The queue and logging libraries test Redis delivery,
 outage and recovery separately against an embedded real Redis. The property exists only in Surefire
 JVMs; native and deployed servers retain the production queue behavior.
+
+The same inherited Surefire configuration pins both CEDAR Redis hosts to `127.0.0.1` and both ports
+to the deliberately dead port `1`. Other best-effort queue paths can therefore exercise an absent
+Redis without inheriting a developer profile's remote address and waiting for a network timeout.
+Dedicated queue tests bypass the CEDAR environment and point their service directly at their
+embedded Redis instance.
+
+Surefire also sets `cedar.test.dependencyTimeoutMillis=1000`. The Mongo and Neo4j client factories
+honor that property only when it is present: Mongo server selection/connection and Neo4j connection,
+pool acquisition and transaction retry therefore reach the same unavailable-dependency exception
+paths in about one second instead of the production drivers' roughly thirty-second defaults. The
+outage HTTP tests carry five-second request deadlines, so losing this override fails the gate instead
+of making the build quietly slow again. Normal JVMs have no property and retain the production
+timeouts.
+
+Worker processor tests inject short poll and retry intervals directly; the public constructors
+retain the production five-second value-recommender poll and one-second handling retry. This
+shortens the clock without skipping the queue state transitions or the retry/dead-letter assertions
+the tests exist to cover. Blocking Redis consumers retain their one-second `BLMOVE` timeout even in
+tests: the embedded Redis version does not implement fractional `BLMOVE` timeouts correctly.
 
 Test servers boot on the alternate `19xxx` port range (test port = dev port + 10000), so a running
 dev stack and a test run coexist. Redirection goes through `CedarEnvironmentSource.setOverride(map)`,
