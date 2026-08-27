@@ -518,12 +518,15 @@ Coverage and test-infrastructure work. The active REST integration suites live i
 - **16. Complete the degradation matrix.** The first tranche landed on 2026-08-26. The shared HTTP
   proxy now classifies connection failures as `503 Service Unavailable`; the common exception boundary
   does the same for Neo4j connection/session failures and MongoDB selection, socket and failover
-  failures; and neither mapper serializes the source exception, stack, host or URL back to the caller.
+  failures, plus JDBC connection-class failures; and neither mapper serializes the source exception,
+  stack, host or URL back to the caller.
   Real HTTP tests pin a stopped artifact-server dependency at the resource and monitor servers, a
-  stopped MongoDB at the artifact server, a stopped Neo4j at the user server, and a stopped OpenSearch
-  at the value-recommender server. OpenView's Mongo read boundary has direct coverage. The original
-  `UserSummaryCache` null-loader defect has its own recovery regression, so an unavailable creator
-  lookup degrades to an absent display name rather than taking down folder reads.
+  stopped MongoDB at the artifact server, stopped Neo4j reads at the user and group servers, stopped
+  OpenSearch reads at the value-recommender and resource servers, a stopped messaging database, and
+  the user-summary lookup against a stopped Keycloak admin endpoint. OpenView's Mongo read boundary
+  has direct coverage. The original `UserSummaryCache` null-loader defect has its own recovery
+  regression, so an unavailable creator lookup degrades to an absent display name rather than taking
+  down folder reads.
 
   The asynchronous side is no longer an untested analogy. Redis outage/recovery is covered for the
   shared best-effort producers, and worker tests cover claim/retry/dead-letter behavior for permission,
@@ -531,14 +534,19 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   startup recovery, consumer failure state, dead-letter health and the worker's Redis, OpenSearch and
   Neo4j health checks. Artifact health separately proves that a failed Mongo ping is unhealthy.
 
-  What remains is a server-by-server completion pass, not a blank slate. Add direct stopped-dependency
-  HTTP tests for the resource server's OpenSearch search/index paths, representative group/resource
-  Neo4j reads beyond the shared user-server proof, MySQL-backed messaging/log reads, and the Keycloak
-  admin lookup used by user summaries. Then inventory the remaining synchronous external clients and
-  either pin their documented partial-result behavior or require a sanitized 503. Do not add a dead-port
-  test to a thin server merely to reach a count: each test must cross a dependency boundary that server
-  actually owns, and must assert status, stable client message, absence of internal connection details,
-  and recovery or unaffected endpoints where the contract promises either.
+  The apparent log-read gap was stale: no HTTP resource reads the application-log database. Log
+  persistence belongs to the asynchronous app-log worker and is covered by its claim, retry and
+  dead-letter tests. Resource index-management commands are also asynchronous: they accept a job,
+  enforce single-flight execution, and expose an OpenSearch failure as `FAILED` through the job-status
+  resource; their failure/status/retry state is pinned directly rather than pretending the accepting
+  request can return a later 503.
+
+  What remains is a stopped-Neo4j endpoint proof for a representative resource-server graph read,
+  followed by an inventory of the remaining synchronous external clients. For each client, pin its
+  documented partial-result behavior or require a sanitized 503. Do not add a dead-port test to a thin
+  server merely to reach a count: each test must cross a dependency boundary that server actually owns,
+  and must assert status, stable client message, absence of internal connection details, and recovery or
+  unaffected endpoints where the contract promises either.
 
 - **17. Switch the extracted Workspace and Template Designer over in staging, then production.**
   Local coexistence is complete: the monolith remains on `cedar.metadatacenter.orgx`, Workspace and

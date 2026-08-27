@@ -1310,9 +1310,9 @@ started in a static `@BeforeAll` and stopped in `@AfterAll`. Do not use the JUni
 current JUnit platform.
 
 Rough suite sizes: artifact 1334 (parameterized CRUD over four artifact types on embedded Mongo),
-server-rest 281, workspace-operations 182, search-operations 178, artifact-library 800,
-terminology 246 (61 more excluded under `bioportal`), model-validation 220, resource 78,
-cadsr-tools 70, core-library 57, user 22, group 10, and a
+server-rest 281, workspace-operations 182, search-operations 208, artifact-library 800,
+terminology 246 (61 more excluded under `bioportal`), model-validation 220, resource 79,
+cadsr-tools 70, core-library 57, user 23, group 15, messaging 15, and a
 one-to-seven-test boot-and-config tier on the remaining thin servers.
 
 ### What the suites actually cover
@@ -1442,10 +1442,13 @@ Where the coverage is thin, stated plainly so nobody reads the class count as re
   what caught the media-type 505, but it means "starts and refuses strangers", not "is correct".
 - **Dependency coverage is partial but now deliberate** (see the degradation item on the roadmap).
   The shared proxy, exception mapper, worker queues and health checks are covered, with real HTTP
-  dead-port tests for artifact/MongoDB, resource-to-artifact, monitor-to-artifact, user/Neo4j and
-  value-recommender/OpenSearch, plus OpenView's store boundary. Resource search/index degradation,
-  representative group/resource graph reads, MySQL-backed reads and the Keycloak admin lookup still
-  need endpoint coverage. Concurrent edits are covered both over HTTP and directly at the Mongo
+  dead-port tests for artifact/MongoDB, resource-to-artifact, monitor-to-artifact, user and group
+  Neo4j reads, value-recommender and resource OpenSearch reads, the messaging SQL store and the
+  Keycloak admin lookup, plus OpenView's store boundary. There is no HTTP application-log read: log
+  persistence is an app-log worker concern and its retry/dead-letter path is covered. Resource index
+  rebuilds are accepted asynchronous jobs whose failed status is covered rather than synchronous
+  requests that can answer 503. A representative resource-server graph read and the remaining-client
+  inventory are still open. Concurrent edits are covered both over HTTP and directly at the Mongo
   compare-and-swap boundary. Pagination is covered on a folder's contents and search (`pagination`
   suite); the other paged listings are not.
 
