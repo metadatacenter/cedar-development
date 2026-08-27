@@ -315,7 +315,7 @@ and checking the wrong file reads exactly like a failed deploy:
 | Extracted Workspace (`cedar-workspace`) | `/third_party_components/cedar-embeddable-editor/cedar-embeddable-editor.js` |
 | Production monolith (`cedar-template-editor`) | `/third_party_components/cedar-embeddable-editor/cedar-embeddable-editor.js` |
 | openview | `/node_modules/cedar-embeddable-editor/cedar-embeddable-editor.js` |
-| bridging | bundled, not served as a file — it is imported in `app.module.ts`. **Which bundle depends on which build**: the running `ng serve` splits it into `vendor.js`, and the checked-in production dist emits no `vendor.js` at all, carrying it in `main.js`. |
+| bridging | bundled, not served as a file — it is imported in `app.module.ts`. **Which bundle depends on which build**: the running `ng serve` splits it into `vendor.js`, and the production dist emits no `vendor.js` at all, carrying it in content-hashed `main.<hash>.js`. |
 
 For the first two, compare sha256 against the staged bundle. For the bundled case
 there is no file to hash: grep the bundle for the load-trace stamp, which names
@@ -323,7 +323,7 @@ one build exactly. The version string alone is not enough — the bundle holds e
 dependency's version, so a bare `2.0.1` in it may belong to something else
 entirely.
 
-Ask the dev server for `vendor.js` and the dist for `main.js`. Grepping the other
+Ask the dev server for `vendor.js` and the dist for `main.*.js`. Grepping the other
 one of the pair returns zero, which reads exactly like the failed deploy this
 check exists to rule out — and a zero from the wrong file has already been
 mistaken for one.
@@ -333,7 +333,7 @@ curl -s http://127.0.0.1:4220/node_modules/cedar-embeddable-editor/cedar-embedda
 curl -sk https://cedar.metadatacenter.orgx/third_party_components/cedar-embeddable-editor/cedar-embeddable-editor.js | shasum -a 256
 curl -sk https://workspace.metadatacenter.orgx/third_party_components/cedar-embeddable-editor/cedar-embeddable-editor.js | shasum -a 256
 curl -s http://127.0.0.1:4340/vendor.js | grep -c '<the load-trace stamp>'
-grep -c '<the load-trace stamp>' $CEDAR_HOME/cedar-bridging/cedar-bridging-dist/main.js
+grep -c '<the load-trace stamp>' $CEDAR_HOME/cedar-bridging/cedar-bridging-dist/main.*.js
 ```
 
 ### First-time setup

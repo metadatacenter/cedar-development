@@ -1,7 +1,7 @@
 # CEDAR Production Deploy Runbook
 
 How to deploy an **already-cut release** onto the production application server — reconcile any
-live hot-patches, pull the release onto `main`, bump the version modifier, rebuild, redeploy the
+live hot-patches, pull the release onto `main`, choose an environment modifier when needed, rebuild, redeploy the
 backend + frontends, run the DB migrations (app DB **and** the separate log DB), and bring the
 front door back up. Written to be followed by a human with a terminal, or read by an LLM agent.
 
@@ -22,14 +22,16 @@ Prod runs the released code from **`main`** at `$CEDAR_HOME`, built in place. A 
 1. **Reconciles local state** — prod may carry emergency **hot-patches** applied directly on the box
    (this deploy found prod hot-patched to a newer CEE). Those are un-committed working-tree edits;
    they must be reverted so the pull is clean.
-2. **Pulls the release** onto `main` and **bumps `CEDAR_VERSION_MODIFIER`** (cache-buster — see
-   Gotchas) in `set-env-internal.sh`.
-3. **Rebuilds** all Java + configures the static frontends for the prod domain, and **rebuilds every
+2. **Pulls the release** onto `main`. The three AngularJS payloads automatically bind their module
+   URLs to the source commit embedded by the build.
+3. Optionally changes **`CEDAR_VERSION_MODIFIER`** in `set-env-internal.sh` when two payloads from
+   the same source commit need distinct runtime content.
+4. **Rebuilds** all Java + configures the static frontends for the prod domain, and **rebuilds every
    served CEE host** to the intended CEE version. During the split migration that means both the
    monolith and Workspace, not only the historical frontend.
-4. **Migrates the databases** — the app MySQL (on the app host, as root) and the **log DB on a
+5. **Migrates the databases** — the app MySQL (on the app host, as root) and the **log DB on a
    separate host**.
-5. **Restarts** Java, then bounces nginx.
+6. **Restarts** Java, then bounces nginx.
 
 > **Downtime window.** Java is down from `cedarcli native stop microservices` until
 > `cedarcli native start microservices` — do the
@@ -80,9 +82,11 @@ cedarcli git pull
 cedarcli git status                        # expect clean; "prod data is now on main"
 ```
 
-### 3 · Bump the version modifier, then re-source the env
-`CEDAR_VERSION_MODIFIER` is appended to the build version and drives asset cache-busting. **Bump it
-every deploy** or clients keep the stale bundle (see Gotchas + the frontend-caching notes).
+### 3 · Choose the environment modifier, then re-source the env
+The frontend build automatically incorporates its Git source commit into AngularJS module URLs;
+modern Angular production builds use content-hashed filenames. `CEDAR_VERSION_MODIFIER` is an
+additional discriminator for payloads that use the same commit but differ because of runtime or
+environment configuration. Change it only in that case, not as a substitute for source identity.
 ```bash
 vi set-env-internal.sh
 #   export CEDAR_VERSION_MODIFIER="-<MODIFIER>"    # e.g. a dated, incrementing tag like -2026-07-28-1
@@ -100,7 +104,7 @@ test "${CEDAR_KEYCLOAK_ALLOW_INSECURE_TLS:-false}" = false
 
 ### 4 · Build (Java still running — keep the downtime window short)
 ```bash
-cedarcli check versions        # every repo reports the expected version + new modifier
+cedarcli check versions        # every repo reports the expected version and any intended modifier
 cedarcli maven clean all
 cedarcli build all             # this deploy: ~0:11:24
 ```
@@ -189,7 +193,7 @@ service nginx start
   Keycloak login success alone is not evidence that CEDAR provisioned the account.
 - Load the monolith and, while migration is active, Workspace in fresh/incognito browser sessions;
   confirm both serve the intended CEE hash and can create/edit an instance (a stale bundle means the
-  modifier didn't change, the image was not rebuilt, or the CDN was not purged — see below).
+  source commit was not embedded, the image was not rebuilt, or the CDN was not purged — see below).
 
 ## Gotchas
 
@@ -199,9 +203,11 @@ service nginx start
 - **Re-source the env after editing `set-env-internal.sh` or after a pull.** The running shell keeps
   the old `CEDAR_VERSION_MODIFIER` and the pre-pull aliases/`cedarcli` until a fresh login shell.
   Exit + restart tmux. (Same trap as the release runbook.)
-- **Bump `CEDAR_VERSION_MODIFIER` every deploy.** It's the cache-buster. If it doesn't change, users
-  keep the old frontend bundle even after a good build. Stale-UI fixes also require nginx serving
-  `index.html`/`version.js` with `no-store` **and** purging the CDN — see the frontend-caching notes.
+- **Do not use `CEDAR_VERSION_MODIFIER` to identify source code.** AngularJS module URLs contain the
+  source commit and modern Angular bundles have content-hashed filenames. Use the modifier only when
+  the same commit produces materially different environment payloads. Stale-UI prevention also
+  requires nginx to serve entry/config responses with `no-store`; purge any older CDN objects whose
+  previous headers allowed them to survive — see the frontend-caching notes.
 - **The log DB is a different server and may be unreachable from prod.** Hop from staging. It's an
   **async** worker DB (fed off Redis), so migrating it does **not** take CEDAR down.
 - **nginx is bounced as `root`, not `cedar`.** Separate `sudo su -` shell.
@@ -292,16 +298,17 @@ operation defect.
 2. Run `nginx -t`; only after it succeeds, reload nginx.
 3. Purge the same canonical entry points and any compatibility redirect responses.
 4. Run the ordinary monolith smoke, verify cold authenticated deep links, and confirm the recorded
-   monolith version modifier is being served.
+   monolith source commit and any intended environment modifier are being served.
 5. Leave the split payloads and evidence intact for diagnosis. Rollback is a routing reversal, not a
    destructive cleanup.
 
 ### Cache invalidation for cutover and rollback
 
 The split images serve `/index.html`, every `/config/` response, and
-`/config/build-info.json` with `Cache-Control: no-store`; HTML/CSS partials revalidate. Keep those
-policies at the public proxy and CDN. A prior cached object can survive a header correction, so both
-cutover and rollback still require an explicit purge.
+`/config/build-info.json` with `Cache-Control: no-store`; content-hashed JavaScript/CSS is immutable,
+and stable fallback assets revalidate. Keep those policies at the public proxy and CDN. A prior
+cached object can survive a header correction, so both cutover and rollback still require an
+explicit purge.
 
 Purge each affected public origin at least for `/`, `/dashboard`, `/index.html`,
 `/config/version.js`, `/config/url-service.conf.json`, and `/config/build-info.json`, plus every old

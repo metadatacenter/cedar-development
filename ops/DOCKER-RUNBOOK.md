@@ -311,6 +311,12 @@ published package; OpenView extracts its verified CEE and webcomponents tarballs
 rebuild does not re-resolve transitive package versions. The local `--local` compatibility path may
 still consume an older package without a shrinkwrap, but it is explicitly not a reproducible train.
 
+Each image also carries its exact application source commit. The Main, Workspace, and Designer
+entrypoints pass that identity into Gulp, so RequireJS module URLs change with the source even when
+the Maven-style application version does not. Modern Angular production bundles use content-hashed
+filenames. Private nginx never stores entry/config responses, marks only content-hashed JavaScript
+and CSS immutable, and makes stable fallback assets revalidate.
+
 `cedar-docker-build/bin/cedar-images-base.sh` retains exact package pins as compatibility defaults
 for a local shell build. They are not the source of truth for a published train, and neither path
 uses a moving npm snapshot or dist-tag.

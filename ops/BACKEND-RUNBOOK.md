@@ -504,6 +504,20 @@ The Gulp frontends deliberately run side by side: `frontend` is the production m
 Designer preview on 4202. Starting the previews does not change nginx routing or production traffic.
 Use `cedar-services.sh start frontend workspace designer` for the migration comparison set.
 
+Native development must not cache frontend responses: the Gulp and Angular development servers use
+stable filenames while their bytes change underneath them. Install the canonical no-store proxy
+policy after changing or recreating the local nginx configuration:
+
+```bash
+bash $CEDAR_HOME/cedar-development/ops/install-local-frontend-cache-policy.sh
+```
+
+The three AngularJS applications also give each development page load a fresh RequireJS cache key,
+so a copied or incomplete proxy configuration cannot silently reuse an old module. Server payloads
+use their Git source commit in that key; `CEDAR_VERSION_MODIFIER` remains the explicit discriminator
+for two environment-specific payloads built from the same commit. It is not needed merely to make a
+new source revision visible.
+
 The auxiliary frontends are the `ui-*` entries — `ui-openview` (4220), `ui-content` (4240),
 `ui-monitoring` (4300), `ui-bridging` (4340) — each run as `ng serve` from its
 `cedar-<name>[-src]` source dir (see `fe_dir()`). They are named `ui-*` because `openview`/`monitor`/
