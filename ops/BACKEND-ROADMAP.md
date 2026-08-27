@@ -258,266 +258,7 @@ larger lifecycle refactor tracked below.
   whether the frontend writes those or whether they are residue from a field that was once
   multi-instance.
 
-### Infrastructure
-
-- **7. Upgrade the persistence and infrastructure servers.** These versions are pinned in the Docker
-  build manifest, while the client libraries have moved on. The
-  [Docker roadmap](./DOCKER-ROADMAP.md) owns the shared build and deployment lock; this item owns the
-  remaining server upgrades. Order them by risk, lowest first:
-  Five are **done** on 2026-08-08, each taken together with containerizing that store: Redis
-  6.2.7 → 7.2.7, OpenSearch 1.3.6 → 2.19.1, Mongo 5.0.14 → 5.0.31, Neo4j 5.3.0 → 5.26.0 and MySQL
-  8.0.32 → 8.4.11, the last of those also moving off Oracle's abandoned `mysql/mysql-server` base
-  onto the Docker Official image. **Keycloak is the exception and is still at 22**, held there by
-  CEDAR's own code rather than by this lock: it runs a forward-only Liquibase schema
-  migration on the existing user store, and it is the only one of the six where CEDAR's own code, not
-  just a pin, decides how far the server can go. What that amounts to is measured below. Rehearse each
-  on a copy of production data and gate on the end-to-end smoke.
-
-  Containerizing the production data stores needs each image pin moved up to the version already
-  running, because an older engine cannot open existing data files, so this item unblocks the
-  persistence migration tracked in the Docker roadmap. MySQL is the real decision left among the
-  data stores; Keycloak is its own piece of work.
-
-  **What actually holds Keycloak at 22.** Measured 2026-08-08 against Maven Central and the code, and
-  it is one thing rather than the four this item used to list. The estate runs server 22.0.5 native
-  and 22.0.4 in the image, `cedar-parent` sets `keycloak.version` to 22.0.4, and the current Keycloak
-  is **26.7.1**.
-
-  - **The blocker is `keycloak-adapter-core`,** the legacy Java OIDC adapter, whose last release is
-    **25.0.3 in August 2024**. CEDAR uses it in exactly three files in
-    `cedar-auth-operations-keycloak-library`: `KeycloakDeploymentProvider` builds an `AdapterConfig`
-    into a `KeycloakDeployment`, `KeycloakUtils` makes a single
-    `AdapterTokenVerifier.verifyToken(token, deployment)` call, and
-    `AuthorizationKeycloakAndApiKeyResolver` passes the deployment along. Every server builds one of
-    these in the shared bootstrap, so this is the bearer-token path for all fifteen.
-
-    The replacement stays inside Keycloak's own supported artifacts: `TokenVerifier`,
-    `RSATokenVerifier` and `JWKSUtils` are all present in `keycloak-core` 26.7.1. What the adapter
-    supplied for free, and what would have to be written, is the rotating public-key locator and the
-    HTTP client that fetches the realm's JWKS. That is the whole of the work, and it is small.
-
-  - **`keycloak-admin-client-jakarta` is not a blocker,** which is how this item read before it was
-    checked. It stopped at 21.1.2 because it was a transitional variant, not because it was abandoned:
-    from Keycloak 22 the main `keycloak-admin-client` is itself Jakarta-based, and it is published at
-    26.0.12. This is a coordinate change.
-
-  - **The event listener is not a blocker either.** `EventListenerProvider.onEvent(AdminEvent,
-    boolean)` — the signature `cedar-keycloak-event-listener` overrides — still exists verbatim in
-    26.7.1, and `keycloak-server-spi`, `keycloak-server-spi-private` and `keycloak-services` all
-    publish at that version. Its imports are the stable event and model SPI throughout.
-
-  - **The theme is small rather than structural.** `cedar-03` is a login theme with `parent=keycloak`
-    that overrides two FreeMarker templates, `login.ftl` and `template.ftl`, plus a stylesheet and
-    three images. The stock login theme was superseded by `keycloak.v2` in 24, so those two templates
-    need re-porting against the new base. Two files, not a theme.
-
-  Two routes follow. The clean one moves the server to 26.7.1 and replaces the adapter usage in the
-  same step. The other moves the server first and keeps the 25.0.3 adapter, betting that token
-  verification is plain OIDC over JWKS and will keep working against a 26 realm. It probably would.
-  It is also exactly the shape of the 2.19-client-against-1.3.6-server pairing this estate carried in
-  Docker for years and was right to be uneasy about, on a library that has had no release since 2024.
-
-  One thing still to confirm: the Java floor of the 26.x **server** distribution. It is not a
-  client-side question — `keycloak-core` 26.7.1 is Java 8 bytecode and imposes nothing — and the
-  Keycloak image installs `java-17-openjdk-headless` unpinned. Worth settling alongside this, since
-  the reason the estate pins Java 17 at all is that newer JDKs crash *this* Keycloak on the removed
-  security manager. Moving Keycloak forward is the thing most likely to retire that constraint.
-
-  The four that are done moved in development only, where the pin move and the containerization were
-  one piece of work per store. Production is the part this item still owns: the same versions, but
-  rehearsed on a copy of production data and gated on the end-to-end smoke. Where the order above and
-  the Docker roadmap disagree, the Docker roadmap governs, since it sequences the remaining work.
-
-- **8. Decide whether the schema server should exist.** Its entire HTTP surface is an index page, but
-  it still inherits the full microservice bootstrap: a Neo4j user service, Keycloak token
-  verification, and the persistent Redis application-log queue. That costs an application process,
-  an image, a CI build, a deployment and infrastructure connections in every environment without
-  serving a schema API.
-
-  Either retire the service and remove it from the native and Docker estates, or record the role it
-  is reserved for and give it a deliberately minimal bootstrap that does not initialize dependencies
-  its index page never uses. Whichever route is chosen must update the service inventory, health and
-  smoke expectations, build train, Compose projects and deployment documentation together.
-
-- **9. Move the build and runtime to Java 21.** The stack is locked to Java 17 — the zsh profile pins it
-  and the build enforces it. 21 is the next LTS and the natural target, but the lock exists for a
-  reason: newer JDKs (23/25) crash Keycloak (`getSubject … security manager`) and OpenSearch will not
-  start under them. So this is not a blind bump — verify Keycloak and OpenSearch run on 21 first, then
-  move the toolchain, the profile pins, and the build enforcement together, gated on the end-to-end
-  smoke. Low urgency while 17 is supported; parked at the end of the list for that reason.
-
-  **Tighten the pins as part of it, because there are three of them and they disagree.** The estate
-  pins Java in three places at three different strengths, and nothing compares them:
-
-  - the **build JVM**, `[17,18)` in `cedar-parent`'s enforcer — major only;
-  - **CI**, `distribution: temurin` with `java-version: "17"` — major only, so whatever 17 the
-    runner has that week;
-  - the **CEDAR runtime JRE**, `eclipse-temurin:17.0.8_7-jre-ubi9-minimal` — exact, to the build
-    number, and the most precisely pinned thing in the estate;
-  - **Keycloak's own JVM**, `dnf install java-17-openjdk-headless` in its image — major only, and a
-    different vendor from everything else.
-
-  So the thing that runs the servers is pinned harder than the thing that compiles them, which is
-  backwards. Measured 2026-08-09 while adding the Maven wrapper: the build JVM on this machine is
-  **Oracle 17.0.14** against a runtime image on **Temurin 17.0.8_7** — a different vendor, six
-  patches apart, and both are "17" as far as every check in the estate is concerned.
-
-  Moving to 21 touches all four, so it is the natural moment to make them agree rather than merely
-  move together: pin the enforcer and CI to the same exact version the runtime image ships, and give
-  Keycloak's JVM the same treatment when its own upgrade lands. Maven is no longer part of this
-  problem — every Java repository now carries a wrapper at 3.9.14 and CI invokes `./mvnw` — except
-  inside the build images, which still `microdnf -y install maven` unversioned.
-
-- **10. Move the server framework to Dropwizard 5 / Jetty 12 / Jakarta EE 10.** The current
-  Dropwizard 4.0.17 baseline holds every server on Jetty 11.0.26, Jersey 3.0.18 and Hibernate
-  6.1.7.Final. Jetty 11 and Hibernate 6.1 are both end-of-life upstream lines, so pinning their last
-  releases does not restore community security maintenance. Dropwizard 5 is the coordinated escape:
-  its supported bundle moves to Jetty 12, Jersey 3.1, Hibernate 6.6 and the Jakarta EE 10 APIs.
-
-  Treat this as a framework migration, not part of the Java 21 item above. Dropwizard 5 still runs on
-  Java 17, while the EE10 move changes servlet artifacts, Jetty handlers, Hibernate behavior and the
-  BOM versions currently overridden in `cedar-parent`. Inventory direct Jetty/Jersey/Hibernate and
-  Jakarta API usage first; move the parent and shared libraries as one converged set; then rebuild all
-  server reactors, boot every shaded application, run the JUnit and REST estates, and compare the
-  dependency trees and shaded contents for mixed EE9/EE10 artifacts. Remove parent overrides that
-  merely hold the old Dropwizard bundle together rather than carrying them forward by default.
-
-  The acceptance gate is all fifteen servers starting on the new bundle with no split Jakarta API,
-  Jetty 11, Jersey 3.0 or Hibernate 6.1 artifacts left in their runtime jars, followed by the real-stack
-  smoke. Until this lands, record Jetty 11 and Hibernate 6.1 as explicitly accepted EOL dependencies in
-  release review and check upstream/security advisories for each release instead of describing the
-  current pins as a maintained baseline.
-
-- **11. Prove secure Keycloak TLS in every deployed environment.** This was a code vulnerability, not
-  merely a future truststore configuration task: the bearer-token client disabled certificate and
-  hostname checks while fetching signing keys, and the admin client sent the CEDAR administrator
-  password through a trust-all manager. Both clients now default to JVM certificate and hostname
-  verification, with only an explicit native-development flag able to restore the bypass. The
-  remaining deployment gate is to confirm that staging and production leave
-  `CEDAR_KEYCLOAK_ALLOW_INSECURE_TLS` absent or `false`, trust the Keycloak issuer CA, and pass both a
-  JWKS-backed token verification and a read-only admin operation. Never solve a failed trust check by
-  enabling the development flag.
-
-- **12. Rotate the Keycloak providers in every realm the leaked seed reached.** The 2023-07-05
-  development realm export carried its RSA token-signing key, HS256 secret and AES secret, and both
-  committed copies sat in public repositories, so those providers must be treated as publicly known.
-  Stripping the seed (done, with guard tests and a CI workflow in both repositories) protects only
-  realms created after it: Keycloak stores providers in MySQL, so every realm that ever imported the
-  old seed — production, staging, and long-lived local stacks alike — still signs tokens with the
-  exposed key, and a token it "verifies" proves nothing. In each such realm, create fresh signing,
-  HMAC and AES providers, delete the imported ones, and only then treat the installation as trusted;
-  rotation invalidates outstanding tokens, so users sign in again. The keys also remain recoverable
-  from git history, which is why rotation, not the strip, is the fix. Done when every deployed
-  realm's providers postdate 2026-08-26 and the production deployment runbook's pre-flight carries
-  the check.
-
-- **13. Stop using the hardcoded BioPortal key.** `Constants.BP_PUBLIC_API_KEY` in
-  `cedar-terminology-server` holds a literal BioPortal key, and `Cache` sends it on the four calls
-  that populate the ontology and value-set caches (`findOntology` twice, `findAllOntologies`,
-  `findAllValueSets`). Those are the server's own calls rather than calls made for a signed-in user,
-  so production runs on that key at every start and every cache refresh. The configured path already
-  exists and is used elsewhere: `CEDAR_BIOPORTAL_API_KEY` reaches `BioPortal.getApiKey()` through
-  `cedar-main.yml`. Read the key from there and delete the constant. `Cache` is static, so the
-  configuration has to be threaded in, which is why this belongs to the terminology rewrite rather
-  than ahead of it.
-
-  BioPortal does not offer regeneration for this key, so rotation is not an actionable code or
-  operations step. Treat the existing value as a fixed exposed credential: remove it from source,
-  supply it only through deployment configuration, and avoid multiplying copies. Replacing it would
-  require external coordination with BioPortal rather than another CEDAR endpoint. BioPortal
-  rate-limits per key, and a burnt quota surfaces to users as controlled terms silently not existing,
-  because the picker latches its empty cache for the life of the page: the same defect as the
-  now-fixed term-picker ontology-list failure.
-
-  The *safety* half of this is now done, on both `develop` and the `versioned-terminology-server`
-  branch: a cold or rate-limited fetch that returns a handful of ontologies instead of the full ~1300
-  is caught rather than served. `Cache.getOntologies()` treats a list below `MIN_EXPECTED_ONTOLOGIES`
-  as a failed load and throws, and `TerminologyServerHealthCheck` now probes the list and reports the
-  server unhealthy until it loads fully (it was a `2*2==5` placeholder that always passed). So a
-  degraded key no longer silently serves a partial catalogue with names collapsed to acronyms
-  ("DOID (DOID)" instead of "Human Disease Ontology (DOID)") behind a green health check. What remains
-  here is the code-owned cause: read `CEDAR_BIOPORTAL_API_KEY` from config and delete the constant.
-
-- **14. Separate CEDAR dependency convergence from the Keycloak provider platform lock.** The eleven
-  apparent test-classpath splits are not eleven candidates for one global version. Re-measuring all
-  thirty Maven roots divides them into three different problems, and blindly managing the newer side
-  in `cedar-parent` would make the Keycloak event listener compile against libraries its server does
-  not provide.
-
-  - **One is a real CEDAR classpath conflict:** `commons-collections4`. POI selects 4.5.0 on the
-    application classpath while MariaDB4j's test tooling requests 4.4 through `ch.vorburger.exec`.
-    The applications already run and test with 4.5.0 winning, so manage 4.5.0 for the ordinary CEDAR
-    runtime once the event-listener exception below is in place.
-  - **Five are unused admin-tool baggage:** `resteasy-jaxb-provider`,
-    `resteasy-multipart-provider` and the three `apache-mime4j` artifacts. They reach
-    `cedar-admin-tool` only through its direct `keycloak-admin-client-jakarta` dependency. CEDAR uses
-    the JSON provider, and `cedar-auth-operations-keycloak-library` already excludes the same two
-    RESTEasy providers for that reason. Put those exclusions on the admin tool's direct dependency;
-    Mime4j leaves with the multipart provider, and none of the five needs a CEDAR-wide pin.
-  - **The rest belong to a different runtime:** `checker-qual`, `jaxb-core`, `txw2`,
-    `jackson-dataformat-cbor`, `jakarta.transaction-api` and the event listener's copy of
-    `commons-collections4` are all `provided` transitives of `keycloak-services:22.0.4`. They are
-    supplied by the Keycloak process and must follow its platform, not Dropwizard, Hibernate,
-    OpenSearch or POI. The same is true of Keycloak's RESTEasy and Mime4j versions after their unused
-    admin-tool path is removed.
-
-  The event-listener POM currently inherits `cedar-parent` but does not import Keycloak's dependency
-  management. Keycloak's server-extension guide requires an import of `keycloak-parent` at the server
-  version. That import changes three of the raw transitive values recorded above to the versions the
-  Keycloak 22.0.4 platform actually manages: `checker-qual` 3.34.0, JAXB 4.0.3 and CBOR 2.15.2.
-  Comparing the listener's current compile tree with an isolated Keycloak-managed provider found 28
-  common artifacts at different versions, including Jackson 2.18.3 versus Keycloak's 2.15.2. This is
-  a real provider contract gap, not ordinary dependency drift.
-
-  Importing `keycloak-parent` is necessary but not sufficient: direct entries inherited from
-  `cedar-parent` beat versions supplied by an imported POM. Keep the CEDAR parent for the repository's
-  shared build and release machinery, import the Keycloak parent, and add child-level overrides for
-  the overlapping `provided` artifacts so the resulting tree matches the Keycloak 22 platform. Keep
-  that exception local to `cedar-keycloak-event-listener`; do not weaken dependency management for the
-  other Java repositories.
-
-  Gate the change at all three boundaries: dependency trees must show the managed CEDAR versions, the
-  admin tool must contain none of the unused provider stack, and the event listener must match the
-  Keycloak platform. Run the whole estate's 7,814 tests, package the listener, boot Keycloak with it
-  installed and trigger one event, then exercise one read-only admin-tool Keycloak operation. The
-  last two remain integration gates even though the admin TLS construction and the listener's event
-  selection, callback payload and authorization header now have focused tests: a unit test cannot
-  prove that Keycloak loads the packaged provider or that a deployed admin operation reaches the
-  configured realm.
-
-- **15. Retire routine `CEDAR_VERSION_MODIFIER` cache busting.** Frontend code identity now comes
-  from the source commit in the three AngularJS RequireJS keys and from content-hashed production
-  bundles in the modern Angular applications. A deployment should not need a hand-edited modifier
-  merely to make a new code revision visible. Keep the variable temporarily as a compatibility
-  escape hatch for two materially different cached payloads built from the same source commit, not
-  as a release counter.
-
-  Audit every producer and consumer before deleting or clearing it: profile and environment files,
-  cedar-cli build/version reporting, the three Gulp applications, native split-payload tooling,
-  Docker entrypoints, release/deployment scripts, and operational documentation. Classify each use
-  as source identity, genuine same-commit payload identity, display-only version metadata, or dead
-  compatibility behavior. Remove routine deploy-time bumps and any check that treats a changed
-  modifier as evidence that new code is live. If no cached asset can legitimately differ while its
-  source commit stays fixed, remove the variable completely; otherwise retain the narrowly named
-  override and add a test proving the exact same-commit case it serves.
-
-  Make the production transition once, deliberately. Rehearse it in staging, clear or freeze the
-  old modifier, rebuild every frontend from recorded commits, deploy the canonical nginx policy,
-  and purge entry/config objects that may still carry the former headers. Verify that entry and
-  runtime configuration are `no-store`, stable fallback assets revalidate, hashed assets are
-  immutable, and every served build identity matches the accepted commit. Then use a browser that
-  previously loaded the old payload to open, modify, save, reload, and save an existing instance;
-  this must exercise the GET ETag and subsequent `If-Match` update rather than merely prove that the
-  dashboard renders. The item is complete after two consecutive code deployments require no manual
-  cache token, the cache-delivery smoke passes in staging and production, and rollback works by
-  restoring payloads and routing without inventing a new modifier.
-
-## Testing
-
-Coverage and test-infrastructure work. The active REST integration suites live in
-`ops/e2e/rest/suites/`; the JUnit matrices and boot-smoke live in the per-server modules.
-
-- **16. Switch the extracted Workspace and Template Designer over in staging, then production.**
+- **7. Switch the extracted Workspace and Template Designer over in staging, then production.**
   Local coexistence is complete: the monolith remains on `cedar.metadatacenter.orgx`, Workspace and
   Designer run on their own trusted HTTPS origins, Keycloak SSO spans them, the provenance gate
   passes, and the complete Workspace → Designer → CEE → OpenView authenticated journey passes
@@ -603,6 +344,260 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   has passed the same gates, the soak closes without a rollback trigger, and the ordinary deployment
   and CEE release procedures build Workspace as a first-class target rather than a migration exception.
 
+### Infrastructure
+
+- **8. Upgrade the persistence and infrastructure servers.** These versions are pinned in the Docker
+  build manifest, while the client libraries have moved on. The
+  [Docker roadmap](./DOCKER-ROADMAP.md) owns the shared build and deployment lock; this item owns the
+  remaining server upgrades. Order them by risk, lowest first:
+  Five are **done** on 2026-08-08, each taken together with containerizing that store: Redis
+  6.2.7 → 7.2.7, OpenSearch 1.3.6 → 2.19.1, Mongo 5.0.14 → 5.0.31, Neo4j 5.3.0 → 5.26.0 and MySQL
+  8.0.32 → 8.4.11, the last of those also moving off Oracle's abandoned `mysql/mysql-server` base
+  onto the Docker Official image. **Keycloak is the exception and is still at 22**, held there by
+  CEDAR's own code rather than by this lock: it runs a forward-only Liquibase schema
+  migration on the existing user store, and it is the only one of the six where CEDAR's own code, not
+  just a pin, decides how far the server can go. What that amounts to is measured below. Rehearse each
+  on a copy of production data and gate on the end-to-end smoke.
+
+  Containerizing the production data stores needs each image pin moved up to the version already
+  running, because an older engine cannot open existing data files, so this item unblocks the
+  persistence migration tracked in the Docker roadmap. MySQL is the real decision left among the
+  data stores; Keycloak is its own piece of work.
+
+  **What actually holds Keycloak at 22.** Measured 2026-08-08 against Maven Central and the code, and
+  it is one thing rather than the four this item used to list. The estate runs server 22.0.5 native
+  and 22.0.4 in the image, `cedar-parent` sets `keycloak.version` to 22.0.4, and the current Keycloak
+  is **26.7.1**.
+
+  - **The blocker is `keycloak-adapter-core`,** the legacy Java OIDC adapter, whose last release is
+    **25.0.3 in August 2024**. CEDAR uses it in exactly three files in
+    `cedar-auth-operations-keycloak-library`: `KeycloakDeploymentProvider` builds an `AdapterConfig`
+    into a `KeycloakDeployment`, `KeycloakUtils` makes a single
+    `AdapterTokenVerifier.verifyToken(token, deployment)` call, and
+    `AuthorizationKeycloakAndApiKeyResolver` passes the deployment along. Every server builds one of
+    these in the shared bootstrap, so this is the bearer-token path for all fifteen.
+
+    The replacement stays inside Keycloak's own supported artifacts: `TokenVerifier`,
+    `RSATokenVerifier` and `JWKSUtils` are all present in `keycloak-core` 26.7.1. What the adapter
+    supplied for free, and what would have to be written, is the rotating public-key locator and the
+    HTTP client that fetches the realm's JWKS. That is the whole of the work, and it is small.
+
+  - **`keycloak-admin-client-jakarta` is not a blocker,** which is how this item read before it was
+    checked. It stopped at 21.1.2 because it was a transitional variant, not because it was abandoned:
+    from Keycloak 22 the main `keycloak-admin-client` is itself Jakarta-based, and it is published at
+    26.0.12. This is a coordinate change.
+
+  - **The event listener is not a blocker either.** `EventListenerProvider.onEvent(AdminEvent,
+    boolean)` — the signature `cedar-keycloak-event-listener` overrides — still exists verbatim in
+    26.7.1, and `keycloak-server-spi`, `keycloak-server-spi-private` and `keycloak-services` all
+    publish at that version. Its imports are the stable event and model SPI throughout.
+
+  - **The theme is small rather than structural.** `cedar-03` is a login theme with `parent=keycloak`
+    that overrides two FreeMarker templates, `login.ftl` and `template.ftl`, plus a stylesheet and
+    three images. The stock login theme was superseded by `keycloak.v2` in 24, so those two templates
+    need re-porting against the new base. Two files, not a theme.
+
+  Two routes follow. The clean one moves the server to 26.7.1 and replaces the adapter usage in the
+  same step. The other moves the server first and keeps the 25.0.3 adapter, betting that token
+  verification is plain OIDC over JWKS and will keep working against a 26 realm. It probably would.
+  It is also exactly the shape of the 2.19-client-against-1.3.6-server pairing this estate carried in
+  Docker for years and was right to be uneasy about, on a library that has had no release since 2024.
+
+  One thing still to confirm: the Java floor of the 26.x **server** distribution. It is not a
+  client-side question — `keycloak-core` 26.7.1 is Java 8 bytecode and imposes nothing — and the
+  Keycloak image installs `java-17-openjdk-headless` unpinned. Worth settling alongside this, since
+  the reason the estate pins Java 17 at all is that newer JDKs crash *this* Keycloak on the removed
+  security manager. Moving Keycloak forward is the thing most likely to retire that constraint.
+
+  The four that are done moved in development only, where the pin move and the containerization were
+  one piece of work per store. Production is the part this item still owns: the same versions, but
+  rehearsed on a copy of production data and gated on the end-to-end smoke. Where the order above and
+  the Docker roadmap disagree, the Docker roadmap governs, since it sequences the remaining work.
+
+- **9. Decide whether the schema server should exist.** Its entire HTTP surface is an index page, but
+  it still inherits the full microservice bootstrap: a Neo4j user service, Keycloak token
+  verification, and the persistent Redis application-log queue. That costs an application process,
+  an image, a CI build, a deployment and infrastructure connections in every environment without
+  serving a schema API.
+
+  Either retire the service and remove it from the native and Docker estates, or record the role it
+  is reserved for and give it a deliberately minimal bootstrap that does not initialize dependencies
+  its index page never uses. Whichever route is chosen must update the service inventory, health and
+  smoke expectations, build train, Compose projects and deployment documentation together.
+
+- **10. Move the build and runtime to Java 21.** The stack is locked to Java 17 — the zsh profile pins it
+  and the build enforces it. 21 is the next LTS and the natural target, but the lock exists for a
+  reason: newer JDKs (23/25) crash Keycloak (`getSubject … security manager`) and OpenSearch will not
+  start under them. So this is not a blind bump — verify Keycloak and OpenSearch run on 21 first, then
+  move the toolchain, the profile pins, and the build enforcement together, gated on the end-to-end
+  smoke. Low urgency while 17 is supported; parked at the end of the list for that reason.
+
+  **Tighten the pins as part of it, because there are three of them and they disagree.** The estate
+  pins Java in three places at three different strengths, and nothing compares them:
+
+  - the **build JVM**, `[17,18)` in `cedar-parent`'s enforcer — major only;
+  - **CI**, `distribution: temurin` with `java-version: "17"` — major only, so whatever 17 the
+    runner has that week;
+  - the **CEDAR runtime JRE**, `eclipse-temurin:17.0.8_7-jre-ubi9-minimal` — exact, to the build
+    number, and the most precisely pinned thing in the estate;
+  - **Keycloak's own JVM**, `dnf install java-17-openjdk-headless` in its image — major only, and a
+    different vendor from everything else.
+
+  So the thing that runs the servers is pinned harder than the thing that compiles them, which is
+  backwards. Measured 2026-08-09 while adding the Maven wrapper: the build JVM on this machine is
+  **Oracle 17.0.14** against a runtime image on **Temurin 17.0.8_7** — a different vendor, six
+  patches apart, and both are "17" as far as every check in the estate is concerned.
+
+  Moving to 21 touches all four, so it is the natural moment to make them agree rather than merely
+  move together: pin the enforcer and CI to the same exact version the runtime image ships, and give
+  Keycloak's JVM the same treatment when its own upgrade lands. Maven is no longer part of this
+  problem — every Java repository now carries a wrapper at 3.9.14 and CI invokes `./mvnw` — except
+  inside the build images, which still `microdnf -y install maven` unversioned.
+
+- **11. Move the server framework to Dropwizard 5 / Jetty 12 / Jakarta EE 10.** The current
+  Dropwizard 4.0.17 baseline holds every server on Jetty 11.0.26, Jersey 3.0.18 and Hibernate
+  6.1.7.Final. Jetty 11 and Hibernate 6.1 are both end-of-life upstream lines, so pinning their last
+  releases does not restore community security maintenance. Dropwizard 5 is the coordinated escape:
+  its supported bundle moves to Jetty 12, Jersey 3.1, Hibernate 6.6 and the Jakarta EE 10 APIs.
+
+  Treat this as a framework migration, not part of the Java 21 item above. Dropwizard 5 still runs on
+  Java 17, while the EE10 move changes servlet artifacts, Jetty handlers, Hibernate behavior and the
+  BOM versions currently overridden in `cedar-parent`. Inventory direct Jetty/Jersey/Hibernate and
+  Jakarta API usage first; move the parent and shared libraries as one converged set; then rebuild all
+  server reactors, boot every shaded application, run the JUnit and REST estates, and compare the
+  dependency trees and shaded contents for mixed EE9/EE10 artifacts. Remove parent overrides that
+  merely hold the old Dropwizard bundle together rather than carrying them forward by default.
+
+  The acceptance gate is all fifteen servers starting on the new bundle with no split Jakarta API,
+  Jetty 11, Jersey 3.0 or Hibernate 6.1 artifacts left in their runtime jars, followed by the real-stack
+  smoke. Until this lands, record Jetty 11 and Hibernate 6.1 as explicitly accepted EOL dependencies in
+  release review and check upstream/security advisories for each release instead of describing the
+  current pins as a maintained baseline.
+
+- **12. Prove secure Keycloak TLS in every deployed environment.** This was a code vulnerability, not
+  merely a future truststore configuration task: the bearer-token client disabled certificate and
+  hostname checks while fetching signing keys, and the admin client sent the CEDAR administrator
+  password through a trust-all manager. Both clients now default to JVM certificate and hostname
+  verification, with only an explicit native-development flag able to restore the bypass. The
+  remaining deployment gate is to confirm that staging and production leave
+  `CEDAR_KEYCLOAK_ALLOW_INSECURE_TLS` absent or `false`, trust the Keycloak issuer CA, and pass both a
+  JWKS-backed token verification and a read-only admin operation. Never solve a failed trust check by
+  enabling the development flag.
+
+- **13. Rotate the Keycloak providers in every realm the leaked seed reached.** The 2023-07-05
+  development realm export carried its RSA token-signing key, HS256 secret and AES secret, and both
+  committed copies sat in public repositories, so those providers must be treated as publicly known.
+  Stripping the seed (done, with guard tests and a CI workflow in both repositories) protects only
+  realms created after it: Keycloak stores providers in MySQL, so every realm that ever imported the
+  old seed — production, staging, and long-lived local stacks alike — still signs tokens with the
+  exposed key, and a token it "verifies" proves nothing. In each such realm, create fresh signing,
+  HMAC and AES providers, delete the imported ones, and only then treat the installation as trusted;
+  rotation invalidates outstanding tokens, so users sign in again. The keys also remain recoverable
+  from git history, which is why rotation, not the strip, is the fix. Done when every deployed
+  realm's providers postdate 2026-08-26 and the production deployment runbook's pre-flight carries
+  the check.
+
+- **14. Stop using the hardcoded BioPortal key.** `Constants.BP_PUBLIC_API_KEY` in
+  `cedar-terminology-server` holds a literal BioPortal key, and `Cache` sends it on the four calls
+  that populate the ontology and value-set caches (`findOntology` twice, `findAllOntologies`,
+  `findAllValueSets`). Those are the server's own calls rather than calls made for a signed-in user,
+  so production runs on that key at every start and every cache refresh. The configured path already
+  exists and is used elsewhere: `CEDAR_BIOPORTAL_API_KEY` reaches `BioPortal.getApiKey()` through
+  `cedar-main.yml`. Read the key from there and delete the constant. `Cache` is static, so the
+  configuration has to be threaded in, which is why this belongs to the terminology rewrite rather
+  than ahead of it.
+
+  BioPortal does not offer regeneration for this key, so rotation is not an actionable code or
+  operations step. Treat the existing value as a fixed exposed credential: remove it from source,
+  supply it only through deployment configuration, and avoid multiplying copies. Replacing it would
+  require external coordination with BioPortal rather than another CEDAR endpoint. BioPortal
+  rate-limits per key, and a burnt quota surfaces to users as controlled terms silently not existing,
+  because the picker latches its empty cache for the life of the page: the same defect as the
+  now-fixed term-picker ontology-list failure.
+
+  The *safety* half of this is now done, on both `develop` and the `versioned-terminology-server`
+  branch: a cold or rate-limited fetch that returns a handful of ontologies instead of the full ~1300
+  is caught rather than served. `Cache.getOntologies()` treats a list below `MIN_EXPECTED_ONTOLOGIES`
+  as a failed load and throws, and `TerminologyServerHealthCheck` now probes the list and reports the
+  server unhealthy until it loads fully (it was a `2*2==5` placeholder that always passed). So a
+  degraded key no longer silently serves a partial catalogue with names collapsed to acronyms
+  ("DOID (DOID)" instead of "Human Disease Ontology (DOID)") behind a green health check. What remains
+  here is the code-owned cause: read `CEDAR_BIOPORTAL_API_KEY` from config and delete the constant.
+
+- **15. Separate CEDAR dependency convergence from the Keycloak provider platform lock.** The eleven
+  apparent test-classpath splits are not eleven candidates for one global version. Re-measuring all
+  thirty Maven roots divides them into three different problems, and blindly managing the newer side
+  in `cedar-parent` would make the Keycloak event listener compile against libraries its server does
+  not provide.
+
+  - **One is a real CEDAR classpath conflict:** `commons-collections4`. POI selects 4.5.0 on the
+    application classpath while MariaDB4j's test tooling requests 4.4 through `ch.vorburger.exec`.
+    The applications already run and test with 4.5.0 winning, so manage 4.5.0 for the ordinary CEDAR
+    runtime once the event-listener exception below is in place.
+  - **Five are unused admin-tool baggage:** `resteasy-jaxb-provider`,
+    `resteasy-multipart-provider` and the three `apache-mime4j` artifacts. They reach
+    `cedar-admin-tool` only through its direct `keycloak-admin-client-jakarta` dependency. CEDAR uses
+    the JSON provider, and `cedar-auth-operations-keycloak-library` already excludes the same two
+    RESTEasy providers for that reason. Put those exclusions on the admin tool's direct dependency;
+    Mime4j leaves with the multipart provider, and none of the five needs a CEDAR-wide pin.
+  - **The rest belong to a different runtime:** `checker-qual`, `jaxb-core`, `txw2`,
+    `jackson-dataformat-cbor`, `jakarta.transaction-api` and the event listener's copy of
+    `commons-collections4` are all `provided` transitives of `keycloak-services:22.0.4`. They are
+    supplied by the Keycloak process and must follow its platform, not Dropwizard, Hibernate,
+    OpenSearch or POI. The same is true of Keycloak's RESTEasy and Mime4j versions after their unused
+    admin-tool path is removed.
+
+  The event-listener POM currently inherits `cedar-parent` but does not import Keycloak's dependency
+  management. Keycloak's server-extension guide requires an import of `keycloak-parent` at the server
+  version. That import changes three of the raw transitive values recorded above to the versions the
+  Keycloak 22.0.4 platform actually manages: `checker-qual` 3.34.0, JAXB 4.0.3 and CBOR 2.15.2.
+  Comparing the listener's current compile tree with an isolated Keycloak-managed provider found 28
+  common artifacts at different versions, including Jackson 2.18.3 versus Keycloak's 2.15.2. This is
+  a real provider contract gap, not ordinary dependency drift.
+
+  Importing `keycloak-parent` is necessary but not sufficient: direct entries inherited from
+  `cedar-parent` beat versions supplied by an imported POM. Keep the CEDAR parent for the repository's
+  shared build and release machinery, import the Keycloak parent, and add child-level overrides for
+  the overlapping `provided` artifacts so the resulting tree matches the Keycloak 22 platform. Keep
+  that exception local to `cedar-keycloak-event-listener`; do not weaken dependency management for the
+  other Java repositories.
+
+  Gate the change at all three boundaries: dependency trees must show the managed CEDAR versions, the
+  admin tool must contain none of the unused provider stack, and the event listener must match the
+  Keycloak platform. Run the whole estate's 7,814 tests, package the listener, boot Keycloak with it
+  installed and trigger one event, then exercise one read-only admin-tool Keycloak operation. The
+  last two remain integration gates even though the admin TLS construction and the listener's event
+  selection, callback payload and authorization header now have focused tests: a unit test cannot
+  prove that Keycloak loads the packaged provider or that a deployed admin operation reaches the
+  configured realm.
+
+- **16. Retire routine `CEDAR_VERSION_MODIFIER` cache busting.** Frontend code identity now comes
+  from the source commit in the three AngularJS RequireJS keys and from content-hashed production
+  bundles in the modern Angular applications. A deployment should not need a hand-edited modifier
+  merely to make a new code revision visible. Keep the variable temporarily as a compatibility
+  escape hatch for two materially different cached payloads built from the same source commit, not
+  as a release counter.
+
+  Audit every producer and consumer before deleting or clearing it: profile and environment files,
+  cedar-cli build/version reporting, the three Gulp applications, native split-payload tooling,
+  Docker entrypoints, release/deployment scripts, and operational documentation. Classify each use
+  as source identity, genuine same-commit payload identity, display-only version metadata, or dead
+  compatibility behavior. Remove routine deploy-time bumps and any check that treats a changed
+  modifier as evidence that new code is live. If no cached asset can legitimately differ while its
+  source commit stays fixed, remove the variable completely; otherwise retain the narrowly named
+  override and add a test proving the exact same-commit case it serves.
+
+  Make the production transition once, deliberately. Rehearse it in staging, clear or freeze the
+  old modifier, rebuild every frontend from recorded commits, deploy the canonical nginx policy,
+  and purge entry/config objects that may still carry the former headers. Verify that entry and
+  runtime configuration are `no-store`, stable fallback assets revalidate, hashed assets are
+  immutable, and every served build identity matches the accepted commit. Then use a browser that
+  previously loaded the old payload to open, modify, save, reload, and save an existing instance;
+  this must exercise the GET ETag and subsequent `If-Match` update rather than merely prove that the
+  dashboard renders. The item is complete after two consecutive code deployments require no manual
+  cache token, the cache-delivery smoke passes in staging and production, and rollback works by
+  restoring payloads and routing without inventing a new modifier.
+
 ## Production data
 
 - **17. Repair the production schema artifacts that can reject correctly shaped CEE instances.** The
@@ -681,28 +676,3 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   ride on this one. Background work with no deadline of its own. Its value lands at the terminology
   cutover, which means it has to be finished before a second source system is served, not before
   anything else.
-
-## Documentation consolidation
-
-- **19. Decide whether to retire `cedar-mkdocs-developer`.** Its current release and production
-  deployment pages now point to the maintained runbooks in `cedar-development/ops`, and its generated
-  `site/` tree is no longer versioned. What remains potentially unique is a small set of Neo4j
-  diagnostic and repair recipes, cron-job notes, user/domain/certificate maintenance procedures, and
-  the explicitly labelled 2019–2023 archive. That material is useful, but a standalone documentation
-  repository is not automatically the right permanent owner for it.
-
-  Start with an ownership and consumer inventory: check repository and Read the Docs settings, inbound
-  links, search indexing, release/deployment references, and any team workflow that still edits or
-  serves this site. Classify every non-archived page as live, superseded, or historical. Move live
-  operational knowledge beside the tooling it describes: cross-cutting runbooks and Neo4j repair
-  procedures into `cedar-development/ops`, `cedar-util` cron instructions into `cedar-util`, and public
-  user/developer material into `cedar-mkdocs`. Do not copy a live procedure into two repositories.
-
-  Before retirement, decide whether the dated archive has value beyond Git history. If it does, retain
-  one clearly non-executable archive in the canonical operations documentation; otherwise rely on the
-  repository history. Then replace the repository home page with a short tombstone linking each new
-  owner, disable any stale documentation build, update inbound links, and verify that a clean search
-  finds no current instructions that still depend on the old location. Archive the GitHub repository
-  only after the operations owners approve that inventory and the migrated pages pass their ordinary
-  documentation build. If the inventory finds an active audience or a useful publication boundary,
-  keep the repository and record that decision instead of retiring it by assumption.
