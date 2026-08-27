@@ -1070,8 +1070,11 @@ TypeScript, while both emit the same bytes for it.
   # or: cedarcli build java
   ```
   (Seen unbuilt in this environment: schema, repo, submission, valuerecommender, openview, monitor.)
-  `schema` is needed for template operations; `resource`/`user`/`artifact`/`terminology`/`group` are
-  the core for login + workspace.
+  `resource`/`user`/`artifact`/`terminology`/`group` are the core for login + workspace. `schema` is
+  not needed by anything: it serves only its index page, and no service or frontend calls it — the
+  host in its name is the namespace under which property IRIs are minted, by string construction
+  alone. Whether it should exist at all is an open question on
+  [BACKEND-ROADMAP.md](./BACKEND-ROADMAP.md).
 
 - **A service starts then dies with `no main manifest attribute, in …-application.jar`** → the jar is
   a thin jar (built without the shade/assembly step), so it has no runnable `Main-Class`. Rebuild that
