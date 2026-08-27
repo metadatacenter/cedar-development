@@ -23,6 +23,10 @@ export const GROUP_SERVER = env.CEDAR_GROUP_BASE ?? `https://group.${HOST}`;
 export const ARTIFACT_SERVER = env.CEDAR_ARTIFACT_BASE
   ?? `http://${env.CEDAR_ARTIFACT_SERVER_HOST ?? 'localhost'}:${env.CEDAR_ARTIFACT_HTTP_PORT ?? '9001'}`;
 export const TERMINOLOGY = env.CEDAR_TERMINOLOGY_BASE ?? `https://terminology.${HOST}`;
+// Value Recommender has no public nginx vhost, but it does publish an OpenAPI document. As with
+// Artifact and OpenView, the REST suite reaches it through the internal address beside the stack.
+export const VALUERECOMMENDER = env.CEDAR_VALUERECOMMENDER_BASE
+  ?? `http://${env.CEDAR_VALUERECOMMENDER_SERVER_HOST ?? 'localhost'}:${env.CEDAR_VALUERECOMMENDER_HTTP_PORT ?? '9006'}`;
 // The OpenView *server*, not the OpenView frontend. `openview.${HOST}` is the AngularJS app; the API
 // has no vhost of its own, so it is addressed directly on its port.
 export const OPENVIEW = env.CEDAR_OPENVIEW_BASE
