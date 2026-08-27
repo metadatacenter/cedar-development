@@ -135,10 +135,14 @@ export async function run({ user1, homeFolderId }) {
     const move = await call(auth, 'POST', '/command/move-resource-to-folder',
         { '@id': artId, targetFolderId: destId });
     if (checkStatus(move, [200, 201, 204], 'template moved to another folder')) {
+      checkStatus(await call(auth, 'POST', '/command/move-resource-to-folder',
+          { '@id': artId, targetFolderId: destId }), [200, 201, 204],
+          'repeating the same move is accepted');
       const there = await call(auth, 'GET', `/folders/${enc(destId)}/contents`);
-      check(JSON.stringify(there.body ?? {}).includes(artName),
-          'the moved template is in the destination folder',
-          'the destination contents did not mention it');
+      const occurrences = (there.body?.resources ?? []).filter(resource => resource['@id'] === artId).length;
+      check(occurrences === 1,
+          'the moved template occurs exactly once in the destination folder',
+          `the destination folder contained ${occurrences} copies of it`);
       const gone = await call(auth, 'GET', `/folders/${enc(parentId)}/contents`);
       check(!JSON.stringify(gone.body ?? {}).includes(artName),
           'and it is no longer in the folder it came from',

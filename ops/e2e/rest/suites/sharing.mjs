@@ -21,14 +21,17 @@ export async function run({ user1, user2, homeFolderId }) {
     check(before.status >= 400, `${level}: the second user cannot reach it before sharing`,
         `expected 4xx, got ${before.status}`);
 
-    const share = await call(user1.auth, 'PUT', `${at}/permissions`, {
+    const requestedPermissions = {
       owner: { '@id': user1.profile['@id'] },
       userPermissions: [{ user: { '@id': user2.profile['@id'] }, permission: level }],
       groupPermissions: [],
-    });
+    };
+    const share = await call(user1.auth, 'PUT', `${at}/permissions`, requestedPermissions);
     if (!checkStatus(share, 200, `${level}: shared with the second user`)) continue;
+    checkStatus(await call(user1.auth, 'PUT', `${at}/permissions`, requestedPermissions), 200,
+        `${level}: repeating the same grant is accepted`);
 
-    // What the API says it did.
+    // What the API says it did. Replacing an ACL with the same document must not duplicate a grant.
     const acl = await call(user1.auth, 'GET', `${at}/permissions`);
     const grants = acl.body?.userPermissions ?? [];
     check(grants.length === 1 && grants[0]?.permission === level,
