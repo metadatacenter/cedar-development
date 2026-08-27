@@ -60,19 +60,40 @@ if [ "$REBUILD" = 1 ] || [ ! -d "$CLASSES" ] || [ ! -s "$DEPS" ]; then
 fi
 CP="$CLASSES:$TS_DIR/cedar-terminology-server-store/target/classes:$TS_DIR/cedar-terminology-server-common/target/classes:$(cat "$DEPS")"
 stamp() { date '+%Y-%m-%d %H:%M:%S'; }
-run_to() { local s=$1; shift; "$@" & local p=$!; ( sleep "$s"; kill -9 "$p" 2>/dev/null )& local k=$!; wait "$p" 2>/dev/null; local rc=$?; kill "$k" 2>/dev/null; wait "$k" 2>/dev/null; return $rc; }
+# The watchdog's own sleep is killed too (pkill -P): killing just the subshell orphans a sleep
+# that holds this script's stdout/stderr for the rest of the timeout, so any caller capturing
+# output blocks long after the run finished.
+run_to() { local s=$1; shift; "$@" & local p=$!; ( sleep "$s"; kill -9 "$p" 2>/dev/null )& local k=$!; wait "$p" 2>/dev/null; local rc=$?; pkill -P "$k" 2>/dev/null; kill "$k" 2>/dev/null; wait "$k" 2>/dev/null; return $rc; }
+
+# The restart runs from a trap, so terminology comes back even when the ingest fails or the shell
+# dies mid-run: the one unrecoverable outcome would be a script that stopped a shared service and
+# then exited without restarting it.
+STOPPED=0
+restart_terminology() {
+  if [ "$STOPPED" = 1 ] && [ "$RESTART" = 1 ]; then
+    STOPPED=0
+    echo "=== $(stamp)  START terminology ==="
+    bash "$SVC" start terminology 2>&1 | tail -2
+  fi
+}
+trap restart_terminology EXIT
 
 if [ "$STOP" = 1 ]; then
   echo "=== $(stamp)  STOP terminology (RAM-safe window) ==="
   bash "$SVC" stop terminology 2>&1 | tail -2; sleep 5
+  STOPPED=1
 fi
 
 echo "=== $(stamp)  BACKFILL LABELS FROM RAW ${ACRS:+(${#ACRS[@]} acronyms)}${ACRS:-(all ontologies)} ==="
+# ${ACRS[@]+...}: bash 3.2 under `set -u` calls an empty array unbound, exactly as in
+# backfill-releases.sh and reingest-blank-label.sh; the guarded form expands to nothing.
 run_to "$TIMEOUT" java -Xmx"$HEAP" -cp "$CP" org.metadatacenter.terms.ingest.IngestJob \
-    "$CATALOG" "$SNAP" --backfill-labels-from-raw "${ACRS[@]}"
+    "$CATALOG" "$SNAP" --backfill-labels-from-raw ${ACRS[@]+"${ACRS[@]}"}
+INGEST_RC=$?
 
-if [ "$STOP" = 1 ] && [ "$RESTART" = 1 ]; then
-  echo "=== $(stamp)  START terminology ==="
-  bash "$SVC" start terminology 2>&1 | tail -2
+restart_terminology
+if [ "$INGEST_RC" != 0 ]; then
+  echo "=== $(stamp)  FAILED (ingest exit $INGEST_RC; a timeout kill reports 137) ===" >&2
+  exit "$INGEST_RC"
 fi
 echo "=== $(stamp)  DONE ==="
