@@ -19,6 +19,8 @@ Choose the guide by task:
 - **Full-Docker and hybrid stacks:** `cedar-development/ops/DOCKER-RUNBOOK.md`
 - **Open Docker delivery work:** `cedar-development/ops/DOCKER-ROADMAP.md`
 - **Releases:** `cedar-development/ops/RELEASE-RUNBOOK.md`
+- **Public npmjs releases (TypeScript model library and CEE):**
+  `cedar-development/ops/NPMJS-RELEASE-RUNBOOK.md`
 - **Production deployment:** `cedar-development/ops/PROD-DEPLOY-RUNBOOK.md`
 
 Helper scripts are in `cedar-development/ops/`:
@@ -80,7 +82,10 @@ The backend — the microservices, the shared Java libraries, the stack itself:
 The embeddable editor (CEE) and the TypeScript model library it consumes:
 - [CEE-RUNBOOK.md](ops/CEE-RUNBOOK.md) — the Node version (one now, 24.19.0, read that first),
   running the app, the test gate and what CI runs, checking output against the CEDAR model,
-  building the model library, and cutting and publishing an npm release.
+  and building the model library.
+- [NPMJS-RELEASE-RUNBOOK.md](ops/NPMJS-RELEASE-RUNBOOK.md) — releasing the public TypeScript model
+  library and CEE packages, explicitly wiring the model into CEE, verifying the repository README
+  in each tarball, restoring both development channels, and handing CEE to a train-backed release.
 - [CEE-ROADMAP.md](ops/CEE-ROADMAP.md) — CEE's open work: what the finished Angular 14 → 22 march
   left behind, styling and theming, the host contract, plus the model library's own items and
   adoption status.
@@ -111,7 +116,8 @@ resolve terms for and store CEDAR artifacts:
 The rest:
 - [RELEASE-RUNBOOK.md](ops/RELEASE-RUNBOOK.md) — `cedarcli release all-in-one` across the ~48
   versioned repos, front and back. CEE, the TypeScript model library and three others are
-  `skip_from_release` and publish themselves.
+  `skip_from_release` and publish themselves; their public procedure is in
+  [NPMJS-RELEASE-RUNBOOK.md](ops/NPMJS-RELEASE-RUNBOOK.md).
 - [PROD-DEPLOY-RUNBOOK.md](ops/PROD-DEPLOY-RUNBOOK.md) — deploying CEDAR to production.
 - [TEMPLATE-DESIGNER-ROADMAP.md](ops/TEMPLATE-DESIGNER-ROADMAP.md) — the AngularJS Template Designer
   frontend (`cedar-template-editor`).

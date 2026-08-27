@@ -28,11 +28,13 @@ It runs **~1h50m–2h30m** (a clean run is ~1:48). It is **not atomic** — fail
 **commit** phase (git pushes) and the **publish** tail (Nexus/npm). State it writes under `~/.cedar/`:
 `last_plan_content.sh` (the full plan, written up front) and `last_release_{version,next_dev_version,tag,pre_branch,post_branch}` (the rollback handles, written during prepare).
 
-CEE releases independently and is excluded from `release all-in-one`. Publishing CEE is not complete
-operationally until its exact version has been propagated to all seven consumer manifests, including
-the extracted Workspace, and those changes are committed in their owning repositories. Follow
-[CEE-RUNBOOK.md](./CEE-RUNBOOK.md#release) and require this gate before building a staging or
-production frontend payload:
+The TypeScript model library and CEE release independently and are excluded from
+`release all-in-one`. Follow [NPMJS-RELEASE-RUNBOOK.md](./NPMJS-RELEASE-RUNBOOK.md) to choose the
+model version CEE embeds, publish both verified packages from `main`, and restore their development
+channels. Publishing CEE is not complete operationally until its exact version has been propagated
+to all seven consumer manifests, including the extracted Workspace, and those changes are committed
+in their owning repositories. Require this gate before building a staging or production frontend
+payload:
 
 ```bash
 node $CEDAR_HOME/cedar-development/ops/propagate-cee-release.mjs --check <CEE_VERSION>
