@@ -398,7 +398,20 @@ larger lifecycle refactor tracked below.
   JWKS-backed token verification and a read-only admin operation. Never solve a failed trust check by
   enabling the development flag.
 
-- **12. Stop using the hardcoded BioPortal key.** `Constants.BP_PUBLIC_API_KEY` in
+- **12. Rotate the Keycloak providers in every realm the leaked seed reached.** The 2023-07-05
+  development realm export carried its RSA token-signing key, HS256 secret and AES secret, and both
+  committed copies sat in public repositories, so those providers must be treated as publicly known.
+  Stripping the seed (done, with guard tests and a CI workflow in both repositories) protects only
+  realms created after it: Keycloak stores providers in MySQL, so every realm that ever imported the
+  old seed — production, staging, and long-lived local stacks alike — still signs tokens with the
+  exposed key, and a token it "verifies" proves nothing. In each such realm, create fresh signing,
+  HMAC and AES providers, delete the imported ones, and only then treat the installation as trusted;
+  rotation invalidates outstanding tokens, so users sign in again. The keys also remain recoverable
+  from git history, which is why rotation, not the strip, is the fix. Done when every deployed
+  realm's providers postdate 2026-08-26 and the production deployment runbook's pre-flight carries
+  the check.
+
+- **13. Stop using the hardcoded BioPortal key.** `Constants.BP_PUBLIC_API_KEY` in
   `cedar-terminology-server` holds a literal BioPortal key, and `Cache` sends it on the four calls
   that populate the ontology and value-set caches (`findOntology` twice, `findAllOntologies`,
   `findAllValueSets`). Those are the server's own calls rather than calls made for a signed-in user,
@@ -424,15 +437,6 @@ larger lifecycle refactor tracked below.
   degraded key no longer silently serves a partial catalogue with names collapsed to acronyms
   ("DOID (DOID)" instead of "Human Disease Ontology (DOID)") behind a green health check. What remains
   here is the code-owned cause: read `CEDAR_BIOPORTAL_API_KEY` from config and delete the constant.
-
-- **13. Identify API keys by a non-secret id, not the secret in the URL.** The API-key management routes
-  carry the full secret in the path — `POST /{id}/api-keys/{key}/regenerate` and
-  `DELETE /{id}/api-keys/{key}` — so the key lands in nginx access logs, request traces, monitoring and
-  browser history. The cheap leaks are already closed (the not-found error no longer echoes the key and
-  the valuerecommender reindex logs no longer print the admin key), but the URL itself still carries the
-  secret. Give each `CedarUserApiKey` a stable non-secret identifier and address keys by that id
-  (`/api-keys/{keyId}`), keeping the secret out of the path. Breaking change: cedar-cli and the profile
-  UI call these routes, so it needs a coordinated client update.
 
 - **14. Separate CEDAR dependency convergence from the Keycloak provider platform lock.** The eleven
   apparent test-classpath splits are not eleven candidates for one global version. Re-measuring all

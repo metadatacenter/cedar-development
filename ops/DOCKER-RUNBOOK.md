@@ -411,9 +411,14 @@ realm for the first time. Keep exported provider material out of both the Keyclo
 the native `os-mirror` copy; repository tests reject it in both locations.
 
 Rebuilding the image does not rotate an existing realm because Keycloak stores its providers in
-MySQL. If a database has been copied from another installation, create fresh providers in that realm
-and remove the copied providers before treating the installation as trusted. Rotating providers
-invalidates tokens signed with the previous key, so users must sign in again.
+MySQL. That matters beyond copied databases: the seed shipped before 2026-08-26 carried its RSA
+signing key, HMAC secret and AES secret in public git history, so **every realm that ever imported
+that seed — production, staging, and long-lived local stacks alike — is running on publicly known
+keys until its providers are rotated**, and a token such a realm verifies proves nothing. In each
+affected realm, create fresh providers, remove the imported ones, and only then treat the
+installation as trusted. Rotating providers invalidates tokens signed with the previous key, so
+users must sign in again. The strip alone is not the fix; the keys remain recoverable from
+history.
 
 Admin tools are optional and managed separately from the aggregate deployment:
 

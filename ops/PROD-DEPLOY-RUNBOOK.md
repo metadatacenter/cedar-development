@@ -174,6 +174,11 @@ service nginx start
 - Confirm `CEDAR_KEYCLOAK_ALLOW_INSECURE_TLS` is absent or `false`. Never use the native-development
   bypass to make a staging or production certificate failure disappear; install the Keycloak issuer
   CA in the JVM truststore and correct the hostname instead.
+- Confirm the realm's key providers postdate 2026-08-26 (Keycloak admin console → Realm settings →
+  Keys, or `kcadm.sh get keys`). The realm seed shipped before that date carried its signing key in
+  public git history, so a realm still holding providers imported from it signs tokens anyone can
+  forge; create fresh providers and delete the imported ones before deploying onto that realm. The
+  exposure and the rotation procedure are in `DOCKER-RUNBOOK.md`, "Keycloak signing keys".
 - With the restarted servers' signing-key cache cold, sign in once through `cedar-angular-app` as a
   designated non-admin acceptance user and call that user's `/users/{id}/summary` endpoint with the
   fresh bearer token. A 200 response exercises both secure paths: bearer verification fetches the
