@@ -498,26 +498,33 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   check only a status or a field or two. The next pass should go vertical: failure semantics and state
   invariants on the resource ↔ artifact path, the one hop every core operation crosses (`contract.mjs`).
 
-  In priority order:
+  Progress is now split cleanly between completed invariants and the remaining gaps:
 
-  1. **Partial multi-store failure.** Inject a failure between the artifact-store write and the Neo4j
-     graph update, for create, rename, publish, draft and delete. Assert the operation either rolls back
+  1. **Partial multi-store failure — complete.** Injected failures between the artifact-store write and the Neo4j
+     graph update for create, rename, publish, draft and delete prove the operation either rolls back
      or leaves a detectable, recoverable state — never a silently orphaned artifact, a stale graph node
      or a half-published version. This is the write-path counterpart to the completed read-path
      degradation work, which asks only that a service not 500 when a dependency is down.
-  2. **Retry and idempotency.** Repeat a write after a timeout or an ambiguous response. Publish, draft,
-     move, delete, permission change and DOI-set must not produce a duplicate version, a duplicate graph
+  2. **Retry and idempotency — complete.** Repeated writes after a timeout or an ambiguous response prove publish,
+     draft, move, delete, permission change and DOI-set do not produce a duplicate version, a duplicate graph
      node or divergent state.
-  3. **Illegal state transitions.** Republish, draft-from-draft, invalid version progressions, mutating
-     published content, deleting a published artifact, ownership transfer then versioning, and
-     freeze-on-publish when some terminology versions cannot be resolved.
-  4. **Payload boundaries.** For template, element, field and instance: malformed and minimally-valid
+  3. **Illegal state transitions — complete.** Coverage pins republish, draft-from-draft, invalid version
+     progressions, mutation of published content, ownership transfer then versioning and freeze-on-publish
+     when some terminology versions cannot be resolved. Published deletion is characterized according to
+     the current deliberate contract tracked separately above, rather than misclassified as illegal here.
+  4. **Payload boundaries — in progress.** For template, element, field and instance: malformed and minimally-valid
      bodies around required properties, nested composition, cardinality, identifiers, controlled terms
-     and YAML/JSON round-trips. Assert the error body and the persisted post-state, not only the status.
-  5. **Projection under an unavailable queue or index.** Grant, revocation, deletion and rename
-     propagation through OpenSearch are now pinned in `finding.mjs`. What remains is the failure
-     case: assert the projection still converges — or degrades
-     safely — when the queue or the index is briefly unavailable, rather than losing the message.
+     and YAML/JSON round-trips. Assert the error body and the persisted post-state, not only the status. The
+     field endpoint now has its own minimal, malformed, cardinality and controlled-term round trips, and
+     instance coverage pins malformed JSON, invalid identifiers and controlled-term values with unchanged-store
+     assertions on refusal. Finish the same persisted-post-state depth for the remaining template/element cases.
+  5. **Projection under an unavailable queue or index — consumer complete, producer open.** Grant,
+     revocation, deletion and rename propagation through OpenSearch are pinned in `finding.mjs`. The worker
+     now claims permission events durably, retries transient failures, parks persistent failures, recovers
+     in-flight events after restart and propagates Neo4j/OpenSearch executor failures far enough for those
+     controls to operate; focused tests prove replay converges. The remaining gap is before Redis accepts the
+     event: resource and group producers still log and drop a permission event when Redis is unavailable.
+     Close that with a durable producer outbox or an equivalently explicit reconciliation contract.
   6. **Repeatability and reporting.** Run the REST estate twice against the same clean stack and fail on
      leaked fixtures; record an expected-check inventory; emit machine-readable results for CI. A change
      that quietly drops a loop, a suite or a conditional assertion should stay visible even when every
