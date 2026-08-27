@@ -512,12 +512,13 @@ Coverage and test-infrastructure work. The active REST integration suites live i
      progressions, mutation of published content, ownership transfer then versioning and freeze-on-publish
      when some terminology versions cannot be resolved. Published deletion is characterized according to
      the current deliberate contract tracked separately above, rather than misclassified as illegal here.
-  4. **Payload boundaries — in progress.** For template, element, field and instance: malformed and minimally-valid
-     bodies around required properties, nested composition, cardinality, identifiers, controlled terms
-     and YAML/JSON round-trips. Assert the error body and the persisted post-state, not only the status. The
-     field endpoint now has its own minimal, malformed, cardinality and controlled-term round trips, and
-     instance coverage pins malformed JSON, invalid identifiers and controlled-term values with unchanged-store
-     assertions on refusal. Finish the same persisted-post-state depth for the remaining template/element cases.
+  4. **Payload boundaries — complete.** Template, element, field and instance now have malformed and
+     minimally-valid bodies around required properties, nested composition, cardinality, identifiers,
+     controlled terms and YAML/JSON round-trips. The field endpoint has its own minimal, malformed,
+     cardinality and controlled-term round trips; instance coverage pins malformed JSON, invalid identifiers
+     and controlled-term values; and template/element refusals assert collection counts before and after
+     malformed JSON and impossible nested cardinality. These check the error and persisted post-state, not
+     only the status.
   5. **Projection under an unavailable queue or index — consumer complete, producer open.** Grant,
      revocation, deletion and rename propagation through OpenSearch are pinned in `finding.mjs`. The worker
      now claims permission events durably, retries transient failures, parks persistent failures, recovers
