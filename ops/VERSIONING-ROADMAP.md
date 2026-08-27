@@ -1287,7 +1287,11 @@ current, and a search that pins names its sources and reads their snapshots dire
 
 The source blocks then report **the version the index holds**, which is not always the catalog's
 current one. An ontology re-ingested since the index was last built was searched at the older
-snapshot, and saying otherwise would credit results to a version that did not produce them.
+snapshot, and saying otherwise would credit results to a version that did not produce them. That
+report is the corpus-wide contract only. A search that names its sources without pinning them is
+answered from the index only when the index holds, for every named source, the version the catalog
+serves; behind a re-ingest, or for a served source the index has never held, the request reads the
+named snapshots instead — a named source has the escape the corpus does not.
 
 Three things differ from a source-scoped search, and a client can tell which it got:
 
