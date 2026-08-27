@@ -518,7 +518,7 @@ cedar-services.sh restart [name...]
 cedar-services.sh status              # one-shot table: PID / port / health / binary / error-count
 cedar-services.sh watch               # auto-refreshing status
 cedar-services.sh logs <name>         # tail -f a service log
-cedar-services.sh health              # exit 0 only if every service is healthy (for scripts)
+cedar-services.sh health [name...]    # exit 0 only if the named services are healthy; all with no names
 ```
 
 It recognizes a native service already listening on its port, including one started in a terminal,
@@ -574,6 +574,25 @@ other admin mapping) to the core Compose stack. Native admin connectors likewise
 Auxiliary frontends (Angular `ng serve`, port-only health): `ui-openview` 4220, `ui-content` 4240,
 `ui-monitoring` 4300, `ui-bridging` 4340. Non-essential CEE demos (not started by
 default): `demo.cee` 4260, `cee-dev` 4400.
+
+## API-key credentials and management identifiers
+
+An API key has two identifiers with deliberately different jobs. Its `key` is the credential sent
+in `Authorization: apiKey <key>` and must be handled as a secret. Its `id` is a stable, non-secret
+management handle returned with the key in the user profile. The profile UI and other management
+clients regenerate or delete a key through the user server with that handle:
+
+```text
+POST   /users/{userId}/api-keys/{keyId}/regenerate
+DELETE /users/{userId}/api-keys/{keyId}
+```
+
+Never substitute the credential for `{keyId}` or put it in a URL. URLs are routinely retained in
+nginx access logs, browser history, traces and monitoring. New keys receive an independent UUID when
+they are created, and regeneration preserves that ID while replacing only the credential. A key
+stored before IDs were introduced is exposed with a deterministic `legacy-<sha256>` management ID;
+this keeps it addressable without revealing the credential, and the ID is persisted on the next
+profile write. Authentication itself is unchanged and still looks up the secret `key` value.
 
 ## The Redis queues, and where failed permission events go
 
@@ -1296,6 +1315,14 @@ across six resource classes) and bridge excludes `datacite` (`DataCiteResourceTe
 exclusion with `-DexcludedGroups=` to run them against the real service. Their CEDAR variables must
 still be set even when the tests are excluded, because the configuration substitutes them as it
 loads; a placeholder value is enough.
+
+Backend-free Maven tests suppress the application-log queue through the
+`cedar.test.suppressAppLogQueue` system property inherited from `cedar-parent`. This is deliberate
+test harness behavior: pointing Redis at a dead port while leaving the logger active turns every
+request into a connection timeout and can make the HTTP client time out first, producing broken-pipe
+failures unrelated to the behavior under test. The queue and logging libraries test Redis delivery,
+outage and recovery separately against an embedded real Redis. The property exists only in Surefire
+JVMs; native and deployed servers retain the production queue behavior.
 
 Test servers boot on the alternate `19xxx` port range (test port = dev port + 10000), so a running
 dev stack and a test run coexist. Redirection goes through `CedarEnvironmentSource.setOverride(map)`,
