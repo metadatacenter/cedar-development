@@ -21,6 +21,9 @@ test('stable releases resolve from npmjs and dev releases use the scoped Nexus a
   assert.equal(
     dependencySpec('2.0.0-dev.20260820.a8cc4cc'),
     'npm:@org.metadatacenter/cedar-embeddable-editor@2.0.0-dev.20260820.a8cc4cc');
+  assert.equal(
+    dependencySpec('2.0.2-dev.20260827.1711.gab718c87781a'),
+    'npm:@org.metadatacenter/cedar-embeddable-editor@2.0.2-dev.20260827.1711.gab718c87781a');
   assert.throws(() => validateVersion('../2.0.0'));
 });
 

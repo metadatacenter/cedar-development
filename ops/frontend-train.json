@@ -45,7 +45,7 @@
       "repository": "cedar-openview",
       "packagePath": "cedar-openview-dist",
       "npmVersionVariable": "CEDAR_OPENVIEW_NPM_VERSION",
-      "ceeConsumer": {"manifest": "cedar-openview-src/package.json", "lock": "cedar-openview-src/package-lock.json"}
+      "ceeConsumer": {"manifest": "cedar-openview-src/package.json", "lock": "cedar-openview-src/package-lock.json", "legacyPeerDeps": true}
     },
     {
       "id": "content",
@@ -67,22 +67,34 @@
       "repository": "cedar-bridging",
       "packagePath": "cedar-bridging-dist",
       "npmVersionVariable": "CEDAR_BRIDGING_NPM_VERSION",
-      "ceeConsumer": {"manifest": "cedar-bridging-src/package.json", "lock": "cedar-bridging-src/package-lock.json"}
+      "ceeConsumer": {"manifest": "cedar-bridging-src/package.json", "lock": "cedar-bridging-src/package-lock.json"},
+      "preparedBuild": {
+        "directory": "cedar-bridging-src",
+        "commands": [
+          ["npm", "ci"],
+          ["npm", "run", "build", "--", "--configuration=production"]
+        ],
+        "output": "cedar-bridging-src/dist/cedar-bridging"
+      }
     }
   ],
   "additionalCeeConsumers": [
     {
       "repository": "cedar-component-demo",
+      "label": "angular-demo",
       "manifest": "cedar-cee-demo-angular-src/package.json",
-      "lock": "cedar-cee-demo-angular-src/package-lock.json"
+      "lock": "cedar-cee-demo-angular-src/package-lock.json",
+      "legacyPeerDeps": true
     },
     {
       "repository": "cedar-component-demo",
+      "label": "ember-demo",
       "manifest": "cedar-cee-demo-ember-src/package.json",
       "lock": "cedar-cee-demo-ember-src/package-lock.json"
     },
     {
       "repository": "cedar-component-demo",
+      "label": "react-demo",
       "manifest": "cedar-cee-demo-react/package.json",
       "lock": "cedar-cee-demo-react/package-lock.json"
     }

@@ -1098,10 +1098,11 @@ a fifteen-minute ceiling, on every push and pull request to `develop`. Nothing
 renders or screenshots, so it needs no macOS runner and no browser install,
 unlike the CEE gate.
 
-Nothing is published from CI. CEE resolves the package from the BMIR Nexus npm
-registry (`https://nexus.bmir.stanford.edu/repository/npm-cedar/`) through its
-own `.npmrc`, pinned to an exact version whose suffix carries the build date
-and commit.
+The model repository's ordinary test workflow publishes nothing. An immutable CEDAR build train is
+the deliberate exception: it reruns this complete gate against the captured commit, stamps a
+train-owned version and publishes the scoped package before building CEE. CEE resolves that exact
+artifact from the BMIR Nexus npm registry
+(`https://nexus.bmir.stanford.edu/repository/npm-cedar/`) through its own `.npmrc`.
 
 ### The two channels, and the name that selects them
 
@@ -1133,6 +1134,10 @@ npm notice Publishing to https://nexus.bmir.stanford.edu/repository/npm-cedar/ w
 same reason, so it exercises whichever tarball the build is set to ship.
 
 ### Publishing a model library dev build
+
+For a complete CEDAR build, prefer `cedarcli publish train`; the train publishes and records the
+model itself, then wires that exact artifact into CEE. The manual procedure below remains useful for
+standalone CEE development.
 
 Version is `<next>-dev.<YYYYMMDD>.<sha>`, naming the commit whose content is
 published and *that commit's* date — so the bump commit carries a version naming
@@ -1212,6 +1217,9 @@ Dev snapshots are a second channel: the scoped `@org.metadatacenter/cedar-embedd
 Stanford Nexus under a `dev` tag, versioned `<next>-dev.<date>.<sha>`. It was retired for a while and
 is live again — `dev` currently names `2.0.0-dev.20260820.a8cc4cc`. Reach it from an embedding app
 through an npm alias, since npm routes by scope and this is the only package taken from Nexus.
+Train-owned snapshots use the more specific
+`<next>-dev.<train-date>.<train-minute>.g<sha12>` identity, tying the package to both the train and
+the captured CEE commit without rewriting CEE source history.
 
 `scripts/npm-package.mjs` derives the channel from the version rather than taking it as a flag: a
 version containing `-dev.` is published scoped, with a `publishConfig` naming the Nexus registry;
@@ -1260,6 +1268,13 @@ the declarations, and the README and changelog are copied from the root. Do not 
 them; staging overwrites them. (Older notes describing "six version spots", or the directory as a
 committed artifact, predate that script and the ignore.)
 
+CEE deliberately has no `package-dist.json`. The model library needs that second source manifest
+because its root and published packages have different names. CEE's staging script already performs
+the same translation: a plain version produces `cedar-embeddable-editor` for npmjs, while a version
+containing `-dev.` produces `@org.metadatacenter/cedar-embeddable-editor` for Nexus. Copying the
+model library's manifest into CEE would create a second manual version and channel switch that could
+disagree with the tested package; `.gitignore` rejects that accidental file.
+
 Then add a `## [X.Y.Z] - <date>` section to `CHANGELOG.md`, and bump the load-trace stamp in
 `src/app/modules/shared/components/cedar-embeddable-metadata-editor/cedar-embeddable-metadata-editor.component.ts`
 → `private static INNER_VERSION = '<YYYY-MM-DD HH:MM>';`, the time the bump was written. 2.0.1 stamps
@@ -1277,29 +1292,35 @@ version, where the version's trailing sha and the stamp's must name the same com
 carries no commit, so the check reports `(stable, no load-trace commit to check)` and passes whatever
 the stamp says. Read it yourself before publishing a release.
 
-### 2 · Build and browser-test
+If the root already reports the requested release version, do not rerun `npm version`: npm rejects
+an idempotent version request as `Version not changed`. Check first, then bump only when needed:
 
 ```bash
-npm run test:visual
+node -p "require('./package.json').version"
+npm version X.Y.Z --no-git-tag-version
 ```
 
-This builds production and runs the Playwright baseline, and it is not optional: staging publishes
-`visual/public/cedar-embeddable-editor.js` and refuses to run unless that file's sha256 and byte
-count match `visual/public/bundle-manifest.json`. The published artifact is therefore always the
-exact bundle a browser exercised — that guarantee is the reason the step exists, so don't reach for
-a bare `ng build` to save a minute.
+### 2 · Test and stage the package
 
-### 3 · Stage the package
+The operator command now has the same shape as the model library's:
 
 ```bash
-npm run package:npm:prebuilt
+npm run test:package
+node -p "require('./dist-npm/cedar-embeddable-editor/package.json').name + '@' + require('./dist-npm/cedar-embeddable-editor/package.json').version"
 ```
 
-Checks the bundle is fresh and within its size budget, writes the five-file package into
-`dist-npm/cedar-embeddable-editor/`, then re-verifies every staged byte against its source. It
-prints the version, size and sha256 it staged — read them.
+For a stable `X.Y.Z`, the second command must print
+`cedar-embeddable-editor@X.Y.Z`. For a dev version it must print the scoped
+`@org.metadatacenter/cedar-embeddable-editor@<DEV_VERSION>` identity.
 
-### 4 · Publish
+`test:package` builds production, runs the Playwright baseline, checks the bundle size, emits the
+public declarations and compiles the README examples against them, then writes and verifies
+`dist-npm/cedar-embeddable-editor/`. Staging publishes
+`visual/public/cedar-embeddable-editor.js` and refuses to run unless that file's SHA-256 and byte
+count match `visual/public/bundle-manifest.json`. The published artifact is therefore the exact
+bundle a browser exercised.
+
+### 3 · Publish
 
 A release goes to npmjs, unscoped, under `latest`:
 
@@ -1334,16 +1355,23 @@ read the tags off Nexus, where `dev` should be the only one:
 curl -s "https://nexus.bmir.stanford.edu/repository/npm-cedar/@org.metadatacenter%2fcedar-embeddable-editor" | python3 -c "import json,sys; print(json.load(sys.stdin)['dist-tags'])"
 ```
 
-### 5 · Tag the release, and draft its notes
+### 4 · Commit, tag the release, and draft its notes
 
 Nothing in the publish records which commit was staged, and `npm publish` will happily ship a dirty
-working tree. Tag as soon as the publish succeeds, on the commit that bumped the version rather
-than the merge that later carried it to `main`. That is what every earlier `release-<version>` tag
-names, and it is the tree the package was built from:
+working tree. Commit the release preparation immediately after the publish, then tag that commit
+rather than a later merge:
 
 ```bash
-git tag -a release-2.0.1 <bump-commit> -m "CEE 2.0.1"
-git push origin release-2.0.1
+git add package.json package-lock.json CHANGELOG.md \
+  src/app/modules/shared/components/cedar-embeddable-metadata-editor/cedar-embeddable-metadata-editor.component.ts
+git commit -m "Prepare CEE release X.Y.Z"
+git push
+RELEASE_COMMIT=$(git rev-parse HEAD)
+git checkout main
+git pull
+git tag -a release-X.Y.Z "$RELEASE_COMMIT" -m "CEE X.Y.Z"
+git push origin release-X.Y.Z
+git checkout develop
 ```
 
 If the tag is added later and the commit is no longer obvious, the published package identifies it.
@@ -1356,6 +1384,30 @@ Then draft the release notes against the tag:
 
 ```bash
 gh release create release-2.0.1 --draft --title "CEE 2.0.1" --notes-file <notes.md>
+```
+
+### 5 · Advance development
+
+Back on `develop`, advance to the next development base. The version itself selects the scoped
+Nexus channel, so there is no package name to restore:
+
+```bash
+DEV_SHA=$(git rev-parse --short HEAD)
+DEV_DATE=$(git show -s --format=%cd --date=format:%Y%m%d HEAD)
+npm version "<NEXT>-dev.${DEV_DATE}.${DEV_SHA}" --no-git-tag-version
+```
+
+Update `INNER_VERSION` to name the same date and SHA, then verify the generated identity without
+publishing it:
+
+```bash
+npm run test:package
+node -p "require('./dist-npm/cedar-embeddable-editor/package.json').name + '@' + require('./dist-npm/cedar-embeddable-editor/package.json').version"
+# Must print @org.metadatacenter/cedar-embeddable-editor@<DEV_VERSION>
+git add package.json package-lock.json \
+  src/app/modules/shared/components/cedar-embeddable-metadata-editor/cedar-embeddable-metadata-editor.component.ts
+git commit -m "Advance CEE to next development version"
+git push
 ```
 
 CEE's notes follow the shape 2.0.1's carry, which is not the one
@@ -1424,11 +1476,19 @@ Never replace the helper with a remembered consumer list: its tested inventory i
 keeps Workspace wired into every CEE release. Review and commit the resulting manifest and lockfile
 changes in each owning repository separately.
 
-An immutable development build train does not replace this propagation step or CEE's release gate.
-It captures the resulting commits and then checks the same exact aliases and lockfile integrities
-again. The train requires the scoped model package first, then the scoped CEE package, publishes the
-wired frontend packages, and finally supplies those verified versions to the Docker builds. See
-[BUILD-RUNBOOK.md](./BUILD-RUNBOOK.md) for the persisted `npm/trains` and `npm/completed` records.
+There are two deliberately different propagation paths. A stable CEE release still uses this helper
+to make reviewable changes in the owning source repositories. An immutable development build train
+does not modify those repositories: in disposable exact-commit checkouts it publishes the captured
+model after its full gate, wires it into CEE, runs CEE's full ARM gate, publishes that CEE, and then
+wires the verified CEE into all seven consumers. The train records hashes of those transformed
+manifests, locks and rebuilt payloads before publishing the frontend artifacts. See
+[BUILD-RUNBOOK.md](./BUILD-RUNBOOK.md) for `npm/model/completed`, `npm/cee/completed`, and the final
+`npm/completed` record.
+
+The train-backed CEDAR release then requires an explicit public CEE version. It accepts that npmjs
+package only when its file set and bytes are identical to the train CEE after normalizing the
+declared package name, version, publish channel, and root lock identity. This prevents a nominally
+newer but independently built CEE from being substituted into the CEDAR release.
 
 Propagating a release also means rebuilding each deployed consumer.
 Confirm the bytes rather than the version string: the sha256 that `package:npm:prebuilt` prints should

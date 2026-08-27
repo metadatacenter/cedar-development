@@ -19,7 +19,7 @@ const DEPENDENCY = 'cedar-embeddable-editor';
 const DEV_PREFIX = 'npm:@org.metadatacenter/cedar-embeddable-editor@';
 
 export function validateVersion(version) {
-  if (!/^\d+\.\d+\.\d+(?:-dev\.\d{8}\.[0-9a-f]{7,40})?$/.test(version)) {
+  if (!/^\d+\.\d+\.\d+(?:-dev\.\d{8}\.(?:[0-9a-f]{7,40}|\d{4}\.g[0-9a-f]{12}))?$/.test(version)) {
     throw new Error(`Invalid CEE release version: ${version}`);
   }
   return version;

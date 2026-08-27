@@ -114,7 +114,8 @@ jobs:
         if: env.MAVEN_ALREADY_COMPLETE == 'true'
         run: echo "Maven train $TRAIN_VERSION was already complete; continuing with npm and Docker publication."
 
-  publish-npm:
+  publish-model:
+    name: npm 1/3 · publish TypeScript model
     needs: publish-maven
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -163,7 +164,7 @@ jobs:
             --workspace "$RUNNER_TEMP/CEDAR" \
             --state build-trains
 
-      - name: Record the npm dependency graph before publication
+      - name: Record the complete npm dependency graph before publication
         run: |
           python3 controller/ops/frontend_train.py record-plan \
             --version "$TRAIN_VERSION" \
@@ -175,7 +176,152 @@ jobs:
             git -C build-trains push origin HEAD:build-trains
           fi
 
-      - name: Require model and CEE, then publish the wired frontends
+      - name: Gate, build, publish, and verify the captured TypeScript model
+        run: |
+          python3 controller/ops/frontend_train.py publish-model \
+            --version "$TRAIN_VERSION" \
+            --workspace "$RUNNER_TEMP/CEDAR" \
+            --state build-trains
+
+      - name: Record the verified model artifact
+        run: |
+          git -C build-trains add "npm/model/completed/$TRAIN_VERSION.json"
+          if ! git -C build-trains diff --cached --quiet; then
+            git -C build-trains commit -m "Complete npm model for $TRAIN_VERSION"
+            git -C build-trains push origin HEAD:build-trains
+          fi
+
+  publish-cee:
+    name: npm 2/3 · wire model and publish CEE
+    needs: publish-model
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 60
+    env:
+      BMIR_NEXUS_USERNAME: ${{ secrets.BMIR_NEXUS_USERNAME }}
+      BMIR_NEXUS_PASSWORD: ${{ secrets.BMIR_NEXUS_PASSWORD }}
+      NPM_CONFIG_USERCONFIG: ${{ github.workspace }}/cedar-npmrc
+
+    steps:
+      - name: Check out the train controller
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          path: controller
+
+      - name: Set up Node 24.19.0
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.19.0
+
+      - name: Check out the build-train state branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          state_url="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git clone --quiet --depth 1 --branch build-trains "$state_url" build-trains
+          git -C build-trains config user.name github-actions[bot]
+          git -C build-trains config user.email 41898282+github-actions[bot]@users.noreply.github.com
+
+      - name: Configure authenticated npm access
+        run: |
+          test -n "$BMIR_NEXUS_USERNAME" || { echo 'BMIR_NEXUS_USERNAME is unavailable to cedar-development'; exit 1; }
+          test -n "$BMIR_NEXUS_PASSWORD" || { echo 'BMIR_NEXUS_PASSWORD is unavailable to cedar-development'; exit 1; }
+          password_base64=$(printf '%s' "$BMIR_NEXUS_PASSWORD" | base64 -w 0)
+          printf '%s\n' \
+            '@org.metadatacenter:registry=https://nexus.bmir.stanford.edu/repository/npm-cedar/' \
+            "//nexus.bmir.stanford.edu/repository/npm-cedar/:username=$BMIR_NEXUS_USERNAME" \
+            "//nexus.bmir.stanford.edu/repository/npm-cedar/:_password=$password_base64" \
+            '//nexus.bmir.stanford.edu/repository/npm-cedar/:email=cedar-admin@metadatacenter.org' \
+            > "$NPM_CONFIG_USERCONFIG"
+
+      - name: Restore the exact train source checkouts
+        run: |
+          python3 controller/ops/build_train.py prepare \
+            --resume "$TRAIN_VERSION" \
+            --workspace "$RUNNER_TEMP/CEDAR" \
+            --state build-trains
+
+      - name: Wire the train model, then gate, build, publish, and verify CEE
+        run: |
+          python3 controller/ops/frontend_train.py publish-cee \
+            --version "$TRAIN_VERSION" \
+            --workspace "$RUNNER_TEMP/CEDAR" \
+            --state build-trains
+
+      - name: Record the verified CEE artifact
+        run: |
+          git -C build-trains add "npm/cee/completed/$TRAIN_VERSION.json"
+          if ! git -C build-trains diff --cached --quiet; then
+            git -C build-trains commit -m "Complete npm CEE for $TRAIN_VERSION"
+            git -C build-trains push origin HEAD:build-trains
+          fi
+
+  publish-frontends:
+    name: npm 3/3 · wire consumers and publish frontends
+    needs: publish-cee
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      BMIR_NEXUS_USERNAME: ${{ secrets.BMIR_NEXUS_USERNAME }}
+      BMIR_NEXUS_PASSWORD: ${{ secrets.BMIR_NEXUS_PASSWORD }}
+      NPM_CONFIG_USERCONFIG: ${{ github.workspace }}/cedar-npmrc
+
+    steps:
+      - name: Check out the train controller
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          path: controller
+
+      - name: Set up Node 24.19.0
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.19.0
+
+      - name: Check out the build-train state branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          state_url="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git clone --quiet --depth 1 --branch build-trains "$state_url" build-trains
+          git -C build-trains config user.name github-actions[bot]
+          git -C build-trains config user.email 41898282+github-actions[bot]@users.noreply.github.com
+
+      - name: Configure authenticated npm access
+        run: |
+          test -n "$BMIR_NEXUS_USERNAME" || { echo 'BMIR_NEXUS_USERNAME is unavailable to cedar-development'; exit 1; }
+          test -n "$BMIR_NEXUS_PASSWORD" || { echo 'BMIR_NEXUS_PASSWORD is unavailable to cedar-development'; exit 1; }
+          password_base64=$(printf '%s' "$BMIR_NEXUS_PASSWORD" | base64 -w 0)
+          printf '%s\n' \
+            '@org.metadatacenter:registry=https://nexus.bmir.stanford.edu/repository/npm-cedar/' \
+            "//nexus.bmir.stanford.edu/repository/npm-cedar/:username=$BMIR_NEXUS_USERNAME" \
+            "//nexus.bmir.stanford.edu/repository/npm-cedar/:_password=$password_base64" \
+            '//nexus.bmir.stanford.edu/repository/npm-cedar/:email=cedar-admin@metadatacenter.org' \
+            > "$NPM_CONFIG_USERCONFIG"
+
+      - name: Restore the exact train source checkouts
+        run: |
+          python3 controller/ops/build_train.py prepare \
+            --resume "$TRAIN_VERSION" \
+            --workspace "$RUNNER_TEMP/CEDAR" \
+            --state build-trains
+
+      - name: Wire all seven CEE consumers and rebuild bundled consumers
+        run: |
+          python3 controller/ops/frontend_train.py prepare-frontends \
+            --version "$TRAIN_VERSION" \
+            --workspace "$RUNNER_TEMP/CEDAR" \
+            --state build-trains
+
+      - name: Record exact frontend wiring before publication
+        run: |
+          git -C build-trains add "npm/trains/$TRAIN_VERSION.json"
+          if ! git -C build-trains diff --cached --quiet; then
+            git -C build-trains commit -m "Record npm wiring for $TRAIN_VERSION"
+            git -C build-trains push origin HEAD:build-trains
+          fi
+
+      - name: Publish the seven train frontend packages
         run: |
           python3 controller/ops/frontend_train.py publish-frontends \
             --version "$TRAIN_VERSION" \
@@ -194,7 +340,7 @@ jobs:
           fi
 
   record-docker-plan:
-    needs: [publish-maven, publish-npm]
+    needs: [publish-maven, publish-frontends]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:

@@ -54,6 +54,19 @@ cedarcli publish train
 
 The CLI reads the next version from `cedar-parent`, adds the current UTC minute, and dispatches the
 `cedar-development` workflow. The train ID is allocated automatically; operators do not choose it.
+On a successful dispatch, the CLI prints two views. Use the major-stage summary when the GitHub
+matrix detail obscures the overall state:
+
+```bash
+cedarcli publish train-status <TRAIN_ID>
+```
+
+For a blocking step-level view, it also prints the exact workflow run URL and command using that
+run ID:
+
+```bash
+gh run watch <RUN_ID> --repo metadatacenter/cedar-development --compact --exit-status
+```
 
 The workflow first records the exact `develop` commit of every Java, npm, frontend, Docker, CLI,
 and orchestration repository. It then builds Maven in the dependency order already encoded by the
@@ -88,31 +101,39 @@ After publication, the workflow queries Nexus for the libraries and runtime appl
 by Docker. Only a complete inventory creates `completed/<TRAIN_ID>.json` and advances `current.json`.
 A partial or failed train can never become current.
 
-Next, the workflow creates `npm/trains/<TRAIN_ID>.json`. It derives each frontend package version
-from its captured commit, and enforces this graph before publishing anything:
+Next, the workflow creates `npm/trains/<TRAIN_ID>.json` before npm publication and runs three visible,
+ordered jobs:
 
-1. the scoped TypeScript model package already exists in Nexus at the version in its published
-   manifest and has the captured model commit as `gitHead`;
-2. CEE pins that exact model version in both of its manifests and lockfiles, and the scoped CEE
-   package already exists with the captured CEE commit;
-3. every deployed CEE consumer pins that exact CEE alias and integrity in its source manifest and
-   lockfile; and
-4. all seven frontend packages are present at their commit-derived immutable versions. Missing
-   frontend packages are packed from `git archive HEAD`, so untracked and ignored local build
-   output cannot enter a commit-identified artifact; an existing version is
-   accepted only when its `gitHead` is identical. The publisher requires the captured
-   `package-lock.json`, normalizes its root identity to the immutable package version, and includes
-   it as `npm-shrinkwrap.json` in the tarball. Committed-source, shrinkwrapped artifacts use the
-   `p3` packaging suffix after the commit-derived version, so an earlier working-tree or pre-lock
-   tarball from the same source commit cannot be
-   mistaken for the new package format; npm completion also opens the tarball and hashes the lock.
+1. **npm 1/3 · TypeScript model.** The job stamps the captured model commit in its disposable
+   checkout as `<MODEL_NEXT>-dev.YYYYMMDD.HHMM.g<SHA12>`, runs lint, typecheck, coverage, JSON and
+   YAML parity, and the packed-consumer test, then publishes the scoped package to Nexus. It
+   downloads the result, verifies its registry integrity and `gitHead`, and records
+   `npm/model/completed/<TRAIN_ID>.json`.
+2. **npm 2/3 · CEE.** The job starts again from the captured CEE commit, pins the train-published
+   model alias with integrity in both the root and visual lockfiles, and stamps CEE as
+   `<CEE_NEXT>-dev.YYYYMMDD.HHMM.g<SHA12>`. On the ARM runner required by CEE, it runs the complete
+   unit, coordinator, domain, visual, package, type and production-audit gate. Only that tested
+   package is published and verified; `npm/cee/completed/<TRAIN_ID>.json` records the result.
+3. **npm 3/3 · frontends.** In fresh captured checkouts, the job pins that exact CEE alias and
+   integrity in all seven embedding manifests and lockfiles. It rebuilds Bridging because Bridging
+   vendors CEE into its distributed bytes; OpenView receives the same verified CEE tarball through
+   its explicit Docker runtime input. It records hashes of every prepared manifest, lock and built
+   payload before publishing the seven frontend packages.
 
-The model and CEE artifacts retain their own full release gates; the train will not manufacture one
-by bypassing those gates. It stops with an instruction to publish the missing prerequisite first.
-After publication, the workflow downloads every npm tarball, verifies its registry integrity and
-records a SHA-256 in `npm/completed/<TRAIN_ID>.json`. This includes the public webcomponents runtime
-tarball OpenView copies alongside the already verified CEE tarball. Only then does
-`npm/current.json` advance.
+None of those version or dependency edits is written back to a source repository. They are
+controlled transformations in isolated exact-commit checkouts, and their hashes become part of the
+immutable npm plan. A frontend whose packaged bytes were prepared by the train uses the `p4`
+packaging suffix; an unwired committed-source frontend retains `p3`. Missing packages are based on
+`git archive HEAD`, then only the plan-recorded prepared paths are overlaid. An existing version is
+accepted only when its `gitHead` is identical. Each frontend tarball carries an
+`npm-shrinkwrap.json` normalized to its immutable package identity, and completion opens and hashes
+that lock.
+
+Finally, the workflow downloads every model, CEE and frontend tarball, verifies registry integrity
+and records a SHA-256 in `npm/completed/<TRAIN_ID>.json`. This also covers the public webcomponents
+runtime tarball OpenView copies. Only then does `npm/current.json` advance. A train therefore owns
+the complete model → CEE → frontend chain; it never silently substitutes whichever dev packages
+happened to have been published before the train began.
 
 The workflow then records the expected Docker plan and builds the image estate in dependency
 order. `cedar-java` and `cedar-microservice` publish to the internal repository. Seven
@@ -172,6 +193,8 @@ The `build-trains` branch is machine-owned operational state, separate from norm
 - `completed/<TRAIN_ID>.json` records successful Nexus verification; and
 - `current.json` points to the most recently completed Maven train;
 - `npm/trains/<TRAIN_ID>.json` records the expected TypeScript model → CEE → frontend graph;
+- `npm/model/completed/<TRAIN_ID>.json` records the verified model publication;
+- `npm/cee/completed/<TRAIN_ID>.json` records the verified CEE publication;
 - `npm/completed/<TRAIN_ID>.json` records registry integrities and downloaded tarball hashes;
 - `npm/current.json` points to the most recently completed npm graph;
 - `docker/trains/<TRAIN_ID>.json` records the exact 31-image publication plan;
@@ -243,7 +266,7 @@ the corresponding published train was reproduced.
 Follow the dispatched job with:
 
 ```bash
-gh run list --repo metadatacenter/cedar-development --workflow build-train.yml
+gh run watch <RUN_ID> --repo metadatacenter/cedar-development --compact --exit-status
 gh run view <RUN_ID> --repo metadatacenter/cedar-development --log-failed
 ```
 

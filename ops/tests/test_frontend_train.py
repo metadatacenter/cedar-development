@@ -55,6 +55,17 @@ def commit(repository: Path, timestamp: str = "2026-08-25T22:04:26Z") -> str:
 
 
 class FrontendTrainTest(unittest.TestCase):
+    def test_train_owned_versions_include_train_and_captured_commit(self):
+        revision = "a" * 40
+        self.assertEqual(
+            "1.0.3-dev.20260824.1847.gaaaaaaaaaaaa",
+            frontend_train.train_package_version("1.0.3-dev.old", VERSION, revision),
+        )
+        self.assertEqual(
+            "2.9.3-dev.20260824.1847.gaaaaaaaaaaaa.p4",
+            frontend_train.wired_frontend_version("2.9.3-SNAPSHOT", VERSION, revision),
+        )
+
     def test_record_plan_enforces_model_to_cee_to_frontend_graph(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -107,23 +118,31 @@ class FrontendTrainTest(unittest.TestCase):
                 "frontendPackages": {"CEDAR_WEB_COMPONENTS_NPM_VERSION": "2.8.0"},
             })
 
-            def library_record(_registry, name, _version):
-                return {"gitHead": model_sha if name == MODEL_NAME else cee_sha}
-
-            with patch.object(frontend_train, "registry_record", side_effect=library_record):
+            with patch.object(frontend_train, "registry_record") as registry:
                 frontend_train.record_plan(argparse.Namespace(
                     config=config_path, version=VERSION, workspace=workspace, state=state,
                 ))
+            registry.assert_not_called()
             plan = frontend_train.load_json(state / "npm" / "trains" / f"{VERSION}.json")
-            self.assertEqual(MODEL_VERSION, plan["cee"]["model"]["version"])
-            self.assertEqual(CEE_VERSION, plan["frontends"][0]["ceeVersion"])
+            expected_model = frontend_train.train_package_version(
+                MODEL_VERSION, VERSION, model_sha,
+            )
+            expected_cee = frontend_train.train_package_version(
+                CEE_VERSION, VERSION, cee_sha,
+            )
+            self.assertEqual(expected_model, plan["cee"]["model"]["version"])
+            self.assertEqual(expected_cee, plan["frontends"][0]["ceeVersion"])
             self.assertEqual(
-                f"2.9.3-dev.20260825220426.g{app_sha[:12]}.p3",
+                f"2.9.3-dev.20260824.1847.g{app_sha[:12]}.p4",
                 plan["dockerInputs"]["CEDAR_APP_NPM_VERSION"],
             )
             self.assertEqual(
-                CEE_VERSION, plan["dockerInputs"]["CEDAR_OPENVIEW_CEE_NPM_VERSION"]
+                expected_cee, plan["dockerInputs"]["CEDAR_OPENVIEW_CEE_NPM_VERSION"]
             )
+            self.assertEqual(model_sha, plan["model"]["revision"])
+            self.assertEqual(cee_sha, plan["cee"]["revision"])
+            self.assertEqual("train-owned", plan["model"]["publication"])
+            self.assertEqual("train-owned", plan["cee"]["publication"])
             self.assertEqual([{
                 "name": "@webcomponents/webcomponentsjs",
                 "version": "2.8.0",
@@ -235,7 +254,9 @@ class FrontendTrainTest(unittest.TestCase):
             )
 
     def test_npm_pack_includes_the_staged_shrinkwrap(self):
-        with tempfile.TemporaryDirectory() as directory:
+        with tempfile.TemporaryDirectory() as directory, patch.dict(
+            os.environ, {"npm_config_cache": str(Path(directory) / "npm-cache")}, clear=False,
+        ):
             root = Path(directory)
             package = root / "package"
             package.mkdir()
@@ -291,6 +312,284 @@ class FrontendTrainTest(unittest.TestCase):
             self.assertIn('git -C "${repo_dir}" archive --format=tar HEAD', publisher)
             self.assertIn('npm pack "${archived_package_dir}"', publisher)
             self.assertNotIn('npm pack "${package_dir}"', publisher)
+            self.assertIn('CEDAR_TRAIN_PACKAGE_VERSION', publisher)
+            self.assertIn('CEDAR_TRAIN_OVERLAY_PATHS', publisher)
+
+    def test_package_stamp_updates_source_lock_and_published_manifest(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write(root / "package.json", {"name": "model", "version": "1.0.3-dev.old"})
+            write(root / "package-lock.json", {
+                "name": "model", "version": "1.0.3-dev.old",
+                "packages": {"": {"name": "model", "version": "1.0.3-dev.old"}},
+            })
+            write(root / "package-dist.json", {
+                "name": MODEL_NAME, "version": "1.0.3-dev.old",
+            })
+            version = "1.0.3-dev.20260824.1847.gaaaaaaaaaaaa"
+            frontend_train.stamp_package_version(root, version, "package-dist.json")
+            self.assertEqual(version, frontend_train.load_json(root / "package.json")["version"])
+            lock = frontend_train.load_json(root / "package-lock.json")
+            self.assertEqual(version, lock["version"])
+            self.assertEqual(version, lock["packages"][""]["version"])
+            self.assertEqual(
+                version, frontend_train.load_json(root / "package-dist.json")["version"],
+            )
+
+    def test_model_publication_runs_its_gate_from_the_captured_commit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            workspace = root / "workspace"
+            state = root / "state"
+            model = workspace / "model"
+            model.mkdir(parents=True)
+            write(model / "package.json", {"name": "model", "version": "1.0.3-dev.old"})
+            write(model / "package-lock.json", {
+                "name": "model", "version": "1.0.3-dev.old",
+                "packages": {"": {"name": "model", "version": "1.0.3-dev.old"}},
+            })
+            write(model / "package-dist.json", {
+                "name": MODEL_NAME, "version": "1.0.3-dev.old",
+            })
+            revision = commit(model)
+            version = frontend_train.train_package_version("1.0.3-dev.old", VERSION, revision)
+            write(state / "trains" / f"{VERSION}.json", {
+                "version": VERSION, "repositories": {"model": revision},
+            })
+            write(state / "npm" / "trains" / f"{VERSION}.json", {
+                "version": VERSION, "registry": "https://registry.example/",
+                "model": {"name": MODEL_NAME, "version": version,
+                          "repository": "model", "revision": revision},
+            })
+            commands = []
+
+            def run(command, cwd, environment=None):
+                commands.append(command)
+                if command == ["npm", "run", "test:package"]:
+                    write(cwd / "dist" / "package.json", {
+                        "name": MODEL_NAME, "version": version,
+                    })
+
+            with (
+                patch.object(frontend_train, "existing_verified_package", return_value=False),
+                patch.object(frontend_train, "run_command", side_effect=run),
+                patch.object(frontend_train, "verify_record", return_value={
+                    "name": MODEL_NAME, "version": version,
+                    "repository": "model", "revision": revision,
+                    "tarballSha256": "a" * 64,
+                }),
+            ):
+                frontend_train.publish_model(argparse.Namespace(
+                    version=VERSION, workspace=workspace, state=state,
+                ))
+            self.assertIn(["npm", "run", "test:coverage"], commands)
+            self.assertIn(["npm", "run", "parity:yaml"], commands)
+            self.assertIn(["npm", "run", "parity:json"], commands)
+            self.assertTrue(any(command[:3] == ["npm", "publish", "./dist"] for command in commands))
+            completion = frontend_train.load_json(
+                state / "npm" / "model" / "completed" / f"{VERSION}.json"
+            )
+            self.assertEqual(revision, completion["expected"]["revision"])
+
+    def test_cee_publication_wires_train_model_and_runs_full_gate(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            workspace = root / "workspace"
+            state = root / "state"
+            cee = workspace / "cee"
+            dependency_files(cee, "cedar-model-typescript-library", MODEL_NAME, "1.0.3-dev.old")
+            package = frontend_train.load_json(cee / "package.json")
+            package["version"] = "2.0.2-dev.old"
+            write(cee / "package.json", package)
+            visual = cee / "visual"
+            dependency_files(
+                visual, "cedar-model-typescript-library", MODEL_NAME, "1.0.3-dev.old",
+            )
+            revision = commit(cee)
+            cee_version = frontend_train.train_package_version(
+                "2.0.2-dev.old", VERSION, revision,
+            )
+            model = {
+                "name": MODEL_NAME, "version": "1.0.3-dev.20260824.1847.gmodelmodel12",
+                "repository": "model", "revision": "a" * 40,
+            }
+            expected = {
+                "name": CEE_NAME, "version": cee_version,
+                "repository": "cee", "revision": revision,
+                "modelConsumers": [
+                    {"manifest": "package.json", "lock": "package-lock.json"},
+                    {"manifest": "visual/package.json", "lock": "visual/package-lock.json"},
+                ],
+            }
+            write(state / "trains" / f"{VERSION}.json", {
+                "version": VERSION, "repositories": {"cee": revision},
+            })
+            write(state / "npm" / "trains" / f"{VERSION}.json", {
+                "version": VERSION, "sourceManifestSha256": "f" * 64,
+                "registry": "https://registry.example/", "model": model, "cee": expected,
+            })
+            config_path = root / "config.json"
+            write(config_path, {"cee": {
+                "modelDependency": "cedar-model-typescript-library",
+            }})
+            commands = []
+
+            def wire(directory, dependency, published, version, legacy_peer_deps=False):
+                dependency_files(directory, dependency, published, version)
+
+            def run(command, cwd, environment=None):
+                commands.append(command)
+                if command == ["npm", "run", "test:ci"]:
+                    write(cwd / "dist-npm" / "cedar-embeddable-editor" / "package.json", {
+                        "name": CEE_NAME, "version": cee_version,
+                    })
+
+            def verified(_registry, package):
+                return {
+                    "name": package["name"], "version": package["version"],
+                    "repository": package["repository"], "revision": package["revision"],
+                    "tarballSha256": "b" * 64,
+                }
+
+            with (
+                patch.object(frontend_train, "existing_verified_package", return_value=False),
+                patch.object(frontend_train, "install_exact_alias", side_effect=wire),
+                patch.object(frontend_train, "run_command", side_effect=run),
+                patch.object(frontend_train, "verify_record", side_effect=verified),
+            ):
+                frontend_train.publish_cee(argparse.Namespace(
+                    config=config_path, version=VERSION, workspace=workspace, state=state,
+                ))
+            self.assertIn(["npm", "run", "test:ci"], commands)
+            self.assertIn(["npm", "run", "audit:prod"], commands)
+            self.assertTrue(any(command[:2] == ["npm", "publish"] for command in commands))
+            for manifest in (cee / "package.json", visual / "package.json"):
+                self.assertIn(model["version"], manifest.read_text(encoding="utf-8"))
+            completion = frontend_train.load_json(
+                state / "npm" / "cee" / "completed" / f"{VERSION}.json"
+            )
+            self.assertEqual(revision, completion["expected"]["revision"])
+
+    def test_frontend_preparation_records_exact_cee_wiring_before_publish(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            workspace = root / "workspace"
+            state = root / "state"
+            app = workspace / "app"
+            dependency_files(app, "cedar-embeddable-editor", CEE_NAME, "2.0.2-dev.old")
+            app_sha = commit(app)
+            write(state / "trains" / f"{VERSION}.json", {
+                "version": VERSION, "repositories": {"app": app_sha},
+            })
+            plan_path = state / "npm" / "trains" / f"{VERSION}.json"
+            consumer = {
+                "label": "main", "repository": "app", "revision": app_sha,
+                "manifest": "package.json", "lock": "package-lock.json",
+                "legacyPeerDeps": False, "publishedFrontend": "main",
+            }
+            write(plan_path, {
+                "version": VERSION, "registry": "https://registry.example/",
+                "cee": {"name": CEE_NAME, "version": CEE_VERSION, "revision": "b" * 40},
+                "ceeConsumers": [consumer],
+                "frontends": [{"id": "main", "repository": "app", "packagePath": "."}],
+            })
+
+            def wire(directory, dependency, published, version, legacy_peer_deps=False):
+                dependency_files(directory, dependency, published, version)
+
+            with (
+                patch.object(frontend_train, "verify_record"),
+                patch.object(frontend_train, "install_exact_alias", side_effect=wire),
+            ):
+                args = argparse.Namespace(version=VERSION, workspace=workspace, state=state)
+                frontend_train.prepare_frontends(args)
+                frontend_train.prepare_frontends(args)
+            plan = frontend_train.load_json(plan_path)
+            preparation = plan["frontendPreparation"]
+            self.assertEqual(CEE_VERSION, preparation["ceeVersion"])
+            self.assertEqual(
+                ["package-lock.json", "package.json"], preparation["overlays"]["main"],
+            )
+            frontend_train.verify_frontend_preparation(plan, workspace)
+
+    def test_frontend_preparation_rebuilds_a_consumer_that_bundles_cee(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            workspace = root / "workspace"
+            state = root / "state"
+            repository = workspace / "bridging"
+            source = repository / "src"
+            dependency_files(source, "cedar-embeddable-editor", CEE_NAME, "2.0.2-dev.old")
+            distribution = repository / "dist-package"
+            write(distribution / "package.json", {
+                "name": "bridging-dist", "version": "2.9.3-SNAPSHOT",
+            })
+            write(distribution / "package-lock.json", {
+                "name": "bridging-dist", "version": "2.9.3-SNAPSHOT",
+                "packages": {"": {"name": "bridging-dist", "version": "2.9.3-SNAPSHOT"}},
+            })
+            (distribution / "old.js").write_text("old bundle\n", encoding="utf-8")
+            revision = commit(repository)
+            write(state / "trains" / f"{VERSION}.json", {
+                "version": VERSION, "repositories": {"bridging": revision},
+            })
+            plan_path = state / "npm" / "trains" / f"{VERSION}.json"
+            consumer = {
+                "label": "bridging", "repository": "bridging", "revision": revision,
+                "manifest": "src/package.json", "lock": "src/package-lock.json",
+                "legacyPeerDeps": False, "publishedFrontend": "bridging",
+            }
+            write(plan_path, {
+                "version": VERSION, "registry": "https://registry.example/",
+                "cee": {"name": CEE_NAME, "version": CEE_VERSION, "revision": "b" * 40},
+                "ceeConsumers": [consumer],
+                "frontends": [{
+                    "id": "bridging", "repository": "bridging",
+                    "packagePath": "dist-package",
+                    "preparedBuild": {
+                        "directory": "src", "commands": [["npm", "run", "build"]],
+                        "output": "src/build-output",
+                    },
+                }],
+            })
+
+            def wire(directory, dependency, published, version, legacy_peer_deps=False):
+                dependency_files(directory, dependency, published, version)
+
+            def build(command, cwd, environment=None):
+                self.assertEqual(["npm", "run", "build"], command)
+                output = cwd / "build-output"
+                output.mkdir()
+                (output / "main.js").write_text("new CEE bundle\n", encoding="utf-8")
+
+            with (
+                patch.object(frontend_train, "verify_record"),
+                patch.object(frontend_train, "install_exact_alias", side_effect=wire),
+                patch.object(frontend_train, "run_command", side_effect=build),
+            ):
+                frontend_train.prepare_frontends(argparse.Namespace(
+                    version=VERSION, workspace=workspace, state=state,
+                ))
+            self.assertFalse((distribution / "old.js").exists())
+            self.assertEqual("new CEE bundle\n", (distribution / "main.js").read_text())
+            self.assertTrue((distribution / "package.json").exists())
+            preparation = frontend_train.load_json(plan_path)["frontendPreparation"]
+            self.assertEqual(["dist-package"], preparation["overlays"]["bridging"])
+            frontend_train.verify_frontend_preparation(
+                frontend_train.load_json(plan_path), workspace,
+            )
+
+    def test_workflow_exposes_model_cee_and_frontends_as_top_level_stages(self):
+        workflow = (
+            Path(frontend_train.__file__).parent.parent
+            / ".github" / "workflows" / "build-train.yml"
+        ).read_text(encoding="utf-8")
+        self.assertIn("  publish-model:", workflow)
+        self.assertIn("  publish-cee:", workflow)
+        self.assertIn("  publish-frontends:", workflow)
+        self.assertIn("needs: publish-model", workflow)
+        self.assertIn("needs: publish-cee", workflow)
+        self.assertNotIn("  publish-npm:", workflow)
 
     def test_completion_includes_verified_runtime_packages(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -12,6 +12,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 import tarfile
@@ -23,8 +24,10 @@ import urllib.request
 ROOT = Path(__file__).resolve().parent
 DEFAULT_CONFIG = ROOT / "frontend-train.json"
 TRAIN_RE = re.compile(r"^\d+\.\d+\.\d+-dev\.\d{8}\.\d{4}$")
+PACKAGE_VERSION_RE = re.compile(r"^(\d+\.\d+\.\d+)(?:[-+].*)?$")
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 FRONTEND_PACKAGE_FORMAT = "p3"
+WIRED_FRONTEND_PACKAGE_FORMAT = "p4"
 
 
 def load_json(path: Path) -> dict:
@@ -59,6 +62,26 @@ def train_key(version: str) -> tuple[int, int, int, str, str]:
     major, minor, patch = (int(part) for part in base.split("."))
     day, minute = timestamp.split(".", 1)
     return major, minor, patch, day, minute
+
+
+def package_base(version: str, identity: str) -> str:
+    match = PACKAGE_VERSION_RE.fullmatch(version or "")
+    if not match:
+        raise RuntimeError(f"{identity} has invalid package version {version!r}")
+    return match.group(1)
+
+
+def train_package_version(source_version: str, train: str, revision: str,
+                          package_format: str | None = None) -> str:
+    validate_train(train)
+    if not SHA_RE.fullmatch(revision or ""):
+        raise RuntimeError(f"invalid package source revision {revision!r}")
+    base = package_base(source_version, "source package")
+    train_suffix = train.split("-dev.", 1)[1]
+    result = f"{base}-dev.{train_suffix}.g{revision[:12]}"
+    if package_format:
+        result += f".{package_format}"
+    return result
 
 
 def source_manifest(state: Path, version: str) -> tuple[dict, bytes]:
@@ -109,6 +132,12 @@ def frontend_version(repository: Path, manifest_version: str, revision: str) -> 
     return f"{base}-dev.{timestamp}.g{revision[:12]}.{FRONTEND_PACKAGE_FORMAT}"
 
 
+def wired_frontend_version(manifest_version: str, train: str, revision: str) -> str:
+    return train_package_version(
+        manifest_version, train, revision, WIRED_FRONTEND_PACKAGE_FORMAT,
+    )
+
+
 def record_plan(args: argparse.Namespace) -> None:
     config = load_json(args.config)
     source, source_content = source_manifest(args.state, args.version)
@@ -118,47 +147,50 @@ def record_plan(args: argparse.Namespace) -> None:
     )
     model_source = load_json(model_root / config["model"]["sourceManifest"])
     model_package = load_json(model_root / config["model"]["publishedManifest"])
-    if model_source.get("version") != model_package.get("version"):
-        raise RuntimeError("TypeScript model source and published manifests have different versions")
+    model_name = model_package["name"]
+    if not model_name.startswith("@org.metadatacenter/"):
+        raise RuntimeError("TypeScript model development package must use the Nexus scope")
+    model_source_version = model_source.get("version")
+    if package_base(model_source_version, "TypeScript model source") != package_base(
+        model_package.get("version"), "TypeScript model published manifest"
+    ):
+        raise RuntimeError("TypeScript model source and published manifests have different bases")
+    model_version = train_package_version(
+        model_source_version, args.version, model_revision,
+    )
 
     cee_root, cee_revision = repository_root(args.workspace, source, config["cee"]["repository"])
     cee_source = load_json(cee_root / config["cee"]["sourceManifest"])
-    model_name = model_package["name"]
-    model_version = model_package["version"]
-    model_registry = registry_record(config["registry"], model_name, model_version)
-    if model_registry is None or not SHA_RE.fullmatch(model_registry.get("gitHead", "")):
-        raise RuntimeError(f"publish {model_name}@{model_version} through its library release gate first")
-    model_artifact_revision = model_registry["gitHead"]
-    require_exact_alias(
-        cee_root / config["cee"]["sourceManifest"],
-        cee_root / config["cee"]["sourceLock"],
-        config["cee"]["modelDependency"], model_name, model_version,
-    )
-    for consumer in config["cee"].get("additionalModelConsumers", []):
-        require_exact_alias(
-            cee_root / consumer["manifest"], cee_root / consumer["lock"],
-            config["cee"]["modelDependency"], model_name, model_version,
-        )
-
     cee_name = config["cee"]["publishedName"]
-    cee_version = cee_source["version"]
-    cee_registry = registry_record(config["registry"], cee_name, cee_version)
-    if cee_registry is None or not SHA_RE.fullmatch(cee_registry.get("gitHead", "")):
-        raise RuntimeError(f"publish {cee_name}@{cee_version} through its library release gate first")
-    cee_artifact_revision = cee_registry["gitHead"]
+    if not cee_name.startswith("@org.metadatacenter/"):
+        raise RuntimeError("CEE development package must use the Nexus scope")
+    cee_source_version = cee_source.get("version")
+    cee_version = train_package_version(
+        cee_source_version, args.version, cee_revision,
+    )
     packages = []
     additional_consumers = []
+    cee_consumers = []
     docker_inputs = dict(source.get("frontendPackages", {}))
     for frontend in config["frontends"]:
         frontend_root, revision = repository_root(args.workspace, source, frontend["repository"])
         manifest = load_json(frontend_root / frontend["packagePath"] / "package.json")
-        expected_version = frontend_version(frontend_root, manifest["version"], revision)
+        expected_version = (
+            wired_frontend_version(manifest["version"], args.version, revision)
+            if "ceeConsumer" in frontend
+            else frontend_version(frontend_root, manifest["version"], revision)
+        )
         if "ceeConsumer" in frontend:
             consumer = frontend["ceeConsumer"]
-            require_exact_alias(
-                frontend_root / consumer["manifest"], frontend_root / consumer["lock"],
-                "cedar-embeddable-editor", cee_name, cee_version,
-            )
+            cee_consumers.append({
+                "label": frontend["id"],
+                "repository": frontend["repository"],
+                "revision": revision,
+                "manifest": consumer["manifest"],
+                "lock": consumer["lock"],
+                "legacyPeerDeps": bool(consumer.get("legacyPeerDeps", False)),
+                "publishedFrontend": frontend["id"],
+            })
         docker_inputs[frontend["npmVersionVariable"]] = expected_version
         packages.append({
             "id": frontend["id"],
@@ -171,21 +203,26 @@ def record_plan(args: argparse.Namespace) -> None:
             "npmVersionVariable": frontend["npmVersionVariable"],
             "ceeVersion": cee_version if "ceeConsumer" in frontend else None,
             "requiresShrinkwrap": True,
+            **(
+                {"preparedBuild": frontend["preparedBuild"]}
+                if frontend.get("preparedBuild") else {}
+            ),
         })
     for consumer in config.get("additionalCeeConsumers", []):
         consumer_root, revision = repository_root(
             args.workspace, source, consumer["repository"]
         )
-        require_exact_alias(
-            consumer_root / consumer["manifest"], consumer_root / consumer["lock"],
-            "cedar-embeddable-editor", cee_name, cee_version,
-        )
-        additional_consumers.append({
+        record = {
+            "label": consumer.get("label", consumer["manifest"]),
             "repository": consumer["repository"],
             "revision": revision,
             "manifest": consumer["manifest"],
+            "lock": consumer["lock"],
+            "legacyPeerDeps": bool(consumer.get("legacyPeerDeps", False)),
             "ceeVersion": cee_version,
-        })
+        }
+        additional_consumers.append(record)
+        cee_consumers.append(record)
     docker_inputs[config["dockerCeeVersionVariable"]] = cee_version
     runtime_packages = []
     for package in config.get("runtimePackages", []):
@@ -202,32 +239,54 @@ def record_plan(args: argparse.Namespace) -> None:
         })
 
     plan = {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "version": validate_train(args.version),
         "createdAt": dt.datetime.now(dt.timezone.utc).isoformat(),
         "sourceManifest": f"trains/{args.version}.json",
         "sourceManifestSha256": sha256_bytes(source_content),
         "registry": config["registry"],
         "model": {
-            "name": model_name, "version": model_version,
-            "repository": config["model"]["repository"], "revision": model_artifact_revision,
-            "capturedRevision": model_revision,
+            "name": model_name,
+            "version": model_version,
+            "sourceVersion": model_source_version,
+            "repository": config["model"]["repository"],
+            "revision": model_revision,
+            "publication": "train-owned",
         },
         "cee": {
-            "name": cee_name, "version": cee_version,
-            "repository": config["cee"]["repository"], "revision": cee_artifact_revision,
-            "capturedRevision": cee_revision,
+            "name": cee_name,
+            "version": cee_version,
+            "sourceVersion": cee_source_version,
+            "repository": config["cee"]["repository"],
+            "revision": cee_revision,
+            "publication": "train-owned",
             "model": {"name": model_name, "version": model_version},
+            "modelConsumers": [
+                {
+                    "manifest": config["cee"]["sourceManifest"],
+                    "lock": config["cee"]["sourceLock"],
+                },
+                *config["cee"].get("additionalModelConsumers", []),
+            ],
         },
         "frontends": packages,
         "runtimePackages": runtime_packages,
         "additionalCeeConsumers": additional_consumers,
+        "ceeConsumers": cee_consumers,
+        "wiringPolicy": {
+            "workspace": "isolated exact-commit checkouts",
+            "sourceRepositoriesModified": False,
+            "modelIntoCee": "exact Nexus alias and lock integrity",
+            "ceeIntoFrontends": "exact Nexus alias and lock integrity",
+        },
         "dockerInputs": dict(sorted(docker_inputs.items())),
     }
     destination = args.state / "npm" / "trains" / f"{args.version}.json"
     if destination.exists():
         existing = load_json(destination)
-        comparable_existing = {k: v for k, v in existing.items() if k != "createdAt"}
+        comparable_existing = {
+            key: existing.get(key) for key in plan if key != "createdAt"
+        }
         comparable_plan = {k: v for k, v in plan.items() if k != "createdAt"}
         if comparable_existing != comparable_plan:
             raise RuntimeError(f"recorded npm plan for {args.version} differs from current inputs")
@@ -316,23 +375,306 @@ def verify_record(registry: str, expected: dict) -> dict:
     return verified
 
 
+def run_command(command: list[str], cwd: Path, environment: dict | None = None) -> None:
+    subprocess.run(command, cwd=cwd, env=environment, check=True)
+
+
+def assert_clean_repository(root: Path, identity: str) -> None:
+    status = subprocess.run(
+        ["git", "status", "--porcelain", "--untracked-files=normal"],
+        cwd=root, text=True, capture_output=True, check=True,
+    ).stdout.strip()
+    if status:
+        raise RuntimeError(f"isolated {identity} checkout is dirty before preparation")
+
+
+def write_pretty_json(path: Path, value: dict) -> None:
+    path.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
+
+
+def stamp_package_version(root: Path, version: str, published_manifest: str | None = None) -> None:
+    package_path = root / "package.json"
+    lock_path = root / "package-lock.json"
+    package = load_json(package_path)
+    lock = load_json(lock_path)
+    package["version"] = version
+    lock["version"] = version
+    lock_root = lock.get("packages", {}).get("")
+    if not isinstance(lock_root, dict):
+        raise RuntimeError(f"{lock_path} has no root package record")
+    lock_root["version"] = version
+    write_pretty_json(package_path, package)
+    write_pretty_json(lock_path, lock)
+    if published_manifest:
+        published_path = root / published_manifest
+        published = load_json(published_path)
+        published["version"] = version
+        write_pretty_json(published_path, published)
+
+
+def install_exact_alias(root: Path, dependency: str, published_name: str, version: str,
+                        legacy_peer_deps: bool = False) -> None:
+    spec = f"{dependency}@npm:{published_name}@{version}"
+    command = [
+        "npm", "install", "--package-lock-only", "--ignore-scripts", "--save-exact", spec,
+    ]
+    if legacy_peer_deps:
+        command.append("--legacy-peer-deps")
+    run_command(command, root)
+
+
+def existing_verified_package(registry: str, expected: dict) -> bool:
+    if registry_record(registry, expected["name"], expected["version"]) is None:
+        return False
+    verify_record(registry, expected)
+    print(f"Already published and verified: {expected['name']}@{expected['version']}")
+    return True
+
+
+def record_library_completion(state: Path, stage: str, plan: dict,
+                              expected: dict, verified: dict) -> None:
+    write_json(state / "npm" / stage / "completed" / f"{plan['version']}.json", {
+        "schemaVersion": 1,
+        "version": plan["version"],
+        "stage": stage,
+        "completedAt": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "sourceManifestSha256": plan.get("sourceManifestSha256"),
+        "package": verified,
+        "expected": {
+            "name": expected["name"],
+            "version": expected["version"],
+            "repository": expected["repository"],
+            "revision": expected["revision"],
+        },
+    })
+
+
+def publish_model(args: argparse.Namespace) -> None:
+    plan = load_json(args.state / "npm" / "trains" / f"{validate_train(args.version)}.json")
+    expected = plan["model"]
+    if existing_verified_package(plan["registry"], expected):
+        verified = verify_record(plan["registry"], expected)
+        record_library_completion(args.state, "model", plan, expected, verified)
+        return
+    source, _ = source_manifest(args.state, args.version)
+    root, revision = repository_root(args.workspace, source, expected["repository"])
+    if revision != expected["revision"]:
+        raise RuntimeError("TypeScript model plan and source manifest disagree")
+    assert_clean_repository(root, "TypeScript model")
+    stamp_package_version(root, expected["version"], "package-dist.json")
+    published = load_json(root / "package-dist.json")
+    if published.get("name") != expected["name"]:
+        raise RuntimeError("TypeScript model published manifest has the wrong scoped name")
+    for command in (
+        ["npm", "ci"],
+        ["npm", "run", "lint"],
+        ["npm", "run", "typecheck"],
+        ["npm", "run", "test:coverage"],
+        ["npm", "run", "parity:yaml"],
+        ["npm", "run", "parity:json"],
+        ["npm", "run", "test:package"],
+    ):
+        run_command(command, root)
+    built = load_json(root / "dist" / "package.json")
+    if built.get("name") != expected["name"] or built.get("version") != expected["version"]:
+        raise RuntimeError("built TypeScript model package has the wrong identity")
+    run_command([
+        "npm", "publish", "./dist", "--tag", "dev",
+        "--registry", plan["registry"], "--loglevel=notice",
+    ], root)
+    verified = verify_record(plan["registry"], expected)
+    record_library_completion(args.state, "model", plan, expected, verified)
+    print(f"Published train model: {expected['name']}@{expected['version']}")
+
+
+def publish_cee(args: argparse.Namespace) -> None:
+    plan = load_json(args.state / "npm" / "trains" / f"{validate_train(args.version)}.json")
+    expected = plan["cee"]
+    # CEE completion is evidence for the whole model -> CEE edge, including on resume.
+    verify_record(plan["registry"], plan["model"])
+    if existing_verified_package(plan["registry"], expected):
+        verified = verify_record(plan["registry"], expected)
+        record_library_completion(args.state, "cee", plan, expected, verified)
+        return
+    source, _ = source_manifest(args.state, args.version)
+    root, revision = repository_root(args.workspace, source, expected["repository"])
+    if revision != expected["revision"]:
+        raise RuntimeError("CEE plan and source manifest disagree")
+    assert_clean_repository(root, "CEE")
+    stamp_package_version(root, expected["version"])
+    config = load_json(args.config)
+    dependency = config["cee"]["modelDependency"]
+    for consumer in expected["modelConsumers"]:
+        consumer_root = (root / consumer["manifest"]).parent
+        install_exact_alias(
+            consumer_root, dependency, plan["model"]["name"], plan["model"]["version"],
+            bool(consumer.get("legacyPeerDeps", False)),
+        )
+        require_exact_alias(
+            root / consumer["manifest"], root / consumer["lock"], dependency,
+            plan["model"]["name"], plan["model"]["version"],
+        )
+    for command, cwd in (
+        (["npm", "ci"], root),
+        (["npm", "--prefix", "harness", "ci"], root),
+        (["npm", "--prefix", "visual", "ci"], root),
+        (["npm", "run", "test:ci"], root),
+        (["npm", "run", "audit:prod"], root),
+    ):
+        run_command(command, cwd)
+    staged = root / "dist-npm" / "cedar-embeddable-editor"
+    built = load_json(staged / "package.json")
+    if built.get("name") != expected["name"] or built.get("version") != expected["version"]:
+        raise RuntimeError("built CEE package has the wrong train identity")
+    run_command([
+        "npm", "publish", str(staged), "--tag", "dev",
+        "--registry", plan["registry"], "--loglevel=notice",
+    ], root)
+    verified = verify_record(plan["registry"], expected)
+    record_library_completion(args.state, "cee", plan, expected, verified)
+    print(f"Published train CEE: {expected['name']}@{expected['version']}")
+
+
+def path_sha256(path: Path) -> str:
+    if path.is_file():
+        return sha256_bytes(path.read_bytes())
+    if not path.is_dir():
+        raise RuntimeError(f"prepared package input is missing: {path}")
+    digest = hashlib.sha256()
+    for child in sorted(item for item in path.rglob("*") if item.is_file()):
+        relative = child.relative_to(path).as_posix()
+        if any(part in {".git", "node_modules"} for part in child.relative_to(path).parts):
+            continue
+        digest.update(relative.encode())
+        digest.update(b"\0")
+        digest.update(child.read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def replace_prepared_dist(source: Path, destination: Path) -> None:
+    if not source.is_dir() or not destination.is_dir():
+        raise RuntimeError(f"cannot stage frontend build from {source} to {destination}")
+    preserved = {"package.json", "package-lock.json", "README.md", "license.txt"}
+    for child in destination.iterdir():
+        if child.name in preserved:
+            continue
+        if child.is_dir() and not child.is_symlink():
+            shutil.rmtree(child)
+        else:
+            child.unlink()
+    for child in source.iterdir():
+        target = destination / child.name
+        if child.is_dir():
+            shutil.copytree(child, target)
+        else:
+            shutil.copy2(child, target)
+
+
+def prepare_frontends(args: argparse.Namespace) -> None:
+    version = validate_train(args.version)
+    plan_path = args.state / "npm" / "trains" / f"{version}.json"
+    plan = load_json(plan_path)
+    verify_record(plan["registry"], plan["cee"])
+    source, _ = source_manifest(args.state, version)
+    wiring = []
+    by_frontend: dict[str, list[str]] = {}
+    for consumer in plan["ceeConsumers"]:
+        repository_root(args.workspace, source, consumer["repository"])
+        manifest_path = args.workspace / consumer["repository"] / consumer["manifest"]
+        lock_path = args.workspace / consumer["repository"] / consumer["lock"]
+        install_exact_alias(
+            manifest_path.parent,
+            "cedar-embeddable-editor",
+            plan["cee"]["name"],
+            plan["cee"]["version"],
+            consumer["legacyPeerDeps"],
+        )
+        require_exact_alias(
+            manifest_path, lock_path, "cedar-embeddable-editor",
+            plan["cee"]["name"], plan["cee"]["version"],
+        )
+        record = {
+            **consumer,
+            "manifestSha256": path_sha256(manifest_path),
+            "lockSha256": path_sha256(lock_path),
+        }
+        wiring.append(record)
+        if consumer.get("publishedFrontend"):
+            by_frontend.setdefault(consumer["publishedFrontend"], []).extend([
+                consumer["manifest"], consumer["lock"],
+            ])
+
+    builds = []
+    for frontend in plan["frontends"]:
+        build = frontend.get("preparedBuild")
+        if not build:
+            continue
+        root = args.workspace / frontend["repository"]
+        build_root = root / build["directory"]
+        for command in build["commands"]:
+            run_command(command, build_root)
+        output = root / build["output"]
+        destination = root / frontend["packagePath"]
+        replace_prepared_dist(output, destination)
+        by_frontend[frontend["id"]] = [frontend["packagePath"]]
+        builds.append({
+            "frontend": frontend["id"],
+            "repository": frontend["repository"],
+            "output": frontend["packagePath"],
+            "sha256": path_sha256(destination),
+        })
+
+    overlays = {
+        frontend["id"]: sorted(set(by_frontend.get(frontend["id"], [])))
+        for frontend in plan["frontends"]
+    }
+    evidence = {
+        "preparedAt": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "ceeVersion": plan["cee"]["version"],
+        "consumers": wiring,
+        "builds": builds,
+        "overlays": overlays,
+    }
+    existing = plan.get("frontendPreparation")
+    if existing:
+        comparable_existing = {k: v for k, v in existing.items() if k != "preparedAt"}
+        comparable_evidence = {k: v for k, v in evidence.items() if k != "preparedAt"}
+        if comparable_existing != comparable_evidence:
+            raise RuntimeError("prepared frontend wiring differs from the recorded npm plan")
+        print(f"Frontend wiring for {version} matches the recorded preparation.")
+        return
+    plan["frontendPreparation"] = evidence
+    write_json(plan_path, plan)
+    print(f"Prepared and recorded {len(wiring)} exact CEE consumer locks.")
+
+
+def verify_frontend_preparation(plan: dict, workspace: Path) -> None:
+    preparation = plan.get("frontendPreparation")
+    if not isinstance(preparation, dict) or preparation.get("ceeVersion") != plan["cee"]["version"]:
+        raise RuntimeError("frontends have not been prepared against the train CEE")
+    for consumer in preparation.get("consumers", []):
+        root = workspace / consumer["repository"]
+        if path_sha256(root / consumer["manifest"]) != consumer["manifestSha256"]:
+            raise RuntimeError(f"prepared manifest changed for {consumer['repository']}")
+        if path_sha256(root / consumer["lock"]) != consumer["lockSha256"]:
+            raise RuntimeError(f"prepared lock changed for {consumer['repository']}")
+    for build in preparation.get("builds", []):
+        if path_sha256(workspace / build["repository"] / build["output"]) != build["sha256"]:
+            raise RuntimeError(f"prepared build changed for {build['repository']}")
+
+
 def publish_frontends(args: argparse.Namespace) -> None:
     plan = load_json(args.state / "npm" / "trains" / f"{validate_train(args.version)}.json")
     registry = plan["registry"]
-    # The model and CEE are independent libraries with their own full release gates. A train may
-    # consume them only after those immutable artifacts exist; it never bypasses their gates.
+    verify_frontend_preparation(plan, args.workspace)
     for library in (plan["model"], plan["cee"]):
-        try:
-            verify_record(registry, library)
-        except RuntimeError as error:
-            raise RuntimeError(
-                f"publish or repair {library['name']}@{library['version']} through its library "
-                f"release gate first: {error}"
-            ) from error
-        print(f"Verified library prerequisite: {library['name']}@{library['version']}")
+        verify_record(registry, library)
+        print(f"Verified train-published library: {library['name']}@{library['version']}")
     helper = ROOT / "publish-frontend-package.sh"
     environment = os.environ.copy()
     environment["CEDAR_HOME"] = str(args.workspace)
+    overlays = plan["frontendPreparation"]["overlays"]
     for frontend in plan["frontends"]:
         existing = registry_record(registry, frontend["name"], frontend["version"])
         if existing is not None:
@@ -342,7 +684,10 @@ def publish_frontends(args: argparse.Namespace) -> None:
                 )
             print(f"Frontend already exists: {frontend['name']}@{frontend['version']}")
             continue
-        subprocess.run([str(helper), frontend["id"]], env=environment, check=True)
+        package_environment = dict(environment)
+        package_environment["CEDAR_TRAIN_PACKAGE_VERSION"] = frontend["version"]
+        package_environment["CEDAR_TRAIN_OVERLAY_PATHS"] = ":".join(overlays[frontend["id"]])
+        subprocess.run([str(helper), frontend["id"]], env=package_environment, check=True)
 
 
 def complete(args: argparse.Namespace) -> None:
@@ -390,6 +735,21 @@ def parser() -> argparse.ArgumentParser:
     plan.add_argument("--workspace", type=Path, required=True)
     plan.add_argument("--state", type=Path, required=True)
     plan.set_defaults(handler=record_plan)
+    model = commands.add_parser("publish-model")
+    model.add_argument("--version", required=True)
+    model.add_argument("--workspace", type=Path, required=True)
+    model.add_argument("--state", type=Path, required=True)
+    model.set_defaults(handler=publish_model)
+    cee = commands.add_parser("publish-cee")
+    cee.add_argument("--version", required=True)
+    cee.add_argument("--workspace", type=Path, required=True)
+    cee.add_argument("--state", type=Path, required=True)
+    cee.set_defaults(handler=publish_cee)
+    prepare = commands.add_parser("prepare-frontends")
+    prepare.add_argument("--version", required=True)
+    prepare.add_argument("--workspace", type=Path, required=True)
+    prepare.add_argument("--state", type=Path, required=True)
+    prepare.set_defaults(handler=prepare_frontends)
     publish = commands.add_parser("publish-frontends")
     publish.add_argument("--version", required=True)
     publish.add_argument("--workspace", type=Path, required=True)

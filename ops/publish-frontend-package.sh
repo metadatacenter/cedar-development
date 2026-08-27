@@ -59,7 +59,9 @@ if [ ! -d "${repo_dir}/.git" ] || [ ! -f "${package_dir}/package.json" ]; then
   echo "Missing frontend package: ${package_dir}" >&2
   exit 1
 fi
-if [ -n "$(git -C "${repo_dir}" status --porcelain --untracked-files=normal)" ]; then
+train_package_version=${CEDAR_TRAIN_PACKAGE_VERSION:-}
+if [ -z "${train_package_version}" ] && \
+   [ -n "$(git -C "${repo_dir}" status --porcelain --untracked-files=normal)" ]; then
   echo "Refusing to publish a dirty frontend repository: ${repo_name}" >&2
   exit 1
 fi
@@ -76,7 +78,11 @@ if [[ "${manifest_version}" == *-SNAPSHOT ]]; then
 else
   version_base=${manifest_version%%-*}
 fi
-package_version="${version_base}-dev.${commit_timestamp}.${short_commit}.p3"
+if [ -n "${train_package_version}" ]; then
+  package_version=${train_package_version}
+else
+  package_version="${version_base}-dev.${commit_timestamp}.${short_commit}.p3"
+fi
 
 if existing_commit=$(npm view "${package_name}@${package_version}" gitHead \
   --registry "${registry}" --json 2>/dev/null); then
@@ -107,6 +113,25 @@ mkdir -p "${source_dir}"
 # The package identity names a Git commit, so its bytes must come from that commit as well. Packing
 # the working tree would allow ignored build output to enter an otherwise clean repository.
 git -C "${repo_dir}" archive --format=tar HEAD | tar -xf - -C "${source_dir}"
+if [ -n "${train_package_version}" ] && [ -n "${CEDAR_TRAIN_OVERLAY_PATHS:-}" ]; then
+  IFS=: read -r -a overlay_paths <<< "${CEDAR_TRAIN_OVERLAY_PATHS}"
+  for relative in "${overlay_paths[@]}"; do
+    if [ -z "${relative}" ] || [ "${relative}" = "." ] || \
+       [[ "${relative}" = /* ]] || [[ "/${relative}/" = *"/../"* ]]; then
+      echo "Invalid prepared frontend overlay path: ${relative}" >&2
+      exit 1
+    fi
+    overlay_source="${repo_dir}/${relative}"
+    overlay_target="${source_dir}/${relative}"
+    if [ ! -e "${overlay_source}" ]; then
+      echo "Missing prepared frontend overlay: ${overlay_source}" >&2
+      exit 1
+    fi
+    rm -rf "${overlay_target}"
+    mkdir -p "$(dirname "${overlay_target}")"
+    cp -a "${overlay_source}" "${overlay_target}"
+  done
+fi
 archived_package_dir="${source_dir}/${package_path}"
 if [ ! -f "${archived_package_dir}/package.json" ] || \
    [ ! -f "${archived_package_dir}/package-lock.json" ]; then
