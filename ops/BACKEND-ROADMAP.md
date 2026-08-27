@@ -490,54 +490,7 @@ larger lifecycle refactor tracked below.
 Coverage and test-infrastructure work. The active REST integration suites live in
 `ops/e2e/rest/suites/`; the JUnit matrices and boot-smoke live in the per-server modules.
 
-- **15. Deepen the core-workflow tests instead of growing the headline count.** The JUnit matrices and the
-  REST suites now give the system respectable horizontal coverage: routes boot, authentication and
-  permission boundaries are pinned, and create/read/update/delete, sharing, search, versioning and the
-  cross-service hop all execute against the real stack. Much of that is deliberately
-  characterization-level, though — a representative payload walks the happy path while many assertions
-  check only a status or a field or two. The next pass should go vertical: failure semantics and state
-  invariants on the resource ↔ artifact path, the one hop every core operation crosses (`contract.mjs`).
-
-  Progress is now split cleanly between completed invariants and the remaining gaps:
-
-  1. **Partial multi-store failure — complete.** Injected failures between the artifact-store write and the Neo4j
-     graph update for create, rename, publish, draft and delete prove the operation either rolls back
-     or leaves a detectable, recoverable state — never a silently orphaned artifact, a stale graph node
-     or a half-published version. This is the write-path counterpart to the completed read-path
-     degradation work, which asks only that a service not 500 when a dependency is down.
-  2. **Retry and idempotency — complete.** Repeated writes after a timeout or an ambiguous response prove publish,
-     draft, move, delete, permission change and DOI-set do not produce a duplicate version, a duplicate graph
-     node or divergent state.
-  3. **Illegal state transitions — complete.** Coverage pins republish, draft-from-draft, invalid version
-     progressions, mutation of published content, ownership transfer then versioning and freeze-on-publish
-     when some terminology versions cannot be resolved. Published deletion is characterized according to
-     the current deliberate contract tracked separately above, rather than misclassified as illegal here.
-  4. **Payload boundaries — complete.** Template, element, field and instance now have malformed and
-     minimally-valid bodies around required properties, nested composition, cardinality, identifiers,
-     controlled terms and YAML/JSON round-trips. The field endpoint has its own minimal, malformed,
-     cardinality and controlled-term round trips; instance coverage pins malformed JSON, invalid identifiers
-     and controlled-term values; and template/element refusals assert collection counts before and after
-     malformed JSON and impossible nested cardinality. These check the error and persisted post-state, not
-     only the status.
-  5. **Projection under an unavailable queue or index — consumer complete, producer open.** Grant,
-     revocation, deletion and rename propagation through OpenSearch are pinned in `finding.mjs`. The worker
-     now claims permission events durably, retries transient failures, parks persistent failures, recovers
-     in-flight events after restart and propagates Neo4j/OpenSearch executor failures far enough for those
-     controls to operate; focused tests prove replay converges. The remaining gap is before Redis accepts the
-     event: resource and group producers still log and drop a permission event when Redis is unavailable.
-     Close that with a durable producer outbox or an equivalently explicit reconciliation contract.
-  6. **Repeatability and reporting.** Run the REST estate twice against the same clean stack and fail on
-     leaked fixtures; record an expected-check inventory; emit machine-readable results for CI. A change
-     that quietly drops a loop, a suite or a conditional assertion should stay visible even when every
-     remaining check passes — today the total shifts run-to-run as data-dependent suites (freeze) run or
-     skip, which an inventory would render legible rather than noise.
-
-  Not a request for exhaustive combinatorics, load testing or indiscriminate fuzzing. The target is
-  depth at the few boundaries where CEDAR can accept a request yet leave its stores, permissions,
-  versions or search projection disagreeing. The present suite protects the behavioural skeleton; this
-  item protects the integrity of state when operations fail or are repeated.
-
-- **16. Switch the extracted Workspace and Template Designer over in staging, then production.**
+- **15. Switch the extracted Workspace and Template Designer over in staging, then production.**
   Local coexistence is complete: the monolith remains on `cedar.metadatacenter.orgx`, Workspace and
   Designer run on their own trusted HTTPS origins, Keycloak SSO spans them, the provenance gate
   passes, and the complete Workspace → Designer → CEE → OpenView authenticated journey passes
@@ -625,7 +578,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
 
 ## Production data
 
-- **17. Repair the production schema artifacts that can reject correctly shaped CEE instances.** The
+- **16. Repair the production schema artifacts that can reject correctly shaped CEE instances.** The
   permission-scoped production audit found 76 inherently-multiple fields deployed as JSON objects in
   31 stored schema artifacts: 23 templates and 8 elements. Every case is a multiple-select list; no
   object-shaped checkbox or attribute-value deployment was found. CEE correctly serializes these
@@ -672,7 +625,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   rerun the audit to `COMPLETE_FOR_KEY`. Never delete a store artifact merely because its search entry
   is inconsistent.
 
-- **18. Write `sourceSystem` onto the production value constraints, so that its absence means something.**
+- **17. Write `sourceSystem` onto the production value constraints, so that its absence means something.**
   A controlled-term constraint may name the system serving its vocabulary, and both model libraries read
   an absent `sourceSystem` as BioPortal —
   [the value-constraint shape](VERSIONING-ROADMAP.md#6-the-value-constraint-shape) defines the field and
@@ -704,7 +657,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
 
 ## Documentation consolidation
 
-- **19. Decide whether to retire `cedar-mkdocs-developer`.** Its current release and production
+- **18. Decide whether to retire `cedar-mkdocs-developer`.** Its current release and production
   deployment pages now point to the maintained runbooks in `cedar-development/ops`, and its generated
   `site/` tree is no longer versioned. What remains potentially unique is a small set of Neo4j
   diagnostic and repair recipes, cron-job notes, user/domain/certificate maintenance procedures, and

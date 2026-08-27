@@ -627,6 +627,19 @@ Zero is the expected reading. A nonzero search-permission value means the search
 are behind the graph for the resources those events name; the other suffixes mean clone, application
 log or recommender work needs attention. Nothing retries dead-lettered work on its own.
 
+Resource and group producers first persist each permission event as a
+`CedarSearchPermissionOutbox` node in Neo4j. Redis acceptance removes that node; if Redis is down,
+the request's graph mutation still succeeds and the managed relay retries every five seconds, across
+producer restarts. Delivery can repeat if a producer dies after the Redis push but before the Neo4j
+acknowledgement, which is safe because permission projection is idempotent. To exercise that boundary
+against the native local stack (the command stops and restores the Homebrew Redis service in a
+`finally` block):
+
+```bash
+cd $CEDAR_HOME/cedar-development/ops/e2e
+npm run smoke:permission-outbox -- --manage-homebrew-redis
+```
+
 Read what is parked before deciding anything. Each entry is the original JSON event, carrying the
 resource id, the event type and the time it was created:
 
@@ -1358,7 +1371,7 @@ from, because they answer very different questions:
 | Matrices | 7 | Authorization, permission levels and artifact lifecycle, as tables |
 | Sharing and ownership | 1 | The `PUT .../permissions` round trip, including ownership transfer |
 | Content negotiation | 2 | YAML and JSON transcode both ways |
-| REST smoke | 1 | The real stack, no browser: 19 suites, 662 checks |
+| REST smoke | 1 | The real stack, no browser: 19 suites, 729 expected checks |
 | End-to-end smoke | 1 | The real stack, through a browser |
 
 **The browser smoke is green as of 2026-08-17.** It logs in, creates a template with a DOID-constrained
@@ -1368,16 +1381,33 @@ contents. A failed run can stop before teardown and leave its folder, template, 
 behind; `ops/e2e/cleanup-smoke-leftovers.mjs` removes them.
 
 `ops/e2e` holds the two whole-stack tests, and they answer different questions. `npm run smoke:rest`
-drives the REST API directly, in about twenty seconds, and reaches what no unit suite can: the artifact
+drives the REST API directly, in about 65–80 seconds, and reaches what no unit suite can: the artifact
 write path (which proxies, so the per-service suites cannot follow it), publish and create-draft,
 whether the graph and the artifact server agree, and the things a real running stack does that an
 embedded one cannot. It authenticates through Keycloak's password grant using the credentials already
 in the profile, so there are no API keys to keep. Run one suite with `npm run smoke:rest -- <name>`;
 the suites are `apidocs`, `artifacts`, `authentication`, `categories`, `contract`, `download`,
 `finding`, `folders`, `freeze`, `group-sharing`, `groups`, `inclusion`, `negotiation`, `openness`,
-`pagination`, `search`, `sharing`, `validation` and `versioning`. Together they made 662 checks on
-2026-08-19; `download` includes JSON / YAML / compact-YAML export and read-negotiation across all
-four artifact kinds.
+`pagination`, `search`, `sharing`, `validation` and `versioning`. The committed
+`rest/expected-checks.json` inventory holds 729 exact suite/section/check identities; a passing run
+must execute that same ordered inventory, so an early return, removed loop or conditional omission is
+a failure even when every check that did run passed. Freeze keeps the inventory stable when the local
+terminology store is absent by recording its seven checks as skipped rather than silently omitting
+them. `download` includes JSON / YAML / compact-YAML export and read-negotiation across all four
+artifact kinds.
+
+Every run writes `reports/rest-smoke.json` by default; `--report=PATH` chooses another file. The JSON
+records the selected suites, pass/fail/skip totals, duration, inventory verdict and each individual
+check for CI artifact upload. A deliberate coverage change regenerates the inventory only from a
+clean pass:
+
+```bash
+npm run smoke:rest -- --update-inventory
+```
+
+The runner refuses to replace the inventory after a failure or interruption. It also inventories
+timestamped smoke folders and categories before and after the run, failing if an earlier run leaked
+state or the current teardown did not restore the baseline.
 
 An interrupted run still cleans up after itself. `SIGINT` or `SIGTERM` stops it at the next suite
 boundary, the teardown a finished run performs runs anyway, and the verdict is `INTERRUPTED` with exit

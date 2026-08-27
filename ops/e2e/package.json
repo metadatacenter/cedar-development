@@ -17,6 +17,7 @@
     "smoke:split:hostnames:authenticated": "npm run smoke:split:hostnames:keycloak && CEDAR_BASE=https://workspace.metadatacenter.orgx CEDAR_DESIGNER_BASE=https://designer.metadatacenter.orgx node login-smoke-test.mjs",
     "smoke:split:hostnames:authenticated:headed": "npm run smoke:split:hostnames:keycloak && CEDAR_BASE=https://workspace.metadatacenter.orgx CEDAR_DESIGNER_BASE=https://designer.metadatacenter.orgx HEADED=1 node login-smoke-test.mjs",
     "smoke:rest": "node rest-smoke.mjs",
+    "smoke:permission-outbox": "node permission-outbox-smoke.mjs",
     "smoke:split": "node split-frontend-smoke.mjs",
     "smoke:split:deployment": "CEDAR_REQUIRE_BUILD_INFO=1 node split-frontend-smoke.mjs",
     "smoke:routing:split": "CEDAR_ROUTING_MODE=split node split-routing-rehearsal-smoke.mjs",

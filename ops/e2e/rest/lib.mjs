@@ -42,8 +42,14 @@ export const enc = iri => encodeURIComponent(iri);
 
 // ── results ─────────────────────────────────────────────────────────────────
 
-const results = { passed: 0, failed: 0 };
+const results = { passed: 0, failed: 0, skipped: 0, checks: [] };
 let currentSuite = '';
+let currentModule = 'runner';
+
+export function beginSuite(name) {
+  currentModule = name;
+  currentSuite = name;
+}
 
 export function suite(name) {
   currentSuite = name;
@@ -62,8 +68,16 @@ export function bad(what, detail) {
 }
 
 export function check(condition, what, detail) {
+  results.checks.push({ suite: currentModule, section: currentSuite, name: what,
+    status: condition ? 'passed' : 'failed' });
   if (condition) ok(what); else bad(what, detail);
   return !!condition;
+}
+
+export function skip(what, detail) {
+  results.skipped++;
+  results.checks.push({ suite: currentModule, section: currentSuite, name: what, status: 'skipped' });
+  console.log(`  - ${what} (skipped: ${detail})`);
 }
 
 /** Asserts a status, reporting the body when it differs — the body is where the reason is. */
@@ -74,7 +88,12 @@ export function checkStatus(res, expected, what) {
 }
 
 export function summary() {
-  return results;
+  return {
+    passed: results.passed,
+    failed: results.failed,
+    skipped: results.skipped,
+    checks: results.checks.map(check => ({ ...check })),
+  };
 }
 
 // ── authentication ──────────────────────────────────────────────────────────

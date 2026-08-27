@@ -10,7 +10,7 @@
 // The freeze is inert when the terminology local store is off (the production default), so this suite
 // probes resolve-current first and SKIPS when DOID/CEDARVS are not served locally — asserting a pin
 // there would be wrong.
-import { suite, check, checkStatus, call, artifact, cleanup, enc, RUN, TERMINOLOGY, authHeader } from '../lib.mjs';
+import { suite, check, checkStatus, skip, call, artifact, cleanup, enc, RUN, TERMINOLOGY, authHeader } from '../lib.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -49,8 +49,16 @@ export async function run({ user1, folderId }) {
   const doid = await resolveCurrent(auth, 'ontologies/DOID/versions/current');
   const cedarvs = await resolveCurrent(auth, 'vs-collections/version-current?collection=CEDARVS');
   if (!doid || !cedarvs) {
-    check(true, 'skipped — the local terminology store does not serve DOID/CEDARVS (freeze is inert here)',
-        `DOID served: ${!!doid}, CEDARVS served: ${!!cedarvs}`);
+    const reason = `the local terminology store does not serve DOID/CEDARVS (DOID: ${!!doid}, CEDARVS: ${!!cedarvs})`;
+    for (const what of [
+      'a template constrained to DOID (ontology/branch/class) and CEDARVS is created',
+      'it publishes (the injected version fields pass validation)',
+      'the DOID ontology constraint is pinned to DOID\'s current version',
+      'the DOID branch constraint is pinned (resolved by acronym)',
+      'the DOID class constraints are pinned (resolved by class IRI → owning ontology)',
+      'the CEDARVS value-set constraint is pinned to the collection\'s current version',
+      'an unserved value-set constraint is left unpinned',
+    ]) skip(what, reason);
     return;
   }
 
