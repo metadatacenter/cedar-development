@@ -61,3 +61,12 @@ the remaining delivery and operational work.
    train never published, which is a trap rather than a route. Build with `buildx` for both
    architectures and publish one manifest list a tag, so a host pulls its own architecture and the
    train stays a single set of digests.
+
+5. **Run the TLS edge as a non-root nginx.** `infra-nginx` is the last container whose nginx master
+   runs as root, kept that way because its vhosts listen on 80 and 443. Converting it means moving
+   every vhost — a dozen include files plus the split-routing rehearsal configs — to 8080/8443,
+   remapping the published ports in the infrastructure Compose file, keeping the certificate
+   volumes readable by the unprivileged user, and proving the change with the route-table smoke and
+   the routing-switch rehearsal before it reaches a shared environment. The seven frontend nginx
+   containers already run unprivileged; this item finishes the estate.
+

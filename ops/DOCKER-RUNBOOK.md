@@ -374,6 +374,16 @@ service containers themselves remain non-root. The shared CA stays read-only, an
 imports it into its own user-writable
 truststore.
 
+The Java runtime images also carry no build tooling: each server's jar is fetched with Maven in a
+build stage the served image never keeps, so neither Maven nor the JDK its package drags in exists
+at runtime. The seven frontend containers run nginx as the image's own unprivileged `nginx` user —
+every vhost listens on a high port, the start-time writes (the gulp build, the `index.html` host
+rewrite) stay inside the app home the image hands that user, and the pid file lives in `/tmp`. The
+`log_frontend_*` named volumes predate this and receive no writes; nginx logs go to the container's
+stdout. The one nginx still running as root is `infra-nginx`, the TLS edge — converting it moves
+its listeners off 80/443 and remaps Compose ports, tracked in
+[DOCKER-ROADMAP.md](./DOCKER-ROADMAP.md).
+
 The command validates all Compose projects, checks the Docker daemon, `cedarnet`, certificate
 volumes, and published ports, and then starts infrastructure, microservices, and frontends when
 selected by the configured mode. It waits after each stage. A timeout names the unhealthy services
