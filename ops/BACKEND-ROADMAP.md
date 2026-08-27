@@ -485,12 +485,39 @@ larger lifecycle refactor tracked below.
   prove that Keycloak loads the packaged provider or that a deployed admin operation reaches the
   configured realm.
 
+- **15. Retire routine `CEDAR_VERSION_MODIFIER` cache busting.** Frontend code identity now comes
+  from the source commit in the three AngularJS RequireJS keys and from content-hashed production
+  bundles in the modern Angular applications. A deployment should not need a hand-edited modifier
+  merely to make a new code revision visible. Keep the variable temporarily as a compatibility
+  escape hatch for two materially different cached payloads built from the same source commit, not
+  as a release counter.
+
+  Audit every producer and consumer before deleting or clearing it: profile and environment files,
+  cedar-cli build/version reporting, the three Gulp applications, native split-payload tooling,
+  Docker entrypoints, release/deployment scripts, and operational documentation. Classify each use
+  as source identity, genuine same-commit payload identity, display-only version metadata, or dead
+  compatibility behavior. Remove routine deploy-time bumps and any check that treats a changed
+  modifier as evidence that new code is live. If no cached asset can legitimately differ while its
+  source commit stays fixed, remove the variable completely; otherwise retain the narrowly named
+  override and add a test proving the exact same-commit case it serves.
+
+  Make the production transition once, deliberately. Rehearse it in staging, clear or freeze the
+  old modifier, rebuild every frontend from recorded commits, deploy the canonical nginx policy,
+  and purge entry/config objects that may still carry the former headers. Verify that entry and
+  runtime configuration are `no-store`, stable fallback assets revalidate, hashed assets are
+  immutable, and every served build identity matches the accepted commit. Then use a browser that
+  previously loaded the old payload to open, modify, save, reload, and save an existing instance;
+  this must exercise the GET ETag and subsequent `If-Match` update rather than merely prove that the
+  dashboard renders. The item is complete after two consecutive code deployments require no manual
+  cache token, the cache-delivery smoke passes in staging and production, and rollback works by
+  restoring payloads and routing without inventing a new modifier.
+
 ## Testing
 
 Coverage and test-infrastructure work. The active REST integration suites live in
 `ops/e2e/rest/suites/`; the JUnit matrices and boot-smoke live in the per-server modules.
 
-- **15. Switch the extracted Workspace and Template Designer over in staging, then production.**
+- **16. Switch the extracted Workspace and Template Designer over in staging, then production.**
   Local coexistence is complete: the monolith remains on `cedar.metadatacenter.orgx`, Workspace and
   Designer run on their own trusted HTTPS origins, Keycloak SSO spans them, the provenance gate
   passes, and the complete Workspace → Designer → CEE → OpenView authenticated journey passes
@@ -578,7 +605,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
 
 ## Production data
 
-- **16. Repair the production schema artifacts that can reject correctly shaped CEE instances.** The
+- **17. Repair the production schema artifacts that can reject correctly shaped CEE instances.** The
   permission-scoped production audit found 76 inherently-multiple fields deployed as JSON objects in
   31 stored schema artifacts: 23 templates and 8 elements. Every case is a multiple-select list; no
   object-shaped checkbox or attribute-value deployment was found. CEE correctly serializes these
@@ -625,7 +652,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   rerun the audit to `COMPLETE_FOR_KEY`. Never delete a store artifact merely because its search entry
   is inconsistent.
 
-- **17. Write `sourceSystem` onto the production value constraints, so that its absence means something.**
+- **18. Write `sourceSystem` onto the production value constraints, so that its absence means something.**
   A controlled-term constraint may name the system serving its vocabulary, and both model libraries read
   an absent `sourceSystem` as BioPortal —
   [the value-constraint shape](VERSIONING-ROADMAP.md#6-the-value-constraint-shape) defines the field and
@@ -657,7 +684,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
 
 ## Documentation consolidation
 
-- **18. Decide whether to retire `cedar-mkdocs-developer`.** Its current release and production
+- **19. Decide whether to retire `cedar-mkdocs-developer`.** Its current release and production
   deployment pages now point to the maintained runbooks in `cedar-development/ops`, and its generated
   `site/` tree is no longer versioned. What remains potentially unique is a small set of Neo4j
   diagnostic and repair recipes, cron-job notes, user/domain/certificate maintenance procedures, and
