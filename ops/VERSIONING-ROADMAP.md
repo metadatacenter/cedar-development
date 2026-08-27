@@ -1051,26 +1051,6 @@ left that does not need a host.
     is worse than either. Set the date the old one goes when the flag goes in, rather than leaving
     it to be noticed.
 
-- **28. Bound what a serving process holds open.** Every snapshot ever resolved stays cached for the
-    life of the process, the map having no eviction and only a clear on close. Since 2026-08-26 each
-    cached store also hands out up to sixteen connections, one a reading thread, with eight
-    more for the index. So the ceiling is the corpus: 1,266 ontologies at sixteen connections is twenty thousand,
-    and a pinned constraint opens a superseded snapshot beside the current one, and every re-ingest
-    strands the store it replaced. Nothing here is fast growth — a serving process was holding
-    sixteen sqlite descriptors and 523 MB after a day of use, which is why it wants a bound before
-    it wants attention. Evict what is neither current nor recently pinned, and cap connections
-    across all stores rather than per store, since the per-store limit is what multiplies.
-
-- **29. Let a keyboard reach what a mouse reaches, and say what is happening.** A row answers a click
-    with `mark`, which opens the detail and the hierarchy, and a double click with `choose`, which
-    commits the constraint. It answers Enter with `choose`. So an author working from the keyboard
-    commits without the look that a mouse gets for free, and there is no binding that marks without
-    choosing. The template carries five `aria-*` attributes and one `role`, that one a status line
-    for a blocked selection: the rows are bare focusable divs with no row semantics, the tab strip
-    has no tablist, and neither searching nor an error is announced. Give Enter the marking and a
-    focused control the committing, name the rows and tabs, and let the status line carry the states
-    an author cannot see.
-
 ## The Search API
 
 The request and response shapes of `POST /search` and `GET /search/hierarchy`, the endpoints the
@@ -1963,12 +1943,20 @@ repeated words align rather than starting wherever a number ends.
 it closes with the field's constraints as they were. Spelling it "Close" gave the one control that
 answers nothing the weight of a choice, beside the field where the choices are made.
 
-**A row is chosen in two acts.** A click marks it and a double click, or Enter on a focused row,
-emits it. The per-row buttons are gone with that: a "Use" on every line spent the width the names
-need, and the narrowing button duplicated the filter panel above the tabs, which is where narrowing
-belongs. One click no longer decides anything, which matters when the rows are a line tall and
-adjacent. Enter carries the decision for the keyboard, since a double click has no equivalent
-there.
+**A row is chosen in two acts.** A click marks it, which opens its detail, and a double click
+emits it. Enter marks as a click does, and the detail it opens carries a "Use this term" button
+that emits — so a keyboard reaches the hierarchy, the synonyms and the IRI before committing to
+them, which for a while only a mouse could. The button sits after the detail rather than before it,
+where the reading ends. The per-row buttons are gone: a "Use" on every line spent the width the
+names need, and the narrowing button duplicated the filter panel above the tabs, which is where
+narrowing belongs. One click no longer decides anything, which matters when the rows are a line
+tall and adjacent.
+
+**The rows and tabs say what they are.** A row is an option that reports whether it is selected and
+whether its detail is open, the scopes are a tablist of tabs reporting which is current, a group
+header reports whether it is expanded, and the searching line and the notice announce themselves as
+they change. Without them a screen reader read the panel as a run of unlabelled buttons, unable to
+say which scope was in force or whether a search was still running.
 
 **Both list tabs page by distinct label**, not by hit, and carry every hit of the labels on the
 page. Paging by hit made folding impossible to do honestly — a page of twenty-five hits for a
@@ -1983,7 +1971,7 @@ component, because a host able to re-point those could make an obsolete term loo
 type scale moves with the base and the tint is mixed from the brand, so neither is left behind by
 a host that changes one. Escape leaves the picker.
 
-**Thirteen browser tests drive the built bundle**, with the terminology server stubbed, so the
+**Twenty-nine browser tests drive the built bundle**, with the terminology server stubbed, so the
 suite is hermetic and says what the component does with an answer rather than whether the answer
 was good. They hold the faults this work found by hand, which is every fault it found: a fold that
 swallowed a group, a panel that cleared the list an author was choosing from, rows reading "BERO

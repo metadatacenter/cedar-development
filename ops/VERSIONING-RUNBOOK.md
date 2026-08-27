@@ -202,6 +202,16 @@ connection is what the server used to do, and it answered one lookup at a time h
 — 16 requests a second whether one was in flight or sixteen, with latency climbing to 995 ms.
 Throughput now rises with concurrency to about 98 requests a second and latency holds near 70 ms.
 
+What a serving process holds open is bounded twice over, because a connection costs more than a file
+handle — SQLite gives each one its own page cache. A snapshot untouched for a minute is closed once
+more than sixty-four are open, the store just handed to a caller never among them; a minute because
+a lookup reads its store after the resolution returns, and the slowest measured is about a second.
+Reading connections are capped at 96 across every store rather than a store, since a per-store limit
+multiplies by the number of snapshots cached. Past the cap a thread reads on its store's first
+connection and waits, as it did before per-thread connections existed. Raise either where a
+deployment wants more, with `-Dcedar.terminology.openSnapshots.max`,
+`-Dcedar.terminology.openSnapshots.quietMillis` and `-Dcedar.terminology.readConnections.total`.
+
 ## Which Store Answers
 
 An ontology is answered from the index when the store serves it at all, when it holds at least
