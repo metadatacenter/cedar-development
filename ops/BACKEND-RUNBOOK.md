@@ -1349,11 +1349,13 @@ Dedicated queue tests bypass the CEDAR environment and point their service direc
 embedded Redis instance.
 
 Surefire also sets `cedar.test.dependencyTimeoutMillis=1000`. The Mongo and Neo4j client factories
-honor that property only when it is present: Mongo server selection/connection and Neo4j connection,
-pool acquisition and transaction retry therefore reach the same unavailable-dependency exception
-paths in about one second instead of the production drivers' roughly thirty-second defaults. The
-outage HTTP tests carry five-second request deadlines, so losing this override fails the gate instead
-of making the build quietly slow again. Normal JVMs have no property and retain the production
+honor that property only when it is present: Mongo server selection/connection and Neo4j pool
+acquisition and transaction retry therefore reach the same unavailable-dependency exception paths
+in about one second instead of the production drivers' roughly thirty-second defaults. Neo4j keeps
+a separate five-second floor for initial Bolt connection establishment; a healthy embedded server's
+first handshake exceeded one second on a constrained CI runner, so treating that startup latency as
+an outage made the suite flaky. Local dead ports still refuse immediately, and the outage HTTP tests
+carry five-second request deadlines. Normal JVMs have no property and retain the production
 timeouts.
 
 Worker processor tests inject short poll and retry intervals directly; the public constructors
