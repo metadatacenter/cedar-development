@@ -1311,8 +1311,8 @@ current JUnit platform.
 
 Rough suite sizes: artifact 1334 (parameterized CRUD over four artifact types on embedded Mongo),
 server-rest 281, workspace-operations 182, search-operations 208, artifact-library 800,
-terminology 246 (61 more excluded under `bioportal`), model-validation 220, resource 79,
-cadsr-tools 70, core-library 57, user 23, group 15, messaging 15, and a
+terminology 246 (61 more excluded under `bioportal`), model-validation 220, resource 63,
+cadsr-tools 70, core-library 57, user 23, group 15, messaging 15, bridge 57, monitor 8, and a
 one-to-seven-test boot-and-config tier on the remaining thin servers.
 
 ### What the suites actually cover
@@ -1444,13 +1444,24 @@ Where the coverage is thin, stated plainly so nobody reads the class count as re
   The shared proxy, exception mapper, worker queues and health checks are covered, with real HTTP
   dead-port tests for artifact/MongoDB, resource-to-artifact, monitor-to-artifact, user and group
   Neo4j reads, value-recommender and resource OpenSearch reads, the messaging SQL store and the
-  Keycloak admin lookup, plus OpenView's store boundary. There is no HTTP application-log read: log
-  persistence is an app-log worker concern and its retry/dead-letter path is covered. Resource index
-  rebuilds are accepted asynchronous jobs whose failed status is covered rather than synchronous
-  requests that can answer 503. A representative resource-server graph read and the remaining-client
-  inventory are still open. Concurrent edits are covered both over HTTP and directly at the Mongo
-  compare-and-swap boundary. Pagination is covered on a folder's contents and search (`pagination`
-  suite); the other paged listings are not.
+  Keycloak admin lookup, monitor Redis reads, bridge external-authority HTTP, the resource graph and
+  OpenView's store boundary. There is no HTTP application-log read: log persistence is an app-log
+  worker concern and its retry/dead-letter path is covered. Resource index rebuilds are accepted
+  asynchronous jobs whose failed status is covered rather than synchronous requests that can answer
+  503.
+
+  The remaining direct clients deliberately do something else. Publishing asks terminology to pin
+  controlled-term versions, but the resolver is fail-safe: it leaves that pin absent and increments
+  `skippedResolutionCount` when terminology is unavailable. Monitor's Keycloak user detail is a
+  diagnostic assembled from several stores, so it logs the Keycloak failure and returns that section
+  as unavailable without discarding the other sections. Submission notification and FTP traffic runs
+  after queue acceptance in background submission processing, not as a synchronous HTTP dependency.
+  DataCite is the exception still needing work: its minting client and recovery behavior belong to the
+  explicit DataCite lifecycle roadmap item rather than a dead-port-only degradation test.
+
+  Concurrent edits are covered both over HTTP and directly at the Mongo compare-and-swap boundary.
+  Pagination is covered on a folder's contents and search (`pagination` suite); the other paged
+  listings are not.
 
 One hard constraint when adding to the resource server: **eight test classes that boot a server is the
 ceiling** for that module. Each boots into the shared JVM and creates a Neo4j driver whose Netty

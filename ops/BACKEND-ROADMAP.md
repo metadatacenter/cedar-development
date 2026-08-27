@@ -11,6 +11,16 @@ Frontend work for the embeddable editor is tracked separately in
 [CEE-ROADMAP.md](./CEE-ROADMAP.md), and the MCP servers in
 [MCP-ROADMAP.md](./MCP-ROADMAP.md).
 
+The dependency-degradation pass completed on 2026-08-26. Shared exception handling now returns a
+sanitized `503 Service Unavailable` for transport failures from inter-service HTTP, Neo4j, MongoDB,
+OpenSearch, JDBC and Redis. Real HTTP regressions cover the store or client boundaries owned by the
+artifact, resource, monitor, user, group, messaging, value-recommender, OpenView and bridge servers;
+worker queue retry, dead-letter and dependency-health behavior is covered separately. The remaining
+direct clients have intentional contracts: terminology pin resolution during publication is
+fail-safe and counted, monitor's Keycloak detail is an explicitly partial diagnostic, submission's
+messaging and FTP calls run in background submission processing, and DataCite minting remains the
+larger lifecycle refactor tracked below.
+
 ## Next
 
 ### Features
@@ -490,7 +500,8 @@ Coverage and test-infrastructure work. The active REST integration suites live i
      graph update, for create, rename, publish, draft and delete. Assert the operation either rolls back
      or leaves a detectable, recoverable state — never a silently orphaned artifact, a stale graph node
      or a half-published version. This is the write-path counterpart to the read-path degradation-tests
-     item (17), which asks only that a service not 500 when a dependency is down.
+     completed read-path degradation work, which asks only that a service not 500 when a dependency
+     is down.
   2. **Retry and idempotency.** Repeat a write after a timeout or an ambiguous response. Publish, draft,
      move, delete, permission change and DOI-set must not produce a duplicate version, a duplicate graph
      node or divergent state.
@@ -515,40 +526,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   versions or search projection disagreeing. The present suite protects the behavioural skeleton; this
   item protects the integrity of state when operations fail or are repeated.
 
-- **16. Complete the degradation matrix.** The first tranche landed on 2026-08-26. The shared HTTP
-  proxy now classifies connection failures as `503 Service Unavailable`; the common exception boundary
-  does the same for Neo4j connection/session failures and MongoDB selection, socket and failover
-  failures, plus JDBC connection-class failures; and neither mapper serializes the source exception,
-  stack, host or URL back to the caller.
-  Real HTTP tests pin a stopped artifact-server dependency at the resource and monitor servers, a
-  stopped MongoDB at the artifact server, stopped Neo4j reads at the user and group servers, stopped
-  OpenSearch reads at the value-recommender and resource servers, a stopped messaging database, and
-  the user-summary lookup against a stopped Keycloak admin endpoint. OpenView's Mongo read boundary
-  has direct coverage. The original `UserSummaryCache` null-loader defect has its own recovery
-  regression, so an unavailable creator lookup degrades to an absent display name rather than taking
-  down folder reads.
-
-  The asynchronous side is no longer an untested analogy. Redis outage/recovery is covered for the
-  shared best-effort producers, and worker tests cover claim/retry/dead-letter behavior for permission,
-  clone, app-log and value-recommender queues, bounded value-recommender batches, Redis-unavailable
-  startup recovery, consumer failure state, dead-letter health and the worker's Redis, OpenSearch and
-  Neo4j health checks. Artifact health separately proves that a failed Mongo ping is unhealthy.
-
-  The apparent log-read gap was stale: no HTTP resource reads the application-log database. Log
-  persistence belongs to the asynchronous app-log worker and is covered by its claim, retry and
-  dead-letter tests. Resource index-management commands are also asynchronous: they accept a job,
-  enforce single-flight execution, and expose an OpenSearch failure as `FAILED` through the job-status
-  resource; their failure/status/retry state is pinned directly rather than pretending the accepting
-  request can return a later 503.
-
-  What remains is a stopped-Neo4j endpoint proof for a representative resource-server graph read,
-  followed by an inventory of the remaining synchronous external clients. For each client, pin its
-  documented partial-result behavior or require a sanitized 503. Do not add a dead-port test to a thin
-  server merely to reach a count: each test must cross a dependency boundary that server actually owns,
-  and must assert status, stable client message, absence of internal connection details, and recovery or
-  unaffected endpoints where the contract promises either.
-
-- **17. Switch the extracted Workspace and Template Designer over in staging, then production.**
+- **16. Switch the extracted Workspace and Template Designer over in staging, then production.**
   Local coexistence is complete: the monolith remains on `cedar.metadatacenter.orgx`, Workspace and
   Designer run on their own trusted HTTPS origins, Keycloak SSO spans them, the provenance gate
   passes, and the complete Workspace → Designer → CEE → OpenView authenticated journey passes
@@ -636,7 +614,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
 
 ## Production data
 
-- **18. Repair the production schema artifacts that can reject correctly shaped CEE instances.** The
+- **17. Repair the production schema artifacts that can reject correctly shaped CEE instances.** The
   permission-scoped production audit found 76 inherently-multiple fields deployed as JSON objects in
   31 stored schema artifacts: 23 templates and 8 elements. Every case is a multiple-select list; no
   object-shaped checkbox or attribute-value deployment was found. CEE correctly serializes these
@@ -683,7 +661,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
   rerun the audit to `COMPLETE_FOR_KEY`. Never delete a store artifact merely because its search entry
   is inconsistent.
 
-- **19. Write `sourceSystem` onto the production value constraints, so that its absence means something.**
+- **18. Write `sourceSystem` onto the production value constraints, so that its absence means something.**
   A controlled-term constraint may name the system serving its vocabulary, and both model libraries read
   an absent `sourceSystem` as BioPortal —
   [the value-constraint shape](VERSIONING-ROADMAP.md#6-the-value-constraint-shape) defines the field and
@@ -715,7 +693,7 @@ Coverage and test-infrastructure work. The active REST integration suites live i
 
 ## Documentation consolidation
 
-- **20. Decide whether to retire `cedar-mkdocs-developer`.** Its current release and production
+- **19. Decide whether to retire `cedar-mkdocs-developer`.** Its current release and production
   deployment pages now point to the maintained runbooks in `cedar-development/ops`, and its generated
   `site/` tree is no longer versioned. What remains potentially unique is a small set of Neo4j
   diagnostic and repair recipes, cron-job notes, user/domain/certificate maintenance procedures, and
