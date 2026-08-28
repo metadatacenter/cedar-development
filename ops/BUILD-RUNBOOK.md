@@ -105,13 +105,13 @@ Next, the workflow creates `npm/trains/<TRAIN_ID>.json` before npm publication a
 ordered jobs:
 
 1. **npm 1/3 · TypeScript model.** The job stamps the captured model commit in its disposable
-   checkout as `<MODEL_NEXT>-dev.YYYYMMDD.HHMM.g<SHA12>`, runs lint, typecheck, coverage, JSON and
+   checkout as `<MODEL_NEXT>-dev.YYYYMMDDHHMM.g<SHA12>`, runs lint, typecheck, coverage, JSON and
    YAML parity, and the packed-consumer test, then publishes the scoped package to Nexus. It
    downloads the result, verifies its registry integrity and `gitHead`, and records
    `npm/model/completed/<TRAIN_ID>.json`.
 2. **npm 2/3 · CEE.** The job starts again from the captured CEE commit, pins the train-published
    model alias with integrity in both the root and visual lockfiles, and stamps CEE as
-   `<CEE_NEXT>-dev.YYYYMMDD.HHMM.g<SHA12>`. On the ARM runner required by CEE, it runs the complete
+   `<CEE_NEXT>-dev.YYYYMMDDHHMM.g<SHA12>`. On the ARM runner required by CEE, it runs the complete
    unit, coordinator, domain, visual, package, type and production-audit gate. Only that tested
    package is published and verified; `npm/cee/completed/<TRAIN_ID>.json` records the result.
 3. **npm 3/3 · frontends.** In fresh captured checkouts, the job pins that exact CEE alias and

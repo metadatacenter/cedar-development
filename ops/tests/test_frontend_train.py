@@ -58,12 +58,20 @@ class FrontendTrainTest(unittest.TestCase):
     def test_train_owned_versions_include_train_and_captured_commit(self):
         revision = "a" * 40
         self.assertEqual(
-            "1.0.3-dev.20260824.1847.gaaaaaaaaaaaa",
+            "1.0.3-dev.202608241847.gaaaaaaaaaaaa",
             frontend_train.train_package_version("1.0.3-dev.old", VERSION, revision),
         )
         self.assertEqual(
-            "2.9.3-dev.20260824.1847.gaaaaaaaaaaaa.p4",
+            "2.9.3-dev.202608241847.gaaaaaaaaaaaa.p4",
             frontend_train.wired_frontend_version("2.9.3-SNAPSHOT", VERSION, revision),
+        )
+
+    def test_train_owned_versions_are_semver_safe_during_a_leading_zero_hour(self):
+        self.assertEqual(
+            "1.0.5-dev.202608280209.gaaaaaaaaaaaa",
+            frontend_train.train_package_version(
+                "1.0.5-dev.old", "2.9.3-dev.20260828.0209", "a" * 40,
+            ),
         )
 
     def test_record_plan_enforces_model_to_cee_to_frontend_graph(self):
@@ -133,7 +141,7 @@ class FrontendTrainTest(unittest.TestCase):
             self.assertEqual(expected_model, plan["cee"]["model"]["version"])
             self.assertEqual(expected_cee, plan["frontends"][0]["ceeVersion"])
             self.assertEqual(
-                f"2.9.3-dev.20260824.1847.g{app_sha[:12]}.p4",
+                f"2.9.3-dev.202608241847.g{app_sha[:12]}.p4",
                 plan["dockerInputs"]["CEDAR_APP_NPM_VERSION"],
             )
             self.assertEqual(

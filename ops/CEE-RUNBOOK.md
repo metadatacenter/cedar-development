@@ -1218,7 +1218,7 @@ Stanford Nexus under a `dev` tag, versioned `<next>-dev.<date>.<sha>`. It was re
 is live again — `dev` currently names `2.0.0-dev.20260820.a8cc4cc`. Reach it from an embedding app
 through an npm alias, since npm routes by scope and this is the only package taken from Nexus.
 Train-owned snapshots use the more specific
-`<next>-dev.<train-date>.<train-minute>.g<sha12>` identity, tying the package to both the train and
+`<next>-dev.<train-date><train-minute>.g<sha12>` identity, tying the package to both the train and
 the captured CEE commit without rewriting CEE source history.
 
 `scripts/npm-package.mjs` derives the channel from the version rather than taking it as a flag: a

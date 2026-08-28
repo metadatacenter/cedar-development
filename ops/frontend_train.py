@@ -77,8 +77,12 @@ def train_package_version(source_version: str, train: str, revision: str,
     if not SHA_RE.fullmatch(revision or ""):
         raise RuntimeError(f"invalid package source revision {revision!r}")
     base = package_base(source_version, "source package")
-    train_suffix = train.split("-dev.", 1)[1]
-    result = f"{base}-dev.{train_suffix}.g{revision[:12]}"
+    train_day, train_minute = train.split("-dev.", 1)[1].split(".", 1)
+    # A four-digit UTC time can begin with zero, but SemVer numeric prerelease
+    # identifiers cannot. Keep the human-facing train ID unchanged and use one
+    # combined, always-valid timestamp identifier for its npm packages.
+    package_timestamp = f"{train_day}{train_minute}"
+    result = f"{base}-dev.{package_timestamp}.g{revision[:12]}"
     if package_format:
         result += f".{package_format}"
     return result
