@@ -70,3 +70,17 @@ the remaining delivery and operational work.
    the routing-switch rehearsal before it reaches a shared environment. The seven frontend nginx
    containers already run unprivileged; this item finishes the estate.
 
+6. **Publish stable CEDAR releases to Docker Hub.** Extend the train-backed release route so the
+   tested runtime image manifests and layer bytes are copied to the public `metadatacenter`
+   namespace without rebuilding them. Give every image an immutable CEDAR-version tag, verify the
+   complete public inventory by digest, and move `latest` only after every versioned tag and its
+   release evidence are present. Preserve the architecture manifests, signatures, SBOMs, provenance,
+   and source-to-image mapping produced by the release pipeline rather than creating a second,
+   weaker publication path.
+
+   Define which internal base and optional administration images are public, the retention policy,
+   and the repository descriptions and pull examples a user needs to select a coherent release.
+   Exercise an anonymous pull into a clean environment and run the full-stack smoke against the
+   Docker Hub prefix. A CEDAR release is not Docker-complete until its advertised image set can be
+   pulled without CEDAR registry credentials, resolves to the recorded release digests, and starts
+   with the matching Compose and configuration version.
