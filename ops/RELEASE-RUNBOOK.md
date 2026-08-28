@@ -34,7 +34,9 @@ cedarcli release start \
 
 `plan` is read-only. It validates the completed train, the exact source commits, artifact
 inventories, the explicit versions, and the normalized byte-equivalence proof between the train's
-development CEE and the public npmjs CEE. It must finish with `No changes made.`
+development CEE and the public npmjs CEE. The CEE version bases need not match: a train may already
+have advanced to the next development base after the public package was cut. Eligibility comes from
+the tarball proof, not version-name similarity. It must finish with `No changes made.`
 
 `start` then executes one stateful, resumable release:
 

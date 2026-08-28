@@ -2158,6 +2158,14 @@ npm run smoke          # headless, ~30 s
 npm run smoke:headed   # watch it in a real browser
 ```
 
+The smoke reads and prints the package version rendered by CEE in both Metadata Editor and
+OpenView, fails if those two served surfaces disagree, and includes the version in its final PASS
+line. For release acceptance, make the required identity an assertion:
+
+```bash
+CEDAR_EXPECT_CEE_VERSION=<CEE_VERSION> npm run smoke
+```
+
 The extracted Workspace and Template Designer also have a fast, credential-free contract smoke.
 It proves that both preview route shells and independent AngularJS bootstraps are being served, the
 Workspace carries its pinned CEE bundle, both applications agree on their navigation and Keycloak

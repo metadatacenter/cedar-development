@@ -468,12 +468,15 @@ and normalizes only this closed release-provenance list:
 - the one embedded CEE version, model-package identity, and load trace in the browser bundle;
 - the bundle manifest derived from those browser-bundle bytes; and
 - one dated changelog entry for the public CEE version, which must name one exact public model
-  version. Removing that entry must reproduce the train changelog byte for byte.
+  version. If the train predates that entry, removing it must reproduce the train changelog byte for
+  byte; if the train already contains it, the two changelogs must already be byte-identical.
 
 After those substitutions the complete browser bundle and every remaining packaged byte must be
 identical. A second occurrence of a provenance literal, a changed older changelog entry, an extra
 file, or any other JavaScript difference is a hard failure. This normalized byte proof is also the
-proof for the model-library code compiled into CEE.
+proof for the model-library code compiled into CEE. The train development base may be newer than
+the public version (for example, `2.0.4-dev…` versus `2.0.3`); version-name similarity is not release
+evidence and is deliberately not a prerequisite for running the proof.
 
 On `start`, that proven public CEE is pinned in all seven frontend consumers before either source
 variant is stamped. Both the release and next-development Git trees retain the stable CEE pin; the
