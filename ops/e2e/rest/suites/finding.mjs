@@ -11,7 +11,10 @@
 // everybody, and a grant on the folder something sits in. Only the grant to everybody reaches term
 // search, because it is denormalized onto the node rather than carried in the per-user list; the other
 // three are pinned as defects, with the measurements that establish them recorded at each pin.
-import { suite, check, checkStatus, call, group, everybodyGroup, cleanup, artifactBody, poll, enc, RUN, GROUP_SERVER } from '../lib.mjs';
+import {
+  suite, check, checkStatus, call, updateArtifact, group, everybodyGroup, cleanup, artifactBody,
+  poll, enc, RUN, GROUP_SERVER,
+} from '../lib.mjs';
 
 export const name = 'finding';
 
@@ -267,7 +270,8 @@ export async function run({ user1, user2, folderId }) {
       const newTag = `Finding${STAMP}RenameNew`;
       const body = current.body;              // carries its @id, which an update requires
       body['schema:name'] = `${newTag} template`;
-      if (checkStatus(await call(user1.auth, 'PUT', renamed.at, body), 200, 'it is renamed')) {
+      if (checkStatus(await updateArtifact(user1.auth, renamed.at, body, { current }), 200,
+          'it is renamed')) {
         const underNew = await until(() => findsByTerm(user1.auth, newTag, renamed.id));
         check(underNew.done, 'a term search finds it under the new name',
             `the new name never became searchable after ${underNew.attempts} attempts`);

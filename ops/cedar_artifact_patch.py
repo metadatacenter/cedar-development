@@ -5,7 +5,8 @@ Each check begins the same way: a query over stored artifacts that says how far 
 generalizes. This is that query, and for defects whose correction is settled it is also the rewrite.
 
 Two sources are supported. A tree of artifact files is the corpus, and a Mongo artifact store is
-what a deployment holds. Reporting is the default and mutates nothing; `--apply` writes.
+what a deployment holds. Reporting is the default and mutates nothing; `--apply` requires explicit
+items. Mongo writes first persist canonical Extended JSON pre-images and use conditional replacement.
 
 The corpus keeps preprod captures beside their corrected copies, named `*-original.json`, so a
 defect stays legible after it has been fixed everywhere it mattered. Those captures are evidence
@@ -23,8 +24,11 @@ from __future__ import annotations
 import argparse
 import collections
 import copy
+import datetime as dt
+import hashlib
 import json
 import os
+from pathlib import Path
 import re
 import sqlite3
 import sys
@@ -130,6 +134,9 @@ class Report:
     findings: list[Finding] = field(default_factory=list)
     documents: int = 0
     unreadable: list[str] = field(default_factory=list)
+    backups: list[str] = field(default_factory=list)
+    conflicts: list[str] = field(default_factory=list)
+    backup_directory: Optional[str] = None
 
     def add(self, finding: Finding) -> None:
         self.findings.append(finding)
@@ -638,50 +645,150 @@ def write_json(path: str, document: JsonNode) -> None:
         handle.write("\n")
 
 
+def default_backup_dir() -> Path:
+    """A unique, durable-by-default destination for one Mongo apply run."""
+    stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
+    return Path.cwd() / f"cedar-artifact-patch-backup-{stamp}-{os.getpid()}"
+
+
+def mongo_json(document: JsonNode, json_util: Any, *, indent: Optional[int] = None) -> str:
+    """Canonical Extended JSON for hashes and restorable pre-images."""
+    arguments: dict[str, Any] = {
+        "ensure_ascii": False,
+        "sort_keys": True,
+    }
+    if indent is None:
+        arguments["separators"] = (",", ":")
+    else:
+        arguments["indent"] = indent
+    canonical = getattr(json_util, "CANONICAL_JSON_OPTIONS", None)
+    if canonical is not None:
+        arguments["json_options"] = canonical
+    return json_util.dumps(document, **arguments)
+
+
+def mongo_document_hash(document: JsonNode, json_util: Any) -> str:
+    return hashlib.sha256(mongo_json(document, json_util).encode("utf-8")).hexdigest()
+
+
+def write_mongo_preimage(root: Path, collection: str, source: str, document: JsonNode,
+                         json_util: Any) -> tuple[Path, str]:
+    """Persist the exact BSON pre-image before attempting its conditional replacement."""
+    digest = mongo_document_hash(document, json_util)
+    mongo_id = str(document.get("_id", "missing-id"))
+    safe_id = re.sub(r"[^A-Za-z0-9_.-]+", "_", mongo_id)[:80] or "missing-id"
+    directory = root / collection
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"{safe_id}-{digest[:16]}.json"
+    payload = {
+        "collection": collection,
+        "source": source,
+        "preImageSha256": digest,
+        "document": document,
+    }
+    with path.open("x", encoding="utf-8") as handle:
+        handle.write(mongo_json(payload, json_util, indent=2))
+        handle.write("\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+    return path, digest
+
+
 def run_over_mongo(uri: str, database: str, items: set[int], catalog: Catalog,
-                   apply_repairs: bool, limit: Optional[int]) -> Report:
+                   apply_repairs: bool, limit: Optional[int],
+                   backup_dir: Optional[Path] = None) -> Report:
     """Every artifact in a store. Templates are read first, so an instance's `schema:isBasedOn` can
     be resolved for item 30 and a template's temporal fields can be checked against the values its
     instances hold for item 25."""
     try:
         from pymongo import MongoClient
+        from bson import json_util
     except ImportError:
         sys.exit("pymongo is not installed: pip3 install pymongo")
+
+    backup_root = None
+    if apply_repairs:
+        backup_root = backup_dir or default_backup_dir()
+        try:
+            backup_root.mkdir(parents=True, exist_ok=False)
+        except FileExistsError as error:
+            raise RuntimeError(f"backup directory already exists: {backup_root}") from error
 
     client = MongoClient(uri, serverSelectionTimeoutMS=5000)
     store = client[database]
     report = Report()
+    report.backup_directory = str(backup_root) if backup_root else None
 
-    templates: dict[str, JsonNode] = {}
-    if 30 in items:
-        for document in store["templates"].find({}, {"_id": 0}):
-            identifier = document.get("@id")
-            if identifier:
-                templates[identifier] = document
+    try:
+        templates: dict[str, JsonNode] = {}
+        if 30 in items:
+            for document in store["templates"].find({}, {"_id": 0}):
+                identifier = document.get("@id")
+                if identifier:
+                    templates[identifier] = document
 
-    for collection, kind in COLLECTIONS.items():
-        cursor = store[collection].find({})
-        if limit:
-            cursor = cursor.limit(limit)
-        for stored in cursor:
-            mongo_id = stored.pop("_id", None)
-            report.documents += 1
-            source = f"{collection}/{stored.get('@id') or mongo_id}"
+        for collection, kind in COLLECTIONS.items():
+            cursor = store[collection].find({})
+            if limit:
+                cursor = cursor.limit(limit)
+            for fetched in cursor:
+                preimage = copy.deepcopy(fetched)
+                mongo_id = preimage.get("_id")
+                stored = copy.deepcopy(fetched)
+                stored.pop("_id", None)
+                report.documents += 1
+                source = f"{collection}/{stored.get('@id') or mongo_id}"
 
-            declared = None
-            if 30 in items and kind == "instance":
-                based_on = stored.get("schema:isBasedOn")
-                declared = declared_children(templates.get(based_on))
+                declared = None
+                if 30 in items and kind == "instance":
+                    based_on = stored.get("schema:isBasedOn")
+                    declared = declared_children(templates.get(based_on))
 
-            found = list(inspect_document(stored, source, items, catalog, declared))
-            for finding in found:
-                report.add(finding)
-            if apply_repairs and any(f.fixable for f in found):
+                found = list(inspect_document(stored, source, items, catalog, declared))
+                for finding in found:
+                    report.add(finding)
+                if not (apply_repairs and any(f.fixable for f in found)):
+                    continue
+
                 for finding in found:
                     if finding.repair:
                         finding.repair()
-                store[collection].replace_one({"_id": mongo_id}, stored)
-    client.close()
+
+                expected_hash = mongo_document_hash(preimage, json_util)
+                current = store[collection].find_one({"_id": mongo_id})
+                current_hash = mongo_document_hash(current, json_util) if current is not None else "missing"
+                if current_hash != expected_hash:
+                    report.conflicts.append(
+                        f"{source}: changed after scan (expected {expected_hash}, found {current_hash})"
+                    )
+                    return report
+
+                assert backup_root is not None
+                backup_path, backup_hash = write_mongo_preimage(
+                    backup_root, collection, source, preimage, json_util
+                )
+                report.backups.append(str(backup_path))
+                if backup_hash != expected_hash:
+                    raise RuntimeError(f"pre-image hash changed while backing up {source}")
+
+                revision = preimage.get("_cedarRevision", 0)
+                if isinstance(revision, bool) or not isinstance(revision, int) or revision < 0:
+                    report.conflicts.append(f"{source}: invalid _cedarRevision {revision!r}")
+                    return report
+                stored["_id"] = mongo_id
+                stored["_cedarRevision"] = revision + 1
+
+                # The hash check gives a useful conflict identity. The full pre-image is the atomic
+                # Mongo predicate, so a server save in the gap between find_one and replace_one
+                # matches nothing instead of being overwritten.
+                result = store[collection].replace_one(preimage, stored)
+                if result.matched_count != 1:
+                    report.conflicts.append(
+                        f"{source}: changed before replace (pre-image {expected_hash})"
+                    )
+                    return report
+    finally:
+        client.close()
     return report
 
 
@@ -692,6 +799,13 @@ def run_over_mongo(uri: str, database: str, items: set[int], catalog: Catalog,
 
 def print_report(report: Report, catalog: Catalog, applied: bool, samples: int) -> None:
     print(f"{report.documents} artifacts read")
+    if report.backup_directory:
+        print(f"{len(report.backups)} Mongo pre-image backup(s) written under "
+              f"{report.backup_directory}")
+    if report.conflicts:
+        print(f"{len(report.conflicts)} concurrent modification conflict(s); repairs stopped:")
+        for entry in report.conflicts[:samples]:
+            print(f"    {entry}")
     if report.unreadable:
         print(f"{len(report.unreadable)} unreadable:")
         for entry in report.unreadable[:samples]:
@@ -728,7 +842,8 @@ def print_report(report: Report, catalog: Catalog, applied: bool, samples: int) 
         print()
 
 
-def main() -> None:
+def parse_arguments(argv: Optional[list[str]] = None) -> tuple[argparse.ArgumentParser,
+                                                               argparse.Namespace, set[int]]:
     parser = argparse.ArgumentParser(
         description="Find and repair defects in stored CEDAR artifacts.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -737,24 +852,42 @@ def main() -> None:
     source.add_argument("--tree", help="directory of artifact files, such as the shared corpus")
     source.add_argument("--mongo", help="Mongo URI of an artifact store")
     parser.add_argument("--db", default="cedar", help="database name for --mongo (default: cedar)")
-    parser.add_argument("--items", default=",".join(str(i) for i in sorted(ITEMS)),
-                        help="which roadmap items to check, comma-separated (default: all)")
+    parser.add_argument("--items",
+                        help="which roadmap items to check, comma-separated (report default: all; "
+                             "required with --apply)")
     parser.add_argument("--apply", action="store_true", help="write the repairs")
+    parser.add_argument("--backup-dir",
+                        help="new directory for Mongo pre-images (default: timestamped directory)")
     parser.add_argument("--include-originals", action="store_true",
                         help="also read *-original.json, the preprod captures a tree keeps as evidence")
     parser.add_argument("--limit", type=int, help="read at most this many artifacts per collection")
     parser.add_argument("--samples", type=int, default=10, help="artifacts to name per item")
     parser.add_argument("--catalog", default=CATALOG, help="terminology catalog for canonical IRIs")
     parser.add_argument("--json", help="write the findings to this file as JSON")
-    arguments = parser.parse_args()
+    arguments = parser.parse_args(argv)
 
+    if arguments.apply and arguments.items is None:
+        parser.error("--apply requires an explicit --items list")
+    if arguments.backup_dir and not (arguments.mongo and arguments.apply):
+        parser.error("--backup-dir requires --mongo and --apply")
+
+    raw_items = arguments.items
+    if raw_items is None:
+        raw_items = ",".join(str(i) for i in sorted(ITEMS))
     try:
-        items = {int(value) for value in arguments.items.split(",") if value.strip()}
+        items = {int(value) for value in raw_items.split(",") if value.strip()}
     except ValueError:
         parser.error(f"--items takes numbers from {sorted(ITEMS)}")
+    if not items:
+        parser.error("--items must name at least one repair item")
     unknown = items - set(ITEMS)
     if unknown:
         parser.error(f"unknown items {sorted(unknown)}; known items are {sorted(ITEMS)}")
+    return parser, arguments, items
+
+
+def main() -> None:
+    parser, arguments, items = parse_arguments()
 
     catalog = Catalog(arguments.catalog)
 
@@ -765,7 +898,8 @@ def main() -> None:
                                arguments.apply)
     else:
         report = run_over_mongo(arguments.mongo, arguments.db, items, catalog, arguments.apply,
-                                arguments.limit)
+                                arguments.limit,
+                                Path(arguments.backup_dir) if arguments.backup_dir else None)
 
     print_report(report, catalog, arguments.apply, arguments.samples)
 
@@ -779,6 +913,8 @@ def main() -> None:
     if catalog.unresolved:
         print(f"acronyms the catalog cannot derive an IRI for: "
               f"{', '.join(sorted(catalog.unresolved))}")
+    if report.conflicts:
+        raise SystemExit(2)
 
 
 if __name__ == "__main__":

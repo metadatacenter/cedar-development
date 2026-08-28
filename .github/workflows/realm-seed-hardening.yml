@@ -1,0 +1,27 @@
+name: Realm seed hardening
+
+on:
+  push:
+    branches: [develop, main]
+    paths:
+      - ".github/workflows/realm-seed-hardening.yml"
+      - "ops/tests/test_keycloak_realm_seed.py"
+      - "os-mirror/development-macos/CEDAR_HOME/keycloak/keycloak-realm.CEDAR.development.2023-07-05.json"
+  pull_request:
+    paths:
+      - ".github/workflows/realm-seed-hardening.yml"
+      - "ops/tests/test_keycloak_realm_seed.py"
+      - "os-mirror/development-macos/CEDAR_HOME/keycloak/keycloak-realm.CEDAR.development.2023-07-05.json"
+
+permissions:
+  contents: read
+
+jobs:
+  verify-realm-seed:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out cedar-development
+        uses: actions/checkout@v7
+
+      - name: Reject generated Keycloak providers in the realm seed
+        run: python3 ops/tests/test_keycloak_realm_seed.py

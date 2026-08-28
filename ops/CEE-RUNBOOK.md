@@ -2,9 +2,9 @@
 
 Building, running and testing **CEE** (`cedar-embeddable-editor`) locally.
 Everything here has been run on macOS (Apple silicon), against Angular 22. The latest
-stable release documented here is CEE 1.6.0; the local integration estate currently
-pins the same 2.0.0 development snapshot in all seven embedding manifests, including
-the extracted Workspace. Consumer coherence is verified from manifests and lockfiles,
+stable release documented here is CEE 2.0.1; all seven embedding manifests, including
+the extracted Workspace, currently pin the scoped Nexus snapshot
+`2.0.2-dev.20260824.48283fb`. Consumer coherence is verified from manifests and lockfiles,
 and deployed identity is verified by the bundle sha256 rather than only by the version
 each host reports.
 
@@ -107,7 +107,7 @@ emitting that set, so the command silently produced a truncated or empty bundle
 rather than failing. `visual/resolve-build-output.mjs` decides what the build
 actually emitted, and whether joining is even the right operation for it.
 
-`cedarcli build this` and `cedarcli build frontends` run this same pipeline, plus
+`cedarcli build this --wd "$PWD"` and `cedarcli build frontends` run this same pipeline, plus
 the two installs and the staging step, from `build_command_list` on CEE's entry in
 `cedar-cli/org/metadatacenter/config/ReposFactory.py`. Until August 2026 the CLI
 instead reassembled the output itself with that hardcoded `cat`, which by then
@@ -142,7 +142,8 @@ npm run test:ci
 
 It runs these stages in order and stops at the first failure:
 
-1. Lint and both TypeScript programs (`lint`, `typecheck`).
+1. Lint and all three TypeScript programs — source, domain harness and visual suite
+   (`lint`, `typecheck`).
 2. Fast Vitest unit specs under `src/`, in jsdom (`test:unit:ci`).
 3. Angular's native Vitest/TestBed coordinator tier, compiling the real wrapper,
    editor and renderer templates with coverage thresholds (`test:coordinator`).
@@ -159,7 +160,7 @@ can be pointed at to try an unpublished build, by symlinking its
 Build Into the Frontends". A fresh clone has no `dist-npm/` until something stages
 it, so **run the gate, or `npm run package:npm:prebuilt` alone, before expecting a
 symlinked consumer to serve CEE.** Nothing is symlinked at present: every consumer
-holds the installed 1.6.0 from npmjs.
+holds the installed scoped Nexus snapshot `2.0.2-dev.20260824.48283fb`.
 
 `dist-npm/` used to be committed, and the stage used to be a drift check
 (`check:staged`) rather than a staging step. That arrangement cost more than it
@@ -284,9 +285,9 @@ needs. Install, then get the bundle into what each host serves:
 |---|---|---|
 | `cedar-workspace` | plain | `npx gulp copy:cee` (needs the profile sourced) |
 | `cedar-template-editor` | plain | `npx gulp copy:cee` (needs the profile sourced) |
-| `cedar-bridging` | plain | `cedarcli build this` |
-| `cedar-openview` | `--legacy-peer-deps` | `cedarcli build this` — it copies `dist/cedar-openview` into `cedar-openview-dist` |
-| `cedar-component-demo` (Angular) | `--legacy-peer-deps` | `cedarcli build this` |
+| `cedar-bridging` | plain | `cedarcli build this --wd "$PWD"` |
+| `cedar-openview` | `--legacy-peer-deps` | `cedarcli build this --wd "$PWD"` — it copies `dist/cedar-openview` into `cedar-openview-dist` |
+| `cedar-component-demo` (Angular) | `--legacy-peer-deps` | `cedarcli build this --wd "$PWD"` |
 | `cedar-component-demo` (Ember, React) | plain | nothing — they run from source |
 
 A build refreshes what is on disk. A **running `ng serve` still serves what it
@@ -314,15 +315,15 @@ and checking the wrong file reads exactly like a failed deploy:
 | Extracted Workspace (`cedar-workspace`) | `/third_party_components/cedar-embeddable-editor/cedar-embeddable-editor.js` |
 | Production monolith (`cedar-template-editor`) | `/third_party_components/cedar-embeddable-editor/cedar-embeddable-editor.js` |
 | openview | `/node_modules/cedar-embeddable-editor/cedar-embeddable-editor.js` |
-| bridging | bundled, not served as a file — it is imported in `app.module.ts`. **Which bundle depends on which build**: the running `ng serve` splits it into `vendor.js`, and the checked-in production dist emits no `vendor.js` at all, carrying it in `main.js`. |
+| bridging | bundled, not served as a file — it is imported in `app.module.ts`. **Which bundle depends on which build**: the running `ng serve` splits it into `vendor.js`, and the production dist emits no `vendor.js` at all, carrying it in content-hashed `main.<hash>.js`. |
 
 For the first two, compare sha256 against the staged bundle. For the bundled case
 there is no file to hash: grep the bundle for the load-trace stamp, which names
 one build exactly. The version string alone is not enough — the bundle holds every
-dependency's version, so a bare `1.6.0` in it may belong to something else
+dependency's version, so a bare `2.0.1` in it may belong to something else
 entirely.
 
-Ask the dev server for `vendor.js` and the dist for `main.js`. Grepping the other
+Ask the dev server for `vendor.js` and the dist for `main.*.js`. Grepping the other
 one of the pair returns zero, which reads exactly like the failed deploy this
 check exists to rule out — and a zero from the wrong file has already been
 mistaken for one.
@@ -332,7 +333,7 @@ curl -s http://127.0.0.1:4220/node_modules/cedar-embeddable-editor/cedar-embedda
 curl -sk https://cedar.metadatacenter.orgx/third_party_components/cedar-embeddable-editor/cedar-embeddable-editor.js | shasum -a 256
 curl -sk https://workspace.metadatacenter.orgx/third_party_components/cedar-embeddable-editor/cedar-embeddable-editor.js | shasum -a 256
 curl -s http://127.0.0.1:4340/vendor.js | grep -c '<the load-trace stamp>'
-grep -c '<the load-trace stamp>' $CEDAR_HOME/cedar-bridging/cedar-bridging-dist/main.js
+grep -c '<the load-trace stamp>' $CEDAR_HOME/cedar-bridging/cedar-bridging-dist/main.*.js
 ```
 
 ### First-time setup
@@ -352,8 +353,8 @@ The visual suite needs no install of its own: it runs in Playwright's container,
 which carries the browsers, and installs its dependencies there against a named
 volume. It does need Docker running.
 
-The gate should report 0 lint problems and, on 17 August 2026, 152 unit tests, 2,117
-domain tests and 416 Playwright tests.
+The gate should report 0 lint problems and, on 26 August 2026, at least 223 unit tests,
+2,897 domain tests and 473 Playwright tests.
 
 Read those as floors rather than as targets. Their only use is catching a suite that
 silently ran nothing — a filter matching no file, a project that failed to start —
@@ -455,7 +456,9 @@ hop, and the dist that ships is now produced on the same Node that exercised it.
 
 Lint runs first, as the opening stage of `test:ci` rather than as a separate CI
 step, so the gate has one definition locally and in CI. Warnings do not fail the
-build: the pre-existing `any` debt is baselined per file in `eslint.config.mjs`.
+build. Lint covers source and visual TypeScript; `typecheck` runs strict, no-emit
+programs for source, the domain harness and the visual suite. Playwright transpilation
+is not the visual suite's type checker.
 The toolchain matches the framework — `angular-eslint` 22, `typescript-eslint` 8,
 ESLint 9, flat config in `eslint.config.mjs`.
 
@@ -538,7 +541,7 @@ To run one file (note: paths are relative to the repo root, not `harness/`,
 because `vitest.config.ts` sets `root` to the repo):
 
 ```bash
-npx vitest run harness/test/controlled-terms.spec.ts
+npm --prefix harness run test -- harness/test/controlled-terms.spec.ts
 ```
 
 ### Reading a template from YAML
@@ -779,37 +782,35 @@ Instance is invalid. Found 1 error(s)
 ### The same check, in the harness
 
 Running Maven is not something to do per-edit, so the domain harness runs the
-equivalent check on every `npm run test:domain` and `npm run test:ci` with
-`ajv-draft-04`:
+corresponding checks on every `npm run test:domain` and `npm run test:ci`.
+`harness/src/instance-conformance.ts` keeps the two validators explicit and
+independent:
+
+- `validateWithModel` parses the template and instance through the TypeScript
+  model library and runs `InstanceValidator` over the result.
+- `validateWithRawSchema` runs the exact emitted JSON-LD against the untouched
+  Draft-04 template with `ajv-draft-04`, before a model reader can normalize a
+  legacy shape or repair a contradiction.
+
+The two specs that exercise those adapters are:
 
 ```bash
-npx vitest run harness/test/model-conformance.spec.ts
+npm --prefix harness run test -- \
+  harness/test/instance-conformance.spec.ts \
+  harness/test/instance-schema-population.spec.ts
 ```
 
-For each corpus template it builds CEE's instance and validates it against that
-template. **34 of 37 pass.** The three that do not are listed by name in
-`KNOWN_NON_CONFORMANT` at the top of the file with what is wrong with each, and
-a separate test asserts the failing set *equals* that list — so a template that
-starts conforming fails just as loudly as one that stops. The number is a
-defect count. It has gone 0 → 31 → 34 and should only go up.
+`instance-conformance.spec.ts` builds fresh and populated instances across the
+field/cardinality matrix and builds an empty instance for each of the **37 corpus
+templates**. Every corpus template must report **zero model errors**. There is no
+exception list and no partial-pass corpus contract; the populated matrix separately
+pins the expected incomplete-state errors for part-filled choice fields.
 
-All three remaining failures are defects in the templates themselves — 001 has
-no `@id`, 003 will not compile, and 029 contradicts itself by offering literal
-choices under an IRI-only schema. [CEE-ROADMAP.md](./CEE-ROADMAP.md) carries what
-is open on each.
-
-That corpus check starts from empty instances. The complementary saveability
-gate populates every value-bearing field through the real CEE handler, crosses
+`instance-schema-population.spec.ts` is the complementary saveability gate. It
+populates every value-bearing field through the real CEE handler, crosses
 single/multiple field cardinality with all seven root and one-/two-level element
-placements, and validates each emitted instance twice:
-
-```bash
-npx vitest run harness/test/instance-schema-population.spec.ts
-```
-
-`InstanceValidator` checks the parsed TypeScript model. `ajv-draft-04` checks
-the exact template object before any model reader can normalize it. Both are
-required. In August 2026 the model-only path hid stored multi-select fields whose
+placements, and requires **zero errors from both validators**. Both verdicts are
+needed: in August 2026 the model-only path hid stored multi-select fields whose
 widget semantics emitted arrays while their raw JSON Schema still required an
 object; the resource server rejected those instances on save. The exact captured
 nested template and all five placements from that incident are permanent
@@ -817,34 +818,29 @@ regressions in the same file. `template-consistency.spec.ts` separately scans
 the independent, HuBMAP, and visual corpora for any checkbox, attribute-value,
 or `multipleChoice: true` list field not declared as an array.
 
-### Why the harness check can be trusted
+### Where the Java tie-break is recorded
 
-ajv is not the Java validator, so the agreement has to be demonstrated rather
-than assumed:
+The harness does not mirror the Java library's fixtures or maintain an ajv/Java
+agreement suite. When the two TypeScript-side checks leave a model question in
+doubt, run the canonical library through `ops/cedar_validate.sh` and record the
+measured verdict in the focused regression whose behavior depends on it. The
+comments and paired cases in `harness/test/cardinality.spec.ts` are the current
+examples: they name the artifact mutation, the Java command and the distinct
+verdicts for an omitted element and an empty array.
 
-```bash
-npx vitest run harness/test/validator-agreement.spec.ts
-```
-
-This runs the canonical library's *own* instance fixtures through ajv — the
-seven it requires to pass and the nine mutations it requires to fail — and
-checks the verdicts match. All 17 do. It skips itself if
-`cedar-model-validation-library` is not checked out beside CEE.
-
-The failing half is the informative one: a validator that accepted everything
-would pass the seven. If a future CEDAR release tightens a rule ajv does not
-implement, this is where it surfaces, rather than in a quietly over-optimistic
-conformance number.
+That keeps the Java decision beside the CEE behavior it settles without vendoring
+another repository's conformance fixtures into this one. `ajv-draft-04` remains
+an independent server-facing check, not a substitute for the canonical validator.
 
 ### When to run which
 
 Change the emitter, the envelope, or `data-object-builder.handler.ts` →
-`model-conformance.spec.ts`, which the domain and unified gates run anyway.
+run both conformance specs above, which the domain and unified gates run anyway.
 
 Upgrade the model library, take a new CEDAR release, or find yourself arguing
-with the harness about what the model requires → run Maven. The Java suite is
-the tie-breaker, and `validator-agreement.spec.ts` is where its verdict gets
-written back down into the harness.
+with the harness about what the model requires → run Maven. Use
+`ops/cedar_validate.sh` for the disputed artifact and write the Java verdict into
+the focused regression it settles.
 
 About to put an artifact into production, or holding one artifact whose verdict you
 actually need → `ops/cedar_validate.sh`. This is the gate itself rather than an
@@ -1102,10 +1098,11 @@ a fifteen-minute ceiling, on every push and pull request to `develop`. Nothing
 renders or screenshots, so it needs no macOS runner and no browser install,
 unlike the CEE gate.
 
-Nothing is published from CI. CEE resolves the package from the BMIR Nexus npm
-registry (`https://nexus.bmir.stanford.edu/repository/npm-cedar/`) through its
-own `.npmrc`, pinned to an exact version whose suffix carries the build date
-and commit.
+The model repository's ordinary test workflow publishes nothing. An immutable CEDAR build train is
+the deliberate exception: it reruns this complete gate against the captured commit, stamps a
+train-owned version and publishes the scoped package before building CEE. CEE resolves that exact
+artifact from the BMIR Nexus npm registry
+(`https://nexus.bmir.stanford.edu/repository/npm-cedar/`) through its own `.npmrc`.
 
 ### The two channels, and the name that selects them
 
@@ -1137,6 +1134,10 @@ npm notice Publishing to https://nexus.bmir.stanford.edu/repository/npm-cedar/ w
 same reason, so it exercises whichever tarball the build is set to ship.
 
 ### Publishing a model library dev build
+
+For a complete CEDAR build, prefer `cedarcli publish train`; the train publishes and records the
+model itself, then wires that exact artifact into CEE. The manual procedure below remains useful for
+standalone CEE development.
 
 Version is `<next>-dev.<YYYYMMDD>.<sha>`, naming the commit whose content is
 published and *that commit's* date — so the bump commit carries a version naming
@@ -1202,16 +1203,23 @@ instead, where the dev versions do not exist.
 `main` is owned by the release process. Work lands on `develop`.
 
 There is one stable publish target: the unscoped `cedar-embeddable-editor` on public npmjs, under the
-default `latest` tag. 1.6.0 is the latest stable release documented here. The local integration
-estate currently exercises a later development snapshot through the scoped Nexus alias in all seven
-embedding manifests. `scripts/npm-package.mjs` generates the published manifest, hardcoding the
-stable package name and writing no `publishConfig`, so a stable package goes to
-`registry.npmjs.org`; the root manifest's own `name` and `publishConfig` are not what publishes.
+default `latest` tag. 2.0.1 is the latest stable release, published 2026-08-21. All seven
+embedding manifests currently pin the scoped Nexus snapshot `2.0.2-dev.20260824.48283fb`;
+the propagation check confirms the matching manifest and lockfile resolution in every consumer.
+The stable registry goes from 1.5.2 straight to 2.0.1: 1.6.0 was
+published on 2026-08-12 and unpublished from npmjs afterwards, so a manifest still naming 1.6.0
+cannot install, and the tarball it named cannot be fetched for comparison.
+`scripts/npm-package.mjs` generates the published manifest, hardcoding the stable package name and
+writing no `publishConfig`, so a stable package goes to `registry.npmjs.org`; the root manifest's
+own `name` and `publishConfig` are not what publishes.
 
 Dev snapshots are a second channel: the scoped `@org.metadatacenter/cedar-embeddable-editor` on
 Stanford Nexus under a `dev` tag, versioned `<next>-dev.<date>.<sha>`. It was retired for a while and
-is live again — `dev` currently names `2.0.0-dev.20260818.6dca9bf`. Reach it from an embedding app
+is live again — `dev` currently names `2.0.0-dev.20260820.a8cc4cc`. Reach it from an embedding app
 through an npm alias, since npm routes by scope and this is the only package taken from Nexus.
+Train-owned snapshots use the more specific
+`<next>-dev.<train-date><train-minute>.g<sha12>` identity, tying the package to both the train and
+the captured CEE commit without rewriting CEE source history.
 
 `scripts/npm-package.mjs` derives the channel from the version rather than taking it as a flag: a
 version containing `-dev.` is published scoped, with a `publishConfig` naming the Nexus registry;
@@ -1247,7 +1255,7 @@ A token is a credential — keep it in `~/.npmrc` only, never in a repo or these
 
 ### 1 · Bump the version
 
-A release version is plain semver — `1.6.0`. Only **two** files hold it by hand:
+A release version is plain semver — `2.0.1`. Only **two** files hold it by hand:
 
 | File | Occurrences |
 |---|---|
@@ -1260,10 +1268,17 @@ the declarations, and the README and changelog are copied from the root. Do not 
 them; staging overwrites them. (Older notes describing "six version spots", or the directory as a
 committed artifact, predate that script and the ignore.)
 
+CEE deliberately has no `package-dist.json`. The model library needs that second source manifest
+because its root and published packages have different names. CEE's staging script already performs
+the same translation: a plain version produces `cedar-embeddable-editor` for npmjs, while a version
+containing `-dev.` produces `@org.metadatacenter/cedar-embeddable-editor` for Nexus. Copying the
+model library's manifest into CEE would create a second manual version and channel switch that could
+disagree with the tested package; `.gitignore` rejects that accidental file.
+
 Then add a `## [X.Y.Z] - <date>` section to `CHANGELOG.md`, and bump the load-trace stamp in
 `src/app/modules/shared/components/cedar-embeddable-metadata-editor/cedar-embeddable-metadata-editor.component.ts`
-→ `private static INNER_VERSION = '<YYYY-MM-DD HH:MM>';`, the time the bump was written. 1.6.0 stamps
-`'2026-08-12 17:12'`.
+→ `private static INNER_VERSION = '<YYYY-MM-DD HH:MM>';`, the time the bump was written. 2.0.1 stamps
+`'2026-08-21 15:09'`.
 
 > `ceeVersion` derives from `package.json` and is exposed as `window.cedarEmbeddableEditorVersion`,
 > so bumping `package.json` is what drives the visible version. `INNER_VERSION` is only the stamp
@@ -1277,29 +1292,35 @@ version, where the version's trailing sha and the stamp's must name the same com
 carries no commit, so the check reports `(stable, no load-trace commit to check)` and passes whatever
 the stamp says. Read it yourself before publishing a release.
 
-### 2 · Build and browser-test
+If the root already reports the requested release version, do not rerun `npm version`: npm rejects
+an idempotent version request as `Version not changed`. Check first, then bump only when needed:
 
 ```bash
-npm run test:visual
+node -p "require('./package.json').version"
+npm version X.Y.Z --no-git-tag-version
 ```
 
-This builds production and runs the Playwright baseline, and it is not optional: staging publishes
-`visual/public/cedar-embeddable-editor.js` and refuses to run unless that file's sha256 and byte
-count match `visual/public/bundle-manifest.json`. The published artifact is therefore always the
-exact bundle a browser exercised — that guarantee is the reason the step exists, so don't reach for
-a bare `ng build` to save a minute.
+### 2 · Test and stage the package
 
-### 3 · Stage the package
+The operator command now has the same shape as the model library's:
 
 ```bash
-npm run package:npm:prebuilt
+npm run test:package
+node -p "require('./dist-npm/cedar-embeddable-editor/package.json').name + '@' + require('./dist-npm/cedar-embeddable-editor/package.json').version"
 ```
 
-Checks the bundle is fresh and within its size budget, writes the five-file package into
-`dist-npm/cedar-embeddable-editor/`, then re-verifies every staged byte against its source. It
-prints the version, size and sha256 it staged — read them.
+For a stable `X.Y.Z`, the second command must print
+`cedar-embeddable-editor@X.Y.Z`. For a dev version it must print the scoped
+`@org.metadatacenter/cedar-embeddable-editor@<DEV_VERSION>` identity.
 
-### 4 · Publish
+`test:package` builds production, runs the Playwright baseline, checks the bundle size, emits the
+public declarations and compiles the README examples against them, then writes and verifies
+`dist-npm/cedar-embeddable-editor/`. Staging publishes
+`visual/public/cedar-embeddable-editor.js` and refuses to run unless that file's SHA-256 and byte
+count match `visual/public/bundle-manifest.json`. The published artifact is therefore the exact
+bundle a browser exercised.
+
+### 3 · Publish
 
 A release goes to npmjs, unscoped, under `latest`:
 
@@ -1334,14 +1355,91 @@ read the tags off Nexus, where `dev` should be the only one:
 curl -s "https://nexus.bmir.stanford.edu/repository/npm-cedar/@org.metadatacenter%2fcedar-embeddable-editor" | python3 -c "import json,sys; print(json.load(sys.stdin)['dist-tags'])"
 ```
 
-### 5 · Propagate
+### 4 · Commit, tag the release, and draft its notes
+
+Nothing in the publish records which commit was staged, and `npm publish` will happily ship a dirty
+working tree. Commit the release preparation immediately after the publish, then tag that commit
+rather than a later merge:
+
+```bash
+git add package.json package-lock.json CHANGELOG.md \
+  src/app/modules/shared/components/cedar-embeddable-metadata-editor/cedar-embeddable-metadata-editor.component.ts
+git commit -m "Prepare CEE release X.Y.Z"
+git push
+RELEASE_COMMIT=$(git rev-parse HEAD)
+git checkout main
+git pull
+git tag -a release-X.Y.Z "$RELEASE_COMMIT" -m "CEE X.Y.Z"
+git push origin release-X.Y.Z
+git checkout develop
+```
+
+If the tag is added later and the commit is no longer obvious, the published package identifies it.
+Three of its files are copied rather than generated — `README.md`, `CHANGELOG.md` and
+`license.txt` — so `npm pack cedar-embeddable-editor@<version>` and a hash of those three against
+each candidate commit settles which tree was staged. That is what distinguishes the bump commit on
+`develop` from the merge on `main`, which can differ in nothing else.
+
+Then draft the release notes against the tag:
+
+```bash
+gh release create release-2.0.1 --draft --title "CEE 2.0.1" --notes-file <notes.md>
+```
+
+### 5 · Advance development
+
+Back on `develop`, advance to the next development base. The version itself selects the scoped
+Nexus channel, so there is no package name to restore:
+
+```bash
+DEV_SHA=$(git rev-parse --short HEAD)
+DEV_DATE=$(git show -s --format=%cd --date=format:%Y%m%d HEAD)
+npm version "<NEXT>-dev.${DEV_DATE}.${DEV_SHA}" --no-git-tag-version
+```
+
+Update `INNER_VERSION` to name the same date and SHA, then verify the generated identity without
+publishing it:
+
+```bash
+npm run test:package
+node -p "require('./dist-npm/cedar-embeddable-editor/package.json').name + '@' + require('./dist-npm/cedar-embeddable-editor/package.json').version"
+# Must print @org.metadatacenter/cedar-embeddable-editor@<DEV_VERSION>
+git add package.json package-lock.json \
+  src/app/modules/shared/components/cedar-embeddable-metadata-editor/cedar-embeddable-metadata-editor.component.ts
+git commit -m "Advance CEE to next development version"
+git push
+```
+
+CEE's notes follow the shape 2.0.1's carry, which is not the one
+[cedar-project's releases](https://github.com/metadatacenter/cedar-project/releases) use — those
+announce a platform deployment to the people who use the Workbench, and CEE ships a package to the
+people who embed it. One opening line names the release and links the npm package. One paragraph
+says what most of the release is, in specifics. Then the changelog's own headings — Added, Changed,
+Removed, Fixed, Security — each bullet led by a bold clause naming the thing that changed, with
+`Fixed` grouped under bold labels once it runs long. The pre-release-builds note and the link to
+the full changelog close it.
+
+A bullet is one or two sentences — 20 to 30 words, 45 at the outside. It says what changed and, if
+it is not obvious, what was wrong before; the reasoning behind it stays in `CHANGELOG.md`, which is
+where a reader who wants it will look. Lead with the concrete subject: "A `change` event naming the
+field that changed" is a bullet, while "a host is told what changed rather than that something did"
+is a riddle whose answer is the bullet.
+
+`CHANGELOG.md` is the source for the notes and not their shape. It records every change; the notes
+select the ones an embedder has to act on or would want to know about, and say what each is for.
+Publish the draft once someone has read it.
+
+Releases before 2.0.1 carry tags but no GitHub release; 1.6.0's tag was added retroactively, at
+`8a9e3693`.
+
+### 6 · Propagate
 
 Seven manifests across five repos depend on CEE. Workspace is a required consumer alongside the
 production monolith and the existing auxiliary/demo frontends. A stable release names one exact
 version resolved from npmjs:
 
 ```json
-"cedar-embeddable-editor": "1.6.0"
+"cedar-embeddable-editor": "2.0.1"
 ```
 
 Its lockfiles record the npmjs tarball and integrity hash, so what installs is reproducible.
@@ -1378,6 +1476,24 @@ Never replace the helper with a remembered consumer list: its tested inventory i
 keeps Workspace wired into every CEE release. Review and commit the resulting manifest and lockfile
 changes in each owning repository separately.
 
+There are two deliberately different propagation paths. A stable CEE release still uses this helper
+to make reviewable changes in the owning source repositories. An immutable development build train
+does not modify those repositories: in disposable exact-commit checkouts it publishes the captured
+model after its full gate, wires it into CEE, runs CEE's full ARM gate, publishes that CEE, and then
+wires the verified CEE into all seven consumers. The train records hashes of those transformed
+manifests, locks and rebuilt payloads before publishing the frontend artifacts. See
+[BUILD-RUNBOOK.md](./BUILD-RUNBOOK.md) for `npm/model/completed`, `npm/cee/completed`, and the final
+`npm/completed` record.
+
+The train-backed CEDAR release then requires an explicit public CEE version. It verifies both
+tarballs and accepts the npmjs package only when its executable bundle is byte-identical after
+normalizing the single embedded CEE version, model-package identity and load trace. It also permits
+only the package channel metadata, the manifest derived from those bundle bytes, and one dated
+current-release changelog entry; every other packaged byte must match. This proves the public model
+substitution did not change the model code compiled into CEE and prevents an independently changed
+CEE from being substituted into the CEDAR release. The closed normalization list and its failure
+rules are in [NPMJS-RELEASE-RUNBOOK.md](./NPMJS-RELEASE-RUNBOOK.md#use-the-public-cee-in-a-train-backed-cedar-release).
+
 Propagating a release also means rebuilding each deployed consumer.
 Confirm the bytes rather than the version string: the sha256 that `package:npm:prebuilt` prints should
 appear in each consumer's `node_modules`, and again wherever that consumer stages the bundle —
@@ -1385,7 +1501,7 @@ appear in each consumer's `node_modules`, and again wherever that consumer stage
 `dist/cedar-openview/node_modules/` for OpenView.
 
 ```bash
-gobridging  && npm install && cd .. && cedarcli build this
+gobridging  && npm install && cd .. && cedarcli build this --wd "$PWD"
 cd $CEDAR_HOME/cedar-workspace && npx gulp copy:cee
 cd $CEDAR_HOME/cedar-template-editor && npx gulp copy:cee
 ```

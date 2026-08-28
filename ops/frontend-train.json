@@ -1,0 +1,110 @@
+{
+  "registry": "https://nexus.bmir.stanford.edu/repository/npm-cedar/",
+  "model": {
+    "repository": "cedar-model-typescript-library",
+    "sourceManifest": "package.json",
+    "publishedManifest": "package-dist.json"
+  },
+  "cee": {
+    "repository": "cedar-embeddable-editor",
+    "sourceManifest": "package.json",
+    "sourceLock": "package-lock.json",
+    "publishedName": "@org.metadatacenter/cedar-embeddable-editor",
+    "modelDependency": "cedar-model-typescript-library",
+    "additionalModelConsumers": [
+      {"manifest": "visual/package.json", "lock": "visual/package-lock.json"}
+    ]
+  },
+  "frontends": [
+    {
+      "id": "main",
+      "image": "cedar-frontend-main",
+      "repository": "cedar-template-editor",
+      "packagePath": ".",
+      "npmVersionVariable": "CEDAR_TEMPLATE_EDITOR_NPM_VERSION",
+      "ceeConsumer": {"manifest": "package.json", "lock": "package-lock.json"}
+    },
+    {
+      "id": "workspace",
+      "image": "cedar-frontend-workspace",
+      "repository": "cedar-workspace",
+      "packagePath": ".",
+      "npmVersionVariable": "CEDAR_WORKSPACE_NPM_VERSION",
+      "ceeConsumer": {"manifest": "package.json", "lock": "package-lock.json"}
+    },
+    {
+      "id": "designer",
+      "image": "cedar-frontend-template-designer",
+      "repository": "cedar-template-designer",
+      "packagePath": ".",
+      "npmVersionVariable": "CEDAR_TEMPLATE_DESIGNER_NPM_VERSION"
+    },
+    {
+      "id": "openview",
+      "image": "cedar-frontend-openview",
+      "repository": "cedar-openview",
+      "packagePath": "cedar-openview-dist",
+      "npmVersionVariable": "CEDAR_OPENVIEW_NPM_VERSION",
+      "ceeConsumer": {"manifest": "cedar-openview-src/package.json", "lock": "cedar-openview-src/package-lock.json", "legacyPeerDeps": true}
+    },
+    {
+      "id": "content",
+      "image": "cedar-frontend-content",
+      "repository": "cedar-content-distribution",
+      "packagePath": ".",
+      "npmVersionVariable": "CEDAR_CONTENT_NPM_VERSION"
+    },
+    {
+      "id": "monitoring",
+      "image": "cedar-frontend-monitoring",
+      "repository": "cedar-monitoring",
+      "packagePath": "cedar-monitoring-dist",
+      "npmVersionVariable": "CEDAR_MONITORING_NPM_VERSION"
+    },
+    {
+      "id": "bridging",
+      "image": "cedar-frontend-bridging",
+      "repository": "cedar-bridging",
+      "packagePath": "cedar-bridging-dist",
+      "npmVersionVariable": "CEDAR_BRIDGING_NPM_VERSION",
+      "ceeConsumer": {"manifest": "cedar-bridging-src/package.json", "lock": "cedar-bridging-src/package-lock.json"},
+      "preparedBuild": {
+        "directory": "cedar-bridging-src",
+        "commands": [
+          ["npm", "ci"],
+          ["npm", "run", "build", "--", "--configuration=production"]
+        ],
+        "output": "cedar-bridging-src/dist/cedar-bridging"
+      }
+    }
+  ],
+  "additionalCeeConsumers": [
+    {
+      "repository": "cedar-component-demo",
+      "label": "angular-demo",
+      "manifest": "cedar-cee-demo-angular-src/package.json",
+      "lock": "cedar-cee-demo-angular-src/package-lock.json",
+      "legacyPeerDeps": true
+    },
+    {
+      "repository": "cedar-component-demo",
+      "label": "ember-demo",
+      "manifest": "cedar-cee-demo-ember-src/package.json",
+      "lock": "cedar-cee-demo-ember-src/package-lock.json"
+    },
+    {
+      "repository": "cedar-component-demo",
+      "label": "react-demo",
+      "manifest": "cedar-cee-demo-react/package.json",
+      "lock": "cedar-cee-demo-react/package-lock.json"
+    }
+  ],
+  "runtimePackages": [
+    {
+      "name": "@webcomponents/webcomponentsjs",
+      "versionVariable": "CEDAR_OPENVIEW_WEBCOMPONENTS_NPM_VERSION",
+      "registry": "https://registry.npmjs.org/"
+    }
+  ],
+  "dockerCeeVersionVariable": "CEDAR_OPENVIEW_CEE_NPM_VERSION"
+}

@@ -3,7 +3,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
-import { suite, check, checkStatus, call, cleanup, enc, RUN } from '../lib.mjs';
+import { suite, check, checkStatus, call, updateArtifact, cleanup, enc, RUN } from '../lib.mjs';
 
 const FIXTURES = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', 'fixtures');
 const load = name => JSON.parse(readFileSync(resolve(FIXTURES, name), 'utf8'));
@@ -213,11 +213,12 @@ export async function run({ user1, folderId }) {
     const yamlId = yamlOmitted.body['@id'];
     check(!!yamlId, 'and the server assigned one', 'no identifier came back');
 
-    const put = await call(auth, 'PUT', `/templates/${enc(yamlId)}`,
+    const put = await updateArtifact(auth, `/templates/${enc(yamlId)}`,
         yaml('template-full.yml').replace(/^id: .*$/m, `id: ${yamlId}`), asYaml);
     checkStatus(put, 200, 'and an update naming that identifier is accepted');
 
-    const putWithout = await call(auth, 'PUT', `/templates/${enc(yamlId)}`, yamlTemplate('omitted'), asYaml);
+    const putWithout = await updateArtifact(
+        auth, `/templates/${enc(yamlId)}`, yamlTemplate('omitted'), asYaml);
     check(putWithout.status === 400,
         'while an update that omits it is refused — an update says which artifact it is updating',
         `expected 400, got ${putWithout.status}`);

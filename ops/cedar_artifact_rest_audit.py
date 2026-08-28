@@ -5,7 +5,8 @@ The auditor defaults to every template and element visible to one API key throug
 ``--types all`` adds standalone fields and instances. It fetches each full artifact through its typed
 resource endpoint and issues GET requests only. Findings are streamed as JSONL, a machine-readable
 summary is checkpointed every 300 artifacts by default, and a concise progress line reports both the
-processed and selected totals at the same interval.
+processed and selected totals at the same interval. An adjacent refs JSONL stores the exact audit set
+and per-artifact completions so an interrupted run can continue with ``--resume``.
 
 Enumeration is permission-scoped: "complete" means complete for what the supplied key can read and
 what the resource server's graph can enumerate. It is not a substitute for a store query when the key
@@ -45,6 +46,7 @@ from typing import Any, Iterable, Iterator, Optional
 
 DEFAULT_SERVER = "https://resource.metadatacenter.org"
 DEFAULT_PROGRESS_EVERY = 300
+REFS_FORMAT_VERSION = 1
 DEFAULT_TYPES = ("template", "element")
 ARTIFACT_PATHS = {
     "template": "templates",
@@ -955,7 +957,7 @@ def print_progress(state: AuditState, final: bool = False) -> None:
 
 
 def summary_document(state: AuditState, status: str, server: str, types: list[str],
-                     findings_path: str) -> dict[str, Any]:
+                     findings_path: str, refs_path: str) -> dict[str, Any]:
     total = state.planned_total
     return {
         "auditRuleset": {
@@ -1009,6 +1011,7 @@ def summary_document(state: AuditState, status: str, server: str, types: list[st
         "fetchErrorDetails": state.fetch_error_details,
         "unresolvedTemplateDetails": state.unresolved_template_details,
         "findingsFile": findings_path,
+        "refsFile": refs_path,
     }
 
 
@@ -1028,14 +1031,159 @@ def atomic_write_json(path: Path, value: dict[str, Any]) -> None:
         raise
 
 
-def open_private_text_file(path: Path):
+def open_private_text_file(path: Path, append: bool = False):
     """Open a streamed report as owner-only and refuse a symlink where the platform supports it."""
-    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+    flags = os.O_WRONLY | os.O_CREAT | (os.O_APPEND if append else os.O_TRUNC)
     if hasattr(os, "O_NOFOLLOW"):
         flags |= os.O_NOFOLLOW
     descriptor = os.open(path, flags, 0o600)
     os.fchmod(descriptor, 0o600)
-    return os.fdopen(descriptor, "w", encoding="utf-8")
+    return os.fdopen(descriptor, "a" if append else "w", encoding="utf-8")
+
+
+def artifact_key(ref: ArtifactRef) -> tuple[str, str]:
+    return ref.artifact_type, ref.artifact_id
+
+
+def refs_manifest_document(arguments: argparse.Namespace, state: AuditState,
+                           artifact_refs: list[ArtifactRef]) -> dict[str, Any]:
+    return {
+        "record": "audit-ref-manifest",
+        "formatVersion": REFS_FORMAT_VERSION,
+        "server": arguments.server,
+        "artifactTypes": arguments.selected_types,
+        "limit": arguments.limit,
+        "auditRulesetVersion": AUDIT_RULESET_VERSION,
+        "scriptSha256": script_sha256(),
+        "startedAt": state.started_at,
+        "expectedByType": state.expected_by_type,
+        "enumeratedByType": state.enumerated_by_type,
+        "listingErrors": state.listing_errors,
+        "duplicateSearchRowsSkipped": state.duplicates,
+        "searchTotalCountChanges": state.total_count_changes,
+        "artifactRefCount": len(artifact_refs),
+    }
+
+
+def write_refs_manifest(path: Path, arguments: argparse.Namespace, state: AuditState,
+                        artifact_refs: list[ArtifactRef]) -> None:
+    with open_private_text_file(path) as stream:
+        stream.write(json.dumps(refs_manifest_document(arguments, state, artifact_refs),
+                                ensure_ascii=False) + "\n")
+        for ref in artifact_refs:
+            stream.write(json.dumps({
+                "record": "artifact-ref",
+                "artifactType": ref.artifact_type,
+                "artifactId": ref.artifact_id,
+                "artifactName": ref.name,
+            }, ensure_ascii=False) + "\n")
+        stream.flush()
+
+
+def load_refs_manifest(path: Path, arguments: argparse.Namespace, parser: argparse.ArgumentParser
+                       ) -> tuple[dict[str, Any], list[ArtifactRef], dict[tuple[str, str], bool]]:
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError as error:
+        parser.error(f"cannot read resume refs file {path}: {error}")
+    if not lines:
+        parser.error(f"resume refs file is empty: {path}")
+    try:
+        records = [json.loads(line) for line in lines]
+    except json.JSONDecodeError as error:
+        parser.error(f"resume refs file is not valid JSONL: {path}:{error.lineno}: {error.msg}")
+    manifest = records[0]
+    if not isinstance(manifest, dict) or manifest.get("record") != "audit-ref-manifest":
+        parser.error(f"resume refs file has no audit-ref-manifest header: {path}")
+    expected = {
+        "formatVersion": REFS_FORMAT_VERSION,
+        "server": arguments.server,
+        "artifactTypes": arguments.selected_types,
+        "limit": arguments.limit,
+        "auditRulesetVersion": AUDIT_RULESET_VERSION,
+        "scriptSha256": script_sha256(),
+    }
+    mismatches = [name for name, value in expected.items() if manifest.get(name) != value]
+    if mismatches:
+        parser.error("resume refs file does not match this invocation: " + ", ".join(mismatches))
+
+    refs: list[ArtifactRef] = []
+    completed: dict[tuple[str, str], bool] = {}
+    for record in records[1:]:
+        if not isinstance(record, dict):
+            parser.error(f"resume refs file contains a non-object record: {path}")
+        if record.get("record") == "artifact-ref":
+            refs.append(ArtifactRef(
+                str(record.get("artifactType", "")),
+                str(record.get("artifactId", "")),
+                str(record.get("artifactName", "")),
+            ))
+        elif record.get("record") == "artifact-complete":
+            completed[(str(record.get("artifactType", "")), str(record.get("artifactId", "")))] = \
+                bool(record.get("fetched"))
+        else:
+            parser.error(f"resume refs file contains an unknown record type: {path}")
+    if len(refs) != manifest.get("artifactRefCount"):
+        parser.error(f"resume refs file is incomplete: expected {manifest.get('artifactRefCount')} refs, "
+                     f"found {len(refs)}")
+    if len({artifact_key(ref) for ref in refs}) != len(refs):
+        parser.error(f"resume refs file contains duplicate artifact refs: {path}")
+    if set(completed) - {artifact_key(ref) for ref in refs}:
+        parser.error(f"resume refs file contains completions for unknown artifacts: {path}")
+    return manifest, refs, completed
+
+
+def load_existing_findings(path: Path, parser: argparse.ArgumentParser) -> list[Finding]:
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError as error:
+        parser.error(f"cannot read findings file for --resume: {error}")
+    findings: list[Finding] = []
+    for line_number, line in enumerate(lines, 1):
+        if not line.strip():
+            continue
+        try:
+            record = json.loads(line)
+            findings.append(Finding(**record))
+        except (json.JSONDecodeError, TypeError) as error:
+            parser.error(f"invalid finding in {path}:{line_number}: {error}")
+    return findings
+
+
+def restore_resume_state(arguments: argparse.Namespace, manifest: dict[str, Any],
+                         findings: list[Finding], completed: dict[tuple[str, str], bool]) -> AuditState:
+    state = AuditState(limit=arguments.limit, started_at=str(manifest["startedAt"]))
+    state.expected_by_type.update(manifest.get("expectedByType", {}))
+    state.enumerated_by_type.update(manifest.get("enumeratedByType", {}))
+    state.listing_errors = int(manifest.get("listingErrors", 0))
+    state.duplicates = int(manifest.get("duplicateSearchRowsSkipped", 0))
+    state.total_count_changes.extend(manifest.get("searchTotalCountChanges", []))
+    state.enumeration_complete = True
+    diagnostics = {"artifact-fetch-failed", "template-resolution-failed"}
+    for item in findings:
+        if item.rule in diagnostics:
+            state.add_diagnostic(item)
+        else:
+            state.add_findings(ArtifactRef(item.artifact_type, item.artifact_id, item.artifact_name), [item])
+        if item.rule == "artifact-fetch-failed":
+            state.fetch_errors += 1
+            state.fetch_error_details.append({
+                "artifactType": item.artifact_type,
+                "artifactId": item.artifact_id,
+                "artifactName": item.artifact_name,
+                "error": item.message,
+            })
+        elif item.rule == "template-resolution-failed":
+            state.unresolved_templates += 1
+            state.unresolved_template_details.append({
+                "instanceId": item.artifact_id,
+                "templateId": item.value,
+                "error": item.message,
+            })
+    for (artifact_type, _artifact_id), fetched in completed.items():
+        state.artifact_processed(artifact_type, fetched)
+    state.reset_batch()
+    return state
 
 
 def resolve_api_key(arguments: argparse.Namespace, parser: argparse.ArgumentParser) -> str:
@@ -1070,8 +1218,9 @@ def parse_types(value: str, parser: argparse.ArgumentParser) -> list[str]:
 
 
 def run_audit(arguments: argparse.Namespace, client: GetOnlyClient,
-              findings_stream, summary_path: Path) -> tuple[AuditState, str]:
-    state = AuditState(limit=arguments.limit)
+              findings_stream, summary_path: Path, refs_path: Path) -> tuple[AuditState, str]:
+    state = arguments.resume_state if arguments.resume else AuditState(limit=arguments.limit)
+    completed: dict[tuple[str, str], bool] = arguments.completed if arguments.resume else {}
     template_shapes: dict[str, SchemaShape] = {}
     status = "RUNNING"
 
@@ -1080,7 +1229,7 @@ def run_audit(arguments: argparse.Namespace, client: GetOnlyClient,
         atomic_write_json(
             summary_path,
             summary_document(state, "RUNNING", arguments.server, arguments.selected_types,
-                             str(arguments.out)),
+                             str(arguments.out), str(refs_path)),
         )
         state.reset_batch()
 
@@ -1090,21 +1239,28 @@ def run_audit(arguments: argparse.Namespace, client: GetOnlyClient,
         findings_stream.flush()
 
     try:
-        preflight_expected_counts(client, arguments.selected_types, state)
-        reported_counts = ", ".join(
-            f"{kind}={state.expected_by_type[kind]}" for kind in arguments.selected_types
-        )
-        print(f"Search reports: {state.expected_total} rows ({reported_counts}); enumerating unique IDs", flush=True)
+        if arguments.resume:
+            artifact_refs = arguments.artifact_refs
+            print(f"Resuming from {refs_path}: {len(completed)}/{len(artifact_refs)} artifacts already complete",
+                  flush=True)
+        else:
+            preflight_expected_counts(client, arguments.selected_types, state)
+            reported_counts = ", ".join(
+                f"{kind}={state.expected_by_type[kind]}" for kind in arguments.selected_types
+            )
+            print(f"Search reports: {state.expected_total} rows ({reported_counts}); enumerating unique IDs",
+                  flush=True)
 
-        artifact_refs: list[ArtifactRef] = []
-        for artifact_type in arguments.selected_types:
-            remaining = None if arguments.limit is None else max(0, arguments.limit - len(artifact_refs))
-            if remaining == 0:
-                break
-            refs = list(iter_artifact_refs(client, artifact_type, arguments.page_size, state, remaining))
-            state.enumerated_by_type[artifact_type] = len(refs)
-            artifact_refs.extend(refs)
-        state.enumeration_complete = True
+            artifact_refs = []
+            for artifact_type in arguments.selected_types:
+                remaining = None if arguments.limit is None else max(0, arguments.limit - len(artifact_refs))
+                if remaining == 0:
+                    break
+                refs = list(iter_artifact_refs(client, artifact_type, arguments.page_size, state, remaining))
+                state.enumerated_by_type[artifact_type] = len(refs)
+                artifact_refs.extend(refs)
+            state.enumeration_complete = True
+            write_refs_manifest(refs_path, arguments, state, artifact_refs)
         selected_counts = ", ".join(
             f"{kind}={state.enumerated_by_type.get(kind, 0)}" for kind in arguments.selected_types
         )
@@ -1116,83 +1272,105 @@ def run_audit(arguments: argparse.Namespace, client: GetOnlyClient,
         atomic_write_json(
             summary_path,
             summary_document(state, "RUNNING", arguments.server, arguments.selected_types,
-                             str(arguments.out)),
+                             str(arguments.out), str(refs_path)),
         )
         state.processing_started_monotonic = time.monotonic()
-        for ref in artifact_refs:
-            artifact_type = ref.artifact_type
-            try:
-                artifact = client.get_json(typed_artifact_path(ref))
-            except AuthenticationError:
-                raise
-            except Exception as error:
-                state.fetch_errors += 1
-                state.batch_fetch_errors += 1
-                error_text = str(error)
-                state.fetch_error_details.append({
-                    "artifactType": ref.artifact_type,
-                    "artifactId": ref.artifact_id,
-                    "artifactName": ref.name,
-                    "error": error_text,
-                })
-                write_diagnostic(finding(
-                    ref,
-                    "artifact-fetch-failed",
-                    "audit-incomplete",
-                    "/",
-                    f"full artifact could not be fetched: {error_text}",
-                ))
-                print(f"! could not fetch {ref.artifact_type} {ref.artifact_id}: {error}", file=sys.stderr)
-                state.artifact_processed(artifact_type, fetched=False)
+        with open_private_text_file(refs_path, append=True) as refs_stream:
+            for ref in artifact_refs:
+                if artifact_key(ref) in completed:
+                    continue
+                artifact_type = ref.artifact_type
+                try:
+                    artifact = client.get_json(typed_artifact_path(ref))
+                except AuthenticationError:
+                    raise
+                except Exception as error:
+                    state.fetch_errors += 1
+                    state.batch_fetch_errors += 1
+                    error_text = str(error)
+                    state.fetch_error_details.append({
+                        "artifactType": ref.artifact_type,
+                        "artifactId": ref.artifact_id,
+                        "artifactName": ref.name,
+                        "error": error_text,
+                    })
+                    write_diagnostic(finding(
+                        ref,
+                        "artifact-fetch-failed",
+                        "audit-incomplete",
+                        "/",
+                        f"full artifact could not be fetched: {error_text}",
+                    ))
+                    print(f"! could not fetch {ref.artifact_type} {ref.artifact_id}: {error}", file=sys.stderr)
+                    state.artifact_processed(artifact_type, fetched=False)
+                    completed[artifact_key(ref)] = False
+                    refs_stream.write(json.dumps({
+                        "record": "artifact-complete", "artifactType": ref.artifact_type,
+                        "artifactId": ref.artifact_id, "fetched": False,
+                    }, ensure_ascii=False) + "\n")
+                    refs_stream.flush()
+                    if state.processed % arguments.progress_every == 0:
+                        checkpoint()
+                    continue
+
+                findings = list(audit_common(ref, artifact))
+                diagnostics: list[Finding] = []
+                if artifact_type in {"template", "element"}:
+                    findings.extend(audit_schema(ref, artifact))
+                    if artifact_type == "template" and isinstance(artifact, dict):
+                        body_id = artifact.get("@id")
+                        template_shapes[ref.artifact_id] = build_schema_shape(artifact)
+                        if isinstance(body_id, str):
+                            template_shapes[body_id] = template_shapes[ref.artifact_id]
+                elif artifact_type == "instance":
+                    based_on = artifact.get("schema:isBasedOn") if isinstance(artifact, dict) else None
+                    shape = template_shapes.get(based_on) if isinstance(based_on, str) else None
+                    if shape is None and is_absolute_iri(based_on):
+                        template_ref = ArtifactRef("template", based_on)
+                        try:
+                            template = client.get_json(typed_artifact_path(template_ref))
+                            shape = build_schema_shape(template)
+                            template_shapes[based_on] = shape
+                        except AuthenticationError:
+                            raise
+                        except Exception as error:
+                            state.unresolved_templates += 1
+                            error_text = str(error)
+                            state.unresolved_template_details.append({
+                                "instanceId": ref.artifact_id,
+                                "templateId": based_on,
+                                "error": error_text,
+                            })
+                            diagnostics.append(finding(
+                                ref,
+                                "template-resolution-failed",
+                                "audit-incomplete",
+                                "/schema:isBasedOn",
+                                f"referenced template could not be fetched: {error_text}",
+                                based_on,
+                            ))
+                            print(f"! could not resolve template {based_on} for {ref.artifact_id}: {error}",
+                                  file=sys.stderr)
+                    findings.extend(audit_instance(ref, artifact, shape))
+
+                for diagnostic in diagnostics:
+                    state.add_diagnostic(diagnostic)
+                output = "".join(
+                    json.dumps(item.json_record(), ensure_ascii=False) + "\n"
+                    for item in [*diagnostics, *state.add_findings(ref, findings)]
+                )
+                if output:
+                    findings_stream.write(output)
+                findings_stream.flush()
+                state.artifact_processed(artifact_type, fetched=True)
+                completed[artifact_key(ref)] = True
+                refs_stream.write(json.dumps({
+                    "record": "artifact-complete", "artifactType": ref.artifact_type,
+                    "artifactId": ref.artifact_id, "fetched": True,
+                }, ensure_ascii=False) + "\n")
+                refs_stream.flush()
                 if state.processed % arguments.progress_every == 0:
                     checkpoint()
-                continue
-
-            findings = list(audit_common(ref, artifact))
-            if artifact_type in {"template", "element"}:
-                findings.extend(audit_schema(ref, artifact))
-                if artifact_type == "template" and isinstance(artifact, dict):
-                    body_id = artifact.get("@id")
-                    template_shapes[ref.artifact_id] = build_schema_shape(artifact)
-                    if isinstance(body_id, str):
-                        template_shapes[body_id] = template_shapes[ref.artifact_id]
-            elif artifact_type == "instance":
-                based_on = artifact.get("schema:isBasedOn") if isinstance(artifact, dict) else None
-                shape = template_shapes.get(based_on) if isinstance(based_on, str) else None
-                if shape is None and is_absolute_iri(based_on):
-                    template_ref = ArtifactRef("template", based_on)
-                    try:
-                        template = client.get_json(typed_artifact_path(template_ref))
-                        shape = build_schema_shape(template)
-                        template_shapes[based_on] = shape
-                    except AuthenticationError:
-                        raise
-                    except Exception as error:
-                        state.unresolved_templates += 1
-                        error_text = str(error)
-                        state.unresolved_template_details.append({
-                            "instanceId": ref.artifact_id,
-                            "templateId": based_on,
-                            "error": error_text,
-                        })
-                        write_diagnostic(finding(
-                            ref,
-                            "template-resolution-failed",
-                            "audit-incomplete",
-                            "/schema:isBasedOn",
-                            f"referenced template could not be fetched: {error_text}",
-                            based_on,
-                        ))
-                        print(f"! could not resolve template {based_on} for {ref.artifact_id}: {error}",
-                              file=sys.stderr)
-                findings.extend(audit_instance(ref, artifact, shape))
-
-            for item in state.add_findings(ref, findings):
-                findings_stream.write(json.dumps(item.json_record(), ensure_ascii=False) + "\n")
-            findings_stream.flush()
-            state.artifact_processed(artifact_type, fetched=True)
-            if state.processed % arguments.progress_every == 0:
-                checkpoint()
 
         if state.fetch_errors or state.listing_errors or state.unresolved_templates:
             status = "PARTIAL_ERRORS"
@@ -1217,7 +1395,7 @@ def run_audit(arguments: argparse.Namespace, client: GetOnlyClient,
         atomic_write_json(
             summary_path,
             summary_document(state, status, arguments.server, arguments.selected_types,
-                             str(arguments.out)),
+                             str(arguments.out), str(refs_path)),
         )
     return state, status
 
@@ -1246,6 +1424,10 @@ def build_parser() -> argparse.ArgumentParser:
                         help="stream findings as JSONL (default: cedar-artifact-audit-findings.jsonl)")
     parser.add_argument("--summary",
                         help="summary JSON path (default: <out without suffix>-summary.json)")
+    parser.add_argument("--refs",
+                        help="enumerated refs/checkpoint JSONL path (default: <out without suffix>-refs.jsonl)")
+    parser.add_argument("--resume", action="store_true",
+                        help="resume from --refs and append to the existing findings JSONL")
     parser.add_argument("--timeout", type=float, default=90,
                         help="per-request timeout in seconds (default: 90)")
     parser.add_argument("--retries", type=int, default=5,
@@ -1279,11 +1461,30 @@ def main(argv: Optional[list[str]] = None) -> int:
     findings_path = Path(arguments.out).expanduser()
     summary_path = Path(arguments.summary).expanduser() if arguments.summary else \
         findings_path.with_name(findings_path.stem + "-summary.json")
-    if findings_path.resolve() == summary_path.resolve():
-        parser.error("--out and --summary must name different files")
+    refs_path = Path(arguments.refs).expanduser() if arguments.refs else \
+        findings_path.with_name(findings_path.stem + "-refs.jsonl")
+    resolved_paths = {findings_path.resolve(), summary_path.resolve(), refs_path.resolve()}
+    if len(resolved_paths) != 3:
+        parser.error("--out, --summary, and --refs must name different files")
     arguments.out = str(findings_path)
     arguments.server = arguments.server.rstrip("/")
     findings_path.parent.mkdir(parents=True, exist_ok=True)
+    refs_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if arguments.resume:
+        manifest, artifact_refs, completed = load_refs_manifest(refs_path, arguments, parser)
+        existing_findings = load_existing_findings(findings_path, parser)
+        findings_by_key: dict[tuple[str, str], list[Finding]] = collections.defaultdict(list)
+        for item in existing_findings:
+            findings_by_key[(item.artifact_type, item.artifact_id)].append(item)
+        known_refs = {artifact_key(ref) for ref in artifact_refs}
+        if set(findings_by_key) - known_refs:
+            parser.error("findings file contains artifact IDs absent from the resume refs file")
+        for key, items in findings_by_key.items():
+            completed.setdefault(key, not any(item.rule == "artifact-fetch-failed" for item in items))
+        arguments.artifact_refs = artifact_refs
+        arguments.completed = completed
+        arguments.resume_state = restore_resume_state(arguments, manifest, existing_findings, completed)
 
     try:
         client = GetOnlyClient(
@@ -1301,12 +1502,13 @@ def main(argv: Optional[list[str]] = None) -> int:
     print(f"GET-only audit of {arguments.server}")
     print(f"Ruleset: {AUDIT_RULESET_VERSION}")
     print(f"Scope: {', '.join(arguments.selected_types)}; permission-scoped to this key")
-    print(f"Findings: {findings_path}; summary: {summary_path}")
+    print(f"Findings: {findings_path}; summary: {summary_path}; refs: {refs_path}")
+    print("Mode: resume (append findings, reuse enumerated refs)" if arguments.resume else "Mode: new audit")
     print(f"Progress checkpoint: every {arguments.progress_every} artifacts")
 
     try:
-        with open_private_text_file(findings_path) as findings_stream:
-            state, status = run_audit(arguments, client, findings_stream, summary_path)
+        with open_private_text_file(findings_path, append=arguments.resume) as findings_stream:
+            state, status = run_audit(arguments, client, findings_stream, summary_path, refs_path)
     except OSError as error:
         parser.error(f"cannot open findings file securely: {error}")
 

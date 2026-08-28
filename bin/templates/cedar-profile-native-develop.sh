@@ -9,6 +9,10 @@ export CEDAR_DEVELOP_HOME=${CEDAR_HOME}/cedar-development
 export CEDAR_KEYCLOAK_HOME=${CEDAR_HOME}/keycloak/
 export CEDAR_NEO4J_HOME=${CEDAR_HOME}/neo4j/
 
+# Native development uses locally issued .orgx leaves that are not in the JVM truststore.
+# Never carry this explicit TLS-verification bypass into staging or production.
+export CEDAR_KEYCLOAK_ALLOW_INSECURE_TLS=true
+
 #------------------------------------------------------
 # CEDAR custom environment variables
 source ${CEDAR_HOME}/set-env-external.sh

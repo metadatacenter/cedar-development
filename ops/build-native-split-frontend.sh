@@ -29,6 +29,6 @@ fi
 
 cd "$root"
 npm ci
-npx gulp
+CEDAR_SOURCE_COMMIT="$source_commit" npx gulp
 node "$CEDAR_HOME/cedar-development/ops/write-native-frontend-build-info.mjs" \
   "$1" "$source_commit" false

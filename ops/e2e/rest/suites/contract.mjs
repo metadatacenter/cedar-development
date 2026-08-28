@@ -10,7 +10,10 @@
 // It addresses the artifact server directly, so it only runs against the live stack, like the rest of
 // this estate. The two historically-found inter-layer bugs — a media-type reported with the wrong
 // status, and a graphless artifact — were both found by chance rather than by a test like this.
-import { suite, check, checkStatus, call, artifact, cleanup, artifactBody, enc, RUN, ARTIFACT_SERVER } from '../lib.mjs';
+import {
+  suite, check, checkStatus, call, updateArtifact, artifact, cleanup, artifactBody, enc, RUN,
+  ARTIFACT_SERVER,
+} from '../lib.mjs';
 
 export const name = 'contract';
 
@@ -79,7 +82,7 @@ export async function run({ user1, folderId }) {
     const newName = `${upLabel} renamed`;
     const body = artifactBody('template', newName);
     body['@id'] = uid;
-    if (checkStatus(await call(auth, 'PUT', uat, body), 200, 'the rename is accepted')) {
+    if (checkStatus(await updateArtifact(auth, uat, body), 200, 'the rename is accepted')) {
       const rsName = (await call(auth, 'GET', uat)).body?.['schema:name'];
       const asName = (await artifact(auth, 'GET', uat)).body?.['schema:name'];
       const graphName = (await call(auth, 'GET', `${uat}/details`)).body?.['schema:name'];

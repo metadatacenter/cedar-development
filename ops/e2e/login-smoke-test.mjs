@@ -46,6 +46,7 @@ const OPENVIEW_FRONTEND = process.env.CEDAR_OPENVIEW_FRONTEND
 const USER = process.env.CEDAR_FRONTEND_local_USER1_LOGIN ?? 'test1@test.com';
 const PASSWORD = process.env.CEDAR_FRONTEND_local_USER1_PASSWORD ?? 'test1';
 const HEADED = !!process.env.HEADED;
+const EXPECTED_CEE_VERSION = process.env.CEDAR_EXPECT_CEE_VERSION;
 
 const RUN_ID = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
 // One stable working folder in the caller's home folder, reused by every run and created on first
@@ -395,6 +396,20 @@ async function fillCeeTextField(page, name, value) {
   await input.fill(value);
 }
 
+// Read the identity from the CEE UI itself, so a green behavioral journey cannot hide which
+// package actually rendered it. Playwright's CSS engine crosses the custom element's open shadow
+// root. An optional expected value turns this report into an exact release-acceptance assertion.
+async function readCeeVersion(page) {
+  const versionLabel = page.locator('cedar-embeddable-editor .cee-version').first();
+  await versionLabel.waitFor({ state: 'attached', timeout: 20_000 });
+  const version = (await versionLabel.textContent())?.trim();
+  if (!version) throw new Error('deployed CEE rendered no package version');
+  if (EXPECTED_CEE_VERSION && version !== EXPECTED_CEE_VERSION) {
+    throw new Error(`deployed CEE is ${version}; expected ${EXPECTED_CEE_VERSION}`);
+  }
+  return version;
+}
+
 // Re-edit the just-saved instance. The create redirects to the instance edit view; the field must
 // render there (it once stayed stuck "CEDAR Embeddable Editor initializing…" because the redirect set
 // the instance on the CEE element mid-re-init — now fixed by loading the edit view cleanly). Change
@@ -578,6 +593,7 @@ async function verifyPresentedInOpenView(browser, templateId) {
   const url = `${OPENVIEW_FRONTEND}/templates/${enc(templateId)}`;
   const editor = p.locator('cedar-embeddable-editor');
   try {
+    let rendered = false;
     for (let attempt = 1; attempt <= 5; attempt++) {
       await p.goto(url, { waitUntil: 'domcontentloaded' });
       try {
@@ -591,10 +607,12 @@ async function verifyPresentedInOpenView(browser, templateId) {
         if (pageErrors.length > 0) {
           throw new Error(`OpenView raised browser errors: ${pageErrors.join(' | ')}`);
         }
-        return;
+        rendered = true;
+        break;
       }
       catch { await p.waitForTimeout(2500); } // grant not propagated yet — reload and retry
     }
+    if (rendered) return await readCeeVersion(p);
     await mkdir(FAIL_DIR, { recursive: true });
     const shot = resolve(FAIL_DIR, `openview-${Date.now()}.png`);
     await p.screenshot({ path: shot, fullPage: true }).catch(() => {});
@@ -739,6 +757,8 @@ try {
   await page.waitForTimeout(1200);
   await verifyDiseaseSuggestion(page, 'asthma');
   console.log('✓ populate: Disease field suggested a DOID term for "asthma"');
+  const deployedCeeVersion = await readCeeVersion(page);
+  console.log(`✓ Metadata Editor rendered with CEE ${deployedCeeVersion}`);
 
   // Fill the plain text field too, so the instance carries free text alongside the controlled term
   // and the re-edit step has something to change.
@@ -784,8 +804,11 @@ try {
   console.log(`✓ OpenView enabled on the template`);
 
   step = 'verify-openview';
-  await verifyPresentedInOpenView(browser, templateId);
-  console.log('✓ OpenView presents the template (rendered in CEE) to an anonymous visitor');
+  const openViewCeeVersion = await verifyPresentedInOpenView(browser, templateId);
+  if (openViewCeeVersion !== deployedCeeVersion) {
+    throw new Error(`CEE version mismatch: Metadata Editor has ${deployedCeeVersion}, OpenView has ${openViewCeeVersion}`);
+  }
+  console.log(`✓ OpenView presents the template anonymously with CEE ${openViewCeeVersion}`);
 
   // 4. Delete the saved instance, then the template, then the (now empty) folder, verifying each.
   //    The instance goes first because it lives in the folder and a non-empty folder cannot be
@@ -811,7 +834,7 @@ try {
   await assertWorkingFolderCleared(user1, folderId, [savedInstance.id, templateId, standaloneFieldId]);
   console.log(`✓ "${FOLDER_NAME}" holds none of this run's artifacts`);
 
-  console.log(`\nPASS: login (reusable session) → "${FOLDER_NAME}" folder + seeded field → template w/ DOID + text field → populate + fill → save instance → re-edit (update) → both serializations (JSON/YAML) → OpenView presented anonymously → delete → folder cleared`);
+  console.log(`\nPASS [CEE ${deployedCeeVersion}]: login (reusable session) → "${FOLDER_NAME}" folder + seeded field → template w/ DOID + text field → populate + fill → save instance → re-edit (update) → both serializations (JSON/YAML) → OpenView presented anonymously → delete → folder cleared`);
   await browser.close();
   process.exit(0);
 } catch (e) {

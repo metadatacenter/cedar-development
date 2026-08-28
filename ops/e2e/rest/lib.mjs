@@ -23,10 +23,16 @@ export const GROUP_SERVER = env.CEDAR_GROUP_BASE ?? `https://group.${HOST}`;
 export const ARTIFACT_SERVER = env.CEDAR_ARTIFACT_BASE
   ?? `http://${env.CEDAR_ARTIFACT_SERVER_HOST ?? 'localhost'}:${env.CEDAR_ARTIFACT_HTTP_PORT ?? '9001'}`;
 export const TERMINOLOGY = env.CEDAR_TERMINOLOGY_BASE ?? `https://terminology.${HOST}`;
+// Value Recommender has no public nginx vhost, but it does publish an OpenAPI document. As with
+// Artifact and OpenView, the REST suite reaches it through the internal address beside the stack.
+export const VALUERECOMMENDER = env.CEDAR_VALUERECOMMENDER_BASE
+  ?? `http://${env.CEDAR_VALUERECOMMENDER_SERVER_HOST ?? 'localhost'}:${env.CEDAR_VALUERECOMMENDER_HTTP_PORT ?? '9006'}`;
 // The OpenView *server*, not the OpenView frontend. `openview.${HOST}` is the AngularJS app; the API
 // has no vhost of its own, so it is addressed directly on its port.
 export const OPENVIEW = env.CEDAR_OPENVIEW_BASE
   ?? `http://${env.CEDAR_OPENVIEW_SERVER_HOST ?? 'localhost'}:${env.CEDAR_OPENVIEW_HTTP_PORT ?? '9013'}`;
+export const WORKER = env.CEDAR_WORKER_BASE
+  ?? `http://${env.CEDAR_WORKER_SERVER_HOST ?? 'localhost'}:${env.CEDAR_WORKER_HTTP_PORT ?? '9011'}`;
 const KEYCLOAK = env.CEDAR_KEYCLOAK_BASE
   ?? `http://${env.CEDAR_KEYCLOAK_HOST ?? '127.0.0.1'}:${env.CEDAR_KEYCLOAK_HTTP_PORT ?? '8080'}`;
 const REALM = env.CEDAR_KEYCLOAK_REALM ?? 'CEDAR';
@@ -40,8 +46,14 @@ export const enc = iri => encodeURIComponent(iri);
 
 // ── results ─────────────────────────────────────────────────────────────────
 
-const results = { passed: 0, failed: 0 };
+const results = { passed: 0, failed: 0, skipped: 0, checks: [] };
 let currentSuite = '';
+let currentModule = 'runner';
+
+export function beginSuite(name) {
+  currentModule = name;
+  currentSuite = name;
+}
 
 export function suite(name) {
   currentSuite = name;
@@ -60,8 +72,16 @@ export function bad(what, detail) {
 }
 
 export function check(condition, what, detail) {
+  results.checks.push({ suite: currentModule, section: currentSuite, name: what,
+    status: condition ? 'passed' : 'failed' });
   if (condition) ok(what); else bad(what, detail);
   return !!condition;
+}
+
+export function skip(what, detail) {
+  results.skipped++;
+  results.checks.push({ suite: currentModule, section: currentSuite, name: what, status: 'skipped' });
+  console.log(`  - ${what} (skipped: ${detail})`);
 }
 
 /** Asserts a status, reporting the body when it differs — the body is where the reason is. */
@@ -72,7 +92,12 @@ export function checkStatus(res, expected, what) {
 }
 
 export function summary() {
-  return results;
+  return {
+    passed: results.passed,
+    failed: results.failed,
+    skipped: results.skipped,
+    checks: results.checks.map(check => ({ ...check })),
+  };
 }
 
 // ── authentication ──────────────────────────────────────────────────────────
@@ -159,6 +184,28 @@ export async function call(auth, method, path, body, opts = {}) {
   try { json = text ? JSON.parse(text) : undefined; } catch { /* not JSON — keep the text */ }
   if (method === 'POST' && res.status === 201) noteCreated(json, opts.base);
   return { status: res.status, body: json, text, headers: res.headers };
+}
+
+/**
+ * Update an artifact using the revision from a fresh GET. Artifact PUTs are conditional: callers
+ * must send the ETag they read in If-Match so a concurrent save cannot silently overwrite them.
+ * Keep that protocol in the harness rather than repeating a preflight GET in every suite.
+ *
+ * A caller that already has the current response may pass opts.current. All other options are
+ * forwarded to the PUT, including YAML content types and alternate base URLs.
+ */
+export async function updateArtifact(auth, path, body, opts = {}) {
+  const { current, ...requestOpts } = opts;
+  const read = current ?? await call(auth, 'GET', path, undefined,
+      requestOpts.base ? { base: requestOpts.base } : {});
+  const revision = read.headers?.get('etag');
+  return call(auth, 'PUT', path, body, {
+    ...requestOpts,
+    headers: {
+      ...(requestOpts.headers ?? {}),
+      ...(revision ? { 'If-Match': revision } : {}),
+    },
+  });
 }
 
 /** A request against the group server, which owns groups and their membership. */

@@ -3,7 +3,7 @@ import { suite, check, checkStatus, call, cleanup, artifactBody, enc, RUN } from
 
 export const name = 'versioning';
 
-export async function run({ user1, folderId }) {
+export async function run({ user1, user2, folderId }) {
   const auth = user1.auth;
   suite('versioning: publish, then draft the published version');
 
@@ -34,12 +34,20 @@ export async function run({ user1, folderId }) {
       check(versions.status === 200 && JSON.stringify(versions.body ?? {}).includes('1.0.1'),
           'the version chain records the new draft',
           `${versions.status}: ${(versions.text ?? '').slice(0, 200)}`);
+
+      const fromDraft = await call(auth, 'POST', '/command/create-draft-artifact',
+          { '@id': draftId, folderId, newVersion: '1.0.2', propagateVersion: false });
+      if (fromDraft.status === 201 && fromDraft.body?.['@id']) {
+        cleanup('template', `/templates/${enc(fromDraft.body['@id'])}`, `${name0} invalid draft`);
+      }
+      check(fromDraft.status >= 400, 'a draft cannot itself be drafted',
+          `expected 4xx, got ${fromDraft.status}: ${(fromDraft.text ?? '').slice(0, 120)}`);
     }
 
-    // A draft cannot be drafted again — the rule the lifecycle table pins, over HTTP.
+    // Once a published version has a successor, it cannot produce another branch.
     const draftAgain = await call(auth, 'POST', '/command/create-draft-artifact',
         { '@id': id, folderId, newVersion: '9.9.9', propagateVersion: false });
-    check(draftAgain.status >= 400, 'drafting from a version that already has a successor is refused',
+    check(draftAgain.status >= 400, 'drafting again from a published version with a successor is refused',
         `expected 4xx, got ${draftAgain.status}`);
   }
 
@@ -59,6 +67,85 @@ export async function run({ user1, folderId }) {
     check(again.status >= 400,
         're-publishing an already-published artifact is refused',
         `expected 4xx, got ${again.status}: ${(again.text ?? '').slice(0, 120)}`);
+  }
+
+  suite('versioning: versions advance and published content is immutable');
+
+  const guardName = `Version Guard ${RUN}`;
+  const guard = await call(auth, 'POST', `/templates?folder_id=${enc(folderId)}`,
+      artifactBody('template', guardName));
+  if (checkStatus(guard, 201, 'a template is created for lifecycle guards')) {
+    const gid = guard.body['@id'];
+    const gat = `/templates/${enc(gid)}`;
+    cleanup('template', gat, guardName);
+
+    checkStatus(await call(auth, 'POST', '/command/publish-artifact',
+        { '@id': gid, newVersion: 'not-a-version' }), 400,
+        'a malformed publication version is refused');
+    checkStatus(await call(auth, 'POST', '/command/publish-artifact',
+        { '@id': gid, newVersion: '0.0.0' }), 400,
+        'a publication version below the current draft is refused');
+    const stillDraft = await call(auth, 'GET', gat);
+    check(stillDraft.body?.['bibo:status'] === 'bibo:draft'
+        && stillDraft.body?.['pav:version'] === '0.0.1',
+        'failed publication attempts leave the draft and version unchanged',
+        `status ${stillDraft.body?.['bibo:status']}, version ${stillDraft.body?.['pav:version']}`);
+
+    if (checkStatus(await call(auth, 'POST', '/command/publish-artifact',
+        { '@id': gid, newVersion: '1.0.0' }), [200, 201], 'the next valid version publishes')) {
+      for (const newVersion of ['1.0.0', '0.9.9']) {
+        checkStatus(await call(auth, 'POST', '/command/create-draft-artifact',
+            { '@id': gid, folderId, newVersion, propagateVersion: false }), 400,
+            `a draft version ${newVersion === '1.0.0' ? 'equal to' : 'below'} its source is refused`);
+      }
+
+      const published = await call(auth, 'GET', gat);
+      const replacement = structuredClone(published.body);
+      replacement['schema:description'] = 'A published artifact must not accept this change';
+      const changed = await call(auth, 'PUT', gat, replacement,
+          { headers: { 'If-Match': published.headers.get('etag') } });
+      if (checkStatus(changed, 400, 'published content cannot be updated')) {
+        check((changed.text ?? '').includes('publishedArtifactCanNotBeChanged'),
+            'the refusal identifies the published-content invariant',
+            `body was ${(changed.text ?? '').slice(0, 200)}`);
+      }
+      const unchanged = await call(auth, 'GET', gat);
+      check(unchanged.body?.['schema:description'] !== replacement['schema:description'],
+          'the rejected update leaves published content unchanged',
+          'the replacement description was stored despite the rejection');
+
+      // This is the current, deliberate policy: publication makes content immutable but does not
+      // make the resource undeletable. The documentation disagreement remains a separate roadmap item.
+      checkStatus(await call(auth, 'DELETE', gat), [200, 204],
+          'a published artifact remains deletable under the current policy');
+      checkStatus(await call(auth, 'GET', gat), 404,
+          'the published artifact is absent after that deletion');
+    }
+  }
+
+  suite('versioning: ownership transfer moves versioning authority');
+
+  const transferName = `Version Owner Transfer ${RUN}`;
+  const transfer = await call(auth, 'POST', `/templates?folder_id=${enc(folderId)}`,
+      artifactBody('template', transferName));
+  if (checkStatus(transfer, 201, 'a template is created to transfer')) {
+    const tid = transfer.body['@id'];
+    const tat = `/templates/${enc(tid)}`;
+    cleanup('template', tat, transferName, user2.auth);
+    const ownership = await call(auth, 'PUT', `${tat}/permissions`, {
+      owner: { '@id': user2.profile['@id'] },
+      userPermissions: [],
+      groupPermissions: [],
+    });
+    if (checkStatus(ownership, 200, 'the owner transfers the artifact to the second user')) {
+      const formerOwner = await call(auth, 'POST', '/command/publish-artifact',
+          { '@id': tid, newVersion: '1.0.0' });
+      check(formerOwner.status >= 400, 'the former owner can no longer publish it',
+          `expected 4xx, got ${formerOwner.status}`);
+      checkStatus(await call(user2.auth, 'POST', '/command/publish-artifact',
+          { '@id': tid, newVersion: '1.0.0' }), [200, 201],
+          'the new owner can publish it');
+    }
   }
 
   suite('versioning: check-update-template');

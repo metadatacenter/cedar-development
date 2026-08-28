@@ -175,30 +175,71 @@ next major release.
    its writers behind their own entry point, which only becomes cheap if the download path turns
    asynchronous for other reasons.
 
-7. **Nothing stops an instance CEE already knows is invalid from being saved, and nothing tells the
-   person saving it.** CEE works out what is wrong before any save happens. `dataQualityReport`
-   carries `isValid`, how many required fields the template declares against how many the instance
-   fills, and a `problems` list whose entries each name a code, a path, the field, its declared input
-   type, a message and the offending value. The CEDAR workspace reads none of that
-   when deciding whether to save.
-   `saveInstance` in `create-instance.controller.js` takes `cee.currentMetadata` and posts it, and
-   the only validation anybody sees arrives afterwards, from the server's `CEDAR-Validation-Status`
-   response header. Even that arrives thin: the call passes the header alone while `logValidation`
-   takes a report as its second argument, so the branch that would parse errors and warnings never
-   runs, and what reaches the header indicator is a bare state.
+7. **Make validation actionable before REST refuses the write.** Invalid template instances no
+   longer enter the repository through the artifact REST API. Since the persistence-boundary
+   hardening in `release-2.9.2`, both create and update validate against the referenced template,
+   return HTTP 400 with `INVALID_DATA`, `VALIDATION_ERROR` and the full `validationReport` when that
+   validation fails, and do not store the submitted instance. The legacy `skip_validation` query
+   parameter remains in the create signature for wire compatibility but is deliberately ignored;
+   a regression test pins that it cannot admit an invalid instance. Any older invalid instance
+   already in the store is a data-repair concern, not permission for the current UI to create
+   another one.
 
-   CEE now supplies the information at the right boundary: every model-changing `change` event
-   carries `validity`, `dataQualityReport`, `title` and `description`. The CEDAR workspace currently
-   uses that event only to recompute dirty state, so save behavior and validation presentation are
-   still the open product decision here. OpenView also still has an `onFormChange` handler written
-   for the editor CEE replaced; its template does not bind that handler to CEE, so the newly restored
-   event contract does not by itself revive OpenView's title, description or validity plumbing.
+   The remaining defect is the save experience. CEE already calculates `dataQualityReport` — its
+   validity, required-field counts and path-addressed problems — and every model-changing `change`
+   event carries that report with `validity`, `title` and `description`. The CEDAR workspace's
+   listener ignores the event payload and uses the notification only to recompute dirty state.
+   Its Save action copies `cee.currentMetadata` and calls create or update without a local
+   validation decision. When REST refuses the request, Workspace hands the response to the generic
+   backend-error presenter; there is no translation for these validation keys and the structured
+   report is available only inside technical response detail. The person learns that the save
+   failed after a round trip, but is not shown which field to fix.
 
-   Decide what saving an invalid instance should mean, which is a product question before a
-   technical one. CEDAR stores instances its own server considers invalid, and an author part-way
-   through a long form has a good reason to save one, so refusing the save is probably the wrong
-   answer. Worth weighing instead: a save that names what is wrong and asks for confirmation, and a
-   save that proceeds but reports from CEE's report rather than from the response header, since the
-   report knows the path and the message while the header knows only that something failed. Either
-   way the remaining fix is host behavior: CEE now supplies a validity signal at the moment of
-   change, and the CEDAR workspace must decide how to present and act on it.
+   Define the host contract before choosing the button behavior. Prove over the shared instance
+   corpus which CEE problems correspond to REST-invalid JSON Schema and which are advisory data
+   quality findings; do not disable saving on a stronger client-side notion and silently turn a
+   warning into a new server rule. For a state REST will reject, Workspace may disable Save or let
+   the click open the same explanation, but it must present the summary, path and message, take the
+   author to the affected field where possible, keep the document dirty, and make no claim that an
+   invalid draft was stored. A server-side `validationReport` remains authoritative and must be
+   rendered through the same presentation if the validators disagree or the template changes
+   between edit and save.
+
+   One advisory-only divergence is measured, so it need not be re-derived. A field declaring
+   `requiredValue: true` under `minItems: 0` is reported unfilled by CEE when it holds no
+   occurrences, while the canonical validator accepts the empty array the template's JSON Schema
+   asks for, `requiredValue` being a `_valueConstraints` notion that validator does not enforce.
+   Compatibility case 081 is that shape, and it is the only one of the 178 corpus, compatibility
+   and HuBMAP fixtures where the two disagree. Disabling Save on `isValid` would therefore refuse
+   a document REST would store, which is the failure this item exists to avoid.
+   `harness/test/report-shape.spec.ts` pins the behavior.
+
+   Pin the integration with host tests for invalid-to-valid and valid-to-invalid transitions,
+   multiple problems across pages and repeated elements, an advisory-only report, a rejected create,
+   a rejected update, correction followed by a successful save, and a deliberately divergent server
+   report. The item is complete when validation is useful before the request and equally useful when
+   the server is the first component to detect the problem.
+8. **Move the translation boundary onto the Angular 22-supported line.** CEE deliberately remains
+   on `@ngx-translate/core` 14 and `@ngx-translate/http-loader` 7 until this migration lands. Their
+   open Angular peer ranges kept the framework march green without making either 2022-era package
+   current. As measured 2026-08-26, the stable line is 18 for both packages; core 18 supports Angular
+   18–22, TypeScript 6 and RxJS 7, which is CEE's stack, but upgrading it is an API migration rather
+   than a lockfile refresh. It removes `TranslateModule`, `USE_STORE` and `USE_DEFAULT_LANG`, and
+   replaces the default-language API CEE calls with the fallback-language API. Keep the two present
+   major pins visible in `package.json` until the whole boundary can move in one change; do not let a
+   framework bump or a broad dependency update imply that the compatibility was reviewed.
+
+   Upgrade core to 18 and remove `@ngx-translate/http-loader` rather than carrying a second package
+   for one GET. `FallbackTranslateLoader` already owns the configured prefix, tracing, error recovery
+   and built-in maps; have it request `<prefix><language>.json` through `HttpClient` as a
+   `TranslationMap`. Replace the root and child `TranslateModule` wiring with the v18 provider and
+   standalone pipe/directive APIs, move `setDefaultLang` to `setFallbackLang`, and update the real-
+   service tests without renaming CEE's public `defaultLanguage` and `fallbackLanguage` configuration
+   keys — those describe CEE's selected and recovery languages and are not ngx-translate API names.
+
+   The migration is complete only when the existing external-map success and unreachable-map fallback
+   browser cases pass, two editors retain isolated language stores and prefixes, the built-in English
+   and Hungarian maps still render, the source, harness and visual TypeScript programs plus the full
+   lint/unit gates pass, and the production bundle remains under both size limits. Remove the pin
+   paragraph when those checks are green on the new dependency; leaving it behind would turn this
+   item into the same stale workaround it records.

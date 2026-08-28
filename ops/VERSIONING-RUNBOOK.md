@@ -25,6 +25,22 @@ Sibling runbooks:
 - `snapshots/<ACRONYM>/<version-id>.sqlite` — one file a release, holding its concepts, labels,
   edges and closure.
 
+The index file carries three SQL indexes, `term_by_acronym`, `term_by_iri` and `name_by_term`, and
+`SearchIndexJob` creates all three. A file built before `term_by_iri` existed does not have it, and
+nothing reports the absence. A corpus-wide search fetches the names of a page of hits by IRI alone,
+because hits drawn from the whole corpus carry no acronym to narrow by, and without `term_by_iri`
+that lookup scans all 15.3 million terms. It runs twice a request, once for classes and once for
+branches. Measured 2026-08-25, adding the index took a corpus-wide search for "disease" from 32
+seconds to 1.8 seconds. Confirm a store has it, and add it to one that predates it with the
+terminology server stopped. Building it takes a few seconds and about 0.8 GB.
+
+```bash
+sqlite3 $CEDAR_HOME/cedar-term/prod/search-index.sqlite \
+  "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='term';"
+sqlite3 $CEDAR_HOME/cedar-term/prod/search-index.sqlite \
+  "CREATE INDEX IF NOT EXISTS term_by_iri ON term(iri);"
+```
+
 A snapshot's identity is a content hash over its own concepts, labels and edges, so correcting a
 snapshot in place changes the release's identity rather than repairing it. Re-ingesting is the
 repair, and it mints a new version id. **The file name is not the identity** — 1,061 of the 2,460
@@ -143,6 +159,168 @@ grep -E "terminology store enabled|Cross-snapshot search index" $CEDAR_HOME/log/
 UMLS-licensed sources — SNOMEDCT, MEDDRA, RCD, ICPC2P — cannot be held locally and can never be
 pinned.
 
+## What a Lookup Costs
+
+`cedar_term_bench.py` times the lookup paths against whatever the server is serving, drawing its
+query strings from the index so that every lookup matches something. Run it against a warm server
+and against nothing else: a benchmark and the e2e smoke sharing one deployment turned a 30-second
+smoke into a 78-second one, which reads as a regression until you notice what else was running.
+
+```bash
+python3 $CEDAR_HOME/cedar-development/ops/cedar_term_bench.py 30
+```
+
+An ontology-constrained `integrated-search`, the shape the authoring UI asks for, is answered from
+one of two places, and which one decides what it costs.
+
+A snapshot carries no text index. It answers by comparing every label it holds against the query, so
+it costs what the ontology is large: 3 ms in UO's 574 terms, 10 in DOID's 19,578, 61 in NCIT's
+206,860. Page size does not enter into it, since 10 results and 100 cost the same, and a shorter
+prefix costs more than a longer one for the obvious reason.
+
+The cross-snapshot index costs what the query matches instead, bounded by the ontology because the
+ontology is indexed alongside the text. Past about a quarter of a million terms that is much the
+cheaper, so an ontology above [the routing threshold](#which-store-answers) is answered from the
+index. Measured 2026-08-26 through the same request, with a pinned version forcing the snapshot for
+comparison:
+
+| ontology | terms | from the index | from its snapshot |
+|---|---|---|---|
+| NCBITAXON | 2,854,537 | 103 ms | 905 ms |
+| GAZ | 668,838 | 71 ms | 268 ms |
+| MESH | 355,402 | 177 ms | 381 ms |
+| LOINC | 297,723 | 108 ms | 252 ms |
+| CCO | 264,891 | 73 ms | 132 ms |
+
+Below the threshold the exchange reverses and the snapshot stays quicker. DOID answers in 9 ms from
+its snapshot against 42 from the index, which is why this is a threshold rather than a switch.
+
+A lookup is answered on the calling thread's own connection to each store it reads. That is worth
+knowing when changing one: a store opened to write keeps the single connection its transactions
+belong to, and only the three places that open a store to serve ask for the other mode. Sharing one
+connection is what the server used to do, and it answered one lookup at a time however many arrived
+— 16 requests a second whether one was in flight or sixteen, with latency climbing to 995 ms.
+Throughput now rises with concurrency to about 98 requests a second and latency holds near 70 ms.
+
+What a serving process holds open is bounded twice over, because a connection costs more than a file
+handle — SQLite gives each one its own page cache. A snapshot untouched for a minute is closed once
+more than sixty-four are open, the store just handed to a caller never among them; a minute because
+a lookup reads its store after the resolution returns, and the slowest measured is about a second.
+Reading connections are capped at 96 across every store rather than a store, since a per-store limit
+multiplies by the number of snapshots cached. Past the cap a thread reads on its store's first
+connection and waits, as it did before per-thread connections existed. Raise either where a
+deployment wants more, with `-Dcedar.terminology.openSnapshots.max`,
+`-Dcedar.terminology.openSnapshots.quietMillis` and `-Dcedar.terminology.readConnections.total`.
+
+## Which Store Answers
+
+An ontology is answered from the index when the store serves it at all, when it holds at least
+250,000 terms, when the constraint names no version, and when the index holds the release the
+catalog currently serves. The first condition is easy to forget while reading timings: DDSS and
+MEDGEN are both large enough to route and neither is in the served allowlist, so both go to
+BioPortal, and a BioPortal round trip timed beside local ones reads as a slow routed answer.
+
+The version conditions are not caution. The index keeps one version an ontology, so a constraint
+naming an older release has to be answered from the snapshot that holds it, and a re-ingest can move
+the current version before the index catches up, which would otherwise attribute terms to a release
+that did not produce them.
+
+Two things a routed answer does differently, both deliberate and both visible to whoever reads it.
+
+It finds fewer, and so far always the right fewer. The index matches whole tokens by prefix where a
+snapshot matches a substring anywhere in a label. Usually the two agree closely: PR returns 4,392
+against 4,509 and LOINC 6,101 against 6,120. Where they diverge it has been the substring match at
+fault. GAZ answers "acid" with 2 against its snapshot's 25, and the 23 it drops are `Lake Placid`
+six times over, `Almonacid de Toledo`, `Villacidro` and `Saint-Placide` — "acid" sitting inside
+another word. What it keeps is `Acid Factory Brook` and `Municipality of Acidara`, and "placid"
+still finds Lake Placid.
+
+It ranks better too. Searching NCBITAXON for "Escherichia" the snapshot leads with short labels
+carrying the word in a synonym, `Muvirus mu` and `Inovirus M13`, where the index leads with
+`Escherichia` itself.
+
+It counts to a cap rather than exactly, so MESH reports 10,000 matches where its snapshot reports
+21,297. The page an author reads is unaffected; the total above it is. Counting exactly means
+fetching every match, which when tried made DDSS slower than the snapshot it replaced.
+
+To see which store answered, pin the constraint to the version the catalog serves and compare: a
+pinned constraint is always answered from its snapshot.
+
+## When a Lookup Is Slow
+
+Reach for the query before the server. `POST /search` puts each token of a query to the index as a
+prefix match, and a token of one or two characters matches most of the index: `"d"*` reaches seven
+million names where `"mannitol"*` reaches 2,398. Punctuation makes such tokens without anyone typing
+them, because the index splits on it. Chemical and strain names are built out of exactly those
+fragments.
+
+A query with a long token in it holds its short tokens back and applies them afterwards, so
+`D-mannitol` costs about what `mannitol` costs. A query with nothing long in it cannot: every token
+of `L-alpha-amino acid`, `1,2,5` and `ce` is short, one of them is broad, and the query pays for it.
+Those are the queries left to answer.
+
+Choosing the tokens by how selective they actually are, rather than by assuming a long one is
+narrow, is the obvious next idea and was measured on 2026-08-25 as worse. FTS5 keeps the counts and
+an `fts5vocab` table reaches them cheaply, but doclist size turns out to predict what a query costs
+poorly: what a match costs depends on how its doclists overlap, and holding back a broad token that
+was usefully narrowing the intersection costs more than the token was costing. Over 300 labels drawn
+from six ontologies, every threshold tried matched the shipped rule's speedup at best while making
+29 to 39 of the queries more than half as slow again, where the shipped rule makes none of them
+slower. The setting that finally answered `L-alpha-amino acid` was the worst of them overall. The
+remaining queries need a different idea rather than a better threshold.
+
+A corpus-wide search — one naming no source — is the shape left slow, and the cost is one query:
+ranking the labels. `searchByLabelPage` groups every matched name by label to find the best-ranked
+twenty-five, so a query matching 1.7 million names groups 1.7 million rows. Scoping does not help
+because there is nothing to scope to, and the page is small because the group-by is what is
+expensive, not the page.
+
+Three ways out have been measured, and the measurements are worth more care than they were given.
+Bounding the rows before grouping was recorded as slower on a comparison where only one side was
+measured correctly, so that verdict is withdrawn rather than upheld. FTS5's own relevance ordering
+is genuinely 2 to 3 times faster and ranks badly for choosing a term, leading "disease" with
+`disease-disease association` and "acid" with `acidipropionibacterium`; that verdict stands, because
+it rests on the results rather than the timings.
+
+The third was tried twice. Filling a page from the labels a query begins is exact while it fills,
+since ranks 0 to 4 all outrank 5 to 7, and it is much faster: with the label text indexed, "cell"
+fell from 5,609 ms to 148 and "acid" from 850 to 28 on the same twenty-five labels. It shipped on
+2026-08-26 and was withdrawn the same day. Exact *while it fills* is the whole difficulty. Where the
+prefixes run out, the next page comes from the full ranking in a slightly different order, and a
+label can arrive on both pages: "leukaemia" has forty such labels, so page one came from prefixes,
+page two could not, and four labels appeared twice in a picker that appends pages into one list.
+Making the two orders agree needs the tie-break on shortest matching name computed over every
+matched row, which is the work being avoided. A composite order, the prefix labels first and then
+the full ranking with those labels excluded, would be consistent across pages and is the way to try
+it a third time.
+
+The first attempt at this was also recorded here as measured-and-rejected, on numbers from a harness
+that bound its parameters in the wrong order and so searched for a bare token instead of a prefix.
+It reported 9 of 25 results agreeing where the truth was that they agreed exactly. Two conclusions
+in this section came from that harness; a measurement of a corpus-wide query returning in single-
+digit milliseconds is the tell, and means the query matched nothing.
+
+What is left is not a tuning problem. Ranking a large match set by a ladder SQLite cannot index
+costs what it costs, so the ways left change what is asked rather than how it is answered. The
+picker takes the first of them: it will not search the whole corpus for fewer than three characters,
+and says so instead. That removes the worst of the cost rather than the shape of it. Typing towards
+"cellular" cost 4,200 ms at "ce" and 2,512 at "cel", and the query that now runs first, at "cellu",
+costs 539, so a corpus-wide answer is still measured in hundreds of milliseconds. What remains
+unexplored is a curated subset searched ahead of the rest.
+
+Narrowing lifts the floor, in the picker and in the cost. A search naming one source reads only that
+ontology and answers in tens of milliseconds, which is why an author hunting a two-letter code
+narrows first, and why the floor applies only while nothing is narrowed.
+
+Confirm which case you are in before reading any code, since the two look identical from outside:
+
+```bash
+sqlite3 $CEDAR_HOME/cedar-term/prod/search-index.sqlite \
+  "SELECT COUNT(*) FROM name_fts WHERE name_fts MATCH '\"ce\"*';"
+```
+
+A count in the millions is the query, not the server.
+
 ## Running the Picker
 
 `$CEDAR_HOME/cedar-term-picker`, default branch `develop`. Node 24.19.0, the version `.nvmrc` pins.
@@ -178,6 +356,14 @@ pin a version, and gets each hit's whole ancestry rather than the one step the i
 `includeVersions` asks a source block for the releases it can be pinned to, which is what the row's
 release list shows — fetched when a row first opens it rather than with every search, since a
 corpus-wide query touches a hundred sources and an author opens one.
+
+The picker does not ask for everything it could. A query of fewer than three characters naming no
+source is declined in the component rather than sent, because those are the queries that cost most
+and mean least — the characters an author passes through on the way to a word. It says so instead,
+after a pause long enough that someone still typing never sees it. Narrowing lifts the floor, since
+a search naming a source is answered in tens of milliseconds. Two consequences worth knowing when
+reading the server's logs: a picker session shows no request for the first two characters typed, and
+the server's own refusal below two characters is no longer what an author is shown.
 
 Both endpoints are unauthenticated, like `integrated-search`. That is deliberate, and it is also the
 one thing the server is inconsistent about: `/bioportal/ontologies` and

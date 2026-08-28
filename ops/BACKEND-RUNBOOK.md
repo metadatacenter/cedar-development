@@ -19,9 +19,9 @@ Three tiers:
 
 - **Infrastructure** — Keycloak (auth), MongoDB, MySQL, Neo4j, Redis, OpenSearch (search index),
   and nginx (TLS termination + reverse proxy for `*.metadatacenter.orgx`). In native-develop these
-  run as containers, except **nginx**, which is still native and still owns 80/443. All six locked
-  servers — Redis, OpenSearch, Mongo, Neo4j, MySQL and Keycloak — moved on 2026-08-08. See
-  "Running the native servers against containerized infrastructure".
+  are host services managed by the native infrastructure scripts. Docker mode owns containerized
+  infrastructure; hybrid mode owns the Docker backend and native frontends. The three supported
+  modes deliberately do not include native JVMs over an independently assembled Docker data tier.
 - **Microservices** — 15 Dropwizard JVMs, one per `cedar-<name>-server` repo. Each is launched as
   `java -jar cedar-<name>-server-application-<version>.jar server .../config.yml`.
 - **Frontends** — the production-safe AngularJS monolith (`cedar-template-editor`) is served by
@@ -29,17 +29,30 @@ Three tiers:
   extraction, `cedar-workspace` (4201) and `cedar-template-designer` (4202) run beside it as preview
   frontends. The active auxiliary UIs are openview, monitoring, bridging, and content.
 
-## Environment: two things that must be right first
+## Environment: select the native mode first
 
-**1. Source the profile with `CEDAR_HOME` already exported.** The profile reads `CEDAR_HOME`; if it
-is unset when you source, key variables come out empty.
+Begin by checking which topology owns the machine. If no mode is selected, select `native` once.
+That loads and validates the native profile internally, pins Java 17 for its child processes, and
+records the selection without starting anything. Later native commands work from a bare shell.
+Direct shell scripts still require the profile to be sourced explicitly.
 
 ```bash
 export CEDAR_HOME=$HOME/CEDAR
-source $CEDAR_HOME/cedar-profile-native-develop.sh    # ~191 CEDAR_* vars, CEDAR_HOST=metadatacenter.orgx
+cedarcli mode
 ```
 
-**2. `JAVA_HOME` must be JDK 17.** CEDAR services and Keycloak require Java 17. The machine's default
+If the result says no mode is set:
+
+```bash
+cedarcli mode native
+```
+
+If it reports `docker` or `hybrid`, stop the components owned by that topology and clear the mode
+before selecting native. The complete transition commands are in the
+[Docker runbook](./DOCKER-RUNBOOK.md#prerequisites). Do not select a second mode over a running
+deployment.
+
+`JAVA_HOME` must be JDK 17 for commands run directly rather than through cedarcli. CEDAR services and Keycloak require Java 17. The machine's default
 `java` is newer (23/25) and **Keycloak crashes on it** (`Failed to start caches … getSubject is
 supported only if a security manager is allowed` — the SecurityManager was disabled in JDK 18+).
 
@@ -47,34 +60,34 @@ supported only if a security manager is allowed` — the SecurityManager was dis
 export JAVA_HOME=$(/usr/libexec/java_home -v 17)
 ```
 
-Your `~/.zshrc` already pins Java 17; your `~/.bashrc` pins 21 — **use the zsh shell**, or the
-Keycloak/services will fail the same way. The helper scripts here force Java 17 themselves.
+The native controller and `cedarcli` select JDK 17 for managed processes. Set `JAVA_HOME` yourself
+only for direct Java or Keycloak commands outside the CLI.
+
+**Keycloak TLS verification is secure by default.** Both the bearer-token client that fetches realm
+JWKS and the admin client that sends the CEDAR administrator password use the JVM truststore and
+hostname verification unless `CEDAR_KEYCLOAK_ALLOW_INSECURE_TLS=true`. That flag is a
+development-only escape hatch: the native profile sets it because its locally issued `.orgx` leaves
+are not installed in the workstation JVM truststore. The Docker images import the CEDAR development
+CA and therefore leave the flag unset. Never set it in staging or production; ensure the JVM
+truststore contains the Keycloak issuer CA, leave the flag absent or `false`, and exercise both token
+verification and one admin operation after deployment.
 
 ## Bring-up sequence
 
 ```bash
-# 0. one-time (only needed for the Docker cert volumes / network; harmless to skip in pure native)
-cedarcli docker one-time-setup
+# cedarcli loads the native profile and starts infrastructure, services, and frontends.
+cedarcli native start all
+cedarcli native status
 
-# 1. infrastructure (local binaries + Homebrew services)
-bash $CEDAR_UTIL_BIN/services-generic/startinfra.sh     # mongo, mysql, opensearch, neo4j, redis, keycloak, nginx
-# startinfra.sh still starts all seven natively, and the four now in containers lose their ports.
-# Redis and OpenSearch fail outright, which is harmless. Mongo is the one to watch: it binds
-# 127.0.0.1 where Docker binds the wildcard, so it starts, wins every connection, and nothing warns.
-
-# 2. app tier — use the controller here instead of 15 Terminal tabs
-bash $CEDAR_HOME/cedar-development/ops/cedar-services.sh start
-bash $CEDAR_HOME/cedar-development/ops/cedar-services.sh status
-
-# 3. log in
+# Log in
 open https://cedar.metadatacenter.orgx    # test1@test.com / test1   (also test2@test.com / test2)
 
-# 4. optional: prove the stack end to end (login, folder + template round-trip; ~30 s)
+# Optional: prove the stack end to end (login, folder + template round-trip; ~30 s)
 (cd ops/e2e && npm run smoke)
 ```
 
-`cedarcli start all` does the same thing but opens ~15 Terminal tabs (one foreground process per
-tab, by design — see below). The controller replaces that with background processes + one status view.
+`cedarcli native start all` runs both steps above, including native infrastructure. It does not open or
+control a terminal application. Each application has its own PID file and log instead.
 
 ## The containerized stack
 
@@ -88,44 +101,50 @@ passed. See [DOCKER-RUNBOOK.md](./DOCKER-RUNBOOK.md) for the reproducible build,
 deployment, health, and acceptance procedures.
 
 **It cannot run beside the native stack.** Both want 80/443, 3306, 27017, 6379, 9200, 7474/7687,
-8080 and the 9xxx range. Take the native one down first with `cedarcli stop all`, which unlike
+8080 and the 9xxx range. Take the native one down first with `cedarcli native stop all`, which unlike
 `cedar-services.sh stop` also stops the infrastructure. Storage is separate — the containers use
 their own named volumes and never touch `/opt/homebrew/var/*`, so the two estates keep independent
 data.
 
-It needs its own profile. The native profile sets `CEDAR_NET_GATEWAY=127.0.0.1`, which cannot be a
-Docker bridge gateway; the Docker one pins every container to an address on `192.168.17.0/24`.
+Stop native mode before selecting Docker mode. The CLI validates the Docker profile and Compose
+projects when the mode is configured, then supplies that profile internally to later Docker calls.
 
 ```bash
 export CEDAR_HOME=$HOME/CEDAR
-source $CEDAR_HOME/cedar-development/bin/templates/cedar-profile-docker-eval.sh
-# The profile defaults to the hybrid mode where nginx is native. Full Docker needs its nginx
-# container for Keycloak discovery and token-signing keys.
-export CEDAR_AUTH_HOST_TARGET="$CEDAR_NGINX_HOST"
-
-cedarcli docker validate                    # every stack parses, every variable is defined
-cedarcli docker build infrastructure
-cedarcli build java                         # optional when using the published Nexus JARs
-cedarcli docker build microservices --local # freshly built checkout JARs
-# Or omit --local to download 2.9.2-SNAPSHOT application JARs from Nexus.
-cedarcli docker one-time-setup              # network + certificate volumes
-cedarcli docker start infrastructure -d
-cedarcli docker start microservices -d
+cedarcli native stop all
+cedarcli mode --clear
+cedarcli mode docker
+cedarcli docker setup one-time-setup
+cedarcli docker start all --pull missing
+cedarcli docker status
 ```
 
-The snapshot images are not currently published under the Docker Hub names hard-coded by Compose.
-The `cedarcli docker start` commands therefore default to `--pull never`; the equivalent direct
-command is `docker compose up -d --pull never`. Nexus can store the images, but selecting a Nexus
-prefix in the builder and Compose is still a roadmap item; the historical `CEDAR_DOCKERHUB`
-instructions require manual retagging.
+An ordinary aggregate start selects the current completed Docker train; `--pull missing` downloads
+only images absent from this machine. To deploy from another registry, export
+`CEDAR_IMAGE_PREFIX=<registry-host>:<port>/<namespace>` before `cedarcli mode docker`. The
+complete selected train must exist under that prefix.
+
+The checked-out-source alternative is explicit and does not claim to reproduce a published train:
+
+```bash
+cedarcli build java
+cedarcli docker build infra --local
+cedarcli docker build microservices --local
+cedarcli docker build frontends --local
+cedarcli docker start all --local --pull never
+```
+
+`--pull never` is for images already built or pulled on this machine. `--pull always` checks the
+registry even when a local image exists.
 
 Certificates come from `$CEDAR_HOME/CEDAR_CA` when it exists, and only fall back to the expired set
 bundled in `cedar-docker-deploy/cedar-assets` when it does not.
 
-**The 22-container backend proof does not start a frontend Compose project.** Do not infer frontend
-status from a 22/22 backend health result. `cedarcli docker start frontends -d` starts a separate
-seven-container project containing Template Editor, Workspace, Designer, OpenView, Content,
-Monitoring, and Bridging. The native-frontend hybrid remains supported as an alternative. Running
+**The 22-container hybrid backend does not start a frontend Compose project.** Do not infer frontend
+container status from a 22/22 backend health result. In configured Docker mode,
+`cedarcli docker start frontends --detach` starts the separate seven-container project containing
+Template Editor, Workspace, Designer, OpenView, Content, Monitoring, and Bridging. Hybrid mode
+rejects that command and permits `cedarcli native start frontends` instead. Running
 the REST estate without frontends still needs the two services
 that have no vhost addressed directly, and Keycloak addressed on its published port, because
 container addresses are not routable from macOS:
@@ -143,8 +162,15 @@ passes the public estate but ends the `contract` and `freeze` suites with `fetch
 suite from an ephemeral Node container on `cedarnet`, as documented in the Docker runbook, to test
 those internal cross-store contracts without exposing Artifact.
 
-To get back to the native stack, `cedarcli docker stop microservices` and `stop infrastructure`,
-then bring up native as above.
+To get back to the native stack, stop the complete Docker deployment, clear its mode, and select
+native before starting anything on the host:
+
+```bash
+cedarcli docker stop all
+cedarcli mode --clear
+cedarcli mode native
+cedarcli native start all
+```
 
 ### Running the native frontends against the containerized backend
 
@@ -174,38 +200,22 @@ These are seven independent Node.js processes: three legacy AngularJS applicatio
 four newer Angular applications use Angular CLI. The focused Docker procedure, verification, stop
 path, and three-mode comparison are in [DOCKER-RUNBOOK.md](./DOCKER-RUNBOOK.md).
 
-The three Gulp frontends already bind all interfaces. The four Angular development servers default
-to loopback for safety; opt them into the Docker hybrid bind, and name only frontend services so the
-fifteen native JVMs do not collide with the containers:
+Select hybrid mode once, then start the native frontend tier and the Docker deployment. If another
+mode is already selected, stop its owned components and clear it first. The CLI loads both profiles
+for the commands that need them, binds the Angular development servers so Docker nginx can reach
+them, and refuses any native backend operation that would collide with the containers:
 
 ```bash
 export CEDAR_HOME=$HOME/CEDAR
-source $CEDAR_HOME/cedar-profile-native-develop.sh
-export CEDAR_FRONTEND_BIND_HOST=0.0.0.0
-export CEDAR_WORKSPACE_FRONTEND_URL=https://workspace.metadatacenter.orgx
-export CEDAR_TEMPLATE_DESIGNER_FRONTEND_URL=https://designer.metadatacenter.orgx
-bash $CEDAR_HOME/cedar-development/ops/cedar-services.sh start \
-  frontend workspace designer ui-openview ui-content ui-monitoring ui-bridging
+cedarcli mode hybrid
+cedarcli native start frontends
+cedarcli docker start all --pull never
 ```
 
-Recreate only nginx under the Docker profile, pointing its frontend upstreams at Docker Desktop's
-host name. `CEDAR_NET_GATEWAY` reaches ports published by Docker but not native macOS listeners;
-`host.docker.internal` is required for the latter.
-
-```bash
-export CEDAR_HOME=$HOME/CEDAR
-source $CEDAR_HOME/cedar-development/bin/templates/cedar-profile-docker-eval.sh
-export CEDAR_AUTH_HOST_TARGET="$CEDAR_NGINX_HOST"
-export CEDAR_FRONTEND_EDITOR_HOST=host.docker.internal
-export CEDAR_FRONTEND_CONTENT_HOST=host.docker.internal
-export CEDAR_FRONTEND_OPENVIEW_HOST=host.docker.internal
-export CEDAR_FRONTEND_MONITORING_HOST=host.docker.internal
-export CEDAR_FRONTEND_BRIDGING_HOST=host.docker.internal
-export CEDAR_FRONTEND_WORKSPACE_HOST=host.docker.internal
-export CEDAR_FRONTEND_DESIGNER_HOST=host.docker.internal
-cd $CEDAR_HOME/cedar-docker-deploy/cedar-infrastructure
-docker compose up -d --no-deps --force-recreate nginx
-```
+Hybrid mode points all seven Docker nginx frontend upstreams at `host.docker.internal`. Docker's
+ordinary network gateway reaches published container ports but not native macOS listeners, so that
+special host name is required. To change modes, stop the current deployment, run
+`cedarcli mode --clear`, and select the replacement mode.
 
 The Docker nginx image sets `proxy_read_timeout` and `proxy_send_timeout` to 180 seconds globally.
 This is deliberate: an unmodified nginx returned 504 at 60.05 seconds for a 65-second upstream;
@@ -214,10 +224,11 @@ with the 180-second timeout, the identical request returned 200 at 65.01 seconds
 The older fallback still works: stop `infra-nginx`, start native nginx on 80/443, and leave the
 frontends on their default loopback bind. Do not run both nginx instances together.
 
-**`cedar-services.sh status` lies in this mode.** It probes ports, and those ports belong to
-containers, so every microservice reads `up / healthy` with the same `~pid` for every row. The `~`
-marks an unmanaged process and is the only signal that nothing native is running. The `BINARY`
-column stays useful — it compares what is running against the built jar.
+Use `cedarcli docker status` in hybrid mode. `cedarcli native status` is deliberately rejected because
+the backend ports belong to containers. If the lower-level `cedar-services.sh status` is run directly,
+container-owned services are marked `docker` in the PID and HEALTH columns. This describes ownership,
+not readiness; the footer points to `cedarcli docker status` for the authoritative container health
+check. Native start, stop, and restart still refuse to signal Docker's port-forwarding process.
 
 The populate-time term suggestion remains the one browser-smoke failure: the expected controlled-term
 picker input does not appear. It is not an nginx timeout—the failure is a 20-second locator wait, and
@@ -225,22 +236,25 @@ nginx and the backend remain responsive. The template carries the branch constra
 containerized terminology server answers the query. Compare the same browser smoke against the
 native backend to decide whether this is a frontend defect or a mixed-topology artifact.
 
-### Running the native servers against containerized infrastructure
+### Legacy diagnostic split: native servers against containerized infrastructure
 
-The opposite split, and the one development wants: the data stores in containers, the fifteen JVMs
-native, so the edit-compile-run loop survives and the versions underneath it stop drifting with
-`brew upgrade`. Nothing needs reconfiguring. `set-env-generic.sh` derives every infrastructure host
-from `CEDAR_NET_GATEWAY`, the native profile sets it to `127.0.0.1`, and the stack publishes every
-store to the host on the same `CEDAR_*_PORT` variables the servers already read.
+This older diagnostic arrangement puts selected data stores in containers while the JVMs remain
+native. It is not one of the three CLI modes and is not a supported aggregate deployment. The
+procedures below use direct Homebrew, Docker, and maintenance commands intentionally; do not infer
+that `cedarcli mode native` or `hybrid` owns this mixed runtime.
+
+`set-env-generic.sh` derives every infrastructure host from `CEDAR_NET_GATEWAY`, the native profile
+sets it to `127.0.0.1`, and the containers publish the selected stores on the same host ports the
+servers already read.
 
 **Redis has moved.** Swap it with the native stack running, from a second shell — the stack needs
-the docker-eval profile for the container's pinned address, and the servers keep running under the
+the Docker profile for the container's pinned address, and the servers keep running under the
 native one:
 
 ```bash
 brew services stop redis                      # frees 6379
 export CEDAR_HOME=$HOME/CEDAR
-source $CEDAR_HOME/cedar-development/bin/templates/cedar-profile-docker-eval.sh
+source $CEDAR_HOME/cedar-development/bin/templates/cedar-profile-docker.sh
 cd $CEDAR_HOME/cedar-docker-deploy/cedar-infrastructure
 docker compose up -d redis-persistent
 ```
@@ -263,7 +277,7 @@ talking to something else. `redis-cli -p 6379 info server` should report `redis_
 
 ```bash
 brew services stop opensearch                 # frees 9200
-docker compose up -d opensearch               # from cedar-infrastructure, docker-eval profile
+docker compose up -d opensearch               # from cedar-infrastructure, Docker profile
 cedarat search-regenerateIndex                # native profile; rebuilds from Mongo + Neo4j
 cedarat rules-regenerateIndex
 ```
@@ -304,7 +318,7 @@ into the volume with a one-off container before starting the service:
 $CEDAR_HOME/neo4j/bin/neo4j stop
 $CEDAR_HOME/neo4j/bin/neo4j-admin database dump neo4j --to-path=/tmp/neodump
 docker run --rm -v neo4j_data:/data -v /tmp/neodump:/dump --entrypoint sh \
-  metadatacenter/cedar-infra-neo4j:${CEDAR_DOCKER_VERSION} \
+  ${CEDAR_IMAGE_PREFIX}/cedar-infra-neo4j:${CEDAR_DOCKER_VERSION} \
   -c 'neo4j-admin database load neo4j --from-path=/dump --overwrite-destination=true'
 docker compose up -d neo4j
 ```
@@ -363,11 +377,15 @@ still correctly returns `401` — so the failure looks like a server bug rather 
 The log says `java.net.NoRouteToHostException`.
 
 **The Keycloak container cannot reach a native resource server.** Its event listener posts user
-lifecycle events to `CEDAR_RESOURCE_SERVER_HOST`, which under the docker-eval profile is a
+lifecycle events to `CEDAR_RESOURCE_SERVER_HOST`, which under the Docker profile is a
 `192.168.17.x` container address that does not exist when the servers are native, so the log fills
 with `NoRouteToHostException`. Login, token verification and the whole REST estate are unaffected —
 only event propagation is, so new-user provisioning is the thing to watch. Point it at
-`host.docker.internal` if that matters to you.
+`host.docker.internal` if that matters to you. The callback runs on a matching
+`cedar-angular-app` `LOGIN`, not on Keycloak registration itself, so a later login is the retry. A
+transport failure is logged with its cause; a non-2xx response is logged with status, URL, event
+type and user id. Treat either message as a provisioning failure rather than accepting a healthy
+login as proof that the CEDAR account exists.
 
 **Stopping native Mongo needs `db.shutdownServer()`, not the Homebrew service.** Two things bite
 here. `brew services start mongodb-community@5.0` now fails: Homebrew refuses the `mongodb/brew` tap
@@ -448,7 +466,7 @@ By default every image fetches its jar from Nexus while it builds, so an image c
 that has already been published. `--local` builds against the checkout instead:
 
 ```bash
-cd $CEDAR_HOME/cedar-artifact-server && cedarcli build this
+cd $CEDAR_HOME/cedar-artifact-server && cedarcli build this --wd "$PWD"
 cedarcli docker build artifact-server --local
 ```
 
@@ -463,8 +481,8 @@ and nowhere else; `ops/check_version_pairing.py` then checks it still pairs with
 `cedar-parent` ships.
 
 The image name is the source repository minus its `cedar-` prefix, for all fifteen servers and the
-admin tool. `cedarcli docker build` also takes `all`, a group (`infrastructure`, `microservices`,
-`frontends`, `admin`), or any image name, and always builds the CEDAR bases an image is built `FROM`
+admin tool. `cedarcli docker build` also takes `all`, a group (`infra`, `microservices`, `frontends`,
+`admin`), a component target such as `frontend workspace`, or any image name. It always builds the CEDAR bases an image is built `FROM`
 first — which a bare `docker build` does not, and which is how a stale base silently gets used.
 
 **Build clean when a library changed.** `./mvnw install` without `clean` can re-shade a fat jar around
@@ -486,13 +504,26 @@ The Gulp frontends deliberately run side by side: `frontend` is the production m
 Designer preview on 4202. Starting the previews does not change nginx routing or production traffic.
 Use `cedar-services.sh start frontend workspace designer` for the migration comparison set.
 
+Native development must not cache frontend responses: the Gulp and Angular development servers use
+stable filenames while their bytes change underneath them. Install the canonical no-store proxy
+policy after changing or recreating the local nginx configuration:
+
+```bash
+bash $CEDAR_HOME/cedar-development/ops/install-local-frontend-cache-policy.sh
+```
+
+The three AngularJS applications also give each development page load a fresh RequireJS cache key,
+so a copied or incomplete proxy configuration cannot silently reuse an old module. Server payloads
+use their Git source commit in that key; `CEDAR_VERSION_MODIFIER` remains the explicit discriminator
+for two environment-specific payloads built from the same commit. It is not needed merely to make a
+new source revision visible.
+
 The auxiliary frontends are the `ui-*` entries — `ui-openview` (4220), `ui-content` (4240),
 `ui-monitoring` (4300), `ui-bridging` (4340) — each run as `ng serve` from its
 `cedar-<name>[-src]` source dir (see `fe_dir()`). They are named `ui-*` because `openview`/`monitor`/
 `bridge` are already microservice names. Their health is **port-only** (no Dropwizard `/healthcheck`).
-`cedarcli start frontends` starts the same set but opens a macOS Terminal tab per app; this controller
-runs them headless instead. The non-essential CEE demos (`cee-dev`/`demo.cee`) are not managed here —
-`cedarcli` doesn't start them by default either.
+`cedarcli native start frontends` starts all seven through this controller. The non-essential CEE demos
+(`cee-dev`/`demo.cee`) are not managed here — `cedarcli` doesn't start them by default either.
 
 ```bash
 cedar-services.sh start [name...]     # start all, or only the named services
@@ -501,31 +532,36 @@ cedar-services.sh restart [name...]
 cedar-services.sh status              # one-shot table: PID / port / health / binary / error-count
 cedar-services.sh watch               # auto-refreshing status
 cedar-services.sh logs <name>         # tail -f a service log
-cedar-services.sh health              # exit 0 only if every service is healthy (for scripts)
+cedar-services.sh health [name...]    # exit 0 only if the named services are healthy; all with no names
 ```
 
-It **skips services already listening on their port** (so it won't collide with ones you started in
-tabs) and **reports any service whose jar isn't built**. Health uses the Dropwizard admin
-`/healthcheck` endpoint (200 = healthy, 500 = unhealthy).
+It recognizes a native service already listening on its port, including one started in a terminal,
+and **reports any service whose jar or configuration is not built/present**. An occupied port is not
+treated as proof of ownership: if the listener is not the expected CEDAR jar or frontend process in
+the expected source directory, start and stop both fail without signalling it. Health uses the
+Dropwizard admin `/healthcheck` endpoint (200 = healthy, 500 = unhealthy).
 
 Two columns exist so a green table cannot hide a stale one. **BINARY** compares when a process started
 against when its jar was written: `STALE` means the service is serving a jar older than the build, so
-its health says nothing about your latest code. **PID** shows `~pid` (a leading tilde) for a process
-listening on the port that this script does not own — one started in a tab or left over from a previous
-session, with no pidfile. Both were added after a real miss: the group and messaging servers ran a
-two-day-old jar for a full session while `status` reported them healthy, because `stop` only ever
-consulted the pidfile and so skipped them, and `restart` therefore left them up. `stop` now **adopts**
-a tilde process — kills whoever actually holds the port — so a plain `restart` brings even a
-tab-started service onto the current build. When either warning prints, `restart` clears it. Always
-confirm `status` shows every service `current`, not merely `healthy`, before trusting a verification
-gate.
+its health says nothing about your latest code. **PID** shows `~pid` (a leading tilde) only for a
+verified CEDAR process listening without this controller's pidfile — for example, one started in a
+terminal. `stop` may safely adopt that verified process, so `restart` brings it onto the current
+build. `docker` in the PID and HEALTH columns means the port belongs to Docker; Artifact is also
+recognized through its running container because its application port is intentionally private to
+`cedarnet`, and its PORT column reads `internal`. These labels do not claim that a container is
+healthy: use `cedarcli docker status`, as the table footer says. `!pid` is reserved for a genuinely
+foreign listener. Lifecycle commands refuse to touch either Docker's forwarding process or a foreign
+owner. Stale pidfiles are likewise ignored unless the live PID still matches the expected service.
+For a native deployment, always confirm `status` shows every service `current`, not merely `healthy`,
+before trusting a verification gate.
 
-## Why the app tier is "tab-per-service" by design
+## How native processes are managed
 
-`cedarcli start microservices` runs `start-dw-server.sh <name>` for each service, and that script
-runs `java -jar … server config.yml` in the **foreground** (no `nohup`, no `&`). The intended UX is
-one Terminal tab per service so a developer can watch/restart each. That does not scale to eyeballing
-15 consoles — which is exactly why `cedar-services.sh` exists (background + single status view).
+`cedarcli native start microservices` and `cedarcli native start frontends` delegate to
+`cedar-services.sh`.
+Applications run in the background; the CLI never opens iTerm or Terminal. Use `cedarcli native
+status`, `cedarcli native watch`, `cedarcli native logs <name>`, or `cedarcli native restart
+[name...]` instead of keeping a console open for each process.
 
 ## Port map
 
@@ -545,9 +581,32 @@ one Terminal tab per service so a developer can watch/restart each. That does no
 
 Admin port = app port + 100; health check at `http://127.0.0.1:<admin>/healthcheck`.
 
+In Docker only the application port is published to the host. Admin connectors bind loopback inside
+their container for the Compose health check and are not host-mapped; do not add `9111:9111` (or any
+other admin mapping) to the core Compose stack. Native admin connectors likewise bind `127.0.0.1`.
+
 Auxiliary frontends (Angular `ng serve`, port-only health): `ui-openview` 4220, `ui-content` 4240,
 `ui-monitoring` 4300, `ui-bridging` 4340. Non-essential CEE demos (not started by
 default): `demo.cee` 4260, `cee-dev` 4400.
+
+## API-key credentials and management identifiers
+
+An API key has two identifiers with deliberately different jobs. Its `key` is the credential sent
+in `Authorization: apiKey <key>` and must be handled as a secret. Its `id` is a stable, non-secret
+management handle returned with the key in the user profile. The profile UI and other management
+clients regenerate or delete a key through the user server with that handle:
+
+```text
+POST   /users/{userId}/api-keys/{keyId}/regenerate
+DELETE /users/{userId}/api-keys/{keyId}
+```
+
+Never substitute the credential for `{keyId}` or put it in a URL. URLs are routinely retained in
+nginx access logs, browser history, traces and monitoring. New keys receive an independent UUID when
+they are created, and regeneration preserves that ID while replacing only the credential. A key
+stored before IDs were introduced is exposed with a deterministic `legacy-<sha256>` management ID;
+this keeps it addressable without revealing the credential, and the ID is persisted on the next
+profile write. Authentication itself is unchanged and still looks up the secret `key` value.
 
 ## The Redis queues, and where failed permission events go
 
@@ -563,19 +622,39 @@ the persistent Redis on 6379:
 | valuerecommender | `CEDAR-QUEUE-valuerecommender` | templates whose recommender rules need regenerating |
 | cloneInstances | `CEDAR-QUEUE-cloneInstances` | bulk instance-clone requests |
 
-The search-permission queue is the one worth watching. The worker server consumes it with `BLPOP`,
-which removes an event before the event is processed, so an event the worker cannot apply is already
-off the queue by the time it fails. The consumer retries three times a second apart — enough to ride
-out a brief Neo4j or OpenSearch blip — and then moves the raw message to a dead-letter queue named
-after the queue it came from:
+All five consumers use a claim/acknowledge protocol. A claim atomically moves the oldest message to
+`<queue>-processing`; only successful handling removes it. On service restart, anything left in the
+processing list is restored ahead of newer messages in FIFO order. Clone, app-log and permission
+handlers retry three times before atomically moving the raw message to `<queue>-dead-letter`.
+Value-recommender polls claim at most 100 messages, rather than draining an unbounded backlog into
+memory, and a failed batch is retried before its messages are dead-lettered. The submission server's
+NCBI consumer acknowledges handled submissions, dead-letters malformed ones, and wakes for shutdown
+by interrupting its blocking connection; it does not enqueue the old JSON `null` sentinel or log an
+empty one-second blocking-pop timeout as an error.
+
+The search-permission queue is the most security-sensitive one, but every worker dead-letter queue
+is worth watching. For example:
 
 ```bash
 redis-cli llen CEDAR-QUEUE-search-permission-dead-letter
 ```
 
-Zero is the expected reading. Anything above zero means the search index's permissions are behind the
-graph for the resources those events name: the graph is authoritative and correct, and search will
-show the wrong people the wrong things until the events are applied. Nothing retries them on its own.
+Zero is the expected reading. A nonzero search-permission value means the search index's permissions
+are behind the graph for the resources those events name; the other suffixes mean clone, application
+log or recommender work needs attention. Nothing retries dead-lettered work on its own.
+
+Resource and group producers first persist each permission event as a
+`CedarSearchPermissionOutbox` node in Neo4j. Redis acceptance removes that node; if Redis is down,
+the request's graph mutation still succeeds and the managed relay retries every five seconds, across
+producer restarts. Delivery can repeat if a producer dies after the Redis push but before the Neo4j
+acknowledgement, which is safe because permission projection is idempotent. To exercise that boundary
+against the native local stack (the command stops and restores the Homebrew Redis service in a
+`finally` block):
+
+```bash
+cd $CEDAR_HOME/cedar-development/ops/e2e
+npm run smoke:permission-outbox -- --manage-homebrew-redis
+```
 
 Read what is parked before deciding anything. Each entry is the original JSON event, carrying the
 resource id, the event type and the time it was created:
@@ -596,9 +675,9 @@ A message that cannot be parsed is parked on its first failure rather than retri
 will not make it parse. Such a message will never apply, so drop it once the log has been read
 rather than replaying it.
 
-When the dead-letter queue itself cannot be reached — Redis is down, which is often why the event
-failed in the first place — the worker logs that the message is lost and says so plainly. That is the
-one case where an event disappears, and the log is the only record of it.
+When the dead-letter transfer itself cannot reach Redis, the message remains in the processing list
+whenever Redis retained the earlier claim and is recovered on the next consumer initialization. The
+worker logs the failed transfer; inspect both `-processing` and `-dead-letter` after restoring Redis.
 
 Rebuilding the index from the graph fixes permission drift whatever its cause, since the graph is the
 source of truth. It reads the resources from the folder server, indexes them into a new index, then
@@ -742,14 +821,25 @@ it a virtual environment rather than `--break-system-packages`:
 python3 -m venv /tmp/cedar-patch && /tmp/cedar-patch/bin/pip install pymongo
 ```
 
-Three things about a run are worth knowing before trusting its numbers. `--items` narrows it to the
+Four things about a run are worth knowing before trusting its numbers. `--items` narrows it to the
 checks you mean, using the stable check numbers printed by the report, which matters because a full
-run over a large store reads every artifact. The `*-original.json` files in a tree are skipped: those are preprod
+run over a large store reads every artifact. Report mode defaults to all nine checks, but `--apply`
+is refused unless `--items` is supplied explicitly and names at least one check. The
+`*-original.json` files in a tree are skipped: those are preprod
 captures kept beside their corrected copies so a defect stays legible, and `--include-originals` reads
 them but cannot be combined with `--apply`. And a repair is offered only where the correction is
 settled — a populated `_ui.pages`, an artifact whose own `@id` is empty, an empty attribute name with
 something keyed by it, and a constraint whose acronym the terminology catalog cannot resolve are all
 reported and left alone, since each needs a decision the script has no grounds to make.
+
+Every Mongo apply creates a new pre-image directory before connecting. By default it is a timestamped
+`cedar-artifact-patch-backup-*` directory under the caller's working directory; production work should
+name a durable, nonexistent destination explicitly with `--backup-dir`. Each replaced document is
+written there as canonical Mongo Extended JSON with its SHA-256. Immediately before replacement the
+tool hashes a fresh read and refuses a mismatch; the replacement itself matches the complete original
+pre-image atomically and increments `_cedarRevision`. A save that races either check is preserved, the
+repair run stops, and the process exits `2`. The backups are tool-side rollback material, but they do
+not replace the deployment's ordinary database backup and restore procedure.
 
 Check 32 is the multi-select incident repair. It inspects only field deployments inside templates and
 elements; a standalone field artifact is the reusable inner definition and is intentionally left
@@ -761,8 +851,9 @@ before considering a write:
 
 ```bash
 python3 ops/cedar_artifact_patch.py --mongo mongodb://localhost:27017 --db cedar --items 32
-# only after reviewing the JSON report and a database backup:
-python3 ops/cedar_artifact_patch.py --mongo mongodb://localhost:27017 --db cedar --items 32 --apply
+# only after reviewing the JSON report and taking the ordinary database backup:
+python3 ops/cedar_artifact_patch.py --mongo mongodb://localhost:27017 --db cedar \
+  --items 32 --apply --backup-dir /var/backups/cedar-artifact-patch-<RUN_ID>
 ```
 
 A corpus run reports one unreadable file, and it is meant to be unreadable. `cee-suite/086` is not
@@ -910,19 +1001,21 @@ TypeScript, while both emit the same bytes for it.
 
   ```bash
   export CEDAR_HOME=$HOME/CEDAR
-  source $CEDAR_HOME/cedar-profile-native-develop.sh          # sets CEDAR_CA_HOME, CEDAR_CA_PASSWORD, CEDAR_CA_*
+  CEDAR_CA_HOME=$CEDAR_HOME/CEDAR_CA
   SSL=/opt/homebrew/etc/nginx/cedar/ssl
   cp -r "$SSL" /tmp/cedar-ssl-backup                          # optional but wise (reversible)
-  : > "$CEDAR_CA_HOME/index.txt"; mkdir -p "$CEDAR_CA_HOME/newcerts"   # reset issued-cert DB so openssl re-issues same subjects
-  $CEDAR_HOME/cedar-cli/.venv/bin/python $CEDAR_HOME/cedar-cli/cedar.py cert domains   # re-sign all leaves (SAN preserved, 824 days)
+  cedarcli cert setup                                          # safe to repeat; preserves CA state
+  cedarcli cert domains --force                                # renew all leaves (SAN preserved, 824 days)
   for d in "$CEDAR_CA_HOME"/certs/*/; do sub=$(basename "$d"); tgt="$SSL/$sub"; [ -d "$tgt" ] || continue;
     crt=$(ls "$d"*.crt | head -1); cp "$crt" "${crt%.crt}.key" "$tgt/"; done   # install into nginx ssl dirs
-  sudo nginx -s reload                                        # nginx master runs as root → needs sudo
+  sudo "$(brew --prefix)/bin/nginx" -s reload                 # nginx master runs as root → needs sudo
   ```
   Notes: `cedar cert domains` writes leaves to `$CEDAR_CA_HOME/certs/<subdomain>/`, but nginx reads from
   `$SSL/<subdomain>/` — hence the copy step. The subdomain dir names match on both sides. Skipping the
-  `index.txt` reset makes `openssl ca` fail with "There is already a certificate for …". The reload is
-  the only step that needs your password (the master is a root process; there is no passwordless sudo).
+  `--force` option protects existing leaves from accidental replacement. Renewal keeps the CA issuance
+  history and writes each replacement atomically, so a failed OpenSSL command leaves the prior leaf in
+  place. The reload is the only step that needs your password (the master is a root process; there is no
+  passwordless sudo).
 
 - **`brew services start mongodb-community@5.0` breaks MongoDB** → it fails with
   `launchctl bootstrap gui/<uid> ... exited with 5`, and running it again keeps failing because it
@@ -988,11 +1081,14 @@ TypeScript, while both emit the same bytes for it.
 - **A microservice shows `down` in status with no jar** → that server was never built. Build it:
   ```bash
   mvn -o -f $CEDAR_HOME/cedar-<name>-server/pom.xml install -DskipTests   # -o = offline; drop it if a dep is missing
-  # or: cedarcli build (see cedar-cli)
+  # or: cedarcli build java
   ```
   (Seen unbuilt in this environment: schema, repo, submission, valuerecommender, openview, monitor.)
-  `schema` is needed for template operations; `resource`/`user`/`artifact`/`terminology`/`group` are
-  the core for login + workspace.
+  `resource`/`user`/`artifact`/`terminology`/`group` are the core for login + workspace. `schema` is
+  not needed by anything: it serves only its index page, and no service or frontend calls it — the
+  host in its name is the namespace under which property IRIs are minted, by string construction
+  alone. Whether it should exist at all is an open question on
+  [BACKEND-ROADMAP.md](./BACKEND-ROADMAP.md).
 
 - **A service starts then dies with `no main manifest attribute, in …-application.jar`** → the jar is
   a thin jar (built without the shade/assembly step), so it has no runnable `Main-Class`. Rebuild that
@@ -1088,29 +1184,26 @@ TypeScript, while both emit the same bytes for it.
 
 ## cedarcli (headless invocation)
 
-`cedarcli` is a shell alias (`source $CEDAR_HOME/cedar-cli/cli.sh`) that activates a venv and runs
-`cedar.py`. To drive it non-interactively (no alias):
+`cedarcli` is normally a shell alias (`source $CEDAR_HOME/cedar-cli/cli.sh`) that activates a venv
+and runs `cedar.py`. To drive it non-interactively, invoke the same Python entry point. The selected
+mode must already be recorded; the CLI loads its profile and JDK internally:
 
 ```bash
 export CEDAR_HOME=$HOME/CEDAR
-source $CEDAR_HOME/cedar-profile-native-develop.sh >/dev/null 2>&1
-export JAVA_HOME=$(/usr/libexec/java_home -v 17)
 $CEDAR_HOME/cedar-cli/.venv/bin/python $CEDAR_HOME/cedar-cli/cedar.py <command>
 ```
 
 The `docker` group covers build, validation, Docker-aware status, per-stack start/stop, one-time
-network/certificate setup, and destructive removal. The native groups include `start`
-(all/infra/microservices/frontends), `stop`, `build`, `deploy`, `status`, `check`, `cert`, and `dev`.
-On macOS native `start` uses AppleScript to open
-Terminal tabs (`use_osa = platform.system()=='Darwin'`), which is why headless bring-up uses the
-underlying `services-generic/*.sh` scripts or `cedar-services.sh` instead.
+network/certificate setup, and destructive removal. Native `start` and `stop` manage infrastructure
+and the application groups without terminal automation. The `native` group exposes application
+status, health, logs, restart, and the continuously refreshing status view.
 
 ## Building CEDAR
 
 `cedarcli build java` is the authoritative full build. It compiles and installs the whole Java
-stack in dependency order: `cedar-parent`, then `cedar-microservice-libraries`, then the fifteen
-servers. Inside a single repo, `cedarcli build this` builds just that repo. Both need the profile
-sourced and `JAVA_HOME` pinned to 17.
+stack in dependency order: parent, libraries, project, and clients. Inside a single repo,
+`cedarcli build this --wd "$PWD"` builds just that repo. The CLI loads the selected profile and pins
+JDK 17 for these child processes.
 
 **Maven comes from the wrapper, not from the machine.** Every Java repository carries `mvnw` pinned
 to 3.9.14, CI invokes it, and `cedarcli` does too, so the build tool is the same everywhere instead
@@ -1124,11 +1217,14 @@ Java is not pinned this tightly. The enforcer requires `[17,18)` and CI asks for
 only, while the runtime image ships an exact Temurin build — so the thing that runs the servers is
 pinned harder than the thing that compiles them. The roadmap carries that, with the Java 21 move.
 
-The build skips the tests: every Java repo is built with `./mvnw clean install -DskipTests`, so a green
-`cedarcli build` means the stack compiles, not that it passes. Run a suite separately, with `mvn` in
-the repo. Every suite is backend-free, so nothing needs to be up for it. Making the build run the
-tests, with `--tests` / `--skip-tests` to choose, is an open item on
-[BACKEND-ROADMAP.md](./BACKEND-ROADMAP.md).
+The CLI build runs the Java test suites by default: every Java repo is built with
+`./mvnw clean install`, so a green `cedarcli build` means its unit and embedded integration suites
+passed as well as compiled. Every suite is backend-free, so nothing needs to be up. The seven build
+commands that can reach Java — `this`, `parent`, `libraries`, `project`, `clients`, `java`, and
+`all` — accept the paired `--tests` / `--skip-tests` option; use `--skip-tests` explicitly for a
+fast compile/install loop. Frontend-only build commands do not expose an inert Java-test option.
+Release preparation, Maven publication, and immutable build-train assembly remain explicit
+`-DskipTests` paths; verify with the default CLI build or repository CI before invoking them.
 
 Order is not optional. A server compiled against a stale `cedar-parent` picks up the parent's old
 managed versions and plugin configuration, which fails silently rather than loudly (see the
@@ -1171,14 +1267,73 @@ shaded jar is sound: it holds exactly one merged `META-INF/.../Log4j2Plugins.dat
 ~700-byte single-artifact version), a `Main-Class` in its manifest, and `java -jar <jar>` boots with
 no `StatusLogger` "Unrecognized format specifier" errors.
 
-Only the deployable modules shade. The shared libraries publish thin jars — as of 2026-08-11
-`cedar-model-library` holds 18 classes, `cedar-rest-library` 2, `cedar-config-library` 90 and
-`cedar-core-library` 149, each its own and nothing else. Until then all four declared the shade
-plugin themselves, so `cedar-config-library` shipped 12,516 classes, and `createDependencyReducedPom`
+Only the deployable modules shade. The shared libraries publish thin jars — as of 2026-08-26,
+the two HTTP parameter-constant classes formerly released from `cedar-rest-library` live in
+`cedar-model-library`, and the REST library is retired from the build and release trains.
+`cedar-config-library` and `cedar-core-library` likewise publish only their own classes. Before the
+thin-jar cleanup these libraries declared the shade plugin themselves, so `cedar-config-library`
+shipped 12,516 classes, and `createDependencyReducedPom`
 dropped the bundled dependencies from the published pom, leaving a consumer to resolve Jackson, Guava
 or another CEDAR library out of whichever jar its classpath reached first. Keep a library thin: its
 pom should declare what it uses and publish that, so every consumer resolves each dependency from the
 artifact that owns it.
+
+## Artifact write and diagnostic contracts
+
+Artifact creation and replacement use different authorization checks even though both can arrive as
+`PUT /.../{id}`: an absent id requires that artifact type's `CREATE` permission, while an existing id
+requires `UPDATE`. Do not collapse this back to a route-level update check; custom roles need the
+distinction even though the default roles normally grant both permissions.
+
+Every successful artifact create, single-artifact read and update returns a strong revision `ETag`.
+The read service derives the public content and revision from the same Mongo document, so the ETag
+can never describe a newer replacement than the body it accompanies.
+An update of an existing artifact must send that exact value in `If-Match`:
+
+```text
+GET /templates/{id}             -> ETag: "7"
+PUT /templates/{id} If-Match:"7" -> ETag: "8"
+```
+
+A missing `If-Match` returns `428 Precondition Required`; a stale value returns `412 Precondition
+Failed`. The Mongo replacement predicates on both `@id` and the internal `_cedarRevision`, so the
+check remains atomic when two requests pass the HTTP read check at the same time. Legacy documents
+without the internal field read as revision zero and acquire revision one on their first conditional
+update. `_cedarRevision` is storage metadata and must never appear in public artifact JSON.
+
+The shared AngularJS backend service stores the ETag on each in-memory artifact representation and
+adds that representation's value to its later `PUT`. Do not replace this with a URL-global latest
+value: two in-page editors can hold different representations of the same URL, and borrowing the
+newer editor's ETag would recreate lost updates. Internal server read-modify-write operations must
+likewise forward the ETag from their own preceding `GET`; fetching a fresh ETag immediately before
+writing would defeat the concurrency guarantee. CORS allows the `If-Match` request header and exposes
+the `ETag` response header to browser JavaScript.
+
+Template-instance validation is unconditional. `skip_validation=true` remains accepted only for
+wire compatibility and does not bypass validation or storage checks. If a privileged bypass is ever
+needed again, introduce a separately authorized internal operation rather than reviving the public
+query switch.
+
+Artifact-server health contains both `message` and `mongo`. `/healthcheck` must be non-green when the
+Mongo ping fails; a passing placeholder check alone is not sufficient evidence that artifact traffic
+will work. Insight endpoints are operationally sensitive: `/insight/thread-details` exposes stack and
+thread state and, like every other insight route, requires an authenticated user with the
+`monitorManager` role (`MONITOR_READ`).
+
+Worker health is dependency- and work-aware. Its admin `/healthcheck` includes named `redis`,
+`opensearch`, `neo4j` and `queue-consumers` checks in addition to Dropwizard's generic checks. The
+consumer check fails when a processor thread stops, its latest processing attempt remains failed, a
+dead-letter list is nonempty, or Redis cannot report dead-letter depth. A green worker therefore
+means its three main datastores answer and all four queue consumers can still make clean progress;
+it does not merely mean the HTTP process is alive.
+
+Inclusion-subgraph regeneration is a tracked single-flight worker job. An authorized
+`POST /command/regenerate-inclusion-subgraph` returns `202 Accepted`, a job document, and a
+`Location` header for `GET /command/regenerate-inclusion-subgraph/{jobId}`. While that job is queued
+or running, another POST returns `409 Conflict` with the active job and the same status location.
+Status records expose queued, running, succeeded and failed states, including timestamps and an
+error for failures. The latest 100 records are retained in worker memory, so a worker restart loses
+history and interrupts a running regeneration; resubmit after confirming the old process stopped.
 
 ## Testing CEDAR
 
@@ -1193,6 +1348,36 @@ exclusion with `-DexcludedGroups=` to run them against the real service. Their C
 still be set even when the tests are excluded, because the configuration substitutes them as it
 loads; a placeholder value is enough.
 
+Backend-free Maven tests suppress the application-log queue through the
+`cedar.test.suppressAppLogQueue` system property inherited from `cedar-parent`. This is deliberate
+test harness behavior: pointing Redis at a dead port while leaving the logger active turns every
+request into a connection timeout and can make the HTTP client time out first, producing broken-pipe
+failures unrelated to the behavior under test. The queue and logging libraries test Redis delivery,
+outage and recovery separately against an embedded real Redis. The property exists only in Surefire
+JVMs; native and deployed servers retain the production queue behavior.
+
+The same inherited Surefire configuration pins both CEDAR Redis hosts to `127.0.0.1` and both ports
+to the deliberately dead port `1`. Other best-effort queue paths can therefore exercise an absent
+Redis without inheriting a developer profile's remote address and waiting for a network timeout.
+Dedicated queue tests bypass the CEDAR environment and point their service directly at their
+embedded Redis instance.
+
+Surefire also sets `cedar.test.dependencyTimeoutMillis=1000`. The Mongo and Neo4j client factories
+honor that property only when it is present: Mongo server selection/connection and Neo4j pool
+acquisition and transaction retry therefore reach the same unavailable-dependency exception paths
+in about one second instead of the production drivers' roughly thirty-second defaults. Neo4j keeps
+a separate five-second floor for initial Bolt connection establishment; a healthy embedded server's
+first handshake exceeded one second on a constrained CI runner, so treating that startup latency as
+an outage made the suite flaky. Local dead ports still refuse immediately, and the outage HTTP tests
+carry five-second request deadlines. Normal JVMs have no property and retain the production
+timeouts.
+
+Worker processor tests inject short poll and retry intervals directly; the public constructors
+retain the production five-second value-recommender poll and one-second handling retry. This
+shortens the clock without skipping the queue state transitions or the retry/dead-letter assertions
+the tests exist to cover. Blocking Redis consumers retain their one-second `BLMOVE` timeout even in
+tests: the embedded Redis version does not implement fractional `BLMOVE` timeouts correctly.
+
 Test servers boot on the alternate `19xxx` port range (test port = dev port + 10000), so a running
 dev stack and a test run coexist. Redirection goes through `CedarEnvironmentSource.setOverride(map)`,
 a process-global test override read by the whole config layer. This replaced an earlier reflection
@@ -1205,10 +1390,10 @@ started in a static `@BeforeAll` and stopped in `@AfterAll`. Do not use the JUni
 `DropwizardAppExtension`: its version bundled with Dropwizard 2.1 is binary-incompatible with the
 current JUnit platform.
 
-Rough suite sizes: artifact 1307 (parameterized CRUD over four artifact types on embedded Mongo),
-microservice-libraries 810 over seven modules (server-rest 249, workspace-operations 182,
-search-operations 178), artifact-library 800, terminology 246 (61 more excluded under `bioportal`),
-model-validation 220, resource 78, cadsr-tools 70, core-library 56, user 11, group 10, and a
+Rough suite sizes: artifact 1334 (parameterized CRUD over four artifact types on embedded Mongo),
+server-rest 281, workspace-operations 182, search-operations 208, artifact-library 800,
+terminology 246 (61 more excluded under `bioportal`), model-validation 220, resource 63,
+cadsr-tools 70, core-library 57, user 23, group 15, messaging 15, bridge 57, monitor 8, and a
 one-to-seven-test boot-and-config tier on the remaining thin servers.
 
 ### What the suites actually cover
@@ -1227,7 +1412,7 @@ from, because they answer very different questions:
 | Matrices | 7 | Authorization, permission levels and artifact lifecycle, as tables |
 | Sharing and ownership | 1 | The `PUT .../permissions` round trip, including ownership transfer |
 | Content negotiation | 2 | YAML and JSON transcode both ways |
-| REST smoke | 1 | The real stack, no browser: 19 suites, 662 checks |
+| REST smoke | 1 | The real stack, no browser: 19 suites, 729 expected checks |
 | End-to-end smoke | 1 | The real stack, through a browser |
 
 **The browser smoke is green as of 2026-08-17.** It logs in, creates a template with a DOID-constrained
@@ -1237,16 +1422,33 @@ contents. A failed run can stop before teardown and leave its folder, template, 
 behind; `ops/e2e/cleanup-smoke-leftovers.mjs` removes them.
 
 `ops/e2e` holds the two whole-stack tests, and they answer different questions. `npm run smoke:rest`
-drives the REST API directly, in about twenty seconds, and reaches what no unit suite can: the artifact
+drives the REST API directly, in about 65–80 seconds, and reaches what no unit suite can: the artifact
 write path (which proxies, so the per-service suites cannot follow it), publish and create-draft,
 whether the graph and the artifact server agree, and the things a real running stack does that an
 embedded one cannot. It authenticates through Keycloak's password grant using the credentials already
 in the profile, so there are no API keys to keep. Run one suite with `npm run smoke:rest -- <name>`;
 the suites are `apidocs`, `artifacts`, `authentication`, `categories`, `contract`, `download`,
 `finding`, `folders`, `freeze`, `group-sharing`, `groups`, `inclusion`, `negotiation`, `openness`,
-`pagination`, `search`, `sharing`, `validation` and `versioning`. Together they made 662 checks on
-2026-08-19; `download` includes JSON / YAML / compact-YAML export and read-negotiation across all
-four artifact kinds.
+`pagination`, `search`, `sharing`, `validation` and `versioning`. The committed
+`rest/expected-checks.json` inventory holds 729 exact suite/section/check identities; a passing run
+must execute that same ordered inventory, so an early return, removed loop or conditional omission is
+a failure even when every check that did run passed. Freeze keeps the inventory stable when the local
+terminology store is absent by recording its seven checks as skipped rather than silently omitting
+them. `download` includes JSON / YAML / compact-YAML export and read-negotiation across all four
+artifact kinds.
+
+Every run writes `reports/rest-smoke.json` by default; `--report=PATH` chooses another file. The JSON
+records the selected suites, pass/fail/skip totals, duration, inventory verdict and each individual
+check for CI artifact upload. A deliberate coverage change regenerates the inventory only from a
+clean pass:
+
+```bash
+npm run smoke:rest -- --update-inventory
+```
+
+The runner refuses to replace the inventory after a failure or interruption. It also inventories
+timestamped smoke folders and categories before and after the run, failing if an earlier run leaked
+state or the current teardown did not restore the baseline.
 
 An interrupted run still cleans up after itself. `SIGINT` or `SIGTERM` stops it at the next suite
 boundary, the teardown a finished run performs runs anyway, and the verdict is `INTERRUPTED` with exit
@@ -1336,9 +1538,28 @@ Where the coverage is thin, stated plainly so nobody reads the class count as re
   the largest single coverage win available.
 - **The thin servers have three classes each** — config, boot, routes. That is a real net, and it is
   what caught the media-type 505, but it means "starts and refuses strangers", not "is correct".
-- **Nothing covers** dependency failure (see the degradation item on the roadmap), the proxy boundary
-  between services, or concurrent edits. Pagination is now covered on a folder's contents and search
-  (`pagination` suite); the other paged listings are not.
+- **Dependency coverage is partial but now deliberate** (see the degradation item on the roadmap).
+  The shared proxy, exception mapper, worker queues and health checks are covered, with real HTTP
+  dead-port tests for artifact/MongoDB, resource-to-artifact, monitor-to-artifact, user and group
+  Neo4j reads, value-recommender and resource OpenSearch reads, the messaging SQL store and the
+  Keycloak admin lookup, monitor Redis reads, bridge external-authority HTTP, the resource graph and
+  OpenView's store boundary. There is no HTTP application-log read: log persistence is an app-log
+  worker concern and its retry/dead-letter path is covered. Resource index rebuilds are accepted
+  asynchronous jobs whose failed status is covered rather than synchronous requests that can answer
+  503.
+
+  The remaining direct clients deliberately do something else. Publishing asks terminology to pin
+  controlled-term versions, but the resolver is fail-safe: it leaves that pin absent and increments
+  `skippedResolutionCount` when terminology is unavailable. Monitor's Keycloak user detail is a
+  diagnostic assembled from several stores, so it logs the Keycloak failure and returns that section
+  as unavailable without discarding the other sections. Submission notification and FTP traffic runs
+  after queue acceptance in background submission processing, not as a synchronous HTTP dependency.
+  DataCite is the exception still needing work: its minting client and recovery behavior belong to the
+  explicit DataCite lifecycle roadmap item rather than a dead-port-only degradation test.
+
+  Concurrent edits are covered both over HTTP and directly at the Mongo compare-and-swap boundary.
+  Pagination is covered on a folder's contents and search (`pagination` suite); the other paged
+  listings are not.
 
 One hard constraint when adding to the resource server: **eight test classes that boot a server is the
 ceiling** for that module. Each boots into the shared JVM and creates a Neo4j driver whose Netty
@@ -1503,7 +1724,41 @@ that job installs `libssl1.1` on the runner first; without it `mongod` cannot st
 resource test errors out. Moving the tests onto a newer MongoDB would drop that step, at the cost of
 testing against a different engine than production runs.
 
-### Publishing snapshots
+### Automated dependency updates
+
+The Mend-hosted Renovate GitHub App runs for `cedar-parent` and `cedar-docker-build`. Both
+repositories keep `renovate.json` on `main`, because the hosted app reads configuration from the
+default branch, and on `develop`, where the actual work lands. `baseBranchPatterns` is set to
+`develop`, so Renovate branches and pull requests must target `develop`, never `main`. Changes to a
+config therefore need a config-only pull request to `main` as well as the ordinary `develop` commit.
+
+`cedar-parent` is the Java dependency control point. Its config reads Maven through the CEDAR Nexus
+pull-through proxy, avoiding Maven Central's hosted-runner rate limit; groups the Dropwizard,
+Metrics, Jetty, Jersey and Hibernate baseline; does not offer Java 17 changes; and leaves Keycloak
+updates behind dashboard approval. `cedar-docker-build` watches the locked server variables in
+`bin/cedar-images-base.sh` through its custom manager as well as ordinary Dockerfile and Actions
+references. It groups the locked server updates and keeps platform-changing updates behind
+approval. Neither repository permits automerge, and both impose a fourteen-day minimum release age.
+
+Each repository has a Renovate **Dependency Dashboard** issue for approving held updates and
+retrying or rebasing branches. A scan can also be started from the repository's **Actions → Run
+Renovate scan** control at `https://developer.mend.io/github/metadatacenter/<repository>`. The
+**Create/Rebase** action discards manual commits on each selected Renovate branch before recreating
+it, so select only branches whose edits are intentionally being replaced.
+
+Validate either config with the same current Renovate generation the hosted service runs:
+
+```bash
+npm exec --yes --package=renovate@latest -- renovate-config-validator renovate.json
+```
+
+Every Renovate pull request runs the repository's normal suite. In addition,
+`ops/check_version_pairing.py` runs in both `cedar-parent` and `cedar-docker-build` CI, checking the
+client versions from the parent POM against the locked server images in the Docker manifest. That
+check is the invariant Renovate cannot infer: a syntactically valid update is not safe when it moves
+only one half of a client/server pair.
+
+### Mutable development snapshots and immutable build trains
 
 Twenty-seven of the repositories deploy their snapshot to Nexus at the end of a successful build.
 The step is gated on a real push to `develop`, so a pull request verifies and stops, and a build
@@ -1512,11 +1767,23 @@ modules are other repositories, which publish themselves, and deploying from the
 would give one artifact two publishers.
 
 This matters more than it first appears. Everything downstream resolves CEDAR artifacts from Nexus
-rather than from a checkout — the servers take the libraries from there, and each microservice
-Docker image fetches its own jar by coordinate in `install_deps.sh`. An unpublished snapshot is
-therefore invisible: the code is on GitHub, and every consumer still compiles against, or ships, the
-previously published jar. The failure surfaces far from its cause, as a compile error or a failing
-test in a repository that has not changed.
+rather than from a checkout. Mutable `<NEXT>-SNAPSHOT` artifacts remain a convenience for ordinary
+native development, where a developer expects the latest successful `develop` build. They are not
+a deployment identity: the bytes behind one snapshot name can change at any time.
+
+Docker and integration deployments use an immutable build train instead. `cedarcli publish train`
+allocates a version such as `<NEXT>-dev.YYYYMMDD.HHMM`, captures the exact source commits, builds
+parent, libraries, and services in dependency order, and publishes into the no-redeploy
+`cedar-maven-dev` repository. Docker consumes that train version, never the mutable snapshot. A
+failed job resumes only from its recorded source manifest:
+
+```bash
+cedarcli publish train
+cedarcli publish train --resume <TRAIN_ID>
+```
+
+Create a new train, rather than resuming, when newer source commits must be included. The complete
+procedure and Nexus state layout are in [BUILD-RUNBOOK.md](./BUILD-RUNBOOK.md).
 
 The verification asks for fresh snapshots (`--update-snapshots`) for the same reason from the other
 direction. Maven checks a snapshot for updates once a day by default and the runner restores a
@@ -1535,18 +1802,18 @@ cd $CEDAR_HOME/cedar-<name> && ./mvnw --batch-mode deploy --settings .m2/nexus-s
 
 The extracted AngularJS frontends publish to the npm repository on Nexus, not through Maven. They
 remain outside `release all-in-one` during migration and are excluded from the generic frontend/all
-deploy selectors. Publishing them therefore requires the explicit command and never changes a
+publish selectors. Publishing them therefore requires the explicit command and never changes a
 running environment:
 
 ```bash
-cedarcli deploy split-frontends --dry-run
-cedarcli deploy split-frontends
+cedarcli publish split-frontends --dry-run
+cedarcli publish split-frontends
 ```
 
 That plan runs `npm ci` in exactly `cedar-workspace` and `cedar-template-designer`, then calls the
 staging helper that publishes immutable commit-derived prereleases without changing either working
-tree. npm cannot overwrite a `2.9.2-SNAPSHOT` version like Maven; the published version is instead
-`2.9.2-dev.<UTC-commit-time>.g<12-char-commit>` and carries the full source commit as `gitHead`.
+tree. npm cannot overwrite a `<NEXT>-SNAPSHOT` version like Maven; the published version is instead
+`<NEXT>-dev.<UTC-commit-time>.g<12-char-commit>` and carries the full source commit as `gitHead`.
 Each manifest's `publishConfig` selects the CEDAR Nexus npm repository. The command does not build a
 Docker image, edit nginx, or start a frontend. The same helper accepts all seven Docker frontend
 targets when their pinned image inputs need advancing.
@@ -1555,7 +1822,7 @@ To see whether a repository's published snapshot is behind its source, compare t
 against the commits that touched the build:
 
 ```bash
-curl -s https://nexus.bmir.stanford.edu/repository/snapshots/org/metadatacenter/<artifact>/2.9.2-SNAPSHOT/maven-metadata.xml \
+curl -s https://nexus.bmir.stanford.edu/repository/snapshots/org/metadatacenter/<artifact>/<NEXT>-SNAPSHOT/maven-metadata.xml \
   | grep -o '<lastUpdated>[^<]*'
 git -C $CEDAR_HOME/<repo> log --since=<that timestamp> origin/develop -- 'src' '*/src' 'pom.xml' '*/pom.xml'
 ```
@@ -1642,10 +1909,26 @@ then fetches the first artifact. Each terminal checkpoint therefore reports `pro
 the exact unique audit set, percentage, elapsed time and ETA, as well as both batch and cumulative
 affected-artifact counts. The JSONL is streamed and flushed after every artifact,
 and the adjacent `production-schema-findings-summary.json` is atomically checkpointed every **300
-artifacts**. Both output files are owner-only, and the streamed findings path refuses a symlink.
+artifacts**. The adjacent `production-schema-findings-refs.jsonl` stores the exact enumerated refs and
+an append-only completion record for every processed artifact. All three output files are owner-only,
+and the streamed findings and refs paths refuse symlinks.
 `--progress-every` changes the interval and `--limit` makes an explicitly labelled sample run. Ctrl-C
-and request failures retain partial output. A complete run normally exits zero even when it finds
-defects; `--fail-on-findings` makes findings exit 1, while an incomplete run exits 2.
+and request failures retain partial output. Resume the same audit without re-enumerating or truncating
+findings by repeating the original arguments and adding `--resume`:
+
+```bash
+python3 ops/cedar_artifact_rest_audit.py \
+  --server https://resource.metadatacenter.org \
+  --out production-schema-findings.jsonl \
+  --resume
+```
+
+Resume validates the server, selected types, limit, ruleset and exact script SHA against the refs
+header. It skips completion records, and also treats an artifact ID already present in findings as
+complete to close the small crash window between flushing its findings and recording completion.
+Artifacts with no findings are still resumable because their completion lives in the refs sidecar.
+A complete run normally exits zero even when it finds defects; `--fail-on-findings` makes findings
+exit 1, while an incomplete run exits 2.
 
 Every summary carries an audit ruleset version, SHA-256 of the exact script that ran, and the source
 revisions whose reader and server behavior the rules mirror. It also separates counts of finding rows
@@ -1758,6 +2041,8 @@ enumeration is not a browse test). `verify` emits a per-ontology readiness repor
 `ops/cedar_term_gate.sh verify` is the one-command gate: it stands up a throwaway local-store instance
 (all ingested ontologies, strict `localOnly`) on the 19xxx test ports, verifies it against the goldens
 on both gates (integrated-search and `--roots`), prints the ready sets, and tears the instance down.
+If the throwaway instance does not become healthy within the startup window, the command exits 1
+before running either differ and points to `$TERM_REPORT_DIR/term-gate-instance.log` (or its default).
 `cedar_term_gate.sh record` re-records the BioPortal goldens (drift refresh) from a BioPortal-proxy
 instance — run it on a cadence (BioPortal content drifts; ours is pinned), monthly is ample given the
 measured ~0.03%/day, additive pace of change. Paths default to
@@ -1873,6 +2158,14 @@ npm run smoke          # headless, ~30 s
 npm run smoke:headed   # watch it in a real browser
 ```
 
+The smoke reads and prints the package version rendered by CEE in both Metadata Editor and
+OpenView, fails if those two served surfaces disagree, and includes the version in its final PASS
+line. For release acceptance, make the required identity an assertion:
+
+```bash
+CEDAR_EXPECT_CEE_VERSION=<CEE_VERSION> npm run smoke
+```
+
 The extracted Workspace and Template Designer also have a fast, credential-free contract smoke.
 It proves that both preview route shells and independent AngularJS bootstraps are being served, the
 Workspace carries its pinned CEE bundle, both applications agree on their navigation and Keycloak
@@ -1939,9 +2232,7 @@ regenerate the CA:
 
 ```bash
 export CEDAR_HOME=$HOME/CEDAR
-source $CEDAR_HOME/cedar-profile-native-develop.sh
-cd $CEDAR_HOME/cedar-cli
-.venv/bin/python cedar.py cert domains workspace designer
+cedarcli cert domains workspace designer --force
 bash $CEDAR_HOME/cedar-development/ops/install-local-split-hostnames.sh
 ```
 
@@ -1950,18 +2241,16 @@ nginx includes into `/opt/homebrew/etc/nginx/cedar`. It validates the nginx conf
 reloads nginx when direct non-interactive sudo is available, otherwise it uses the CEDAR-scoped
 stop/start helpers. It adds only the two hostname virtual hosts; the monolith virtual host remains
 untouched. Local development can run native Gulp servers with
-`cedarcli start frontend split-frontends`. The all-Docker variant uses the normal seven-frontend
+`cedarcli native start frontend split-frontends`. The all-Docker variant uses the normal seven-frontend
 stack. Stop native listeners first because both modes publish the same ports:
 
 ```bash
 export CEDAR_HOME=$HOME/CEDAR
-bash $CEDAR_HOME/cedar-development/ops/cedar-services.sh stop \
-  frontend workspace designer ui-openview ui-content ui-monitoring ui-bridging
-
-source $CEDAR_HOME/cedar-development/bin/templates/cedar-profile-docker-eval.sh
-export CEDAR_AUTH_HOST_TARGET="$CEDAR_NGINX_HOST"
+cedarcli native stop frontends
+cedarcli mode --clear
+cedarcli mode docker
 cedarcli docker build frontends
-cedarcli docker start frontends -d
+cedarcli docker start frontends --detach
 
 cd $CEDAR_HOME/cedar-docker-deploy/cedar-infrastructure
 docker compose up -d --no-deps --force-recreate nginx
@@ -2007,7 +2296,7 @@ two static-root virtual hosts, certificates, Keycloak entries, and backend CORS 
 then run the deployment and authenticated smokes before any route switch.
 
 `cedarcli build split-frontends` without `--server-payload` only installs the locked dependencies.
-`cedarcli start|stop frontend split-frontends` is for the local `develop` profile on ports 4201 and
+`cedarcli native start|stop frontend split-frontends` is for the local `develop` profile on ports 4201 and
 4202, not for a staging static payload.
 
 Workspace is also a mandatory CEE release consumer. After publishing any stable or development CEE
@@ -2026,9 +2315,12 @@ The detailed release, registry, build, and served-hash procedure is in
 
 The shared Dropwizard CORS filter reads `CEDAR_CORS_ALLOWED_ORIGINS` as a comma-separated list of
 Jetty origin patterns. An unset or blank value retains the historical `*` default, so introducing
-the setting does not silently change an existing environment. Set the value before starting or
-restarting the backend services. Inventory every legitimate browser origin first: do not configure
-only Workspace and Designer while the monolith, OpenView, or another browser client is still in use.
+the setting does not silently change an existing environment. The filter sets `allowCredentials`
+explicitly: an exact origin list enables credentials, while any list containing the global `*`
+forces credentials off. Never combine `*` with credentials or mix it into an exact allowlist; the
+entire list will be treated as credentialless. Set the value before starting or restarting the
+backend services. Inventory every legitimate browser origin first: do not configure only Workspace
+and Designer while the monolith, OpenView, or another browser client is still in use.
 
 The local stack currently retains the backward-compatible wildcard. Its positive preflights from
 both local HTTPS origins pass and require no rebuild. Before staging, publish the updated shared

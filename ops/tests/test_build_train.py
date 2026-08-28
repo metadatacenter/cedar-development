@@ -70,6 +70,76 @@ class BuildTrainTest(unittest.TestCase):
             self.assertEqual(4, text.count("2.9.3-dev.20260824.1847"))
             self.assertEqual(1, text.count("2.9.3-SNAPSHOT"))
 
+    def test_post_stamp_guard_rejects_any_remaining_snapshot(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            repository = workspace / "example"
+            repository.mkdir()
+            pom = repository / "pom.xml"
+            pom.write_text(POM, encoding="utf-8")
+            config = {"mavenRepositories": ["example"]}
+
+            build_train.stamp_workspace(
+                config, workspace, "2.9.3-SNAPSHOT", "2.9.3-dev.20260824.1847"
+            )
+            with self.assertRaisesRegex(RuntimeError, "still contains -SNAPSHOT.*example/pom.xml"):
+                build_train.assert_no_snapshot_poms(config, workspace)
+
+            pom.write_text(
+                pom.read_text(encoding="utf-8").replace(
+                    "2.9.3-SNAPSHOT", "2.9.3-dev.20260824.1847"
+                ),
+                encoding="utf-8",
+            )
+            build_train.assert_no_snapshot_poms(config, workspace)
+
+    def test_local_repository_guard_rejects_cedar_snapshot_path(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repository = Path(directory)
+            snapshot = repository / "org" / "metadatacenter" / "example" / "2.9.3-SNAPSHOT"
+            snapshot.mkdir(parents=True)
+            (snapshot / "example-2.9.3-SNAPSHOT.jar").write_bytes(b"mutable")
+
+            with self.assertRaisesRegex(RuntimeError, "org.metadatacenter snapshot paths"):
+                build_train.assert_no_local_maven_snapshots(repository)
+
+            snapshot.rename(snapshot.with_name("2.9.3-dev.20260824.1847"))
+            build_train.assert_no_local_maven_snapshots(repository)
+
+    def test_build_checks_local_repository_before_publication(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            workspace = root / "workspace"
+            (workspace / "reactor").mkdir(parents=True)
+            config = root / "config.json"
+            config.write_text(json.dumps({
+                "phases": [{"name": "reactor", "repository": "reactor"}],
+                "mavenRepository": "https://nexus.example/releases/",
+            }), encoding="utf-8")
+
+            def fake_run(_arguments, cwd=None, capture=False):
+                snapshot = workspace / ".m2" / "repository" / "org" / "metadatacenter" \
+                    / "example" / "2.9.3-SNAPSHOT"
+                snapshot.mkdir(parents=True)
+                return ""
+
+            arguments = type("Arguments", (), {
+                "config": config,
+                "version": "2.9.3-dev.20260824.1847",
+                "workspace": workspace,
+                "settings": root / "settings.xml",
+            })()
+            with patch.object(build_train, "run", side_effect=fake_run), \
+                    patch.object(build_train, "publish_local_repository") as publish:
+                with self.assertRaisesRegex(RuntimeError, "snapshot paths"):
+                    build_train.build(arguments)
+                publish.assert_not_called()
+
+    def test_train_settings_do_not_enable_a_snapshot_repository(self):
+        settings = (MODULE_PATH.parent / "maven-train-settings.xml").read_text(encoding="utf-8")
+        self.assertNotIn("bmir-nexus-snapshots", settings)
+        self.assertNotIn("<snapshots><enabled>true</enabled></snapshots>", settings)
+
     def test_write_json_is_complete_and_sorted(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "state" / "current.json"

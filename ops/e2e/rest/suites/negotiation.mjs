@@ -3,7 +3,9 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
-import { suite, check, checkStatus, call, cleanup, artifactBody, enc, RUN } from '../lib.mjs';
+import {
+  suite, check, checkStatus, call, updateArtifact, cleanup, artifactBody, enc, RUN,
+} from '../lib.mjs';
 
 const FIXTURES = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', 'fixtures');
 const yaml = name => readFileSync(resolve(FIXTURES, name), 'utf8');
@@ -71,7 +73,8 @@ export async function run({ user1, folderId }) {
 
     // And an update in the full form — id plus the system keys — is accepted where compact is not.
     const full = yaml('template-full.yml').replace(/^id: .*$/m, `id: ${id}`);
-    const put = await call(auth, 'PUT', `/templates/${enc(id)}`, full, { contentType: 'application/yaml' });
+    const put = await updateArtifact(auth, `/templates/${enc(id)}`, full,
+        { contentType: 'application/yaml', current: asJson });
     checkStatus(put, 200, 'the full form is accepted on update');
   }
 
@@ -89,7 +92,7 @@ export async function run({ user1, folderId }) {
         'and the server supplies the identifier and the keys compact strips',
         `id ${compactId}, version ${compact.body['pav:version']}, model ${compact.body['schema:schemaVersion']}`);
 
-    const putBack = await call(auth, 'PUT', `/templates/${enc(compactId)}`,
+    const putBack = await updateArtifact(auth, `/templates/${enc(compactId)}`,
         yaml('template-compact.yml'), { contentType: 'application/yaml' });
     check(putBack.status === 400,
         'but it cannot update, because it names no artifact — which is what the guard protected',
@@ -155,7 +158,8 @@ export async function run({ user1, folderId }) {
 
     // The full form — id plus the system keys — is accepted on update.
     const full = rebase(yaml(`${kind}-full.yml`).replace(/^id: .*$/m, `id: ${id}`));
-    const put = await call(auth, 'PUT', `${path}/${enc(id)}`, full, { contentType: 'application/yaml' });
+    const put = await updateArtifact(auth, `${path}/${enc(id)}`, full,
+        { contentType: 'application/yaml', current: back });
     checkStatus(put, 200, `${kind}: the full YAML form is accepted on update`);
   }
 

@@ -1,237 +1,72 @@
 # CEDAR Docker Roadmap
 
-Primary scope: make the complete CEDAR container estate a repeatable, registry-backed deployment.
-The required runtime is seven infrastructure, fifteen Java microservice, and seven frontend
-containers (29 total). Its build inventory also includes two Java bases (31 core images); four
-optional admin images bring `cedarcli docker build all` to 35.
+Open work for making the complete CEDAR container estate a repeatable, registry-backed deployment.
+The runtime is seven infrastructure, fifteen Java microservice, and seven frontend containers (29
+total). The build also produces two Java base images, for 31 core images; four optional
+administration images bring `cedarcli docker build all` to 35. Current deployment and operating
+procedures are in [DOCKER-RUNBOOK.md](./DOCKER-RUNBOOK.md).
+
+The local build and deployment path is working: `cedarcli` builds dependency bases before their
+consumers, applies one validated image prefix across builds and Compose, and validates all four
+Compose stacks. A persistent `native`, `hybrid`, or `docker` mode validates the required profiles
+without mutating the shell, rejects commands from the wrong runtime surface, and supplies the right
+profile internally even from a bare shell. The aggregate Docker workflow preflights the host, starts
+each layer in dependency order, waits for health and route acceptance, records the selected image
+train, and stops the deployment without deleting data. Java development artifacts can now be
+published as one immutable build train, and Docker build/start resolve the most recently completed
+train or an exact older train. Full 29-container deployments and both REST and browser smoke suites
+have passed locally. Train consumption now checks selected local tags against the completion
+record's registry digests before Compose starts, and Java services run as UID/GID 10001 with an
+automatic one-time ownership migration for existing named volumes. The numbered items below are
+the remaining delivery and operational work.
+
+1. **Complete the Docker release, promotion, and rollback pipeline.** Run the 22-container backend
+   and all 19 REST suites on an 8-vCPU Linux runner with 32 GB of RAM and 300 GB of SSD storage, or
+   equivalent self-hosted capacity; the current backend requires about 7.4 GB of compressed
+   transfer, 19.1 GB unpacked, and 11.3 GiB of RAM while idle. Run the credential-free frontend
+   checks in CI and the authenticated navigation and long-request checks against staging. Promote
+   the same completed digest manifest through development, staging, and production without
+   rebuilding it, update each environment atomically, and make rollback select a previously tested
+   manifest and routing configuration. Retain test results, Compose and container diagnostics, and
+   evidence mapping source commits to the promoted digests. Declare the supported architectures,
+   minimum Docker and Compose versions, and measured deployment resource requirements.
+
+2. **Make every published image reproducible and verifiable.** Pin external base images by digest,
+   avoid blanket package upgrades, pin operating-system packages where practical, and verify every
+   downloaded distribution. Replace the remaining plain-HTTP MongoDB package source even though
+   its packages are signature-checked. Generate an SBOM and build provenance for every image, scan
+   its operating-system and application layers, sign the published digest, and make these checks
+   publication gates. Vulnerability exceptions need a named owner, justification, and expiry date.
+   Keep automated dependency updates as reviewed changes that rebuild and exercise the complete
+   affected image set. The public nginx edge and Temurin 17 runtime were brought to current stable
+   patch lines on 2026-08-26; continue that cadence rather than treating reproducible pins as frozen
+   dependencies. The repository exposes a Renovate Dependency Dashboard when the hosted bot runs,
+   but installation and authorization of that external GitHub App remains an organization task.
+
+3. **Prove persistence, backup, restore, and upgrade operations.** Document each named volume, its
+   owner, and the backup and restore procedure for MongoDB, MySQL, Neo4j, Redis, and OpenSearch.
+   Restore into a disposable stack and pass a targeted REST gate. Any image upgrade that changes an
+   on-disk format needs a migration and rollback plan. Keep destructive volume removal clearly
+   separate from ordinary stop and restart commands.
+
+4. **Publish images for both architectures.** Every image the train publishes carries a single
+   `linux/amd64` manifest, so the whole estate runs emulated on Apple Silicon. Measured 2026-08-25
+   against a 32 GB virtual machine, a native `arm64` terminology server answered corpus-wide
+   searches 1.4 to 1.6 times faster across five queries, and the gain was uniform rather than
+   concentrated in one query shape. Every layer already supports the change: the Temurin base
+   publishes `arm64`, the two CEDAR base images only install packages and copy scripts, the
+   application arrives as a jar, and the one native dependency, the SQLite JDBC driver, already
+   ships an `aarch64` library. Building the chain locally on an Apple Silicon host therefore
+   produces working `arm64` images today, but they carry a train's tag while holding something the
+   train never published, which is a trap rather than a route. Build with `buildx` for both
+   architectures and publish one manifest list a tag, so a host pulls its own architecture and the
+   train stays a single set of digests.
+
+5. **Run the TLS edge as a non-root nginx.** `infra-nginx` is the last container whose nginx master
+   runs as root, kept that way because its vhosts listen on 80 and 443. Converting it means moving
+   every vhost — a dozen include files plus the split-routing rehearsal configs — to 8080/8443,
+   remapping the published ports in the infrastructure Compose file, keeping the certificate
+   volumes readable by the unprivileged user, and proving the change with the route-table smoke and
+   the routing-switch rehearsal before it reaches a shared environment. The seven frontend nginx
+   containers already run unprivileged; this item finishes the estate.
 
-The current state is a proven local development deployment, not yet a release delivery path: all
-35 images build, all 29 required containers become healthy, the backend passes its 683-assertion
-REST gate, all seven public frontend routes return 200, and an authenticated Workspace-to-Designer
-browser path passes. A fresh machine still cannot pull the snapshot image set named by Compose. The
-operating procedure is in [DOCKER-RUNBOOK.md](./DOCKER-RUNBOOK.md).
-
-## P0 — make a fresh-machine deployment repeatable
-
-### 1. Publish the 31 core images to Nexus
-
-Publish seven infrastructure images, `cedar-java`, `cedar-microservice`, fifteen server images, and
-seven frontend images after successful builds and acceptance gates. Keep the human-readable version
-tag and also publish an immutable commit/build tag or digest so a deployment can be reproduced after
-a mutable snapshot is rebuilt. Publish the four admin images as a separately optional set if those
-tools remain supported.
-
-Acceptance criteria:
-
-- a clean Docker engine can authenticate to Nexus and pull all 31 core images for one release
-  manifest;
-- images are pushed only after the Java build and image build succeed;
-- a manifest records image name, version, source commit, platform, and digest;
-- no registry credential is baked into an image, repository, or Compose file; and
-- failed or partial builds cannot update the deployable alias.
-
-### 2. Parameterize the registry and namespace everywhere
-
-Replace hard-coded `metadatacenter/...` references in Dockerfiles and Compose with one image prefix,
-for example `CEDAR_IMAGE_PREFIX=nexus.example:port/metadatacenter`, defaulting to
-`metadatacenter` for compatibility. The build CLI, base-image `FROM` lines, Compose projects, CI,
-and release tooling must consume the same value.
-
-Acceptance criteria:
-
-- `CEDAR_IMAGE_PREFIX=metadatacenter` preserves today's local/Docker Hub names;
-- setting the Nexus prefix makes `docker compose pull` and `up` use Nexus without retagging;
-- `cedarcli docker validate` fails when a required prefix/version is malformed or inconsistent; and
-- a static CI check prevents a new hard-coded CEDAR image reference.
-
-### 3. Split full-Docker and hybrid profiles
-
-The current evaluation profile defaults `CEDAR_AUTH_HOST_TARGET=host-gateway` for native nginx, but
-the full Docker deployment requires `$CEDAR_NGINX_HOST`. Make the deployment mode explicit instead of
-requiring an easy-to-miss override.
-
-Acceptance criteria:
-
-- the full-Docker profile routes `auth.<host>` to the nginx container by default;
-- the hybrid profile routes it to `host-gateway` by default;
-- a token-verification probe is part of startup acceptance; and
-- sourcing either profile without `CEDAR_HOME` fails immediately with a useful error.
-
-### 4. Add one complete deployment command
-
-Add a `cedarcli docker start all` (or `deploy`) workflow that validates configuration, checks port
-conflicts, verifies the network/cert volumes, applies an explicit pull policy, starts infrastructure,
-microservices, then frontends, waits for all 29 health checks, and prints failed-container logs. It
-must also support the 22-container backend as an explicit `--no-frontends` hybrid choice. Add the
-symmetric aggregate status and stop commands.
-
-The per-stack foundation is now current: every `cedarcli docker start <stack>` accepts
-`--pull always`, `--pull missing`, or `--pull never` and defaults to `never`; failures from Compose
-and validation now propagate to the CLI exit code. The orchestration, conflict check, bounded wait,
-and automatic failure-log collection described above remain to be built.
-
-Acceptance criteria:
-
-- `--pull always`, `--pull missing`, and `--pull never` are explicit choices;
-- local builds can be started without an accidental registry lookup;
-- startup times out with the unhealthy container and its last logs named;
-- native port conflicts fail before containers are partially created; and
-- ordinary stop retains all named data volumes.
-
-## P1 — turn the working deployment into a release gate
-
-### 5. Run the backend REST estate in CI from `cedarnet`
-
-Use the in-network test topology from the Docker runbook so Artifact remains private while all
-cross-store assertions run. Preserve logs and the Compose model as build artifacts on failure.
-
-Acceptance criteria:
-
-- all 19 REST suites run after 22/22 containers become healthy;
-- the gate has zero topology-related `fetch failed` exceptions;
-- fixture cleanup runs on pass, failure, timeout, and cancellation; and
-- CI captures container health, inspect output, and bounded logs for every failed service.
-
-### 6. Define a release manifest and promotion model
-
-Do not rebuild the same release separately for development, staging, and production. Promote the
-tested digests in Nexus and generate an environment-specific deployment manifest that changes
-configuration, not image bytes.
-
-Acceptance criteria:
-
-- staging consumes exactly the digests that passed CI;
-- production promotion changes aliases/metadata without rebuilding;
-- rollback selects the prior digest set; and
-- the deployed manifest is queryable from the running environment.
-
-### 7. Make persistence operations explicit
-
-Document each named volume, ownership, backup command, restore command, and upgrade compatibility
-for MongoDB, MySQL, Neo4j, Redis, and OpenSearch. Test backup and restore against a disposable stack.
-
-Acceptance criteria:
-
-- operators can identify which volume holds each durable dataset;
-- a restore drill recreates a working backend and passes a targeted REST gate;
-- image upgrades that change on-disk formats require a migration plan; and
-- destructive volume removal is kept outside ordinary stop/restart commands.
-
-### 8. Align and check coupled versions
-
-Resolve the current OpenSearch 2.19.1 server versus 2.19.2 Java-client declaration intentionally,
-then enforce the chosen compatibility rule in CI. Extend the same mechanism to other coupled
-components rather than relying on prose.
-
-Acceptance criteria:
-
-- CI reads the Docker version manifest and Java dependency declarations and checks the rule;
-- a mismatched unsupported pair fails before image publication; and
-- the runbook records the compatibility policy, not a hand-maintained duplicate version list.
-
-## P2 — harden supply chain and operations
-
-### 9. Produce SBOMs, provenance, scans, and signatures
-
-Generate an SBOM and build provenance for every image, scan OS and application layers, and sign the
-published digest. Establish an exception process with owners and expiry dates rather than silently
-accepting vulnerabilities.
-
-### 10. Remove non-reproducible and unverified build inputs
-
-Pin base images by digest, stop blanket package updates in deployable builds, pin installed OS
-packages where practical, and verify every downloaded distribution. In particular, remove the
-plain-HTTP MySQL repository with signature checking disabled from the shared microservice image.
-
-### 11. Declare supported platforms and resource floors
-
-Build and test every supported architecture explicitly, or declare amd64-only if that is the actual
-contract. Record Docker/Compose minimum versions and CPU, memory, and disk requirements for a cold
-29-container start and representative REST/browser runs.
-
-## Frontend lifecycle and remaining delivery work
-
-The 2026-08-21 implementation promoted all seven frontend images into the normal local Docker
-lifecycle while preserving both native modes:
-
-- the proven development hybrid serves seven frontends from native Node.js processes through Docker
-  nginx, while all 22 backend containers remain in Docker;
-- the all-Docker mode serves all seven payloads from seven frontend containers over `cedarnet`; and
-- the native-only stack continues to use the same source-owned build and serve commands as before.
-
-Container construction is owned entirely by `cedar-docker-build`, runtime topology by
-`cedar-docker-deploy`, and immutable npm staging by `cedar-development`. The frontend source
-repositories contain no Dockerfiles, entrypoints, or nginx configuration. The retired two-image
-preview Compose file and preview-only builder have been removed so there is one all-Docker
-frontend lifecycle rather than two competing ones.
-
-### F1. Make hybrid mode explicit and self-validating
-
-Replace the manual environment override block with a named profile or CLI workflow that starts only
-the native frontends, recreates nginx with `host.docker.internal` upstreams, and validates every
-route. Preserve native-only and full-Docker defaults.
-
-Acceptance criteria:
-
-- the selected mode is visible in generated configuration and status output;
-- all seven frontend hostnames are checked against their expected upstream port;
-- recreating nginx cannot silently switch a hybrid deployment to reserved container addresses;
-- stopping the hybrid frontends leaves the Docker backend and its data untouched; and
-- the request path and source ownership remain documented in the Docker runbook.
-
-### F2. Publish the seven frontend images to Nexus
-
-The image inputs are solved locally: all seven clean source commits are published to the npm Nexus
-repository using immutable `2.9.2-dev.<timestamp>.g<commit>` versions, each Dockerfile verifies its
-package identity and full `gitHead`, and the seven images build together. The remaining work is the
-frontend portion of P0 item 1: publish the resulting Docker images to Nexus using the configurable
-registry prefix and include them in the 31-image core release manifest.
-
-Acceptance criteria:
-
-- a clean Docker engine can pull all seven images from Nexus by immutable digest;
-- image metadata records the complete source commit and whether the source tree was dirty;
-- a frontend release manifest maps all seven npm versions, source commits, image tags, and digests;
-- neither repository credential nor environment-specific URL is baked into a reusable image; and
-- publishing a failed or partial set cannot update the deployable alias.
-
-### F3. Establish the split-frontend acceptance and rollback gate
-
-The local production-shaped HTTPS gate passed on 2026-08-21: seven containers were healthy, all
-seven public hostnames returned 200 through container-to-container nginx routing, and an existing
-authenticated Chrome session completed Workspace → Smoke Tests → template → Designer without
-console errors. Retain the broader credential-free contract, Keycloak origin preflight, bundle
-recorder, and long-request regression as CI/staging gates.
-
-Acceptance criteria:
-
-- Workspace and Designer shells, navigation origins, Keycloak callbacks, and REST CORS pass;
-- Workspace-to-Designer SSO and exact `returnTo` restoration pass in a browser;
-- the deployed source commits and generated bundle digests are recorded;
-- a request exceeding 60 seconds succeeds under the documented 180-second proxy timeout; and
-- rollback selects a complete previous routing configuration and image digest pair.
-
-### F4. Promote into the normal Docker frontend lifecycle — completed locally
-
-Workspace and Designer are now in the normal frontend Compose project, the seven-image build group,
-and ordinary `cedarcli docker start frontends` lifecycle. Native frontend and native backend modes
-remain supported. Registry publication and staging promotion remain gated by F2 and F3; local
-promotion does not by itself authorize a production routing change.
-
-Acceptance criteria:
-
-- one reviewed change covers build, deploy, CLI, documentation, and tests;
-- normal startup either starts the complete approved frontend set or fails before partial creation;
-- no hostname can fall through to another frontend's default nginx virtual host;
-- rollback restores the preceding complete frontend set without changing backend data; and
-- the native hybrid remains available until the image-based path meets the same staging gates.
-
-## Recommended delivery slices
-
-1. **Nexus pull path:** items 1-3. Outcome: a fresh machine can pull and authenticate correctly.
-2. **One-command deployment:** item 4. Outcome: repeatable operator experience and useful failures.
-3. **Release gate:** items 5-6. Outcome: the digest that passed is the digest promoted.
-4. **Durability and hardening:** items 7-11. Outcome: recoverable, auditable operation beyond a
-   developer workstation.
-5. **Frontend delivery:** F1-F4. Outcome: keep native and hybrid modes, publish the locally proven
-   seven-image set to Nexus, and promote only tested image digests through staging and production.

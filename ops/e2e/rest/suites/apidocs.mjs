@@ -5,9 +5,11 @@
 // blank doc page and go unnoticed. This checks each spec is present, valid OpenAPI 3, populated, and
 // actually reflects the API.
 //
-// Only the resource and terminology servers serve a spec; the others return 404. The value recommender
-// also serves a small one but is out of scope (retiring), so it is deliberately not checked here.
-import { suite, check, checkStatus, call, RESOURCE, TERMINOLOGY } from '../lib.mjs';
+// Resource, Terminology and Value Recommender are the three servers that publish a generated spec.
+// The other API servers intentionally return 404 at this path.
+import {
+  suite, check, checkStatus, call, RESOURCE, TERMINOLOGY, VALUERECOMMENDER,
+} from '../lib.mjs';
 
 export const name = 'apidocs';
 
@@ -17,7 +19,16 @@ export const name = 'apidocs';
 const API_SERVERS = [
   { label: 'resource', base: RESOURCE, minPaths: 40, mustDocument: '/templates' },
   { label: 'terminology', base: TERMINOLOGY, minPaths: 20, mustDocument: '/bioportal' },
+  {
+    label: 'valuerecommender', base: VALUERECOMMENDER, minPaths: 5,
+    mustDocument: '/command/recommend',
+  },
 ];
+
+function hasProperties(spec, schemaName, expected) {
+  const properties = spec.components?.schemas?.[schemaName]?.properties ?? {};
+  return expected.every(name => Object.hasOwn(properties, name));
+}
 
 export async function run() {
   suite('apidocs: each API server serves a valid, populated OpenAPI 3 spec');
@@ -45,6 +56,28 @@ export async function run() {
     const emptyPath = Object.entries(paths).find(([, ops]) => !ops || Object.keys(ops).length === 0);
     check(!emptyPath, `${s.label}: every documented path carries at least one operation`,
         `path ${emptyPath?.[0]} had no operations`);
+
+    // Population alone cannot catch a stale, otherwise-valid generated file. Anchor the contract to
+    // the model and response annotations whose omission prompted this coverage.
+    if (s.label === 'terminology') {
+      check(hasProperties(spec, 'BranchValueConstraint', ['iri', 'maxDepth', 'name', 'source']),
+          'terminology: branch constraints document their complete wire shape',
+          'BranchValueConstraint omitted one or more of iri, maxDepth, name, source');
+      check(hasProperties(spec, 'ValueConstraints', [
+        'defaultValue', 'multipleChoice', 'recommendedValue', 'requiredValue',
+      ]), 'terminology: field constraints document defaults and selection rules',
+      'ValueConstraints omitted one or more default/selection properties');
+    }
+
+    if (s.label === 'valuerecommender') {
+      const unavailable = path => paths[path]?.post?.responses?.['503']?.description;
+      check(unavailable('/command/can-generate-recommendations') === 'OpenSearch unavailable',
+          'valuerecommender: capability checks document OpenSearch unavailability',
+          'the capability endpoint did not document its 503 response');
+      check(unavailable('/command/recommend') === 'OpenSearch unavailable',
+          'valuerecommender: recommendations document OpenSearch unavailability',
+          'the recommendation endpoint did not document its 503 response');
+    }
   }
 
   // A valid spec is only useful if a human can read it. /api/ is the Swagger UI, served statically

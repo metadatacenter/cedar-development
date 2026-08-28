@@ -13,7 +13,10 @@
 // not own outright, so a regression that reopened the hole could not damage real data mid-run. An
 // earlier version aimed a permission change at the first user's home folder; back when forged writes
 // were honoured it was accepted, and the home folder's ownership had to be repaired by hand.
-import { suite, check, call, cleanup, authHeader, enc, RUN, GROUP_SERVER, OPENVIEW } from '../lib.mjs';
+import {
+  suite, check, call, cleanup, authHeader, enc, RUN,
+  USER_SERVER, GROUP_SERVER, OPENVIEW, WORKER,
+} from '../lib.mjs';
 
 export const name = 'authentication';
 
@@ -85,6 +88,63 @@ export async function run({ user1, user2, homeFolderId, folderId }) {
       'while a genuine, correctly-signed token is still accepted',
       'a valid token was refused — verification is now rejecting good tokens too');
 
+  suite('authentication: API-key management paths use non-secret ids');
+
+  // The profile carries both fields for different purposes: `key` is the credential a caller sends
+  // in Authorization, while `id` is the stable, non-secret handle used to rotate or remove it. Keep
+  // the lifecycle on a throwaway key so the suite never changes a credential used by a person or by
+  // another process. The bearer token remains valid throughout, including after the throwaway key is
+  // rotated and deleted.
+  const userId = subjectOf(user1.auth);
+  const keysPath = `/users/${enc(userId)}/api-keys`;
+  const description = `REST suite management key ${RUN}`;
+  let throwawayKeyId;
+  try {
+    const created = await call(auth, 'POST', keysPath, { description }, { base: USER_SERVER });
+    if (check(created.status === 200, 'a throwaway API key is created',
+        `expected 200, got ${created.status}: ${(created.text ?? '').slice(0, 200)}`)) {
+      const createdKey = created.body?.apiKeys?.find(key => key.description === description);
+      if (check(createdKey?.id && createdKey?.key,
+          'the created key has both a management id and a credential value',
+          'the created key was absent or did not expose both fields')) {
+        throwawayKeyId = createdKey.id;
+        check(createdKey.id !== createdKey.key,
+            'the management id is not the API-key secret',
+            'the profile exposed the credential itself as its management id');
+
+        const rotated = await call(auth, 'POST',
+            `${keysPath}/${enc(throwawayKeyId)}/regenerate`, undefined, { base: USER_SERVER });
+        if (check(rotated.status === 200, 'the key is rotated by management id',
+            `expected 200, got ${rotated.status}: ${(rotated.text ?? '').slice(0, 200)}`)) {
+          const rotatedKey = rotated.body?.apiKeys?.find(key => key.id === throwawayKeyId);
+          check(rotatedKey?.id === throwawayKeyId,
+              'rotation preserves the stable management id',
+              'the rotated key disappeared or its management id changed');
+          check(rotatedKey?.key && rotatedKey.key !== createdKey.key,
+              'rotation replaces the credential value',
+              'the API-key secret did not change');
+        }
+
+        const deleted = await call(auth, 'DELETE', `${keysPath}/${enc(throwawayKeyId)}`, undefined,
+            { base: USER_SERVER });
+        if (check(deleted.status === 200, 'the key is deleted by management id',
+            `expected 200, got ${deleted.status}: ${(deleted.text ?? '').slice(0, 200)}`)) {
+          check(!deleted.body?.apiKeys?.some(key => key.id === throwawayKeyId),
+              'the deleted management id is absent from the stored profile',
+              'the user server returned the supposedly deleted key');
+          throwawayKeyId = undefined;
+        }
+      }
+    }
+  } finally {
+    // A failed assertion should not turn into a permanent test-account credential. This is best
+    // effort: if creation did not yield an id there is no safe URL handle to clean up with.
+    if (throwawayKeyId) {
+      await call(auth, 'DELETE', `${keysPath}/${enc(throwawayKeyId)}`, undefined,
+          { base: USER_SERVER });
+    }
+  }
+
   suite('authentication: a forged token cannot write either');
 
   // Demonstrated only against a throwaway subtree. A parent folder the first user owns, then a write
@@ -115,6 +175,7 @@ export async function run({ user1, user2, homeFolderId, folderId }) {
     { what: 'resource server, listing contents', base: undefined, path: `/folders/${enc(homeFolderId)}/contents` },
     { what: 'resource server, searching', base: undefined, path: '/search?q=anything&limit=1' },
     { what: 'group server, listing groups', base: GROUP_SERVER, path: '/groups' },
+    { what: 'worker server, reading thread details', base: WORKER, path: '/insight/thread-details' },
   ];
   const cleanlyRefused = [
     { what: 'no Authorization header', headers: {} },
@@ -136,6 +197,11 @@ export async function run({ user1, user2, homeFolderId, folderId }) {
           res.status < 400
               ? `it was ACCEPTED with ${res.status} — this is not a valid credential`
               : `expected 401, got ${res.status}: ${(res.text ?? '').slice(0, 160)}`);
+      if (route.base === WORKER) {
+        check(!res.text?.includes('"stack-trace"') && !res.text?.includes('"lock-info"'),
+            `${credential.what} → worker denial contains no thread report`,
+            'the request was denied, but its response still contained thread-diagnostic fields');
+      }
     }
   }
 

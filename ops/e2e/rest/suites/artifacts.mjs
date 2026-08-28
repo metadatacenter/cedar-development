@@ -3,7 +3,9 @@
 // This is the core write path of the product and had no coverage of any sort before these suites:
 // a create proxies its content to the artifact server, so the per-service tests cannot follow it,
 // and they only assert the rejections that fire before the proxy.
-import { suite, check, checkStatus, call, cleanup, artifactBody, KINDS, enc, RUN } from '../lib.mjs';
+import {
+  suite, check, checkStatus, call, updateArtifact, cleanup, artifactBody, KINDS, enc, RUN,
+} from '../lib.mjs';
 
 export const name = 'artifacts';
 
@@ -55,12 +57,27 @@ export async function run({ user1, user2, folderId }) {
     const updated = artifactBody(kind, label, extra);
     updated['@id'] = id;
     updated['schema:description'] = 'Updated by the REST suites';
-    const put = await call(auth, 'PUT', at, updated);
+    const revision = get.headers.get('etag');
+    check(!!revision, `${kind}: GET supplies an ETag for conditional updates`, 'ETag header was absent');
+
+    if (kind === 'template') {
+      checkStatus(await call(auth, 'PUT', at, updated), 428,
+          'an update without If-Match is refused');
+    }
+
+    const put = await call(auth, 'PUT', at, updated,
+        { headers: revision ? { 'If-Match': revision } : {} });
     if (checkStatus(put, 200, `${kind}: updated`)) {
+      check(!!put.headers.get('etag'), `${kind}: update returns the new ETag`, 'ETag header was absent');
       const after = await call(auth, 'GET', at);
       check(after.body?.['schema:description'] === 'Updated by the REST suites',
           `${kind}: the update is visible on a fresh read`,
           `description was "${after.body?.['schema:description']}"`);
+
+      if (kind === 'template' && revision) {
+        checkStatus(await call(auth, 'PUT', at, updated, { headers: { 'If-Match': revision } }), 412,
+            'a stale If-Match revision is refused');
+      }
     }
   }
 
@@ -76,7 +93,7 @@ export async function run({ user1, user2, folderId }) {
 
   if (made.template) {
     const noId = artifactBody('template', made.template.label);
-    checkStatus(await call(auth, 'PUT', made.template.at, noId),
+    checkStatus(await updateArtifact(auth, made.template.at, noId),
         400, 'an update without an identifier is refused');
   }
 
