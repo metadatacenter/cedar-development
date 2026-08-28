@@ -640,6 +640,16 @@ larger lifecycle refactor tracked below.
   this urgent repair. Empty `pav:derivedFrom` is the first candidate because the strict Java reader
   cannot open it even though the compatibility reader and ordinary update can recover it.
 
+  Child definitions present in `properties` but absent from `_ui.order` are another such repair, and
+  production contains enough of them that the model libraries cannot simply start refusing the shape.
+  Add a raw-store audit rule that distinguishes this case from the inverse drift (an order entry with no
+  property), then offer an idempotent, field-preserving rewrite that appends each omitted child key after
+  the existing order without changing or deleting the child definition. Capture the production count and
+  paths as a reviewed manifest, cover direct and nested containers, and prove a second run makes no
+  changes. Only after that repair has run and a repeated audit reports zero omitted children should the
+  Java and TypeScript readers replace their current cleanup behavior with strict rejection. Keep the
+  inverse drift report-only: the store does not contain enough information to synthesize a missing child.
+
   Finally reconcile the inventory boundary. Two search results point at artifacts that the typed
   resource endpoint returns as 404, and two duplicate search rows make the reported row count exceed
   the unique audit set. Determine whether each is a stale search/workspace projection or a missing
