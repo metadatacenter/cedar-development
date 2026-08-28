@@ -50,6 +50,12 @@ export CEDAR_NGINX_HOST=192.168.17.207
 # break bearer-token verification.
 export CEDAR_AUTH_HOST_TARGET=${CEDAR_NGINX_HOST}
 
+# Java containers reach Keycloak at https://auth.<host>, and every one of them imports the CEDAR CA
+# into its own truststore before the server starts, refusing to start if the certificate is missing.
+# Docker can therefore verify that leaf properly, and does. Native development sets this to true
+# instead, because it runs against .orgx leaves no truststore of its own has been given.
+export CEDAR_KEYCLOAK_ALLOW_INSECURE_TLS=false
+
 #------------------------------------------------------
 # The terminology store is read where it is mounted inside the container, not where it lives on the
 # host. Everything else about the store — which vocabularies it serves, and whether exclusively — is

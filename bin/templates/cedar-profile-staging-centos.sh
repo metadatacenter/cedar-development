@@ -10,6 +10,12 @@ export CEDAR_KEYCLOAK_HOME=${CEDAR_HOME}/keycloak/
 export CEDAR_NEO4J_HOME=${CEDAR_HOME}/neo4j/
 
 #------------------------------------------------------
+# Every microservice and the admin tool require this, and a server that is not given it stops
+# at startup. Certificate and hostname verification stay on: only native development, which
+# runs against locally issued .orgx leaves, sets this to true.
+export CEDAR_KEYCLOAK_ALLOW_INSECURE_TLS=false
+
+#------------------------------------------------------
 # CEDAR custom environment variables
 source ${CEDAR_HOME}/set-env-external.sh
 source ${CEDAR_HOME}/set-env-internal.sh
