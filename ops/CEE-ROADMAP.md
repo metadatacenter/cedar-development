@@ -243,3 +243,31 @@ next major release.
    lint/unit gates pass, and the production bundle remains under both size limits. Remove the pin
    paragraph when those checks are green on the new dependency; leaving it behind would turn this
    item into the same stale workaround it records.
+
+9. **Reconcile the remaining CEE GitHub issue backlog with the product that now ships.**
+   The August 2026 audit closed nineteen completed or superseded reports and left twelve open.
+   Reproduce every item in the
+   [open backlog](https://github.com/metadatacenter/cedar-embeddable-editor/issues) against the current
+   stable CEE and classify it as current product work, an upstream terminology or host concern, a
+   product decision, or obsolete history. Split mixed reports into independently verifiable issues,
+   close superseded ones with the relevant implementation or test evidence, and move real work into
+   this roadmap or the owning roadmap with an explicit acceptance test.
+
+   Start with the cases the audit could not resolve from source alone: visually review
+   [75](https://github.com/metadatacenter/cedar-embeddable-editor/issues/75) and
+   [131](https://github.com/metadatacenter/cedar-embeddable-editor/issues/131); remeasure
+   [15](https://github.com/metadatacenter/cedar-embeddable-editor/issues/15) and
+   [125](https://github.com/metadatacenter/cedar-embeddable-editor/issues/125) against current builds
+   and services; rerun an accessibility audit for
+   [14](https://github.com/metadatacenter/cedar-embeddable-editor/issues/14); and split and reproduce
+   [12](https://github.com/metadatacenter/cedar-embeddable-editor/issues/12). Keep
+   [29](https://github.com/metadatacenter/cedar-embeddable-editor/issues/29) aligned with the
+   validation and save-experience work already described above, and confirm the still-current UI and
+   model gaps in [22](https://github.com/metadatacenter/cedar-embeddable-editor/issues/22),
+   [28](https://github.com/metadatacenter/cedar-embeddable-editor/issues/28),
+   [35](https://github.com/metadatacenter/cedar-embeddable-editor/issues/35),
+   [36](https://github.com/metadatacenter/cedar-embeddable-editor/issues/36), and
+   [99](https://github.com/metadatacenter/cedar-embeddable-editor/issues/99) before assigning
+   priority. This item is complete when every open issue names an owning surface and has either a
+   current reproduction or an explicit disposition, and GitHub and this roadmap no longer carry
+   contradictory backlogs.
