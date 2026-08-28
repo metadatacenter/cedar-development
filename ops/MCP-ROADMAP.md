@@ -28,7 +28,7 @@ one server — a tool to add, a description to sharpen — belongs in that repos
   - Build the three Maven servers with the rest, after `cedar-artifact-library`, so a library change
     that breaks a tool signature fails in the build rather than at a client's first call.
   - Give each repository the workflow every other Java repository already has.
-  - Decide whether they join `cedarcli release all-in-one` or stay outside it, as CEE and the
+  - Decide whether they join the train-backed release or stay outside it, as CEE and the
     TypeScript model library do. `cedar-artifact-rest-mcp` is the one with a real choice to make:
     it resolves from Maven Central alone, so it could be published like any other package. The other
     two hold a local `cedar-artifact-library` SNAPSHOT and cannot be until that changes.

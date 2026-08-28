@@ -1801,7 +1801,7 @@ cd $CEDAR_HOME/cedar-<name> && ./mvnw --batch-mode deploy --settings .m2/nexus-s
 ```
 
 The extracted AngularJS frontends publish to the npm repository on Nexus, not through Maven. They
-remain outside `release all-in-one` during migration and are excluded from the generic frontend/all
+remain outside the release during migration and are excluded from the generic frontend/all
 publish selectors. Publishing them therefore requires the explicit command and never changes a
 running environment:
 

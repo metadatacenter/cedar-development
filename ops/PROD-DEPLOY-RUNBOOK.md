@@ -6,7 +6,7 @@ backend + frontends, run the DB migrations (app DB **and** the separate log DB),
 front door back up. Written to be followed by a human with a terminal, or read by an LLM agent.
 
 This is the **prod-deploy** counterpart to:
-- [RELEASE-RUNBOOK.md](./RELEASE-RUNBOOK.md) — *cutting* a release (`cedarcli release all-in-one`,
+- [RELEASE-RUNBOOK.md](./RELEASE-RUNBOOK.md) — *cutting* a release (`cedarcli release start`,
   tag/merge/push across the repos, publish to Nexus + npm). Do that **first**; this runbook takes
   the released `main` and stands it up on prod.
 - [BACKEND-RUNBOOK.md](./BACKEND-RUNBOOK.md) — running CEDAR locally.

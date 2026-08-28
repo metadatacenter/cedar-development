@@ -114,7 +114,7 @@ resolve terms for and store CEDAR artifacts:
   the calling model ever reads.
 
 The rest:
-- [RELEASE-RUNBOOK.md](ops/RELEASE-RUNBOOK.md) — `cedarcli release all-in-one` across the ~48
+- [RELEASE-RUNBOOK.md](ops/RELEASE-RUNBOOK.md) — `cedarcli release start` across the ~48
   versioned repos, front and back. CEE, the TypeScript model library and three others are
   `skip_from_release` and publish themselves; their public procedure is in
   [NPMJS-RELEASE-RUNBOOK.md](ops/NPMJS-RELEASE-RUNBOOK.md).
