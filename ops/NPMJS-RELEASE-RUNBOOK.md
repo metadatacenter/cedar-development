@@ -30,7 +30,8 @@ as a runtime dependency for the embedding application to resolve. Consequently:
 - releasing the model does not change an existing CEE package;
 - CEE may deliberately embed an older public model version;
 - the CEDAR release needs an explicit public CEE version, not a second model-version argument; and
-- proving the public CEE tarball byte-equivalent to the train CEE also proves the bundled model.
+- proving the public CEE executable byte-equivalent to the train CEE after the declared provenance
+  substitutions also proves the bundled model code.
 
 The releases completed on 2026-08-27 demonstrate the distinction: model library 1.0.4 was public,
 while CEE 2.0.2 deliberately embedded model library 1.0.3.
@@ -460,9 +461,19 @@ cedarcli release start \
 ```
 
 The CLI owns its internal release manifest and resumes it with `cedarcli release resume`. The plan
-must reject the public CEE unless its package file set and bytes match the train CEE after
-normalizing only the declared package name, version, channel metadata, and root lock identity. That
-promotion proof is also the proof for the model library embedded in CEE.
+first verifies each tarball and its own bundle manifest. It then requires the same package file set
+and normalizes only this closed release-provenance list:
+
+- package name, version, publish channel, and root lock identity;
+- the one embedded CEE version, model-package identity, and load trace in the browser bundle;
+- the bundle manifest derived from those browser-bundle bytes; and
+- one dated changelog entry for the public CEE version, which must name one exact public model
+  version. Removing that entry must reproduce the train changelog byte for byte.
+
+After those substitutions the complete browser bundle and every remaining packaged byte must be
+identical. A second occurrence of a provenance literal, a changed older changelog entry, an extra
+file, or any other JavaScript difference is a hard failure. This normalized byte proof is also the
+proof for the model-library code compiled into CEE.
 
 ## Failure rules
 

@@ -1485,10 +1485,14 @@ manifests, locks and rebuilt payloads before publishing the frontend artifacts. 
 [BUILD-RUNBOOK.md](./BUILD-RUNBOOK.md) for `npm/model/completed`, `npm/cee/completed`, and the final
 `npm/completed` record.
 
-The train-backed CEDAR release then requires an explicit public CEE version. It accepts that npmjs
-package only when its file set and bytes are identical to the train CEE after normalizing the
-declared package name, version, publish channel, and root lock identity. This prevents a nominally
-newer but independently built CEE from being substituted into the CEDAR release.
+The train-backed CEDAR release then requires an explicit public CEE version. It verifies both
+tarballs and accepts the npmjs package only when its executable bundle is byte-identical after
+normalizing the single embedded CEE version, model-package identity and load trace. It also permits
+only the package channel metadata, the manifest derived from those bundle bytes, and one dated
+current-release changelog entry; every other packaged byte must match. This proves the public model
+substitution did not change the model code compiled into CEE and prevents an independently changed
+CEE from being substituted into the CEDAR release. The closed normalization list and its failure
+rules are in [NPMJS-RELEASE-RUNBOOK.md](./NPMJS-RELEASE-RUNBOOK.md#use-the-public-cee-in-a-train-backed-cedar-release).
 
 Propagating a release also means rebuilding each deployed consumer.
 Confirm the bytes rather than the version string: the sha256 that `package:npm:prebuilt` prints should
