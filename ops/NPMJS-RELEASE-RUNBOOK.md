@@ -475,6 +475,14 @@ identical. A second occurrence of a provenance literal, a changed older changelo
 file, or any other JavaScript difference is a hard failure. This normalized byte proof is also the
 proof for the model-library code compiled into CEE.
 
+On `start`, that proven public CEE is pinned in all seven frontend consumers before either source
+variant is stamped. Both the release and next-development Git trees retain the stable CEE pin; the
+next-development tree does not silently return to the train's development CEE. The route then
+integrates those exact trees into `main` and `develop`, publishes the stable frontend npm packages,
+and verifies their downloaded registry tarballs. Workspace receives the same Git wiring but keeps
+its independent package publication path. Operational details and resume rules are in
+[RELEASE-RUNBOOK.md](./RELEASE-RUNBOOK.md#train-backed-release-route).
+
 ## Failure rules
 
 - A version already on npmjs is immutable. Stop and choose a new version; never try to overwrite it.

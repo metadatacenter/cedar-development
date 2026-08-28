@@ -1,8 +1,9 @@
 # CEDAR Release Runbook
 
-How to cut a CEDAR release with `cedarcli release all-in-one` — connect, verify, dry-run the
-versions, run it, watch it, and recover if it stalls. Written to be followed by a human with no
-tooling beyond a terminal, or read by an LLM agent. This is the **release** counterpart to
+How to cut a CEDAR release from an immutable development build train with explicit CEDAR and CEE
+versions, plus the legacy `cedarcli release all-in-one` procedure while it remains available.
+Written to be followed by a human with no tooling beyond a terminal, or read by an LLM agent. This
+is the **release** counterpart to
 [BACKEND-RUNBOOK.md](./BACKEND-RUNBOOK.md) (which covers running CEDAR locally).
 
 A companion visual — a live phase timeline + this same command sequence in tabs — is
@@ -10,6 +11,60 @@ A companion visual — a live phase timeline + this same command sequence in tab
 
 > Replace `youruser@your-build-server` with your actual login/host, and `<VER>` / `<NEXT>` with the
 > release version and next development version (e.g. `2.9.0` and `2.9.1-SNAPSHOT`).
+
+## Train-backed release route
+
+This is the new release route. It does not infer the CEDAR release from the train identifier and it
+does not accept a manifest path. The operator supplies four explicit inputs; the CLI validates and
+owns the immutable manifest under `~/.cedar/train-releases/`.
+
+```bash
+cedarcli release plan \
+  --version <VER> \
+  --next-version <NEXT> \
+  --from-train <TRAIN_ID> \
+  --cee-version <PUBLIC_CEE_VERSION>
+
+cedarcli release start \
+  --version <VER> \
+  --next-version <NEXT> \
+  --from-train <TRAIN_ID> \
+  --cee-version <PUBLIC_CEE_VERSION>
+```
+
+`plan` is read-only. It validates the completed train, the exact source commits, artifact
+inventories, the explicit versions, and the normalized byte-equivalence proof between the train's
+development CEE and the public npmjs CEE. It must finish with `No changes made.`
+
+`start` then executes one stateful, resumable release:
+
+1. It clones every train source commit into isolated workspaces and pins the public CEE version in all seven frontend consumer manifests and lockfiles.
+2. It stamps `<VER>` and `<NEXT>` from the same source commits; both variants retain the stable public CEE wiring.
+3. It runs the release Maven test builds, next-development Maven builds, all frontend installs, and production frontend builds; generated distribution bytes are inventoried so an ignored `dist` file cannot change before publication.
+4. It creates and verifies local `release/pre-<VER>`, `release/post-<NEXT>`, and `release-<VER>` refs without touching the ordinary CEDAR working trees.
+5. It fetches the remotes, refuses to continue if remote `develop` moved away from the train source, creates explicit integration commits whose trees exactly equal the prepared trees, then pushes the release branches, tag, `main`, and `develop`.
+6. It uploads the exact locally validated Maven release bytes to Nexus, accepting an existing immutable path only when its bytes match, and verifies the required artifact inventory.
+7. It packs the six stable npm frontend surfaces from the exact integrated commits, overlays only the byte-inventoried production output for distribution packages, records `gitHead`, publishes to CEDAR Nexus, downloads each registry tarball, and verifies its integrity and content hash.
+8. It deploys the next-development Maven snapshots from the exact integrated `develop` commits and verifies their Nexus inventory. Immutable build trains remain the owner of development frontend packages, so this release route does not republish `-SNAPSHOT` npm versions.
+
+The stable npm surfaces are Template Editor, OpenView, Content Distribution, Monitoring, Bridging,
+and the Angular CEE demo. Workspace receives the stable CEE wiring on both `main` and `develop` but
+keeps its independent publication path. Template Designer also remains independently published.
+
+If any step fails, do not start again. Inspect and continue the same CLI-owned manifest:
+
+```bash
+cedarcli release status
+cedarcli release resume
+```
+
+Resume first re-verifies all completed Git refs, build logs and generated-output hashes, Maven
+bytes, npm tarballs, and registry inventories. Remote ref drift, changed local evidence, or a
+different immutable registry object is a hard stop. A completed release reports
+`Phase: artifacts-published`.
+
+The legacy routes below have not been changed. Keep them available until the train-backed route has
+completed a real release and is explicitly adopted; retire them separately.
 
 ## What `release all-in-one` does
 
