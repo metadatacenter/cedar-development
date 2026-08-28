@@ -137,6 +137,13 @@ larger lifecycle refactor tracked below.
   no-argument constructor while `CedarUserExtract` did. That is now a one-line constructor in
   `cedar-core-library`, with the typed read in `SharingRoundTripTest` as its regression test.
 
+  A second original finding is also fixed rather than listed: one ACL request used to execute the
+  owner change, each user and group addition or removal, and the everybody permission as separate
+  Neo4j transactions, so a failure could leave a partially applied ACL. Resource and category
+  permission updates now collect the complete diff through `updatePermissionsAtomically` and submit
+  it as one `executeWriteBatch`. `PermissionUpdateBatchTest` pins both paths to one batch containing
+  every requested change.
+
   The deliverable is **a permissions document** — there is none today, and its absence is the root of
   everything above. It should state the tiers, what each confers, how inheritance interacts with
   ownership, what `ATTACH` is for, and which of the listed behaviours are intentional. Only then is it
