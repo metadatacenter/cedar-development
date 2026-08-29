@@ -179,6 +179,26 @@ class NativeProcessSafetyTest(unittest.TestCase):
         self.assertIn("ERROR: 1 service port(s) marked !pid", result.stdout)
         self.assertNotIn("cedarcli docker status", result.stdout)
 
+    def test_machine_status_contains_the_fields_needed_by_cedarcli(self):
+        result = self.run_library(
+            'names() { echo group; }; '
+            'pidfile() { echo /does/not/exist; }; '
+            'app_port() { echo 9009; }; '
+            'service_port_owner() { echo 4242; }; '
+            'port_open() { return 0; }; '
+            'health_of() { echo healthy; }; '
+            'binary_of() { echo current; }; '
+            'logfile() { echo "$CEDAR_HOME/missing.log"; }; '
+            'status_tsv'
+        )
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual(
+            "service\tpid\tport\tlistener\thealth\tbinary\tlog_errors\n"
+            "group\t~4242\t9009\tup\thealthy\tcurrent\t0\n",
+            result.stdout,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

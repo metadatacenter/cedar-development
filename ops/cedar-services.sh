@@ -18,6 +18,7 @@
 #   ./cedar-services.sh stop  [name...]     # stop all, or only the named
 #   ./cedar-services.sh restart [name...]
 #   ./cedar-services.sh status              # one-shot table
+#   ./cedar-services.sh status-tsv          # machine-readable status for cedarcli
 #   ./cedar-services.sh watch               # refreshing status (Ctrl-C to exit)
 #   ./cedar-services.sh logs <name>         # tail -f a service log
 #   ./cedar-services.sh health [name...]    # exit 0 only if all selected services are healthy
@@ -404,50 +405,16 @@ status() {
   local up=0 total=0 stale=0 unmanaged=0 foreign=0 docker_owned=0
   while read -r name; do
     total=$((total+1))
-    local p own pid_disp port_disp h bin errs docker_row=false
-    p=$(cat "$(pidfile "$name")" 2>/dev/null)
-    if [ -n "$p" ] && kill -0 "$p" 2>/dev/null && is_service_process "$name" "$p"; then pid_disp="$p"; own="$p"
-    else
-      own=$(service_port_owner "$name" "$(app_port "$name")")
-      if [ -n "$own" ]; then
-        pid_disp="~$own"; unmanaged=$((unmanaged+1))
-      else
-        own=$(port_owner "$(app_port "$name")")
-        if [ -n "$own" ]; then
-          if is_docker_port_forwarder "$own"; then
-            pid_disp="docker"; docker_row=true; docker_owned=$((docker_owned+1)); own=""
-          else
-            pid_disp="!$own"; foreign=$((foreign+1)); own=""
-          fi
-        elif docker_service_running "$name"; then
-          pid_disp="docker"; docker_row=true; docker_owned=$((docker_owned+1)); own=""
-        else pid_disp="-"; fi
-      fi
-    fi
-    if port_open "$(app_port "$name")"; then
-      port_disp="up"
-    elif [ "$docker_row" = true ]; then
-      port_disp="internal"
-    else
-      port_disp="down"
-    fi
-    if [ "$docker_row" = true ]; then
-      h="docker"
-    else
-      h=$(health_of "$name"); [ "$h" = healthy ] && up=$((up+1))
-    fi
-    bin=$(binary_of "$name" "$own"); [ "$bin" = STALE ] && stale=$((stale+1))
-    if [ "$docker_row" = true ]; then
-      # These files belong to an earlier native run. Container logs and health belong to cedarcli.
-      errs="-"
-    else
-      # Exclude logback's own configuration chatter. Its internal status lines all take the
-      # form "|-LEVEL in <class>" (INFO/WARN/ERROR/…), and one WARN reports an appender named
-      # FILE-ERROR "not referenced" — which the old "|-INFO in"-only filter let through as a
-      # phantom error. Real application errors have no "|-" prefix (e.g. "ERROR [ts] logger:").
-      errs=$(grep -iE "ERROR|Exception" "$(logfile "$name")" 2>/dev/null | grep -cvE "\|-(INFO|WARN|ERROR|TRACE|DEBUG) in "); errs=${errs:-0}
-    fi
-    printf "%-18s %-8s %-8s %-10s %-8s %s\n" "$name" "$pid_disp" "$port_disp" "$h" "$bin" "$errs"
+    inspect_status "$name"
+    [ "$STATUS_HEALTH" = healthy ] && up=$((up+1))
+    [ "$STATUS_BINARY" = STALE ] && stale=$((stale+1))
+    case "$STATUS_PID" in
+      '~'*) unmanaged=$((unmanaged+1)) ;;
+      '!'*) foreign=$((foreign+1)) ;;
+      docker) docker_owned=$((docker_owned+1)) ;;
+    esac
+    printf "%-18s %-8s %-8s %-10s %-8s %s\n" \
+      "$name" "$STATUS_PID" "$STATUS_LISTENER" "$STATUS_HEALTH" "$STATUS_BINARY" "$STATUS_ERRORS"
   done < <(names)
   echo "-------------------------------------------------------------"
   if [ "$docker_owned" -gt 0 ]; then
@@ -460,6 +427,68 @@ status() {
   [ "$unmanaged" -gt 0 ] && echo "WARNING: $unmanaged service(s) marked ~pid — started outside this script. restart now adopts them."
   [ "$foreign" -gt 0 ] && echo "ERROR: $foreign service port(s) marked !pid belong to non-CEDAR processes. Native start/stop will not touch them."
   return 0
+}
+
+# Populate one row without formatting it. Keeping inspection here gives the human shell table and
+# cedarcli's richer table one source of truth instead of making the Python side scrape aligned text.
+inspect_status() {
+    local name=$1 p own pid_disp docker_row=false
+    STATUS_APP_PORT=$(app_port "$name")
+    p=$(cat "$(pidfile "$name")" 2>/dev/null)
+    if [ -n "$p" ] && kill -0 "$p" 2>/dev/null && is_service_process "$name" "$p"; then pid_disp="$p"; own="$p"
+    else
+      own=$(service_port_owner "$name" "$(app_port "$name")")
+      if [ -n "$own" ]; then
+        pid_disp="~$own"
+      else
+        own=$(port_owner "$(app_port "$name")")
+        if [ -n "$own" ]; then
+          if is_docker_port_forwarder "$own"; then
+            pid_disp="docker"; docker_row=true; own=""
+          else
+            pid_disp="!$own"; own=""
+          fi
+        elif docker_service_running "$name"; then
+          pid_disp="docker"; docker_row=true; own=""
+        else pid_disp="-"; fi
+      fi
+    fi
+    if port_open "$STATUS_APP_PORT"; then
+      STATUS_LISTENER="up"
+    elif [ "$docker_row" = true ]; then
+      STATUS_LISTENER="internal"
+    else
+      STATUS_LISTENER="down"
+    fi
+    if [ "$docker_row" = true ]; then
+      STATUS_HEALTH="docker"
+    else
+      STATUS_HEALTH=$(health_of "$name")
+    fi
+    STATUS_BINARY=$(binary_of "$name" "$own")
+    if [ "$docker_row" = true ]; then
+      # These files belong to an earlier native run. Container logs and health belong to cedarcli.
+      STATUS_ERRORS="-"
+    else
+      # Exclude logback's own configuration chatter. Its internal status lines all take the
+      # form "|-LEVEL in <class>" (INFO/WARN/ERROR/…), and one WARN reports an appender named
+      # FILE-ERROR "not referenced" — which the old "|-INFO in"-only filter let through as a
+      # phantom error. Real application errors have no "|-" prefix (e.g. "ERROR [ts] logger:").
+      STATUS_ERRORS=$(grep -iE "ERROR|Exception" "$(logfile "$name")" 2>/dev/null | grep -cvE "\|-(INFO|WARN|ERROR|TRACE|DEBUG) in ")
+      STATUS_ERRORS=${STATUS_ERRORS:-0}
+    fi
+    STATUS_PID=$pid_disp
+}
+
+status_tsv() {
+  printf 'service\tpid\tport\tlistener\thealth\tbinary\tlog_errors\n'
+  local name
+  while read -r name; do
+    inspect_status "$name"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+      "$name" "$STATUS_PID" "$STATUS_APP_PORT" "$STATUS_LISTENER" \
+      "$STATUS_HEALTH" "$STATUS_BINARY" "$STATUS_ERRORS"
+  done < <(names)
 }
 
 running() {
@@ -509,6 +538,7 @@ case "$cmd" in
   stop)    failed=0; while read -r n; do stop_one "$n" || failed=1; done < <(names "$@"); exit "$failed" ;;
   restart) "$0" stop "$@" || exit $?; sleep 2; "$0" start "$@" ;;
   status)  status ;;
+  status-tsv) status_tsv ;;
   watch)   while true; do clear; date; status; sleep 5; done ;;
   running) running "$@" ;;
   running-infra) running_infrastructure ;;

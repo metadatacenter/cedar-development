@@ -535,6 +535,14 @@ cedar-services.sh logs <name>         # tail -f a service log
 cedar-services.sh health [name...]    # exit 0 only if the named services are healthy; all with no names
 ```
 
+`cedarcli native status` is the preferred whole-host view. It renders one grouped table for the
+managed applications, native infrastructure and optional CEE frontends. Managed rows retain every
+controller diagnostic — PID ownership, application port and listener state, health, binary
+freshness and cumulative log-error count — instead of printing the controller table followed by a
+second, less informative port table. The controller exposes the same rows to the CLI through its
+internal tab-separated status action; its ordinary `status` output remains convenient for shell
+use and gates such as the `STALE` check below.
+
 It recognizes a native service already listening on its port, including one started in a terminal,
 and **reports any service whose jar or configuration is not built/present**. An occupied port is not
 treated as proof of ownership: if the listener is not the expected CEDAR jar or frontend process in

@@ -413,6 +413,14 @@ would report false backend failures.
 cedarcli docker status
 ```
 
+The command renders one compact table grouped by infrastructure, microservices, and (in full Docker
+mode) frontends. Each row shows Compose health, whether the running image matches the configured
+image set, published or internal ports, and the container restart count. `MISMATCH` is the Docker
+equivalent of a native `STALE` binary: a healthy container is still rejected when its configured
+image reference does not match the selected train or local development tag. The summary records
+container readiness, acceptance-probe readiness, and the image set in one line; failures are named
+below the table instead of being buried in a wide free-form detail column.
+
 Do not use `cedar-services.sh status` as a container health check. If that lower-level native
 controller is run directly, it labels container-owned rows `docker` in both PID and HEALTH, labels
 Artifact's unexposed port `internal`, and points back to `cedarcli docker status`. Those labels say
