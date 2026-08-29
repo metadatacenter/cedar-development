@@ -316,7 +316,12 @@ def build(args: argparse.Namespace) -> None:
 # train uploads a few hundred files, so without a retry one blip anywhere in the run discards
 # the whole build. None of them says anything about the artifact being uploaded.
 TRANSIENT_STATUSES = frozenset({429, 500, 502, 503, 504})
-UPLOAD_ATTEMPTS = 5
+# Nexus does not fail one request in isolation: it goes unavailable for a burst and then
+# recovers, so the budget is sized to outlast a burst rather than to survive a single blip.
+# Eight attempts with the backoff below span about three minutes, which is cheap against a
+# train that runs for twenty-five and is discarded whole if the burst outlasts the retries.
+UPLOAD_ATTEMPTS = 8
+MAX_RETRY_DELAY = 60
 
 
 def with_retries(what: str, attempt_call):
@@ -332,7 +337,7 @@ def with_retries(what: str, attempt_call):
             if attempt == UPLOAD_ATTEMPTS:
                 raise
             reason = str(error)
-        delay = min(30, 2 ** attempt)
+        delay = min(MAX_RETRY_DELAY, 2 ** attempt)
         print(f"retry {attempt}/{UPLOAD_ATTEMPTS - 1} after {reason}: {what} (waiting {delay}s)",
               flush=True)
         time.sleep(delay)
