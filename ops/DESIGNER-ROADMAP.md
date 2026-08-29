@@ -46,7 +46,10 @@ control is offered only where the artifact can carry the setting behind it.
 
 A field's constraint is chosen with the term picker where a host has loaded it,
 against a terminology server the host names. There is no hardcoded endpoint and
-no invented result: a search that fails says so.
+no invented result: a search that fails says so. The vocabulary snapshot an author
+pinned reaches all four kinds of entry and survives both serializations, so a
+constraint names the release it meant rather than resolving against whatever is
+served on the day it is read.
 
 The distribution is one script, its declaration and a staged npm package, held to
 a size ceiling and verified byte for byte. 115 unit tests, 5 packaging tests and
@@ -88,31 +91,20 @@ field name and nothing else.
 
 ## Version Awareness
 
-### 5. Keep the version an author pinned
-
-This is the reason the picker exists, and CED currently drops it on the floor.
-`SelectedConstraint` carries a `version` when an author pinned one, and the
-mapper into CED's constraint ignores it. A constraint that names a release is the
-difference between a template that means the same thing next year and one that
-does not.
-
-Done when a pinned version reaches `_valueConstraints` and survives a round trip
-through both serializations.
-
-### 6. Several constraints on one field, and the actions between them
+### 5. Several constraints on one field, and the actions between them
 
 CEDAR allows any number of ontologies, branches, classes and value sets on one
 field, plus actions that move or delete entries. CED's panel collects exactly
 one, because that is all its free-text form ever collected. The picker returns
 one at a time, so this is a question of what the panel does with the second.
 
-### 7. Say what a constraint resolves to
+### 6. Say what a constraint resolves to
 
 An author who has pinned DOID 2026-06-30 to a branch of 4,000 terms cannot see
 that from the panel. The terminology server can answer it and the picker already
 shows counts while choosing; the constraint, once chosen, shows a label.
 
-### 8. Freeze on publish
+### 7. Freeze on publish
 
 A draft template names a release or names latest; a published one must name a
 release, resolved at publish time. CED does not publish anything yet, so this
@@ -120,7 +112,7 @@ follows publishing below, but the constraint shape has to be right before then.
 
 ## Persistence and Lifecycle
 
-### 9. Open from and save to the artifact server
+### 8. Open from and save to the artifact server
 
 CED reads a file and writes a download. The production designer opens from a
 folder, saves back to it, and knows about permissions. For an embeddable
@@ -128,12 +120,12 @@ component the host may own that, which makes this a contract question before it
 is an implementation one: an event carrying the template a host is expected to
 store, or a REST client of CED's own.
 
-### 10. Publish, and make a new version
+### 9. Publish, and make a new version
 
 `bibo:status`, `pav:version`, `pav:derivedFrom` and `pav:previousVersion` are the
 lifecycle the artifact server enforces. CED writes a fixed `0.0.1` draft.
 
-### 11. Validate before saving
+### 10. Validate before saving
 
 The schema server validates a template and returns what is wrong with it. Nothing
 in CED asks. The model library refuses to build some invalid artifacts, which
@@ -141,7 +133,7 @@ covers less ground than the validator and is not the same answer.
 
 ## The Embedding Contract
 
-### 12. Settle and declare the rest of the contract
+### 11. Settle and declare the rest of the contract
 
 `CedConfig` has one key. A host embedding a designer will want at least a
 read-only mode, a language, and somewhere to say which field types to offer —
@@ -149,7 +141,7 @@ the preferences the designer keeps in a modal today are host policy, not user
 preference. Every key added needs the conformance test that already asserts the
 contract and the implementation cannot drift apart.
 
-### 13. Publish the package
+### 12. Publish the package
 
 Nothing is on either channel. The staging and the channel rule are in place, so
 this is a decision rather than work: a dev snapshot to Nexus lets the Workbench
@@ -157,7 +149,7 @@ consume CED before it is finished.
 
 ## Structure Beyond a Flat Template
 
-### 14. Template elements
+### 13. Template elements
 
 CED has no notion of an element. The production designer nests them, reuses them
 across templates, allows multiple cardinality on them, and treats "may this type
@@ -175,17 +167,17 @@ template that contains elements renders them rather than dropping them.
 
 ## Quality
 
-### 15. Preview a template as CEE renders it
+### 14. Preview a template as CEE renders it
 
 CED's preview panel is its own approximation of a form. CEE is the thing that
 actually renders CEDAR templates, and it is a web component, so the preview could
 be the real renderer rather than a second implementation of one that will drift.
 
-### 16. Keyboard and screen-reader access
+### 15. Keyboard and screen-reader access
 
 Untested and unclaimed. The picker has thought about this and CED has not.
 
-### 17. A corpus test
+### 16. A corpus test
 
 CEE checks itself against 37 real templates in both serializations. CED has no
 equivalent — nothing proves it can open the templates production already holds,
