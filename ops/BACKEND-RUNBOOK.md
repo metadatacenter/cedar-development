@@ -1430,7 +1430,7 @@ from, because they answer very different questions:
 | Matrices | 7 | Authorization, permission levels and artifact lifecycle, as tables |
 | Sharing and ownership | 1 | The `PUT .../permissions` round trip, including ownership transfer |
 | Content negotiation | 2 | YAML and JSON transcode both ways |
-| REST smoke | 1 | The real stack, no browser: 19 suites, 742 expected checks |
+| REST smoke | 1 | The real stack, no browser: 19 suites, 778 expected checks |
 | End-to-end smoke | 1 | The real stack, through a browser |
 
 **The browser smoke is green as of 2026-08-29 in both monolith and authenticated split-frontend
@@ -1455,7 +1455,7 @@ in the profile, so there are no API keys to keep. Run one suite with `npm run sm
 the suites are `apidocs`, `artifacts`, `authentication`, `categories`, `contract`, `download`,
 `finding`, `folders`, `freeze`, `group-sharing`, `groups`, `inclusion`, `negotiation`, `openness`,
 `pagination`, `search`, `sharing`, `validation` and `versioning`. The committed
-`rest/expected-checks.json` inventory holds 742 exact suite/section/check identities; a passing run
+`rest/expected-checks.json` inventory holds 778 exact suite/section/check identities; a passing run
 must execute that same ordered inventory, so an early return, removed loop or conditional omission is
 a failure even when every check that did run passed. Freeze keeps the inventory stable when the local
 terminology store is absent by recording its seven checks as skipped rather than silently omitting

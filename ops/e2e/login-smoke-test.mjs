@@ -1350,9 +1350,9 @@ async function verifyPublishDraftLifecycle(browser, page, folderId, user1) {
 
 // Publish a template to OpenView via the row ⋮ → "Enable OpenView" menu item. That
 // item POSTs make-artifact-open and shows a success flash — there is no confirm
-// dialog (unlike delete). The command body carries the artifact's @id, which is the
-// one place the smoke can learn it, and which the OpenView URL is built from, so this
-// captures it off the request and returns it.
+// dialog (unlike delete). The frontend first reads the graph details ETag and sends it
+// as If-Match; the successful command returns the new graph ETag. The command body also
+// carries the artifact's @id, which is what the OpenView URL is built from.
 async function enableOpenView(page, folderId, templateName) {
   await gotoListing(page, folderId);
   await openRowMenu(page, templateName);
@@ -1367,6 +1367,11 @@ async function enableOpenView(page, folderId, templateName) {
   const resp = await pending;
   if (!resp) throw new Error('Enable OpenView sent no make-artifact-open request');
   if (!resp.ok()) throw new Error(`make-artifact-open answered ${resp.status()}`);
+  const ifMatch = await resp.request().headerValue('if-match');
+  const returnedEtag = await resp.headerValue('etag');
+  if (!ifMatch || !returnedEtag) {
+    throw new Error(`make-artifact-open omitted ${!ifMatch ? 'If-Match' : 'the response ETag'}`);
+  }
   const id = JSON.parse(resp.request().postData() ?? '{}')['@id'];
   if (!id) throw new Error('make-artifact-open request carried no @id');
   return id;

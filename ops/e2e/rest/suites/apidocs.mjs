@@ -81,6 +81,33 @@ export async function run() {
       check(!!paths['/categories']?.post?.responses?.['409'],
           'resource: duplicate category creation documents its conflict response',
           'POST /categories omitted 409');
+
+      for (const command of [
+        'make-artifact-open', 'make-artifact-not-open', 'make-folder-open', 'make-folder-not-open',
+      ]) {
+        const operation = paths[`/command/${command}`]?.post;
+        check(operation?.parameters?.some(parameter =>
+          parameter?.$ref === '#/components/parameters/IfMatch'),
+        `resource: ${command} documents its required If-Match header`,
+        `POST /command/${command} omitted the shared IfMatch parameter`);
+        check(!!operation?.responses?.['412'] && !!operation?.responses?.['428'],
+            `resource: ${command} documents stale and missing preconditions`,
+            `POST /command/${command} omitted 412 or 428`);
+        check(!!operation?.responses?.['200']?.headers?.ETag,
+            `resource: ${command} documents the resulting ETag`,
+            `POST /command/${command} response 200 omitted ETag`);
+      }
+
+      for (const detailsPath of [
+        '/templates/{template_id}/details',
+        '/template-elements/{template_element_id}/details',
+        '/template-fields/{template_field_id}/details',
+        '/template-instances/{template_instance_id}/details',
+      ]) {
+        check(!!paths[detailsPath]?.get?.responses?.['200']?.headers?.ETag,
+            `resource: ${detailsPath} documents its graph ETag`,
+            `GET ${detailsPath} response 200 omitted ETag`);
+      }
     }
 
     if (s.label === 'valuerecommender') {
