@@ -1559,23 +1559,30 @@ The three load profiles are:
 | Command | Default shape | What it exercises |
 |---|---:|---|
 | `npm run perf:rest:quick` | 10 identities, ramp 1 → 5 → 10 → 0 in 4.5 minutes | Artifact reads, folder listings, search, conditional artifact updates, conditional moves, and OpenView toggles |
-| `npm run perf:rest:contention` | 20 identities for 2 minutes | One batch reads one ETag and sends 20 simultaneous conditional updates from different authorized users; exactly one must return 200 and the other 19 must return 412 |
+| `npm run perf:rest:contention` | 20 identities, three complete matrix rounds | Twenty-way compare-and-swap races across artifact content, workspace graph state, ACLs, group records and membership, and categories; update/delete, repeated-delete and wildcard/delete cases use sacrificial fixtures |
 | `npm run perf:rest:soak` | 50 identities and 50 VUs for 30 minutes | The mixed workload at steady load, for latency drift, connection leakage and queue buildup |
 
-`--users=N`, `--vus=N` and `--duration=10s` override those defaults. `--pool-size=N` can raise the
+`--users=N`, `--vus=N` and `--duration=10s` override those defaults. The contention profile also
+accepts `--rounds=N`; its `--duration` is a maximum rather than a steady-state duration.
+`--pool-size=N` can raise the
 ensured identity-pool floor above 50, while a larger `--users` value always expands the pool to fit.
 A VU count may not exceed the selected identities: independent writers must not accidentally contend
 merely because the runner reused an account. The identity ensure phase and initial authentication
 happen outside the measured workload; expired tokens are refreshed during a long soak. `412` is
-expected only in the contention profile.
+expected only in the contention profile. Category races use the administrator key loaded by the
+native profile; they never store it in a manifest or summary.
 The initial latency threshold is intentionally broad (`p95 < 3 s`); use repeated quiet-host runs to
 establish operation-specific baselines before tightening it.
 
 Every participant gets one stamped root holding source and destination folders plus four templates:
-read, mutable, movable and OpenView. The first participant owns one additional template shared for
-write directly with the other selected performance identities. Setup writes every returned ID to
+read, mutable, movable and OpenView. A contention run also creates a separate shared fixture for
+each revision domain: all four artifact-content routes, artifact and folder graph records, artifact
+and folder ACLs, a group record and membership roster, and a category record and ACL. Three bounded
+sacrificial pools cover update-versus-delete, repeated delete and wildcard deletion for templates,
+elements, fields, instances, folders, groups and categories. Setup writes every returned ID to
 `reports/rest-perf/runs/<run-id>/run.json` immediately, before creating the next resource. k6 writes
-its complete summary beside that manifest.
+its complete summary beside that manifest. In addition to the aggregate trend, each measured route
+has its own `cedar_route_*_duration` trend so a fast read cannot hide a slow mutation.
 
 The wrapper checks that k6 exists before setup, then always performs teardown after the load process,
 including a failed threshold or first `SIGINT`/`SIGTERM`. Teardown reads the current ETag, deletes in

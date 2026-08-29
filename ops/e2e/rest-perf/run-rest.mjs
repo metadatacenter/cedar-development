@@ -15,6 +15,7 @@ const profile = arg('profile', 'quick');
 const defaultUsers = { quick: 10, contention: 20, soak: 50 };
 if (!defaultUsers[profile]) throw new Error(`--profile must be quick, contention or soak; got ${profile}`);
 const users = intArg('users', defaultUsers[profile], { max: 500 });
+const rounds = intArg('rounds', 3, { max: 20 });
 const poolSize = intArg('pool-size', 50, { min: 50, max: 500 });
 const ensuredUsers = Math.max(users, poolSize);
 const id = arg('run-id', runId());
@@ -78,6 +79,8 @@ try {
     resolve(HERE, 'prepare-run.mjs'),
     `--users-file=${usersFile}`,
     `--users=${users}`,
+    `--profile=${profile}`,
+    `--rounds=${rounds}`,
     `--run-id=${id}`,
     `--manifest=${manifest}`,
   ], { env });
@@ -90,6 +93,7 @@ try {
     CEDAR_PERF_SUMMARY: summary,
     ...(duration ? { CEDAR_PERF_DURATION: duration } : {}),
     CEDAR_PERF_VUS: String(vus),
+    CEDAR_PERF_ROUNDS: String(rounds),
   };
   const loaded = await run('k6', ['run', resolve(HERE, 'cedar-rest.k6.js')], { env: loadEnvironment });
   testExit = loaded.code;

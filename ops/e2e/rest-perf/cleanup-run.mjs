@@ -20,6 +20,10 @@ const tokens = new Map();
 const failures = [];
 
 async function tokenFor(actorIndex) {
+  if (actorIndex === 'admin') {
+    if (!env.CEDAR_ADMIN_USER_API_KEY) throw new Error('CEDAR_ADMIN_USER_API_KEY is required to clean category fixtures');
+    return env.CEDAR_ADMIN_USER_API_KEY;
+  }
   if (tokens.has(actorIndex)) return tokens.get(actorIndex);
   const actor = manifest.actors[actorIndex];
   if (!actor) throw new Error(`manifest has no actor ${actorIndex}`);
@@ -31,7 +35,8 @@ async function tokenFor(actorIndex) {
 for (const resource of [...manifest.resources].reverse()) {
   if (resource.deletedAt) continue;
   const token = await tokenFor(resource.actor);
-  const before = await request(token, 'GET', resource.path);
+  const base = resource.base;
+  const before = await request(token, 'GET', resource.path, undefined, { base });
   if (before.status === 404) {
     resource.deletedAt = new Date().toISOString();
     writeJson(manifestPath, manifest);
@@ -43,7 +48,7 @@ for (const resource of [...manifest.resources].reverse()) {
   }
   let deletion;
   try {
-    deletion = await currentMutation(token, 'DELETE', resource.path);
+    deletion = await currentMutation(token, 'DELETE', resource.path, undefined, { base });
   } catch (error) {
     failures.push(`${resource.kind} ${resource.name}: ${error.message}`);
     continue;
@@ -52,7 +57,7 @@ for (const resource of [...manifest.resources].reverse()) {
     failures.push(`${resource.kind} ${resource.name}: DELETE ${deletion.status} ${deletion.text}`);
     continue;
   }
-  const after = await request(token, 'GET', resource.path);
+  const after = await request(token, 'GET', resource.path, undefined, { base });
   if (after.status !== 404) {
     failures.push(`${resource.kind} ${resource.name}: verification GET returned ${after.status}, expected 404`);
     continue;
