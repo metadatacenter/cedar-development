@@ -51,9 +51,15 @@ pinned reaches all four kinds of entry and survives both serializations, so a
 constraint names the release it meant rather than resolving against whatever is
 served on the day it is read.
 
+It looks like CEDAR. The palette is the teal and rust the Workbench and CEE use,
+the type scale is stated in pixels because a rem would resolve against whatever
+root size the host page happens to set, and Roboto travels in the bundle at three
+weights — registered from an unencapsulated component, because a shadow root
+ignores an `@font-face` declared inside it.
+
 The distribution is one script, its declaration and a staged npm package, held to
-a size ceiling and verified byte for byte. 115 unit tests, 5 packaging tests and
-37 browser tests run against it, the last of them driving the built bundle in a
+a size ceiling and verified byte for byte. 214 unit tests, 5 packaging tests and
+38 browser tests run against it, the last of them driving the built bundle in a
 hostile host page.
 
 ## The Authoring Surface
@@ -136,11 +142,15 @@ covers less ground than the validator and is not the same answer.
 ### 11. Settle and declare the rest of the contract
 
 `CedConfig` has one key. A host embedding a designer will want at least a
-read-only mode, a language, and somewhere to say which field types to offer —
-that last one is host policy, and the Figma-era preferences modal that treated it
-as a user setting has been removed rather than reinterpreted. Every key added
-needs the conformance test that already asserts the contract and the
-implementation cannot drift apart.
+read-only mode, a language, and somewhere to say which field types to offer.
+That last one has an answer already, but the wrong shape of one: which types
+appear is a user setting, chosen in a preferences modal and its three presets,
+and a host that embeds the designer for a particular purpose has no say in it.
+Both readings are legitimate — the host bounds what its authors may use, the
+author narrows a long palette down to what they are working with — so the
+contract has to say which one wins where they disagree. Every key added needs
+the conformance test that already asserts the contract and the implementation
+cannot drift apart.
 
 ### 12. Publish the package
 
@@ -150,7 +160,27 @@ consume CED before it is finished.
 
 ## Structure Beyond a Flat Template
 
-### 13. Template elements
+### 13. Give the field library somewhere to keep things
+
+An author can define a field type of their own — a name, an icon, one of the
+built-in types underneath, a placeholder and a list of validation rules — keep it
+in a named library, and drop it into any template from the sidebar. The
+capability is worth having: most of what an author puts in a template is
+something they or a colleague has described once already.
+
+What it lacks is anywhere to put them. A custom field, a library and every
+preference are signals in memory, so all three are gone on reload, and nothing an
+author defines reaches a second author or a second browser. CEDAR's own unit of
+reuse is an artifact on the server, with an identifier, a version and
+permissions, which is what lets reuse outlive the tab it was created in. Whether
+a saved field becomes one of those, or stays local to the browser and is stored
+there, is the decision to make first.
+
+The validation rules ask the same question in a smaller form. They are held on
+the custom type and read by nothing, where CEDAR states a regular expression and
+a value range on the field itself.
+
+### 14. Template elements
 
 CED has no notion of an element. The production designer nests them, reuses them
 across templates, allows multiple cardinality on them, and treats "may this type
@@ -168,17 +198,17 @@ template that contains elements renders them rather than dropping them.
 
 ## Quality
 
-### 14. Preview a template as CEE renders it
+### 15. Preview a template as CEE renders it
 
 CED's preview panel is its own approximation of a form. CEE is the thing that
 actually renders CEDAR templates, and it is a web component, so the preview could
 be the real renderer rather than a second implementation of one that will drift.
 
-### 15. Keyboard and screen-reader access
+### 16. Keyboard and screen-reader access
 
 Untested and unclaimed. The picker has thought about this and CED has not.
 
-### 16. A corpus test
+### 17. A corpus test
 
 CEE checks itself against 37 real templates in both serializations. CED has no
 equivalent — nothing proves it can open the templates production already holds,
