@@ -137,9 +137,10 @@ covers less ground than the validator and is not the same answer.
 
 `CedConfig` has one key. A host embedding a designer will want at least a
 read-only mode, a language, and somewhere to say which field types to offer —
-the preferences the designer keeps in a modal today are host policy, not user
-preference. Every key added needs the conformance test that already asserts the
-contract and the implementation cannot drift apart.
+that last one is host policy, and the Figma-era preferences modal that treated it
+as a user setting has been removed rather than reinterpreted. Every key added
+needs the conformance test that already asserts the contract and the
+implementation cannot drift apart.
 
 ### 12. Publish the package
 
