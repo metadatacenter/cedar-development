@@ -2,11 +2,10 @@
 
 Building, running and testing **CEE** (`cedar-embeddable-editor`) locally.
 Everything here has been run on macOS (Apple silicon), against Angular 22. The latest
-stable release documented here is CEE 2.0.1; all seven embedding manifests, including
-the extracted Workspace, currently pin the scoped Nexus snapshot
-`2.0.2-dev.20260824.48283fb`. Consumer coherence is verified from manifests and lockfiles,
-and deployed identity is verified by the bundle sha256 rather than only by the version
-each host reports.
+stable release documented here is CEE 2.0.3; all seven embedding manifests, including
+the extracted Workspace, pin that public npmjs release. Consumer coherence is verified
+from manifests and lockfiles, and deployed identity is verified by the bundle sha256
+rather than only by the version each host reports.
 
 Sibling runbooks:
 - [CEE-ROADMAP.md](./CEE-ROADMAP.md) — where CEE currently is, and the open
@@ -160,7 +159,7 @@ can be pointed at to try an unpublished build, by symlinking its
 Build Into the Frontends". A fresh clone has no `dist-npm/` until something stages
 it, so **run the gate, or `npm run package:npm:prebuilt` alone, before expecting a
 symlinked consumer to serve CEE.** Nothing is symlinked at present: every consumer
-holds the installed scoped Nexus snapshot `2.0.2-dev.20260824.48283fb`.
+holds the installed public npmjs release 2.0.3.
 
 `dist-npm/` used to be committed, and the stage used to be a drift check
 (`check:staged`) rather than a staging step. That arrangement cost more than it
@@ -275,7 +274,7 @@ Each frontend then names the snapshot through an npm alias, because npm routes b
 scope and this is the only package taken from Nexus:
 
 ```json
-"cedar-embeddable-editor": "npm:@org.metadatacenter/cedar-embeddable-editor@2.0.0-dev.20260818.6dca9bf"
+"cedar-embeddable-editor": "npm:@org.metadatacenter/cedar-embeddable-editor@<next>-dev.<date>.<sha>"
 ```
 
 All seven manifests already carry the `@org.metadatacenter:registry` line an alias
@@ -320,7 +319,7 @@ and checking the wrong file reads exactly like a failed deploy:
 For the first two, compare sha256 against the staged bundle. For the bundled case
 there is no file to hash: grep the bundle for the load-trace stamp, which names
 one build exactly. The version string alone is not enough — the bundle holds every
-dependency's version, so a bare `2.0.1` in it may belong to something else
+dependency's version, so a bare semver such as `2.0.3` in it may belong to something else
 entirely.
 
 Ask the dev server for `vendor.js` and the dist for `main.*.js`. Grepping the other
@@ -1203,9 +1202,9 @@ instead, where the dev versions do not exist.
 `main` is owned by the release process. Work lands on `develop`.
 
 There is one stable publish target: the unscoped `cedar-embeddable-editor` on public npmjs, under the
-default `latest` tag. 2.0.1 is the latest stable release, published 2026-08-21. All seven
-embedding manifests currently pin the scoped Nexus snapshot `2.0.2-dev.20260824.48283fb`;
-the propagation check confirms the matching manifest and lockfile resolution in every consumer.
+default `latest` tag. 2.0.3 is the latest stable release, published 2026-08-27. All seven embedding
+manifests pin 2.0.3 from npmjs; the propagation check confirms the matching manifest and lockfile
+resolution in every consumer.
 The stable registry goes from 1.5.2 straight to 2.0.1: 1.6.0 was
 published on 2026-08-12 and unpublished from npmjs afterwards, so a manifest still naming 1.6.0
 cannot install, and the tarball it named cannot be fetched for comparison.
@@ -1215,8 +1214,9 @@ own `name` and `publishConfig` are not what publishes.
 
 Dev snapshots are a second channel: the scoped `@org.metadatacenter/cedar-embeddable-editor` on
 Stanford Nexus under a `dev` tag, versioned `<next>-dev.<date>.<sha>`. It was retired for a while and
-is live again — `dev` currently names `2.0.0-dev.20260820.a8cc4cc`. Reach it from an embedding app
-through an npm alias, since npm routes by scope and this is the only package taken from Nexus.
+is live again. Query the registry before relying on the mutable `dev` tag; pin an exact version in
+an embedding app through an npm alias, since npm routes by scope and this is the only package taken
+from Nexus.
 Train-owned snapshots use the more specific
 `<next>-dev.<train-date><train-minute>.g<sha12>` identity, tying the package to both the train and
 the captured CEE commit without rewriting CEE source history.
@@ -1255,7 +1255,7 @@ A token is a credential — keep it in `~/.npmrc` only, never in a repo or these
 
 ### 1 · Bump the version
 
-A release version is plain semver — `2.0.1`. Only **two** files hold it by hand:
+A release version is plain semver — for example, `2.0.3`. Only **two** files hold it by hand:
 
 | File | Occurrences |
 |---|---|
@@ -1383,7 +1383,7 @@ each candidate commit settles which tree was staged. That is what distinguishes 
 Then draft the release notes against the tag:
 
 ```bash
-gh release create release-2.0.1 --draft --title "CEE 2.0.1" --notes-file <notes.md>
+gh release create "release-${CEE_VERSION}" --draft --title "CEE ${CEE_VERSION}" --notes-file <notes.md>
 ```
 
 ### 5 · Advance development
@@ -1410,7 +1410,7 @@ git commit -m "Advance CEE to next development version"
 git push
 ```
 
-CEE's notes follow the shape 2.0.1's carry, which is not the one
+CEE's notes follow the shape 2.0.3's carry, which is not the one
 [cedar-project's releases](https://github.com/metadatacenter/cedar-project/releases) use — those
 announce a platform deployment to the people who use the Workbench, and CEE ships a package to the
 people who embed it. One opening line names the release and links the npm package. One paragraph
@@ -1439,7 +1439,7 @@ production monolith and the existing auxiliary/demo frontends. A stable release 
 version resolved from npmjs:
 
 ```json
-"cedar-embeddable-editor": "2.0.1"
+"cedar-embeddable-editor": "2.0.3"
 ```
 
 Its lockfiles record the npmjs tarball and integrity hash, so what installs is reproducible.

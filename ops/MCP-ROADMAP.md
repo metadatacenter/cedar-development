@@ -25,26 +25,27 @@ one server — a tool to add, a description to sharpen — belongs in that repos
 
   Deliver:
 
-  - Build the three Maven servers with the rest, after `cedar-artifact-library`, so a library change
-    that breaks a tool signature fails in the build rather than at a client's first call.
+  - Build the three Maven servers with the rest. When `cedar-artifact-library` advances, bump its
+    two MCP consumers in the same delivery and build them after the declared library release, so a
+    signature break fails before a client sees it.
   - Give each repository the workflow every other Java repository already has.
   - Decide whether they join the train-backed release or stay outside it, as CEE and the
-    TypeScript model library do. `cedar-artifact-rest-mcp` is the one with a real choice to make:
-    it resolves from Maven Central alone, so it could be published like any other package. The other
-    two hold a local `cedar-artifact-library` SNAPSHOT and cannot be until that changes.
+    TypeScript model library do. Dependency resolution no longer decides that question:
+    `cedar-artifact-rest-mcp` resolves from Maven Central alone, while `cedar-artifact-mcp` and
+    `cedar-cee-mcp` resolve released `cedar-artifact-library` 2.9.3 from the BMIR Nexus.
   - Make a running server state which CEDAR it talks to. `ping` reports the build and deliberately
     contacts nothing, so the target is invisible — and it is fixed when the process spawns, so
     editing a client's configuration changes nothing until the server restarts. That combination let
     a server go on writing to whatever it was started against after its configuration had been
     pointed elsewhere, which is a hazard when one of the two is production.
 
-  Two obstacles this item used to carry are gone. The three Maven servers were unbuildable here,
-  all pinning `cedar-artifact-library:2.8.4-SNAPSHOT` while `~/.m2/settings.xml` reached
-  `oss.sonatype.org`, which answers `402 Payment Required` and aborted resolution before the BMIR
-  Nexus was tried. The pin moved to 2.9.2-SNAPSHOT and they build. Separately, a rebuild produced a
-  jar that would not start at all, from a `json-schema-validator` conflict between the MCP SDK and
-  `CedarValidator`; that is resolved per server and written up in the runbook, but it is the kind of
-  breakage that only surfaces on a rebuild, which is the argument for building them continuously.
+  Two obstacles this item used to carry are gone. The artifact and CEE MCPs once pinned a local
+  `cedar-artifact-library:2.8.4-SNAPSHOT` while Maven attempted an obsolete Sonatype repository;
+  both now pin released 2.9.3 from the BMIR Nexus, and the REST MCP has no artifact-library
+  dependency. Separately, a rebuild produced a jar that would not start at all, from a
+  `json-schema-validator` conflict between the MCP SDK and `CedarValidator`; that is resolved per
+  server and written up in the runbook, but it is the kind of breakage that only surfaces on a
+  rebuild, which is the argument for building them continuously.
 
 - **2. Track the CEE bundle a client actually serves.** `cedar-cee-mcp` pins the CEE by version and
   hash and refuses a mismatch, so what a build produces is known. What a *client* is running is not:
