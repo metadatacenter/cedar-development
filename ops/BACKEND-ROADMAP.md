@@ -36,25 +36,32 @@ larger lifecycle refactor tracked below.
   through folder deletion). Immutability of published content is a separate guarantee and is
   unaffected either way — that one is enforced.
 
-- **2. Clean up the DataCite DOI minting workflow.** Treat minting as one explicit, auditable lifecycle
-  rather than a preparatory GET followed by a loosely coupled POST. The mutation endpoint must itself
-  enforce write access and the source artifact's open/published requirements — today those checks are
-  made only by the GET, so a caller can bypass them by invoking the POST directly. It also computes the
-  CEDAR-instance validation result but never refuses an invalid instance.
+- **2. Finish the DataCite DOI minting lifecycle.** The access and validity gates landed on 2026-08-27
+  (`a7dddca`, `e775d6d`). `validateSourceArtifactForDoi` now runs on the mutation endpoint as well as
+  the preparatory GET, so a direct POST can no longer bypass write access, the open requirement, or a
+  template's published requirement. The endpoint refuses any state other than `draft` or `publish`,
+  and refuses an instance the CEDAR validator rejects instead of computing that result and discarding
+  it. The DataCite and validation calls moved behind an injectable `DataCiteHttpClient` with
+  configured timeouts, so transport failures map to `502` rather than surfacing as a `RuntimeException`
+  or a misleading `400`. The DOI-annotation write-back response is read: when it is rejected or fails
+  in transport, the response is a `502` carrying the minted DOI, the source artifact id and
+  `reconciliationRequired`, which distinguishes a DataCite failure from a local persistence failure.
+  `DataCiteResourceAuthorizationTest`, `DataCitePublicationWorkflowTest` and `DataCiteHttpClientTest`
+  pin that behaviour offline against a fake DataCite boundary, and the live tests stay behind the
+  `datacite` tag.
 
-  Make the external operation idempotent and recovery-safe. A successful DataCite publish is currently
-  followed by a local DOI-annotation update whose response is ignored; if that update fails, DataCite
-  has minted the DOI while CEDAR still appears to have none. Define durable states for draft/reserved,
-  published and locally attached; retain the DataCite identifier before any fallible follow-up; and
-  make retries resume or reconcile the same DOI rather than create an orphan or duplicate. Tighten how
-  an existing draft is associated with its source artifact, and report DataCite and local persistence
-  failures distinctly.
-
-  Extract the HTTP client and orchestration from `DataCiteResource`, centralize configuration and error
-  mapping, and pin the lifecycle with unit tests using a fake DataCite boundary: unauthorized direct
-  POST, invalid metadata, create-versus-update, retry after timeout, DataCite success/local update
-  failure, and repeated publish. Keep normal tests offline; add only an opt-in DataCite sandbox smoke
-  test for the final wire contract and credential/configuration check.
+  The durable lifecycle remains open, and it is what makes the operation recovery-safe. Minting still
+  persists no state of its own: draft/reserved, published and locally attached are recorded nowhere,
+  so the `reconciliationRequired` response names a condition no code resolves, and a retry after a
+  timeout cannot tell whether the earlier attempt already minted a DOI. Define those states, retain
+  the DataCite identifier before the fallible write-back, and make a retry resume or reconcile the
+  same DOI rather than orphan or duplicate one. Tighten how an existing draft is associated with its
+  source artifact: the lookup still matches DataCite records on the OpenView URL. Orchestration also
+  still sits in `DataCiteResource` — only the HTTP client came out — so configuration and error
+  mapping are not yet centralized. The offline suite still lacks create-versus-update, retry after
+  timeout, and repeated publish, each of which needs the durable states before it can be written. Keep
+  normal tests offline; add only an opt-in DataCite sandbox smoke test for the final wire contract and
+  credential/configuration check.
 
 - **3. Settle the sharing and permission model, then write it down.** This is the umbrella item: the
   pieces below are each small, and separately each looks like a quirk, but together they say the model
