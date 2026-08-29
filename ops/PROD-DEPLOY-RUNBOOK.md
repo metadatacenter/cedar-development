@@ -105,7 +105,7 @@ test "${CEDAR_KEYCLOAK_ALLOW_INSECURE_TLS:-false}" = false
 ### 4 · Build (Java still running — keep the downtime window short)
 ```bash
 cedarcli check versions        # every repo reports the expected version and any intended modifier
-cedarcli maven clean all
+cedarcli build maven clean all
 cedarcli build all             # this deploy: ~0:11:24
 ```
 
