@@ -2,8 +2,9 @@
 # ------------------------------------------------------------------------------
 # cedar-services.sh — start / stop / monitor the CEDAR app tier without 15 consoles.
 #
-# Runs the 15 Dropwizard microservices + the production frontend (gulp) + the two
-# split frontend previews (gulp) + the 4 auxiliary Angular frontends (via `ng serve`)
+# Runs the 15 Dropwizard microservices + the 7 frontends, which are named ui-* to keep them
+# apart from the like-named microservices: ui-main (the AngularJS monolith) and the two previews
+# being split out of it start under gulp, the 4 Angular applications under `ng serve`,
 # as background processes (nohup), each logging to $CEDAR_HOME/log/, PIDs in
 # $CEDAR_HOME/log/run/. One `status` view shows PID / port / health / error-count.
 # Frontend health is port-only (no Dropwizard /healthcheck).
@@ -57,9 +58,9 @@ SERVICES=(
   "monitor 9014 9114"
   "impex 9008 9108"
   "bridge 9015 9115"
-  "frontend 4200 0"
-  "workspace 4201 0"
-  "designer 4202 0"
+  "ui-main 4200 0"
+  "ui-workspace 4201 0"
+  "ui-designer 4202 0"
   "ui-openview 4220 0"
   "ui-content 4240 0"
   "ui-monitoring 4300 0"
@@ -82,9 +83,13 @@ INFRASTRUCTURE_PORTS=(
   "keycloak 8080"
 )
 
-# ng-serve source dir for each aux (ui-*) frontend
+# Source directory for every frontend. ui-main remains the production-safe monolith while
+# ui-workspace and ui-designer, the two halves being extracted from it, run beside it.
 fe_dir() {
   case "$1" in
+    ui-main)       echo "$CEDAR_HOME/cedar-template-editor" ;;
+    ui-workspace)  echo "$CEDAR_HOME/cedar-workspace" ;;
+    ui-designer)   echo "$CEDAR_HOME/cedar-template-designer" ;;
     ui-openview)   echo "$CEDAR_HOME/cedar-openview/cedar-openview-src" ;;
     ui-content)    echo "$CEDAR_HOME/cedar-content-distribution" ;;
     ui-monitoring) echo "$CEDAR_HOME/cedar-monitoring/cedar-monitoring-src" ;;
@@ -92,21 +97,11 @@ fe_dir() {
   esac
 }
 
-# AngularJS/Gulp frontends. `frontend` remains the production-safe monolith while
-# Workspace and Designer run beside it during the extraction.
-gulp_fe_dir() {
-  case "$1" in
-    frontend)  echo "$CEDAR_HOME/cedar-template-editor" ;;
-    workspace) echo "$CEDAR_HOME/cedar-workspace" ;;
-    designer)  echo "$CEDAR_HOME/cedar-template-designer" ;;
-  esac
-}
-
 svc_field() { local n=$1 f=$2; for s in "${SERVICES[@]}"; do set -- $s; [ "$1" = "$n" ] && { echo "${!f}"; return; }; done; }
 app_port()  { svc_field "$1" 2; }
 admin_port(){ svc_field "$1" 3; }
 pidfile()   { echo "$RUN/$1.pid"; }
-logfile()   { case "$1" in frontend|workspace|designer) echo "$LOGDIR/cedar-$1.log";; ui-*) echo "$LOGDIR/frontend-${1#ui-}.log";; *) echo "$LOGDIR/cedar-$1-server.log";; esac; }
+logfile()   { case "$1" in ui-*) echo "$LOGDIR/$1.log";; *) echo "$LOGDIR/cedar-$1-server.log";; esac; }
 port_open() { nc -z -G1 127.0.0.1 "$1" >/dev/null 2>&1; }
 
 # Whoever is actually listening, pidfile or not. A listener is never assumed to be CEDAR merely
@@ -141,25 +136,13 @@ docker_service_running() {
   [ "$details" = "true $project" ]
 }
 
-expected_frontend_dir() {
-  case "$1" in
-    frontend) echo "$CEDAR_HOME/cedar-template-editor" ;;
-    workspace) echo "$CEDAR_HOME/cedar-workspace" ;;
-    designer) echo "$CEDAR_HOME/cedar-template-designer" ;;
-    ui-openview) echo "$CEDAR_HOME/cedar-openview/cedar-openview-src" ;;
-    ui-content) echo "$CEDAR_HOME/cedar-content-distribution" ;;
-    ui-monitoring) echo "$CEDAR_HOME/cedar-monitoring/cedar-monitoring-src" ;;
-    ui-bridging) echo "$CEDAR_HOME/cedar-bridging/cedar-bridging-src" ;;
-  esac
-}
-
 is_service_process() {
   local name=$1 pid=$2 command cwd expected prefix
   command=$(process_command "$pid")
   [ -n "$command" ] || return 1
   case "$name" in
-    frontend|workspace|designer|ui-*)
-      expected=$(expected_frontend_dir "$name")
+    ui-*)
+      expected=$(fe_dir "$name")
       [ -n "$expected" ] || return 1
       cwd=$(process_cwd "$pid")
       case "$cwd" in "$expected"|"$expected"/*) ;; *) return 1 ;; esac
@@ -302,8 +285,8 @@ cee_of() {  # echoes current|STALE|- for the Embeddable Editor the Template Desi
 binary_of() {  # echoes current|STALE|- for a service and the pid serving it
   local name=$1 pid=$2 jar started j_epoch p_epoch
   case "$name" in
-    frontend) cee_of; return ;;
-    workspace|designer|ui-*) echo '-'; return ;;
+    ui-main) cee_of; return ;;
+    ui-*) echo '-'; return ;;
   esac
   jar=$(jar_of "$name")
   [ -n "$pid" ] && [ -f "$jar" ] || { echo '-'; return; }
@@ -340,21 +323,19 @@ start_one() {
     return 1
   fi
   case "$name" in
-    frontend)
-      [ -d "$CEDAR_HOME/cedar-template-editor" ] || {
-        echo "  $name: SRC MISSING ($CEDAR_HOME/cedar-template-editor) — skip"
-        return 1
-      }
-      ( cd "$CEDAR_HOME/cedar-template-editor" && exec nohup gulp >"$log" 2>&1 ) & ;;
-    workspace|designer)
-      local dir; dir=$(gulp_fe_dir "$name")
+    ui-main)
+      local dir; dir=$(fe_dir "$name")
+      [ -d "$dir" ] || { echo "  $name: SRC MISSING ($dir) — skip"; return 1; }
+      ( cd "$dir" && exec nohup gulp >"$log" 2>&1 ) & ;;
+    ui-workspace|ui-designer)
+      local dir; dir=$(fe_dir "$name")
       [ -d "$dir" ] || { echo "  $name: SRC MISSING ($dir) — skip"; return 1; }
       ( cd "$dir" \
         && export CEDAR_FRONTEND_PORT="$app" \
         && export CEDAR_WORKSPACE_FRONTEND_URL="${CEDAR_WORKSPACE_FRONTEND_URL:-https://workspace.${CEDAR_HOST}}" \
         && export CEDAR_TEMPLATE_DESIGNER_FRONTEND_URL="${CEDAR_TEMPLATE_DESIGNER_FRONTEND_URL:-https://designer.${CEDAR_HOST}}" \
         && exec nohup gulp >"$log" 2>&1 ) & ;;
-    ui-*)
+    ui-openview|ui-content|ui-monitoring|ui-bridging)
       local dir; dir=$(fe_dir "$name")
       [ -d "$dir" ] || { echo "  $name: SRC MISSING ($dir) — skip"; return 1; }
       ( cd "$dir" && exec nohup ng serve --port "$app" --host "$CEDAR_FRONTEND_BIND_HOST" >"$log" 2>&1 ) & ;;
@@ -445,7 +426,7 @@ status() {
     [ "$STATUS_HEALTH" = healthy ] && up=$((up+1))
     if [ "$STATUS_BINARY" = STALE ]; then
       case "$name" in
-        frontend) cee_stale=$((cee_stale+1)) ;;
+        ui-main)  cee_stale=$((cee_stale+1)) ;;
         *)        stale=$((stale+1)) ;;
       esac
     fi
@@ -462,11 +443,11 @@ status() {
     [ "$total" -gt "$docker_owned" ] && echo "native healthy: $up / $((total-docker_owned))"
     echo "Docker-owned services are marked docker; run cedarcli docker status for container health."
   else
-    echo "healthy: $up / $total   (login at https://cedar.$CEDAR_HOST once frontend + resource/user are healthy)"
+    echo "healthy: $up / $total   (login at https://cedar.$CEDAR_HOST once ui-main + resource/user are healthy)"
   fi
   [ "$stale" -gt 0 ] && echo "WARNING: $stale service(s) marked STALE — running a jar older than the build. Run: $0 restart"
   [ "$cee_stale" -gt 0 ] && {
-    echo "WARNING: frontend marked STALE — serving an Embeddable Editor other than the one package-lock.json names."
+    echo "WARNING: ui-main marked STALE — serving an Embeddable Editor other than the one package-lock.json names."
     echo "         Run: (cd \$CEDAR_HOME/cedar-template-editor && npm ci && npx gulp copy:cee)"
   }
   [ "$unmanaged" -gt 0 ] && echo "WARNING: $unmanaged service(s) marked ~pid — started outside this script. restart now adopts them."

@@ -75,7 +75,7 @@ class NativeProcessSafetyTest(unittest.TestCase):
 
     def test_missing_main_frontend_source_makes_native_start_fail(self):
         result = self.run_library(
-            'port_open() { return 1; }; start_one frontend'
+            'port_open() { return 1; }; start_one ui-main'
         )
 
         self.assertNotEqual(0, result.returncode)
@@ -104,7 +104,7 @@ class NativeProcessSafetyTest(unittest.TestCase):
         self.assertIn('case "${OS_COMMAND}"', opensearch)
         self.assertIn('"${OS_PREFIX}"', opensearch)
         self.assertNotIn("pgrep gulp", aliases)
-        self.assertIn("cedar-services.sh stop frontend", aliases)
+        self.assertIn("cedar-services.sh stop ui-main", aliases)
         self.assertIn("startmongo || CEDAR_INFRA_FAILED=1", start_infra)
         self.assertIn("stopmongo || CEDAR_INFRA_FAILED=1", stop_infra)
 

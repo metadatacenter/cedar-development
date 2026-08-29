@@ -499,10 +499,11 @@ background (`nohup`) processes, each logging to `$CEDAR_HOME/log/`, PIDs tracked
 `$CEDAR_HOME/log/run/`. It forces `JAVA_HOME=17`, puts `/opt/homebrew/bin` on `PATH` (for `node`/`ng`),
 and sources the profile itself, so it is safe to run standalone.
 
-The Gulp frontends deliberately run side by side: `frontend` is the production monolith on 4200,
-`workspace` is the extracted Workspace preview on 4201, and `designer` is the extracted Template
-Designer preview on 4202. Starting the previews does not change nginx routing or production traffic.
-Use `cedar-services.sh start frontend workspace designer` for the migration comparison set.
+The Gulp frontends deliberately run side by side: `ui-main` is the production monolith on 4200,
+`ui-workspace` is the extracted Workspace preview on 4201, and `ui-designer` is the extracted
+Template Designer preview on 4202. Starting the previews does not change nginx routing or production
+traffic. Use `cedar-services.sh start ui-main ui-workspace ui-designer` for the migration comparison
+set.
 
 Native development must not cache frontend responses: the Gulp and Angular development servers use
 stable filenames while their bytes change underneath them. Install the canonical no-store proxy
@@ -518,11 +519,15 @@ use their Git source commit in that key; `CEDAR_VERSION_MODIFIER` remains the ex
 for two environment-specific payloads built from the same commit. It is not needed merely to make a
 new source revision visible.
 
-The auxiliary frontends are the `ui-*` entries — `ui-openview` (4220), `ui-content` (4240),
-`ui-monitoring` (4300), `ui-bridging` (4340) — each run as `ng serve` from its
-`cedar-<name>[-src]` source dir (see `fe_dir()`). They are named `ui-*` because `openview`/`monitor`/
-`bridge` are already microservice names. Their health is **port-only** (no Dropwizard `/healthcheck`).
-`cedarcli native start frontends` starts all seven through this controller.
+The remaining four are Angular applications, each run as `ng serve` from its `cedar-<name>[-src]`
+source dir (see `fe_dir()`): `ui-openview` (4220), `ui-content` (4240), `ui-monitoring` (4300) and
+`ui-bridging` (4340). Every frontend is named `ui-*`, which keeps `ui-openview` apart from the
+`openview` microservice and `ui-monitoring` and `ui-bridging` apart from `monitor` and `bridge`. The
+prefix marks the category, not the launcher: `ui-main`, `ui-workspace` and `ui-designer` carry it
+too, and will keep it when they stop being AngularJS. Frontend health is **port-only** (no Dropwizard
+`/healthcheck`). `cedarcli native start frontends` starts all seven through this controller, and the
+`cedarcli native`, `start frontend` and `stop frontend` subcommands name a frontend without the
+prefix — `main`, `workspace`, `openview` — which the controller receives as `ui-<name>`.
 
 ```bash
 cedar-services.sh start [name...]     # start all, or only the named services
@@ -550,7 +555,7 @@ Dropwizard admin `/healthcheck` endpoint (200 = healthy, 500 = unhealthy).
 
 Two columns exist so a green table cannot hide a stale one. **BINARY** compares when a process started
 against when its jar was written: `STALE` means the service is serving a jar older than the build, so
-its health says nothing about your latest code. For the `frontend` row the column asks the equivalent
+its health says nothing about your latest code. For the `ui-main` row the column asks the equivalent
 question of the Embeddable Editor, which the Template Designer takes from npm and a gulp task copies
 out of `node_modules` into the tree gulp serves. Those two hops are invisible to git, because the
 served copy is ignored, so moving the pin without `npm ci`, or running `npm ci` without `copy:cee`,
@@ -604,8 +609,9 @@ In Docker only the application port is published to the host. Admin connectors b
 their container for the Compose health check and are not host-mapped; do not add `9111:9111` (or any
 other admin mapping) to the core Compose stack. Native admin connectors likewise bind `127.0.0.1`.
 
-Auxiliary frontends (Angular `ng serve`, port-only health): `ui-openview` 4220, `ui-content` 4240,
-`ui-monitoring` 4300, `ui-bridging` 4340.
+Frontends (port-only health): `ui-main` 4200, `ui-workspace` 4201 and `ui-designer` 4202 under
+gulp; `ui-openview` 4220, `ui-content` 4240, `ui-monitoring` 4300 and `ui-bridging` 4340 under
+`ng serve`.
 
 ## API-key credentials and management identifiers
 
@@ -2227,7 +2233,7 @@ origins, and the live resource service accepts authenticated CORS preflights fro
 
 ```bash
 cd $CEDAR_HOME/cedar-development
-ops/cedar-services.sh start workspace designer
+ops/cedar-services.sh start ui-workspace ui-designer
 cd ops/e2e
 npm run smoke:split
 ```
