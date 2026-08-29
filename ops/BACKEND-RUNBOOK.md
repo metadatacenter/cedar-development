@@ -1524,6 +1524,87 @@ Anything younger than fifteen minutes is reported and skipped, because a run sti
 its working folder exactly as a dead one did and two sessions share this stack. `--min-age=0`
 includes it, which is what to pass when the run is known to be over.
 
+### REST performance testing
+
+`ops/e2e/rest-perf` is the k6 load harness for the real REST stack. It is deliberately separate from
+the REST smoke: the smoke proves the complete contract once, while this harness repeats a bounded
+representative workload and records latency, error and concurrency behaviour. Install k6 once on the
+development host (`brew install k6` on macOS), source the native profile, and choose a local password
+that is not committed:
+
+```bash
+export CEDAR_HOME=/Users/martin/CEDAR
+source "$CEDAR_HOME/cedar-profile-native-develop.sh"
+export CEDAR_PERF_USER_PASSWORD='choose-a-local-password'
+cd "$CEDAR_HOME/cedar-development/ops/e2e"
+```
+
+Every performance command first ensures the 50-identity pool exists. This idempotent phase creates
+`restperf-001@test.com` through `restperf-050@test.com`, assigns the normal realm role, performs a real
+`cedar-angular-app` password grant, and waits until CEDAR has created each user, Everybody membership
+and home folder. It also repairs a fresh install or system reset and resets the pool to the supplied
+password. The phase completes before fixture setup and k6 measurement. `test1@test.com` and
+`test2@test.com` remain smoke identities and receive no performance-fixture grants. The generated
+non-secret inventory is ignored under `reports/rest-perf/users.json`.
+
+The provisioning command remains useful as a standalone preflight, but is not required before a load
+command:
+
+```bash
+npm run perf:rest:provision -- --count=50
+```
+
+The three load profiles are:
+
+| Command | Default shape | What it exercises |
+|---|---:|---|
+| `npm run perf:rest:quick` | 10 identities, ramp 1 → 5 → 10 → 0 in 4.5 minutes | Artifact reads, folder listings, search, conditional artifact updates, conditional moves, and OpenView toggles |
+| `npm run perf:rest:contention` | 20 identities for 2 minutes | One batch reads one ETag and sends 20 simultaneous conditional updates from different authorized users; exactly one must return 200 and the other 19 must return 412 |
+| `npm run perf:rest:soak` | 50 identities and 50 VUs for 30 minutes | The mixed workload at steady load, for latency drift, connection leakage and queue buildup |
+
+`--users=N`, `--vus=N` and `--duration=10s` override those defaults. `--pool-size=N` can raise the
+ensured identity-pool floor above 50, while a larger `--users` value always expands the pool to fit.
+A VU count may not exceed the selected identities: independent writers must not accidentally contend
+merely because the runner reused an account. The identity ensure phase and initial authentication
+happen outside the measured workload; expired tokens are refreshed during a long soak. `412` is
+expected only in the contention profile.
+The initial latency threshold is intentionally broad (`p95 < 3 s`); use repeated quiet-host runs to
+establish operation-specific baselines before tightening it.
+
+Every participant gets one stamped root holding source and destination folders plus four templates:
+read, mutable, movable and OpenView. The first participant owns one additional template shared for
+write directly with the other selected performance identities. Setup writes every returned ID to
+`reports/rest-perf/runs/<run-id>/run.json` immediately, before creating the next resource. k6 writes
+its complete summary beside that manifest.
+
+The wrapper checks that k6 exists before setup, then always performs teardown after the load process,
+including a failed threshold or first `SIGINT`/`SIGTERM`. Teardown reads the current ETag, deletes in
+reverse dependency order, requires the verification GET to return 404, and lists every participating
+home folder to ensure the run stamp is absent. A second signal is the explicit emergency exit that
+forgoes remaining cleanup.
+
+A machine crash and `kill -9` cannot run `finally`, so the independent janitor searches all 50 home
+folders for the exact `CEDAR REST PERF User <n> <timestamp>-<nonce>` convention. It reports only by
+default, ignores runs younger than 24 hours, refuses unexpected resource kinds, and deletes only with
+`--apply`:
+
+```bash
+npm run perf:rest:cleanup
+npm run perf:rest:cleanup -- --apply
+# A known failed run can be included immediately:
+npm run perf:rest:cleanup -- --min-age-hours=0 --apply
+```
+
+The Node-side naming, token-subject and concurrency helpers have a fast local gate:
+
+```bash
+npm run test:rest-perf
+```
+
+Unless `CEDAR_PERF_ALLOW_REMOTE=1` is explicit, both the Node setup and k6 refuse targets outside
+localhost and the `.metadatacenter.orgx` development names. Do not use that override casually: the
+harness is write-heavy by design.
+
 **The artifact server is addressed on its port, not through a vhost.** Several checks read it directly
 to confirm a write reached the datastore, and `artifact.${CEDAR_HOST}` answers 404: the artifact server
 authorizes on global roles alone and holds no resource-level ACL, so anything that reaches it can read
