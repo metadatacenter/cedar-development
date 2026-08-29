@@ -18,9 +18,14 @@ in `cedar-template-editor`, which declares 21 field types and, for each, whether
 it may appear in an element, take multiple values, be required, carry controlled
 terms, or offer value recommendation.
 
-Item numbers are for referring to items in conversation. They are not stable
-handles: an item that is finished leaves the list and joins the paragraph below,
-and the rest are renumbered.
+The order is the order to do them in, and it is a decision rather than a
+grouping: the flat-template core is finished before anything structural, so that
+the larger work is built once on something settled rather than twice on something
+moving.
+
+Item numbers are for referring to items in conversation, and they are not stable
+handles — an item that is finished leaves the list and joins the paragraph above,
+and the rest are renumbered. Name an item rather than its number.
 
 ## What Is Built
 
@@ -44,18 +49,7 @@ hostile host page.
 
 ## The Authoring Surface
 
-### 1. Template elements
-
-CED has no notion of an element. The production designer nests them, reuses them
-across templates, allows multiple cardinality on them, and treats "may this type
-appear inside an element" as a property of each field type. A template of any
-real size is mostly elements, so nothing else on this list matters as much.
-
-Done when an author can add an element to a template, nest one inside another,
-give it a cardinality, and have the model library write it — and when opening a
-template that contains elements renders them rather than dropping them.
-
-### 2. The rest of the field palette
+### 1. The rest of the field palette
 
 Thirteen of the designer's twenty-one types are offered. Missing: the
 single-choice and multiple-choice **list** types, **attribute-value**, the four
@@ -68,7 +62,7 @@ CED's `image` is also not the designer's. The palette calls it a file upload;
 CEDAR has no such field, so it maps to the static image field, which displays an
 image. Either the label is wrong or the mapping is.
 
-### 3. Per-type capability rules
+### 2. Per-type capability rules
 
 The production designer drives its palette from a table declaring, per type,
 `allowedInElement`, `primaryField`, `staticField`, `allowsMultiple`,
@@ -81,18 +75,18 @@ deployment builders rather than by ignoring the call.
 Done when the palette is data rather than markup, and a control that cannot apply
 to a type is not offered for it.
 
-### 4. Cardinality bounds
+### 3. Cardinality bounds
 
 `minItems` and `maxItems` on a multi-valued child. The model library carries
 both; CED sets neither, so a field that should take between one and five values
 takes any number.
 
-### 5. Value recommendation, hidden fields, and continue-previous-line
+### 4. Value recommendation, hidden fields, and continue-previous-line
 
 Three per-field settings the designer offers and CED does not. All three are
 deployment settings the model library already writes.
 
-### 6. Header, footer, and property labels
+### 5. Header, footer, and property labels
 
 A template carries a header and a footer, and each child carries a label and a
 description that a form shows in place of its raw key. CED writes the key and the
@@ -100,7 +94,7 @@ field name and nothing else.
 
 ## Version Awareness
 
-### 7. Keep the version an author pinned
+### 6. Keep the version an author pinned
 
 This is the reason the picker exists, and CED currently drops it on the floor.
 `SelectedConstraint` carries a `version` when an author pinned one, and the
@@ -111,28 +105,28 @@ does not.
 Done when a pinned version reaches `_valueConstraints` and survives a round trip
 through both serializations.
 
-### 8. Several constraints on one field, and the actions between them
+### 7. Several constraints on one field, and the actions between them
 
 CEDAR allows any number of ontologies, branches, classes and value sets on one
 field, plus actions that move or delete entries. CED's panel collects exactly
 one, because that is all its free-text form ever collected. The picker returns
 one at a time, so this is a question of what the panel does with the second.
 
-### 9. Say what a constraint resolves to
+### 8. Say what a constraint resolves to
 
 An author who has pinned DOID 2026-06-30 to a branch of 4,000 terms cannot see
 that from the panel. The terminology server can answer it and the picker already
 shows counts while choosing; the constraint, once chosen, shows a label.
 
-### 10. Freeze on publish
+### 9. Freeze on publish
 
 A draft template names a release or names latest; a published one must name a
 release, resolved at publish time. CED does not publish anything yet, so this
-follows item 12, but the constraint shape has to be right before then.
+follows publishing below, but the constraint shape has to be right before then.
 
 ## Persistence and Lifecycle
 
-### 11. Open from and save to the artifact server
+### 10. Open from and save to the artifact server
 
 CED reads a file and writes a download. The production designer opens from a
 folder, saves back to it, and knows about permissions. For an embeddable
@@ -140,12 +134,12 @@ component the host may own that, which makes this a contract question before it
 is an implementation one: an event carrying the template a host is expected to
 store, or a REST client of CED's own.
 
-### 12. Publish, and make a new version
+### 11. Publish, and make a new version
 
 `bibo:status`, `pav:version`, `pav:derivedFrom` and `pav:previousVersion` are the
 lifecycle the artifact server enforces. CED writes a fixed `0.0.1` draft.
 
-### 13. Validate before saving
+### 12. Validate before saving
 
 The schema server validates a template and returns what is wrong with it. Nothing
 in CED asks. The model library refuses to build some invalid artifacts, which
@@ -153,7 +147,7 @@ covers less ground than the validator and is not the same answer.
 
 ## The Embedding Contract
 
-### 14. Settle and declare the rest of the contract
+### 13. Settle and declare the rest of the contract
 
 `CedConfig` has one key. A host embedding a designer will want at least a
 read-only mode, a language, and somewhere to say which field types to offer —
@@ -161,11 +155,29 @@ the preferences the designer keeps in a modal today are host policy, not user
 preference. Every key added needs the conformance test that already asserts the
 contract and the implementation cannot drift apart.
 
-### 15. Publish the package
+### 14. Publish the package
 
 Nothing is on either channel. The staging and the channel rule are in place, so
 this is a decision rather than work: a dev snapshot to Nexus lets the Workbench
 consume CED before it is finished.
+
+## Structure Beyond a Flat Template
+
+### 15. Template elements
+
+CED has no notion of an element. The production designer nests them, reuses them
+across templates, allows multiple cardinality on them, and treats "may this type
+appear inside an element" as a property of each field type. A template of any
+real size is mostly elements, so a designer without them is not finished.
+
+It sits here rather than first on purpose. Elements are the largest single item
+on this list and they touch everything above — the palette, the capability rules,
+cardinality, the save shape — so building them onto a core that is still moving
+would mean building them twice. The flat-template core comes first.
+
+Done when an author can add an element to a template, nest one inside another,
+give it a cardinality, and have the model library write it — and when opening a
+template that contains elements renders them rather than dropping them.
 
 ## Quality
 
