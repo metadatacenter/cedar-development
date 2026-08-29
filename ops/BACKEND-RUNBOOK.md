@@ -1560,7 +1560,7 @@ The three load profiles are:
 |---|---:|---|
 | `npm run perf:rest:quick` | 10 identities, ramp 1 → 5 → 10 → 0 in 4.5 minutes | Artifact reads, folder listings, search, conditional artifact updates, conditional moves, and OpenView toggles |
 | `npm run perf:rest:contention` | 20 identities, three complete matrix rounds | Twenty-way compare-and-swap races across artifact content, workspace graph state, ACLs, group records and membership, and categories; update/delete, repeated-delete and wildcard/delete cases use sacrificial fixtures |
-| `npm run perf:rest:soak` | 50 identities and 50 VUs for 30 minutes | The mixed workload at steady load, for latency drift, connection leakage and queue buildup |
+| `npm run perf:rest:soak` | 50 identities and 50 VUs for 30 minutes | A steady, non-destructive mix across template, element, field and instance reads and conditional updates; folder listing, search, moves and OpenView; artifact and folder ACLs; group records and membership; and category records and ACLs |
 
 `--users=N`, `--vus=N` and `--duration=10s` override those defaults. The contention profile also
 accepts `--rounds=N`; its `--duration` is a maximum rather than a steady-state duration.
@@ -1569,13 +1569,20 @@ ensured identity-pool floor above 50, while a larger `--users` value always expa
 A VU count may not exceed the selected identities: independent writers must not accidentally contend
 merely because the runner reused an account. The identity ensure phase and initial authentication
 happen outside the measured workload; expired tokens are refreshed during a long soak. `412` is
-expected only in the contention profile. Category races use the administrator key loaded by the
-native profile; they never store it in a manifest or summary.
+expected only in the contention profile. Category setup and administrator-only ACL mutations use
+the administrator key loaded by the native profile; it is never stored in a manifest or summary.
+The soak gives every VU its own artifacts, folder, group and category, and cycles a fixed 24-operation
+mix that is half pure reads/list/search and half conditional mutations. It deliberately excludes
+create/delete churn, update-versus-delete, repeated DELETE and wildcard deletion: those operations
+belong to the bounded contention matrix, where exact winner/loser outcomes and cleanup can be asserted
+without corrupting the steady-state latency and resource-leak signal.
 The initial latency threshold is intentionally broad (`p95 < 3 s`); use repeated quiet-host runs to
 establish operation-specific baselines before tightening it.
 
 Every participant gets one stamped root holding source and destination folders plus four templates:
-read, mutable, movable and OpenView. A contention run also creates a separate shared fixture for
+read, mutable, movable and OpenView. A soak run adds independently writable element, field and
+instance fixtures plus a group and category for each participant; the mutable template and stamped
+root also serve as that participant's ACL fixtures. A contention run instead creates a separate shared fixture for
 each revision domain: all four artifact-content routes, artifact and folder graph records, artifact
 and folder ACLs, a group record and membership roster, and a category record and ACL. Three bounded
 sacrificial pools cover update-versus-delete, repeated delete and wildcard deletion for templates,

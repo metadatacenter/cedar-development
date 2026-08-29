@@ -29,6 +29,7 @@ if (__ENV.CEDAR_PERF_ALLOW_REMOTE !== '1'
 
 const unexpectedResponses = new Rate('cedar_unexpected_responses');
 const operationDuration = new Trend('cedar_operation_duration', true);
+const artifactKinds = ['template', 'element', 'field', 'instance'];
 const destructiveKinds = ['template', 'element', 'field', 'instance', 'folder', 'group', 'category'];
 const wildcardTypes = [
   'wildcard-content', 'wildcard-artifact-graph', 'wildcard-folder-graph',
@@ -56,8 +57,16 @@ const measuredOperations = [
   'double-delete preflight', 'double-delete delete',
   'wildcard-delete preflight', 'wildcard delete', 'wildcard recreate',
   'wildcard preflight', 'wildcard update', 'wildcard verification',
-  ...['template', 'element', 'field', 'instance'].flatMap(kind =>
+  ...artifactKinds.flatMap(kind =>
     [`contention ${kind} GET`, `contention ${kind} PUT`, `contention ${kind} verification`]),
+  ...artifactKinds.flatMap(kind =>
+    [`soak ${kind} GET`, `soak ${kind} update preflight`, `soak ${kind} conditional PUT`]),
+  'soak artifact ACL preflight', 'soak artifact ACL update',
+  'soak folder ACL preflight', 'soak folder ACL update',
+  'soak group record preflight', 'soak group record PATCH',
+  'soak group membership preflight', 'soak group membership update',
+  'soak category record preflight', 'soak category record update',
+  'soak category ACL preflight', 'soak category ACL update',
   ...destructiveKinds.flatMap(kind => [
     `update-delete ${kind} GET`, `update-delete ${kind} PUT`, `update-delete ${kind} DELETE`,
     `update-delete ${kind} verification`, `double-delete ${kind} GET`, `double-delete ${kind} DELETE`,
@@ -122,9 +131,9 @@ const profiles = {
   },
   soak: {
     scenarios: {
-      mixed: {
+      soak: {
         executor: 'constant-vus',
-        exec: 'mixed',
+        exec: 'soak',
         vus: configuredVus,
         duration: configuredDuration || '30m',
       },
@@ -227,7 +236,7 @@ function cedar(data, actorIndex, method, path, body, operation, extraHeaders = {
 
 function adminCredential() {
   const credential = __ENV.CEDAR_ADMIN_USER_API_KEY;
-  if (!credential) fail('CEDAR_ADMIN_USER_API_KEY is required for category contention cases');
+  if (!credential) fail('CEDAR_ADMIN_USER_API_KEY is required for category performance cases');
   return credential;
 }
 
@@ -331,6 +340,126 @@ export function mixed(data) {
     case 9:
       toggleOpenView(data, index, actor);
       break;
+  }
+}
+
+function requireSoakFixture(actor) {
+  if (!actor.soak?.artifacts || !actor.soak.group || !actor.soak.category) {
+    fail(`soak fixture is incomplete for ${actor.username}`);
+  }
+  return actor.soak;
+}
+
+function soakArtifactRead(data, index, actor, kind) {
+  const fixture = requireSoakFixture(actor).artifacts[kind];
+  const operation = `soak ${kind} GET`;
+  const response = cedar(data, index, 'GET', fixture.path, undefined, operation);
+  accepted(response, [200], `${operation} succeeds`);
+}
+
+function soakArtifactUpdate(data, index, actor, kind) {
+  const fixture = requireSoakFixture(actor).artifacts[kind];
+  const preflightOperation = `soak ${kind} update preflight`;
+  const updateOperation = `soak ${kind} conditional PUT`;
+  const current = cedar(data, index, 'GET', fixture.path, undefined, preflightOperation);
+  const revision = requireEtag(current, preflightOperation);
+  if (!revision) return;
+  const body = current.json();
+  body['schema:description'] = `${manifest.prefix} soak ${kind} ${__VU}-${__ITER}`;
+  const updated = cedar(data, index, 'PUT', fixture.path, body, updateOperation, { 'If-Match': revision });
+  if (accepted(updated, [200], `${updateOperation} succeeds`)) {
+    check(updated, {
+      [`${updateOperation} returns a fresh ETag`]: result => etag(result) && etag(result) !== revision,
+    });
+  }
+}
+
+function soakAclUpdate(data, index, actor, kind) {
+  const soakFixture = requireSoakFixture(actor);
+  const fixture = kind === 'artifact' ? soakFixture.aclArtifact : soakFixture.aclFolder;
+  const path = `${fixture.path}/permissions`;
+  const preflightOperation = `soak ${kind} ACL preflight`;
+  const updateOperation = `soak ${kind} ACL update`;
+  const current = cedar(data, index, 'GET', path, undefined, preflightOperation);
+  const revision = requireEtag(current, preflightOperation);
+  if (!revision) return;
+  const updated = cedar(data, index, 'PUT', path, current.json(), updateOperation, { 'If-Match': revision });
+  if (accepted(updated, [200], `${updateOperation} succeeds`)) {
+    check(updated, {
+      [`${updateOperation} returns a fresh ETag`]: result => etag(result) && etag(result) !== revision,
+    });
+  }
+}
+
+function soakGroupUpdate(data, index, actor, membership) {
+  const soakFixture = requireSoakFixture(actor);
+  const path = membership ? `${soakFixture.group.path}/users` : soakFixture.group.path;
+  const preflightOperation = membership ? 'soak group membership preflight' : 'soak group record preflight';
+  const updateOperation = membership ? 'soak group membership update' : 'soak group record PATCH';
+  const current = cedar(data, index, 'GET', path, undefined, preflightOperation, {}, groupServer);
+  const revision = requireEtag(current, preflightOperation);
+  if (!revision) return;
+  const body = membership ? soakFixture.groupUsers : {
+    'schema:description': `${manifest.prefix} soak group ${__VU}-${__ITER}`,
+  };
+  const updated = cedar(data, index, membership ? 'PUT' : 'PATCH', path, body, updateOperation, {
+    'If-Match': revision,
+    ...(membership ? {} : { 'Content-Type': 'application/merge-patch+json' }),
+  }, groupServer);
+  if (accepted(updated, [200], `${updateOperation} succeeds`)) {
+    check(updated, {
+      [`${updateOperation} returns a fresh ETag`]: result => etag(result) && etag(result) !== revision,
+    });
+  }
+}
+
+function soakCategoryUpdate(data, index, actor, permissions) {
+  const soakFixture = requireSoakFixture(actor);
+  const path = permissions ? `${soakFixture.category.path}/permissions` : soakFixture.category.path;
+  const requestActor = permissions ? 'admin' : index;
+  const preflightOperation = permissions ? 'soak category ACL preflight' : 'soak category record preflight';
+  const updateOperation = permissions ? 'soak category ACL update' : 'soak category record update';
+  const current = cedar(data, requestActor, 'GET', path, undefined, preflightOperation);
+  const revision = requireEtag(current, preflightOperation);
+  if (!revision) return;
+  const currentBody = current.json();
+  const body = permissions ? currentBody : {
+    'schema:name': currentBody['schema:name'],
+    'schema:description': `${manifest.prefix} soak category ${__VU}-${__ITER}`,
+  };
+  const updated = cedar(data, requestActor, 'PUT', path, body, updateOperation, { 'If-Match': revision });
+  if (accepted(updated, [200], `${updateOperation} succeeds`)) {
+    check(updated, {
+      [`${updateOperation} returns a fresh ETag`]: result => etag(result) && etag(result) !== revision,
+    });
+  }
+}
+
+// Steady-state breadth is deliberately separate from the destructive contention matrix. Every VU
+// owns its artifacts, folders, group and category, so a 412 here is a failure rather than an
+// expected loser. The 24-slot mix is half pure reads/list/search and half conditional mutations.
+export function soak(data) {
+  const index = (__VU - 1) % manifest.actors.length;
+  const actor = manifest.actors[index];
+  switch (__ITER % 24) {
+    case 0: case 4: soakArtifactRead(data, index, actor, 'template'); break;
+    case 1: case 5: soakArtifactRead(data, index, actor, 'element'); break;
+    case 2: case 6: soakArtifactRead(data, index, actor, 'field'); break;
+    case 3: case 7: soakArtifactRead(data, index, actor, 'instance'); break;
+    case 8: case 14: listFolder(data, index, actor); break;
+    case 9: case 15: search(data, index); break;
+    case 10: soakArtifactUpdate(data, index, actor, 'template'); break;
+    case 11: soakArtifactUpdate(data, index, actor, 'element'); break;
+    case 12: soakArtifactUpdate(data, index, actor, 'field'); break;
+    case 13: soakArtifactUpdate(data, index, actor, 'instance'); break;
+    case 16: moveArtifact(data, index, actor); break;
+    case 17: toggleOpenView(data, index, actor); break;
+    case 18: soakAclUpdate(data, index, actor, 'artifact'); break;
+    case 19: soakAclUpdate(data, index, actor, 'folder'); break;
+    case 20: soakGroupUpdate(data, index, actor, false); break;
+    case 21: soakGroupUpdate(data, index, actor, true); break;
+    case 22: soakCategoryUpdate(data, index, actor, false); break;
+    case 23: soakCategoryUpdate(data, index, actor, true); break;
   }
 }
 

@@ -24,8 +24,8 @@ const matrixRounds = intArg('rounds', 3, { max: 20 });
 const password = env.CEDAR_PERF_USER_PASSWORD;
 if (!password) throw new Error('CEDAR_PERF_USER_PASSWORD is required');
 const adminKey = env.CEDAR_ADMIN_USER_API_KEY;
-if (profile === 'contention' && !adminKey) {
-  throw new Error('CEDAR_ADMIN_USER_API_KEY is required for category contention fixtures');
+if ((profile === 'contention' || profile === 'soak') && !adminKey) {
+  throw new Error(`CEDAR_ADMIN_USER_API_KEY is required for category ${profile} fixtures`);
 }
 
 const inventory = readJson(usersPath);
@@ -35,7 +35,7 @@ if (selected.length !== userCount) {
 }
 
 const manifest = {
-  schemaVersion: 2,
+  schemaVersion: 3,
   runId: id,
   prefix: PERF_PREFIX,
   createdAt: new Date().toISOString(),
@@ -129,16 +129,27 @@ async function createGroup(owner, label) {
   return { kind: 'group', id: groupId, path, name };
 }
 
-async function createCategory(label) {
-  const root = await request(adminKey, 'GET', '/categories/root');
-  if (root.status !== 200 || !root.body?.['@id']) {
-    throw new Error(`read category root: ${root.status} ${root.text}`);
+let categoryRootPromise;
+
+async function categoryRootId() {
+  if (!categoryRootPromise) {
+    categoryRootPromise = request(adminKey, 'GET', '/categories/root').then(root => {
+      if (root.status !== 200 || !root.body?.['@id']) {
+        throw new Error(`read category root: ${root.status} ${root.text}`);
+      }
+      return root.body['@id'];
+    });
   }
+  return categoryRootPromise;
+}
+
+async function createCategory(label) {
+  const rootId = await categoryRootId();
   const name = `${PERF_PREFIX} ${label} ${id}`;
   const response = await request(adminKey, 'POST', '/categories', {
     'schema:name': name,
     'schema:description': `${PERF_PREFIX} fixture for ${id}`,
-    parentCategoryId: root.body['@id'],
+    parentCategoryId: rootId,
     'schema:identifier': `cedar-rest-perf-${id}-${label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
   });
   if (response.status !== 201) throw new Error(`create category ${label}: ${response.status} ${response.text}`);
@@ -148,12 +159,31 @@ async function createCategory(label) {
   return { kind: 'category', id: categoryId, path, name };
 }
 
+async function shareCategory(category, actorsToShare) {
+  const current = await request(adminKey, 'GET', `${category.path}/permissions`);
+  if (current.status !== 200 || !current.body?.owner?.['@id']) {
+    throw new Error(`read category permissions: ${current.status} ${current.text}`);
+  }
+  const permissions = {
+    owner: current.body.owner,
+    userPermissions: actorsToShare.map(actor => ({
+      user: { '@id': actor.cedarUserId }, permission: 'write',
+    })),
+    groupPermissions: [],
+  };
+  const shared = await currentMutation(adminKey, 'PUT', `${category.path}/permissions`, permissions);
+  if (shared.status !== 200) {
+    throw new Error(`share category: ${shared.status} ${shared.text}`);
+  }
+  return permissions;
+}
+
 console.log(`Preparing ${selected.length} users under run ${id}`);
 const actors = await parallelLimit(selected, concurrency, async (record, index) => {
   const token = await userToken(record.username, password);
-  const profile = await userProfile(token);
-  if (profile.homeFolderId !== record.homeFolderId) {
-    throw new Error(`${record.username}: home folder changed from ${record.homeFolderId} to ${profile.homeFolderId}`);
+  const cedarProfile = await userProfile(token);
+  if (cedarProfile.homeFolderId !== record.homeFolderId) {
+    throw new Error(`${record.username}: home folder changed from ${record.homeFolderId} to ${cedarProfile.homeFolderId}`);
   }
   const actor = { ...record, index, token };
   // Record the identity before its first POST. If setup is interrupted midway through this actor,
@@ -167,13 +197,22 @@ const actors = await parallelLimit(selected, concurrency, async (record, index) 
     homeFolderId: record.homeFolderId,
   };
   writeJson(output, manifest);
-  const root = await createFolder(actor, profile.homeFolderId, `User ${record.sequence}`);
+  const root = await createFolder(actor, cedarProfile.homeFolderId, `User ${record.sequence}`);
   const source = await createFolder(actor, root, 'Source');
   const destination = await createFolder(actor, root, 'Destination');
   const readOnly = await createArtifact(actor, root, 'Read');
   const mutable = await createArtifact(actor, root, 'Mutable');
   const movable = await createArtifact(actor, source, 'Movable');
   const publicToggle = await createArtifact(actor, root, 'OpenView');
+  let soakArtifacts;
+  if (profile === 'soak') {
+    const element = await createArtifact(actor, root, 'Soak element', 'element');
+    const field = await createArtifact(actor, root, 'Soak field', 'field');
+    const instance = await createArtifact(actor, root, 'Soak instance', 'instance', {
+      'schema:isBasedOn': mutable.id,
+    });
+    soakArtifacts = { template: mutable, element, field, instance };
+  }
   const saved = {
     index,
     sequence: record.sequence,
@@ -188,6 +227,13 @@ const actors = await parallelLimit(selected, concurrency, async (record, index) 
     mutableTemplate: mutable,
     movableTemplate: movable,
     openViewTemplate: publicToggle,
+    ...(soakArtifacts ? {
+      soak: {
+        artifacts: soakArtifacts,
+        aclArtifact: mutable,
+        aclFolder: { kind: 'folder', id: root, path: `/folders/${enc(root)}` },
+      },
+    } : {}),
   };
   manifest.actors[index] = saved;
   writeJson(output, manifest);
@@ -196,6 +242,30 @@ const actors = await parallelLimit(selected, concurrency, async (record, index) 
 });
 
 const owner = actors[0];
+if (profile === 'soak') {
+  await parallelLimit(actors, concurrency, async actor => {
+    const group = await createGroup(actor, `Soak group ${actor.sequence}`);
+    const groupUsers = {
+      users: [{
+        user: { '@id': actor.cedarUserId }, administrator: true, member: true,
+      }],
+    };
+    const groupMembers = await currentMutation(actor.token, 'PUT', `${group.path}/users`, groupUsers,
+        { base: GROUP_SERVER });
+    if (groupMembers.status !== 200) {
+      throw new Error(`${actor.username}: initialize soak group: ${groupMembers.status} ${groupMembers.text}`);
+    }
+
+    const category = await createCategory(`Soak category ${actor.sequence}`);
+    await shareCategory(category, [actor]);
+
+    manifest.actors[actor.index].soak.group = group;
+    manifest.actors[actor.index].soak.groupUsers = groupUsers;
+    manifest.actors[actor.index].soak.category = category;
+    writeJson(output, manifest);
+  });
+}
+
 if (profile === 'contention') {
 // Each independent ETag domain gets its own fixture. Sharing is direct and explicit so every batch
 // is a real multi-identity race rather than twenty requests accidentally reusing one credential.
@@ -235,18 +305,7 @@ if (groupMembers.status !== 200) {
 }
 
 const contendedCategory = await createCategory('Contended category');
-const categoryAcl = await request(adminKey, 'GET', `${contendedCategory.path}/permissions`);
-if (categoryAcl.status !== 200 || !categoryAcl.body?.owner?.['@id']) {
-  throw new Error(`read category permissions: ${categoryAcl.status} ${categoryAcl.text}`);
-}
-const categoryShare = await currentMutation(adminKey, 'PUT', `${contendedCategory.path}/permissions`, {
-  owner: categoryAcl.body.owner,
-  userPermissions: actors.map(actor => ({ user: { '@id': actor.cedarUserId }, permission: 'write' })),
-  groupPermissions: [],
-});
-if (categoryShare.status !== 200) {
-  throw new Error(`share contention category: ${categoryShare.status} ${categoryShare.text}`);
-}
+await shareCategory(contendedCategory, actors);
 
 manifest.shared = {
   writerCount: actors.length,
