@@ -56,7 +56,7 @@ class NativeProcessSafetyTest(unittest.TestCase):
             'port_owner() { echo 4242; }; '
             'process_command() { echo "/Applications/Docker.app/Contents/MacOS/com.docker.backend"; }; '
             'process_cwd() { echo "/"; }; '
-            'remove_launchd_job() { :; }; '
+            'remove_launchd_job() { return 1; }; '
             'kill() { [ "$1" = "-0" ] && return 0; echo SIGNALLED; return 0; }; '
             'stop_one group'
         )
@@ -91,6 +91,43 @@ class NativeProcessSafetyTest(unittest.TestCase):
 
         self.assertNotEqual(0, result.returncode)
         self.assertIn("CONFIG MISSING", result.stdout)
+
+    def test_start_refuses_a_stale_service_on_an_auxiliary_port(self):
+        result = self.run_library(
+            'port_open() { [ "$1" = 9209 ]; }; auxiliary_ports() { echo 9209; }; '
+            'port_owner() { echo 4242; }; is_service_process() { return 0; }; '
+            'start_one group'
+        )
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("stale CEDAR pid 4242 owns auxiliary port 9209", result.stderr)
+
+    def test_macos_start_submits_a_non_restarting_launchd_job(self):
+        result = self.run_library(
+            'base="$CEDAR_HOME/cedar-group-server/cedar-group-server-application"; '
+            'mkdir -p "$base/target" "$base/src/main/resources"; '
+            'touch "$base/target/cedar-group-server-application-$CEDAR_VERSION.jar"; '
+            'touch "$base/src/main/resources/config.yml"; '
+            'port_open() { return 1; }; uname() { echo Darwin; }; '
+            'remove_launchd_job() { return 1; }; launchd_job_pid() { echo 4242; }; '
+            'launchctl() { printf "%s\\n" "$*"; }; '
+            'start_one group'
+        )
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn("submit -l org.metadatacenter.cedar.native.group", result.stdout)
+        self.assertIn(f"-- /bin/bash {SCRIPT} run-one group", result.stdout)
+        self.assertIn("started group (pid 4242)", result.stdout)
+
+    def test_stop_removes_a_launchd_job_and_its_pidfile(self):
+        result = self.run_library(
+            'echo 4242 > "$(pidfile group)"; '
+            'remove_launchd_job() { return 0; }; port_open() { return 1; }; '
+            'stop_one group; [ ! -e "$(pidfile group)" ]'
+        )
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn("stopped group (pid 4242)", result.stdout)
 
     def test_related_stop_scripts_scope_the_process_they_signal(self):
         keycloak = (DEVELOPMENT / "bin/util/services-generic/killkeycloak.sh").read_text()

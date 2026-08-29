@@ -5,8 +5,10 @@
 # Runs the 15 Dropwizard microservices + the 7 frontends, which are named ui-* to keep them
 # apart from the like-named microservices: ui-main (the AngularJS monolith) and the two previews
 # being split out of it start under gulp, the 4 Angular applications under `ng serve`,
-# as background processes (nohup), each logging to $CEDAR_HOME/log/, PIDs in
-# $CEDAR_HOME/log/run/. One `status` view shows PID / port / health / error-count.
+# as detached background processes, each logging to $CEDAR_HOME/log/, PIDs in $CEDAR_HOME/log/run/.
+# macOS uses a non-restarting launchd submitted job so the services survive shells whose command
+# runner reaps its whole process group; other systems retain the nohup launcher. One `status` view
+# shows PID / port / health / error-count.
 # Frontend health is port-only (no Dropwizard /healthcheck).
 #
 # Infra (Keycloak, Mongo, Neo4j, MySQL, Redis, OpenSearch, nginx) is NOT managed here —
@@ -25,6 +27,7 @@
 #   ./cedar-services.sh running-infra        # host listeners on native infrastructure ports
 # ------------------------------------------------------------------------------
 export CEDAR_HOME="${CEDAR_HOME:-$HOME/CEDAR}"
+SCRIPT_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
 if [ "${CEDAR_SERVICES_INSPECT_ONLY:-false}" != true ]; then
   if ! source "$CEDAR_HOME/cedar-profile-native-develop.sh" >/dev/null 2>&1; then
     echo "Cannot load native CEDAR profile: $CEDAR_HOME/cedar-profile-native-develop.sh" >&2
@@ -103,6 +106,10 @@ admin_port(){ svc_field "$1" 3; }
 pidfile()   { echo "$RUN/$1.pid"; }
 logfile()   { case "$1" in ui-*) echo "$LOGDIR/$1.log";; *) echo "$LOGDIR/cedar-$1-server.log";; esac; }
 port_open() { nc -z -G1 127.0.0.1 "$1" >/dev/null 2>&1; }
+auxiliary_ports() {
+  local admin; admin=$(admin_port "$1")
+  [ "$admin" != 0 ] && printf '%s\n%s\n' "$admin" "$((admin+100))"
+}
 
 # Whoever is actually listening, pidfile or not. A listener is never assumed to be CEDAR merely
 # because it owns a CEDAR port: Docker Desktop proxies many published ports through one host process,
@@ -235,12 +242,56 @@ stop_port_processes() {
   ! port_open "$port"
 }
 
+stop_auxiliary_processes() {
+  local name=$1 port owner root result=0 attempt
+  while read -r port; do
+    [ -n "$port" ] || continue
+    owner=$(port_owner "$port")
+    [ -n "$owner" ] || continue
+    if ! is_service_process "$name" "$owner"; then
+      echo "  $name: REFUSED TO STOP auxiliary port $port owner pid $owner — it is not the expected CEDAR process: $(process_summary "$owner")" >&2
+      result=1
+      continue
+    fi
+    root=$(verified_listener_root "$name" "$owner")
+    terminate_tree "$root"
+    attempt=0
+    while port_open "$port" && [ "$attempt" -lt 10 ]; do sleep 0.2; attempt=$((attempt+1)); done
+    if port_open "$port"; then
+      kill -KILL "$root" 2>/dev/null || true
+      sleep 0.2
+    fi
+    if port_open "$port"; then
+      echo "  $name: FAILED TO STOP auxiliary port $port (pid $owner)" >&2
+      result=1
+    else
+      echo "  stopped stale $name process on auxiliary port $port (pid $owner)"
+    fi
+  done < <(auxiliary_ports "$name")
+  return "$result"
+}
+
 remove_launchd_job() {
-  local name=$1 label="org.metadatacenter.cedar.native.$1"
-  [ "$(uname -s)" = Darwin ] || return 0
+  local name=$1 label="org.metadatacenter.cedar.native.$1" attempt
+  [ "$(uname -s)" = Darwin ] || return 1
   if launchctl print "gui/$(id -u)/$label" >/dev/null 2>&1; then
-    launchctl remove "$label" >/dev/null 2>&1 || true
+    launchctl remove "$label" >/dev/null 2>&1 || return 1
+    # Removal is asynchronous. An immediate submit can otherwise observe the retiring job, reuse
+    # its PID in the pidfile, and leave no replacement once launchd finishes the old removal.
+    for attempt in 1 2 3 4 5 6 7 8 9 10; do
+      launchctl print "gui/$(id -u)/$label" >/dev/null 2>&1 || return 0
+      sleep 0.1
+    done
+    echo "  $name: launchd job did not finish stopping" >&2
+    return 1
   fi
+  return 1
+}
+
+launchd_job_pid() {
+  local name=$1 label="org.metadatacenter.cedar.native.$1"
+  launchctl print "gui/$(id -u)/$label" 2>/dev/null |
+      sed -n 's/^[[:space:]]*pid = \([0-9][0-9]*\)$/\1/p' | head -1
 }
 
 jar_of() { echo "$CEDAR_HOME/cedar-$1-server/cedar-$1-server-application/target/cedar-$1-server-application-${CEDAR_VERSION}.jar"; }
@@ -298,6 +349,44 @@ binary_of() {  # echoes current|STALE|- for a service and the pid serving it
   if [ "$j_epoch" -gt "$p_epoch" ]; then echo STALE; else echo current; fi
 }
 
+run_one_foreground() {
+  local name=$1 app; app=$(app_port "$name")
+  case "$name" in
+    ui-main)
+      local dir; dir=$(fe_dir "$name")
+      cd "$dir" || return 1
+      exec gulp ;;
+    ui-workspace|ui-designer)
+      local dir; dir=$(fe_dir "$name")
+      cd "$dir" || return 1
+      export CEDAR_FRONTEND_PORT="$app"
+      export CEDAR_WORKSPACE_FRONTEND_URL="${CEDAR_WORKSPACE_FRONTEND_URL:-https://workspace.${CEDAR_HOST}}"
+      export CEDAR_TEMPLATE_DESIGNER_FRONTEND_URL="${CEDAR_TEMPLATE_DESIGNER_FRONTEND_URL:-https://designer.${CEDAR_HOST}}"
+      exec gulp ;;
+    ui-openview|ui-content|ui-monitoring|ui-bridging)
+      local dir; dir=$(fe_dir "$name")
+      cd "$dir" || return 1
+      exec ng serve --port "$app" --host "$CEDAR_FRONTEND_BIND_HOST" ;;
+    *)
+      local jar="$CEDAR_HOME/cedar-$name-server/cedar-$name-server-application/target/cedar-$name-server-application-${CEDAR_VERSION}.jar"
+      local cfg="$CEDAR_HOME/cedar-$name-server/cedar-$name-server-application/src/main/resources/config.yml"
+      # Terminology local-store cutover: when CEDAR_TERMINOLOGY_STORE_CATALOG is set (in the profile),
+      # serve the allowlisted ontologies from the local SQLite store, BioPortal for the rest. Scoped to
+      # this service so the -D overrides do not touch other JVMs. Unset the env var to revert to proxy.
+      local opts=""
+      if [ "$name" = "terminology" ] && [ -n "$CEDAR_TERMINOLOGY_STORE_CATALOG" ]; then
+        opts="-DterminologyStore.catalogPath=$CEDAR_TERMINOLOGY_STORE_CATALOG -DterminologyStore.localOntologies=$CEDAR_TERMINOLOGY_LOCAL_ONTOLOGIES"
+        [ -n "$CEDAR_TERMINOLOGY_LOCAL_ROOTS_ONTOLOGIES" ] && opts="$opts -DterminologyStore.localRootsOntologies=$CEDAR_TERMINOLOGY_LOCAL_ROOTS_ONTOLOGIES"
+        [ -n "$CEDAR_TERMINOLOGY_LOCAL_ONLY" ] && opts="$opts -DterminologyStore.localOnly=$CEDAR_TERMINOLOGY_LOCAL_ONLY"
+        # The cross-snapshot search index, which POST /search and /search/hierarchy need. Its own
+        # variable because it is its own file: the catalog can be served without it, and those two
+        # endpoints then report themselves unavailable rather than answering from BioPortal.
+        [ -n "$CEDAR_TERMINOLOGY_STORE_INDEX" ] && opts="$opts -DterminologyStore.searchIndexPath=$CEDAR_TERMINOLOGY_STORE_INDEX"
+      fi
+      exec java $opts -jar "$jar" server "$cfg" ;;
+  esac
+}
+
 start_one() {
   local name=$1 app p owner; app=$(app_port "$name"); local log; log=$(logfile "$name")
   p=$(cat "$(pidfile "$name")" 2>/dev/null)
@@ -322,53 +411,69 @@ start_one() {
     fi
     return 1
   fi
+  local auxiliary owner
+  while read -r auxiliary; do
+    [ -n "$auxiliary" ] || continue
+    if port_open "$auxiliary"; then
+      owner=$(port_owner "$auxiliary")
+      if [ -n "$owner" ] && is_service_process "$name" "$owner"; then
+        echo "  $name: REFUSED TO START — stale CEDAR pid $owner owns auxiliary port $auxiliary; run stop first" >&2
+      elif [ -n "$owner" ]; then
+        echo "  $name: REFUSED TO START — auxiliary port $auxiliary belongs to non-CEDAR pid $owner: $(process_summary "$owner")" >&2
+      else
+        echo "  $name: REFUSED TO START — auxiliary port $auxiliary is occupied and its owner could not be identified" >&2
+      fi
+      return 1
+    fi
+  done < <(auxiliary_ports "$name")
   case "$name" in
-    ui-main)
+    ui-*)
       local dir; dir=$(fe_dir "$name")
-      [ -d "$dir" ] || { echo "  $name: SRC MISSING ($dir) — skip"; return 1; }
-      ( cd "$dir" && exec nohup gulp >"$log" 2>&1 ) & ;;
-    ui-workspace|ui-designer)
-      local dir; dir=$(fe_dir "$name")
-      [ -d "$dir" ] || { echo "  $name: SRC MISSING ($dir) — skip"; return 1; }
-      ( cd "$dir" \
-        && export CEDAR_FRONTEND_PORT="$app" \
-        && export CEDAR_WORKSPACE_FRONTEND_URL="${CEDAR_WORKSPACE_FRONTEND_URL:-https://workspace.${CEDAR_HOST}}" \
-        && export CEDAR_TEMPLATE_DESIGNER_FRONTEND_URL="${CEDAR_TEMPLATE_DESIGNER_FRONTEND_URL:-https://designer.${CEDAR_HOST}}" \
-        && exec nohup gulp >"$log" 2>&1 ) & ;;
-    ui-openview|ui-content|ui-monitoring|ui-bridging)
-      local dir; dir=$(fe_dir "$name")
-      [ -d "$dir" ] || { echo "  $name: SRC MISSING ($dir) — skip"; return 1; }
-      ( cd "$dir" && exec nohup ng serve --port "$app" --host "$CEDAR_FRONTEND_BIND_HOST" >"$log" 2>&1 ) & ;;
+      [ -d "$dir" ] || { echo "  $name: SRC MISSING ($dir) — skip"; return 1; } ;;
     *)
-      local jar="$CEDAR_HOME/cedar-$name-server/cedar-$name-server-application/target/cedar-$name-server-application-${CEDAR_VERSION}.jar"
+      local jar; jar=$(jar_of "$name")
       local cfg="$CEDAR_HOME/cedar-$name-server/cedar-$name-server-application/src/main/resources/config.yml"
       [ -f "$jar" ] || { echo "  $name: JAR MISSING ($jar) — build it first"; return 1; }
-      [ -f "$cfg" ] || { echo "  $name: CONFIG MISSING ($cfg)"; return 1; }
-      # Terminology local-store cutover: when CEDAR_TERMINOLOGY_STORE_CATALOG is set (in the profile),
-      # serve the allowlisted ontologies from the local SQLite store, BioPortal for the rest. Scoped to
-      # this service so the -D overrides do not touch other JVMs. Unset the env var to revert to proxy.
-      local opts=""
-      if [ "$name" = "terminology" ] && [ -n "$CEDAR_TERMINOLOGY_STORE_CATALOG" ]; then
-        opts="-DterminologyStore.catalogPath=$CEDAR_TERMINOLOGY_STORE_CATALOG -DterminologyStore.localOntologies=$CEDAR_TERMINOLOGY_LOCAL_ONTOLOGIES"
-        [ -n "$CEDAR_TERMINOLOGY_LOCAL_ROOTS_ONTOLOGIES" ] && opts="$opts -DterminologyStore.localRootsOntologies=$CEDAR_TERMINOLOGY_LOCAL_ROOTS_ONTOLOGIES"
-        [ -n "$CEDAR_TERMINOLOGY_LOCAL_ONLY" ] && opts="$opts -DterminologyStore.localOnly=$CEDAR_TERMINOLOGY_LOCAL_ONLY"
-        # The cross-snapshot search index, which POST /search and /search/hierarchy need. Its own
-        # variable because it is its own file: the catalog can be served without it, and those two
-        # endpoints then report themselves unavailable rather than answering from BioPortal.
-        [ -n "$CEDAR_TERMINOLOGY_STORE_INDEX" ] && opts="$opts -DterminologyStore.searchIndexPath=$CEDAR_TERMINOLOGY_STORE_INDEX"
-      fi
-      nohup java $opts -jar "$jar" server "$cfg" >"$log" 2>&1 & ;;
+      [ -f "$cfg" ] || { echo "  $name: CONFIG MISSING ($cfg)"; return 1; } ;;
   esac
-  echo $! > "$(pidfile "$name")"
-  echo "  started $name (pid $!) -> port $app, log $log"
+
+  if [ "$(uname -s)" = Darwin ]; then
+    local label="org.metadatacenter.cedar.native.$name" attempt
+    remove_launchd_job "$name" >/dev/null 2>&1 || true
+    # launchctl's -o/-e files append by default; retain the old nohup launcher's one-log-per-run
+    # behavior so status does not attribute an earlier process's errors to the current binary.
+    : > "$log"
+    launchctl submit -l "$label" -o "$log" -e "$log" -- /bin/bash "$SCRIPT_PATH" run-one "$name" || return 1
+    p=""
+    for attempt in 1 2 3 4 5; do
+      p=$(launchd_job_pid "$name")
+      [ -n "$p" ] && break
+      sleep 0.2
+    done
+    [ -n "$p" ] || { echo "  $name: launchd did not report a child PID" >&2; return 1; }
+  else
+    nohup "$SCRIPT_PATH" run-one "$name" >"$log" 2>&1 &
+    p=$!
+  fi
+  echo "$p" > "$(pidfile "$name")"
+  echo "  started $name (pid $p) -> port $app, log $log"
 }
 
 stop_one() {
   local name=$1 p result=0; p=$(cat "$(pidfile "$name")" 2>/dev/null)
   local port; port=$(app_port "$name")
-  # Retire jobs created by the former launchd experiment before touching their processes;
-  # otherwise KeepAlive immediately replaces every PID that stop terminates.
-  remove_launchd_job "$name"
+  # Removing a submitted launchd job terminates its process without restarting it. Wait for its
+  # listener to close before falling through to the ordinary process-tree safety checks.
+  if remove_launchd_job "$name"; then
+    local attempt=0
+    while port_open "$port" && [ "$attempt" -lt 10 ]; do sleep 0.2; attempt=$((attempt+1)); done
+    if ! port_open "$port"; then
+      echo "  stopped $name${p:+ (pid $p)}"
+      stop_auxiliary_processes "$name" || result=1
+      rm -f "$(pidfile "$name")"
+      return "$result"
+    fi
+  fi
   if [ -n "$p" ] && kill -0 "$p" 2>/dev/null && is_service_process "$name" "$p"; then
     if stop_port_processes "$name" "$port" "$p"; then
       echo "  stopped $name (pid $p)"
@@ -395,6 +500,7 @@ stop_one() {
       result=1
     else echo "  $name: not running"; fi
   fi
+  stop_auxiliary_processes "$name" || result=1
   rm -f "$(pidfile "$name")"
   return "$result"
 }
@@ -560,9 +666,10 @@ fi
 
 cmd="${1:-status}"; shift 2>/dev/null
 case "$cmd" in
+  run-one) run_one_foreground "$1" ;;
   start)   echo "Starting CEDAR app tier (JDK 17)..."; failed=0; while read -r n; do start_one "$n" || failed=1; sleep 3; done < <(names "$@"); exit "$failed" ;;
   stop)    failed=0; while read -r n; do stop_one "$n" || failed=1; done < <(names "$@"); exit "$failed" ;;
-  restart) "$0" stop "$@" || exit $?; sleep 2; "$0" start "$@" ;;
+  restart) "$SCRIPT_PATH" stop "$@" || exit $?; sleep 2; "$SCRIPT_PATH" start "$@" ;;
   status)  status ;;
   status-tsv) status_tsv ;;
   watch)   while true; do clear; date; status; sleep 5; done ;;
