@@ -1,9 +1,9 @@
 // End-to-end smoke test against a running CEDAR stack: log in through the real
-// Keycloak form, create a folder, create a template inside it with a Disease field
-// constrained to the DOID "disease" branch via the live BioPortal picker, populate
-// the template and confirm the field suggests a live DOID term, publish it to the
-// public OpenView site and confirm an anonymous visitor sees it presented, then
-// delete the template and the folder — verifying each step.
+// Keycloak form; exercise Workspace folder, sharing, group, membership, rename and
+// delete mutations with current ETags; create a template with a Disease field
+// constrained to the DOID "disease" branch via the live BioPortal picker; save it
+// twice without reloading; populate it and confirm a live DOID suggestion; publish
+// it to OpenView and confirm an anonymous visitor sees it; then clean up everything.
 //
 //   npm run smoke                        production monolith, headless
 //   npm run smoke:headed                 production monolith, headed
@@ -28,7 +28,8 @@ import { dirname, resolve } from 'node:path';
 import * as S from './selectors.mjs';
 // REST helpers, used to seed setup fixtures (folder, standalone field) without driving the UI, and
 // to tear them down. The browser drives only the gestures under test (designer, metadata editor).
-import { actors, call as restCall, mutate as restMutate, artifactBody } from './rest/lib.mjs';
+import { actors, call as restCall, mutate as restMutate, artifactBody,
+  group as groupCall, mutateGroup } from './rest/lib.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const FAIL_DIR = resolve(__dirname, 'failures');
@@ -57,6 +58,9 @@ const FOLDER_NAME = 'Smoke Tests';
 const TEMPLATE_NAME = `E2E Smoke Template ${RUN_ID}`;
 const FIELD_NAME = `E2E Standalone Field ${RUN_ID}`;
 const TEXT_FIELD_NAME = 'Notes';
+const MUTATION_FOLDER_NAME = `E2E ETag Folder ${RUN_ID}`;
+const MUTATION_FOLDER_FINAL_NAME = `${MUTATION_FOLDER_NAME} twice`;
+const MUTATION_GROUP_NAME = `E2E ETag Group ${RUN_ID}`;
 // A saved browser session, reused across runs so the Keycloak login is paid once. Regenerated
 // automatically when missing or stale. Gitignored — it holds live tokens.
 const AUTH_DIR = resolve(__dirname, '.auth');
@@ -188,6 +192,57 @@ async function verifySplitNavigation(page) {
   console.log('✓ Workspace launched Designer with an exact return URL; Designer SSO and cancel-return succeeded');
 }
 
+// Exercise the live Workspace application's own services against the real servers. These are less
+// brittle than reproducing every click in the old sharing dialog, while still running the shipped
+// browser code, its Angular authorization layer, CORS, and the real conditional endpoints.
+async function verifyWorkspaceConditionalMutations(page, folderId, mutableFolderId, groupId) {
+  await gotoListing(page, folderId);
+  await page.evaluate(async ({folderId, mutableFolderId, groupId, firstName, secondName}) => {
+    const injector = window.angular.element(document).injector();
+    if (!injector) throw new Error('Workspace Angular injector is unavailable');
+    const resources = injector.get('resourceService');
+    const backend = injector.get('AuthorizedBackendService');
+    const folder = id => ({'@id': id, resourceType: 'folder'});
+    const call = register => new Promise((resolve, reject) => register(resolve, error => {
+      const status = error?.status ?? 'unknown';
+      const detail = error?.data?.errorMessage ?? error?.data?.message ?? error?.statusText ?? 'request failed';
+      reject(new Error(`${status}: ${detail}`));
+    }));
+    const currentResource = resource => call((ok, fail) => resources.getCurrentResource(resource, ok, fail));
+    const rename = async (id, name) => {
+      const current = await currentResource(folder(id));
+      await call((ok, fail) => backend.doCall(resources.renameNode(current, name, null), ok, fail));
+    };
+
+    await rename(mutableFolderId, firstName);
+    await rename(mutableFolderId, secondName);
+
+    const workspaceFolder = folder(folderId);
+    const permissions = await call((ok, fail) => resources.getResourceShare(workspaceFolder, ok, fail));
+    await call((ok, fail) => resources.setResourceShare(workspaceFolder, permissions, ok, fail));
+    await call((ok, fail) => resources.setResourceShare(workspaceFolder, permissions, ok, fail));
+
+    const group = await call((ok, fail) => resources.getGroup(groupId, ok, fail));
+    group['schema:description'] = 'Workspace conditional update one';
+    await call((ok, fail) => resources.updateGroup(group, ok, fail));
+    group['schema:description'] = 'Workspace conditional update two';
+    await call((ok, fail) => resources.updateGroup(group, ok, fail));
+
+    const members = await call((ok, fail) => resources.getGroupMembers(group, ok, fail));
+    group.users = members.users;
+    await call((ok, fail) => resources.updateGroupMembers(group, ok, fail));
+    await call((ok, fail) => resources.updateGroupMembers(group, ok, fail));
+    await call((ok, fail) => resources.deleteGroup(group, ok, fail));
+  }, {
+    folderId,
+    mutableFolderId,
+    groupId,
+    firstName: `${MUTATION_FOLDER_NAME} once`,
+    secondName: MUTATION_FOLDER_FINAL_NAME,
+  });
+  console.log('✓ Workspace conditionally renamed a folder twice, replaced permissions twice, and completed group update/membership/delete lifecycles');
+}
+
 // Delete a row by name, retrying the whole gesture.
 //
 // The gesture can no-op in silence. The row menu is an Angular dropdown that
@@ -235,6 +290,10 @@ async function deleteRow(page, name, folderId) {
     if (!response.ok()) {
       throw new Error(`DELETE for "${name}" answered ${response.status()}: ${response.url()}`);
     }
+    const ifMatch = await response.request().headerValue('if-match');
+    if (!ifMatch) {
+      throw new Error(`DELETE for "${name}" reached the server without If-Match: ${response.url()}`);
+    }
 
     // The server has deleted it. The listing is served from the search index,
     // which can lag by tens of seconds just after a restart.
@@ -263,6 +322,38 @@ async function addTextField(page, name, help) {
   await page.locator(S.PALETTE_TEXT_FIELD).click(); // text field palette icon
   await setText(page.getByRole('textbox', { name: 'Enter Field Name' }).last(), name);
   if (help) await setText(page.getByRole('textbox', { name: 'Enter Field Help Text' }).last(), help);
+}
+
+// Save the same loaded Designer representation twice without reloading. The first response must
+// advance the validator held by the live editor model; the second request must use that new value.
+// A one-save smoke cannot distinguish correct propagation from a client that forever reuses the
+// ETag it got on the initial GET.
+async function verifyRepeatedTemplateUpdates(page) {
+  const description = page.getByRole('textbox', { name: 'Description' }).first();
+  const save = page.getByRole('button', { name: 'Save Template' });
+  const validators = [];
+
+  for (const value of ['Concurrency smoke: first update', 'Concurrency smoke: second update']) {
+    await setText(description, value);
+    const pending = page.waitForResponse(response => response.request().method() === 'PUT'
+        && /\/templates\//.test(response.url()), { timeout: 20_000 });
+    await save.click();
+    const response = await pending;
+    if (!response.ok()) {
+      throw new Error(`Designer repeated update answered ${response.status()}: ${response.url()}`);
+    }
+    const ifMatch = await response.request().headerValue('if-match');
+    const etag = await response.headerValue('etag');
+    if (!ifMatch || !etag) {
+      throw new Error(`Designer update omitted ${!ifMatch ? 'If-Match' : 'ETag'} on ${response.url()}`);
+    }
+    validators.push({ifMatch, etag});
+  }
+
+  if (validators[1].ifMatch !== validators[0].etag) {
+    throw new Error(`Designer did not advance its live validator: first response ${validators[0].etag}, second request ${validators[1].ifMatch}`);
+  }
+  console.log(`✓ Designer saved the same live template twice (${validators[0].ifMatch} → ${validators[0].etag} → ${validators[1].etag})`);
 }
 
 // Constrain the just-added text field to the "disease" BRANCH of DOID via the live
@@ -646,6 +737,9 @@ await context.route('**://*:35729/**', route => route.abort());
 
 const page = await context.newPage();
 let step = 'init';
+let cleanupUser1;
+let mutationFolderId;
+let mutationGroupId;
 
 try {
   // 1. Reuse a saved session if the storage state carried a valid one; otherwise log in through
@@ -686,12 +780,39 @@ try {
   //    and leaves it available for later use. The same REST token tears both down at the end.
   step = 'seed';
   const { user1 } = await actors();
+  cleanupUser1 = user1;
   const { id: folderId, created } = await findOrCreateWorkingFolder(user1);
   const fieldResp = await restCall(user1.auth, 'POST', `/template-fields?folder_id=${enc(folderId)}`,
       artifactBody('field', FIELD_NAME));
   if (fieldResp.status !== 201) throw new Error(`could not seed standalone field: ${fieldResp.status} ${fieldResp.text}`);
   const standaloneFieldId = fieldResp.body['@id'];
   console.log(`✓ ${created ? 'created' : 'reused'} the "${FOLDER_NAME}" folder, seeded a standalone field over REST`);
+
+  // Exercise concurrency-sensitive Workspace mutations before entering Designer. Setup uses REST;
+  // every mutation below runs through the loaded frontend's actual Angular services.
+  step = 'workspace-conditional-mutations';
+  const mutationFolder = await restCall(user1.auth, 'POST', '/folders', {
+    folderId,
+    name: MUTATION_FOLDER_NAME,
+    description: 'Disposable folder for frontend ETag coverage',
+  });
+  if (mutationFolder.status !== 201) {
+    throw new Error(`could not create mutation folder: ${mutationFolder.status} ${mutationFolder.text}`);
+  }
+  mutationFolderId = mutationFolder.body['@id'];
+  const mutationGroup = await groupCall(user1.auth, 'POST', '/groups', {
+    'schema:name': MUTATION_GROUP_NAME,
+    'schema:description': 'Disposable group for frontend ETag coverage',
+  });
+  if (mutationGroup.status !== 201) {
+    throw new Error(`could not create mutation group: ${mutationGroup.status} ${mutationGroup.text}`);
+  }
+  mutationGroupId = mutationGroup.body['@id'];
+  await verifyWorkspaceConditionalMutations(page, folderId, mutationFolderId, mutationGroupId);
+  mutationGroupId = null;
+  await deleteRow(page, MUTATION_FOLDER_FINAL_NAME, folderId);
+  mutationFolderId = null;
+  console.log('✓ Workspace deleted the renamed folder with a freshly read If-Match validator');
 
   // 3. Create a template inside the folder via the designer deep link, name it, add
   //    a Disease field and constrain it to the DOID "disease" branch through the
@@ -739,6 +860,9 @@ try {
   await page.waitForTimeout(1100);
   await page.getByRole('button', { name: 'Save Template' }).click();
   await page.getByText(/has been (created|updated)/i).first().waitFor({ timeout: 20_000 });
+  await page.waitForURL(/\/templates\/edit\//, { timeout: 20_000 });
+  step = 'repeat-template-update';
+  await verifyRepeatedTemplateUpdates(page);
   // Confirm it is listed inside the folder.
   let templateListed = false;
   for (let poll = 1; poll <= 6 && !templateListed; poll++) {
@@ -842,7 +966,7 @@ try {
   await assertWorkingFolderCleared(user1, folderId, [savedInstance.id, templateId, standaloneFieldId]);
   console.log(`✓ "${FOLDER_NAME}" holds none of this run's artifacts`);
 
-  console.log(`\nPASS [CEE ${deployedCeeVersion}]: login (reusable session) → "${FOLDER_NAME}" folder + seeded field → template w/ DOID + text field → populate + fill → save instance → re-edit (update) → both serializations (JSON/YAML) → OpenView presented anonymously → delete → folder cleared`);
+  console.log(`\nPASS [CEE ${deployedCeeVersion}]: login (reusable session) → conditional Workspace mutations → "${FOLDER_NAME}" folder + seeded field → template w/ DOID + text field → two conditional saves without reload → populate + fill → save instance → re-edit (update) → both serializations (JSON/YAML) → OpenView presented anonymously → conditional delete → folder cleared`);
   await browser.close();
   process.exit(0);
 } catch (e) {
@@ -851,6 +975,12 @@ try {
   await page.screenshot({ path: shotPath }).catch(() => {});
   console.error(`\nFAIL at step "${step}": ${e.message}`);
   console.error(`screenshot: ${shotPath}`);
+  if (cleanupUser1 && mutationGroupId) {
+    await mutateGroup(cleanupUser1.auth, 'DELETE', `/groups/${enc(mutationGroupId)}`).catch(() => {});
+  }
+  if (cleanupUser1 && mutationFolderId) {
+    await restMutate(cleanupUser1.auth, 'DELETE', `/folders/${enc(mutationFolderId)}`).catch(() => {});
+  }
   await browser.close();
   process.exit(1);
 }
