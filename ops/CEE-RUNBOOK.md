@@ -286,7 +286,7 @@ needs. Install, then get the bundle into what each host serves:
 | `cedar-template-editor` | plain | `npx gulp copy:cee` (needs the profile sourced) |
 | `cedar-bridging` | plain | `cedarcli build this --wd "$PWD"` |
 | `cedar-openview` | `--legacy-peer-deps` | `cedarcli build this --wd "$PWD"` — it copies `dist/cedar-openview` into `cedar-openview-dist` |
-| `cedar-component-demo` (Angular) | `--legacy-peer-deps` | `cedarcli build this --wd "$PWD"` |
+| `cedar-component-demo` (Angular) | plain | `cedarcli build this --wd "$PWD"` |
 | `cedar-component-demo` (Ember, React) | plain | nothing — they run from source |
 
 A build refreshes what is on disk. A **running `ng serve` still serves what it
@@ -1455,12 +1455,14 @@ while a development snapshot is pinned and harmless for a stable npmjs release.
 | `cedar-template-editor` | `package.json` | plain |
 | `cedar-bridging` | `cedar-bridging-src/package.json` | plain |
 | `cedar-openview` | `cedar-openview-src/package.json` | `--legacy-peer-deps` |
-| `cedar-component-demo` | `cedar-cee-demo-angular-src` | `--legacy-peer-deps` |
+| `cedar-component-demo` | `cedar-cee-demo-angular-src` | plain |
 | `cedar-component-demo` | `cedar-cee-demo-ember-src`, `cedar-cee-demo-react` | plain |
 
-Two repos fail a plain `npm install` on a peer conflict that has nothing to do with CEE:
-`ngx-youtube-player-14` demands `@angular/common@^14.1.3` from projects on Angular 15 and 16. Both
-predate this wiring and both need `--legacy-peer-deps`.
+One repo fails a plain `npm install` on a peer conflict that has nothing to do with CEE:
+`cedar-openview` carries `ngx-youtube-player-14`, which demands `@angular/common@^14.1.3` from a
+project on Angular 16, so it needs `--legacy-peer-deps`. The Angular demo needed the same flag until
+it moved to Angular 22, for a different reason — it declared `@angular/material`, which wants
+`@angular/forms`, and used neither.
 
 Propagate all seven pins with the checked cross-repository helper. It updates each manifest and
 lockfile using the appropriate npm peer-dependency mode, then fails unless Workspace and every
