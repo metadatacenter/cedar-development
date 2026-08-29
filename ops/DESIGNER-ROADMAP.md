@@ -5,10 +5,10 @@ CEDAR templates. Running, building and packaging it is in
 [DESIGNER-RUNBOOK.md](DESIGNER-RUNBOOK.md).
 
 The goal is a designer that does everything the AngularJS Template Designer does
-— the one serving `/templates/edit/...` in production, whose own extraction is
-tracked in [TEMPLATE-DESIGNER-ROADMAP.md](TEMPLATE-DESIGNER-ROADMAP.md) — and two
-things it does not: it embeds in any page, and it authors constraints that name
-the ontology version an author chose, through
+— the one serving `/templates/edit/...` in production, across the
+`cedar-template-editor` monolith and the `cedar-template-designer` extraction of
+it — and two things it does not: it embeds in any page, and it authors
+constraints that name the ontology version an author chose, through
 [`<cedar-term-picker>`](VERSIONING-ROADMAP.md).
 
 Functional equivalence is the bar because a designer that authors most of a

@@ -6,9 +6,8 @@ Web Component for authoring CEDAR templates.
 CED is the authoring half of a pair. The [CEDAR Embeddable Editor](CEE-RUNBOOK.md)
 renders a template as a form and produces instances; CED produces the templates
 CEE renders. It is a different component from the AngularJS Template Designer
-that serves `/templates/edit/...` in production, whose extraction is tracked in
-[TEMPLATE-DESIGNER-ROADMAP.md](TEMPLATE-DESIGNER-ROADMAP.md). What CED still
-needs before it can stand in for that designer is in
+that serves `/templates/edit/...` in production, which it is meant to replace.
+What CED still needs before it can stand in for that designer is in
 [DESIGNER-ROADMAP.md](DESIGNER-ROADMAP.md).
 
 ## Requirements

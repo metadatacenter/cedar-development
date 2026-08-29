@@ -262,15 +262,24 @@ the runbook's dependency and framework state.
   terms in it whose count nobody had. Both libraries write such a zero through faithfully as
   `termCount: 0`, so a reader cannot tell an empty value set from an unmeasured one.
 
-  **An ontology's `numTerms: 0`, which blocks saving outright.** GAZ's count comes back `n/a` from the
-  terminology layer, the editor serialises the constraint with zero, and the meta-schema requires
-  `minimum: 1` there — so the template cannot be saved at all. That one is tracked with its producer on
-  [TEMPLATE-DESIGNER-ROADMAP.md](./TEMPLATE-DESIGNER-ROADMAP.md), and only one of its three fixes is
-  the designer's to make alone.
+  **An ontology's `numTerms: 0`, which blocks saving outright.** Adding GAZ to a field as an
+  *entire-ontology* constraint makes the template fail validation on save (`POST /templates` → 400);
+  a branch or specific-class constraint on the same ontology does not. GAZ's count comes back `n/a`
+  from the terminology layer — the picker shows "Number Terms: n/a" — the editor serialises the
+  constraint with zero, and the meta-schema requires
+  `_valueConstraints.ontologies[].numTerms` to be an integer with `minimum: 1`. The JSON-Schema
+  `oneOf` over field kinds then turns that one failure into a cascade of unrelated-looking errors in
+  the validation report. Worth noting alongside it: the interactive `POST /command/validate` returned
+  200 while the create 400'd, so the editor's live check does not exercise the same constraint.
+
+  Three fixes are possible and only one is the frontend's: (a) have the terminology layer return a
+  real `numTerms` for GAZ, which is the anomaly given an `iri-field` `numTerms` already allows
+  `minimum: 0` elsewhere; (b) stop the editor emitting `numTerms: 0` when the count is unknown; or
+  (c) relax the `ontologies` `numTerms` minimum to `0`.
 
   Two pieces of work follow the decision. The **frontend** stops writing zero where it means something
-  else, which belongs to the Template Designer's roadmap; the decision is tracked here because it binds
-  the meta-schema and both model libraries. And the **stored artifacts** already carrying a zero have
+  else, in `cedar-template-editor` and in the `cedar-template-designer` extraction of it; the decision
+  is tracked here rather than with them because it binds the meta-schema and both model libraries. And the **stored artifacts** already carrying a zero have
   to be patched — two preprod captures in the corpus still show one, beside corrected copies naming
   real counts. The production-audit and patch procedure is documented in
   [BACKEND-RUNBOOK.md](./BACKEND-RUNBOOK.md), "Patching stored artifacts".

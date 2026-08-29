@@ -81,8 +81,7 @@ next major release.
    `schema.service.js` and `data-manipulation.service.js` is unreachable, because the only
    expressions that call it name `$root.getUnescapedContent` and nothing puts that function on
    `$rootScope`. The same dead expression leaves the legacy metadata editor rendering a static
-   rich-text field as an empty box, tracked as a bug in
-   [TEMPLATE-DESIGNER-ROADMAP.md](./TEMPLATE-DESIGNER-ROADMAP.md).
+   rich-text field as an empty box.
 4. **The authority marks are three different things pretending to be one.** ORCID, PFAS, NIH
    Grant and DOI are not those organisations' logos: they are approximations someone drew — an
    `iD` in a green circle, `NIH` in a navy box — inlined as SVG data URIs. PubMed and RRID are

@@ -92,8 +92,7 @@ The embeddable editor (CEE) and the TypeScript model library it consumes:
   adoption status.
 
 The embeddable designer (CED) — `cedar-embeddable-designer`, the authoring half of the pair CEE
-completes. Distinct from the AngularJS Template Designer it aims to replace, whose extraction is
-tracked further down:
+completes, and the replacement for the AngularJS Template Designer:
 - [DESIGNER-RUNBOOK.md](ops/DESIGNER-RUNBOOK.md) — running the development host, the two builds,
   the four test gates, the single-file distribution and the channel its version selects, embedding
   it alongside `<cedar-term-picker>`, and why controlled-term search needs a local terminology
@@ -132,9 +131,6 @@ The rest:
   `skip_from_release` and publish themselves; their public procedure is in
   [NPMJS-RELEASE-RUNBOOK.md](ops/NPMJS-RELEASE-RUNBOOK.md).
 - [PROD-DEPLOY-RUNBOOK.md](ops/PROD-DEPLOY-RUNBOOK.md) — deploying CEDAR to production.
-- [TEMPLATE-DESIGNER-ROADMAP.md](ops/TEMPLATE-DESIGNER-ROADMAP.md) — the AngularJS Template Designer
-  frontend (`cedar-template-editor`), which [DESIGNER-ROADMAP.md](ops/DESIGNER-ROADMAP.md) measures
-  itself against.
 - [WORDPRESS-RUNBOOK.md](ops/WORDPRESS-RUNBOOK.md) — the CEDAR WordPress site.
 
 ## The four things that bite first (don't skip)
