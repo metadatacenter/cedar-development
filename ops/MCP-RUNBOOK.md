@@ -33,9 +33,9 @@ Java 17, as everywhere in CEDAR. `mvn package` writes a shaded, executable jar a
 version-less copy beside it — `target/<artifactId>.jar` — so a client's configuration can name a
 fixed path that survives a version bump.
 
-Two of the three Maven servers depend on `cedar-artifact-library`, currently a local SNAPSHOT, so
-they need it installed first. `cedar-artifact-rest-mcp` does not: it resolves from Maven Central
-alone.
+Two of the three Maven servers depend on released `cedar-artifact-library` 2.9.3. Their POMs name
+the anonymous-read BMIR Nexus releases repository, so no sibling checkout or local install is
+needed. `cedar-artifact-rest-mcp` does not use the library and resolves from Maven Central alone.
 
 **The jar is the documentation.** A tool's description is the only thing the calling model ever
 reads about it, and descriptions ship inside the jar. A stale MCP jar is therefore worse than a
@@ -104,29 +104,27 @@ fails the build rather than the form.
 
 ## Upgrading the CEE Bundle
 
-`cedar-cee-mcp` serves the CEE web-component bundle out of its own jar. The CEE publishes to the
-BMIR Nexus under the `@org.metadatacenter` scope rather than to npmjs, so no public CDN carries it
-and the host page has nothing to link to. The build fetches the package and stages the bundle as a
-resource; a session then needs no network beyond the terminology and bridge services the fields
-themselves call.
+`cedar-cee-mcp` serves the CEE web-component bundle out of its own jar. The build fetches the stable
+public npm package and stages the bundle as a resource; a session then needs no network beyond the
+terminology and bridge services the fields themselves call.
 
 Two lines in `pom.xml` pin it:
 
 ```xml
-<cee.version>2.0.0-dev.20260818.6dca9bf</cee.version>
-<cee.sha256>2d7b7206222d36b5631b4648479500a8b8738daa7f40107cacf8796b2d3112b9</cee.sha256>
+<cee.version>2.0.3</cee.version>
+<cee.sha256>b1e86f4a2b94331376a1d9d96af5a20e61dab401b393e116f0c6827b2a7e44a2</cee.sha256>
 ```
 
 The hash is the bundle's own, from the package's `bundle-manifest.json`, and the build refuses a
-bundle that does not match. It is pinned because a dev label can be republished: the version alone
-does not identify the bytes, which is the same reason [CEE-RUNBOOK.md](./CEE-RUNBOOK.md) tells you
-to compare hashes rather than version strings when a frontend looks wrong.
+bundle that does not match. The hash also gives the same deployed-identity check that
+[CEE-RUNBOOK.md](./CEE-RUNBOOK.md) uses when a frontend looks wrong.
 
-To bump: find the version the `dev` dist-tag names, take its hash from the manifest, change both
-lines, run the suite, and open a form in a browser with the console visible.
+To bump: find the version the public `latest` dist-tag names, take its hash from the package's
+`bundle-manifest.json`, change both lines, run the suite, and open a form in a browser with the
+console visible.
 
 ```bash
-curl -s https://nexus.bmir.stanford.edu/repository/npm-cedar/@org.metadatacenter%2fcedar-embeddable-editor \
+curl -s https://registry.npmjs.org/cedar-embeddable-editor \
   | python3 -c 'import json,sys; print(json.load(sys.stdin)["dist-tags"])'
 ```
 
