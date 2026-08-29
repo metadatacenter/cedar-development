@@ -35,6 +35,16 @@ inventories, the explicit versions, and the byte-equivalence proof between the t
 CEE and the public npmjs CEE, and then runs the full preflight. It must finish with
 `No changes made.`
 
+Start earlier than that, though. Most of what stops a release is about the estate rather than the
+train, and a train costs half an hour:
+
+```bash
+cedarcli release preflight --version <VER> --next-version <NEXT>
+```
+
+That runs every check except the ones only a completed train can answer, in about ninety seconds,
+against the repository set the next train will use. Build the train once it is clean.
+
 The CEE version bases need not match. A train may already have advanced to the next development
 base after the public package was cut, so eligibility comes from the tarball proof rather than from
 version-name similarity.
@@ -61,8 +71,17 @@ Two of those deserve their own note.
 
 **Nexus reads fall back to anonymous** and succeed whether or not credentials are set, so the
 presence of `BMIR_NEXUS_USERNAME` and `BMIR_NEXUS_PASSWORD` proves nothing. Preflight authenticates
-against an endpoint anonymous callers cannot reach. Export both from the `bmir-nexus-releases`
-server entry in `~/.m2/settings.xml` before starting.
+against an endpoint anonymous callers cannot reach, and reads a repository as well, because the
+status endpoints answer from the web tier and stay green while everything behind them fails. Export
+both from the `bmir-nexus-releases` server entry in `~/.m2/settings.xml` before starting.
+
+**A Nexus over its request budget looks like an outage.** The instance is Community Edition, with a
+limit on requests per day, and when it is over that limit it serves its status endpoints and returns
+500 for every repository path. Preflight names that shape rather than reporting a generic failure,
+because it is the one condition that gets worse the harder a release tries: every retry spends the
+budget that is exhausted. The budget is a rolling 24-hour window, so the answer is to stop and let it
+roll off, and to check the Usage Center for what is consuming it. A train is a few hundred requests,
+so a run of failed trains is itself a substantial contributor.
 
 **CI is asked about the train's source commit**, not about whatever `develop` points at now. That is
 both the more precise question and the stable one, since a release advances `develop` everywhere at
@@ -173,6 +192,10 @@ different immutable registry object is a hard stop.
 
 Never edit a ledger or a release manifest by hand. Those files are the release's own record of what
 it verified, and a hand-edited record makes every guard downstream of it meaningless.
+
+One release is active at a time, and acceptance marks it finished. A release that ended before the
+acceptance phase existed still holds that slot, and `cedarcli release conclude` records that it
+finished and frees it. It refuses anything that has not reached a terminal phase.
 
 ### Known Failure Signatures
 
