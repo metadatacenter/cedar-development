@@ -105,6 +105,14 @@ app_port()  { svc_field "$1" 2; }
 admin_port(){ svc_field "$1" 3; }
 pidfile()   { echo "$RUN/$1.pid"; }
 logfile()   { case "$1" in ui-*) echo "$LOGDIR/$1.log";; *) echo "$LOGDIR/cedar-$1-server.log";; esac; }
+log_error_count() {
+  local log=$1
+  [ -r "$log" ] || { echo 0; return; }
+  # Count error events, not arbitrary occurrences of words such as "Exception". A WARN emitted by
+  # CedarCedarExceptionMapper is still a WARN, and stack-trace lines belong to the ERROR record that
+  # introduced them rather than being additional errors of their own.
+  awk '/^ERROR([[:space:]]|$)/ { count++ } END { print count + 0 }' "$log"
+}
 port_open() { nc -z -G1 127.0.0.1 "$1" >/dev/null 2>&1; }
 auxiliary_ports() {
   local admin; admin=$(admin_port "$1")
@@ -602,12 +610,7 @@ inspect_status() {
       # These files belong to an earlier native run. Container logs and health belong to cedarcli.
       STATUS_ERRORS="-"
     else
-      # Exclude logback's own configuration chatter. Its internal status lines all take the
-      # form "|-LEVEL in <class>" (INFO/WARN/ERROR/…), and one WARN reports an appender named
-      # FILE-ERROR "not referenced" — which the old "|-INFO in"-only filter let through as a
-      # phantom error. Real application errors have no "|-" prefix (e.g. "ERROR [ts] logger:").
-      STATUS_ERRORS=$(grep -iE "ERROR|Exception" "$(logfile "$name")" 2>/dev/null | grep -cvE "\|-(INFO|WARN|ERROR|TRACE|DEBUG) in ")
-      STATUS_ERRORS=${STATUS_ERRORS:-0}
+      STATUS_ERRORS=$(log_error_count "$(logfile "$name")")
     fi
     STATUS_PID=$pid_disp
 }

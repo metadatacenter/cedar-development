@@ -236,6 +236,22 @@ class NativeProcessSafetyTest(unittest.TestCase):
             result.stdout,
         )
 
+    def test_log_error_count_counts_error_events_not_exception_words(self):
+        result = self.run_library(
+            'log="$CEDAR_HOME/service.log"; '
+            'printf "%s\\n" '
+            '"WARN [ts] CedarCedarExceptionMapper: Folder not found" '
+            '"java.lang.Exception: expected client outcome" '
+            '"INFO [ts] service: recovered from earlier ERROR" '
+            '"|-ERROR in ch.qos.logback.core: internal configuration chatter" '
+            '"ERROR [ts] service: dependency failed" '
+            '"ERROR [ts] service: second failure" > "$log"; '
+            'log_error_count "$log"'
+        )
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual("2", result.stdout.strip())
+
 
 if __name__ == "__main__":
     unittest.main()
