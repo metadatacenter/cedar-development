@@ -3,9 +3,11 @@
 // delete mutations with current ETags; create a template with a Disease field
 // constrained to the DOID "disease" branch via the live BioPortal picker; save it
 // twice without reloading; prove stale-editor rejection and reload recovery; run a
-// real two-user read/write/revoke sharing lifecycle; populate it and confirm a live
-// DOID suggestion; publish it to OpenView and confirm an anonymous visitor sees it;
-// then clean up everything.
+// real two-user read/write/revoke sharing lifecycle; recover Workspace and Designer
+// mutations after an expired access token; publish an independent template, prove it
+// immutable, and create an editable draft; populate the main template and confirm a
+// live DOID suggestion; exercise CEE's dirty-navigation contract; publish it to
+// OpenView and confirm an anonymous visitor sees it; then clean up everything.
 //
 //   npm run smoke                        production monolith, headless
 //   npm run smoke:headed                 production monolith, headed
@@ -61,6 +63,7 @@ const RUN_ID = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
 // artifacts inside stay timestamped, so successive runs still cannot collide.
 const FOLDER_NAME = 'Smoke Tests';
 const TEMPLATE_NAME = `E2E Smoke Template ${RUN_ID}`;
+const VERSION_TEMPLATE_NAME = `E2E Version Lifecycle ${RUN_ID}`;
 const FIELD_NAME = `E2E Standalone Field ${RUN_ID}`;
 const TEXT_FIELD_NAME = 'Notes';
 const MUTATION_FOLDER_NAME = `E2E ETag Folder ${RUN_ID}`;
@@ -365,13 +368,111 @@ async function verifyRepeatedTemplateUpdates(page) {
 async function saveTemplateDescription(page, value, expectedStatus = 200) {
   await setText(page.getByRole('textbox', { name: 'Description' }).first(), value);
   const pending = page.waitForResponse(response => response.request().method() === 'PUT'
-      && /\/templates\//.test(response.url()), { timeout: 20_000 });
+      && /\/templates\//.test(response.url()) && response.status() === expectedStatus,
+    { timeout: 20_000 });
   await page.getByRole('button', { name: 'Save Template' }).click();
   const response = await pending;
   if (response.status() !== expectedStatus) {
     throw new Error(`template update answered ${response.status()}, expected ${expectedStatus}: ${response.url()}`);
   }
   return response;
+}
+
+// Make the next authenticated call receive the resource server's exact expired-access-token
+// contract. A random invalid bearer is intentionally a different case — it asks the UI to log out —
+// and waiting several minutes for a real signed token to expire would make this smoke unusable.
+// Fulfil one matching request with the real authorization error shape, then let the retry reach the
+// live server. AuthorizedBackendService must reauthenticate through a fresh Keycloak silent-SSO
+// handler and retry exactly once. This also covers sessions that lack a refresh token, where the
+// stock adapter would otherwise fall back to logout. No token value is read out of the page or
+// logged.
+async function withExpiredAccessToken(page, mutationPredicate, action, label) {
+  const exactUrl = page.url();
+  const mutationStatuses = [];
+  const refreshStatuses = [];
+  const observe = response => {
+    if (mutationPredicate(response)) mutationStatuses.push(response.status());
+    if (/\/protocol\/openid-connect\/token(?:\?|$)/.test(response.url())) {
+      refreshStatuses.push(response.status());
+    }
+  };
+  page.on('response', observe);
+  let intercepted = false;
+  const intercept = async route => {
+    const request = route.request();
+    const responseShape = { url: () => request.url(), request: () => request };
+    if (!intercepted && mutationPredicate(responseShape)) {
+      intercepted = true;
+      await route.fulfill({
+        status: 401,
+        contentType: 'application/json',
+        body: JSON.stringify({ errorType: 'authorization', suggestedAction: 'refreshToken' }),
+      });
+    } else {
+      await route.continue();
+    }
+  };
+  await page.route('**/*', intercept);
+  await page.evaluate(() => {
+    const injector = window.angular.element(document).injector();
+    if (!injector) throw new Error('Angular injector is unavailable for the session-expiry probe');
+    const user = injector.get('UserService');
+    if (user.__smokeRestoreExpiredAccessToken) throw new Error('session-expiry probe is already armed');
+    const originalGetToken = user.getToken;
+    const originalRefreshToken = user.refreshToken;
+    user.refreshToken = function (_minValidity, success, failure) {
+      return new Promise((resolve, reject) => {
+        const fresh = new window.KeycloakUserHandler();
+        fresh.initUserHandler(
+          authenticated => {
+            if (!authenticated) {
+              failure();
+              reject(new Error('Keycloak silent SSO did not authenticate'));
+              return;
+            }
+            user.getToken = fresh.getToken;
+            Promise.resolve(success(true)).then(resolve, reject);
+          },
+          error => {
+            failure(error);
+            reject(error ?? new Error('Keycloak silent SSO failed'));
+          },
+        );
+      });
+    };
+    user.__smokeRestoreExpiredAccessToken = function () {
+      user.getToken = originalGetToken;
+      user.refreshToken = originalRefreshToken;
+      delete user.__smokeRestoreExpiredAccessToken;
+    };
+  });
+
+  try {
+    let result;
+    try {
+      result = await action();
+    } catch (error) {
+      throw new Error(`${label}: ${error.message}; mutation responses ${mutationStatuses.join(' → ') || 'none'}; Keycloak refreshes ${refreshStatuses.join(', ') || 'none'}`);
+    }
+    await page.waitForTimeout(300);
+    const denied = mutationStatuses.filter(status => status === 401).length;
+    const succeeded = mutationStatuses.filter(status => status >= 200 && status < 300).length;
+    const refreshed = refreshStatuses.filter(status => status >= 200 && status < 300).length;
+    if (!intercepted || denied !== 1 || succeeded !== 1 || refreshed !== 1) {
+      throw new Error(`${label} session recovery was ${mutationStatuses.join(' → ') || 'no mutation response'}; Keycloak refreshes ${refreshStatuses.join(', ') || 'none'}`);
+    }
+    if (page.url() !== exactUrl) {
+      throw new Error(`${label} session recovery changed route from ${exactUrl} to ${page.url()}`);
+    }
+    return result;
+  } finally {
+    await page.evaluate(() => {
+      const injector = window.angular.element(document).injector();
+      injector?.get('UserService').__smokeRestoreExpiredAccessToken?.();
+    }).catch(() => {});
+    await page.unroute('**/*', intercept);
+    page.off('response', observe);
+  }
 }
 
 function etagRevision(etag) {
@@ -439,7 +540,8 @@ async function openShareDialog(page, folderId, templateName) {
 
 async function expectPermissionUpdate(page, action) {
   const pending = page.waitForResponse(response => response.request().method() === 'PUT'
-      && /\/permissions(?:\?|$)/.test(response.url()), { timeout: 15_000 }).catch(() => null);
+      && /\/permissions(?:\?|$)/.test(response.url()) && response.ok(),
+    { timeout: 20_000 }).catch(() => null);
   await action();
   const response = await pending;
   if (!response) throw new Error('sharing control sent no permissions PUT');
@@ -465,7 +567,7 @@ async function chooseVisiblePermission(scope, permission) {
   await option.click();
 }
 
-async function shareWithUser(page, folderId, templateName, userName, permission) {
+async function shareWithUser(page, folderId, templateName, userName, permission, recoverExpiredSession = false) {
   const modal = await openShareDialog(page, folderId, templateName);
   const input = modal.locator('#share-people input.user-name');
   await input.fill(userName);
@@ -477,7 +579,17 @@ async function shareWithUser(page, folderId, templateName, userName, permission)
   const confirm = modal.locator('#share-people .confirmation.first button.btn-save');
   await confirm.waitFor({ state: 'visible', timeout: 10_000 });
   await chooseVisiblePermission(modal.locator('#share-people'), permission);
-  await expectPermissionUpdate(page, () => confirm.click());
+  const grant = () => expectPermissionUpdate(page, () => confirm.click());
+  if (recoverExpiredSession) {
+    await withExpiredAccessToken(
+      page,
+      response => response.request().method() === 'PUT' && /\/permissions(?:\?|$)/.test(response.url()),
+      grant,
+      'Workspace permission update',
+    );
+  } else {
+    await grant();
+  }
   await closeShareDialog(modal);
 }
 
@@ -554,7 +666,7 @@ async function waitForSharedRow(page, homeFolderId, templateName, present) {
 // render the right controls after each transition, carry the recipient into Designer through SSO,
 // and stop an already-open editor after revocation.
 async function verifyTwoUserSharing(browser, ownerPage, folderId, templateId, user1, user2) {
-  await shareWithUser(ownerPage, folderId, TEMPLATE_NAME, USER2_NAME, 'read');
+  await shareWithUser(ownerPage, folderId, TEMPLATE_NAME, USER2_NAME, 'read', true);
   const secondary = await newAuthenticatedContext(browser, USER2, PASSWORD2, AUTH_STATE_USER2);
   try {
     const recipientPage = secondary.page;
@@ -604,6 +716,40 @@ async function verifyTwoUserSharing(browser, ownerPage, folderId, templateId, us
   } finally {
     await secondary.context.close();
   }
+}
+
+async function waitForDesignerTemplate(page, expectedName) {
+  const name = page.getByRole('textbox', { name: 'Name' }).first();
+  await name.waitFor({ state: 'visible', timeout: 30_000 });
+  await page.waitForFunction(expected => {
+    const boxes = [...document.querySelectorAll('input')];
+    return boxes.some(input => input.value === expected);
+  }, expectedName, { timeout: 30_000 });
+}
+
+async function verifyDesignerSessionRecovery(page, editUrl, templateId, user1) {
+  await page.goto(editUrl, { waitUntil: 'domcontentloaded' });
+  await waitForDesignerTemplate(page, TEMPLATE_NAME);
+
+  const before = await restCall(user1.auth, 'GET', `/templates/${enc(templateId)}`);
+  if (before.status !== 200) throw new Error(`could not read template before session recovery: ${before.status}`);
+  const beforeRevision = etagRevision(before.headers.get('etag'));
+  const value = 'Session smoke: Designer preserved this unsaved edit through token refresh';
+  const saved = await withExpiredAccessToken(
+    page,
+    response => response.request().method() === 'PUT' && /\/templates\//.test(response.url()),
+    () => saveTemplateDescription(page, value),
+    'Designer save',
+  );
+  const afterRevision = etagRevision(await saved.headerValue('etag'));
+  if (beforeRevision == null || afterRevision !== beforeRevision + 1) {
+    throw new Error(`Designer session recovery advanced revision ${beforeRevision} → ${afterRevision}; expected exactly one update`);
+  }
+  const after = await restCall(user1.auth, 'GET', `/templates/${enc(templateId)}`);
+  if (after.status !== 200 || after.body?.['schema:description'] !== value) {
+    throw new Error(`Designer lost the edit during session recovery: ${after.status} ${after.body?.['schema:description']}`);
+  }
+  console.log('✓ expired sessions recovered in Workspace and Designer through one Keycloak refresh and one successful retry, without changing route or losing the edit');
 }
 
 // Constrain the just-added text field to the "disease" BRANCH of DOID via the live
@@ -771,6 +917,83 @@ async function reEditInstance(page, newValue) {
   if (resp.status() !== 200) throw new Error(`instance update answered ${resp.status()}`);
 }
 
+async function waitForEditorDirty(page, dirty) {
+  await page.waitForFunction(expected => {
+    const injector = window.angular.element(document).injector();
+    return injector?.get('UIUtilService').isDirty() === expected;
+  }, dirty, { timeout: 10_000 });
+}
+
+async function notesValue(page) {
+  const input = page.locator('cedar-embeddable-editor')
+    .getByLabel(TEXT_FIELD_NAME, { exact: false }).first();
+  await input.waitFor({ state: 'visible', timeout: 20_000 });
+  return input.inputValue();
+}
+
+function sameNavigationTarget(left, right) {
+  const a = new URL(left);
+  const b = new URL(right);
+  const decodedPath = url => {
+    try {
+      return decodeURIComponent(url.pathname);
+    } catch {
+      return url.pathname;
+    }
+  };
+  if (a.origin !== b.origin || decodedPath(a) !== decodedPath(b) || a.hash !== b.hash) return false;
+  const entries = url => [...url.searchParams.entries()]
+    .sort(([aKey, aValue], [bKey, bValue]) => aKey.localeCompare(bKey) || aValue.localeCompare(bValue));
+  return JSON.stringify(entries(a)) === JSON.stringify(entries(b));
+}
+
+// A dirty form must warn on the actual header-back gesture, preserve the model when the user
+// cancels, and become navigable again after an exact revert. Returning to the edit URL lets the
+// ordinary update test continue; its successful save then establishes the next clean baseline.
+async function verifyDirtyNavigationProtection(page, cleanValue, returnUrl) {
+  const editUrl = page.url();
+  const dirtyValue = 'dirty-navigation probe: keep me when Cancel is pressed';
+  await fillCeeTextField(page, TEXT_FIELD_NAME, dirtyValue);
+  await waitForEditorDirty(page, true);
+  await page.locator('.back-arrow-click:visible').click();
+  const warning = page.locator('.sweet-alert:visible');
+  await warning.waitFor({ state: 'visible', timeout: 10_000 });
+  if (!/recent changes will be lost/i.test(await warning.innerText())) {
+    throw new Error(`dirty-navigation warning had unexpected text: ${(await warning.innerText()).trim()}`);
+  }
+  await warning.locator('button.cancel').click();
+  await warning.waitFor({ state: 'hidden', timeout: 10_000 });
+  const afterCancelUrl = page.url();
+  const afterCancelValue = await notesValue(page);
+  if (!sameNavigationTarget(afterCancelUrl, editUrl) || afterCancelValue !== dirtyValue) {
+    throw new Error(`cancelling dirty navigation changed route or discarded the entered value: ` +
+      `url ${JSON.stringify(editUrl)} → ${JSON.stringify(afterCancelUrl)}, ` +
+      `value ${JSON.stringify(dirtyValue)} → ${JSON.stringify(afterCancelValue)}`);
+  }
+
+  await fillCeeTextField(page, TEXT_FIELD_NAME, cleanValue);
+  await waitForEditorDirty(page, false);
+  await page.locator('.back-arrow-click:visible').click();
+  await page.waitForURL(url => sameNavigationTarget(url.href, returnUrl), { timeout: 20_000 });
+  if (await page.locator('.sweet-alert:visible').count()) {
+    throw new Error('exactly reverting to the saved value still produced a dirty-navigation warning');
+  }
+
+  await page.goto(editUrl, { waitUntil: 'domcontentloaded' });
+  await page.locator('cedar-embeddable-editor').waitFor({ state: 'attached', timeout: 20_000 });
+  await fillCeeTextField(page, TEXT_FIELD_NAME, cleanValue);
+  await waitForEditorDirty(page, false);
+}
+
+async function verifyAdvancedDirtyBaseline(page, savedValue) {
+  await waitForEditorDirty(page, false);
+  await fillCeeTextField(page, TEXT_FIELD_NAME, 'post-save baseline probe');
+  await waitForEditorDirty(page, true);
+  await fillCeeTextField(page, TEXT_FIELD_NAME, savedValue);
+  await waitForEditorDirty(page, false);
+  console.log('✓ CEE warned on dirty navigation, Cancel preserved the value, exact revert removed the warning, and save advanced the clean baseline');
+}
+
 // Exercise the serialization config against the deployed CEE bundle, in the browser.
 //
 // The library round-trip is proven in the CEE harness; this proves the shipped web
@@ -884,6 +1107,143 @@ async function verifySerializationConfig(page, expectedValue, templateObject) {
   }
 }
 
+// ── version lifecycle ────────────────────────────────────────────────────────
+
+async function setVersionModal(page, version) {
+  const modal = page.locator('#publish-modal .modal-content');
+  await modal.waitFor({ state: 'visible', timeout: 10_000 });
+  const parts = version.split('.');
+  for (const [index, id] of ['#version-major', '#version-minor', '#version-build'].entries()) {
+    await modal.locator(id).fill(parts[index]);
+  }
+  return modal;
+}
+
+async function publishFromWorkspace(page, folderId, templateName, version) {
+  await gotoListing(page, folderId);
+  await openRowMenu(page, templateName);
+  const publish = row(page, templateName).locator('a.publish:visible');
+  if (((await publish.getAttribute('class')) ?? '').includes('link-disabled')) {
+    throw new Error('Workspace disabled Publish for a writable draft');
+  }
+  await publish.click();
+  const modal = await setVersionModal(page, version);
+  const pending = page.waitForResponse(response => response.request().method() === 'POST'
+      && /\/command\/publish-artifact(?:\?|$)/.test(response.url()) && response.ok(),
+    { timeout: 20_000 });
+  await modal.locator('button.confirm').click();
+  return pending;
+}
+
+async function createDraftFromWorkspace(page, folderId, templateName, version) {
+  await gotoListing(page, folderId);
+  await openRowMenu(page, templateName);
+  const createDraft = row(page, templateName).locator('a.createDraft:visible');
+  if (((await createDraft.getAttribute('class')) ?? '').includes('link-disabled')) {
+    throw new Error('Workspace disabled Create version for a published template');
+  }
+  await createDraft.click();
+  const modal = await setVersionModal(page, version);
+  const pending = page.waitForResponse(response => response.request().method() === 'POST'
+      && /\/command\/create-draft-artifact(?:\?|$)/.test(response.url()) && response.ok(),
+    { timeout: 20_000 });
+  await modal.locator('button.confirm').click();
+  return pending;
+}
+
+async function waitForTemplate(user1, id, predicate, description) {
+  for (let attempt = 1; attempt <= 10; attempt++) {
+    const response = await restCall(user1.auth, 'GET', `/templates/${enc(id)}`);
+    if (response.status === 200 && predicate(response.body)) return response;
+    await new Promise(resolve => setTimeout(resolve, 500));
+  }
+  throw new Error(`template never reached ${description}`);
+}
+
+// Use a dedicated disposable template so the version chain does not complicate the main authoring
+// journey. The UI performs publish, OpenView enablement, and draft creation; REST is used only for
+// strong state assertions and unconditional cleanup in the finally block.
+async function verifyPublishDraftLifecycle(browser, page, folderId, user1) {
+  let publishedId;
+  let draftId;
+  const seeded = await restCall(user1.auth, 'POST', `/templates?folder_id=${enc(folderId)}`,
+    artifactBody('template', VERSION_TEMPLATE_NAME));
+  if (seeded.status !== 201) throw new Error(`could not seed version-lifecycle template: ${seeded.status} ${seeded.text}`);
+  publishedId = seeded.body['@id'];
+  const originalDescription = seeded.body['schema:description'];
+
+  try {
+    await publishFromWorkspace(page, folderId, VERSION_TEMPLATE_NAME, '1.0.0');
+    const published = await waitForTemplate(user1, publishedId,
+      body => body['bibo:status'] === 'bibo:published' && body['pav:version'] === '1.0.0',
+      'published 1.0.0 state');
+
+    let immutableControls = false;
+    for (let attempt = 1; attempt <= 10; attempt++) {
+      await gotoListing(page, folderId);
+      await openRowMenu(page, VERSION_TEMPLATE_NAME);
+      const versionRow = row(page, VERSION_TEMPLATE_NAME);
+      const publishClass = (await versionRow.locator('a.publish:visible').getAttribute('class')) ?? '';
+      const draftClass = (await versionRow.locator('a.createDraft:visible').getAttribute('class')) ?? '';
+      if (publishClass.includes('link-disabled') && !draftClass.includes('link-disabled')) {
+        immutableControls = true;
+        break;
+      }
+      await page.waitForTimeout(750);
+    }
+    if (!immutableControls) throw new Error('published template never converged to republish-disabled/create-version-enabled Workspace controls');
+    const versionRow = row(page, VERSION_TEMPLATE_NAME);
+    await versionRow.locator('a.open:visible').click();
+    await page.waitForURL(/\/templates\/edit\//, { timeout: 30_000 });
+    const openedPublished = decodeURIComponent(page.url().match(/\/templates\/edit\/(.+?)(?:\?|$)/)?.[1] ?? '');
+    if (openedPublished !== publishedId) throw new Error(`Workspace opened ${openedPublished}; expected published ${publishedId}`);
+    await waitForDesignerTemplate(page, VERSION_TEMPLATE_NAME);
+    const save = page.locator('#button-save-template');
+    await save.waitFor({ state: 'visible', timeout: 30_000 });
+    await page.waitForFunction(() => document.querySelector('#button-save-template')?.disabled === true,
+      null, { timeout: 15_000 }).catch(() => {});
+    if (!await save.isDisabled()) throw new Error('published template remained editable in Designer');
+
+    const openedId = await enableOpenView(page, folderId, VERSION_TEMPLATE_NAME);
+    if (openedId !== publishedId) throw new Error(`OpenView enabled ${openedId}; expected published ${publishedId}`);
+    const openViewCeeVersion = await verifyPresentedInOpenView(browser, publishedId, VERSION_TEMPLATE_NAME);
+
+    const draftResponse = await createDraftFromWorkspace(page, folderId, VERSION_TEMPLATE_NAME, '1.0.1');
+    const draftBody = await draftResponse.json();
+    draftId = draftBody?.['@id'];
+    if (!draftId || draftId === publishedId) throw new Error('Create version did not mint a distinct draft identifier');
+    const draft = await waitForTemplate(user1, draftId,
+      body => body['bibo:status'] === 'bibo:draft' && body['pav:version'] === '1.0.1',
+      'draft 1.0.1 state');
+    if (draft.body['pav:previousVersion'] !== publishedId) {
+      throw new Error(`draft pav:previousVersion was ${draft.body['pav:previousVersion']}; expected ${publishedId}`);
+    }
+
+    await gotoListing(page, folderId);
+    await openRowMenu(page, VERSION_TEMPLATE_NAME);
+    await row(page, VERSION_TEMPLATE_NAME).locator('a.open:visible').click();
+    await page.waitForURL(/\/templates\/edit\//, { timeout: 30_000 });
+    const openedDraft = decodeURIComponent(page.url().match(/\/templates\/edit\/(.+?)(?:\?|$)/)?.[1] ?? '');
+    if (openedDraft !== draftId) throw new Error(`Workspace opened ${openedDraft}; expected latest draft ${draftId}`);
+    await waitForDesignerTemplate(page, VERSION_TEMPLATE_NAME);
+    await page.getByRole('textbox', { name: 'Description' }).first()
+      .waitFor({ state: 'visible', timeout: 30_000 });
+    const draftDescription = 'Version smoke: editable draft changed independently';
+    await saveTemplateDescription(page, draftDescription);
+    const sourceAfterDraftEdit = await restCall(user1.auth, 'GET', `/templates/${enc(publishedId)}`);
+    if (sourceAfterDraftEdit.status !== 200
+        || sourceAfterDraftEdit.body?.['schema:description'] !== originalDescription
+        || published.body?.['schema:description'] !== originalDescription) {
+      throw new Error('editing the draft changed the published source');
+    }
+    console.log('✓ Workspace published 1.0.0, Designer locked it, OpenView rendered it, and Create version minted an independently editable 1.0.1 draft');
+    return openViewCeeVersion;
+  } finally {
+    if (draftId) await restMutate(user1.auth, 'DELETE', `/templates/${enc(draftId)}`).catch(() => {});
+    if (publishedId) await restMutate(user1.auth, 'DELETE', `/templates/${enc(publishedId)}`).catch(() => {});
+  }
+}
+
 // ── OpenView helpers ───────────────────────────────────────────────────────────
 
 // Publish a template to OpenView via the row ⋮ → "Enable OpenView" menu item. That
@@ -923,7 +1283,7 @@ async function enableOpenView(page, folderId, templateName) {
 // The OpenView server's view of the grant can lag the make-open command by a moment,
 // and the app fetches once per load and latches an error, so reload while the editor
 // is absent rather than polling in place.
-async function verifyPresentedInOpenView(browser, templateId) {
+async function verifyPresentedInOpenView(browser, templateId, expectedTemplateName = TEMPLATE_NAME) {
   const anon = await browser.newContext({
     ignoreHTTPSErrors: true,
     viewport: { width: 1280, height: 900 },
@@ -944,7 +1304,7 @@ async function verifyPresentedInOpenView(browser, templateId) {
           if (!customElements.get('cedar-embeddable-editor') || !cee?.shadowRoot) return false;
           return cee.shadowRoot.querySelectorAll('*').length > 0
             && cee.shadowRoot.textContent.includes(expectedName);
-        }, TEMPLATE_NAME, { timeout: 12_000 });
+        }, expectedTemplateName, { timeout: 12_000 });
         if (pageErrors.length > 0) {
           throw new Error(`OpenView raised browser errors: ${pageErrors.join(' | ')}`);
         }
@@ -1116,12 +1476,16 @@ try {
   const templateMatch = page.url().match(/\/templates\/edit\/(.+?)(?:\?|$)/);
   if (!templateMatch) throw new Error('post-create Designer URL carried no template id');
   const templateId = decodeURIComponent(templateMatch[1]);
+  const templateEditUrl = page.url();
 
   step = 'concurrent-template-conflict';
   await verifyConcurrentTemplateConflict(page, user1, templateId);
 
   step = 'two-user-sharing';
   await verifyTwoUserSharing(browser, page, folderId, templateId, user1, user2);
+
+  step = 'expired-session-recovery';
+  await verifyDesignerSessionRecovery(page, templateEditUrl, templateId, user1);
 
   // Confirm it is listed inside the folder.
   let templateListed = false;
@@ -1133,6 +1497,9 @@ try {
   if (!templateListed) throw new Error(`template "${TEMPLATE_NAME}" never appeared in the folder`);
   console.log(`✓ template created in folder: ${TEMPLATE_NAME}`);
 
+  step = 'publish-draft-lifecycle';
+  const versionOpenViewCeeVersion = await verifyPublishDraftLifecycle(browser, page, folderId, user1);
+
   // 3b. Populate the template and confirm the constrained Disease field offers a
   //     live DOID suggestion (type a disease, verify a matching term appears). The
   //     instance is not saved, so teardown stays a simple template + folder delete.
@@ -1143,6 +1510,9 @@ try {
   console.log('✓ populate: Disease field suggested a DOID term for "asthma"');
   const deployedCeeVersion = await readCeeVersion(page);
   console.log(`✓ Metadata Editor rendered with CEE ${deployedCeeVersion}`);
+  if (versionOpenViewCeeVersion !== deployedCeeVersion) {
+    throw new Error(`CEE version mismatch: version-lifecycle OpenView has ${versionOpenViewCeeVersion}, Metadata Editor has ${deployedCeeVersion}`);
+  }
 
   // Fill the plain text field too, so the instance carries free text alongside the controlled term
   // and the re-edit step has something to change.
@@ -1158,10 +1528,18 @@ try {
   const savedInstance = await saveInstanceInEditor(page);
   console.log(`✓ Metadata Editor saved the populated instance (create → 201, redirected to edit)`);
 
+  step = 'dirty-navigation-protection';
+  await verifyDirtyNavigationProtection(
+    page,
+    'initial notes',
+    `${BASE}/dashboard?folderId=${enc(folderId)}`,
+  );
+
   // 3b-iii. Re-edit through the post-save redirect (which must render, then update).
   step = 're-edit-instance';
   await reEditInstance(page, 'edited notes');
   console.log('✓ Metadata Editor rendered the post-save edit view, re-edited, and updated');
+  await verifyAdvancedDirtyBaseline(page, 'edited notes');
 
   // 3b-iv. The deployed CEE offers the instance in both formats, from getters a host
   //        cannot configure away: currentMetadata as JSON and currentMetadataYaml as a
@@ -1229,7 +1607,7 @@ try {
   await assertWorkingFolderCleared(user1, folderId, [savedInstance.id, templateId, standaloneFieldId]);
   console.log(`✓ "${FOLDER_NAME}" holds none of this run's artifacts`);
 
-  console.log(`\nPASS [CEE ${deployedCeeVersion}]: login (reusable sessions) → conditional Workspace mutations → "${FOLDER_NAME}" folder + seeded field → template w/ DOID + text field → repeated saves + stale-editor recovery → two-user read/write/revoke lifecycle → populate + fill → save instance → re-edit (update) → both serializations (JSON/YAML) → OpenView presented anonymously → conditional delete → folder cleared`);
+  console.log(`\nPASS [CEE ${deployedCeeVersion}]: login (reusable sessions) → conditional Workspace mutations → "${FOLDER_NAME}" folder + seeded field → template w/ DOID + text field → repeated saves + stale-editor recovery → two-user read/write/revoke lifecycle → expired-session refresh in Workspace + Designer → publish/immutable/OpenView/new-draft lifecycle → populate + fill → save instance → dirty-navigation protection → re-edit (update) + advanced clean baseline → both serializations (JSON/YAML) → OpenView presented anonymously → conditional delete → folder cleared`);
   await browser.close();
   process.exit(0);
 } catch (e) {
