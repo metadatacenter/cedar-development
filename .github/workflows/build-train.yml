@@ -96,9 +96,14 @@ jobs:
       - name: Build and publish the Maven train
         if: env.MAVEN_ALREADY_COMPLETE != 'true'
         run: |
+          args=()
+          if [ "${{ inputs.resume }}" = "true" ]; then
+            args=(--resume)
+          fi
           python3 controller/ops/build_train.py build \
             --version "$TRAIN_VERSION" \
-            --workspace "$TRAIN_WORKSPACE"
+            --workspace "$TRAIN_WORKSPACE" \
+            "${args[@]}"
 
       - name: Verify and advance the completed Maven-train pointer
         if: env.MAVEN_ALREADY_COMPLETE != 'true'
