@@ -1864,16 +1864,18 @@ theme are a coordinate change, no change at all, and two FreeMarker files respec
 and the two routes forward are on the roadmap under upgrading the persistence and infrastructure
 servers; do not restate them here.
 
-Current framework baseline (all jakarta-namespace, all on Java 17): Dropwizard 4.0.17, Jetty
-11.0.26, Jersey 3.0.18, Hibernate 6.1.7, jackson 2.17. Recently modernized client libraries: jedis
-5.2, Apache HttpClient 5 (the exceptions are the OpenSearch low-level REST client and the Keycloak
-event listener, which stay on HttpClient 4 because those external APIs require v4 types), slf4j 2.0
+Current framework baseline (Jakarta EE 10, all on Java 17): Dropwizard 5.0.2, Jetty 12.1.9, Jersey
+3.1.11, Hibernate 6.6.52.Final, Servlet 6, Persistence 3.1 and Jackson 2.21.4. Recently modernized
+client libraries: jedis 5.2, Apache HttpClient 5 (the exceptions are the OpenSearch low-level REST
+client and the Keycloak event listener, which stay on HttpClient 4 because those external APIs
+require v4 types), slf4j 2.0
 with logback 1.5, swagger-core v3 (OpenAPI 3), mysql-connector-j 8.4, log4j 2.24, commons-lang3.
 
-The test stack pins Mockito 5.23.0 and manages both `byte-buddy` and `byte-buddy-agent` at 1.18.4 in
-`cedar-parent`. Mockito's own POM names byte-buddy 1.17.7; the newer managed pair is intentional so
-Mockito and Dropwizard Hibernate share one version. Keep the core and agent together, and verify a
-change against the complete `cedar-microservice-libraries`, `cedar-bridge-server` and
+The test stack pins Mockito 5.23.0 and manages both `byte-buddy` and `byte-buddy-agent` at
+1.18.8-jdk5 in `cedar-parent`. Mockito's own POM names byte-buddy 1.17.7; the newer managed pair is
+intentional so Mockito and Dropwizard Hibernate share one version. Keep the core and agent
+together, and verify a change against the complete `cedar-microservice-libraries`,
+`cedar-bridge-server` and
 `cedar-worker-server` reactors rather than compile alone. The current pairing passes all 1,083 tests
 in those reactors with no failures, errors or skips.
 
@@ -1884,13 +1886,29 @@ reject valid CEDAR data (relative `@id` references, colon-less timezone offsets)
 Draft-04 meta-schema to preserve the exact accept boundary. The java-json-tools (FGE) fork is
 otherwise fully removed — no module depends on it.
 
-The **jakarta namespace migration (Dropwizard 4) is complete.** It runs on Java 17 (Dropwizard
-4.0.17, Jetty 11, Jersey 3.0, Hibernate 6). `dropwizard-sundial` had no Dropwizard 4 release, so it
-was retired rather than forked: the worker and valuerecommender schedulers are now plain `Managed`
-poll loops. The namespace flip was mechanical; the four risk points all landed — the Jetty CORS
-filter, the reflective `@Context`-injection feature, the Hibernate 6 data layer (its `AUTO` id
-generation changed, so `@GeneratedValue` columns moved to `IDENTITY` on `AUTO_INCREMENT` tables), and
-`commons-fileupload` to its jakarta successor `commons-fileupload2`.
+The **Jakarta EE 10 framework migration (Dropwizard 5) is complete.** `dropwizard-sundial` had no
+Dropwizard 4 release and remains retired rather than forked: the worker and value-recommender
+schedulers are plain `Managed` poll loops. Multipart upload uses
+`commons-fileupload2-jakarta-servlet6`, and CORS uses Jetty's EE10 servlet package.
+
+Two compatibility settings are deliberate. CEDAR artifact identifiers are IRIs encoded into path
+segments and can contain `%2F`; Jetty 12 checks that ambiguity once at the HTTP connector and again
+in the EE10 servlet handler. `CedarMicroserviceApplication` permits only
+`AMBIGUOUS_PATH_SEPARATOR` in `UriCompliance` and enables ambiguous-URI decoding on the servlet
+handler, rather than selecting Jetty's broad unsafe mode. Hibernate 6.6's grouped JDBC metadata can
+otherwise match MariaDB system relations with the same name in another catalog, so the messaging
+and database-logging bundles set `hibernate.default_catalog` to their configured application
+databases. Messaging's physical `user` table is quoted, and its recipient/sender/user
+find-or-create paths use one atomic `INSERT ... ON DUPLICATE KEY UPDATE` followed by the connection's
+`LAST_INSERT_ID()`; this avoids the repeatable-read miss and concurrent gap-lock deadlock exposed by
+the new Hibernate line.
+
+The 2026-08-29 acceptance run used only locally installed CEDAR snapshots while Nexus was
+unavailable. A clean 70-module reactor passed; dependency trees and all fifteen shaded jars were
+free of active Jetty 11, Jersey 3.0, Hibernate 6.1, Servlet 5, Persistence 3.0 and Jetty EE9 runtime
+content; all fifteen services booted healthy with `BINARY` = `current`; and `ops/e2e` passed the
+real-stack smoke through login, live terminology, publication/versioning and instance
+create/update/delete.
 
 ## Auditing production artifacts through REST
 

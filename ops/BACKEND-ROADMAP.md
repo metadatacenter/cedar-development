@@ -21,6 +21,15 @@ fail-safe and counted, monitor's Keycloak detail is an explicitly partial diagno
 messaging and FTP calls run in background submission processing, and DataCite minting remains the
 larger lifecycle refactor tracked below.
 
+The Jakarta EE 10 framework migration completed on 2026-08-29. All fifteen shaded services now run
+on Dropwizard 5.0.2, Jetty 12.1.9, Jersey 3.1.11, Hibernate 6.6.52.Final, Servlet 6 and Persistence
+3.1 while remaining on Java 17. The clean 70-module reactor passed, the dependency trees and shaded
+jars contained no active Jetty 11, Jersey 3.0, Hibernate 6.1, Servlet 5, Persistence 3.0 or Jetty EE9
+runtime, every service booted healthy from the current local jar, and the real-stack smoke passed
+through Keycloak, encoded artifact-IRI routes, live terminology, publication/versioning and instance
+create/update/delete. The operational details and two compatibility accommodations are recorded in
+the runbook's dependency and framework state.
+
 ## Next
 
 ### Features
@@ -468,27 +477,7 @@ larger lifecycle refactor tracked below.
   problem — every Java repository now carries a wrapper at 3.9.14 and CI invokes `./mvnw` — except
   inside the build images, which still `microdnf -y install maven` unversioned.
 
-- **11. Move the server framework to Dropwizard 5 / Jetty 12 / Jakarta EE 10.** The current
-  Dropwizard 4.0.17 baseline holds every server on Jetty 11.0.26, Jersey 3.0.18 and Hibernate
-  6.1.7.Final. Jetty 11 and Hibernate 6.1 are both end-of-life upstream lines, so pinning their last
-  releases does not restore community security maintenance. Dropwizard 5 is the coordinated escape:
-  its supported bundle moves to Jetty 12, Jersey 3.1, Hibernate 6.6 and the Jakarta EE 10 APIs.
-
-  Treat this as a framework migration, not part of the Java 21 item above. Dropwizard 5 still runs on
-  Java 17, while the EE10 move changes servlet artifacts, Jetty handlers, Hibernate behavior and the
-  BOM versions currently overridden in `cedar-parent`. Inventory direct Jetty/Jersey/Hibernate and
-  Jakarta API usage first; move the parent and shared libraries as one converged set; then rebuild all
-  server reactors, boot every shaded application, run the JUnit and REST estates, and compare the
-  dependency trees and shaded contents for mixed EE9/EE10 artifacts. Remove parent overrides that
-  merely hold the old Dropwizard bundle together rather than carrying them forward by default.
-
-  The acceptance gate is all fifteen servers starting on the new bundle with no split Jakarta API,
-  Jetty 11, Jersey 3.0 or Hibernate 6.1 artifacts left in their runtime jars, followed by the real-stack
-  smoke. Until this lands, record Jetty 11 and Hibernate 6.1 as explicitly accepted EOL dependencies in
-  release review and check upstream/security advisories for each release instead of describing the
-  current pins as a maintained baseline.
-
-- **12. Prove secure Keycloak TLS in every deployed environment.** This was a code vulnerability, not
+- **11. Prove secure Keycloak TLS in every deployed environment.** This was a code vulnerability, not
   merely a future truststore configuration task: the bearer-token client disabled certificate and
   hostname checks while fetching signing keys, and the admin client sent the CEDAR administrator
   password through a trust-all manager. Both clients now default to JVM certificate and hostname
@@ -498,7 +487,7 @@ larger lifecycle refactor tracked below.
   JWKS-backed token verification and a read-only admin operation. Never solve a failed trust check by
   enabling the development flag.
 
-- **13. Rotate the Keycloak providers in every realm the leaked seed reached.** The 2023-07-05
+- **12. Rotate the Keycloak providers in every realm the leaked seed reached.** The 2023-07-05
   development realm export carried its RSA token-signing key, HS256 secret and AES secret, and both
   committed copies sat in public repositories, so those providers must be treated as publicly known.
   Stripping the seed (done, with guard tests and a CI workflow in both repositories) protects only
@@ -511,7 +500,7 @@ larger lifecycle refactor tracked below.
   realm's providers postdate 2026-08-26 and the production deployment runbook's pre-flight carries
   the check.
 
-- **14. Stop using the hardcoded BioPortal key.** `Constants.BP_PUBLIC_API_KEY` in
+- **13. Stop using the hardcoded BioPortal key.** `Constants.BP_PUBLIC_API_KEY` in
   `cedar-terminology-server` holds a literal BioPortal key, and `Cache` sends it on the four calls
   that populate the ontology and value-set caches (`findOntology` twice, `findAllOntologies`,
   `findAllValueSets`). Those are the server's own calls rather than calls made for a signed-in user,
@@ -538,7 +527,7 @@ larger lifecycle refactor tracked below.
   ("DOID (DOID)" instead of "Human Disease Ontology (DOID)") behind a green health check. What remains
   here is the code-owned cause: read `CEDAR_BIOPORTAL_API_KEY` from config and delete the constant.
 
-- **15. Separate CEDAR dependency convergence from the Keycloak provider platform lock.** The eleven
+- **14. Separate CEDAR dependency convergence from the Keycloak provider platform lock.** The eleven
   apparent test-classpath splits are not eleven candidates for one global version. Re-measuring all
   thirty Maven roots divides them into three different problems, and blindly managing the newer side
   in `cedar-parent` would make the Keycloak event listener compile against libraries its server does
@@ -585,7 +574,7 @@ larger lifecycle refactor tracked below.
   prove that Keycloak loads the packaged provider or that a deployed admin operation reaches the
   configured realm.
 
-- **16. Retire routine `CEDAR_VERSION_MODIFIER` cache busting.** Frontend code identity now comes
+- **15. Retire routine `CEDAR_VERSION_MODIFIER` cache busting.** Frontend code identity now comes
   from the source commit in the three AngularJS RequireJS keys and from content-hashed production
   bundles in the modern Angular applications. A deployment should not need a hand-edited modifier
   merely to make a new code revision visible. Keep the variable temporarily as a compatibility
@@ -614,7 +603,7 @@ larger lifecycle refactor tracked below.
 
 ## Production data
 
-- **17. Repair the production schema artifacts that can reject correctly shaped CEE instances.** The
+- **16. Repair the production schema artifacts that can reject correctly shaped CEE instances.** The
   permission-scoped production audit found 76 inherently-multiple fields deployed as JSON objects in
   31 stored schema artifacts: 23 templates and 8 elements. Every case is a multiple-select list; no
   object-shaped checkbox or attribute-value deployment was found. CEE correctly serializes these
@@ -671,7 +660,7 @@ larger lifecycle refactor tracked below.
   rerun the audit to `COMPLETE_FOR_KEY`. Never delete a store artifact merely because its search entry
   is inconsistent.
 
-- **18. Write `sourceSystem` onto the production value constraints, so that its absence means something.**
+- **17. Write `sourceSystem` onto the production value constraints, so that its absence means something.**
   A controlled-term constraint may name the system serving its vocabulary, and both model libraries read
   an absent `sourceSystem` as BioPortal —
   [the value-constraint shape](VERSIONING-ROADMAP.md#6-the-value-constraint-shape) defines the field and
