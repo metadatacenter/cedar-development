@@ -262,11 +262,49 @@ remove_launchd_job() {
 
 jar_of() { echo "$CEDAR_HOME/cedar-$1-server/cedar-$1-server-application/target/cedar-$1-server-application-${CEDAR_VERSION}.jar"; }
 
+# The Template Designer is the one frontend that takes the Embeddable Editor from npm, and a gulp
+# task copies the bundle out of node_modules into the tree gulp serves. The bytes therefore travel
+# two hops that git never observes, because the served copy is ignored. A pin that moved without a
+# reinstall, or a reinstall without a copy, leaves the previous editor on screen while package.json,
+# the lock and the release ledger all name the new one. Check both hops.
+cee_version() {  # echoes the version $1 records for CEE, under package key $2 or at the top level
+  python3 - "$1" "$2" <<'CEEPY' 2>/dev/null
+import json, sys
+path, key = sys.argv[1], sys.argv[2]
+try:
+    doc = json.load(open(path))
+except Exception:
+    raise SystemExit(1)
+node = doc.get("packages", {}).get(key, {}) if key else doc
+print(node.get("version", ""))
+CEEPY
+}
+
+cee_of() {  # echoes current|STALE|- for the Embeddable Editor the Template Designer serves
+  local root="$CEDAR_HOME/cedar-template-editor" want have
+  local lock="$root/package-lock.json"
+  local manifest="$root/node_modules/cedar-embeddable-editor/package.json"
+  local installed="$root/node_modules/cedar-embeddable-editor/cedar-embeddable-editor.js"
+  local servedjs="$root/app/third_party_components/cedar-embeddable-editor/cedar-embeddable-editor.js"
+  command -v python3 >/dev/null 2>&1 || { echo '-'; return; }
+  [ -f "$lock" ] || { echo '-'; return; }          # not an npm-managed checkout; nothing to compare
+  [ -f "$manifest" ] && [ -f "$installed" ] && [ -f "$servedjs" ] || { echo STALE; return; }
+  want=$(cee_version "$lock" node_modules/cedar-embeddable-editor)
+  have=$(cee_version "$manifest" '')
+  [ -n "$want" ] && [ -n "$have" ] || { echo '-'; return; }
+  [ "$want" = "$have" ] || { echo STALE; return; } # the lock moved and npm ci never ran
+  cmp -s "$installed" "$servedjs" || { echo STALE; return; }  # npm ci ran and copy:cee never did
+  echo current
+}
+
 # A service can be healthy and still be serving code from before the last build, which makes a green
 # gate meaningless. Compare when the process started against when its jar was written.
 binary_of() {  # echoes current|STALE|- for a service and the pid serving it
   local name=$1 pid=$2 jar started j_epoch p_epoch
-  case "$name" in frontend|workspace|designer|ui-*) echo '-'; return;; esac
+  case "$name" in
+    frontend) cee_of; return ;;
+    workspace|designer|ui-*) echo '-'; return ;;
+  esac
   jar=$(jar_of "$name")
   [ -n "$pid" ] && [ -f "$jar" ] || { echo '-'; return; }
   started=$(ps -o lstart= -p "$pid" 2>/dev/null) || { echo '-'; return; }
@@ -400,12 +438,17 @@ health() {
 status() {
   printf "%-18s %-8s %-8s %-10s %-8s %s\n" SERVICE PID PORT HEALTH BINARY "ERRORS(log)"
   printf "%-18s %-8s %-8s %-10s %-8s %s\n" "------" "---" "----" "------" "------" "-----------"
-  local up=0 total=0 stale=0 unmanaged=0 foreign=0 docker_owned=0
+  local up=0 total=0 stale=0 cee_stale=0 unmanaged=0 foreign=0 docker_owned=0
   while read -r name; do
     total=$((total+1))
     inspect_status "$name"
     [ "$STATUS_HEALTH" = healthy ] && up=$((up+1))
-    [ "$STATUS_BINARY" = STALE ] && stale=$((stale+1))
+    if [ "$STATUS_BINARY" = STALE ]; then
+      case "$name" in
+        frontend) cee_stale=$((cee_stale+1)) ;;
+        *)        stale=$((stale+1)) ;;
+      esac
+    fi
     case "$STATUS_PID" in
       '~'*) unmanaged=$((unmanaged+1)) ;;
       '!'*) foreign=$((foreign+1)) ;;
@@ -422,6 +465,10 @@ status() {
     echo "healthy: $up / $total   (login at https://cedar.$CEDAR_HOST once frontend + resource/user are healthy)"
   fi
   [ "$stale" -gt 0 ] && echo "WARNING: $stale service(s) marked STALE — running a jar older than the build. Run: $0 restart"
+  [ "$cee_stale" -gt 0 ] && {
+    echo "WARNING: frontend marked STALE — serving an Embeddable Editor other than the one package-lock.json names."
+    echo "         Run: (cd \$CEDAR_HOME/cedar-template-editor && npm ci && npx gulp copy:cee)"
+  }
   [ "$unmanaged" -gt 0 ] && echo "WARNING: $unmanaged service(s) marked ~pid — started outside this script. restart now adopts them."
   [ "$foreign" -gt 0 ] && echo "ERROR: $foreign service port(s) marked !pid belong to non-CEDAR processes. Native start/stop will not touch them."
   return 0

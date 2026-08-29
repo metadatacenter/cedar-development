@@ -550,7 +550,19 @@ Dropwizard admin `/healthcheck` endpoint (200 = healthy, 500 = unhealthy).
 
 Two columns exist so a green table cannot hide a stale one. **BINARY** compares when a process started
 against when its jar was written: `STALE` means the service is serving a jar older than the build, so
-its health says nothing about your latest code. **PID** shows `~pid` (a leading tilde) only for a
+its health says nothing about your latest code. For the `frontend` row the column asks the equivalent
+question of the Embeddable Editor, which the Template Designer takes from npm and a gulp task copies
+out of `node_modules` into the tree gulp serves. Those two hops are invisible to git, because the
+served copy is ignored, so moving the pin without `npm ci`, or running `npm ci` without `copy:cee`,
+keeps the previous editor on screen while `package.json`, the lock and the release ledger all name
+the new one. `STALE` there means the served bundle is not the one `package-lock.json` names, and the
+remedy the footer prints is a reinstall and a recopy rather than a restart:
+
+```bash
+(cd $CEDAR_HOME/cedar-template-editor && npm ci && npx gulp copy:cee)
+```
+
+The other frontends read `-`: none of them depends on the Embeddable Editor. **PID** shows `~pid` (a leading tilde) only for a
 verified CEDAR process listening without this controller's pidfile — for example, one started in a
 terminal. `stop` may safely adopt that verified process, so `restart` brings it onto the current
 build. `docker` in the PID and HEALTH columns means the port belongs to Docker; Artifact is also
@@ -1175,8 +1187,8 @@ TypeScript, while both emit the same bytes for it.
   session may have restarted it under you, which is exactly how this happened. The check is one line:
 
   ```bash
-  bash $CEDAR_HOME/cedar-development/ops/cedar-services.sh status | grep -q STALE \
-    && echo "a backend service is STALE — restart it" || echo "all backend services current"
+  bash $CEDAR_HOME/cedar-development/ops/cedar-services.sh status | grep STALE \
+    || echo "every service current"
   ```
   Restart the offender by name so it loads the current jar, and re-check that its **BINARY** column
   reads `current`:
@@ -1594,8 +1606,8 @@ The full gate, in order:
 cedarcli build java                                                # authoritative full build
 bash $CEDAR_HOME/cedar-development/ops/cedar-services.sh restart    # ALL 22 — pass no names
 bash $CEDAR_HOME/cedar-development/ops/cedar-services.sh health     # exit 0 only if all healthy
-bash $CEDAR_HOME/cedar-development/ops/cedar-services.sh status | grep -q STALE \
-  && echo "a backend service is STALE — restart the straggler(s) before trusting the run"   # no service on an old jar
+bash $CEDAR_HOME/cedar-development/ops/cedar-services.sh status | grep STALE \
+  || echo "every service current"                          # nothing on an old jar or an old editor
 cd $CEDAR_HOME/cedar-development/ops/e2e && npm run smoke
 ```
 
