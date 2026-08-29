@@ -1,3 +1,4 @@
+import hashlib
 import importlib.util
 import json
 from pathlib import Path
@@ -148,17 +149,58 @@ class BuildTrainTest(unittest.TestCase):
             self.assertTrue(path.read_text().endswith("\n"))
 
     def test_upload_skips_identical_bytes_and_rejects_a_collision(self):
+        """The guard reads the .sha1 sidecar, so the seam under test is the sidecar fetch."""
+        destination = "https://nexus/example.jar"
         with tempfile.TemporaryDirectory() as directory:
             artifact = Path(directory) / "artifact.jar"
             artifact.write_bytes(b"same")
-            with patch.object(build_train, "remote_bytes", return_value=b"same"):
+            same = hashlib.sha1(b"same").hexdigest()
+
+            def sidecar(body):
+                def fetch(url):
+                    self.assertEqual(destination + ".sha1", url)
+                    return body
+                return fetch
+
+            with patch.object(build_train, "remote_bytes", sidecar(same.encode())):
                 self.assertEqual(
                     "unchanged",
+                    build_train.upload_file(artifact, destination, "u", "p"),
+                )
+            with patch.object(build_train, "remote_bytes", sidecar(b"0" * 40)):
+                with self.assertRaisesRegex(RuntimeError, "different bytes"):
+                    build_train.upload_file(artifact, destination, "u", "p")
+
+    def test_upload_reads_no_sidecar_when_the_train_id_is_known_unused(self):
+        """A fresh train verifies its ID before dispatch, so nothing there needs asking about."""
+        with tempfile.TemporaryDirectory() as directory:
+            artifact = Path(directory) / "artifact.jar"
+            artifact.write_bytes(b"same")
+
+            def refuse(url):
+                self.fail("a fresh train must not spend a request on " + url)
+
+            with patch.object(build_train, "remote_bytes", refuse), \
+                    patch.object(build_train, "with_retries") as put:
+                self.assertEqual(
+                    "uploaded",
+                    build_train.upload_file(
+                        artifact, "https://nexus/example.jar", "u", "p",
+                        check_existing=False),
+                )
+            self.assertEqual(1, put.call_count)
+
+    def test_upload_treats_a_missing_sidecar_as_a_free_path(self):
+        with tempfile.TemporaryDirectory() as directory:
+            artifact = Path(directory) / "artifact.jar"
+            artifact.write_bytes(b"same")
+            with patch.object(build_train, "remote_bytes", lambda url: None), \
+                    patch.object(build_train, "with_retries") as put:
+                self.assertEqual(
+                    "uploaded",
                     build_train.upload_file(artifact, "https://nexus/example.jar", "u", "p"),
                 )
-            with patch.object(build_train, "remote_bytes", return_value=b"different"):
-                with self.assertRaisesRegex(RuntimeError, "different bytes"):
-                    build_train.upload_file(artifact, "https://nexus/example.jar", "u", "p")
+            self.assertEqual(1, put.call_count)
 
 
 if __name__ == "__main__":

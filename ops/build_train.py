@@ -384,6 +384,11 @@ def remote_sha1(url: str) -> str | None:
     going up. Answering that by downloading the artifact costs its whole size, and the
     largest of them are over 130 MB, so it is answered from the sidecar Nexus writes next
     to every file instead.
+
+    A missing sidecar therefore reads as a free path. That holds because Nexus stores the
+    checksum for a hosted Maven repository as part of accepting the artifact, so the two are
+    present or absent together; a request that fails rather than returning 404 is retried by
+    remote_bytes and raises instead of arriving here as None.
     """
     digest = remote_bytes(url + ".sha1")
     if digest is None:
