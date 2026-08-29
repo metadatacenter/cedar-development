@@ -312,14 +312,42 @@ def build(args: argparse.Namespace) -> None:
     publish_local_repository(local_repository, config["mavenRepository"], version)
 
 
+# Nexus answers a transient fault with one of these rather than a refused connection, and a
+# train uploads a few hundred files, so without a retry one blip anywhere in the run discards
+# the whole build. None of them says anything about the artifact being uploaded.
+TRANSIENT_STATUSES = frozenset({429, 500, 502, 503, 504})
+UPLOAD_ATTEMPTS = 5
+
+
+def with_retries(what: str, attempt_call):
+    """Run a Nexus call, retrying only the failures that carry no verdict about the content."""
+    for attempt in range(1, UPLOAD_ATTEMPTS + 1):
+        try:
+            return attempt_call()
+        except urllib.error.HTTPError as error:
+            if error.code not in TRANSIENT_STATUSES or attempt == UPLOAD_ATTEMPTS:
+                raise
+            reason = f"HTTP {error.code}"
+        except (urllib.error.URLError, TimeoutError, OSError) as error:
+            if attempt == UPLOAD_ATTEMPTS:
+                raise
+            reason = str(error)
+        delay = min(30, 2 ** attempt)
+        print(f"retry {attempt}/{UPLOAD_ATTEMPTS - 1} after {reason}: {what} (waiting {delay}s)",
+              flush=True)
+        time.sleep(delay)
+
+
 def remote_bytes(url: str) -> bytes | None:
-    try:
-        with urllib.request.urlopen(url, timeout=30) as response:
-            return response.read()
-    except urllib.error.HTTPError as error:
-        if error.code == 404:
-            return None
-        raise
+    def read():
+        try:
+            with urllib.request.urlopen(url, timeout=30) as response:
+                return response.read()
+        except urllib.error.HTTPError as error:
+            if error.code == 404:
+                return None
+            raise
+    return with_retries(f"read {url}", read)
 
 
 def upload_file(source: Path, destination: str, username: str, password: str) -> str:
@@ -339,9 +367,11 @@ def upload_file(source: Path, destination: str, username: str, password: str) ->
             "Content-Type": "application/octet-stream",
         },
     )
-    with urllib.request.urlopen(request, timeout=120) as response:
-        if response.status not in (200, 201, 204):
-            raise RuntimeError(f"Nexus returned HTTP {response.status} for {destination}")
+    def put():
+        with urllib.request.urlopen(request, timeout=300) as response:
+            if response.status not in (200, 201, 204):
+                raise RuntimeError(f"Nexus returned HTTP {response.status} for {destination}")
+    with_retries(f"upload {destination}", put)
     return "uploaded"
 
 
