@@ -224,7 +224,7 @@ cedarcli release resume         # continue from it</code></pre>
 
     <div class="step"><h3><span class="n">N</span>Notes</h3>
       <p><b>Branch layout:</b> the release repos publish from <code>main</code>; the <code>skip_from_release</code> frontends build from <code>develop</code>. The release arranges this itself — do <em>not</em> force a blanket <code>cedarcli git checkout main</code>, which sweeps those onto their stale main.</p>
-      <p><b>Red CI after a release is expected.</b> A release advances <code>develop</code> everywhere at once, and the runs those pushes trigger resolve against the new <code>cedar-parent</code> snapshot the release publishes moments later. Runs that lose that race go red. They do not block the next release, which asks about its own train's commit.</p></div>
+      <p><b>Red CI after a release now means something.</b> The snapshots are deployed before the remotes are integrated, so the CI each develop push triggers finds the parent and libraries already in Nexus. Releases cut before that change left a tail of red builds that passed unmodified on a re-run.</p></div>
   </section>
 
   <p class="cfg" id="cfgline"></p>
@@ -248,9 +248,12 @@ cedarcli release resume         # continue from it</code></pre>
     startISO:       "2026-08-28T13:32:00-07:00", // when `release start` began
     finishedISO:    "2026-08-28T15:19:19-07:00", // wrap time, or null while running
     totalEstMin:    107,                         // full-run estimate (this run: 1:47:18)
-    // checkpoints you note from the ledger: elapsed minutes → short label
+    // Checkpoints you note from the ledger: elapsed minutes → short label. These are from the
+    // 2.9.3 run, which deployed the snapshots after integrating the remotes rather than before,
+    // so its push time does not correspond to a phase boundary here and is left out rather than
+    // guessed at. Everything up to "built" happened before the phases that were reordered.
     checkpoints: [
-      {t:0,txt:"start"},{t:2,txt:"stamped"},{t:28,txt:"built"},{t:36,txt:"pushed"},{t:107,txt:"accepted"}
+      {t:0,txt:"start"},{t:2,txt:"stamped"},{t:28,txt:"built"},{t:107,txt:"accepted"}
     ]
   };
   /* ═════════════════════════════════════════════════════════════════════════════════════ */
@@ -284,6 +287,10 @@ cedarcli release resume         # continue from it</code></pre>
     {n:"Create local refs", sub:"commits and tag, no remote touched", dur:1, est:false,
      subs:[["39×","<b>Create</b> release/pre-"+V+", release/post-"+N+", and "+TAG+" locally"],
            ["✓","<em>Nothing has reached a remote yet. A failure up to here has changed nothing outside this machine.</em>"]]},
+    {n:"Deploy snapshots", sub:"publish "+N+" before any push", dur:14, est:false,
+     subs:[["deploy","<b>Maven deploy</b> in dependency order from the prepared develop trees"],
+           ["verify","<b>Verify</b> the snapshot inventory in Nexus"],
+           ["!","<em>Before the remotes, not after: integrating them advances develop everywhere at once, and the CI those pushes trigger resolves the parent and libraries at the new version from Nexus.</em>"]]},
     {n:"Integrate remotes", sub:"write main, tag, develop", dur:8, est:false,
      subs:[["39×","<b>Push</b> the release branches, the tag, main, and develop"],
            ["!","<em>Each integration commit is written from the prepared tree rather than merged towards it, so main comes to hold exactly the released content.</em>"]]},
@@ -293,9 +300,6 @@ cedarcli release resume         # continue from it</code></pre>
     {n:"Publish npm", sub:"six stable frontend surfaces", dur:25, est:false,
      subs:[["6×","<b>Pack</b> from the exact integrated commits, recording gitHead"],
            ["verify","<b>Download</b> each registry tarball and verify its integrity and content hash"]]},
-    {n:"Deploy snapshots", sub:"publish "+N+" from develop", dur:14, est:false,
-     subs:[["deploy","<b>Maven deploy</b> from the exact integrated develop commits"],
-           ["verify","<b>Verify</b> the snapshot inventory in Nexus"]]},
     {n:"Accept", sub:"prove the release from outside the ledger", dur:1, est:false,
      subs:[["39×","<b>Tag</b> — every repository carries "+TAG],
            ["refs","<b>Remotes</b> — every ref stands where the ledger says"],
@@ -338,7 +342,7 @@ cedarcli release resume         # continue from it</code></pre>
     pl.appendChild(d);
   });
   document.getElementById("phaseNote").innerHTML=
-    "Publication (6\u20138) dominates the run: every artifact is uploaded, then downloaded again and verified against the bytes the release recorded. Phases 1 and 2 are estimates because the 2.9.3 run resumed them from an earlier attempt. Recorded checkpoint ticks are ground truth.";
+    "Publication (5, 7\u20138) dominates the run: every artifact is uploaded, then downloaded again and verified against the bytes the release recorded. Phases 1 and 2 are estimates because the 2.9.3 run resumed them from an earlier attempt. Recorded checkpoint ticks are ground truth.";
 
   var segs=track.querySelectorAll(".seg");
   var chips=pl.querySelectorAll(".st");

@@ -64,12 +64,14 @@ presence of `BMIR_NEXUS_USERNAME` and `BMIR_NEXUS_PASSWORD` proves nothing. Pref
 against an endpoint anonymous callers cannot reach. Export both from the `bmir-nexus-releases`
 server entry in `~/.m2/settings.xml` before starting.
 
-**CI is asked about the train's source commit**, not about whatever `develop` points at now. That
-distinction matters after a release: a release advances `develop` in every repository at once, and
-the CI runs those pushes trigger resolve against `cedar-parent`'s new snapshot, which the release
-publishes moments later. Runs that lose that race go red and say nothing about the source of the
-next release. Re-run them, or leave them; they do not block the next release, because the next
-release asks about its own train's commit.
+**CI is asked about the train's source commit**, not about whatever `develop` points at now. That is
+both the more precise question and the stable one, since a release advances `develop` everywhere at
+once and a run against the new head answers for a commit nobody is releasing.
+
+Those runs used to go red as a matter of course, because the snapshots they resolve arrived after
+the pushes that triggered them. Publishing the snapshots first removed that, so a red `develop` now
+means something. If you are looking at a release cut before that change, re-run the failed builds:
+they pass unmodified once the snapshots are in Nexus.
 
 When CI is genuinely broken for a reason that must not hold up a release, accept the specific run:
 
@@ -108,21 +110,26 @@ The release runs these phases, each verifying its work before the next begins:
    `dist` file cannot change before publication.
 4. Create and verify local `release/pre-<VER>`, `release/post-<NEXT>`, and `release-<VER>` refs,
    without touching the ordinary CEDAR working trees.
-5. Fetch the remotes, refuse to continue if a remote `develop` moved away from the train source,
+5. Deploy the next-development Maven snapshots, in dependency order, from the prepared `develop`
+   trees, and verify their Nexus inventory. Immutable build trains remain the owner of development
+   frontend packages, so this route does not republish `-SNAPSHOT` npm versions.
+6. Fetch the remotes, refuse to continue if a remote `develop` moved away from the train source,
    create explicit integration commits, then push the release branches, the tag, `main`, and
    `develop`.
-6. Upload the exact locally validated Maven release bytes to Nexus, accepting an existing immutable
+7. Upload the exact locally validated Maven release bytes to Nexus, accepting an existing immutable
    path only when its bytes match, and verify the required artifact inventory.
-7. Pack the six stable npm frontend surfaces from the exact integrated commits, overlay only the
+8. Pack the six stable npm frontend surfaces from the exact integrated commits, overlay only the
    byte-inventoried production output for distribution packages, record `gitHead`, publish to CEDAR
    Nexus, then download each registry tarball and verify its integrity and content hash.
-8. Deploy the next-development Maven snapshots from the exact integrated `develop` commits and
-   verify their Nexus inventory. Immutable build trains remain the owner of development frontend
-   packages, so this route does not republish `-SNAPSHOT` npm versions.
 9. Accept the release, proving from outside the ledger that it holds.
 
 Nothing reaches a remote until every local ref has been created and verified, so a release that
 fails during preparation has changed nothing outside the machine it ran on.
+
+The snapshots are deployed before the remotes, rather than after, because integrating the remotes is
+what advances `develop` to the next version everywhere at once, and the CI each of those pushes
+triggers resolves the parent and the libraries at that version from Nexus. Publishing first means
+those builds find what they are looking for.
 
 Each integration commit is written from the prepared tree rather than merged towards it, so `main`
 comes to hold exactly the released content. Anything committed to `main` alone and never merged back
