@@ -360,7 +360,16 @@ def remote_bytes(url: str) -> bytes | None:
     def read():
         try:
             with urllib.request.urlopen(url, timeout=30) as response:
-                return response.read()
+                body = response.read()
+                # A degraded registry can close a connection mid-body and leave a short read
+                # looking like a successful one. Comparing that against the bytes going up
+                # reports an immutable path as holding different content, which is a far more
+                # alarming thing to be told than the truth, so a short read is a failed read.
+                declared = response.headers.get("Content-Length")
+                if declared is not None and declared.isdigit() and len(body) != int(declared):
+                    raise urllib.error.URLError(
+                        f"truncated read: {len(body)} of {declared} bytes from {url}")
+                return body
         except urllib.error.HTTPError as error:
             if error.code == 404:
                 return None
