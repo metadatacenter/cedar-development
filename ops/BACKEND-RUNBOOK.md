@@ -522,8 +522,7 @@ The auxiliary frontends are the `ui-*` entries — `ui-openview` (4220), `ui-con
 `ui-monitoring` (4300), `ui-bridging` (4340) — each run as `ng serve` from its
 `cedar-<name>[-src]` source dir (see `fe_dir()`). They are named `ui-*` because `openview`/`monitor`/
 `bridge` are already microservice names. Their health is **port-only** (no Dropwizard `/healthcheck`).
-`cedarcli native start frontends` starts all seven through this controller. The non-essential CEE demos
-(`cee-dev`/`demo.cee`) are not managed here — `cedarcli` doesn't start them by default either.
+`cedarcli native start frontends` starts all seven through this controller.
 
 ```bash
 cedar-services.sh start [name...]     # start all, or only the named services
@@ -536,7 +535,7 @@ cedar-services.sh health [name...]    # exit 0 only if the named services are he
 ```
 
 `cedarcli native status` is the preferred whole-host view. It renders one grouped table for the
-managed applications, native infrastructure and optional CEE frontends. Managed rows retain every
+managed applications and native infrastructure. Managed rows retain every
 controller diagnostic — PID ownership, application port and listener state, health, binary
 freshness and cumulative log-error count — instead of printing the controller table followed by a
 second, less informative port table. The controller exposes the same rows to the CLI through its
@@ -594,8 +593,7 @@ their container for the Compose health check and are not host-mapped; do not add
 other admin mapping) to the core Compose stack. Native admin connectors likewise bind `127.0.0.1`.
 
 Auxiliary frontends (Angular `ng serve`, port-only health): `ui-openview` 4220, `ui-content` 4240,
-`ui-monitoring` 4300, `ui-bridging` 4340. Non-essential CEE demos (not started by
-default): `demo.cee` 4260, `cee-dev` 4400.
+`ui-monitoring` 4300, `ui-bridging` 4340.
 
 ## API-key credentials and management identifiers
 

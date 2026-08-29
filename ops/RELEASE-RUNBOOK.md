@@ -18,9 +18,9 @@ source state, so the release takes its exact commits, stamps versions onto them,
 what it publishes matches what the train built. Creating a train is covered in
 [BUILD-RUNBOOK.md](./BUILD-RUNBOOK.md).
 
-Four commands make up the route, and the operator supplies four explicit inputs. Nothing is
-inferred from the train identifier and no manifest path is accepted. The CLI owns the immutable
-manifest under `~/.cedar/train-releases/`.
+The route begins with one read-only plan and four explicit inputs. Nothing is inferred from the
+train identifier and no manifest path is accepted. The CLI owns the immutable manifest under
+`~/.cedar/train-releases/`.
 
 ```bash
 cedarcli release plan \
@@ -32,29 +32,19 @@ cedarcli release plan \
 
 `plan` changes nothing. It validates the completed train, the exact source commits, the artifact
 inventories, the explicit versions, and the byte-equivalence proof between the train's development
-CEE and the public npmjs CEE, and then runs the full preflight. It must finish with
+CEE and the public npmjs CEE, and then runs the complete release gate. It must finish with
 `No changes made.`
-
-Start earlier than that, though. Most of what stops a release is about the estate rather than the
-train, and a train costs half an hour:
-
-```bash
-cedarcli release preflight --version <VER> --next-version <NEXT>
-```
-
-That runs every check except the ones only a completed train can answer, in about ninety seconds,
-against the repository set the next train will use. Build the train once it is clean.
 
 The CEE version bases need not match. A train may already have advanced to the next development
 base after the public package was cut, so eligibility comes from the tarball proof rather than from
 version-name similarity.
 
-## Preflight
+## What Plan Checks
 
-`plan` and `start` run the identical preflight, so a release cannot begin from a state `plan` would
-have refused. It answers in about a minute what previously took a build phase to discover.
+`plan` and `start` run the identical complete gate, so a release cannot begin from a state `plan`
+would have refused. It answers in about a minute what previously took a build phase to discover.
 
-Preflight settles four groups of question:
+The plan settles four groups of question:
 
 - **The machine can run a release.** Java 17 is active, `git`, `mvn`, `node`, and `npm` are on PATH,
   the CEDAR profile is sourced, and there is disk for the train, the attempt tree, and the archives.
@@ -70,14 +60,14 @@ Preflight settles four groups of question:
 Two of those deserve their own note.
 
 **Nexus reads fall back to anonymous** and succeed whether or not credentials are set, so the
-presence of `BMIR_NEXUS_USERNAME` and `BMIR_NEXUS_PASSWORD` proves nothing. Preflight authenticates
+presence of `BMIR_NEXUS_USERNAME` and `BMIR_NEXUS_PASSWORD` proves nothing. The plan authenticates
 against an endpoint anonymous callers cannot reach, and reads a repository as well, because the
 status endpoints answer from the web tier and stay green while everything behind them fails. Export
 both from the `bmir-nexus-releases` server entry in `~/.m2/settings.xml` before starting.
 
 **A Nexus over its request budget looks like an outage.** The instance is Community Edition, with a
 limit on requests per day, and when it is over that limit it serves its status endpoints and returns
-500 for every repository path. Preflight names that shape rather than reporting a generic failure,
+500 for every repository path. The plan names that shape rather than reporting a generic failure,
 because it is the one condition that gets worse the harder a release tries: every retry spends the
 budget that is exhausted. The budget is a rolling 24-hour window, so the answer is to stop and let it
 roll off, and to check the Usage Center for what is consuming it. A train is a few hundred requests,
@@ -114,9 +104,17 @@ cedarcli release start \
 Run it in an interactive `cedar` shell inside `tmux`, so a long run survives a disconnect.
 `cedarcli` is a shell alias and will not work in a bare `bash script.sh`.
 
-Add `--unattended` for a release nobody will watch. It retries a refused connection with backoff so
-a network fault does not end the run. Only the transport is retried: a changed tree, a failed
-verification, or any refusal carrying an HTTP status stops the release at once.
+Transient transport retries are built in, so a network fault does not end a long release. The
+bounded policy covers direct connection failures, HTTP 502/503/504 from resumable Git, Maven, and
+npm commands, and Git's server-side 5xx failures.
+It does not retry a changed tree, protected-ref refusal, failed byte verification, authentication
+failure, or Nexus HTTP 500. The last one is deliberately a hard stop because it is also how the
+daily request-budget failure presents itself.
+
+Before snapshot publication, release publication, and final acceptance, a Nexus circuit breaker
+makes only two cheap probes: writable status and one real repository read. It opens before any
+ledger mutation or bulk registry verification. A direct connection failure remains eligible for
+bounded retry; an HTTP refusal does not.
 
 The release runs these phases, each verifying its work before the next begins:
 
@@ -154,7 +152,7 @@ Each integration commit is written from the prepared tree rather than merged tow
 comes to hold exactly the released content. Anything committed to `main` alone and never merged back
 into `develop` is therefore left out of the release, and out of `main` once the release lands. It
 stays reachable through the integration commit's first parent, but restoring it takes a deliberate
-commit on `develop`. Preflight reports such content, and reconciling a divergent `main` belongs
+commit on `develop`. Plan reports such content, and reconciling a divergent `main` belongs
 before a release rather than after one.
 
 The stable npm surfaces are Template Editor, OpenView, Content Distribution, Monitoring, Bridging,
@@ -165,13 +163,22 @@ keeps its independent publication path. Template Designer also remains independe
 
 ```bash
 cedarcli release status
-cedarcli release status --json    # for a monitor
 ```
+
+The human view is a phase table with completed/total counts. It says `COMPLETE` only at acceptance,
+marks the single next or failed phase, and prints the exact safe commands to run next. Ledgers
+written by the earlier combined publication phase are interpreted by task identity, so their
+snapshot records do not inflate the release-artifact count.
 
 Acceptance is the last phase, and it is what makes the release self-proving. It asks, from outside
 the ledger that recorded the work, whether every repository carries the release tag, every remote ref
 stands where the ledger says, every published artifact still matches its recorded bytes, and the
-frontends pin the proven CEE. A completed release reports `Phase: accepted`.
+frontends pin the proven CEE. A completed release reports `Release <VER> — COMPLETE` and shows
+acceptance at `1/1`.
+
+The exact-ref query already proves each tag at its recorded commit, so acceptance does not make a
+second tag-only request across all repositories. This matters on a forty-repository release and on a
+Nexus installation with a finite request budget.
 
 Treat any other final phase as an incomplete release, whatever else the output says.
 
@@ -186,26 +193,27 @@ cedarcli release status
 cedarcli release resume
 ```
 
-Resume first re-verifies all completed Git refs, build logs and generated-output hashes, Maven
-bytes, npm tarballs, and registry inventories. Remote ref drift, changed local evidence, or a
-different immutable registry object is a hard stop.
+Resume starts at the recorded phase, verifies the completed evidence that phase consumes, and then
+continues. Remote ref drift, changed local evidence, or a different immutable registry object is a
+hard stop; transient transport retry is automatic.
 
 Never edit a ledger or a release manifest by hand. Those files are the release's own record of what
 it verified, and a hand-edited record makes every guard downstream of it meaningless.
 
-One release is active at a time, and acceptance marks it finished. A release that ended before the
-acceptance phase existed still holds that slot, and `cedarcli release conclude` records that it
-finished and frees it. It refuses anything that has not reached a terminal phase.
+One release is active at a time. Acceptance is the only path that marks it finished and frees the
+slot for the next release.
 
 ### Known Failure Signatures
 
 | Signature | Meaning | Recovery |
 |-----------|---------|----------|
-| `status code: 5xx … BUILD FAILURE` on `./mvnw deploy` | transient Nexus 5xx | `release resume`, or use `--unattended` |
+| HTTP 502/503/504 or a direct connection failure on `./mvnw deploy` | transient Nexus transport/service failure | `release resume`; bounded retry is automatic |
+| Nexus HTTP 500 while status is writable but a repository read fails | likely daily request budget exhaustion | stop; check Usage Center and wait for the rolling 24-hour window to recover |
 | `git pull` hangs at `Username:` | expired PAT with an empty credential store | refresh the PAT, re-cache, keep `GIT_TERMINAL_PROMPT=0` set |
 | `RPC failed; curl 92 Stream error in the HTTP/2 framing layer` | transient push | `release resume`, or `git config http.version HTTP/1.1` |
-| `remote: fatal error in commit_refs` / `remote rejected main -> main` | transient GitHub backend | `release resume` |
-| `Nexus is missing required … artifacts` | inventory not yet indexed | `release resume`; the publisher retries the inventory itself |
+| `remote: fatal error in commit_refs` / GitHub HTTP 5xx | transient GitHub backend | `release resume`; bounded retry is automatic |
+| a protected-branch or immutable-ref refusal | policy or state mismatch, not transport | fix the policy/state; it is never retried automatically |
+| `Nexus is missing required … artifacts` | inventory not yet indexed after the publisher's bounded wait | use `release resume` once Nexus is healthy |
 
 ## Before the First Release on a New Host
 
@@ -224,7 +232,7 @@ On `AUTH_FAIL`, refresh the PAT on GitHub, authorizing it for SSO if the org req
 
 **Versions.** Decide `<VER>` and `<NEXT>` deliberately rather than copying an old runbook's values.
 
-Preflight covers the rest, including clean working trees, absent release tags, and the credentials.
+`release plan` covers the rest, including clean working trees, absent release tags, and credentials.
 
 ## What Publishes Independently
 

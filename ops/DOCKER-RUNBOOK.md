@@ -242,9 +242,9 @@ cedarcli publish train
 The workflow records one source manifest, then completes three ordered publication stages:
 
 1. It compiles and publishes the immutable Maven graph.
-2. It records the npm dependency graph, requires the separately released TypeScript model and CEE
-   packages, publishes the seven frontend packages, and verifies every tarball, integrity value,
-   and source commit.
+2. It stamps and publishes the captured TypeScript model as an immutable development package, wires
+   and tests the captured CEE against that exact model, publishes CEE, pins it into the seven
+   captured frontend packages, and verifies every tarball, integrity value, and source commit.
 3. It builds the two internal bases and 29 runtime images from those Maven and npm inputs, then
    pulls and verifies all 31 before advancing `docker/current.json`.
 
@@ -282,9 +282,11 @@ cedarcli docker build microservices --train <TRAIN_ID>
 ### Checked-out Java source: explicit local build
 
 This is the path used for the 2026-08-21 deployment proof. The Java build installs the parent,
-shared libraries, the 70-module server reactor, and clients in dependency order. It deliberately
-skips tests; the REST gate below supplies runtime coverage. `--local` then stages each newly built
-fat JAR into its server image and clears the staged file after the build.
+shared libraries, the 70-module server reactor, and clients in dependency order, running the unit
+and embedded integration suites by default. Use `--skip-tests` explicitly only for a previously
+verified compile/install loop; the REST gate below remains the deployment acceptance test. `--local`
+then stages each newly built fat JAR into its server image and clears the staged file after the
+build.
 
 ```bash
 cedarcli build java
@@ -580,11 +582,11 @@ single public TLS and routing layer.
 
 The frontend source repositories remain Docker-agnostic. All Dockerfiles, entrypoints, and private
 nginx configurations are in `cedar-docker-build`; Compose topology is in `cedar-docker-deploy`.
-Each image downloads one immutable npm package from Nexus. The build train derives the seven
-package versions from the captured source commits, publishes and verifies those packages, then
-injects their exact identities into the Docker build. The TypeScript model and CEE releases must
-already have passed their own release gates; the train verifies those shared inputs before it
-publishes any frontend package.
+Each image downloads one immutable npm package from Nexus. The build train derives the TypeScript
+model, CEE, and seven frontend package versions from their captured source commits, publishes and
+verifies that complete graph, then injects its exact identities into the Docker build. Public npmjs
+releases remain independent; a formal CEDAR release later proves its chosen public CEE is
+byte-equivalent to the development CEE the train tested.
 
 Commit the frontend source changes and publish the coordinated train:
 
@@ -752,8 +754,6 @@ calling shell.
   for an explicitly local experiment.
 - Artifact is intentionally private to `cedarnet`; host-only test runners cannot exercise its
   cross-store contract directly.
-- Java build success means compilation/package success because `cedarcli build java` uses
-  `-DskipTests`.
 - The runtime OpenSearch image is 2.19.1 while `cedar-parent` declares Java clients 2.19.2. This is
   accepted because their compatibility contract is the shared 2.19 line; Docker-build CI enforces
   that major/minor pairing mechanically.

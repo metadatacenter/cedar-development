@@ -204,13 +204,11 @@ export GIT_TERMINAL_PROMPT=0</code></pre></div>
     --version {{VER}} \
     --next-version {{NEXT}} \
     --from-train &lt;TRAIN_ID&gt; \
-    --cee-version &lt;PUBLIC_CEE_VERSION&gt; \
-    --unattended; echo "CEDARCLI_EXIT=$?"; } 2>&amp;1 | tee /tmp/cedar-release.log</code></pre>
-      <div class="why">~1h50m. Leave it in tmux; detach with <code>Ctrl-b d</code> and it keeps running. <code>--unattended</code> retries a refused connection with backoff; a changed tree or a failed verification still stops it at once.</div></div>
+    --cee-version &lt;PUBLIC_CEE_VERSION&gt;; echo "CEDARCLI_EXIT=$?"; } 2>&amp;1 | tee /tmp/cedar-release.log</code></pre>
+      <div class="why">~1h50m. Leave it in tmux; detach with <code>Ctrl-b d</code> and it keeps running. Transient connection failures are retried with backoff; a changed tree or a failed verification still stops it at once.</div></div>
 
     <div class="step"><h3><span class="n">5</span>Watch it</h3><p>The ledger, rather than the log, is the source of truth.</p>
       <pre><code>cedarcli release status
-cedarcli release status --json      # for a monitor
 tail -f /tmp/cedar-release.log</code></pre></div>
 
     <div class="step"><h3><span class="n">6</span>Finish</h3><p>Acceptance is the last phase, and it proves the release from outside the ledger that recorded it.</p>
