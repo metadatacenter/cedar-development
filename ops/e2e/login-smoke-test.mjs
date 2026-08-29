@@ -28,7 +28,7 @@ import { dirname, resolve } from 'node:path';
 import * as S from './selectors.mjs';
 // REST helpers, used to seed setup fixtures (folder, standalone field) without driving the UI, and
 // to tear them down. The browser drives only the gestures under test (designer, metadata editor).
-import { actors, call as restCall, artifactBody } from './rest/lib.mjs';
+import { actors, call as restCall, mutate as restMutate, artifactBody } from './rest/lib.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const FAIL_DIR = resolve(__dirname, 'failures');
@@ -817,7 +817,11 @@ try {
   // Delete the instance over REST by id (robust across the post-save navigation, and independent of
   // its display name); the template and folder follow.
   step = 'delete-instance';
-  await restCall(user1.auth, 'DELETE', `/template-instances/${enc(savedInstance.id)}`);
+  const deleteInstance = await restMutate(user1.auth, 'DELETE',
+      `/template-instances/${enc(savedInstance.id)}`);
+  if (deleteInstance.status !== 204 && deleteInstance.status !== 200) {
+    throw new Error(`instance DELETE answered ${deleteInstance.status}: ${deleteInstance.text}`);
+  }
   console.log('✓ instance deleted');
 
   step = 'delete-template';
@@ -827,7 +831,11 @@ try {
   // The standalone field was seeded over REST, so tear it down the same way. The working folder
   // stays: it is `Smoke Tests` in the home folder and every run shares it.
   step = 'delete-standalone-field';
-  await restCall(user1.auth, 'DELETE', `/template-fields/${enc(standaloneFieldId)}`);
+  const deleteField = await restMutate(user1.auth, 'DELETE',
+      `/template-fields/${enc(standaloneFieldId)}`);
+  if (deleteField.status !== 204 && deleteField.status !== 200) {
+    throw new Error(`standalone-field DELETE answered ${deleteField.status}: ${deleteField.text}`);
+  }
   console.log('✓ standalone field deleted');
 
   step = 'verify-folder-cleared';

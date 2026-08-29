@@ -11,7 +11,7 @@
 // this estate. The two historically-found inter-layer bugs — a media-type reported with the wrong
 // status, and a graphless artifact — were both found by chance rather than by a test like this.
 import {
-  suite, check, checkStatus, call, updateArtifact, artifact, cleanup, artifactBody, enc, RUN,
+  suite, check, checkStatus, call, mutate, updateArtifact, artifact, cleanup, artifactBody, enc, RUN,
   ARTIFACT_SERVER,
 } from '../lib.mjs';
 
@@ -60,7 +60,7 @@ export async function run({ user1, folderId }) {
 
   suite('contract: a delete through the resource server clears both stores');
 
-  const del = await call(auth, 'DELETE', at);
+  const del = await mutate(auth, 'DELETE', at);
   if (checkStatus(del, [200, 204], 'the resource server deletes it')) {
     checkStatus(await call(auth, 'GET', at), 404, 'the resource server no longer finds it');
     checkStatus(await artifact(auth, 'GET', at), 404, 'and the artifact server no longer holds it');

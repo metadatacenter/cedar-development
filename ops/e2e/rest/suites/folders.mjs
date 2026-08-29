@@ -1,6 +1,6 @@
 // Folders and the filesystem commands: the operations a user performs constantly and which had
 // no REST coverage beyond the create the other suites depend on.
-import { suite, check, checkStatus, call, cleanup, artifactBody, enc, RUN } from '../lib.mjs';
+import { suite, check, checkStatus, call, mutate, cleanup, artifactBody, enc, RUN } from '../lib.mjs';
 
 export const name = 'folders';
 
@@ -41,7 +41,7 @@ export async function run({ user1, homeFolderId }) {
 
   // Rename through PUT, and confirm it took.
   const renamed = `${parentName} renamed`;
-  const put = await call(auth, 'PUT', parentAt,
+  const put = await mutate(auth, 'PUT', parentAt,
       { 'schema:name': renamed, 'schema:description': 'renamed by the REST suites' });
   if (checkStatus(put, 200, 'folder renamed')) {
     const after = await call(auth, 'GET', parentAt);
@@ -106,10 +106,10 @@ export async function run({ user1, homeFolderId }) {
   // version of this suite renamed test1's home folder for real (the rename was not guarded then) and
   // it had to be put back by hand. This asserts the guard now holds.
   const home = `/folders/${enc(homeFolderId)}`;
-  const deleteHome = await call(auth, 'DELETE', home);
+  const deleteHome = await mutate(auth, 'DELETE', home);
   check(deleteHome.status >= 400, 'the home folder cannot be deleted',
       `expected 4xx, got ${deleteHome.status}`);
-  const renameHome = await call(auth, 'PUT', home,
+  const renameHome = await mutate(auth, 'PUT', home,
       { 'schema:name': `Home renamed by the REST suites ${RUN}`, 'schema:description': 'attempt' });
   check(renameHome.status >= 400, 'the home folder cannot be renamed',
       `expected 4xx, got ${renameHome.status} — if 200, the home folder was just renamed for real`);

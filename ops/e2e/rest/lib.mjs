@@ -208,6 +208,42 @@ export async function updateArtifact(auth, path, body, opts = {}) {
   });
 }
 
+/**
+ * Mutate a revisioned REST resource using the validator from a fresh GET of the representation
+ * being replaced. This is the general form of updateArtifact: folders, groups, memberships and
+ * permission documents all have their own revision and therefore their own ETag-bearing GET.
+ *
+ * opts.etagPath may name a different representation when a command mutates an aggregate through a
+ * subordinate route. opts.etagAuth lets an authorization test read as the owner and attempt the
+ * mutation as somebody else. The remaining options are forwarded to call().
+ */
+export async function mutate(auth, method, path, body, opts = {}) {
+  const { etagPath = path, etagAuth = auth, ...requestOpts } = opts;
+  const readOpts = requestOpts.base ? { base: requestOpts.base } : {};
+  const read = await call(etagAuth, 'GET', etagPath, undefined, readOpts);
+  const revision = read.headers?.get('etag');
+  if (!revision) {
+    return {
+      status: read.status,
+      body: read.body,
+      text: `ETag preflight GET ${etagPath} returned ${read.status} without an ETag: ${read.text ?? ''}`,
+      headers: read.headers,
+    };
+  }
+  return call(auth, method, path, body, {
+    ...requestOpts,
+    headers: {
+      ...(requestOpts.headers ?? {}),
+      'If-Match': revision,
+    },
+  });
+}
+
+/** The group-server form of mutate(). */
+export function mutateGroup(auth, method, path, body, opts = {}) {
+  return mutate(auth, method, path, body, { ...opts, base: GROUP_SERVER });
+}
+
 /** A request against the group server, which owns groups and their membership. */
 export function group(auth, method, path, body, opts = {}) {
   return call(auth, method, path, body, { ...opts, base: GROUP_SERVER });
@@ -353,7 +389,7 @@ async function sweepUnregistered(auth) {
       if (probe.status >= 400) continue;   // the suite deleted it itself, so nothing leaked
       bad(`teardown: ${kind} "${item.name}" is left behind by the "${item.suite}" suite`,
           `created but never registered with cleanup(); ${item.id}`);
-      const del = await call(auth, 'DELETE', path);
+      const del = await mutate(auth, 'DELETE', path);
       if (del.status !== 204 && del.status !== 200) {
         bad(`teardown: ${kind} "${item.name}" could not be swept`, `${del.status}: ${(del.text ?? '').slice(0, 200)}`);
         continue;
@@ -373,7 +409,7 @@ export async function teardown(auth) {
   for (const item of registry) {
     const as = item.auth ?? auth;
     const where = { base: item.base };
-    const del = await call(as, 'DELETE', item.path, undefined, where);
+    const del = await mutate(as, 'DELETE', item.path, undefined, where);
     // 404 means it is already gone, which is exactly the end state teardown is verifying — a suite
     // that deletes what it created (the contract suite deletes an artifact to prove the delete reaches
     // both stores) registered cleanup as a safety net that is simply not needed this run.

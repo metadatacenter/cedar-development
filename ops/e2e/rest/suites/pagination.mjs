@@ -154,15 +154,21 @@ export async function run({ user1, admin, folderId }) {
       // rather than against a fixed total.
       const seenC = [];
       let overlapC = false;
+      let pageFailure = null;
+      let totalsStable = true;
       for (let offset = 0; offset < total + 2; offset += 2) {
         const page = await call(adm, 'GET', `/categories?limit=2&offset=${offset}`);
-        if (page.status !== 200) { check(false, `category page at offset ${offset} returns`, `got ${page.status}`); break; }
+        if (page.status !== 200) { pageFailure = `offset ${offset} returned ${page.status}`; break; }
         const ids = (page.body?.categories ?? []).map(c => c['@id']);
         if (ids.some(id => seenC.includes(id))) overlapC = true;
         seenC.push(...ids);
-        check(page.body?.totalCount === total, `category page at offset ${offset} reports the stable total`,
-            `it reported ${page.body?.totalCount} vs ${total}`);
+        if (page.body?.totalCount !== total) {
+          totalsStable = false;
+          pageFailure ??= `offset ${offset} reported ${page.body?.totalCount} vs ${total}`;
+        }
       }
+      check(!pageFailure && totalsStable, 'every category page returns and reports the stable total',
+          pageFailure ?? 'the total changed while walking the category listing');
       const mineOnce = catIds.every(id => seenC.filter(x => x === id).length === 1);
       check(!overlapC && mineOnce,
           'walking the category listing reassembles every row once, the new ones included',

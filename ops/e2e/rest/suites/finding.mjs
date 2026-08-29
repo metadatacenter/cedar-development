@@ -12,7 +12,7 @@
 // search, because it is denormalized onto the node rather than carried in the per-user list; the other
 // three are pinned as defects, with the measurements that establish them recorded at each pin.
 import {
-  suite, check, checkStatus, call, updateArtifact, group, everybodyGroup, cleanup, artifactBody,
+  suite, check, checkStatus, call, mutate, updateArtifact, group, mutateGroup, everybodyGroup, cleanup, artifactBody,
   poll, enc, RUN, GROUP_SERVER,
 } from '../lib.mjs';
 
@@ -86,7 +86,7 @@ export async function run({ user1, user2, folderId }) {
   // the "all" listing are answered from the graph, so they follow a grant immediately. A term search
   // — the ordinary search box — is answered from the index, which the grant reaches once the resource
   // is re-materialized with the grantee in its user list.
-  if (checkStatus(await call(user1.auth, 'PUT', `${direct.at}/permissions`,
+  if (checkStatus(await mutate(user1.auth, 'PUT', `${direct.at}/permissions`,
       permissions(u1, { users: [[u2, 'read']] })), 200, 'the template is shared with the second user')) {
     checkStatus(await call(user2.auth, 'GET', direct.at), 200, 'who can open it at once');
 
@@ -111,7 +111,7 @@ export async function run({ user1, user2, folderId }) {
   // Withdrawal is immediate on the graph side; now that a grant reaches the index, its withdrawal has
   // to reach the index too. This is the fail-dangerous direction: a user whose access was revoked must
   // stop finding the artifact, not keep it in their search results.
-  if (checkStatus(await call(user1.auth, 'PUT', `${direct.at}/permissions`, permissions(u1)), 200,
+  if (checkStatus(await mutate(user1.auth, 'PUT', `${direct.at}/permissions`, permissions(u1)), 200,
       'the grant is withdrawn')) {
     check((await call(user2.auth, 'GET', direct.at)).status >= 400,
         'and the second user loses access to the artifact immediately',
@@ -133,12 +133,12 @@ export async function run({ user1, user2, folderId }) {
   if (viaGroup && checkStatus(made, 201, 'a group is created to share through')) {
     const gid = made.body['@id'];
     cleanup('group', `/groups/${enc(gid)}`, groupName, user1.auth, GROUP_SERVER);
-    checkStatus(await group(user1.auth, 'PUT', `/groups/${enc(gid)}/users`,
+    checkStatus(await mutateGroup(user1.auth, 'PUT', `/groups/${enc(gid)}/users`,
         { users: [{ user: { '@id': u1 }, administrator: true, member: true },
                   { user: { '@id': u2 }, administrator: false, member: true }] }), 200,
         'with the second user as a member');
 
-    if (checkStatus(await call(user1.auth, 'PUT', `${viaGroup.at}/permissions`,
+    if (checkStatus(await mutate(user1.auth, 'PUT', `${viaGroup.at}/permissions`,
         permissions(u1, { groups: [[gid, 'read']] })), 200, 'and the template is shared with the group')) {
       checkStatus(await call(user2.auth, 'GET', viaGroup.at), 200,
           'the member can open it through the group alone');
@@ -157,7 +157,7 @@ export async function run({ user1, user2, folderId }) {
   const everybody = await (async () => (await group(user1.auth, 'GET', '/groups')).body?.groups
       ?.find(g => g.specialGroup === 'EVERYBODY'))();
   if (toAll && check(!!everybody, 'the everybody group is present', 'it could not be found')) {
-    if (checkStatus(await call(user1.auth, 'PUT', `${toAll.at}/permissions`,
+    if (checkStatus(await mutate(user1.auth, 'PUT', `${toAll.at}/permissions`,
         permissions(u1, { groups: [[everybody['@id'], 'read']] })), 200,
         'the template is shared with everybody')) {
       const appeared = await until(() => findsByTerm(user2.auth, toAll.tag, toAll.id));
@@ -193,7 +193,7 @@ export async function run({ user1, user2, folderId }) {
       check(!(await findsByTerm(user2.auth, tag, insideId)),
           'and the second user cannot', 'it was visible before the folder was shared');
 
-      if (checkStatus(await call(user1.auth, 'PUT', `/folders/${enc(boxId)}/permissions`,
+      if (checkStatus(await mutate(user1.auth, 'PUT', `/folders/${enc(boxId)}/permissions`,
           permissions(u1, { users: [[u2, 'read']] })), 200, 'the folder is shared with the second user')) {
         checkStatus(await call(user2.auth, 'GET', `/templates/${enc(insideId)}`), 200,
             'who can read the template inside it straight away');
@@ -226,7 +226,7 @@ export async function run({ user1, user2, folderId }) {
     const seen = await until(() => findsByTerm(user1.auth, doomed.tag, doomed.id));
     if (check(seen.done, 'the artifact is indexed before deletion',
         `it never appeared for its owner after ${seen.attempts} attempts — the deletion assertion would prove nothing`)) {
-      checkStatus(await call(user1.auth, 'DELETE', doomed.at), 204, 'it is deleted');
+      checkStatus(await mutate(user1.auth, 'DELETE', doomed.at), 204, 'it is deleted');
       check((await call(user1.auth, 'GET', doomed.at)).status === 404,
           'and the resource server no longer holds it', 'it was still readable after deletion');
       const gone = await dropsByTerm(user1.auth, doomed.tag, doomed.id);
@@ -243,12 +243,12 @@ export async function run({ user1, user2, folderId }) {
   const shared = await template('Revoke');
   const everybody2 = await everybodyGroup(user1.auth).catch(() => null);
   if (shared && check(!!everybody2, 'the everybody group is present', 'it could not be found')) {
-    if (checkStatus(await call(user1.auth, 'PUT', `${shared.at}/permissions`,
+    if (checkStatus(await mutate(user1.auth, 'PUT', `${shared.at}/permissions`,
         permissions(u1, { groups: [[everybody2['@id'], 'read']] })), 200, 'the template is shared with everybody')) {
       const seen = await until(() => findsByTerm(user2.auth, shared.tag, shared.id));
       if (check(seen.done, 'a second user finds it by term while it is shared',
           `it never became findable after ${seen.attempts} attempts — nothing to revoke`)) {
-        checkStatus(await call(user1.auth, 'PUT', `${shared.at}/permissions`, permissions(u1)), 200,
+        checkStatus(await mutate(user1.auth, 'PUT', `${shared.at}/permissions`, permissions(u1)), 200,
             'the everybody grant is withdrawn');
         check((await call(user2.auth, 'GET', shared.at)).status >= 400,
             'and the second user loses access at once', 'the artifact stayed readable after revocation');

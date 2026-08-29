@@ -14,7 +14,7 @@
 // earlier version aimed a permission change at the first user's home folder; back when forged writes
 // were honoured it was accepted, and the home folder's ownership had to be repaired by hand.
 import {
-  suite, check, call, cleanup, authHeader, enc, RUN,
+  suite, check, call, mutate, cleanup, authHeader, enc, RUN,
   USER_SERVER, GROUP_SERVER, OPENVIEW, WORKER,
 } from '../lib.mjs';
 
@@ -220,7 +220,9 @@ export async function run({ user1, user2, homeFolderId, folderId }) {
       ['read it', 'GET', undefined],
       ['rename it', 'PUT', { 'schema:name': `${privateName} hijacked`, 'schema:description': 'attempt' }],
     ]) {
-      const res = await call(user2.auth, method, at, body);
+      const res = method === 'GET'
+          ? await call(user2.auth, method, at, body)
+          : await mutate(user2.auth, method, at, body, { etagAuth: auth });
       check(res.status === 403 || res.status === 404,
           `a valid credential for another account cannot ${what}`,
           res.status < 400

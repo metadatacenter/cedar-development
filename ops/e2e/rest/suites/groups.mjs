@@ -3,7 +3,8 @@
 // Groups live on the group server rather than the resource server, and they are the vehicle for two
 // distinct things — sharing with a named set of people, and sharing with everybody. This suite covers
 // the groups themselves; group-sharing covers what a grant to one confers.
-import { suite, check, checkStatus, group, cleanup, everybodyGroup, enc, RUN, GROUP_SERVER } from '../lib.mjs';
+import { suite, check, checkStatus, group, mutateGroup, cleanup, everybodyGroup, enc, RUN,
+  GROUP_SERVER } from '../lib.mjs';
 
 export const name = 'groups';
 
@@ -19,7 +20,7 @@ export async function run({ user1, user2 }) {
   // PATCH /groups/{id} is a JSON merge patch — a partial update carried with its own media type. It is
   // a distinct write path from PUT with the same administrator gate, so it gets the same checks.
   const patch = (auth, path, body) =>
-      group(auth, 'PATCH', path, body, { contentType: 'application/merge-patch+json' });
+      mutateGroup(auth, 'PATCH', path, body, { contentType: 'application/merge-patch+json' });
 
   suite('groups: lifecycle');
 
@@ -50,7 +51,7 @@ export async function run({ user1, user2 }) {
       `the creator record was ${JSON.stringify(creator)}`);
 
   const renamed = `${groupName} renamed`;
-  const rename = await group(user1.auth, 'PUT', at,
+  const rename = await mutateGroup(user1.auth, 'PUT', at,
       { 'schema:name': renamed, 'schema:description': 'Renamed by the REST suites' });
   if (checkStatus(rename, 200, 'the administrator can rename it')) {
     const after = await group(user1.auth, 'GET', at);
@@ -93,7 +94,7 @@ export async function run({ user1, user2 }) {
       `${marked.length} groups carry it`);
 
   const everybodyAt = `/groups/${enc(everybody['@id'])}`;
-  checkStatus(await group(user1.auth, 'DELETE', everybodyAt), 400,
+  checkStatus(await mutateGroup(user1.auth, 'DELETE', everybodyAt), 400,
       'the everybody group cannot be deleted');
   checkStatus(await group(user1.auth, 'GET', everybodyAt), 200, 'and it is still there afterwards');
 
@@ -102,10 +103,10 @@ export async function run({ user1, user2 }) {
   // can rename it. The rename is still undone at once should it ever succeed, since the everybody
   // group is part of the installation and a test that left it renamed would have damaged the instance.
   const originalName = everybody['schema:name'];
-  const touch = await group(user1.auth, 'PUT', everybodyAt,
+  const touch = await mutateGroup(user1.auth, 'PUT', everybodyAt,
       { 'schema:name': `${originalName} touched by the REST suites`, 'schema:description': everybody['schema:description'] });
   if (touch.status === 200) {
-    await group(user1.auth, 'PUT', everybodyAt,
+    await mutateGroup(user1.auth, 'PUT', everybodyAt,
         { 'schema:name': originalName, 'schema:description': everybody['schema:description'] });
   }
   check(touch.status >= 400, 'and it cannot be renamed either',
@@ -113,7 +114,7 @@ export async function run({ user1, user2 }) {
 
   suite('groups: membership, and who may change it');
 
-  const add = await group(user1.auth, 'PUT', `${at}/users`, members([u1, true, true], [u2, false, true]));
+  const add = await mutateGroup(user1.auth, 'PUT', `${at}/users`, members([u1, true, true], [u2, false, true]));
   if (checkStatus(add, 200, 'the administrator adds the second user as a member')) {
     const roster = (add.body?.users ?? []);
     const second = roster.find(u => u.user?.['@id'] === u2);
@@ -129,25 +130,26 @@ export async function run({ user1, user2 }) {
 
   // A member is not an administrator, so a member cannot change the group. Each of these would be a
   // privilege escalation if it succeeded.
-  checkStatus(await group(user2.auth, 'PUT', at,
+  checkStatus(await mutateGroup(user2.auth, 'PUT', at,
       { 'schema:name': `${renamed} by a member`, 'schema:description': 'attempt' }), 403,
       'a member cannot rename the group');
   checkStatus(await patch(user2.auth, at, { 'schema:name': `${renamed} by a member via patch` }), 403,
       'and cannot rename it by merge-patch either');
-  checkStatus(await group(user2.auth, 'PUT', `${at}/users`, members([u1, true, true], [u2, true, true])), 403,
+  checkStatus(await mutateGroup(user2.auth, 'PUT', `${at}/users`,
+      members([u1, true, true], [u2, true, true]), { etagAuth: user1.auth }), 403,
       'and cannot make themselves an administrator');
-  checkStatus(await group(user2.auth, 'DELETE', at), 403, 'and cannot delete it');
+  checkStatus(await mutateGroup(user2.auth, 'DELETE', at), 403, 'and cannot delete it');
 
   // Promotion, then the same rename by the promoted user, which is what proves the group is writable
   // by an administrator at all — without it the refusals above would pass on an unwritable group.
-  const promote = await group(user1.auth, 'PUT', `${at}/users`, members([u1, true, true], [u2, true, true]));
+  const promote = await mutateGroup(user1.auth, 'PUT', `${at}/users`, members([u1, true, true], [u2, true, true]));
   if (checkStatus(promote, 200, 'the administrator promotes the second user')) {
-    checkStatus(await group(user2.auth, 'PUT', at,
+    checkStatus(await mutateGroup(user2.auth, 'PUT', at,
         { 'schema:name': renamed, 'schema:description': 'renamed by the promoted administrator' }), 200,
         'and now that user can rename it');
   }
 
-  const shrink = await group(user1.auth, 'PUT', `${at}/users`, members([u1, true, true]));
+  const shrink = await mutateGroup(user1.auth, 'PUT', `${at}/users`, members([u1, true, true]));
   if (checkStatus(shrink, 200, 'the second user is removed from the group')) {
     check((shrink.body?.users ?? []).length === 1, 'one person is left',
         `${(shrink.body?.users ?? []).length} are left`);
@@ -172,14 +174,15 @@ export async function run({ user1, user2 }) {
         'the second user is confirmed absent from it',
         `the roster was ${JSON.stringify((roster.body?.users ?? []).map(u => u.user?.email))}`);
 
-    checkStatus(await group(user2.auth, 'PUT', targetAt,
+    checkStatus(await mutateGroup(user2.auth, 'PUT', targetAt,
         { 'schema:name': `${targetName} hijacked`, 'schema:description': 'renamed by an outsider' }), 403,
         'an outsider cannot rename a group they do not administer');
     checkStatus(await patch(user2.auth, targetAt, { 'schema:name': `${targetName} hijacked via patch` }), 403,
         'and cannot rename it by merge-patch either');
-    checkStatus(await group(user2.auth, 'PUT', `${targetAt}/users`, members([u2, true, true])), 403,
+    checkStatus(await mutateGroup(user2.auth, 'PUT', `${targetAt}/users`, members([u2, true, true]),
+        { etagAuth: user1.auth }), 403,
         'and cannot make themselves an administrator of it');
-    checkStatus(await group(user2.auth, 'DELETE', targetAt), 403,
+    checkStatus(await mutateGroup(user2.auth, 'DELETE', targetAt), 403,
         'and cannot delete it');
     checkStatus(await group(user1.auth, 'GET', targetAt), 200,
         'and it is untouched afterwards');

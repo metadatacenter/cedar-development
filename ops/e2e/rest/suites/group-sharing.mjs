@@ -5,7 +5,8 @@
 // A grant to the everybody group reaches every account in the installation — but still only accounts:
 // it is not public access, and this suite pins that difference, because the two are easy to conflate
 // and only one of them is safe for unpublished work. Anonymous access is openness, covered separately.
-import { suite, check, checkStatus, call, group, cleanup, everybodyGroup, enc, RUN, GROUP_SERVER } from '../lib.mjs';
+import { suite, check, checkStatus, call, group, mutate, mutateGroup, cleanup, everybodyGroup, enc,
+  RUN, GROUP_SERVER } from '../lib.mjs';
 
 export const name = 'group-sharing';
 
@@ -33,7 +34,7 @@ export async function run({ user1, user2, homeFolderId }) {
   }
 
   const rename = (auth, at, name) =>
-      call(auth, 'PUT', at, { 'schema:name': name, 'schema:description': 'write attempt by the REST suites' });
+      mutate(auth, 'PUT', at, { 'schema:name': name, 'schema:description': 'write attempt by the REST suites' });
 
   suite('group sharing: a grant to a group reaches its members');
 
@@ -48,7 +49,7 @@ export async function run({ user1, user2, homeFolderId }) {
     cleanup('group', groupAt, groupName, user1.auth, GROUP_SERVER);
 
     const roster = (...entries) =>
-        group(user1.auth, 'PUT', `${groupAt}/users`,
+        mutateGroup(user1.auth, 'PUT', `${groupAt}/users`,
             { users: entries.map(([id, administrator, member]) => ({ user: { '@id': id }, administrator, member })) });
 
     checkStatus(await roster([u1, true, true], [u2, false, true]), 200,
@@ -58,7 +59,7 @@ export async function run({ user1, user2, homeFolderId }) {
         'the folder was readable before any grant existed');
 
     // Read through the group.
-    if (checkStatus(await call(user1.auth, 'PUT', `${shared.at}/permissions`,
+    if (checkStatus(await mutate(user1.auth, 'PUT', `${shared.at}/permissions`,
         permissions(u1, { groups: [[gid, 'read']] })), 200, 'the folder is shared with the group as read')) {
       checkStatus(await call(user2.auth, 'GET', shared.at), 200, 'the member can now read it');
       check((await rename(user2.auth, shared.at, `${shared.name} renamed by a group reader`)).status >= 400,
@@ -66,7 +67,7 @@ export async function run({ user1, user2, homeFolderId }) {
     }
 
     // Raised to write through the same group.
-    if (checkStatus(await call(user1.auth, 'PUT', `${shared.at}/permissions`,
+    if (checkStatus(await mutate(user1.auth, 'PUT', `${shared.at}/permissions`,
         permissions(u1, { groups: [[gid, 'write']] })), 200, 'the grant is raised to write')) {
       checkStatus(await rename(user2.auth, shared.at, `${shared.name} renamed by a group writer`), 200,
           'and the member can now write it');
@@ -106,7 +107,7 @@ export async function run({ user1, user2, homeFolderId }) {
         'the second user cannot reach the folder to begin with',
         'it was readable before being shared');
 
-    if (checkStatus(await call(user1.auth, 'PUT', `${open.at}/permissions`,
+    if (checkStatus(await mutate(user1.auth, 'PUT', `${open.at}/permissions`,
         permissions(u1, { groups: [[eid, 'read']] })), 200, 'the folder is shared with everybody as read')) {
       // The second user was never named, and belongs to no group created here.
       checkStatus(await call(user2.auth, 'GET', open.at), 200,
@@ -122,13 +123,13 @@ export async function run({ user1, user2, homeFolderId }) {
           `expected 401 without a credential, got ${anonymous.status}`);
     }
 
-    if (checkStatus(await call(user1.auth, 'PUT', `${open.at}/permissions`,
+    if (checkStatus(await mutate(user1.auth, 'PUT', `${open.at}/permissions`,
         permissions(u1, { groups: [[eid, 'write']] })), 200, 'the grant to everybody is raised to write')) {
       checkStatus(await rename(user2.auth, open.at, `${open.name} renamed by an everybody writer`), 200,
           'and any account can now write it');
     }
 
-    if (checkStatus(await call(user1.auth, 'PUT', `${open.at}/permissions`, permissions(u1)), 200,
+    if (checkStatus(await mutate(user1.auth, 'PUT', `${open.at}/permissions`, permissions(u1)), 200,
         'the grant to everybody is withdrawn')) {
       check((await call(user2.auth, 'GET', open.at)).status >= 400,
           'and the other user loses access again',

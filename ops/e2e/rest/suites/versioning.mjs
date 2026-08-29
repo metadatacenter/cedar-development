@@ -1,5 +1,5 @@
 // Publish and create-draft: two-service writes that no test exercised before these suites.
-import { suite, check, checkStatus, call, cleanup, artifactBody, enc, RUN } from '../lib.mjs';
+import { suite, check, checkStatus, call, mutate, cleanup, artifactBody, enc, RUN } from '../lib.mjs';
 
 export const name = 'versioning';
 
@@ -116,7 +116,7 @@ export async function run({ user1, user2, folderId }) {
 
       // This is the current, deliberate policy: publication makes content immutable but does not
       // make the resource undeletable. The documentation disagreement remains a separate roadmap item.
-      checkStatus(await call(auth, 'DELETE', gat), [200, 204],
+      checkStatus(await mutate(auth, 'DELETE', gat), [200, 204],
           'a published artifact remains deletable under the current policy');
       checkStatus(await call(auth, 'GET', gat), 404,
           'the published artifact is absent after that deletion');
@@ -132,7 +132,7 @@ export async function run({ user1, user2, folderId }) {
     const tid = transfer.body['@id'];
     const tat = `/templates/${enc(tid)}`;
     cleanup('template', tat, transferName, user2.auth);
-    const ownership = await call(auth, 'PUT', `${tat}/permissions`, {
+    const ownership = await mutate(auth, 'PUT', `${tat}/permissions`, {
       owner: { '@id': user2.profile['@id'] },
       userPermissions: [],
       groupPermissions: [],

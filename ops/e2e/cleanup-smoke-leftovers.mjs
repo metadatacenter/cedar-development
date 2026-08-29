@@ -16,7 +16,7 @@
 //   node cleanup-smoke-leftovers.mjs --apply                # report, then delete
 //   node cleanup-smoke-leftovers.mjs --apply --min-age=0    # include a run still in flight
 //   node cleanup-smoke-leftovers.mjs '[["folder","x","https://…"]]'   # delete exactly these
-import { actors, call, enc } from './rest/lib.mjs';
+import { actors, call, mutate, enc, GROUP_SERVER } from './rest/lib.mjs';
 
 const PATHS = {
   instance: '/template-instances',
@@ -25,13 +25,14 @@ const PATHS = {
   field: '/template-fields',
   folder: '/folders',
   category: '/categories',
+  group: '/groups',
 };
 
 // Instances before the templates they populate, elements and fields after the templates that embed
 // them, folders last. Leaving elements out of an earlier version did not merely skip three deletes:
 // a folder still holding one cannot be removed, so every folder above it survived too. Categories
 // are independent of all of it and go at the end.
-const ORDER = ['instance', 'template', 'element', 'field', 'folder', 'category'];
+const ORDER = ['instance', 'template', 'element', 'field', 'folder', 'category', 'group'];
 const STAMP = /\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}/;
 
 const argv = process.argv.slice(2);
@@ -63,7 +64,8 @@ function ageMinutes(stamp) {
 }
 
 async function deleteOne({ kind, name, id, auth }) {
-  const res = await call(auth, 'DELETE', `${PATHS[kind]}/${enc(id)}`);
+  const base = kind === 'group' ? GROUP_SERVER : undefined;
+  const res = await mutate(auth, 'DELETE', `${PATHS[kind]}/${enc(id)}`, undefined, { base });
   const done = res.status === 204 || res.status === 200 || res.status === 404;
   console.log(`${done ? 'ok  ' : 'FAIL'} ${kind} ${res.status} ${name}`);
   if (!done) console.log(`      ${(res.text ?? '').slice(0, 200)}`);
@@ -140,6 +142,17 @@ await walk(user1.profile.homeFolderId, 0, null);
 const tree = await call(user1.auth, 'GET', '/categories/tree');
 if (tree.status === 200) walkCategories(tree.body, 0, null);
 else console.log(`! could not read the category tree: ${tree.status}`);
+
+const groups = await call(user1.auth, 'GET', '/groups', undefined, { base: GROUP_SERVER });
+if (groups.status === 200) {
+  for (const node of groups.body?.groups ?? []) {
+    const name = nameOf(node);
+    const stamp = name.match(STAMP)?.[0] ?? null;
+    if (stamp) found.push({ kind: 'group', name, id: node['@id'], stamp, depth: 0, auth: user1.auth });
+  }
+} else {
+  console.log(`! could not list groups: ${groups.status}`);
+}
 
 const tooYoung = found.filter(i => (ageMinutes(i.stamp) ?? Infinity) < minAgeMinutes);
 const leftovers = found.filter(i => !tooYoung.includes(i));
