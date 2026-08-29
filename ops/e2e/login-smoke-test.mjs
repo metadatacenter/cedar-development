@@ -63,6 +63,7 @@ const RUN_ID = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
 // artifacts inside stay timestamped, so successive runs still cannot collide.
 const FOLDER_NAME = 'Smoke Tests';
 const TEMPLATE_NAME = `E2E Smoke Template ${RUN_ID}`;
+const DELETE_CONFLICT_TEMPLATE_NAME = `E2E Delete Conflict ${RUN_ID}`;
 const VERSION_TEMPLATE_NAME = `E2E Version Lifecycle ${RUN_ID}`;
 const FIELD_NAME = `E2E Standalone Field ${RUN_ID}`;
 const TEXT_FIELD_NAME = 'Notes';
@@ -525,6 +526,107 @@ async function verifyConcurrentTemplateConflict(page, user1, templateId) {
     console.log(`✓ competing Designer pages rejected the stale save, preserved the winner, and recovered after reload (${staleIfMatch} ✕, ${winnerEtag} → ${await recovered.headerValue('etag')})`);
   } finally {
     await stalePage.close();
+  }
+}
+
+// A loaded editor is also stale when another actor deletes the artifact. Designer may stop at its
+// check-update preflight (404, no PUT) or reach the conditional write (412); either way it must show
+// an error and leave the identifier absent rather than recreating it through PUT-as-create.
+async function verifyDeleteVsStaleSave(page, user1, folderId) {
+  const stalePage = await page.context().newPage();
+  let templateId;
+  try {
+    const designerReturn = `${BASE}/dashboard?folderId=${enc(folderId)}`;
+    await stalePage.goto(
+        `${DESIGNER_BASE}/templates/create?folderId=${enc(folderId)}&returnTo=${enc(designerReturn)}`,
+        { waitUntil: 'domcontentloaded' });
+    await stalePage.getByRole('textbox', { name: 'Name' }).fill(DELETE_CONFLICT_TEMPLATE_NAME);
+    await stalePage.waitForTimeout(1100);
+    await addTextField(stalePage, 'Delete conflict field', 'Makes this a saveable Designer fixture');
+    await stalePage.waitForTimeout(1100);
+
+    const pendingCreate = stalePage.waitForResponse(response => response.request().method() === 'POST'
+        && /\/templates(?:\?|$)/.test(response.url()) && response.status() === 201,
+      { timeout: 20_000 });
+    await stalePage.getByRole('button', { name: 'Save Template' }).click();
+    const created = await pendingCreate;
+    const createdBody = await created.json();
+    templateId = createdBody['@id'];
+    if (!templateId) throw new Error('Designer delete-conflict fixture returned no identifier');
+    await stalePage.getByText(/has been (created|updated)/i).first().waitFor({ timeout: 20_000 });
+    await stalePage.waitForURL(/\/templates\/edit\//, { timeout: 20_000 });
+
+    // Reload out of the create transition, then prove this exact edit page can complete an ordinary
+    // conditional update. The subsequent failure is therefore specifically caused by the external
+    // delete, not by a fixture whose post-create form never reached its normal editable state.
+    await stalePage.reload({ waitUntil: 'domcontentloaded' });
+    await stalePage.getByRole('textbox', { name: 'Description' }).first()
+      .waitFor({ state: 'visible', timeout: 20_000 });
+    const baseline = await saveTemplateDescription(stalePage, 'Delete conflict: baseline live save');
+
+    const at = `/templates/${enc(templateId)}`;
+    const loaded = await restCall(user1.auth, 'GET', at);
+    const loadedEtag = loaded.headers?.get('etag');
+    const baselineEtag = await baseline.headerValue('etag');
+    if (!loadedEtag || etagRevision(loadedEtag) !== etagRevision(baselineEtag)) {
+      throw new Error(`delete-conflict fixture loaded ${loadedEtag} after its baseline save returned ${baselineEtag}`);
+    }
+    const deleted = await restCall(user1.auth, 'DELETE', at, undefined,
+        { headers: loadedEtag ? { 'If-Match': loadedEtag } : {} });
+    if (deleted.status !== 204) throw new Error(`fixture DELETE answered ${deleted.status}: ${deleted.text}`);
+
+    await setText(stalePage.getByRole('textbox', { name: 'Description' }).first(),
+        'Delete conflict: this stale save must not recreate the template');
+    const saveButton = stalePage.getByRole('button', { name: 'Save Template' });
+    for (let poll = 0; poll < 20 && !await saveButton.isEnabled(); poll++) {
+      await stalePage.waitForTimeout(250);
+    }
+    if (!await saveButton.isEnabled()) {
+      throw new Error('Designer did not enable Save after the deleted fixture was edited');
+    }
+    const putRequests = [];
+    const observePut = request => {
+      if (request.method() === 'PUT' && /\/templates\//.test(request.url())) putRequests.push(request);
+    };
+    stalePage.on('request', observePut);
+    const pendingRefusal = stalePage.waitForResponse(response =>
+      (response.request().method() === 'POST' && /\/command\/check-update-template\//.test(response.url())
+          && response.status() === 404)
+        || (response.request().method() === 'PUT' && /\/templates\//.test(response.url())
+          && response.status() === 412),
+    { timeout: 20_000 });
+    await saveButton.click();
+    const refused = await pendingRefusal;
+    await stalePage.waitForTimeout(500);
+    stalePage.off('request', observePut);
+
+    let refusalSummary;
+    if (refused.request().method() === 'PUT') {
+      const submittedEtag = await refused.request().headerValue('if-match');
+      if (etagRevision(submittedEtag) !== etagRevision(loadedEtag)) {
+        throw new Error(`deleted editor submitted ${submittedEtag}; it loaded ${loadedEtag}`);
+      }
+      refusalSummary = `${submittedEtag} → 412`;
+    } else {
+      if (putRequests.length) {
+        throw new Error(`Designer sent ${putRequests.length} template PUT(s) after its deleted-artifact preflight returned 404`);
+      }
+      refusalSummary = 'preflight 404, no PUT';
+    }
+    await stalePage.locator('.sweet-alert:visible, .toast-error:visible, .toasty-type-error:visible')
+      .first().waitFor({ state: 'visible', timeout: 5_000 });
+    const stillGone = await restCall(user1.auth, 'GET', at);
+    if (stillGone.status !== 404) {
+      throw new Error(`stale UI save recreated deleted template: GET answered ${stillGone.status}`);
+    }
+    console.log(`✓ a stale Designer page cannot recreate a deleted template (${refusalSummary}, still 404)`);
+  } finally {
+    await stalePage.close();
+    if (templateId) {
+      const at = `/templates/${enc(templateId)}`;
+      const survivor = await restCall(user1.auth, 'GET', at).catch(() => null);
+      if (survivor?.status === 200) await restMutate(user1.auth, 'DELETE', at).catch(() => {});
+    }
   }
 }
 
@@ -1481,6 +1583,9 @@ try {
   step = 'concurrent-template-conflict';
   await verifyConcurrentTemplateConflict(page, user1, templateId);
 
+  step = 'delete-vs-stale-template-save';
+  await verifyDeleteVsStaleSave(page, user1, folderId);
+
   step = 'two-user-sharing';
   await verifyTwoUserSharing(browser, page, folderId, templateId, user1, user2);
 
@@ -1607,7 +1712,7 @@ try {
   await assertWorkingFolderCleared(user1, folderId, [savedInstance.id, templateId, standaloneFieldId]);
   console.log(`✓ "${FOLDER_NAME}" holds none of this run's artifacts`);
 
-  console.log(`\nPASS [CEE ${deployedCeeVersion}]: login (reusable sessions) → conditional Workspace mutations → "${FOLDER_NAME}" folder + seeded field → template w/ DOID + text field → repeated saves + stale-editor recovery → two-user read/write/revoke lifecycle → expired-session refresh in Workspace + Designer → publish/immutable/OpenView/new-draft lifecycle → populate + fill → save instance → dirty-navigation protection → re-edit (update) + advanced clean baseline → both serializations (JSON/YAML) → OpenView presented anonymously → conditional delete → folder cleared`);
+  console.log(`\nPASS [CEE ${deployedCeeVersion}]: login (reusable sessions) → conditional Workspace mutations → "${FOLDER_NAME}" folder + seeded field → template w/ DOID + text field → repeated saves + stale-editor and delete-conflict protection → two-user read/write/revoke lifecycle → expired-session refresh in Workspace + Designer → publish/immutable/OpenView/new-draft lifecycle → populate + fill → save instance → dirty-navigation protection → re-edit (update) + advanced clean baseline → both serializations (JSON/YAML) → OpenView presented anonymously → conditional delete → folder cleared`);
   await browser.close();
   process.exit(0);
 } catch (e) {

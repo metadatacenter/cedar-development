@@ -150,12 +150,22 @@ export async function run({ user1, homeFolderId }) {
     }
 
     const newName = `${artName} via command`;
+    const beforeRename = await call(auth, 'GET', `/templates/${enc(artId)}`);
+    const renameEtag = beforeRename.headers?.get('etag');
+    checkStatus(await call(auth, 'POST', '/command/rename-resource',
+        { '@id': artId, 'schema:name': newName, 'schema:description': 'renamed by command' }),
+    428, 'template command rename without If-Match is refused');
     const rename = await call(auth, 'POST', '/command/rename-resource',
-        { '@id': artId, 'schema:name': newName, 'schema:description': 'renamed by command' });
+        { '@id': artId, 'schema:name': newName, 'schema:description': 'renamed by command' },
+        { headers: renameEtag ? { 'If-Match': renameEtag } : {} });
     if (checkStatus(rename, [200, 201, 204], 'template renamed by command')) {
       const after = await call(auth, 'GET', `/templates/${enc(artId)}/details`);
       check(after.body?.['schema:name'] === newName, 'the command rename is visible on a fresh read',
           `name was "${after.body?.['schema:name']}"`);
+      checkStatus(await call(auth, 'POST', '/command/rename-resource',
+          { '@id': artId, 'schema:name': `${newName} stale` },
+          { headers: renameEtag ? { 'If-Match': renameEtag } : {} }),
+      412, 'template command rename with a stale If-Match is refused');
     }
 
     const copy = await call(auth, 'POST', '/command/copy-artifact-to-folder',

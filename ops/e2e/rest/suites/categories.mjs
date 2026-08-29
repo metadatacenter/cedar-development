@@ -65,6 +65,16 @@ export async function run({ user1, user2, admin, folderId }) {
   const at = `/categories/${enc(id)}`;
   cleanup('category', at, label, adm);
 
+  const duplicate = await call(adm, 'POST', '/categories', {
+    'schema:name': label,
+    'schema:description': 'Duplicate create must be rejected',
+    parentCategoryId: rootId,
+    'schema:identifier': `rest-suites-duplicate-${RUN}`,
+  });
+  checkStatus(duplicate, 409, 'creating a duplicate sibling category is a conflict');
+  check(!duplicate.headers?.get('etag'), 'the duplicate conflict does not claim a newly-created ETag',
+      `conflict returned ETag ${duplicate.headers?.get('etag')}`);
+
   const got = await call(adm, 'GET', at);
   checkStatus(got, 200, 'category read back');
   check(got.body?.['schema:name'] === label, 'the category carries the name it was given',

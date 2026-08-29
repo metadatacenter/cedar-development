@@ -69,6 +69,20 @@ export async function run() {
       'ValueConstraints omitted one or more default/selection properties');
     }
 
+    if (s.label === 'resource') {
+      const rename = paths['/command/rename-resource']?.post;
+      const renameParameters = rename?.parameters ?? [];
+      check(renameParameters.some(parameter => parameter?.$ref === '#/components/parameters/IfMatch'),
+          'resource: rename documents its required If-Match header',
+          'POST /command/rename-resource omitted the shared IfMatch parameter');
+      check(!!rename?.responses?.['412'] && !!rename?.responses?.['428'],
+          'resource: rename documents stale and missing preconditions',
+          'POST /command/rename-resource omitted 412 or 428');
+      check(!!paths['/categories']?.post?.responses?.['409'],
+          'resource: duplicate category creation documents its conflict response',
+          'POST /categories omitted 409');
+    }
+
     if (s.label === 'valuerecommender') {
       const unavailable = path => paths[path]?.post?.responses?.['503']?.description;
       check(unavailable('/command/can-generate-recommendations') === 'OpenSearch unavailable',
