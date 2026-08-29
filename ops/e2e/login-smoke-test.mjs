@@ -2,8 +2,10 @@
 // Keycloak form; exercise Workspace folder, sharing, group, membership, rename and
 // delete mutations with current ETags; create a template with a Disease field
 // constrained to the DOID "disease" branch via the live BioPortal picker; save it
-// twice without reloading; populate it and confirm a live DOID suggestion; publish
-// it to OpenView and confirm an anonymous visitor sees it; then clean up everything.
+// twice without reloading; prove stale-editor rejection and reload recovery; run a
+// real two-user read/write/revoke sharing lifecycle; populate it and confirm a live
+// DOID suggestion; publish it to OpenView and confirm an anonymous visitor sees it;
+// then clean up everything.
 //
 //   npm run smoke                        production monolith, headless
 //   npm run smoke:headed                 production monolith, headed
@@ -46,6 +48,9 @@ const OPENVIEW_FRONTEND = process.env.CEDAR_OPENVIEW_FRONTEND
   ?? `https://openview.${process.env.CEDAR_HOST ?? 'metadatacenter.orgx'}`;
 const USER = process.env.CEDAR_FRONTEND_local_USER1_LOGIN ?? 'test1@test.com';
 const PASSWORD = process.env.CEDAR_FRONTEND_local_USER1_PASSWORD ?? 'test1';
+const USER2 = process.env.CEDAR_FRONTEND_local_USER2_LOGIN ?? 'test2@test.com';
+const PASSWORD2 = process.env.CEDAR_FRONTEND_local_USER2_PASSWORD ?? 'test2';
+const USER2_NAME = process.env.CEDAR_FRONTEND_local_USER2_NAME ?? 'Test User 2';
 const HEADED = !!process.env.HEADED;
 const EXPECTED_CEE_VERSION = process.env.CEDAR_EXPECT_CEE_VERSION;
 
@@ -65,6 +70,7 @@ const MUTATION_GROUP_NAME = `E2E ETag Group ${RUN_ID}`;
 // automatically when missing or stale. Gitignored — it holds live tokens.
 const AUTH_DIR = resolve(__dirname, '.auth');
 const AUTH_STATE = resolve(AUTH_DIR, 'storage-state.json');
+const AUTH_STATE_USER2 = resolve(AUTH_DIR, 'storage-state-user2.json');
 
 // ── working folder ─────────────────────────────────────────────────────────
 
@@ -354,6 +360,250 @@ async function verifyRepeatedTemplateUpdates(page) {
     throw new Error(`Designer did not advance its live validator: first response ${validators[0].etag}, second request ${validators[1].ifMatch}`);
   }
   console.log(`✓ Designer saved the same live template twice (${validators[0].ifMatch} → ${validators[0].etag} → ${validators[1].etag})`);
+}
+
+async function saveTemplateDescription(page, value, expectedStatus = 200) {
+  await setText(page.getByRole('textbox', { name: 'Description' }).first(), value);
+  const pending = page.waitForResponse(response => response.request().method() === 'PUT'
+      && /\/templates\//.test(response.url()), { timeout: 20_000 });
+  await page.getByRole('button', { name: 'Save Template' }).click();
+  const response = await pending;
+  if (response.status() !== expectedStatus) {
+    throw new Error(`template update answered ${response.status()}, expected ${expectedStatus}: ${response.url()}`);
+  }
+  return response;
+}
+
+function etagRevision(etag) {
+  const match = etag?.match(/\d+/);
+  return match ? Number(match[0]) : null;
+}
+
+// Two independently loaded editor pages start from one revision. One wins; the other must be
+// refused, must tell the user rather than flashing success, and must not overwrite the winner.
+// Reloading the refused editor is the recovery contract: it receives the current representation and
+// can then make a deliberate new update.
+async function verifyConcurrentTemplateConflict(page, user1, templateId) {
+  const stalePage = await page.context().newPage();
+  const editUrl = page.url();
+  try {
+    await stalePage.goto(editUrl, { waitUntil: 'domcontentloaded' });
+    await stalePage.getByRole('textbox', { name: 'Description' }).first()
+      .waitFor({ state: 'visible', timeout: 30_000 });
+
+    const winnerValue = 'Concurrency smoke: winning editor update';
+    const staleValue = 'Concurrency smoke: stale editor must not win';
+    const recoveredValue = 'Concurrency smoke: recovered editor update';
+    const winner = await saveTemplateDescription(page, winnerValue);
+    const winnerEtag = await winner.headerValue('etag');
+    if (!winnerEtag) throw new Error('winning concurrent update returned no ETag');
+
+    const refused = await saveTemplateDescription(stalePage, staleValue, 412);
+    const staleIfMatch = await refused.request().headerValue('if-match');
+    if (!staleIfMatch || staleIfMatch === winnerEtag) {
+      throw new Error(`stale editor did not submit its older validator (sent ${staleIfMatch}, winner returned ${winnerEtag})`);
+    }
+    const successToast = stalePage.getByText(/has been updated/i);
+    if (await successToast.isVisible()) throw new Error('stale editor displayed an update-success message after HTTP 412');
+    await stalePage.locator('.sweet-alert:visible, .toast-error:visible, .toasty-type-error:visible')
+      .first().waitFor({ state: 'visible', timeout: 5_000 });
+
+    const afterConflict = await restCall(user1.auth, 'GET', `/templates/${enc(templateId)}`);
+    if (afterConflict.status !== 200 || afterConflict.body?.['schema:description'] !== winnerValue) {
+      throw new Error(`stale save changed server content: ${afterConflict.status} ${afterConflict.body?.['schema:description']}`);
+    }
+
+    await stalePage.reload({ waitUntil: 'domcontentloaded' });
+    await stalePage.getByRole('textbox', { name: 'Description' }).first()
+      .waitFor({ state: 'visible', timeout: 30_000 });
+    const recovered = await saveTemplateDescription(stalePage, recoveredValue);
+    const recoveredIfMatch = await recovered.request().headerValue('if-match');
+    if (etagRevision(recoveredIfMatch) !== etagRevision(winnerEtag)) {
+      throw new Error(`recovered editor used ${recoveredIfMatch}; expected revision from winning ETag ${winnerEtag}`);
+    }
+    console.log(`✓ competing Designer pages rejected the stale save, preserved the winner, and recovered after reload (${staleIfMatch} ✕, ${winnerEtag} → ${await recovered.headerValue('etag')})`);
+  } finally {
+    await stalePage.close();
+  }
+}
+
+async function openShareDialog(page, folderId, templateName) {
+  await gotoListing(page, folderId);
+  await openRowMenu(page, templateName);
+  await row(page, templateName).locator('a.share:visible').click();
+  const modal = page.locator('#share-modal .modal-content');
+  await modal.waitFor({ state: 'visible', timeout: 15_000 });
+  await modal.locator('#share-people input.user-name').waitFor({ state: 'visible', timeout: 15_000 });
+  return modal;
+}
+
+async function expectPermissionUpdate(page, action) {
+  const pending = page.waitForResponse(response => response.request().method() === 'PUT'
+      && /\/permissions(?:\?|$)/.test(response.url()), { timeout: 15_000 }).catch(() => null);
+  await action();
+  const response = await pending;
+  if (!response) throw new Error('sharing control sent no permissions PUT');
+  if (!response.ok()) throw new Error(`permission update answered ${response.status()}: ${response.url()}`);
+  if (!await response.request().headerValue('if-match')) {
+    throw new Error(`permission update reached the server without If-Match: ${response.url()}`);
+  }
+}
+
+async function closeShareDialog(modal) {
+  await modal.getByRole('button', { name: 'Done' }).click();
+  await modal.waitFor({ state: 'hidden', timeout: 10_000 });
+}
+
+async function chooseVisiblePermission(scope, permission) {
+  const label = permission === 'write' ? /can write/i : /can read/i;
+  const picker = scope.locator('.bootstrap-select').first();
+  const button = picker.locator('button.dropdown-toggle');
+  if (label.test((await button.innerText()).trim())) return;
+  await button.click();
+  const option = picker.locator('ul.dropdown-menu li a:visible').filter({ hasText: label }).first();
+  await option.waitFor({ state: 'visible', timeout: 10_000 });
+  await option.click();
+}
+
+async function shareWithUser(page, folderId, templateName, userName, permission) {
+  const modal = await openShareDialog(page, folderId, templateName);
+  const input = modal.locator('#share-people input.user-name');
+  await input.fill(userName);
+  const option = page.locator('ul.dropdown-menu:visible li').filter({ hasText: userName }).first();
+  // Exact matches select themselves in this Angular typeahead. Some builds briefly render the
+  // dropdown first and some go straight to the confirmation row, so click the option only when it
+  // actually appeared; the visible OK button is the authoritative selected-model signal.
+  await option.waitFor({ state: 'visible', timeout: 1_000 }).then(() => option.click()).catch(() => {});
+  const confirm = modal.locator('#share-people .confirmation.first button.btn-save');
+  await confirm.waitFor({ state: 'visible', timeout: 10_000 });
+  await chooseVisiblePermission(modal.locator('#share-people'), permission);
+  await expectPermissionUpdate(page, () => confirm.click());
+  await closeShareDialog(modal);
+}
+
+async function changeUserShare(page, folderId, templateName, userName, permission) {
+  const modal = await openShareDialog(page, folderId, templateName);
+  const shareRow = modal.locator('#shared-users .row').filter({ hasText: userName }).first();
+  await shareRow.waitFor({ state: 'visible', timeout: 10_000 });
+  await expectPermissionUpdate(page, async () => {
+    await shareRow.locator('select').selectOption(permission, { force: true });
+  });
+  const expectedLabel = permission === 'write' ? /can write/i : /can read/i;
+  if (!expectedLabel.test(await shareRow.locator('.bootstrap-select button.dropdown-toggle').innerText())) {
+    throw new Error(`sharing dialog did not visibly change ${userName} to ${permission}`);
+  }
+  await closeShareDialog(modal);
+}
+
+async function revokeUserShare(page, folderId, templateName, userName) {
+  const modal = await openShareDialog(page, folderId, templateName);
+  const shareRow = modal.locator('#shared-users .row').filter({ hasText: userName }).first();
+  await shareRow.waitFor({ state: 'visible', timeout: 10_000 });
+  await expectPermissionUpdate(page, () => shareRow.locator('button.btn-delete').click());
+  await closeShareDialog(modal);
+}
+
+async function newAuthenticatedContext(browser, user, password, statePath) {
+  const context = await browser.newContext({
+    ignoreHTTPSErrors: true,
+    viewport: { width: 1280, height: 900 },
+    ...(existsSync(statePath) ? { storageState: statePath } : {}),
+  });
+  await context.route('**://*:35729/**', route => route.abort());
+  const page = await context.newPage();
+  await page.goto(`${BASE}/dashboard`, { waitUntil: 'domcontentloaded' });
+  const loginForm = page.locator(S.KC_USERNAME).first();
+  const newButton = page.getByRole('button', { name: 'New' });
+  const seen = await Promise.race([
+    loginForm.waitFor({ state: 'visible', timeout: 30_000 }).then(() => 'login').catch(() => null),
+    newButton.waitFor({ state: 'visible', timeout: 30_000 }).then(() => 'reused').catch(() => null),
+  ]);
+  if (seen === 'login') {
+    await loginForm.fill(user);
+    await page.locator(S.KC_PASSWORD).first().fill(password);
+    await page.locator(S.KC_SUBMIT).first().click();
+    await newButton.waitFor({ timeout: 60_000 });
+    await mkdir(AUTH_DIR, { recursive: true });
+    await context.storageState({ path: statePath });
+  } else if (seen !== 'reused') {
+    await context.close();
+    throw new Error(`neither the Keycloak login form nor Workspace appeared for ${user}`);
+  }
+  return { context, page };
+}
+
+async function gotoSharedWithMe(page, homeFolderId) {
+  await gotoListing(page, homeFolderId);
+  await page.locator('a[ng-click="dc.goToSharedWithMe()"]:visible').click();
+  await page.waitForURL(/sharing=shared-with-me/, { timeout: 15_000 });
+  await page.getByRole('button', { name: 'New' }).waitFor({ timeout: 15_000 });
+  await page.waitForTimeout(500);
+}
+
+async function waitForSharedRow(page, homeFolderId, templateName, present) {
+  for (let attempt = 1; attempt <= 8; attempt++) {
+    await gotoSharedWithMe(page, homeFolderId);
+    if ((await row(page, templateName).count() > 0) === present) return;
+    await page.waitForTimeout(1000);
+  }
+  throw new Error(`shared template "${templateName}" ${present ? 'never appeared' : 'remained visible after revocation'}`);
+}
+
+// Drive the visible sharing dialog as the owner and a separate authenticated browser as the
+// recipient. This proves more than the ACL endpoint: Workspace must construct the grant correctly,
+// render the right controls after each transition, carry the recipient into Designer through SSO,
+// and stop an already-open editor after revocation.
+async function verifyTwoUserSharing(browser, ownerPage, folderId, templateId, user1, user2) {
+  await shareWithUser(ownerPage, folderId, TEMPLATE_NAME, USER2_NAME, 'read');
+  const secondary = await newAuthenticatedContext(browser, USER2, PASSWORD2, AUTH_STATE_USER2);
+  try {
+    const recipientPage = secondary.page;
+    await waitForSharedRow(recipientPage, user2.profile.homeFolderId, TEMPLATE_NAME, true);
+    await openRowMenu(recipientPage, TEMPLATE_NAME);
+    const readOnlyRename = recipientPage.locator('a.rename:visible').first();
+    if (!((await readOnlyRename.getAttribute('class')) ?? '').includes('link-disabled')) {
+      throw new Error('read-only recipient was offered an enabled Rename action');
+    }
+
+    await changeUserShare(ownerPage, folderId, TEMPLATE_NAME, USER2_NAME, 'write');
+    await waitForSharedRow(recipientPage, user2.profile.homeFolderId, TEMPLATE_NAME, true);
+    await openRowMenu(recipientPage, TEMPLATE_NAME);
+    const writableRename = recipientPage.locator('a.rename:visible').first();
+    if (((await writableRename.getAttribute('class')) ?? '').includes('link-disabled')) {
+      throw new Error('write recipient still saw Rename disabled');
+    }
+    await menuItem(recipientPage, 'Open');
+    await recipientPage.waitForURL(/\/templates\/edit\//, { timeout: 30_000 });
+    await recipientPage.getByRole('textbox', { name: 'Description' }).first()
+      .waitFor({ state: 'visible', timeout: 30_000 });
+
+    const writerValue = 'Two-user smoke: recipient write succeeded';
+    const writerResponse = await saveTemplateDescription(recipientPage, writerValue);
+    if (!await writerResponse.request().headerValue('if-match')) {
+      throw new Error('recipient write reached the server without If-Match');
+    }
+
+    await revokeUserShare(ownerPage, folderId, TEMPLATE_NAME, USER2_NAME);
+    const deniedValue = 'Two-user smoke: revoked writer must not win';
+    await setText(recipientPage.getByRole('textbox', { name: 'Description' }).first(), deniedValue);
+    const deniedPending = recipientPage.waitForResponse(response => response.status() === 403
+        && ((response.request().method() === 'PUT' && /\/templates\//.test(response.url()))
+          || (response.request().method() === 'POST' && /\/command\/check-update-template\//.test(response.url()))),
+      { timeout: 20_000 });
+    await recipientPage.getByRole('button', { name: 'Save Template' }).click();
+    await deniedPending;
+    await recipientPage.locator('.sweet-alert:visible, .toast-error:visible, .toasty-type-error:visible')
+      .first().waitFor({ state: 'visible', timeout: 5_000 });
+
+    const afterRevoke = await restCall(user1.auth, 'GET', `/templates/${enc(templateId)}`);
+    if (afterRevoke.status !== 200 || afterRevoke.body?.['schema:description'] !== writerValue) {
+      throw new Error(`revoked editor changed server content: ${afterRevoke.status} ${afterRevoke.body?.['schema:description']}`);
+    }
+    await waitForSharedRow(recipientPage, user2.profile.homeFolderId, TEMPLATE_NAME, false);
+    console.log('✓ visible sharing UI granted read, upgraded to write, allowed the recipient save, then revoked access and blocked the already-open editor');
+  } finally {
+    await secondary.context.close();
+  }
 }
 
 // Constrain the just-added text field to the "disease" BRANCH of DOID via the live
@@ -779,7 +1029,7 @@ try {
   //    one of the artifact shapes the CEE renders; seeding it exercises field-artifact create/teardown
   //    and leaves it available for later use. The same REST token tears both down at the end.
   step = 'seed';
-  const { user1 } = await actors();
+  const { user1, user2 } = await actors();
   cleanupUser1 = user1;
   const { id: folderId, created } = await findOrCreateWorkingFolder(user1);
   const fieldResp = await restCall(user1.auth, 'POST', `/template-fields?folder_id=${enc(folderId)}`,
@@ -863,6 +1113,16 @@ try {
   await page.waitForURL(/\/templates\/edit\//, { timeout: 20_000 });
   step = 'repeat-template-update';
   await verifyRepeatedTemplateUpdates(page);
+  const templateMatch = page.url().match(/\/templates\/edit\/(.+?)(?:\?|$)/);
+  if (!templateMatch) throw new Error('post-create Designer URL carried no template id');
+  const templateId = decodeURIComponent(templateMatch[1]);
+
+  step = 'concurrent-template-conflict';
+  await verifyConcurrentTemplateConflict(page, user1, templateId);
+
+  step = 'two-user-sharing';
+  await verifyTwoUserSharing(browser, page, folderId, templateId, user1, user2);
+
   // Confirm it is listed inside the folder.
   let templateListed = false;
   for (let poll = 1; poll <= 6 && !templateListed; poll++) {
@@ -924,7 +1184,10 @@ try {
   //     the make-open command, the OpenView server's anonymous read, and OpenView's
   //     CEE-based rendering end to end.
   step = 'enable-openview';
-  const templateId = await enableOpenView(page, folderId, TEMPLATE_NAME);
+  const openedTemplateId = await enableOpenView(page, folderId, TEMPLATE_NAME);
+  if (openedTemplateId !== templateId) {
+    throw new Error(`OpenView command targeted ${openedTemplateId}; expected ${templateId}`);
+  }
   console.log(`✓ OpenView enabled on the template`);
 
   step = 'verify-openview';
@@ -966,7 +1229,7 @@ try {
   await assertWorkingFolderCleared(user1, folderId, [savedInstance.id, templateId, standaloneFieldId]);
   console.log(`✓ "${FOLDER_NAME}" holds none of this run's artifacts`);
 
-  console.log(`\nPASS [CEE ${deployedCeeVersion}]: login (reusable session) → conditional Workspace mutations → "${FOLDER_NAME}" folder + seeded field → template w/ DOID + text field → two conditional saves without reload → populate + fill → save instance → re-edit (update) → both serializations (JSON/YAML) → OpenView presented anonymously → conditional delete → folder cleared`);
+  console.log(`\nPASS [CEE ${deployedCeeVersion}]: login (reusable sessions) → conditional Workspace mutations → "${FOLDER_NAME}" folder + seeded field → template w/ DOID + text field → repeated saves + stale-editor recovery → two-user read/write/revoke lifecycle → populate + fill → save instance → re-edit (update) → both serializations (JSON/YAML) → OpenView presented anonymously → conditional delete → folder cleared`);
   await browser.close();
   process.exit(0);
 } catch (e) {

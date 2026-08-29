@@ -2153,17 +2153,28 @@ referenced by any `version_tag`.
 
 ## End-to-End Smoke Test: `ops/e2e`
 
-One command that proves the whole stack works from the outside, the way a user would exercise it:
-a Playwright script logs in through the real Keycloak form as test user 1, creates a folder on the
-dashboard, creates a template inside it, then deletes both, verifying each step. Pass = exit 0;
-a failure leaves a screenshot in `ops/e2e/failures/`.
+One command that proves the whole stack works from the outside, the way users would exercise it.
+The Playwright script logs in through the real Keycloak form, uses Workspace and Designer to create
+and mutate a template, populates and re-edits an instance in CEE, presents the template anonymously
+in OpenView, and conditionally deletes its artifacts. Pass = exit 0; a failure leaves a screenshot
+in `ops/e2e/failures/`.
 
 ```bash
 cd ops/e2e
 npm install            # once per machine
-npm run smoke          # headless, ~30 s
+npm run smoke          # headless, ~60 s
 npm run smoke:headed   # watch it in a real browser
 ```
+
+The concurrency coverage includes two independently loaded Designer pages: the first update wins,
+the stale page receives HTTP 412 and visible failure feedback, the stored winner is preserved, and
+the stale page reloads and saves successfully with the new revision. The sharing coverage uses a
+second authenticated browser context for test user 2: the owner grants read access through the
+visible Workspace dialog, the recipient sees read-only controls in **Shared with Me**, the owner
+upgrades the grant to write, the recipient edits in Designer, and the owner revokes the grant. The
+already-open recipient editor must then receive HTTP 403 without overwriting the stored value, and
+the artifact must disappear from the recipient's **Shared with Me** listing. Every permission and
+artifact update is also checked for an `If-Match` request header.
 
 The smoke reads and prints the package version rendered by CEE in both Metadata Editor and
 OpenView, fails if those two served surfaces disagree, and includes the version in its final PASS
