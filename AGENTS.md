@@ -22,6 +22,7 @@ Choose the guide by task:
 - **Public npmjs releases (TypeScript model library and CEE):**
   `cedar-development/ops/NPMJS-RELEASE-RUNBOOK.md`
 - **Production deployment:** `cedar-development/ops/PROD-DEPLOY-RUNBOOK.md`
+- **The embeddable template designer:** `cedar-development/ops/DESIGNER-RUNBOOK.md`
 
 Helper scripts are in `cedar-development/ops/`:
 - `cedar-services.sh` — start / stop / **status** / watch / logs for the microservices + frontends,
@@ -90,6 +91,18 @@ The embeddable editor (CEE) and the TypeScript model library it consumes:
   left behind, styling and theming, the host contract, plus the model library's own items and
   adoption status.
 
+The embeddable designer (CED) — `cedar-embeddable-designer`, the authoring half of the pair CEE
+completes. Distinct from the AngularJS Template Designer it aims to replace, whose extraction is
+tracked further down:
+- [DESIGNER-RUNBOOK.md](ops/DESIGNER-RUNBOOK.md) — running the development host, the two builds,
+  the four test gates, the single-file distribution and the channel its version selects, embedding
+  it alongside `<cedar-term-picker>`, and why controlled-term search needs a local terminology
+  server today.
+- [DESIGNER-ROADMAP.md](ops/DESIGNER-ROADMAP.md) — the distance to a designer anyone could switch
+  to, measured against the production designer's own palette configuration: elements, the eight
+  missing field types, the per-type capability rules, keeping the version an author pinned, and the
+  save-and-publish lifecycle it has none of.
+
 Terminology versioning, the authoring surface included — `cedar-term-picker`, the Web Component
 replacing the Workbench's controlled-term picker, is tracked here rather than in a pair of its own,
 because it exists to author versioned constraints:
@@ -120,7 +133,8 @@ The rest:
   [NPMJS-RELEASE-RUNBOOK.md](ops/NPMJS-RELEASE-RUNBOOK.md).
 - [PROD-DEPLOY-RUNBOOK.md](ops/PROD-DEPLOY-RUNBOOK.md) — deploying CEDAR to production.
 - [TEMPLATE-DESIGNER-ROADMAP.md](ops/TEMPLATE-DESIGNER-ROADMAP.md) — the AngularJS Template Designer
-  frontend (`cedar-template-editor`).
+  frontend (`cedar-template-editor`), which [DESIGNER-ROADMAP.md](ops/DESIGNER-ROADMAP.md) measures
+  itself against.
 - [WORDPRESS-RUNBOOK.md](ops/WORDPRESS-RUNBOOK.md) — the CEDAR WordPress site.
 
 ## The four things that bite first (don't skip)
