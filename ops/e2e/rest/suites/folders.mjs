@@ -132,12 +132,26 @@ export async function run({ user1, homeFolderId }) {
     const artId = art.body['@id'];
     cleanup('template', `/templates/${enc(artId)}`, artName);
 
-    const move = await call(auth, 'POST', '/command/move-resource-to-folder',
-        { '@id': artId, targetFolderId: destId });
+    const moveBody = { '@id': artId, targetFolderId: destId };
+    const graphBeforeMove = await call(auth, 'GET', `/templates/${enc(artId)}/details`);
+    const moveEtag = graphBeforeMove.headers?.get('etag');
+    checkStatus(await call(auth, 'POST', '/command/move-resource-to-folder', moveBody), 428,
+        'a move without the source If-Match is refused');
+    checkStatus(await call(auth, 'POST', '/command/move-resource-to-folder', moveBody,
+        { headers: { 'If-Match': '"0"' } }), 412,
+    'a move with a stale source If-Match is refused');
+    const move = await call(auth, 'POST', '/command/move-resource-to-folder', moveBody,
+        { headers: moveEtag ? { 'If-Match': moveEtag } : {} });
     if (checkStatus(move, [200, 201, 204], 'template moved to another folder')) {
+      const movedEtag = move.headers?.get('etag');
+      check(!!movedEtag && movedEtag !== moveEtag,
+          'the move returns a fresh source ETag', `before ${moveEtag}, after ${movedEtag}`);
       checkStatus(await call(auth, 'POST', '/command/move-resource-to-folder',
-          { '@id': artId, targetFolderId: destId }), [200, 201, 204],
-          'repeating the same move is accepted');
+          moveBody, { headers: moveEtag ? { 'If-Match': moveEtag } : {} }), 412,
+      'the pre-move ETag cannot move the resource again');
+      checkStatus(await call(auth, 'POST', '/command/move-resource-to-folder', moveBody,
+          { headers: { 'If-Match': '*' } }), [200, 201, 204],
+      'the wildcard accepts a repeat move while the source still exists');
       const there = await call(auth, 'GET', `/folders/${enc(destId)}/contents`);
       const occurrences = (there.body?.resources ?? []).filter(resource => resource['@id'] === artId).length;
       check(occurrences === 1,

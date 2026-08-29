@@ -161,7 +161,11 @@ export async function run({ user1, folderId }) {
     cleanup('folder', `/folders/${enc(destId)}`, destName);
     cleanup('template', mat, mvLabel);
     const before = await artifact(auth, 'GET', mat);
-    if (checkStatus(await call(auth, 'POST', '/command/move-resource-to-folder', { '@id': mid, targetFolderId: destId }),
+    const graphBefore = await call(auth, 'GET', `${mat}/details`);
+    const graphEtag = graphBefore.headers?.get('etag');
+    if (checkStatus(await call(auth, 'POST', '/command/move-resource-to-folder',
+        { '@id': mid, targetFolderId: destId },
+        { headers: graphEtag ? { 'If-Match': graphEtag } : {} }),
         [200, 201, 204], 'the move is accepted')) {
       const after = await artifact(auth, 'GET', mat);
       const fields = ['@id', '@type', 'schema:name', 'pav:version', 'bibo:status'];

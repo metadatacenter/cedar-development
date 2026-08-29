@@ -1436,21 +1436,24 @@ from, because they answer very different questions:
 | Matrices | 7 | Authorization, permission levels and artifact lifecycle, as tables |
 | Sharing and ownership | 1 | The `PUT .../permissions` round trip, including ownership transfer |
 | Content negotiation | 2 | YAML and JSON transcode both ways |
-| REST smoke | 1 | The real stack, no browser: 19 suites, 778 expected checks |
+| REST smoke | 1 | The real stack, no browser: 19 suites, 797 expected checks |
 | End-to-end smoke | 1 | The real stack, through a browser |
 
 **The browser smoke is green as of 2026-08-29 in both monolith and authenticated split-frontend
 modes.** It logs in through Keycloak and treats browser-observed request and response headers as part
 of the acceptance contract. In Workspace it conditionally renames and deletes a folder, replaces its
 permissions twice, updates a group twice, replaces that group's membership twice, and conditionally
-deletes the group. In Designer it creates a template with a DOID-constrained field and a text field,
+deletes the group. It also opens and closes a folder while checking inherited anonymous access,
+moves an artifact and a folder through the real destination-picker modal, and enables and disables
+OpenView on an artifact; all six commands must send `If-Match` and return an `ETag`. In Designer it
+creates a template with a DOID-constrained field and a text field,
 saves the same open template twice without reloading, and proves the second `If-Match` is the first
 update's returned `ETag`. It then fills and saves an instance, reopens and updates it, checks the JSON
 and YAML getters, opens the result anonymously through OpenView, and conditionally deletes the
 temporary artifacts through the UI. A failed run can stop before teardown and leave its folder,
 template, field, instance, mutation folder or mutation group behind;
 `ops/e2e/cleanup-smoke-leftovers.mjs` removes timestamped artifact leftovers, while the smoke's own
-catch path also removes its mutation fixtures.
+catch path removes every fixture whose identifier it acquired before the failure.
 
 `ops/e2e` holds the two whole-stack tests, and they answer different questions. `npm run smoke:rest`
 drives the REST API directly, in about 65–80 seconds, and reaches what no unit suite can: the artifact
@@ -2217,6 +2220,12 @@ upgrades the grant to write, the recipient edits in Designer, and the owner revo
 already-open recipient editor must then receive HTTP 403 without overwriting the stored value, and
 the artifact must disappear from the recipient's **Shared with Me** listing. Every permission and
 artifact update is also checked for an `If-Match` request header.
+
+Workspace's graph-command coverage drives all six UI variants: make an artifact open and not open,
+make a folder open and not open, and move an artifact and a folder. The visibility checks prove the
+corresponding anonymous-access transition; the move checks prove the source loses the resource and
+the chosen destination gains it. The browser observes `If-Match` on each command and the fresh
+`ETag` on every successful response.
 
 The smoke reads and prints the package version rendered by CEE in both Metadata Editor and
 OpenView, fails if those two served surfaces disagree, and includes the version in its final PASS

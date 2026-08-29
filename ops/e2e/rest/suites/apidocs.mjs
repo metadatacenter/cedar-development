@@ -78,6 +78,16 @@ export async function run() {
       check(!!rename?.responses?.['412'] && !!rename?.responses?.['428'],
           'resource: rename documents stale and missing preconditions',
           'POST /command/rename-resource omitted 412 or 428');
+      const move = paths['/command/move-resource-to-folder']?.post;
+      check(move?.parameters?.some(parameter => parameter?.$ref === '#/components/parameters/IfMatch'),
+          'resource: move documents its required source If-Match header',
+          'POST /command/move-resource-to-folder omitted the shared IfMatch parameter');
+      check(!!move?.responses?.['412'] && !!move?.responses?.['428'],
+          'resource: move documents stale and missing preconditions',
+          'POST /command/move-resource-to-folder omitted 412 or 428');
+      check(!!move?.responses?.['201']?.headers?.ETag,
+          'resource: move documents the resulting source ETag',
+          'POST /command/move-resource-to-folder response 201 omitted ETag');
       check(!!paths['/categories']?.post?.responses?.['409'],
           'resource: duplicate category creation documents its conflict response',
           'POST /categories omitted 409');
@@ -107,6 +117,25 @@ export async function run() {
         check(!!paths[detailsPath]?.get?.responses?.['200']?.headers?.ETag,
             `resource: ${detailsPath} documents its graph ETag`,
             `GET ${detailsPath} response 200 omitted ETag`);
+      }
+
+      for (const artifactPath of [
+        '/templates/{template_id}',
+        '/template-elements/{template_element_id}',
+        '/template-fields/{template_field_id}',
+        '/template-instances/{template_instance_id}',
+      ]) {
+        const operation = paths[artifactPath]?.delete;
+        check(operation?.parameters?.some(parameter =>
+          parameter?.$ref === '#/components/parameters/IfMatch'),
+        `resource: DELETE ${artifactPath} documents its required If-Match header`,
+        `DELETE ${artifactPath} omitted the shared IfMatch parameter`);
+        check(!!operation?.responses?.['412'] && !!operation?.responses?.['428'],
+            `resource: DELETE ${artifactPath} documents stale and missing preconditions`,
+            `DELETE ${artifactPath} omitted 412 or 428`);
+        check(!!operation?.responses?.['202'] && !!operation?.responses?.['204'],
+            `resource: DELETE ${artifactPath} distinguishes pending and complete cleanup`,
+            `DELETE ${artifactPath} omitted 202 or 204`);
       }
     }
 

@@ -1,6 +1,7 @@
 // End-to-end smoke test against a running CEDAR stack: log in through the real
-// Keycloak form; exercise Workspace folder, sharing, group, membership, rename and
-// delete mutations with current ETags; create a template with a Disease field
+// Keycloak form; exercise Workspace folder, sharing, group, membership, rename,
+// OpenView open/close, artifact/folder move and delete mutations with current ETags;
+// create a template with a Disease field
 // constrained to the DOID "disease" branch via the live BioPortal picker; save it
 // twice without reloading; prove stale-editor rejection and reload recovery; run a
 // real two-user read/write/revoke sharing lifecycle; recover Workspace and Designer
@@ -33,7 +34,7 @@ import * as S from './selectors.mjs';
 // REST helpers, used to seed setup fixtures (folder, standalone field) without driving the UI, and
 // to tear them down. The browser drives only the gestures under test (designer, metadata editor).
 import { actors, call as restCall, mutate as restMutate, artifactBody,
-  group as groupCall, mutateGroup } from './rest/lib.mjs';
+  group as groupCall, mutateGroup, OPENVIEW } from './rest/lib.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const FAIL_DIR = resolve(__dirname, 'failures');
@@ -70,6 +71,9 @@ const TEXT_FIELD_NAME = 'Notes';
 const MUTATION_FOLDER_NAME = `E2E ETag Folder ${RUN_ID}`;
 const MUTATION_FOLDER_FINAL_NAME = `${MUTATION_FOLDER_NAME} twice`;
 const MUTATION_GROUP_NAME = `E2E ETag Group ${RUN_ID}`;
+const MOVE_DESTINATION_NAME = `E2E Move Destination ${RUN_ID}`;
+const MOVE_TEMPLATE_NAME = `E2E Movable Template ${RUN_ID}`;
+const INHERITED_OPEN_TEMPLATE_NAME = `E2E Folder Open Template ${RUN_ID}`;
 // A saved browser session, reused across runs so the Keycloak login is paid once. Regenerated
 // automatically when missing or stale. Gitignored — it holds live tokens.
 const AUTH_DIR = resolve(__dirname, '.auth');
@@ -251,6 +255,171 @@ async function verifyWorkspaceConditionalMutations(page, folderId, mutableFolder
     secondName: MUTATION_FOLDER_FINAL_NAME,
   });
   console.log('✓ Workspace conditionally renamed a folder twice, replaced permissions twice, and completed group update/membership/delete lifecycles');
+}
+
+async function waitForListingRow(page, folderId, title) {
+  for (let attempt = 1; attempt <= 12; attempt++) {
+    await gotoListing(page, folderId);
+    if (await row(page, title).count()) return;
+    if (attempt < 12) await page.waitForTimeout(1250);
+  }
+  throw new Error(`Workspace never listed "${title}" in ${folderId}`);
+}
+
+async function waitForAnonymousArtifact(templateId, expectedStatus, label) {
+  let last;
+  for (let attempt = 1; attempt <= 12; attempt++) {
+    last = await restCall(null, 'GET', `/templates/${enc(templateId)}`, undefined, { base: OPENVIEW });
+    if (last.status === expectedStatus) return;
+    if (attempt < 12) await new Promise(resolve => setTimeout(resolve, 1000));
+  }
+  throw new Error(`${label}: OpenView answered ${last?.status}; expected ${expectedStatus}`);
+}
+
+// Drive an OpenView visibility change through the row menu. Search indexing can briefly leave the
+// old menu state in the listing after the preceding command, so reload until the intended action is
+// enabled rather than bypassing the UI with a REST command.
+async function setOpenViewThroughWorkspace(page, folderId, title, kind, makeOpen) {
+  const command = `make-${kind}-${makeOpen ? 'open' : 'not-open'}`;
+  const selector = makeOpen ? S.MENU_ENABLE_OPENVIEW : S.MENU_DISABLE_OPENVIEW;
+  let item;
+  for (let attempt = 1; attempt <= 12; attempt++) {
+    await waitForListingRow(page, folderId, title);
+    await openRowMenu(page, title);
+    item = page.locator(selector).filter({ visible: true }).first();
+    await item.waitFor({ timeout: 8000 });
+    const classes = (await item.getAttribute('class')) ?? '';
+    if (!classes.includes('link-disabled')) break;
+    await page.keyboard.press('Escape');
+    item = null;
+    if (attempt < 12) await page.waitForTimeout(1250);
+  }
+  if (!item) throw new Error(`${title}: Workspace never enabled ${command}`);
+
+  const pending = page.waitForResponse(response => response.request().method() === 'POST'
+      && response.url().includes(`/command/${command}`), { timeout: 15_000 }).catch(() => null);
+  await item.click();
+  const response = await pending;
+  if (!response) throw new Error(`${title}: Workspace sent no ${command} request`);
+  if (!response.ok()) throw new Error(`${command} answered ${response.status()}`);
+  const ifMatch = await response.request().headerValue('if-match');
+  const returnedEtag = await response.headerValue('etag');
+  if (!ifMatch || !returnedEtag) {
+    throw new Error(`${command} omitted ${!ifMatch ? 'If-Match' : 'the response ETag'}`);
+  }
+  return { ifMatch, returnedEtag };
+}
+
+async function waitForMovedResource(user, resourceId, sourceFolderId, destinationFolderId, label) {
+  let source;
+  let destination;
+  for (let attempt = 1; attempt <= 12; attempt++) {
+    [source, destination] = await Promise.all([
+      restCall(user.auth, 'GET', `/folders/${enc(sourceFolderId)}/contents?limit=500`),
+      restCall(user.auth, 'GET', `/folders/${enc(destinationFolderId)}/contents?limit=500`),
+    ]);
+    const sourceIds = new Set((source.body?.resources ?? []).map(resource => resource['@id']));
+    const destinationIds = new Set((destination.body?.resources ?? []).map(resource => resource['@id']));
+    if (!sourceIds.has(resourceId) && destinationIds.has(resourceId)) return;
+    if (attempt < 12) await new Promise(resolve => setTimeout(resolve, 1250));
+  }
+  throw new Error(`${label}: source/destination listings never reflected the move`);
+}
+
+// Use the actual Workspace modal: open the row menu, choose the exact folder in the modal, and
+// confirm. This covers the browser service, destination picker, conditional command and refresh
+// path together for both artifact and folder rows.
+async function moveThroughWorkspace(page, user, sourceFolderId, destinationFolderId,
+                                    resourceId, resourceTitle, destinationTitle) {
+  await waitForListingRow(page, sourceFolderId, resourceTitle);
+  await openRowMenu(page, resourceTitle);
+  const move = page.locator(S.MENU_MOVE).filter({ visible: true }).first();
+  if (((await move.getAttribute('class')) ?? '').includes('link-disabled')) {
+    throw new Error(`${resourceTitle}: Workspace disabled Move for a writable resource`);
+  }
+  await move.click();
+
+  const modal = page.locator(S.MOVE_MODAL);
+  await modal.waitFor({ state: 'visible', timeout: 15_000 });
+  const destination = page.locator(S.MOVE_DESTINATION_ROW, {
+    has: page.getByText(destinationTitle, { exact: true }),
+  }).first();
+  await destination.waitFor({ state: 'visible', timeout: 15_000 });
+  await destination.locator('a.contents-folder-title').click();
+
+  const confirm = page.locator(S.MOVE_CONFIRM).filter({ visible: true }).first();
+  await confirm.waitFor({ state: 'visible', timeout: 8000 });
+  const pending = page.waitForResponse(response => response.request().method() === 'POST'
+      && response.url().includes('/command/move-resource-to-folder'),
+  { timeout: 20_000 }).catch(() => null);
+  await confirm.click();
+  const response = await pending;
+  if (!response) throw new Error(`${resourceTitle}: Move sent no move-resource-to-folder request`);
+  if (!response.ok()) throw new Error(`${resourceTitle}: move answered ${response.status()}`);
+  const ifMatch = await response.request().headerValue('if-match');
+  const returnedEtag = await response.headerValue('etag');
+  if (!ifMatch || !returnedEtag) {
+    throw new Error(`${resourceTitle}: move omitted ${!ifMatch ? 'If-Match' : 'the response ETag'}`);
+  }
+  const body = JSON.parse(response.request().postData() ?? '{}');
+  if (body['@id'] !== resourceId || body.targetFolderId !== destinationFolderId) {
+    throw new Error(`${resourceTitle}: move targeted ${body['@id']} → ${body.targetFolderId}`);
+  }
+  await waitForMovedResource(user, resourceId, sourceFolderId, destinationFolderId, resourceTitle);
+}
+
+async function verifyWorkspaceOpenAndMoveOperations(page, user, folderId, mutableFolderId) {
+  let destinationId;
+  let movableTemplateId;
+  let inheritedTemplateId;
+  try {
+    const destination = await restCall(user.auth, 'POST', '/folders', {
+      folderId,
+      name: MOVE_DESTINATION_NAME,
+      description: 'Destination for real Workspace move-modal coverage',
+    });
+    if (destination.status !== 201) {
+      throw new Error(`could not create move destination: ${destination.status} ${destination.text}`);
+    }
+    destinationId = destination.body['@id'];
+
+    const movable = await restCall(user.auth, 'POST', `/templates?folder_id=${enc(folderId)}`,
+        artifactBody('template', MOVE_TEMPLATE_NAME));
+    if (movable.status !== 201) {
+      throw new Error(`could not create movable template: ${movable.status} ${movable.text}`);
+    }
+    movableTemplateId = movable.body['@id'];
+
+    const inherited = await restCall(user.auth, 'POST', `/templates?folder_id=${enc(mutableFolderId)}`,
+        artifactBody('template', INHERITED_OPEN_TEMPLATE_NAME));
+    if (inherited.status !== 201) {
+      throw new Error(`could not create inherited-open template: ${inherited.status} ${inherited.text}`);
+    }
+    inheritedTemplateId = inherited.body['@id'];
+
+    await waitForAnonymousArtifact(inheritedTemplateId, 401, 'closed folder baseline');
+    await setOpenViewThroughWorkspace(page, folderId, MUTATION_FOLDER_FINAL_NAME, 'folder', true);
+    await waitForAnonymousArtifact(inheritedTemplateId, 200, 'folder open');
+    await setOpenViewThroughWorkspace(page, folderId, MUTATION_FOLDER_FINAL_NAME, 'folder', false);
+    await waitForAnonymousArtifact(inheritedTemplateId, 401, 'folder close');
+
+    await moveThroughWorkspace(page, user, folderId, destinationId,
+        movableTemplateId, MOVE_TEMPLATE_NAME, MOVE_DESTINATION_NAME);
+    await moveThroughWorkspace(page, user, folderId, destinationId,
+        mutableFolderId, MUTATION_FOLDER_FINAL_NAME, MOVE_DESTINATION_NAME);
+    console.log('✓ Workspace opened/closed a folder and moved both an artifact and a folder with fresh If-Match validators');
+  } finally {
+    if (inheritedTemplateId) {
+      await restMutate(user.auth, 'DELETE', `/templates/${enc(inheritedTemplateId)}`).catch(() => {});
+    }
+    if (movableTemplateId) {
+      await restMutate(user.auth, 'DELETE', `/templates/${enc(movableTemplateId)}`).catch(() => {});
+    }
+    await restMutate(user.auth, 'DELETE', `/folders/${enc(mutableFolderId)}`).catch(() => {});
+    if (destinationId) {
+      await restMutate(user.auth, 'DELETE', `/folders/${enc(destinationId)}`).catch(() => {});
+    }
+  }
 }
 
 // Delete a row by name, retrying the whole gesture.
@@ -1457,6 +1626,9 @@ let step = 'init';
 let cleanupUser1;
 let mutationFolderId;
 let mutationGroupId;
+let cleanupStandaloneFieldId;
+let cleanupTemplateId;
+let cleanupInstanceId;
 
 try {
   // 1. Reuse a saved session if the storage state carried a valid one; otherwise log in through
@@ -1503,6 +1675,7 @@ try {
       artifactBody('field', FIELD_NAME));
   if (fieldResp.status !== 201) throw new Error(`could not seed standalone field: ${fieldResp.status} ${fieldResp.text}`);
   const standaloneFieldId = fieldResp.body['@id'];
+  cleanupStandaloneFieldId = standaloneFieldId;
   console.log(`✓ ${created ? 'created' : 'reused'} the "${FOLDER_NAME}" folder, seeded a standalone field over REST`);
 
   // Exercise concurrency-sensitive Workspace mutations before entering Designer. Setup uses REST;
@@ -1527,9 +1700,9 @@ try {
   mutationGroupId = mutationGroup.body['@id'];
   await verifyWorkspaceConditionalMutations(page, folderId, mutationFolderId, mutationGroupId);
   mutationGroupId = null;
-  await deleteRow(page, MUTATION_FOLDER_FINAL_NAME, folderId);
+  step = 'workspace-open-close-and-move';
+  await verifyWorkspaceOpenAndMoveOperations(page, user1, folderId, mutationFolderId);
   mutationFolderId = null;
-  console.log('✓ Workspace deleted the renamed folder with a freshly read If-Match validator');
 
   // 3. Create a template inside the folder via the designer deep link, name it, add
   //    a Disease field and constrain it to the DOID "disease" branch through the
@@ -1578,12 +1751,13 @@ try {
   await page.getByRole('button', { name: 'Save Template' }).click();
   await page.getByText(/has been (created|updated)/i).first().waitFor({ timeout: 20_000 });
   await page.waitForURL(/\/templates\/edit\//, { timeout: 20_000 });
-  step = 'repeat-template-update';
-  await verifyRepeatedTemplateUpdates(page);
   const templateMatch = page.url().match(/\/templates\/edit\/(.+?)(?:\?|$)/);
   if (!templateMatch) throw new Error('post-create Designer URL carried no template id');
   const templateId = decodeURIComponent(templateMatch[1]);
+  cleanupTemplateId = templateId;
   const templateEditUrl = page.url();
+  step = 'repeat-template-update';
+  await verifyRepeatedTemplateUpdates(page);
 
   step = 'concurrent-template-conflict';
   await verifyConcurrentTemplateConflict(page, user1, templateId);
@@ -1636,6 +1810,7 @@ try {
   step = 'save-instance';
   await page.waitForTimeout(500);
   const savedInstance = await saveInstanceInEditor(page);
+  cleanupInstanceId = savedInstance.id;
   console.log(`✓ Metadata Editor saved the populated instance (create → 201, redirected to edit)`);
 
   step = 'dirty-navigation-protection';
@@ -1685,10 +1860,15 @@ try {
   }
   console.log(`✓ OpenView presents the template anonymously with CEE ${openViewCeeVersion}`);
 
+  step = 'disable-openview';
+  await setOpenViewThroughWorkspace(page, folderId, TEMPLATE_NAME, 'artifact', false);
+  await waitForAnonymousArtifact(templateId, 401, 'artifact close');
+  console.log('✓ Workspace disabled OpenView on the artifact and anonymous access disappeared');
+
   // 4. Delete the saved instance, then the template, then the (now empty) folder, verifying each.
   //    The instance goes first because it lives in the folder and a non-empty folder cannot be
-  //    deleted. Deleting an open artifact is allowed and removes it from OpenView too, so no need
-  //    to disable OpenView first.
+  //    deleted. The template was explicitly closed above, so deletion also proves the ordinary
+  //    post-OpenView lifecycle remains usable.
   // Delete the instance over REST by id (robust across the post-save navigation, and independent of
   // its display name); the template and folder follow.
   step = 'delete-instance';
@@ -1697,10 +1877,12 @@ try {
   if (deleteInstance.status !== 204 && deleteInstance.status !== 200) {
     throw new Error(`instance DELETE answered ${deleteInstance.status}: ${deleteInstance.text}`);
   }
+  cleanupInstanceId = null;
   console.log('✓ instance deleted');
 
   step = 'delete-template';
   await deleteRow(page, TEMPLATE_NAME, folderId);
+  cleanupTemplateId = null;
   console.log('✓ template deleted');
 
   // The standalone field was seeded over REST, so tear it down the same way. The working folder
@@ -1711,13 +1893,14 @@ try {
   if (deleteField.status !== 204 && deleteField.status !== 200) {
     throw new Error(`standalone-field DELETE answered ${deleteField.status}: ${deleteField.text}`);
   }
+  cleanupStandaloneFieldId = null;
   console.log('✓ standalone field deleted');
 
   step = 'verify-folder-cleared';
   await assertWorkingFolderCleared(user1, folderId, [savedInstance.id, templateId, standaloneFieldId]);
   console.log(`✓ "${FOLDER_NAME}" holds none of this run's artifacts`);
 
-  console.log(`\nPASS [CEE ${deployedCeeVersion}]: login (reusable sessions) → conditional Workspace mutations → "${FOLDER_NAME}" folder + seeded field → template w/ DOID + text field → repeated saves + stale-editor and delete-conflict protection → two-user read/write/revoke lifecycle → expired-session refresh in Workspace + Designer → publish/immutable/OpenView/new-draft lifecycle → populate + fill → save instance → dirty-navigation protection → re-edit (update) + advanced clean baseline → both serializations (JSON/YAML) → OpenView presented anonymously → conditional delete → folder cleared`);
+  console.log(`\nPASS [CEE ${deployedCeeVersion}]: login (reusable sessions) → conditional Workspace mutations → folder open/close + artifact/folder moves → "${FOLDER_NAME}" folder + seeded field → template w/ DOID + text field → repeated saves + stale-editor and delete-conflict protection → two-user read/write/revoke lifecycle → expired-session refresh in Workspace + Designer → publish/immutable/OpenView/new-draft lifecycle → populate + fill → save instance → dirty-navigation protection → re-edit (update) + advanced clean baseline → both serializations (JSON/YAML) → artifact OpenView open/close → conditional delete → folder cleared`);
   await browser.close();
   process.exit(0);
 } catch (e) {
@@ -1731,6 +1914,15 @@ try {
   }
   if (cleanupUser1 && mutationFolderId) {
     await restMutate(cleanupUser1.auth, 'DELETE', `/folders/${enc(mutationFolderId)}`).catch(() => {});
+  }
+  if (cleanupUser1 && cleanupInstanceId) {
+    await restMutate(cleanupUser1.auth, 'DELETE', `/template-instances/${enc(cleanupInstanceId)}`).catch(() => {});
+  }
+  if (cleanupUser1 && cleanupTemplateId) {
+    await restMutate(cleanupUser1.auth, 'DELETE', `/templates/${enc(cleanupTemplateId)}`).catch(() => {});
+  }
+  if (cleanupUser1 && cleanupStandaloneFieldId) {
+    await restMutate(cleanupUser1.auth, 'DELETE', `/template-fields/${enc(cleanupStandaloneFieldId)}`).catch(() => {});
   }
   await browser.close();
   process.exit(1);
