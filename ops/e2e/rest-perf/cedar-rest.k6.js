@@ -1,6 +1,6 @@
 import http from 'k6/http';
-import { check, fail } from 'k6';
-import { Rate, Trend } from 'k6/metrics';
+import { check, fail, sleep } from 'k6';
+import { Counter, Rate, Trend } from 'k6/metrics';
 import { scheduledValue } from './schedule.js';
 
 const manifestPath = __ENV.CEDAR_PERF_MANIFEST;
@@ -20,6 +20,13 @@ const configuredDuration = __ENV.CEDAR_PERF_DURATION;
 const contentionWidth = Math.min(Number(__ENV.CEDAR_PERF_CONTENTION_WIDTH || 20), manifest.actors.length);
 const matrixRounds = Number(__ENV.CEDAR_PERF_ROUNDS || manifest.matrixRounds || 3);
 const scheduleSeed = String(__ENV.CEDAR_PERF_SEED || manifest.scheduleSeed || manifest.runId);
+const faultStartEpochMs = Number(__ENV.CEDAR_PERF_FAULT_START_EPOCH_MS || 0);
+const recoveryBudgetMs = Number(__ENV.CEDAR_PERF_RECOVERY_BUDGET_MS || 0);
+const churnRate = Number(__ENV.CEDAR_PERF_CHURN_RATE || 2);
+const burstBaselineRate = Number(__ENV.CEDAR_PERF_BURST_BASELINE_RATE || 5);
+const burstPeakRate = Number(__ENV.CEDAR_PERF_BURST_PEAK_RATE || 40);
+const burstPhaseDuration = __ENV.CEDAR_PERF_BURST_PHASE_DURATION || '30s';
+const burstPhaseSeconds = Number(__ENV.CEDAR_PERF_BURST_PHASE_SECONDS || 30);
 
 const allowedHosts = ['localhost', '127.0.0.1', 'metadatacenter.orgx'];
 const targetHost = resource.replace(/^[a-z]+:\/\//i, '').split('/')[0].split(':')[0];
@@ -32,6 +39,16 @@ if (__ENV.CEDAR_PERF_ALLOW_REMOTE !== '1'
 const unexpectedResponses = new Rate('cedar_unexpected_responses');
 const invariantFailures = new Rate('cedar_invariant_failures');
 const hotsetConflictRate = new Rate('cedar_hotset_conflict_rate');
+const resilienceUnexpected = new Rate('cedar_resilience_unexpected');
+const resilienceOutageResponses = new Counter('cedar_resilience_outage_responses');
+const resilienceRecoveredResponses = new Counter('cedar_resilience_recovered_responses');
+const churnCompleted = new Counter('cedar_churn_completed');
+const burstBaselineCompleted = new Counter('cedar_burst_baseline_completed');
+const burstPeakCompleted = new Counter('cedar_burst_peak_completed');
+const burstRecoveryCompleted = new Counter('cedar_burst_recovery_completed');
+const burstBaselineDuration = new Trend('cedar_burst_baseline_duration', true);
+const burstPeakDuration = new Trend('cedar_burst_peak_duration', true);
+const burstRecoveryDuration = new Trend('cedar_burst_recovery_duration', true);
 const operationDuration = new Trend('cedar_operation_duration', true);
 const artifactKinds = ['template', 'element', 'field', 'instance'];
 const destructiveKinds = ['template', 'element', 'field', 'instance', 'folder', 'group', 'category'];
@@ -49,6 +66,17 @@ const soakOperations = [
   'group-record', 'group-membership', 'category-record', 'category-acl',
 ];
 const hotsetOperations = ['template', 'element', 'field', 'instance', 'folder', 'group', 'category'];
+const resilienceOperations = ['read', 'read', 'read', 'update'];
+const burstOperations = ['read', 'read', 'read', 'update'];
+const churnCollections = {
+  template: '/templates',
+  element: '/template-elements',
+  field: '/template-fields',
+  instance: '/template-instances',
+};
+const churnFixtures = Object.fromEntries(artifactKinds.map(kind => [
+  kind, JSON.parse(open(`../fixtures/minimal-${kind}.json`)),
+]));
 
 function routeMetricName(operation) {
   return `cedar_route_${operation.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')}_duration`;
@@ -77,6 +105,14 @@ const measuredOperations = [
   ...artifactKinds.flatMap(kind => [`hotset ${kind} GET`, `hotset ${kind} PUT`]),
   'hotset folder GET', 'hotset folder PUT', 'hotset group GET', 'hotset group PATCH',
   'hotset category GET', 'hotset category PUT',
+  'resilience artifact GET', 'resilience update preflight', 'resilience conditional PUT',
+  ...artifactKinds.flatMap(kind => [
+    `churn ${kind} POST`, `churn ${kind} GET`, `churn ${kind} PUT`,
+    `churn ${kind} DELETE`, `churn ${kind} verification`,
+  ]),
+  ...['baseline', 'peak', 'recovery'].flatMap(phase => artifactKinds.flatMap(kind => [
+    `burst ${phase} ${kind} GET`, `burst ${phase} ${kind} PUT`,
+  ])),
   'soak artifact ACL preflight', 'soak artifact ACL update',
   'soak artifact ACL verification', 'soak artifact ACL access verification',
   'soak folder ACL preflight', 'soak folder ACL update',
@@ -97,6 +133,35 @@ const measuredOperations = [
 ];
 const routeMetrics = Object.fromEntries(
     measuredOperations.map(operation => [operation, new Trend(routeMetricName(operation), true)]));
+
+const quickRouteOperations = [
+  'artifact GET', 'folder contents', 'search', 'artifact update preflight',
+  'conditional artifact update', 'move preflight', 'conditional artifact move',
+  'OpenView preflight', 'conditional OpenView toggle',
+];
+const contentionRouteOperations = measuredOperations.filter(operation =>
+  /^(contention |artifact graph |folder graph |artifact ACL |folder ACL |group record |group membership |category record |category ACL |update-delete |double-delete |wildcard)/.test(operation));
+const soakRouteOperations = measuredOperations.filter(operation => operation.startsWith('soak '))
+    .concat(['folder contents', 'search', 'move preflight', 'conditional artifact move',
+      'OpenView preflight', 'conditional OpenView toggle']);
+
+function routeThresholds(operations, readLimit, mutationLimit) {
+  return Object.fromEntries([...new Set(operations)].map(operation => {
+    const readLike = /GET|preflight|verification|contents|search/i.test(operation);
+    return [routeMetricName(operation), [`p(95)<${readLike ? readLimit : mutationLimit}`]];
+  }));
+}
+
+const profileRouteThresholds = {
+  quick: routeThresholds(quickRouteOperations, 750, 2000),
+  contention: routeThresholds(contentionRouteOperations, 2500, 5000),
+  hotset: routeThresholds(measuredOperations.filter(operation => operation.startsWith('hotset ')), 750, 2500),
+  resilience: routeThresholds(
+      measuredOperations.filter(operation => operation.startsWith('resilience ')), 750, 1500),
+  churn: routeThresholds(measuredOperations.filter(operation => operation.startsWith('churn ')), 750, 1500),
+  burst: routeThresholds(measuredOperations.filter(operation => operation.startsWith('burst ')), 750, 1500),
+  soak: routeThresholds(soakRouteOperations, 750, 1500),
+};
 
 function recordDuration(operation, response) {
   operationDuration.add(response.timings.duration, { operation });
@@ -169,9 +234,72 @@ const profiles = {
       },
     },
   },
+  resilience: {
+    scenarios: {
+      resilience: {
+        executor: 'constant-vus',
+        exec: 'resilience',
+        vus: configuredVus,
+        duration: configuredDuration || '90s',
+      },
+    },
+  },
+  churn: {
+    scenarios: {
+      churn: {
+        executor: 'constant-arrival-rate',
+        exec: 'churn',
+        rate: churnRate,
+        timeUnit: '1s',
+        duration: configuredDuration || '5m',
+        preAllocatedVUs: configuredVus,
+        maxVUs: configuredVus,
+      },
+    },
+  },
+  burst: {
+    scenarios: {
+      burst_baseline: {
+        executor: 'constant-arrival-rate',
+        exec: 'burstBaseline',
+        rate: burstBaselineRate,
+        timeUnit: '1s',
+        duration: burstPhaseDuration,
+        preAllocatedVUs: configuredVus,
+        maxVUs: configuredVus,
+        gracefulStop: '5s',
+      },
+      burst_peak: {
+        executor: 'constant-arrival-rate',
+        exec: 'burstPeak',
+        startTime: `${burstPhaseSeconds + 5}s`,
+        rate: burstPeakRate,
+        timeUnit: '1s',
+        duration: burstPhaseDuration,
+        preAllocatedVUs: configuredVus,
+        maxVUs: configuredVus,
+        gracefulStop: '5s',
+      },
+      burst_recovery: {
+        executor: 'constant-arrival-rate',
+        exec: 'burstRecovery',
+        startTime: `${2 * (burstPhaseSeconds + 5)}s`,
+        rate: burstBaselineRate,
+        timeUnit: '1s',
+        duration: burstPhaseDuration,
+        preAllocatedVUs: configuredVus,
+        maxVUs: configuredVus,
+        gracefulStop: '5s',
+      },
+    },
+  },
 };
 
 if (!profiles[profile]) throw new Error(`unknown CEDAR_PERF_PROFILE ${profile}`);
+if (profile === 'resilience' && (!Number.isFinite(faultStartEpochMs) || faultStartEpochMs <= 0
+    || !Number.isFinite(recoveryBudgetMs) || recoveryBudgetMs <= 0)) {
+  throw new Error('resilience requires fault start and recovery budget timing from run-rest.mjs');
+}
 
 export const options = {
   ...profiles[profile],
@@ -186,8 +314,24 @@ export const options = {
     // Initial guardrail only. Establish operation-specific baselines before tightening latency gates.
     cedar_operation_duration: ['p(95)<3000'],
     http_req_failed: ['rate<0.01'],
+    ...profileRouteThresholds[profile],
     ...(profile === 'hotset' ? {
       cedar_hotset_conflict_rate: ['rate>0.01', 'rate<0.95'],
+    } : {}),
+    ...(profile === 'resilience' ? {
+      cedar_resilience_unexpected: ['rate==0'],
+      cedar_resilience_outage_responses: ['count>0'],
+      cedar_resilience_recovered_responses: ['count>20'],
+    } : {}),
+    ...(profile === 'churn' ? {
+      cedar_churn_completed: ['count>10'],
+      dropped_iterations: ['count==0'],
+    } : {}),
+    ...(profile === 'burst' ? {
+      cedar_burst_baseline_completed: ['count>10'],
+      cedar_burst_peak_completed: ['count>10'],
+      cedar_burst_recovery_completed: ['count>10'],
+      dropped_iterations: ['count==0'],
     } : {}),
   },
 };
@@ -427,6 +571,185 @@ export function mixed(data) {
       break;
   }
 }
+
+const resilienceFailureStatuses = [0, 502, 503, 504];
+
+function recordResilienceResponse(response, requestedAt, label) {
+  const recoveryDeadline = faultStartEpochMs + recoveryBudgetMs;
+  const inFaultBudget = requestedAt >= faultStartEpochMs - 1000 && requestedAt < recoveryDeadline;
+  const outageResponse = resilienceFailureStatuses.includes(response.status);
+  const expected = response.status === 200 || (inFaultBudget && outageResponse);
+  check(response, { [`${label} matches its resilience phase`]: () => expected });
+  resilienceUnexpected.add(!expected, { operation: label });
+  if (outageResponse) {
+    resilienceOutageResponses.add(1, { operation: label });
+    // A dead gateway answers much faster than a healthy application. Back off with deterministic
+    // per-VU jitter so the fault test does not turn ten disciplined clients into a retry storm.
+    sleep(0.2 + ((__VU * 17 + __ITER) % 100) / 1000);
+  }
+  if (requestedAt >= recoveryDeadline && response.status === 200) {
+    resilienceRecoveredResponses.add(1, { operation: label });
+  }
+  if (!expected) {
+    console.error(`${label}: HTTP ${response.status} outside the bounded outage window`
+      + ` (seed=${scheduleSeed} VU=${__VU} iteration=${__ITER})`);
+  }
+  return response.status === 200;
+}
+
+function resilienceRequest(data, index, method, path, body, operation, headers = {}) {
+  const requestedAt = Date.now();
+  const response = cedar(data, index, method, path, body, operation, headers, resource,
+      [0, 200, 502, 503, 504]);
+  return { response, healthy: recordResilienceResponse(response, requestedAt, operation) };
+}
+
+export function resilience(data) {
+  const index = (__VU - 1) % manifest.actors.length;
+  const actor = manifest.actors[index];
+  const operation = scheduledValue(resilienceOperations, scheduleSeed, index, __ITER);
+  const path = `/templates/${encodeURIComponent(
+      operation === 'read' ? actor.readTemplate.id : actor.mutableTemplate.id)}`;
+  if (operation === 'read') {
+    resilienceRequest(data, index, 'GET', path, undefined, 'resilience artifact GET');
+    return;
+  }
+
+  const currentResult = resilienceRequest(
+      data, index, 'GET', path, undefined, 'resilience update preflight');
+  if (!currentResult.healthy) return;
+  const revision = etag(currentResult.response);
+  if (!revision) {
+    invariant(currentResult.response, 'resilience healthy preflight returns an ETag', () => false);
+    return;
+  }
+  const marker = `${manifest.prefix} resilience ${scheduleSeed} ${__VU}-${__ITER}`;
+  const body = mutableResponseBody(currentResult.response);
+  body['schema:description'] = marker;
+  const updated = resilienceRequest(data, index, 'PUT', path, body, 'resilience conditional PUT', {
+    'If-Match': revision,
+  });
+  if (updated.healthy) {
+    invariant(updated.response, 'resilience successful update advances exactly one revision', result => {
+      const beforeRevision = revisionNumber(revision);
+      const afterRevision = revisionNumber(etag(result));
+      return beforeRevision !== null && afterRevision === beforeRevision + 1;
+    });
+    invariant(updated.response, 'resilience successful update returns submitted state',
+        result => result.json()?.['schema:description'] === marker);
+  }
+}
+
+function churnBody(kind, actor) {
+  const body = JSON.parse(JSON.stringify(churnFixtures[kind]));
+  body['@id'] = null;
+  body['schema:name'] = `${manifest.prefix} churn ${kind} ${manifest.runId} ${__VU}-${__ITER}`;
+  body['schema:description'] = `${manifest.prefix} bounded churn fixture for ${manifest.runId}`;
+  if (kind === 'instance') body['schema:isBasedOn'] = actor.mutableTemplate.id;
+  return body;
+}
+
+// Exercise full repository turnover at a deliberately low arrival rate. Every lifecycle is placed
+// below its actor's stamped root and normally removes itself. cleanup-run.mjs also walks those roots,
+// so an interrupt between POST and DELETE is recoverable without recording dynamic IDs from k6.
+export function churn(data) {
+  const index = (__VU - 1) % manifest.actors.length;
+  const actor = manifest.actors[index];
+  const kind = scheduledValue(artifactKinds, scheduleSeed, index, __ITER);
+  const collection = churnCollections[kind];
+  let lifecycleOk = true;
+
+  const created = cedar(data, index, 'POST',
+      `${collection}?folder_id=${encodeURIComponent(actor.rootFolderId)}`, churnBody(kind, actor),
+      `churn ${kind} POST`);
+  lifecycleOk = accepted(created, [201], `churn ${kind} create succeeds`) && lifecycleOk;
+  const id = created.status === 201 ? created.json()?.['@id'] : null;
+  if (!id) {
+    invariant(created, `churn ${kind} create returns an identifier`, () => false);
+    return;
+  }
+
+  const path = `${collection}/${encodeURIComponent(id)}`;
+  const current = cedar(data, index, 'GET', path, undefined, `churn ${kind} GET`);
+  lifecycleOk = accepted(current, [200], `churn ${kind} read succeeds`) && lifecycleOk;
+  const revision = etag(current);
+  lifecycleOk = invariant(current, `churn ${kind} read returns an ETag`, () => Boolean(revision)) && lifecycleOk;
+
+  let deleteRevision = revision || '*';
+  if (current.status === 200 && revision) {
+    const marker = `${manifest.prefix} churn update ${scheduleSeed} ${__VU}-${__ITER}`;
+    const body = mutableResponseBody(current);
+    body['schema:description'] = marker;
+    const updated = cedar(data, index, 'PUT', path, body, `churn ${kind} PUT`, { 'If-Match': revision });
+    lifecycleOk = accepted(updated, [200], `churn ${kind} conditional update succeeds`) && lifecycleOk;
+    if (updated.status === 200) {
+      deleteRevision = etag(updated) || '*';
+      lifecycleOk = invariant(updated, `churn ${kind} update advances exactly one revision`, result => {
+        const beforeRevision = revisionNumber(revision);
+        const afterRevision = revisionNumber(etag(result));
+        return beforeRevision !== null && afterRevision === beforeRevision + 1;
+      }) && lifecycleOk;
+      lifecycleOk = invariant(updated, `churn ${kind} update returns submitted state`,
+          result => result.json()?.['schema:description'] === marker) && lifecycleOk;
+    }
+  }
+
+  const deleted = cedar(data, index, 'DELETE', path, undefined, `churn ${kind} DELETE`,
+      { 'If-Match': deleteRevision });
+  lifecycleOk = accepted(deleted, [204], `churn ${kind} conditional delete succeeds`) && lifecycleOk;
+  const absent = cedar(data, index, 'GET', path, undefined, `churn ${kind} verification`, {}, resource, [404]);
+  lifecycleOk = accepted(absent, [404], `churn ${kind} deletion is durable`) && lifecycleOk;
+  if (lifecycleOk) churnCompleted.add(1, { kind });
+}
+
+function burstMetric(phase) {
+  if (phase === 'baseline') return { duration: burstBaselineDuration, completed: burstBaselineCompleted };
+  if (phase === 'peak') return { duration: burstPeakDuration, completed: burstPeakCompleted };
+  return { duration: burstRecoveryDuration, completed: burstRecoveryCompleted };
+}
+
+function burstPhase(data, phase) {
+  const index = (__VU - 1) % manifest.actors.length;
+  const actor = manifest.actors[index];
+  const artifacts = actor.burst?.artifacts;
+  if (!artifacts) fail(`burst fixture is incomplete for ${actor.username}`);
+  const kind = scheduledValue(artifactKinds, `${scheduleSeed}:kind`, index, __ITER);
+  const operation = scheduledValue(burstOperations, `${scheduleSeed}:operation`, index, __ITER);
+  const fixture = artifacts[kind];
+  const metrics = burstMetric(phase);
+  const getOperation = `burst ${phase} ${kind} GET`;
+  const current = cedar(data, index, 'GET', fixture.path, undefined, getOperation);
+  metrics.duration.add(current.timings.duration, { phase, kind, method: 'GET' });
+  let complete = accepted(current, [200], `${getOperation} succeeds`);
+
+  if (operation === 'update' && current.status === 200) {
+    const revision = etag(current);
+    complete = invariant(current, `${getOperation} returns an ETag`, () => Boolean(revision)) && complete;
+    if (revision) {
+      const marker = `${manifest.prefix} burst ${phase} ${kind} ${scheduleSeed} ${__VU}-${__ITER}`;
+      const body = mutableResponseBody(current);
+      body['schema:description'] = marker;
+      const putOperation = `burst ${phase} ${kind} PUT`;
+      const updated = cedar(data, index, 'PUT', fixture.path, body, putOperation, { 'If-Match': revision });
+      metrics.duration.add(updated.timings.duration, { phase, kind, method: 'PUT' });
+      complete = accepted(updated, [200], `${putOperation} succeeds`) && complete;
+      if (updated.status === 200) {
+        complete = invariant(updated, `${putOperation} advances exactly one revision`, result => {
+          const beforeRevision = revisionNumber(revision);
+          const afterRevision = revisionNumber(etag(result));
+          return beforeRevision !== null && afterRevision === beforeRevision + 1;
+        }) && complete;
+        complete = invariant(updated, `${putOperation} returns submitted state`,
+            result => result.json()?.['schema:description'] === marker) && complete;
+      }
+    }
+  }
+  if (complete) metrics.completed.add(1, { phase, kind, operation });
+}
+
+export function burstBaseline(data) { burstPhase(data, 'baseline'); }
+export function burstPeak(data) { burstPhase(data, 'peak'); }
+export function burstRecovery(data) { burstPhase(data, 'recovery'); }
 
 function requireSoakFixture(actor) {
   if (!actor.soak?.artifacts || !actor.soak.group || !actor.soak.category || !actor.soak.peer

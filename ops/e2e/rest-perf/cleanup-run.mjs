@@ -4,7 +4,8 @@
 import { existsSync } from 'node:fs';
 import { env } from 'node:process';
 import {
-  absolute, arg, assertSafeTargets, currentMutation, readJson, request, userToken, writeJson,
+  absolute, arg, assertSafeTargets, currentMutation, performanceResourceDescriptor, readJson,
+  request, userToken, writeJson,
 } from './lib.mjs';
 
 assertSafeTargets();
@@ -30,6 +31,51 @@ async function tokenFor(actorIndex) {
   const token = await userToken(actor.username, password);
   tokens.set(actorIndex, token);
   return token;
+}
+
+async function collectDescendants(token, folderId, output) {
+  const listing = await request(token, 'GET', `/folders/${encodeURIComponent(folderId)}/contents?limit=500`);
+  if (listing.status === 404) return;
+  if (listing.status !== 200) {
+    throw new Error(`list ${folderId}: ${listing.status} ${listing.text}`);
+  }
+  for (const entry of listing.body?.resources ?? []) {
+    const resource = performanceResourceDescriptor(entry);
+    if (resource.kind === 'folder') await collectDescendants(token, resource.id, output);
+    output.push(resource);
+  }
+}
+
+// Churn normally deletes each artifact in the same iteration that creates it. If k6 is interrupted
+// between those requests, the artifact cannot have been registered in the setup manifest. Discover
+// such descendants inside the unmistakably stamped run root and delete them before the known fixture
+// tree. Nothing outside that root is eligible for this recovery sweep.
+const knownIds = new Set(manifest.resources.map(resource => resource.id));
+let recoveredResidue = 0;
+for (let actorIndex = 0; actorIndex < manifest.actors.length; actorIndex++) {
+  const actor = manifest.actors[actorIndex];
+  if (!actor?.rootFolderId) continue;
+  const token = await tokenFor(actorIndex);
+  const descendants = [];
+  try {
+    await collectDescendants(token, actor.rootFolderId, descendants);
+  } catch (error) {
+    failures.push(`${actor.username}: dynamic-residue discovery: ${error.message}`);
+    continue;
+  }
+  for (const resource of descendants.filter(candidate => !knownIds.has(candidate.id))) {
+    try {
+      const deletion = await currentMutation(token, 'DELETE', resource.path);
+      if (![200, 204, 404].includes(deletion.status)) {
+        throw new Error(`DELETE ${deletion.status} ${deletion.text}`);
+      }
+      const after = await request(token, 'GET', resource.path);
+      if (after.status !== 404) throw new Error(`verification GET ${after.status}, expected 404`);
+      recoveredResidue++;
+    } catch (error) {
+      failures.push(`${resource.kind} ${resource.name}: interrupted-churn cleanup: ${error.message}`);
+    }
+  }
 }
 
 for (const resource of [...manifest.resources].reverse()) {
@@ -89,5 +135,6 @@ if (failures.length) {
   for (const failure of failures) console.error(`  ${failure}`);
   process.exitCode = 1;
 } else {
-  console.log(`Cleaned ${manifest.resources.length} resources from ${manifest.runId}`);
+  console.log(`Cleaned ${manifest.resources.length} manifest resources and ${recoveredResidue} `
+      + `interrupted-churn resources from ${manifest.runId}`);
 }

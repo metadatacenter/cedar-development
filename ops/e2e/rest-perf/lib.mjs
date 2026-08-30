@@ -31,6 +31,29 @@ export function intArg(name, fallback, { min = 1, max = Number.MAX_SAFE_INTEGER 
   return value;
 }
 
+export function durationSeconds(value) {
+  const match = String(value).match(/^(?:(\d+)m)?(?:(\d+)s)?$/);
+  if (!match) return null;
+  const seconds = Number(match[1] || 0) * 60 + Number(match[2] || 0);
+  return seconds > 0 ? seconds : null;
+}
+
+export function burstRecoveryAssessment(summary, recoveryPercent = 150, allowanceMs = 100) {
+  const baseline = summary?.metrics?.cedar_burst_baseline_duration?.values?.['p(95)'];
+  const recovery = summary?.metrics?.cedar_burst_recovery_duration?.values?.['p(95)'];
+  if (!Number.isFinite(baseline) || !Number.isFinite(recovery)) {
+    return { pass: false, baseline, recovery, limit: null, reason: 'baseline or recovery p95 is missing' };
+  }
+  const limit = Math.max(baseline * recoveryPercent / 100, baseline + allowanceMs);
+  return {
+    pass: recovery <= limit,
+    baseline,
+    recovery,
+    limit,
+    reason: recovery <= limit ? null : `recovery p95 ${recovery.toFixed(1)} ms exceeds ${limit.toFixed(1)} ms`,
+  };
+}
+
 export function runId() {
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   return `${stamp}-${Math.random().toString(16).slice(2, 8)}`;
@@ -48,6 +71,26 @@ export function runTimestampFromRootName(name) {
 
 export function enc(value) {
   return encodeURIComponent(value);
+}
+
+/** Convert a folder-contents entry into the exact resource-server CRUD path used for cleanup. */
+export function performanceResourceDescriptor(resource) {
+  const id = resource?.['@id'];
+  if (!id) throw new Error('folder contents returned a resource without @id');
+  const collection = {
+    folder: 'folders',
+    template: 'templates',
+    element: 'template-elements',
+    field: 'template-fields',
+    instance: 'template-instances',
+  }[resource.resourceType];
+  if (!collection) throw new Error(`refusing unexpected ${resource.resourceType} ${id} inside performance root`);
+  return {
+    kind: resource.resourceType,
+    id,
+    path: `/${collection}/${enc(id)}`,
+    name: resource['schema:name'] ?? resource.schema_name ?? '',
+  };
 }
 
 export function authHeader(token) {

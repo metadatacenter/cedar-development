@@ -1567,18 +1567,41 @@ command:
 npm run perf:rest:provision -- --count=50
 ```
 
-The four load profiles are:
+The seven load profiles are:
 
 | Command | Default shape | What it exercises |
 |---|---:|---|
 | `npm run perf:rest:quick` | 10 identities, ramp 1 → 5 → 10 → 0 in 4.5 minutes | Artifact reads, folder listings, search, conditional artifact updates, conditional moves, and OpenView toggles |
 | `npm run perf:rest:contention` | 20 identities, three complete matrix rounds | Twenty-way compare-and-swap races across artifact content, workspace graph state, ACLs, group records and membership, and categories; update/delete, repeated-delete and wildcard/delete cases use sacrificial fixtures |
 | `npm run perf:rest:hotset` | 20 identities and 20 VUs for 10 minutes | Sustained independent GET/conditional-mutation loops over a small shared set of templates, elements, fields, instances, folders, groups and categories; both conflicts and successful forward progress are required |
+| `npm run perf:rest:resilience` | 10 identities and 10 VUs for 90 seconds | Independent artifact reads and conditional updates while resource-server is stopped for five seconds and restarted; the run requires an observed outage and at least 20 successful responses after the recovery budget |
+| `npm run perf:rest:churn` | 10 identities, two complete lifecycles per second for 5 minutes | Low-rate POST → GET → conditional PUT → conditional DELETE → verified `404` turnover, distributed reproducibly across templates, elements, fields and instances |
+| `npm run perf:rest:burst` | 50 identities; 5/s baseline, 40/s burst, then 5/s recovery, 30 seconds each | Reproducible artifact reads and conditional updates across all four artifact kinds; requires no dropped arrivals and post-burst p95 to return near the measured pre-burst baseline; the full pool prevents a brief server stall from exhausting the load generator first |
 | `npm run perf:rest:soak` | 50 identities and 50 VUs for 30 minutes | A steady, non-destructive mix across template, element, field and instance reads and conditional updates; folder listing, search, moves and OpenView; artifact and folder ACLs; group records and membership; and category records and ACLs |
 
 `--users=N`, `--vus=N` and `--duration=10s` override those defaults. `--seed=NAME` makes the soak's
 per-user schedule reproducible; without it, the run ID is the seed. The contention profile also
 accepts `--rounds=N`; its `--duration` is a maximum rather than a steady-state duration.
+The resilience profile accepts `--fault-delay=N`, `--fault-downtime=N` and
+`--recovery-budget=N`, all in seconds. Its duration must leave at least ten seconds of traffic after
+the recovery budget. The package command deliberately supplies `--allow-service-restart=true`; a
+direct resilience invocation without that explicit opt-in is refused.
+
+The churn profile accepts `--churn-rate=N` (default 2 and capped at 20 complete artifact lifecycles
+per second). Its constant-arrival-rate executor fails the run if the selected VU ceiling cannot keep
+up rather than silently reducing the intended pressure. Each dynamic artifact is created inside the
+participant's stamped run root and deleted immediately. Teardown recursively inventories every run
+root before removing the setup manifest, deleting any dynamic artifact left by an interrupt between
+creation and deletion; it never searches or deletes outside those roots.
+
+The burst profile accepts `--baseline-rate=N`, `--burst-rate=N`, `--phase-duration=30s` and
+`--recovery-p95-percent=N`. The burst rate must exceed the baseline. Three non-overlapping
+constant-arrival-rate phases use the same operation mix, with a five-second graceful boundary between
+them. Besides the ordinary correctness and no-drop thresholds, the controller reads the completed
+summary and fails unless recovery p95 is at most the greater of the configured percentage of
+baseline (150% by default) or baseline plus 100 ms. That relative check distinguishes genuine
+post-load degradation from a universally slow or universally fast run.
+
 `--pool-size=N` can raise the
 ensured identity-pool floor above 50, while a larger `--users` value always expands the pool to fit.
 A VU count may not exceed the selected identities: independent writers must not accidentally contend
@@ -1610,13 +1633,28 @@ submitted state and advance exactly one revision; each loser must receive `412`.
 fewer than one percent of mutations conflict, because it did not create a hot set, or if at least 95
 percent conflict, because the test has stopped demonstrating useful forward progress. It creates no
 sacrificial delete fixtures and teardown removes the bounded shared set normally.
-The initial latency threshold is intentionally broad (`p95 < 3 s`); use repeated quiet-host runs to
-establish operation-specific baselines before tightening it.
+
+The resilience profile is local-only even when ordinary performance runs have been allowed to target
+a remote host. A sidecar waits until the declared fault time, stops only resource-server through
+`cedar-services.sh`, holds it down for the bounded interval, starts it through the same controller and
+waits for the admin health check. k6 accepts gateway failures only from one second before the fault
+until the recovery deadline. It requires at least one such response, rejects any that escape that
+window, and requires more than 20 successful responses after it. An interrupted sidecar restores
+resource-server before exiting; the wrapper waits for that restoration before fixture cleanup.
+Gateway failures impose 200–299 ms of deterministic per-VU backoff. Without it, a fast `502` path
+turns a small constant-VU test into an accidental retry storm precisely while the service is down.
+The aggregate latency guard remains broad (`p95 < 3 s`), but a fast route is not allowed to hide a
+slow one. Every route exercised by the selected profile has a p95 threshold: ordinary reads,
+preflights and verification requests are capped at 750 ms (2.5 s in the deliberately saturated
+contention matrix); mutations are capped at 1.5 s, with 2 s for the quick mix, 2.5 s for shared
+hot-set mutations and 5 s for the finite contention races. These are regression guardrails rather
+than capacity claims: they sit comfortably above repeated quiet-host measurements while still
+failing a several-fold route-specific slowdown.
 
 Every participant gets one stamped root holding source and destination folders plus four templates:
-read, mutable, movable and OpenView. A soak run adds independently writable element, field and
-instance fixtures plus a group and category for each participant; the mutable template and stamped
-root also serve as that participant's ACL fixtures. A contention run instead creates a separate shared fixture for
+read, mutable, movable and OpenView. Burst and soak runs add independently writable element, field
+and instance fixtures. A soak also adds a group and category for each participant; the mutable
+template and stamped root serve as that participant's ACL fixtures. A contention run instead creates a separate shared fixture for
 each revision domain: all four artifact-content routes, artifact and folder graph records, artifact
 and folder ACLs, a group record and membership roster, and a category record and ACL. Three bounded
 sacrificial pools cover update-versus-delete, repeated delete and wildcard deletion for templates,

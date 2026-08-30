@@ -223,15 +223,18 @@ const actors = await parallelLimit(selected, concurrency, async (record, index) 
   const mutable = await createArtifact(actor, root, 'Mutable');
   const movable = await createArtifact(actor, source, 'Movable');
   const publicToggle = await createArtifact(actor, root, 'OpenView');
-  let soakArtifacts;
+  let extendedArtifacts;
   let soakFolders;
-  if (profile === 'soak') {
-    const element = await createArtifact(actor, root, 'Soak element', 'element');
-    const field = await createArtifact(actor, root, 'Soak field', 'field');
-    const instance = await createArtifact(actor, root, 'Soak instance', 'instance', {
+  if (profile === 'soak' || profile === 'burst') {
+    const label = profile === 'soak' ? 'Soak' : 'Burst';
+    const element = await createArtifact(actor, root, `${label} element`, 'element');
+    const field = await createArtifact(actor, root, `${label} field`, 'field');
+    const instance = await createArtifact(actor, root, `${label} instance`, 'instance', {
       'schema:isBasedOn': mutable.id,
     });
-    soakArtifacts = { template: mutable, element, field, instance };
+    extendedArtifacts = { template: mutable, element, field, instance };
+  }
+  if (profile === 'soak') {
     const aclFolderId = await createFolder(actor, root, 'Soak ACL');
     const groupAccessFolderId = await createFolder(actor, root, 'Soak group access');
     soakFolders = {
@@ -255,14 +258,15 @@ const actors = await parallelLimit(selected, concurrency, async (record, index) 
     mutableTemplate: mutable,
     movableTemplate: movable,
     openViewTemplate: publicToggle,
-    ...(soakArtifacts ? {
+    ...(profile === 'soak' ? {
       soak: {
-        artifacts: soakArtifacts,
+        artifacts: extendedArtifacts,
         aclArtifact: mutable,
         aclFolder: soakFolders.acl,
         groupAccessFolder: soakFolders.groupAccess,
       },
     } : {}),
+    ...(profile === 'burst' ? { burst: { artifacts: extendedArtifacts } } : {}),
   };
   manifest.actors[index] = saved;
   writeJson(output, manifest);
