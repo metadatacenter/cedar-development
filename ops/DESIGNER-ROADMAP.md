@@ -53,10 +53,16 @@ served on the day it is read.
 
 Preview renders the template with CEE, the renderer that will show the form to
 whoever fills it in, rather than with a drawing of a form of the designer's own.
-It is a third sibling web component the host loads: read-only, and with no
-instance behind it, which is how CEE reads a template as a statement of what each
-field will accept. CEE takes one assignment to its template, so an edit replaces
-the element once typing stops.
+It is a third sibling web component the host loads: read-only, without CEE's own
+expand and collapse controls, and with no instance behind it, which is how CEE
+reads a template as a statement of what each field will accept. CEE takes one
+assignment to its template, so an edit replaces the element once typing stops.
+
+Nothing renders the artifact as code any more. Three surfaces did — a hand-drawn
+preview form, the JSON and YAML tabs above it, and two accordions under the
+fields — and an author designing a template is looking at the fields, with the
+form beside them. The File menu writes both serializations as files, and the
+element publishes the template to its host.
 
 It looks like CEDAR. The palette is the teal and rust the Workbench and CEE use,
 the type scale is stated in pixels because a rem would resolve against whatever
@@ -65,8 +71,8 @@ weights — registered from an unencapsulated component, because a shadow root
 ignores an `@font-face` declared inside it.
 
 The distribution is one script, its declaration and a staged npm package, held to
-a size ceiling and verified byte for byte. 220 unit tests, 5 packaging tests and
-41 browser tests run against it, the last of them driving the built bundle in a
+a size ceiling and verified byte for byte. 208 unit tests, 5 packaging tests and
+37 browser tests run against it, the last of them driving the built bundle in a
 hostile host page.
 
 ## The Authoring Surface
@@ -81,9 +87,15 @@ each offered only where the artifact can carry them.
 
 What the production designer's table has and CED's does not is
 `allowedInElement`, which waits on elements, `primaryField`, which decides what a
-search result shows for a template, `allowsValueRecommendation`, and
-`hasControlledTerms` — CED offers the controlled-term panel on the controlled-term
-type alone, where the production designer offers it on several.
+search result shows for a template, and `allowsValueRecommendation`.
+
+Its `hasControlledTerms` is a different shape of gap. Production marks it on one
+type, `textfield`, and treats controlled terms as something an author attaches to
+a text field. CED made Controlled Terms a palette entry of its own, and offers the
+constraint panel there and nowhere else. Both write `_ui.inputType: "textfield"`,
+so the artifact is the same either way and a constrained field survives a round
+trip — but an author who has already added a Text field cannot attach terms to it
+without changing its type first, which is a step production does not ask for.
 
 ### 2. Cardinality bounds
 
