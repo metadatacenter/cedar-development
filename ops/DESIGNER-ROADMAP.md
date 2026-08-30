@@ -99,13 +99,21 @@ What the production designer's table has and CED's does not is
 what a search result shows for a template. Its `allowsValueRecommendation` is not
 a gap: value recommendation is being retired, so CED should not grow it.
 
-Its `hasControlledTerms` is a different shape of gap. Production marks it on one
-type, `textfield`, and treats controlled terms as something an author attaches to
-a text field. CED made Controlled Terms a palette entry of its own, and offers the
-constraint panel there and nowhere else. Both write `_ui.inputType: "textfield"`,
-so the artifact is the same either way and a constrained field survives a round
-trip — but an author who has already added a Text field cannot attach terms to it
-without changing its type first, which is a step production does not ask for.
+Its `hasControlledTerms` is not a gap, and will not become one. Production marks
+it on one type, `textfield`, and treats controlled terms as something an author
+switches on for a text field. CED makes Controlled Terms a type of its own and
+offers the constraint panel there and nowhere else. That divergence is deliberate:
+the coupling in production is a design mistake, and a field whose values are IRIs
+drawn from a named vocabulary is not a text field with an attribute set. Both
+still write `_ui.inputType: "textfield"`, so the artifacts agree and a template
+crosses between the two designers either way.
+
+One consequence is open. A controlled-term field with no vocabulary chosen
+describes nothing, and cannot be written as itself: it goes out IRI-shaped with
+empty constraint lists and comes back a text field, so the field decays on an
+open-and-save. It is written as a text field today to stop the decay, which trades
+one surprise for a smaller one. Refusing to save an unfinished field, and saying
+which field is unfinished, is the better answer and belongs with validation.
 
 ### 2. Cardinality bounds
 
