@@ -95,8 +95,9 @@ type names, so Required, Allow multiple, Default Value and the options list are
 each offered only where the artifact can carry them.
 
 What the production designer's table has and CED's does not is
-`allowedInElement`, which waits on elements, `primaryField`, which decides what a
-search result shows for a template, and `allowsValueRecommendation`.
+`allowedInElement`, which waits on elements, and `primaryField`, which decides
+what a search result shows for a template. Its `allowsValueRecommendation` is not
+a gap: value recommendation is being retired, so CED should not grow it.
 
 Its `hasControlledTerms` is a different shape of gap. Production marks it on one
 type, `textfield`, and treats controlled terms as something an author attaches to
@@ -112,10 +113,10 @@ without changing its type first, which is a step production does not ask for.
 both; CED sets neither, so a field that should take between one and five values
 takes any number.
 
-### 3. Value recommendation, hidden fields, and continue-previous-line
+### 3. Hidden fields and continue-previous-line
 
-Three per-field settings the designer offers and CED does not. All three are
-deployment settings the model library already writes.
+Two per-field settings the designer offers and CED does not. Both are deployment
+settings the model library already writes.
 
 ### 4. Header, footer, and property labels
 
