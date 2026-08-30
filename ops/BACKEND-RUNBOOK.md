@@ -680,6 +680,19 @@ cd $CEDAR_HOME/cedar-development/ops/e2e
 npm run smoke:permission-outbox -- --manage-homebrew-redis
 ```
 
+The producer validates persisted outbox records before relay. A record missing its outbox id,
+resource id or event type, or naming an unknown event type, is relabelled
+`CedarSearchPermissionOutboxDeadLetter` with `deadLetterReason` and `deadLetteredAtTS`; it no longer
+blocks valid records behind it, but remains in Neo4j for inspection. A relay failure after the new
+event has been persisted is contained by the producer and retried in the background rather than
+turning the already-committed REST mutation into a `500`. Resource and group relay the same outbox;
+if one acknowledges and removes an event while the other is materializing it, the losing relay
+ignores Neo4j's null projection because the winning relay has already delivered that event. Their
+outbox scans and acknowledgements also take the same `CedarSearchPermissionOutboxRelayLock` mutex
+in Neo4j, protected by a unique lock-name constraint. This prevents one producer from deleting a
+node while the other is reading it; lock initialization occurs in the contained relay path, so an
+unavailable Neo4j instance does not turn application construction into a startup failure.
+
 Read what is parked before deciding anything. Each entry is the original JSON event, carrying the
 resource id, the event type and the time it was created:
 
