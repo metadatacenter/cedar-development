@@ -51,6 +51,13 @@ pinned reaches all four kinds of entry and survives both serializations, so a
 constraint names the release it meant rather than resolving against whatever is
 served on the day it is read.
 
+Preview renders the template with CEE, the renderer that will show the form to
+whoever fills it in, rather than with a drawing of a form of the designer's own.
+It is a third sibling web component the host loads: read-only, and with no
+instance behind it, which is how CEE reads a template as a statement of what each
+field will accept. CEE takes one assignment to its template, so an edit replaces
+the element once typing stops.
+
 It looks like CEDAR. The palette is the teal and rust the Workbench and CEE use,
 the type scale is stated in pixels because a rem would resolve against whatever
 root size the host page happens to set, and Roboto travels in the bundle at three
@@ -58,8 +65,8 @@ weights — registered from an unencapsulated component, because a shadow root
 ignores an `@font-face` declared inside it.
 
 The distribution is one script, its declaration and a staged npm package, held to
-a size ceiling and verified byte for byte. 214 unit tests, 5 packaging tests and
-38 browser tests run against it, the last of them driving the built bundle in a
+a size ceiling and verified byte for byte. 220 unit tests, 5 packaging tests and
+41 browser tests run against it, the last of them driving the built bundle in a
 hostile host page.
 
 ## The Authoring Surface
@@ -198,17 +205,11 @@ template that contains elements renders them rather than dropping them.
 
 ## Quality
 
-### 15. Preview a template as CEE renders it
-
-CED's preview panel is its own approximation of a form. CEE is the thing that
-actually renders CEDAR templates, and it is a web component, so the preview could
-be the real renderer rather than a second implementation of one that will drift.
-
-### 16. Keyboard and screen-reader access
+### 15. Keyboard and screen-reader access
 
 Untested and unclaimed. The picker has thought about this and CED has not.
 
-### 17. A corpus test
+### 16. A corpus test
 
 CEE checks itself against 37 real templates in both serializations. CED has no
 equivalent — nothing proves it can open the templates production already holds,

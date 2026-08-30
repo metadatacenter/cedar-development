@@ -128,20 +128,33 @@ and the panel says which key is missing, because an embedder should reach a CEDA
 service because it asked to rather than because a component it loaded had an
 address compiled into it.
 
-## Running It With the Term Picker
+## Running It With Its Siblings
 
-A field's constraint is chosen with
-[`<cedar-term-picker>`](VERSIONING-RUNBOOK.md), which the host loads alongside
-the designer. The two are sibling web components: neither bundles the other.
+Two of the designer's surfaces are other web components the host loads, and
+neither is bundled: a field's constraint is chosen with
+[`<cedar-term-picker>`](VERSIONING-RUNBOOK.md), and Preview renders the template
+with [`<cedar-embeddable-editor>`](CEE-RUNBOOK.md), the same renderer that will
+show the form to whoever fills it in.
 
 ```shell
 npm --prefix ../cedar-term-picker run dist
+npm --prefix ../cedar-embeddable-editor run dist
 npm run dist
 cp ../cedar-term-picker/dist-bundle/cedar-term-picker.js dist-bundle/
+cp ../cedar-embeddable-editor/dist-npm/cedar-embeddable-editor/cedar-embeddable-editor.js dist-bundle/
 ```
 
-Serve `dist-bundle/` and load a page that pulls in both scripts. Without the
-picker the constraint panel says so and its fields are filled by hand.
+Serve `dist-bundle/` and load a page that pulls in all three scripts. Each
+absence is reported where it would have been used: without the picker the
+constraint panel says so and its fields are filled by hand, and without CEE the
+preview panel says so.
+
+The preview asks CEE for a read-only form with no instance behind it, which CEE
+renders as a statement of what each field will accept rather than as an empty
+form. CEE takes one assignment to its template and reports and ignores a second,
+so the designer replaces the element when the template settles rather than
+reassigning it; a burst of typing therefore costs one rebuild, not one per
+keystroke.
 
 **The picker needs a local terminology server.** It reads the version-aware
 `/search`, which production does not serve — `POST
