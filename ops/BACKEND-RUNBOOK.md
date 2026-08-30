@@ -1352,11 +1352,15 @@ wire compatibility and does not bypass validation or storage checks. If a privil
 needed again, introduce a separately authorized internal operation rather than reviving the public
 query switch.
 
-Artifact-server health contains both `message` and `mongo`. `/healthcheck` must be non-green when the
-Mongo ping fails; a passing placeholder check alone is not sufficient evidence that artifact traffic
-will work. Insight endpoints are operationally sensitive: `/insight/thread-details` exposes stack and
-thread state and, like every other insight route, requires an authenticated user with the
-`monitorManager` role (`MONITOR_READ`).
+Every server that opens the document store reports on it. `initMongoServices` builds the probe and
+the shared bootstrap registers it, so artifact, repo, openview and monitor each carry a `mongo`
+check beside the placeholder `message` one, and `/healthcheck` is non-green on any of them when the
+Mongo ping fails. Registering it where the store is opened is what makes that true of all four:
+while each server registered its own, only the artifact server ever did, and the other three
+answered green while every artifact read through them failed. A passing placeholder check alone is
+not sufficient evidence that artifact traffic will work. Insight endpoints are operationally
+sensitive: `/insight/thread-details` exposes stack and thread state and, like every other insight
+route, requires an authenticated user with the `monitorManager` role (`MONITOR_READ`).
 
 Worker health is dependency- and work-aware. Its admin `/healthcheck` includes named `redis`,
 `opensearch`, `neo4j` and `queue-consumers` checks in addition to Dropwizard's generic checks. The
