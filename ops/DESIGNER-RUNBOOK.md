@@ -65,9 +65,12 @@ would suddenly be sharing one.
 | Command | What it covers |
 |---|---|
 | `npm test` | unit tests, through the Angular CLI's Vitest builder |
+| `npm run test:boundaries` | two properties of the source no type can express |
 | `npm run test:packaging` | the publish-channel rule, under `node --test` |
 | `npm run test:browser` | builds the distribution, then drives it in a real browser |
-| `npm run test:browser:prebuilt` | the browser suite against whatever is already built |
+| `npm run test:browser:prebuilt` | the browser suite, refusing a bundle that is not the code |
+| `npm run test:browser:flake-hunt` | that suite twenty times over, or `RUNS=n` |
+| `npm run check:readme` | the README's examples, against the package that ships |
 | `npm run test:ci` | the gate, cheapest check first |
 | `npm run audit:prod` | advisories against what an embedder downloads |
 
@@ -82,9 +85,23 @@ be as intrusive as possible, and it is hermetic: no test reaches a terminology
 server, and the one covering `<cedar-term-picker>` registers a stub element in
 the page.
 
-**Rebuild before running it prebuilt.** `test:browser:prebuilt` serves
-`dist-bundle/`, so a source change that has not been through `npm run dist` is
-not the thing under test. `npm run test:browser` does both.
+`test:browser:prebuilt` serves `dist-bundle/`, so a source change that has not
+been through `npm run dist` is not the thing under test. That used to be a
+sentence here and nothing more; `check:fresh` now refuses the run, comparing the
+bundle against the build beside it by timestamp, by the files it was made from,
+and by hash. A checkout that never built is not what it refuses — testing a
+distribution someone handed you is legitimate — only a bundle a build contradicts.
+
+The two source properties are the ones a compiler cannot state: `ced-public-api.ts`
+must stay import-free, or the declaration the package ships names paths that are
+not in it, and the CEDAR model library must be reached through
+`core/model/cedar-template.ts` alone, which is what keeps its vocabulary out of the
+components. Neither breaks a build when it goes.
+
+`check:readme` compiles the README's TypeScript examples against the staged
+declaration, and checks that every `npm run` a reader is told to type is a script
+this project has. The second half exists because documentation here has named a
+command that did not exist.
 
 ## Packaging and Release
 
