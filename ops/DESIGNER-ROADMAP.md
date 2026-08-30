@@ -55,8 +55,17 @@ Preview renders the template with CEE, the renderer that will show the form to
 whoever fills it in, rather than with a drawing of a form of the designer's own.
 It is a third sibling web component the host loads: read-only, without CEE's own
 expand and collapse controls, and with no instance behind it, which is how CEE
-reads a template as a statement of what each field will accept. CEE takes one
-assignment to its template, so an edit replaces the element once typing stops.
+reads a template as a statement of what each field will accept. It is live — one
+editor, handed each new template as the template settles. CEE fixed a template per
+element until this preview asked otherwise, and replacing the element per edit
+cost about a second of Angular bootstrapping whatever the size of the template,
+against about twenty milliseconds to reassign, and took the reader's place in a
+long form with it.
+
+The designer keeps to the box its host gives it, so the fields and the preview
+scroll on their own and the preview stays beside the field being edited. It used
+to measure the viewport and grow from there, which made a forty-field template
+eleven thousand pixels tall and scrolled the embedding page.
 
 Nothing renders the artifact as code any more. Three surfaces did — a hand-drawn
 preview form, the JSON and YAML tabs above it, and two accordions under the
@@ -72,7 +81,7 @@ ignores an `@font-face` declared inside it.
 
 The distribution is one script, its declaration and a staged npm package, held to
 a size ceiling and verified byte for byte. 208 unit tests, 5 packaging tests and
-37 browser tests run against it, the last of them driving the built bundle in a
+39 browser tests run against it, the last of them driving the built bundle in a
 hostile host page.
 
 ## The Authoring Surface
