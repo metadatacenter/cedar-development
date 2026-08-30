@@ -46,45 +46,7 @@ lifetime.
 
 ### Features
 
-- **1. A published artifact can be deleted, contradicting the docs.** The docs say a published
-  artifact is permanent, but `DELETE` on one succeeds. The guard in
-  `AbstractResourceServerResource.executeArtifactDelete` was briefly re-enabled and then **reverted by
-  deliberate decision**: blocking deletion strands published artifacts and the folders holding them with
-  no ordinary cleanup path, and commit `3f26ee7` (2021, "Allow users to delete published resources") had
-  disabled the guard on purpose. So deletability stays for now; the discrepancy with the documentation
-  is the open question. Deciding it means choosing between amending the docs (published is deletable) or
-  re-enabling the guard together with a supported cleanup path (e.g. an admin-only delete, or cascading
-  through folder deletion). Immutability of published content is a separate guarantee and is
-  unaffected either way — that one is enforced.
-
-- **2. Finish the DataCite DOI minting lifecycle.** The access and validity gates landed on 2026-08-27
-  (`a7dddca`, `e775d6d`). `validateSourceArtifactForDoi` now runs on the mutation endpoint as well as
-  the preparatory GET, so a direct POST can no longer bypass write access, the open requirement, or a
-  template's published requirement. The endpoint refuses any state other than `draft` or `publish`,
-  and refuses an instance the CEDAR validator rejects instead of computing that result and discarding
-  it. The DataCite and validation calls moved behind an injectable `DataCiteHttpClient` with
-  configured timeouts, so transport failures map to `502` rather than surfacing as a `RuntimeException`
-  or a misleading `400`. The DOI-annotation write-back response is read: when it is rejected or fails
-  in transport, the response is a `502` carrying the minted DOI, the source artifact id and
-  `reconciliationRequired`, which distinguishes a DataCite failure from a local persistence failure.
-  `DataCiteResourceAuthorizationTest`, `DataCitePublicationWorkflowTest` and `DataCiteHttpClientTest`
-  pin that behaviour offline against a fake DataCite boundary, and the live tests stay behind the
-  `datacite` tag.
-
-  The durable lifecycle remains open, and it is what makes the operation recovery-safe. Minting still
-  persists no state of its own: draft/reserved, published and locally attached are recorded nowhere,
-  so the `reconciliationRequired` response names a condition no code resolves, and a retry after a
-  timeout cannot tell whether the earlier attempt already minted a DOI. Define those states, retain
-  the DataCite identifier before the fallible write-back, and make a retry resume or reconcile the
-  same DOI rather than orphan or duplicate one. Tighten how an existing draft is associated with its
-  source artifact: the lookup still matches DataCite records on the OpenView URL. Orchestration also
-  still sits in `DataCiteResource` — only the HTTP client came out — so configuration and error
-  mapping are not yet centralized. The offline suite still lacks create-versus-update, retry after
-  timeout, and repeated publish, each of which needs the durable states before it can be written. Keep
-  normal tests offline; add only an opt-in DataCite sandbox smoke test for the final wire contract and
-  credential/configuration check.
-
-- **3. Settle the sharing and permission model, then write it down.** This is the umbrella item: the
+- **1. Settle the sharing and permission model, then write it down.** This is the umbrella item: the
   pieces below are each small, and separately each looks like a quirk, but together they say the model
   was never specified in one place, so every surface decided for itself. Controlled sharing is what
   CEDAR is for, which makes this the part most worth being deliberate about. All of it is now pinned by
@@ -182,215 +144,9 @@ lifetime.
   `GroupMembershipAuthorizationMatrixTest`, `GroupSharingRevocationIntegrationTest`,
   `ArtifactLifecycleMatrixTest` and `ops/e2e/rest/suites/categories.mjs`.
 
-- **4. Decide whether the artifact server is allowed to have no authorization of its own.** The
-  workspace model in the item above lives in Neo4j and is enforced by the resource server. The
-  artifact server, which holds the artifacts themselves in Mongo, consults none of it. Every path in
-  `AbstractArtifactCrudResource` — create, find, find-all, update, delete — asks the same two
-  questions and no others: is the caller logged in, and does the caller hold the matching global
-  permission. Those permissions come from `templateCreator`, which the `normal` blueprint grants to
-  everyone, and no resource id appears in any assertion. The server then reads or writes Mongo by id.
-
-  So an ordinary account reaching that server directly can read, list, change or delete any artifact
-  in the installation. Measured on 2026-08-13 against the dev stack, as user 2 with a plain password
-  grant: `GET /templates/{id}` for an artifact owned by user 1 answers **403 through the resource
-  server and 200 through the artifact server**, and `GET /templates` returns every template in the
-  datastore. Nothing in the code distinguishes the two callers; only which door they used.
-
-  This is a deliberate architecture rather than a missing check — the artifact server has no ACL data
-  to consult — and the defence is topological: the deployment is supposed to make the server
-  unreachable except from inside. That holds unevenly. The container stack does not publish 9001 at
-  all, so it is closed there. The production nginx blocks the artifact vhost, with a comment saying
-  external callers must go through the resource server. The dev host does neither: nginx proxies
-  `artifact.metadatacenter.orgx` straight to `127.0.0.1:9001` over public HTTPS, and the process
-  binds every interface, so the port answers on the LAN as well.
-
-  The decision to make is which of these the model actually is, because they lead to different work:
-
-  - **Topology is the boundary, and the estate must match it.** Cheapest, and it accepts that the
-    datastore API is trusted-network-only forever. Then the dev nginx should block the vhost as
-    production does, the application connectors of services that only ever serve other CEDAR services
-    should stop binding every interface, and both belong in the runbook as a property of the
-    deployment rather than something each environment rediscovers.
-  - **The artifact server authorizes for itself.** It either consults the workspace graph — which
-    couples it to Neo4j and costs a lookup per request — or it accepts a signed assertion minted by
-    the resource server, which keeps the datastore ignorant of the ACL but introduces a trust
-    relationship and a key to manage. Either is a design change, not a patch.
-  - **Nothing but the resource server may hold a token this server accepts.** A service credential
-    rather than a user one, so an ordinary account cannot address it whatever the network allows.
-
-  Worth settling alongside the item above rather than after it: that one asks what the permission
-  levels mean, and this one asks which services are entitled to ignore them. A model that is
-  specified but only enforced at one of two doors is not yet specified.
-
-- **5. Decide the contract for `title`/`internalName` across the YAML and JSON serializations.** A CEDAR
-  artifact carries two names. The JSON has a JSON-Schema `title` (and `description`) alongside
-  `schema:name` (and `schema:description`); the YAML has only `name` (and `description`). In the model
-  the two are independent — the artifact library calls the JSON-Schema one `internalName` — but the
-  YAML has nowhere to put it, so the pair collapses to one name on the way out and must be reconstructed
-  on the way back. The convention is that `title` is `"<name> <type> schema"`, derivable from the name,
-  and both libraries now rebuild it that way when reading YAML (fixed in `cedar-model-typescript-library`;
-  the Java `YamlArtifactReader` composes the identical strings). That keeps a YAML-sourced artifact
-  valid — the meta-schema requires a non-empty `title` — but it is a **lossy, normalizing** round-trip,
-  and that is the thing to decide on rather than leave implicit:
-
-  - Any artifact whose `title` does *not* follow the derived convention (an author set it independently
-    of `schema:name`) loses that title through YAML; it comes back as `"<name> <type> schema"`.
-  - `description` carries generator provenance in practice — `"… generated by the CEDAR Template Editor
-    2.6.19"` — which the YAML does not store; the reconstruction substitutes a fixed `"… generated by the
-    CEDAR Artifact Library"`, so a JSON → YAML → JSON trip rewrites provenance.
-
-  So either `title`/`description` are accepted as *derived* fields that are not authored independently of
-  the name (in which case the model could stop storing them separately and always compose them, and this
-  should be documented as the contract), or they are first-class and the YAML serialization needs a place
-  to carry them. The equivalence is pinned generatively in
-  `cedar-embeddable-editor/harness/test/format-independence-generative.spec.ts` and the derivation in the
-  library's `YamlTitleDerivation` / `YamlJsonConstraintParity` specs; this item is the design decision
-  those tests currently encode by default.
-
-- **6. Decide what a count of zero means, and how "unknown" is written.** Three keys use zero as a
-  sentinel where the schema gives zero a quantity, and the answer to any one of them is the answer to
-  all three.
-
-  **`maxItems: 0`, meaning unbounded.** The Template Designer emits it for an unbounded multi-instance
-  field: its cardinality selector labels the zero "unlimited" (`cardinality-selector.directive.js`,
-  `zeros = {'min': 'none', 'max': 'unlimited'}`), `defaultMinMax` in
-  `cedar-template-element.directive.js` sets it on every new multi-instance element, and the runtime
-  directives guard with `!maxItems || model.length < maxItems`, so zero is falsy and imposes no
-  ceiling. Omitting the key would say the same thing better: an absent `maxItems` already means
-  unbounded to every consumer, and it is what JSON Schema means, where `maxItems: 0` constrains an
-  array to be *empty* — the exact opposite. The current encoding does not merely duplicate the default,
-  it inverts the standard reading, so any tool validating a CEDAR template as ordinary JSON Schema
-  draws the wrong conclusion. `cedar-artifact-library` rejected `maxItems < 1` outright until
-  `ValidationHelper.UNBOUNDED_MAX_ITEMS` was introduced; it now accepts zero and skips the
-  `minItems <= maxItems` check when the maximum is unbounded. That is tolerance of the convention
-  rather than endorsement, and whichever way this is decided the library has to keep reading zero,
-  because templates already stored carry it.
-
-  **A value set's `numTerms: 0`, meaning nobody knew.** Every party to that fact allows absence — the
-  Java record holds `Optional<Integer>`, the TypeScript model class `number | null`, the JSON omits
-  the key — and the TypeScript value-set builder now takes `number | null` too, where it once
-  defaulted to zero. What the builder no longer forces, stored data still carries: `template-023` bound
-  a field to the CADSR-VS *Progressive Disease* value set and recorded `numTerms: 0` for it, a set with
-  terms in it whose count nobody had. Both libraries write such a zero through faithfully as
-  `termCount: 0`, so a reader cannot tell an empty value set from an unmeasured one.
-
-  **An ontology's `numTerms: 0`, which blocks saving outright.** Adding GAZ to a field as an
-  *entire-ontology* constraint makes the template fail validation on save (`POST /templates` → 400);
-  a branch or specific-class constraint on the same ontology does not. GAZ's count comes back `n/a`
-  from the terminology layer — the picker shows "Number Terms: n/a" — the editor serialises the
-  constraint with zero, and the meta-schema requires
-  `_valueConstraints.ontologies[].numTerms` to be an integer with `minimum: 1`. The JSON-Schema
-  `oneOf` over field kinds then turns that one failure into a cascade of unrelated-looking errors in
-  the validation report. Worth noting alongside it: the interactive `POST /command/validate` returned
-  200 while the create 400'd, so the editor's live check does not exercise the same constraint.
-
-  Three fixes are possible and only one is the frontend's: (a) have the terminology layer return a
-  real `numTerms` for GAZ, which is the anomaly given an `iri-field` `numTerms` already allows
-  `minimum: 0` elsewhere; (b) stop the editor emitting `numTerms: 0` when the count is unknown; or
-  (c) relax the `ontologies` `numTerms` minimum to `0`.
-
-  Two pieces of work follow the decision. The **frontend** stops writing zero where it means something
-  else, in `cedar-template-editor` and in the `cedar-template-designer` extraction of it; the decision
-  is tracked here rather than with them because it binds the meta-schema and both model libraries. And the **stored artifacts** already carrying a zero have
-  to be patched — two preprod captures in the corpus still show one, beside corrected copies naming
-  real counts. The production-audit and patch procedure is documented in
-  [BACKEND-RUNBOOK.md](./BACKEND-RUNBOOK.md), "Patching stored artifacts".
-
-  Related, and cheap to settle alongside: single-instance fields can carry stray cardinality keys. In
-  one working template `publication_doi` is `"type": "object"` yet has `minItems: 0, maxItems: 0`. The
-  reader drops both, taking cardinality only from a `{type: array, items: {…}}` envelope. Establish
-  whether the frontend writes those or whether they are residue from a field that was once
-  multi-instance.
-
-- **7. Switch the extracted Workspace and Template Designer over in staging, then production.**
-  Local coexistence is complete: the monolith remains on `cedar.metadatacenter.orgx`, Workspace and
-  Designer run on their own trusted HTTPS origins, Keycloak SSO spans them, the provenance gate
-  passes, and the complete Workspace → Designer → CEE → OpenView authenticated journey passes
-  against the same backend data. That proves the separation mechanics; it does not authorize an
-  environment cutover.
-
-  **Staging is the acceptance environment. Complete every infrastructure gate before changing a
-  canonical route:**
-
-  1. **Names and DNS:** ratify the exact Workspace and Designer HTTPS hostnames; create their DNS
-     records to the staging ingress; preserve the staging monolith name; and record the intended
-     canonical and compatibility routes. The two new payloads must also be reachable for direct
-     pre-cutover health checks.
-  2. **TLS certificates:** issue certificates from the environment's approved CA with the exact
-     Workspace and Designer DNS names in the SAN extension. Install the full chain and private key on
-     every terminating ingress, keep keys out of Git, and verify file ownership, SNI selection, SANs,
-     chain trust, expiry, and HTTPS redirects. Add both certificates to the ordinary renewal and
-     expiry-monitoring process; do not replace or stop renewing the monolith certificate.
-  3. **Nginx and frontend configuration:** staging has no Docker prerequisite. Add independent
-     virtual hosts whose roots are the native `cedar-workspace/app` and
-     `cedar-template-designer/app` trees, matching the existing monolith pattern; validate the
-     complete config with `nginx -t`; configure
-     SPA fallback, no-store for entry/config/build-info responses, immutable caching only for
-     content-addressed assets, and the temporary 302/307 legacy-route redirects. Supply absolute
-     `workspaceFrontend`, `templateDesignerFrontend`, OpenView, monitoring, Keycloak, and REST URLs for
-     staging—no localhost or production fallback is acceptable.
-  4. **Keycloak:** add each exact HTTPS callback (`https://<host>/*`) and exact Web Origin
-     (`https://<host>`, with no path) to the selected staging public client. Preserve the monolith
-     entries during coexistence. Decide and document whether staging and production will continue with
-     one migration client or use a client per frontend, then verify login, logout, SSO, cold deep links,
-     and expired-session recovery from both new origins.
-  5. **Backend CORS:** inventory every staging browser origin still in use, including the monolith and
-     OpenView, and set the exact comma-separated `CEDAR_CORS_ALLOWED_ORIGINS` on every REST service that
-     installs the shared CORS filter. Rebuild and rolling-redeploy those services, then require positive
-     credentialed preflights from every approved origin and rejection of a deliberately unlisted origin.
-  6. **Payload and CEE identity:** explicitly publish the two npm packages to Nexus with
-     `cedarcli publish split-frontends`, check out the approved Git commits on staging, and generate
-     clean native static trees with `cedarcli build split-frontends --server-payload`. Deploy those
-     provenance-stamped Workspace and Designer payloads beside the monolith.
-     `propagate-cee-release.mjs --check <CEE_VERSION>` must pass all seven consumer
-     manifests; the Workspace-served CEE sha256 must equal the published package artifact—not merely
-     report the same version label. Record npm versions and integrity, source commits, served-tree
-     hashes, CEE hash,
-     runtime configuration, Keycloak client export, CORS list, certificate fingerprints and expiries,
-     and the nginx include checksum.
-  7. **Acceptance and rollback:** run cold and expired sessions; exact Designer and CEE `returnTo`;
-     folders, search, sharing and permissions with two users; create/edit/save/delete for templates,
-     fields and instances; live terminology; JSON/YAML and OpenView; old bookmarks; CORS controls;
-     cache headers; and CDN behavior. Rehearse the complete nginx route-table swap and one-step monolith
-     restoration without rebuilding or stopping any payload. A rollback must also leave the previous
-     monolith certificate, Keycloak entries, CORS origin, and static payload valid.
-
-  **Production repeats the accepted operation rather than inventing a new one. Complete these gates:**
-
-  1. Create the final DNS records and lower any affected canonical-name TTL far enough ahead of the
-     window to make rollback timely. Issue, install, verify, monitor, and test-renew the final Workspace
-     and Designer certificates before exposing the new routes. Keep every certificate required by the
-     monolith and compatibility hostnames valid throughout the rollback soak.
-  2. Add the exact production Keycloak callbacks and Web Origins without removing the monolith entries.
-     Activate the exact production CORS inventory through a rolling backend deployment, retaining each
-     old origin for as long as users or rollback can reach it. Pass login/SSO and positive/negative CORS
-     checks before the route switch.
-  3. Check out the exact Workspace and Designer release commits accepted in staging and regenerate
-     their native server payloads alongside the still-served monolith. Verify them through their final
-     SNI hostnames or a controlled host-header probe, and reject any changed npm version/integrity,
-     source SHA, served-tree hash, CEE hash, or runtime endpoint. Do not introduce Docker as a cutover
-     dependency.
-  4. Save the active nginx include and its checksum, install and validate the complete split include,
-     then switch only that route table. Use temporary 302/307 compatibility redirects, purge affected
-     entry/config/redirect objects from every cache/CDN layer, and run the public authenticated journey,
-     old-bookmark checks, direct health probes, and build-identity checks.
-  5. Roll back immediately by restoring the saved monolith include on any authentication,
-     create/open/save, permission, exact-return, TLS, CORS, or material parity failure. The rollback must
-     not require DNS propagation, certificate issuance, a frontend rebuild, a Keycloak edit, or a backend
-     redeploy. Keep the monolith process or static payload, bundle, configuration, certificate,
-     Keycloak entries, CORS origin, and CEE pin deployable for the agreed soak.
-  6. Only after the soak closes and fix-forward ledgers are reconciled may operations raise DNS TTLs,
-     remove obsolete monolith callbacks or CORS origins, stop renewing unused certificates, remove
-     compatibility redirects, or retire the monolith payload. Capture each removal as a separate,
-     reversible cleanup change.
-
-  This item is complete only when staging acceptance and rollback evidence are signed off, production
-  has passed the same gates, the soak closes without a rollback trigger, and the ordinary deployment
-  and CEE release procedures build Workspace as a first-class target rather than a migration exception.
-
 ### Infrastructure
 
-- **8. Upgrade the persistence and infrastructure servers.** These versions are pinned in the Docker
+- **2. Upgrade the persistence and infrastructure servers.** These versions are pinned in the Docker
   build manifest, while the client libraries have moved on. The
   [Docker roadmap](./DOCKER-ROADMAP.md) owns the shared build and deployment lock; this item owns the
   remaining server upgrades. Order them by risk, lowest first:
@@ -458,18 +214,38 @@ lifetime.
   rehearsed on a copy of production data and gated on the end-to-end smoke. Where the order above and
   the Docker roadmap disagree, the Docker roadmap governs, since it sequences the remaining work.
 
-- **9. Decide whether the schema server should exist.** Its entire HTTP surface is an index page, but
-  it still inherits the full microservice bootstrap: a Neo4j user service, Keycloak token
-  verification, and the persistent Redis application-log queue. That costs an application process,
-  an image, a CI build, a deployment and infrastructure connections in every environment without
-  serving a schema API.
+- **3. Decide whether four narrowly used servers should be retired.** Treat each as an explicit
+  product and operations decision: confirm its real callers and production state, preserve or move any
+  capability that remains required, then either retain it with a stated role or remove it completely.
 
-  Either retire the service and remove it from the native and Docker estates, or record the role it
-  is reserved for and give it a deliberately minimal bootstrap that does not initialize dependencies
-  its index page never uses. Whichever route is chosen must update the service inventory, health and
-  smoke expectations, build train, Compose projects and deployment documentation together.
+  **Schema server.** Its entire HTTP surface is an index page, but it still inherits the full
+  microservice bootstrap: a Neo4j user service, Keycloak token verification, and the persistent Redis
+  application-log queue. Either retire it or record the role it is reserved for and give it a
+  deliberately minimal bootstrap that does not initialize dependencies its index page never uses.
 
-- **10. Move the build and runtime to Java 21.** The stack is locked to Java 17 — the zsh profile pins it
+  **Impex server.** Its public work is the caDSR form-import command and status endpoint. Determine
+  whether any current workflow still imports those forms, whether unfinished import state has value,
+  and whether a retained one-off importer belongs in an application server; otherwise retire the
+  service rather than carrying a permanent deployment for a historical migration path.
+
+  **Value Recommender server.** It serves recommendation and rule-generation/status commands and
+  consumes the persistent value-recommender queue. Establish whether the Workbench or any external
+  client still uses recommendations, then either retain and own that product surface, move the needed
+  function to an active service, or retire it after draining or deliberately discarding its queue and
+  removing its producers.
+
+  **Submission server.** It contains the NCBI, CAIRR, ImmPort, LINCS and AMIA/BioSample submission
+  paths and consumes the persistent NCBI submission queue. Inventory actual production submissions,
+  credentials, pending/dead-letter work and external commitments; preserve any live adapter elsewhere
+  before retiring the collection of legacy integrations.
+
+  Any retirement must remove the service from the native and Docker estates, nginx and DNS routing,
+  configuration, credentials, queues and producers, service inventory, health and smoke expectations,
+  build train, CI, Compose projects, deployment procedures and documentation. A retained service needs
+  the opposite evidence: a named owner, current caller, supported contract and meaningful health and
+  integration coverage.
+
+- **4. Move the build and runtime to Java 21.** The stack is locked to Java 17 — the zsh profile pins it
   and the build enforces it. 21 is the next LTS and the natural target, but the lock exists for a
   reason: newer JDKs (23/25) crash Keycloak (`getSubject … security manager`) and OpenSearch will not
   start under them. So this is not a blind bump — verify Keycloak and OpenSearch run on 21 first, then
@@ -498,8 +274,25 @@ lifetime.
   problem — every Java repository now carries a wrapper at 3.9.14 and CI invokes `./mvnw` — except
   inside the build images, which still `microdnf -y install maven` unversioned.
 
-- **11. Prove secure Keycloak TLS in every deployed environment.** This was a code vulnerability, not
-  merely a future truststore configuration task: the bearer-token client disabled certificate and
+- **5. Complete the remaining backend trust-boundary, transport and credential security work.**
+
+  **Artifact-server trust boundary.** The workspace authorization model lives in Neo4j and is enforced
+  by the resource server, while the Mongo-backed artifact server checks only authentication and a
+  global permission granted to ordinary template creators. An ordinary account that can reach it
+  directly can therefore read, list, change or delete artifacts it cannot access through the resource
+  server: measured on 2026-08-13, a second user received `403` for another user's template through the
+  resource server and `200` through the artifact server.
+
+  Decide which security boundary CEDAR supports. If topology is the boundary, block the artifact vhost
+  in every environment and bind internal-only services accordingly; production and the container stack
+  already do this, while native development currently exposes the vhost and port. Alternatively, make
+  the artifact server authorize against the workspace graph or a signed resource-server assertion, or
+  accept only a service credential unavailable to ordinary users. Record and test the chosen trust
+  boundary alongside the permission model rather than leaving the two service doors with different
+  effective authorization.
+
+  **Keycloak TLS.** This was a code vulnerability, not merely a future truststore configuration task:
+  the bearer-token client disabled certificate and
   hostname checks while fetching signing keys, and the admin client sent the CEDAR administrator
   password through a trust-all manager. Both clients now default to JVM certificate and hostname
   verification, with only an explicit native-development flag able to restore the bypass. The
@@ -508,7 +301,7 @@ lifetime.
   JWKS-backed token verification and a read-only admin operation. Never solve a failed trust check by
   enabling the development flag.
 
-- **12. Rotate the Keycloak providers in every realm the leaked seed reached.** The 2023-07-05
+  **Keycloak provider rotation.** The 2023-07-05
   development realm export carried its RSA token-signing key, HS256 secret and AES secret, and both
   committed copies sat in public repositories, so those providers must be treated as publicly known.
   Stripping the seed (done, with guard tests and a CI workflow in both repositories) protects only
@@ -521,7 +314,7 @@ lifetime.
   realm's providers postdate 2026-08-26 and the production deployment runbook's pre-flight carries
   the check.
 
-- **13. Stop using the hardcoded BioPortal key.** `Constants.BP_PUBLIC_API_KEY` in
+  **BioPortal service credential.** `Constants.BP_PUBLIC_API_KEY` in
   `cedar-terminology-server` holds a literal BioPortal key, and `Cache` sends it on the four calls
   that populate the ontology and value-set caches (`findOntology` twice, `findAllOntologies`,
   `findAllValueSets`). Those are the server's own calls rather than calls made for a signed-in user,
@@ -548,7 +341,7 @@ lifetime.
   ("DOID (DOID)" instead of "Human Disease Ontology (DOID)") behind a green health check. What remains
   here is the code-owned cause: read `CEDAR_BIOPORTAL_API_KEY` from config and delete the constant.
 
-- **14. Separate CEDAR dependency convergence from the Keycloak provider platform lock.** The eleven
+- **6. Separate CEDAR dependency convergence from the Keycloak provider platform lock.** The eleven
   apparent test-classpath splits are not eleven candidates for one global version. Re-measuring all
   thirty Maven roots divides them into three different problems, and blindly managing the newer side
   in `cedar-parent` would make the Keycloak event listener compile against libraries its server does
@@ -595,7 +388,7 @@ lifetime.
   prove that Keycloak loads the packaged provider or that a deployed admin operation reaches the
   configured realm.
 
-- **15. Retire routine `CEDAR_VERSION_MODIFIER` cache busting.** Frontend code identity now comes
+- **7. Retire routine `CEDAR_VERSION_MODIFIER` cache busting.** Frontend code identity now comes
   from the source commit in the three AngularJS RequireJS keys and from content-hashed production
   bundles in the modern Angular applications. A deployment should not need a hand-edited modifier
   merely to make a new code revision visible. Keep the variable temporarily as a compatibility
@@ -624,8 +417,10 @@ lifetime.
 
 ## Production data
 
-- **16. Repair the production schema artifacts that can reject correctly shaped CEE instances.** The
-  permission-scoped production audit found 76 inherently-multiple fields deployed as JSON objects in
+- **8. Normalize production artifacts to one explicit model contract.** Production contains several
+  legacy representations that the current model surfaces tolerate or normalize differently, so bring
+  them to canonical shapes before tightening readers or introducing terminology routing across source
+  systems. The permission-scoped audit found 76 inherently-multiple fields deployed as JSON objects in
   31 stored schema artifacts: 23 templates and 8 elements. Every case is a multiple-select list; no
   object-shaped checkbox or attribute-value deployment was found. CEE correctly serializes these
   values as arrays, but each stored schema still says `type: object`, so instance validation rejects
@@ -657,6 +452,38 @@ lifetime.
   resulting instances against the exact repaired templates. A repeated audit must report zero
   `inherently-multiple-child-object` findings and no new save-rejected findings.
 
+  The `title`/`internalName` contract is settled as part of this production repair: it is derived
+  metadata, not a first-class authored value. JSON-Schema `title` and the model's `internalName` must
+  always be composed from `schema:name` using the canonical `"<name> <type> schema"` form, matching
+  the Java and TypeScript YAML readers. Add an idempotent patch rule that reports and normalizes every
+  divergent stored title without changing `schema:name`, and make both model libraries prevent an
+  independently supplied title from surviving a round-trip. Capture the affected production paths in
+  the reviewed manifest and require JSON → YAML → JSON and JSON → model → JSON tests to prove the
+  canonical result. This decision does not make `description` derived, and the title patch must not
+  rewrite description or provenance text.
+
+  **Normalize zero and unknown encodings.** Three keys currently use zero as a sentinel where the
+  schema gives it a quantity, so settle and apply one model-wide convention before patching the stored
+  population. The Template Designer writes `maxItems: 0` for an unbounded multi-instance field and its
+  runtime treats zero as falsy, although JSON Schema defines it as an array that permits no items;
+  omitting `maxItems` already expresses unbounded cardinality unambiguously. Existing templates require
+  compatibility while the editor, extracted Designer, meta-schema and both model libraries converge on
+  the canonical representation.
+
+  Value-set and ontology constraints also carry `numTerms: 0` when the count is unknown. The Java and
+  TypeScript models already support absence, but stored zero values cannot distinguish an empty
+  vocabulary from an unmeasured one, and an entire-ontology constraint with zero currently fails the
+  meta-schema's `minimum: 1` check even when the editor's interactive validation passes. Decide whether
+  terminology must supply the real count, producers must omit an unknown count, or the schema must
+  admit zero, then make every producer and validator agree and add an idempotent patch rule for stored
+  artifacts. Inventory the affected paths in the reviewed manifest and retain read compatibility for
+  historical zero values during the transition.
+
+  Include stray cardinality keys in the same audit: a single-instance object can retain
+  `minItems: 0, maxItems: 0` even though readers ignore cardinality outside an array envelope. Determine
+  whether current frontends still produce that shape, stop the producer if they do, and normalize only
+  the reviewed stored occurrences without changing the field's actual cardinality.
+
   Keep the broader legacy population out of this first patch. The same audit found 4,524 artifacts with
   repair-on-save conditions — chiefly missing `@context.required` entries, empty `pav:derivedFrom`, and
   child IDs or property IRIs that the server would mint. Those are not the cause of the instance-save
@@ -681,8 +508,8 @@ lifetime.
   rerun the audit to `COMPLETE_FOR_KEY`. Never delete a store artifact merely because its search entry
   is inconsistent.
 
-- **17. Write `sourceSystem` onto the production value constraints, so that its absence means something.**
-  A controlled-term constraint may name the system serving its vocabulary, and both model libraries read
+  **Make terminology sources explicit.** A controlled-term constraint may name the system serving its
+  vocabulary, and both model libraries read
   an absent `sourceSystem` as BioPortal —
   [the value-constraint shape](VERSIONING-ROADMAP.md#6-the-value-constraint-shape) defines the field and
   that default. The default is correct for production today, because every deployed constraint resolves
@@ -705,8 +532,48 @@ lifetime.
   whenever a constraint carries one, so a patched artifact round-trips through the strict readers
   unchanged. Keep the scope to this one field. The canonical ontology identity (`iri`, `sourceIri` in
   YAML) is a separate mandatory field with its own derivation precedence, and the free-text `source`
-  display string is separately defective — 497 of those 504 HuBMAP branch constraints record
+  display string is separately noncanonical — 497 of those 504 HuBMAP branch constraints record
   `"undefined (HRAVS)"` where BioPortal has the real name — so each wants a rule of its own rather than a
   ride on this one. Background work with no deadline of its own. Its value lands at the terminology
   cutover, which means it has to be finished before a second source system is served, not before
   anything else.
+
+## Later decisions
+
+- **9. A published artifact can be deleted, contradicting the docs.** The docs say a published
+  artifact is permanent, but `DELETE` on one succeeds. The guard in
+  `AbstractResourceServerResource.executeArtifactDelete` was briefly re-enabled and then **reverted by
+  deliberate decision**: blocking deletion strands published artifacts and the folders holding them with
+  no ordinary cleanup path, and commit `3f26ee7` (2021, "Allow users to delete published resources") had
+  disabled the guard on purpose. So deletability stays for now; the discrepancy with the documentation
+  is the open question. Deciding it means choosing between amending the docs (published is deletable) or
+  re-enabling the guard together with a supported cleanup path (e.g. an admin-only delete, or cascading
+  through folder deletion). Immutability of published content is a separate guarantee and is
+  unaffected either way — that one is enforced.
+
+- **10. Finish the DataCite DOI minting lifecycle.** The access and validity gates landed on 2026-08-27
+  (`a7dddca`, `e775d6d`). `validateSourceArtifactForDoi` now runs on the mutation endpoint as well as
+  the preparatory GET, so a direct POST can no longer bypass write access, the open requirement, or a
+  template's published requirement. The endpoint refuses any state other than `draft` or `publish`,
+  and refuses an instance the CEDAR validator rejects instead of computing that result and discarding
+  it. The DataCite and validation calls moved behind an injectable `DataCiteHttpClient` with
+  configured timeouts, so transport failures map to `502` rather than surfacing as a `RuntimeException`
+  or a misleading `400`. The DOI-annotation write-back response is read: when it is rejected or fails
+  in transport, the response is a `502` carrying the minted DOI, the source artifact id and
+  `reconciliationRequired`, which distinguishes a DataCite failure from a local persistence failure.
+  `DataCiteResourceAuthorizationTest`, `DataCitePublicationWorkflowTest` and `DataCiteHttpClientTest`
+  pin that behaviour offline against a fake DataCite boundary, and the live tests stay behind the
+  `datacite` tag.
+
+  The durable lifecycle remains open, and it is what makes the operation recovery-safe. Minting still
+  persists no state of its own: draft/reserved, published and locally attached are recorded nowhere,
+  so the `reconciliationRequired` response names a condition no code resolves, and a retry after a
+  timeout cannot tell whether the earlier attempt already minted a DOI. Define those states, retain
+  the DataCite identifier before the fallible write-back, and make a retry resume or reconcile the
+  same DOI rather than orphan or duplicate one. Tighten how an existing draft is associated with its
+  source artifact: the lookup still matches DataCite records on the OpenView URL. Orchestration also
+  still sits in `DataCiteResource` — only the HTTP client came out — so configuration and error
+  mapping are not yet centralized. The offline suite still lacks create-versus-update, retry after
+  timeout, and repeated publish, each of which needs the durable states before it can be written. Keep
+  normal tests offline; add only an opt-in DataCite sandbox smoke test for the final wire contract and
+  credential/configuration check.
