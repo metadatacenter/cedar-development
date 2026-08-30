@@ -495,9 +495,10 @@ code. If you changed a shared library, `./mvnw clean install` in the consuming s
 ## The controller: `ops/cedar-services.sh`
 
 Manages the 15 microservices + three AngularJS/Gulp frontends + the 4 auxiliary Angular frontends as
-background (`nohup`) processes, each logging to `$CEDAR_HOME/log/`, PIDs tracked in
-`$CEDAR_HOME/log/run/`. It forces `JAVA_HOME=17`, puts `/opt/homebrew/bin` on `PATH` (for `node`/`ng`),
-and sources the profile itself, so it is safe to run standalone.
+background processes: non-restarting submitted `launchd` jobs on macOS and `nohup` children on other
+systems. Each logs to `$CEDAR_HOME/log/`, with its PID tracked in `$CEDAR_HOME/log/run/`. The
+controller forces `JAVA_HOME=17`, puts `/opt/homebrew/bin` on `PATH` (for `node`/`ng`), and sources
+the profile itself, so it is safe to run standalone.
 
 The Gulp frontends deliberately run side by side: `ui-main` is the production monolith on 4200,
 `ui-workspace` is the extracted Workspace preview on 4201, and `ui-designer` is the extracted
@@ -1047,7 +1048,7 @@ TypeScript, while both emit the same bytes for it.
     crt=$(ls "$d"*.crt | head -1); cp "$crt" "${crt%.crt}.key" "$tgt/"; done   # install into nginx ssl dirs
   sudo "$(brew --prefix)/bin/nginx" -s reload                 # nginx master runs as root → needs sudo
   ```
-  Notes: `cedar cert domains` writes leaves to `$CEDAR_CA_HOME/certs/<subdomain>/`, but nginx reads from
+  Notes: `cedarcli cert domains` writes leaves to `$CEDAR_CA_HOME/certs/<subdomain>/`, but nginx reads from
   `$SSL/<subdomain>/` — hence the copy step. The subdomain dir names match on both sides. Skipping the
   `--force` option protects existing leaves from accidental replacement. Renewal keeps the CA issuance
   history and writes each replacement atomically, so a failed OpenSSL command leaves the prior leaf in
@@ -1477,7 +1478,7 @@ in the profile, so there are no API keys to keep. Run one suite with `npm run sm
 the suites are `apidocs`, `artifacts`, `authentication`, `categories`, `contract`, `download`,
 `finding`, `folders`, `freeze`, `group-sharing`, `groups`, `inclusion`, `negotiation`, `openness`,
 `pagination`, `search`, `sharing`, `validation` and `versioning`. The committed
-`rest/expected-checks.json` inventory holds 778 exact suite/section/check identities; a passing run
+`rest/expected-checks.json` inventory holds 797 exact suite/section/check identities; a passing run
 must execute that same ordered inventory, so an early return, removed loop or conditional omission is
 a failure even when every check that did run passed. Freeze keeps the inventory stable when the local
 terminology store is absent by recording its seven checks as skipped rather than silently omitting
