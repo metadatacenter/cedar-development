@@ -138,11 +138,16 @@ show the form to whoever fills it in.
 
 ```shell
 npm --prefix ../cedar-term-picker run dist
-npm --prefix ../cedar-embeddable-editor run dist
+npm --prefix ../cedar-embeddable-editor run build:production
+npm --prefix ../cedar-embeddable-editor/visual run bundle
 npm run dist
 cp ../cedar-term-picker/dist-bundle/cedar-term-picker.js dist-bundle/
-cp ../cedar-embeddable-editor/dist-npm/cedar-embeddable-editor/cedar-embeddable-editor.js dist-bundle/
+cp ../cedar-embeddable-editor/visual/public/cedar-embeddable-editor.js dist-bundle/
 ```
+
+CEE's single-file bundle is built in two steps and lands under `visual/`, which is
+where its own visual suite serves it from; `dist-npm/` holds a staged copy that
+only a package build refreshes.
 
 Serve `dist-bundle/` and load a page that pulls in all three scripts. Each
 absence is reported where it would have been used: without the picker the
@@ -158,10 +163,16 @@ this one's, so they are not committed. The host names a terminology server on
 
 The preview asks CEE for a read-only form with no instance behind it, which CEE
 renders as a statement of what each field will accept rather than as an empty
-form. CEE takes one assignment to its template and reports and ignores a second,
-so the designer replaces the element when the template settles rather than
-reassigning it; a burst of typing therefore costs one rebuild, not one per
-keystroke.
+form. It also asks CEE to drop its Expand All and Collapse All buttons, through
+`showExpandCollapseAll`, because the designer has its own controls over the same
+template beside the preview; each section still opens and closes on its own
+header. That key arrived in CEE 2.0.4-dev. An older bundle reports it as one it
+does not know and drops that key alone, so the preview still renders read-only and
+still shows the two buttons.
+
+CEE takes one assignment to its template and reports and ignores a second, so the
+designer replaces the element when the template settles rather than reassigning
+it; a burst of typing therefore costs one rebuild, not one per keystroke.
 
 **The picker needs a local terminology server.** It reads the version-aware
 `/search`, which production does not serve — `POST
