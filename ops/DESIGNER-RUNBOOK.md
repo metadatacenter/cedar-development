@@ -149,6 +149,13 @@ absence is reported where it would have been used: without the picker the
 constraint panel says so and its fields are filled by hand, and without CEE the
 preview panel says so.
 
+`npm start` stages both siblings into `public/` and the development host loads
+them, so the served designer offers the same two surfaces an embedder gets. A
+sibling that has not been built is named and skipped rather than failing the
+start, and the copies are the neighbouring repositories' build output rather than
+this one's, so they are not committed. The host names a terminology server on
+`localhost:9004` for the reason below.
+
 The preview asks CEE for a read-only form with no instance behind it, which CEE
 renders as a statement of what each field will accept rather than as an empty
 form. CEE takes one assignment to its template and reports and ignores a second,
