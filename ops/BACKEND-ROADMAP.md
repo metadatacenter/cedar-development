@@ -291,6 +291,19 @@ lifetime.
   boundary alongside the permission model rather than leaving the two service doors with different
   effective authorization.
 
+  **Two terminology routes authenticate nobody.** `IntegratedRetrieveResource.cedarIntegratedRetrieve`
+  and `IntegratedSearchResource` both carry their credential check as commented-out lines under a
+  `//TODO`, so `POST /bioportal/integrated-retrieve` and `POST /bioportal/integrated-search` answer
+  an anonymous caller. Measured 2026-08-30: a request with no `Authorization` header returned `200`.
+  Both methods reach BioPortal on the server's own `apiKey`, which puts them in the same class as the
+  open `/ext-auth/*` relays — an unauthenticated caller spending the deployment's quota — and the
+  OpenAPI on both methods already documents the `401` they do not return. The fix is the two
+  commented lines, but it changes what an existing client receives, so it belongs with the other
+  status-visible corrections rather than ahead of them.
+  `TerminologyServerApplicationSmokeTest.theIntegratedRetrieveRouteIsReachable` deliberately asserts
+  reachability rather than a status, so it neither fails on today's behaviour nor records the missing
+  gate as intended; tighten it to `401` when the check is restored.
+
   **Keycloak TLS.** This was a code vulnerability, not merely a future truststore configuration task:
   the bearer-token client disabled certificate and
   hostname checks while fetching signing keys, and the admin client sent the CEDAR administrator

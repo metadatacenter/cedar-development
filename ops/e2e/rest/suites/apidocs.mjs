@@ -5,24 +5,28 @@
 // blank doc page and go unnoticed. This checks each spec is present, valid OpenAPI 3, populated, and
 // actually reflects the API.
 //
-// Resource, Terminology and Value Recommender are the three servers that publish a generated spec.
-// The other API servers intentionally return 404 at this path.
+// Resource, Terminology, Value Recommender and User are the four servers that publish a generated
+// spec. The other API servers intentionally return 404 at this path.
 import {
-  suite, check, checkStatus, call, RESOURCE, TERMINOLOGY, VALUERECOMMENDER,
+  suite, check, checkStatus, call, RESOURCE, TERMINOLOGY, VALUERECOMMENDER, USER_SERVER,
 } from '../lib.mjs';
 
 export const name = 'apidocs';
 
-// minPaths sits comfortably below each server's current count (resource ~68, terminology ~37), so a
-// broken or half-generated spec trips it while normal endpoint growth does not. mustDocument anchors
-// the spec to the real API: a path that must be present if generation actually read the resources.
+// minPaths sits comfortably below each server's current count (resource ~68, terminology ~40, user
+// 5), so a broken or half-generated spec trips it while normal endpoint growth does not.
+// mustDocument anchors the spec to the real API: an exact path that must be present if generation
+// actually read the resources. Matching on a prefix would let a spec missing whole resource classes
+// pass, which is how terminology's two version-aware search routes went unpublished — every path it
+// generated began "/bioportal", so the omission satisfied the check.
 const API_SERVERS = [
   { label: 'resource', base: RESOURCE, minPaths: 40, mustDocument: '/templates' },
-  { label: 'terminology', base: TERMINOLOGY, minPaths: 20, mustDocument: '/bioportal' },
+  { label: 'terminology', base: TERMINOLOGY, minPaths: 20, mustDocument: '/search/hierarchy' },
   {
     label: 'valuerecommender', base: VALUERECOMMENDER, minPaths: 5,
     mustDocument: '/command/recommend',
   },
+  { label: 'user', base: USER_SERVER, minPaths: 5, mustDocument: '/users/{id}/api-keys' },
 ];
 
 function hasProperties(spec, schemaName, expected) {
@@ -48,9 +52,9 @@ export async function run() {
     const count = Object.keys(paths).length;
     check(count >= s.minPaths, `${s.label}: it documents a populated set of paths (>= ${s.minPaths})`,
         `only ${count} path(s) — a near-empty spec means generation broke`);
-    check(Object.keys(paths).some(p => p.includes(s.mustDocument)),
-        `${s.label}: it documents the real API (a ${s.mustDocument} path is present)`,
-        `no path contained "${s.mustDocument}"; paths began ${Object.keys(paths).slice(0, 5).join(', ')}`);
+    check(Object.hasOwn(paths, s.mustDocument),
+        `${s.label}: it documents the real API (${s.mustDocument} is present)`,
+        `no path was exactly "${s.mustDocument}"; paths began ${Object.keys(paths).slice(0, 5).join(', ')}`);
 
     // A documented path with no operations is a generation glitch, not a real endpoint.
     const emptyPath = Object.entries(paths).find(([, ops]) => !ops || Object.keys(ops).length === 0);
