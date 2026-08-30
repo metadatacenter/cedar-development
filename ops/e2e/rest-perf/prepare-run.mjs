@@ -21,10 +21,11 @@ const profile = arg('profile', 'quick');
 const userCount = intArg('users', 10, { max: 500 });
 const concurrency = intArg('concurrency', 4, { max: 20 });
 const matrixRounds = intArg('rounds', 3, { max: 20 });
+const scheduleSeed = arg('seed', id);
 const password = env.CEDAR_PERF_USER_PASSWORD;
 if (!password) throw new Error('CEDAR_PERF_USER_PASSWORD is required');
 const adminKey = env.CEDAR_ADMIN_USER_API_KEY;
-if ((profile === 'contention' || profile === 'soak') && !adminKey) {
+if ((profile === 'contention' || profile === 'hotset' || profile === 'soak') && !adminKey) {
   throw new Error(`CEDAR_ADMIN_USER_API_KEY is required for category ${profile} fixtures`);
 }
 
@@ -33,10 +34,14 @@ const selected = inventory.users?.slice(0, userCount) ?? [];
 if (selected.length !== userCount) {
   throw new Error(`${usersPath} contains ${selected.length} users; provision at least ${userCount}`);
 }
+if (profile === 'soak' && selected.length < 2) {
+  throw new Error('the soak profile needs at least two users for grant/revoke and membership transitions');
+}
 
 const manifest = {
-  schemaVersion: 3,
+  schemaVersion: 4,
   runId: id,
+  scheduleSeed,
   prefix: PERF_PREFIX,
   createdAt: new Date().toISOString(),
   target: { resource: RESOURCE, group: GROUP_SERVER },
@@ -113,6 +118,20 @@ async function shareFilesystem(owner, path, actors, permission = 'write') {
   });
   if (response.status !== 200) {
     throw new Error(`could not share ${path}: ${response.status} ${response.text}`);
+  }
+}
+
+async function shareFilesystemWithGroup(owner, path, groupId, permission = 'read') {
+  const response = await currentMutation(owner.token, 'PUT', `${path}/permissions`, {
+    owner: { '@id': owner.cedarUserId },
+    userPermissions: [],
+    groupPermissions: [{
+      group: { '@id': groupId },
+      permission,
+    }],
+  });
+  if (response.status !== 200) {
+    throw new Error(`could not share ${path} with group ${groupId}: ${response.status} ${response.text}`);
   }
 }
 
@@ -205,6 +224,7 @@ const actors = await parallelLimit(selected, concurrency, async (record, index) 
   const movable = await createArtifact(actor, source, 'Movable');
   const publicToggle = await createArtifact(actor, root, 'OpenView');
   let soakArtifacts;
+  let soakFolders;
   if (profile === 'soak') {
     const element = await createArtifact(actor, root, 'Soak element', 'element');
     const field = await createArtifact(actor, root, 'Soak field', 'field');
@@ -212,6 +232,14 @@ const actors = await parallelLimit(selected, concurrency, async (record, index) 
       'schema:isBasedOn': mutable.id,
     });
     soakArtifacts = { template: mutable, element, field, instance };
+    const aclFolderId = await createFolder(actor, root, 'Soak ACL');
+    const groupAccessFolderId = await createFolder(actor, root, 'Soak group access');
+    soakFolders = {
+      acl: { kind: 'folder', id: aclFolderId, path: `/folders/${enc(aclFolderId)}` },
+      groupAccess: {
+        kind: 'folder', id: groupAccessFolderId, path: `/folders/${enc(groupAccessFolderId)}`,
+      },
+    };
   }
   const saved = {
     index,
@@ -231,7 +259,8 @@ const actors = await parallelLimit(selected, concurrency, async (record, index) 
       soak: {
         artifacts: soakArtifacts,
         aclArtifact: mutable,
-        aclFolder: { kind: 'folder', id: root, path: `/folders/${enc(root)}` },
+        aclFolder: soakFolders.acl,
+        groupAccessFolder: soakFolders.groupAccess,
       },
     } : {}),
   };
@@ -244,6 +273,7 @@ const actors = await parallelLimit(selected, concurrency, async (record, index) 
 const owner = actors[0];
 if (profile === 'soak') {
   await parallelLimit(actors, concurrency, async actor => {
+    const peer = actors[(actor.index + 1) % actors.length];
     const group = await createGroup(actor, `Soak group ${actor.sequence}`);
     const groupUsers = {
       users: [{
@@ -255,18 +285,24 @@ if (profile === 'soak') {
     if (groupMembers.status !== 200) {
       throw new Error(`${actor.username}: initialize soak group: ${groupMembers.status} ${groupMembers.text}`);
     }
+    await shareFilesystemWithGroup(actor, actor.soak.groupAccessFolder.path, group.id);
 
     const category = await createCategory(`Soak category ${actor.sequence}`);
     await shareCategory(category, [actor]);
 
     manifest.actors[actor.index].soak.group = group;
     manifest.actors[actor.index].soak.groupUsers = groupUsers;
+    manifest.actors[actor.index].soak.peer = {
+      index: peer.index,
+      cedarUserId: peer.cedarUserId,
+      username: peer.username,
+    };
     manifest.actors[actor.index].soak.category = category;
     writeJson(output, manifest);
   });
 }
 
-if (profile === 'contention') {
+if (profile === 'contention' || profile === 'hotset') {
 // Each independent ETag domain gets its own fixture. Sharing is direct and explicit so every batch
 // is a real multi-identity race rather than twenty requests accidentally reusing one credential.
 const content = {};
@@ -334,12 +370,14 @@ async function destructiveFixture(kind, label) {
   throw new Error(`unknown destructive fixture kind ${kind}`);
 }
 
-const destructiveKinds = ['template', 'element', 'field', 'instance', 'folder', 'group', 'category'];
-for (const race of Object.keys(manifest.destructive)) {
-  for (let round = 0; round < matrixRounds; round++) {
-    for (const kind of destructiveKinds) {
-      manifest.destructive[race].push(await destructiveFixture(kind, `${race} ${kind} round ${round + 1}`));
-      writeJson(output, manifest);
+if (profile === 'contention') {
+  const destructiveKinds = ['template', 'element', 'field', 'instance', 'folder', 'group', 'category'];
+  for (const race of Object.keys(manifest.destructive)) {
+    for (let round = 0; round < matrixRounds; round++) {
+      for (const kind of destructiveKinds) {
+        manifest.destructive[race].push(await destructiveFixture(kind, `${race} ${kind} round ${round + 1}`));
+        writeJson(output, manifest);
+      }
     }
   }
 }

@@ -12,13 +12,14 @@ assertSafeTargets();
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const profile = arg('profile', 'quick');
-const defaultUsers = { quick: 10, contention: 20, soak: 50 };
-if (!defaultUsers[profile]) throw new Error(`--profile must be quick, contention or soak; got ${profile}`);
+const defaultUsers = { quick: 10, contention: 20, hotset: 20, soak: 50 };
+if (!defaultUsers[profile]) throw new Error(`--profile must be quick, contention, hotset or soak; got ${profile}`);
 const users = intArg('users', defaultUsers[profile], { max: 500 });
 const rounds = intArg('rounds', 3, { max: 20 });
 const poolSize = intArg('pool-size', 50, { min: 50, max: 500 });
 const ensuredUsers = Math.max(users, poolSize);
 const id = arg('run-id', runId());
+const seed = arg('seed', id);
 const runDirectory = absolute(arg('run-directory', `reports/rest-perf/runs/${id}`));
 const manifest = resolve(runDirectory, 'run.json');
 const summary = resolve(runDirectory, 'k6-summary.json');
@@ -82,6 +83,7 @@ try {
     `--profile=${profile}`,
     `--rounds=${rounds}`,
     `--run-id=${id}`,
+    `--seed=${seed}`,
     `--manifest=${manifest}`,
   ], { env });
   if (prepared.code !== 0) throw new Error(`fixture preparation failed with exit ${prepared.code}`);
@@ -94,6 +96,7 @@ try {
     ...(duration ? { CEDAR_PERF_DURATION: duration } : {}),
     CEDAR_PERF_VUS: String(vus),
     CEDAR_PERF_ROUNDS: String(rounds),
+    CEDAR_PERF_SEED: seed,
   };
   const loaded = await run('k6', ['run', resolve(HERE, 'cedar-rest.k6.js')], { env: loadEnvironment });
   testExit = loaded.code;

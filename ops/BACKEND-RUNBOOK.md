@@ -1567,28 +1567,49 @@ command:
 npm run perf:rest:provision -- --count=50
 ```
 
-The three load profiles are:
+The four load profiles are:
 
 | Command | Default shape | What it exercises |
 |---|---:|---|
 | `npm run perf:rest:quick` | 10 identities, ramp 1 → 5 → 10 → 0 in 4.5 minutes | Artifact reads, folder listings, search, conditional artifact updates, conditional moves, and OpenView toggles |
 | `npm run perf:rest:contention` | 20 identities, three complete matrix rounds | Twenty-way compare-and-swap races across artifact content, workspace graph state, ACLs, group records and membership, and categories; update/delete, repeated-delete and wildcard/delete cases use sacrificial fixtures |
+| `npm run perf:rest:hotset` | 20 identities and 20 VUs for 10 minutes | Sustained independent GET/conditional-mutation loops over a small shared set of templates, elements, fields, instances, folders, groups and categories; both conflicts and successful forward progress are required |
 | `npm run perf:rest:soak` | 50 identities and 50 VUs for 30 minutes | A steady, non-destructive mix across template, element, field and instance reads and conditional updates; folder listing, search, moves and OpenView; artifact and folder ACLs; group records and membership; and category records and ACLs |
 
-`--users=N`, `--vus=N` and `--duration=10s` override those defaults. The contention profile also
+`--users=N`, `--vus=N` and `--duration=10s` override those defaults. `--seed=NAME` makes the soak's
+per-user schedule reproducible; without it, the run ID is the seed. The contention profile also
 accepts `--rounds=N`; its `--duration` is a maximum rather than a steady-state duration.
 `--pool-size=N` can raise the
 ensured identity-pool floor above 50, while a larger `--users` value always expands the pool to fit.
 A VU count may not exceed the selected identities: independent writers must not accidentally contend
 merely because the runner reused an account. The identity ensure phase and initial authentication
 happen outside the measured workload; expired tokens are refreshed during a long soak. `412` is
-expected only in the contention profile. Category setup and administrator-only ACL mutations use
+expected only in the contention and hot-set profiles. Category setup and administrator-only ACL mutations use
 the administrator key loaded by the native profile; it is never stored in a manifest or summary.
-The soak gives every VU its own artifacts, folder, group and category, and cycles a fixed 24-operation
-mix that is half pure reads/list/search and half conditional mutations. It deliberately excludes
+The soak gives every VU its own artifacts, folders, group and category, and executes a 24-operation
+mix that is half pure reads/list/search and half conditional mutations. Each complete cycle preserves
+that exact mix but shuffles it deterministically by seed, identity and cycle, with a per-identity phase
+offset. This avoids synchronized VUs while keeping failures replayable: error lines name the seed, VU
+and iteration, and the JSON summary records the seed. ACL operations alternate real
+grant and revocation transitions for a paired identity, then verify both the stored permission set and
+that identity's resulting access. Group membership likewise alternates join and leave against a folder
+with a stable group grant, proving that the membership transition changes effective access rather than
+merely accepting an unchanged roster. Category ACLs alternate a peer's write grant and revocation and
+verify that the peer gains and loses access to the ACL. Any semantic mismatch fails the run through a
+zero-tolerance invariant metric. The soak deliberately excludes
 create/delete churn, update-versus-delete, repeated DELETE and wildcard deletion: those operations
 belong to the bounded contention matrix, where exact winner/loser outcomes and cleanup can be asserted
 without corrupting the steady-state latency and resource-leak signal.
+Mutation bodies are parsed afresh from the wire representation before editing. Do not mutate the
+object returned by k6's cached `Response.json()` and assume the outgoing body changed: a replacement
+PUT can validly advance the ETag even when that cached object left the serialized body unchanged.
+
+The hot-set profile is the bridge between the finite contention matrix and the long independent soak.
+Its users continuously race on seven shared revision domains. Each successful write must return the
+submitted state and advance exactly one revision; each loser must receive `412`. The run fails if
+fewer than one percent of mutations conflict, because it did not create a hot set, or if at least 95
+percent conflict, because the test has stopped demonstrating useful forward progress. It creates no
+sacrificial delete fixtures and teardown removes the bounded shared set normally.
 The initial latency threshold is intentionally broad (`p95 < 3 s`); use repeated quiet-host runs to
 establish operation-specific baselines before tightening it.
 

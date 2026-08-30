@@ -21,6 +21,7 @@
     "perf:rest:provision": "node rest-perf/provision-users.mjs",
     "perf:rest:quick": "node rest-perf/run-rest.mjs --profile=quick",
     "perf:rest:contention": "node rest-perf/run-rest.mjs --profile=contention",
+    "perf:rest:hotset": "node rest-perf/run-rest.mjs --profile=hotset",
     "perf:rest:soak": "node rest-perf/run-rest.mjs --profile=soak",
     "perf:rest:cleanup": "node rest-perf/cleanup-abandoned-runs.mjs",
     "test:rest-perf": "node --test rest-perf/test/*.test.mjs",

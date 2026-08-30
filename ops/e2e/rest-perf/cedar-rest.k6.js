@@ -1,6 +1,7 @@
 import http from 'k6/http';
 import { check, fail } from 'k6';
 import { Rate, Trend } from 'k6/metrics';
+import { scheduledValue } from './schedule.js';
 
 const manifestPath = __ENV.CEDAR_PERF_MANIFEST;
 if (!manifestPath) throw new Error('CEDAR_PERF_MANIFEST must name a prepared run.json');
@@ -18,6 +19,7 @@ const configuredVus = Number(__ENV.CEDAR_PERF_VUS || (profile === 'soak' ? 50 : 
 const configuredDuration = __ENV.CEDAR_PERF_DURATION;
 const contentionWidth = Math.min(Number(__ENV.CEDAR_PERF_CONTENTION_WIDTH || 20), manifest.actors.length);
 const matrixRounds = Number(__ENV.CEDAR_PERF_ROUNDS || manifest.matrixRounds || 3);
+const scheduleSeed = String(__ENV.CEDAR_PERF_SEED || manifest.scheduleSeed || manifest.runId);
 
 const allowedHosts = ['localhost', '127.0.0.1', 'metadatacenter.orgx'];
 const targetHost = resource.replace(/^[a-z]+:\/\//i, '').split('/')[0].split(':')[0];
@@ -28,6 +30,8 @@ if (__ENV.CEDAR_PERF_ALLOW_REMOTE !== '1'
 }
 
 const unexpectedResponses = new Rate('cedar_unexpected_responses');
+const invariantFailures = new Rate('cedar_invariant_failures');
+const hotsetConflictRate = new Rate('cedar_hotset_conflict_rate');
 const operationDuration = new Trend('cedar_operation_duration', true);
 const artifactKinds = ['template', 'element', 'field', 'instance'];
 const destructiveKinds = ['template', 'element', 'field', 'instance', 'folder', 'group', 'category'];
@@ -36,6 +40,15 @@ const wildcardTypes = [
   'wildcard-artifact-acl', 'wildcard-folder-acl', 'wildcard-group-record',
   'wildcard-group-membership', 'wildcard-category-record', 'wildcard-category-acl',
 ];
+const soakOperations = [
+  'template-read', 'element-read', 'field-read', 'instance-read',
+  'template-read', 'element-read', 'field-read', 'instance-read',
+  'folder-list', 'search', 'template-update', 'element-update',
+  'field-update', 'instance-update', 'folder-list', 'search',
+  'artifact-move', 'openview-toggle', 'artifact-acl', 'folder-acl',
+  'group-record', 'group-membership', 'category-record', 'category-acl',
+];
+const hotsetOperations = ['template', 'element', 'field', 'instance', 'folder', 'group', 'category'];
 
 function routeMetricName(operation) {
   return `cedar_route_${operation.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')}_duration`;
@@ -61,12 +74,19 @@ const measuredOperations = [
     [`contention ${kind} GET`, `contention ${kind} PUT`, `contention ${kind} verification`]),
   ...artifactKinds.flatMap(kind =>
     [`soak ${kind} GET`, `soak ${kind} update preflight`, `soak ${kind} conditional PUT`]),
+  ...artifactKinds.flatMap(kind => [`hotset ${kind} GET`, `hotset ${kind} PUT`]),
+  'hotset folder GET', 'hotset folder PUT', 'hotset group GET', 'hotset group PATCH',
+  'hotset category GET', 'hotset category PUT',
   'soak artifact ACL preflight', 'soak artifact ACL update',
+  'soak artifact ACL verification', 'soak artifact ACL access verification',
   'soak folder ACL preflight', 'soak folder ACL update',
+  'soak folder ACL verification', 'soak folder ACL access verification',
   'soak group record preflight', 'soak group record PATCH',
   'soak group membership preflight', 'soak group membership update',
+  'soak group membership verification', 'soak group membership access verification',
   'soak category record preflight', 'soak category record update',
   'soak category ACL preflight', 'soak category ACL update',
+  'soak category ACL verification', 'soak category ACL access verification',
   ...destructiveKinds.flatMap(kind => [
     `update-delete ${kind} GET`, `update-delete ${kind} PUT`, `update-delete ${kind} DELETE`,
     `update-delete ${kind} verification`, `double-delete ${kind} GET`, `double-delete ${kind} DELETE`,
@@ -95,7 +115,7 @@ const matrixCases = [
   ...wildcardTypes.map(type => ({ type })),
 ];
 
-// A stale response is expected only by the contention workload. All successful statuses remain
+// A stale response is expected only by the contention and hot-set workloads. All successful statuses remain
 // expected; authentication/authorization errors and server errors contribute to http_req_failed.
 http.setResponseCallback(http.expectedStatuses({ min: 200, max: 399 }, 412));
 
@@ -139,6 +159,16 @@ const profiles = {
       },
     },
   },
+  hotset: {
+    scenarios: {
+      hotset: {
+        executor: 'constant-vus',
+        exec: 'hotset',
+        vus: configuredVus,
+        duration: configuredDuration || '10m',
+      },
+    },
+  },
 };
 
 if (!profiles[profile]) throw new Error(`unknown CEDAR_PERF_PROFILE ${profile}`);
@@ -152,9 +182,13 @@ export const options = {
   thresholds: {
     checks: ['rate>0.99'],
     cedar_unexpected_responses: ['rate<0.01'],
+    cedar_invariant_failures: ['rate==0'],
     // Initial guardrail only. Establish operation-specific baselines before tightening latency gates.
     cedar_operation_duration: ['p(95)<3000'],
     http_req_failed: ['rate<0.01'],
+    ...(profile === 'hotset' ? {
+      cedar_hotset_conflict_rate: ['rate>0.01', 'rate<0.95'],
+    } : {}),
   },
 };
 
@@ -242,9 +276,60 @@ function adminCredential() {
 
 function accepted(response, statuses, label) {
   const ok = check(response, { [label]: result => statuses.includes(result.status) });
-  if (!ok) console.error(`${label}: expected ${statuses.join('/')} but received ${response.status}`);
+  if (!ok) {
+    console.error(`${label}: expected ${statuses.join('/')} but received ${response.status}`
+      + ` (seed=${scheduleSeed} VU=${__VU} iteration=${__ITER})`);
+  }
   unexpectedResponses.add(!ok, { operation: label });
   return ok;
+}
+
+function invariant(target, label, predicate) {
+  const ok = check(target, { [label]: predicate });
+  invariantFailures.add(!ok, { operation: label });
+  if (!ok) {
+    console.error(`${label}: semantic state did not match the completed mutation`
+      + ` (seed=${scheduleSeed} VU=${__VU} iteration=${__ITER})`);
+  }
+  return ok;
+}
+
+function entriesFor(body, key) {
+  return Array.isArray(body?.[key]) ? body[key] : [];
+}
+
+function hasUserEntry(body, key, userId) {
+  return entriesFor(body, key).some(entry => entry?.user?.['@id'] === userId);
+}
+
+// k6 caches Response.json() values and does not promise that callers can mutate that cached object.
+// Parse the wire body again whenever it is going to become a mutation request. Without this copy,
+// assignments can leave the outgoing representation unchanged while the server still advances its
+// revision for an otherwise valid replacement PUT.
+function mutableResponseBody(response) {
+  return JSON.parse(response.body);
+}
+
+function toggledUserPermissionBody(currentBody, userId, permission) {
+  const entries = entriesFor(currentBody, 'userPermissions');
+  const granting = !hasUserEntry(currentBody, 'userPermissions', userId);
+  currentBody.userPermissions = entries.filter(entry => entry?.user?.['@id'] !== userId);
+  if (granting) {
+    currentBody.userPermissions.push({ user: { '@id': userId }, permission });
+  }
+  return { body: currentBody, granting };
+}
+
+function toggledMembershipBody(currentBody, userId) {
+  const entries = entriesFor(currentBody, 'users');
+  const joining = !hasUserEntry(currentBody, 'users', userId);
+  currentBody.users = entries.filter(entry => entry?.user?.['@id'] !== userId);
+  if (joining) {
+    currentBody.users.push({
+      user: { '@id': userId }, administrator: false, member: true,
+    });
+  }
+  return { body: currentBody, joining };
 }
 
 function readArtifact(data, index, actor) {
@@ -273,7 +358,7 @@ function updateArtifact(data, index, actor) {
     unexpectedResponses.add(true, { operation: 'artifact update missing ETag' });
     return;
   }
-  const body = current.json();
+  const body = mutableResponseBody(current);
   body['schema:description'] = `${manifest.prefix} update ${__VU}-${__ITER}`;
   const updated = cedar(data, index, 'PUT', path, body, 'conditional artifact update', { 'If-Match': revision });
   accepted(updated, [200], 'conditional artifact update succeeds');
@@ -344,7 +429,8 @@ export function mixed(data) {
 }
 
 function requireSoakFixture(actor) {
-  if (!actor.soak?.artifacts || !actor.soak.group || !actor.soak.category) {
+  if (!actor.soak?.artifacts || !actor.soak.group || !actor.soak.category || !actor.soak.peer
+      || !actor.soak.groupAccessFolder) {
     fail(`soak fixture is incomplete for ${actor.username}`);
   }
   return actor.soak;
@@ -364,7 +450,7 @@ function soakArtifactUpdate(data, index, actor, kind) {
   const current = cedar(data, index, 'GET', fixture.path, undefined, preflightOperation);
   const revision = requireEtag(current, preflightOperation);
   if (!revision) return;
-  const body = current.json();
+  const body = mutableResponseBody(current);
   body['schema:description'] = `${manifest.prefix} soak ${kind} ${__VU}-${__ITER}`;
   const updated = cedar(data, index, 'PUT', fixture.path, body, updateOperation, { 'If-Match': revision });
   if (accepted(updated, [200], `${updateOperation} succeeds`)) {
@@ -383,11 +469,28 @@ function soakAclUpdate(data, index, actor, kind) {
   const current = cedar(data, index, 'GET', path, undefined, preflightOperation);
   const revision = requireEtag(current, preflightOperation);
   if (!revision) return;
-  const updated = cedar(data, index, 'PUT', path, current.json(), updateOperation, { 'If-Match': revision });
+  const { body, granting } = toggledUserPermissionBody(
+      mutableResponseBody(current), soakFixture.peer.cedarUserId, 'read');
+  const updated = cedar(data, index, 'PUT', path, body, updateOperation, { 'If-Match': revision });
   if (accepted(updated, [200], `${updateOperation} succeeds`)) {
     check(updated, {
       [`${updateOperation} returns a fresh ETag`]: result => etag(result) && etag(result) !== revision,
     });
+    const verificationOperation = `soak ${kind} ACL verification`;
+    const verified = cedar(data, index, 'GET', path, undefined, verificationOperation);
+    if (accepted(verified, [200], `${verificationOperation} succeeds`)) {
+      invariant(verified, `${verificationOperation} reflects ${granting ? 'grant' : 'revocation'}`,
+          result => hasUserEntry(result.json(), 'userPermissions', soakFixture.peer.cedarUserId) === granting);
+    }
+    const accessOperation = `soak ${kind} ACL access verification`;
+    const expectedStatus = granting ? 200 : 403;
+    const access = cedar(data, soakFixture.peer.index, 'GET', path, undefined, accessOperation, {}, resource,
+        [expectedStatus]);
+    if (accepted(access, [expectedStatus],
+        `${accessOperation} sees ${granting ? 'grant' : 'revocation'}`)) {
+      invariant(access, `${accessOperation} enforces ${granting ? 'grant' : 'revocation'}`,
+          result => result.status === expectedStatus);
+    }
   }
 }
 
@@ -399,7 +502,10 @@ function soakGroupUpdate(data, index, actor, membership) {
   const current = cedar(data, index, 'GET', path, undefined, preflightOperation, {}, groupServer);
   const revision = requireEtag(current, preflightOperation);
   if (!revision) return;
-  const body = membership ? soakFixture.groupUsers : {
+  const transition = membership
+    ? toggledMembershipBody(mutableResponseBody(current), soakFixture.peer.cedarUserId)
+    : null;
+  const body = membership ? transition.body : {
     'schema:description': `${manifest.prefix} soak group ${__VU}-${__ITER}`,
   };
   const updated = cedar(data, index, membership ? 'PUT' : 'PATCH', path, body, updateOperation, {
@@ -410,6 +516,24 @@ function soakGroupUpdate(data, index, actor, membership) {
     check(updated, {
       [`${updateOperation} returns a fresh ETag`]: result => etag(result) && etag(result) !== revision,
     });
+    if (membership) {
+      const verificationOperation = 'soak group membership verification';
+      const verified = cedar(data, index, 'GET', path, undefined, verificationOperation, {}, groupServer);
+      if (accepted(verified, [200], `${verificationOperation} succeeds`)) {
+        invariant(verified, `${verificationOperation} reflects ${transition.joining ? 'join' : 'leave'}`,
+            result => hasUserEntry(result.json(), 'users', soakFixture.peer.cedarUserId) === transition.joining);
+      }
+      const accessOperation = 'soak group membership access verification';
+      const accessPath = `${soakFixture.groupAccessFolder.path}/permissions`;
+      const expectedStatus = transition.joining ? 200 : 403;
+      const access = cedar(data, soakFixture.peer.index, 'GET', accessPath, undefined, accessOperation, {}, resource,
+          [expectedStatus]);
+      if (accepted(access, [expectedStatus],
+          `${accessOperation} sees ${transition.joining ? 'join' : 'leave'}`)) {
+        invariant(access, `${accessOperation} enforces ${transition.joining ? 'join' : 'leave'}`,
+            result => result.status === expectedStatus);
+      }
+    }
   }
 }
 
@@ -422,8 +546,11 @@ function soakCategoryUpdate(data, index, actor, permissions) {
   const current = cedar(data, requestActor, 'GET', path, undefined, preflightOperation);
   const revision = requireEtag(current, preflightOperation);
   if (!revision) return;
-  const currentBody = current.json();
-  const body = permissions ? currentBody : {
+  const currentBody = mutableResponseBody(current);
+  const transition = permissions
+    ? toggledUserPermissionBody(currentBody, soakFixture.peer.cedarUserId, 'write')
+    : null;
+  const body = permissions ? transition.body : {
     'schema:name': currentBody['schema:name'],
     'schema:description': `${manifest.prefix} soak category ${__VU}-${__ITER}`,
   };
@@ -432,35 +559,139 @@ function soakCategoryUpdate(data, index, actor, permissions) {
     check(updated, {
       [`${updateOperation} returns a fresh ETag`]: result => etag(result) && etag(result) !== revision,
     });
+    if (permissions) {
+      const verificationOperation = 'soak category ACL verification';
+      const verified = cedar(data, 'admin', 'GET', path, undefined, verificationOperation);
+      if (accepted(verified, [200], `${verificationOperation} succeeds`)) {
+        invariant(verified, `${verificationOperation} reflects ${transition.granting ? 'grant' : 'revocation'}`,
+            result => hasUserEntry(result.json(), 'userPermissions', soakFixture.peer.cedarUserId)
+              === transition.granting);
+      }
+      const accessOperation = 'soak category ACL access verification';
+      const expectedStatus = transition.granting ? 200 : 403;
+      const access = cedar(data, soakFixture.peer.index, 'GET', path, undefined, accessOperation, {}, resource,
+          [expectedStatus]);
+      if (accepted(access, [expectedStatus],
+          `${accessOperation} sees ${transition.granting ? 'grant' : 'revocation'}`)) {
+        invariant(access, `${accessOperation} enforces ${transition.granting ? 'grant' : 'revocation'}`,
+            result => result.status === expectedStatus);
+      }
+    }
   }
 }
 
 // Steady-state breadth is deliberately separate from the destructive contention matrix. Every VU
 // owns its artifacts, folders, group and category, so a 412 here is a failure rather than an
-// expected loser. The 24-slot mix is half pure reads/list/search and half conditional mutations.
+// expected loser. Every 24-iteration cycle retains the exact half-read, half-mutation multiset, but
+// its seeded order differs by actor and cycle. A failure reports its seed, VU and iteration.
 export function soak(data) {
   const index = (__VU - 1) % manifest.actors.length;
   const actor = manifest.actors[index];
-  switch (__ITER % 24) {
-    case 0: case 4: soakArtifactRead(data, index, actor, 'template'); break;
-    case 1: case 5: soakArtifactRead(data, index, actor, 'element'); break;
-    case 2: case 6: soakArtifactRead(data, index, actor, 'field'); break;
-    case 3: case 7: soakArtifactRead(data, index, actor, 'instance'); break;
-    case 8: case 14: listFolder(data, index, actor); break;
-    case 9: case 15: search(data, index); break;
-    case 10: soakArtifactUpdate(data, index, actor, 'template'); break;
-    case 11: soakArtifactUpdate(data, index, actor, 'element'); break;
-    case 12: soakArtifactUpdate(data, index, actor, 'field'); break;
-    case 13: soakArtifactUpdate(data, index, actor, 'instance'); break;
-    case 16: moveArtifact(data, index, actor); break;
-    case 17: toggleOpenView(data, index, actor); break;
-    case 18: soakAclUpdate(data, index, actor, 'artifact'); break;
-    case 19: soakAclUpdate(data, index, actor, 'folder'); break;
-    case 20: soakGroupUpdate(data, index, actor, false); break;
-    case 21: soakGroupUpdate(data, index, actor, true); break;
-    case 22: soakCategoryUpdate(data, index, actor, false); break;
-    case 23: soakCategoryUpdate(data, index, actor, true); break;
+  switch (scheduledValue(soakOperations, scheduleSeed, index, __ITER)) {
+    case 'template-read': soakArtifactRead(data, index, actor, 'template'); break;
+    case 'element-read': soakArtifactRead(data, index, actor, 'element'); break;
+    case 'field-read': soakArtifactRead(data, index, actor, 'field'); break;
+    case 'instance-read': soakArtifactRead(data, index, actor, 'instance'); break;
+    case 'folder-list': listFolder(data, index, actor); break;
+    case 'search': search(data, index); break;
+    case 'template-update': soakArtifactUpdate(data, index, actor, 'template'); break;
+    case 'element-update': soakArtifactUpdate(data, index, actor, 'element'); break;
+    case 'field-update': soakArtifactUpdate(data, index, actor, 'field'); break;
+    case 'instance-update': soakArtifactUpdate(data, index, actor, 'instance'); break;
+    case 'artifact-move': moveArtifact(data, index, actor); break;
+    case 'openview-toggle': toggleOpenView(data, index, actor); break;
+    case 'artifact-acl': soakAclUpdate(data, index, actor, 'artifact'); break;
+    case 'folder-acl': soakAclUpdate(data, index, actor, 'folder'); break;
+    case 'group-record': soakGroupUpdate(data, index, actor, false); break;
+    case 'group-membership': soakGroupUpdate(data, index, actor, true); break;
+    case 'category-record': soakCategoryUpdate(data, index, actor, false); break;
+    case 'category-acl': soakCategoryUpdate(data, index, actor, true); break;
   }
+}
+
+function hotsetOutcome(response, revision, marker, label) {
+  if (!accepted(response, [200, 412], `${label} converges or rejects stale state`)) return;
+  hotsetConflictRate.add(response.status === 412, { operation: label });
+  invariant(response, `${label} success advances exactly one revision`, result => {
+    if (result.status === 412) return true;
+    const beforeRevision = revisionNumber(revision);
+    const afterRevision = revisionNumber(etag(result));
+    return beforeRevision !== null && afterRevision === beforeRevision + 1;
+  });
+  invariant(response, `${label} success returns the submitted state`, result =>
+    result.status === 412 || result.json()?.['schema:description'] === marker);
+}
+
+function hotsetArtifact(data, index, kind) {
+  const fixture = manifest.shared.content?.[kind];
+  if (!fixture) fail(`hotset fixture is missing shared ${kind} content`);
+  const getOperation = `hotset ${kind} GET`;
+  const putOperation = `hotset ${kind} PUT`;
+  const current = cedar(data, index, 'GET', fixture.path, undefined, getOperation);
+  const revision = requireEtag(current, getOperation);
+  if (!revision) return;
+  const marker = `${manifest.prefix} hotset ${kind} ${scheduleSeed} ${__VU}-${__ITER}`;
+  const body = mutableResponseBody(current);
+  body['schema:description'] = marker;
+  const updated = cedar(data, index, 'PUT', fixture.path, body, putOperation,
+      { 'If-Match': revision }, resource, [200, 412]);
+  hotsetOutcome(updated, revision, marker, putOperation);
+}
+
+function hotsetFolder(data, index) {
+  const fixture = manifest.shared.graphFolder;
+  if (!fixture) fail('hotset fixture is missing the shared folder');
+  const current = cedar(data, index, 'GET', fixture.path, undefined, 'hotset folder GET');
+  const revision = requireEtag(current, 'hotset folder GET');
+  if (!revision) return;
+  const currentBody = current.json();
+  const marker = `${manifest.prefix} hotset folder ${scheduleSeed} ${__VU}-${__ITER}`;
+  const updated = cedar(data, index, 'PUT', fixture.path, {
+    '@id': fixture.id,
+    'schema:name': currentBody['schema:name'],
+    'schema:description': marker,
+  }, 'hotset folder PUT', { 'If-Match': revision }, resource, [200, 412]);
+  hotsetOutcome(updated, revision, marker, 'hotset folder PUT');
+}
+
+function hotsetGroup(data, index) {
+  const fixture = manifest.shared.group;
+  if (!fixture) fail('hotset fixture is missing the shared group');
+  const current = cedar(data, index, 'GET', fixture.path, undefined, 'hotset group GET', {}, groupServer);
+  const revision = requireEtag(current, 'hotset group GET');
+  if (!revision) return;
+  const marker = `${manifest.prefix} hotset group ${scheduleSeed} ${__VU}-${__ITER}`;
+  const updated = cedar(data, index, 'PATCH', fixture.path, { 'schema:description': marker },
+      'hotset group PATCH', {
+        'If-Match': revision,
+        'Content-Type': 'application/merge-patch+json',
+      }, groupServer, [200, 412]);
+  hotsetOutcome(updated, revision, marker, 'hotset group PATCH');
+}
+
+function hotsetCategory(data, index) {
+  const fixture = manifest.shared.category;
+  if (!fixture) fail('hotset fixture is missing the shared category');
+  const current = cedar(data, index, 'GET', fixture.path, undefined, 'hotset category GET');
+  const revision = requireEtag(current, 'hotset category GET');
+  if (!revision) return;
+  const marker = `${manifest.prefix} hotset category ${scheduleSeed} ${__VU}-${__ITER}`;
+  const updated = cedar(data, index, 'PUT', fixture.path, {
+    'schema:name': current.json()?.['schema:name'],
+    'schema:description': marker,
+  }, 'hotset category PUT', { 'If-Match': revision }, resource, [200, 412]);
+  hotsetOutcome(updated, revision, marker, 'hotset category PUT');
+}
+
+// Unlike the finite contention matrix, this keeps a small set of live revision domains hot for the
+// entire duration. Conflicts are required, but successful writers must keep making forward progress.
+export function hotset(data) {
+  const index = (__VU - 1) % manifest.actors.length;
+  const operation = scheduledValue(hotsetOperations, scheduleSeed, index, __ITER);
+  if (artifactKinds.includes(operation)) hotsetArtifact(data, index, operation);
+  else if (operation === 'folder') hotsetFolder(data, index);
+  else if (operation === 'group') hotsetGroup(data, index);
+  else hotsetCategory(data, index);
 }
 
 function batchRequest(data, actorIndex, method, base, path, body, operation, revision,
@@ -534,7 +765,7 @@ function contentRace(data, kind) {
   const current = cedar(data, 0, 'GET', fixture.path, undefined, getOperation);
   const revision = requireEtag(current, `${kind} content preflight`);
   if (!revision) return;
-  const body = current.json();
+  const body = mutableResponseBody(current);
   body['schema:description'] = `${manifest.prefix} ${kind} contention ${__ITER}`;
   const operations = Array(contentionWidth).fill(putOperation);
   const requests = operations.map((operation, index) =>
@@ -675,7 +906,7 @@ function fixtureActor(kind) {
 }
 
 function replacementBody(kind, current, iteration) {
-  const currentBody = current.json();
+  const currentBody = mutableResponseBody(current);
   if (['template', 'element', 'field', 'instance'].includes(kind)) {
     const body = currentBody;
     body['schema:description'] = `${manifest.prefix} destructive ${kind} ${iteration}`;
@@ -818,7 +1049,7 @@ function wildcardMutation(data, type) {
   const revision = requireEtag(current, `${type} preflight`);
   if (!revision) return;
   if (type === 'wildcard-content') {
-    body = current.json();
+    body = mutableResponseBody(current);
     body['schema:description'] = `${manifest.prefix} wildcard content ${__ITER}`;
   } else if (type === 'wildcard-folder-graph') {
     body = replacementBody('folder', current, __ITER);
@@ -868,8 +1099,14 @@ export function handleSummary(data) {
       .slice(0, 8)
       .map(route => `  ${route.name}: ${route.p95.toFixed(1)} ms`)
       .join('\n');
+  data.cedar = {
+    profile,
+    scheduleSeed,
+    users: manifest.actors.length,
+    vus: configuredVus,
+  };
   return {
     [output]: JSON.stringify(data, null, 2),
-    stdout: `\nCEDAR REST ${profile}: checks ${checks === undefined ? 'n/a' : (checks * 100).toFixed(2) + '%'}, HTTP p95 ${p95 === undefined ? 'n/a' : p95.toFixed(1) + ' ms'}\n${slowest ? `Slowest route p95:\n${slowest}\n` : ''}`,
+    stdout: `\nCEDAR REST ${profile}: checks ${checks === undefined ? 'n/a' : (checks * 100).toFixed(2) + '%'}, HTTP p95 ${p95 === undefined ? 'n/a' : p95.toFixed(1) + ' ms'}, seed ${scheduleSeed}\n${slowest ? `Slowest route p95:\n${slowest}\n` : ''}`,
   };
 }
