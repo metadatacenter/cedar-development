@@ -30,6 +30,18 @@ through Keycloak, encoded artifact-IRI routes, live terminology, publication/ver
 create/update/delete. The operational details and two compatibility accommodations are recorded in
 the runbook's dependency and framework state.
 
+REST concurrency and performance qualification was completed on 2026-08-29. The local k6 harness
+now provisions an isolated identity pool, drives every ETag-enabled artifact and resource mutation,
+and supplies reproducible quick, contention, hot-set, churn, dependency-resilience, burst and soak
+profiles with route-specific thresholds and residue-free cleanup. The qualification runs completed
+without correctness failures, dropped work or leaked fixtures; targeted diagnostics traced the
+remaining isolated latency spikes to Neo4j transaction-log force latency rather than CEDAR lock,
+heap or garbage-collection pressure. A concurrent deletion-outbox tombstone race found by the
+harness was fixed in the resource server. Performance is therefore a regression guardrail rather
+than open roadmap work: revisit it when a threshold breaches repeatably, production telemetry shows
+a degradation trend, or a change materially affects persistence, pools, queues or resource
+lifetime.
+
 ## Next
 
 ### Features

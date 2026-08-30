@@ -1621,6 +1621,24 @@ and Neo4j GC pauses are negligible. Preserve durability and treat a repeatable p
 a storage/backend finding; an isolated maximum that leaves the p95 and recovery gates green is useful
 tail evidence, not a reason to fail the run by inspection.
 
+The 2026-08-29 qualification exercised all ETag-enabled artifact kinds and the workspace, ACL,
+group, membership and category mutation routes. Churn completed 601 full create/update/delete
+lifecycles without interruption; dependency resilience completed 15,927 iterations, including 442
+expected outage responses and 10,447 recovered operations, with no unexpected response. The final
+burst completed 1,501 iterations with no failed checks or dropped iterations; operation p95 was
+170.9 ms, server-wait p99 was 285.5 ms and the recovery p95 remained below its gate. Fixture cleanup
+reported no residue. Together with the completed 30-minute soak and 20-minute stress runs, this is
+the current native-stack performance baseline. The burst profile's 50-user pool is identity and VU
+capacity; it does not mean that fifty requests execute continuously throughout an arrival-rate run.
+
+A 30-minute soak is the routine qualification gate. Do not run an overnight soak merely to repeat
+the same concurrency coverage: contention, churn, resilience and burst create useful failure modes
+far more efficiently. Use a six-to-eight-hour soak when investigating a suspected slow heap,
+connection, queue or fixture leak; after a material change to caches, pools, asynchronous workers,
+storage or deployment topology; or when production telemetry shows latency or resource use drifting
+over hours. Such a run needs an otherwise idle host and observation of heap/RSS, garbage collection,
+queue and outbox depth, database/storage latency and cleanup residue at both the beginning and end.
+
 `--pool-size=N` can raise the
 ensured identity-pool floor above 50, while a larger `--users` value always expands the pool to fit.
 A VU count may not exceed the selected identities: independent writers must not accidentally contend
