@@ -27,6 +27,9 @@ const burstBaselineRate = Number(__ENV.CEDAR_PERF_BURST_BASELINE_RATE || 5);
 const burstPeakRate = Number(__ENV.CEDAR_PERF_BURST_PEAK_RATE || 40);
 const burstPhaseDuration = __ENV.CEDAR_PERF_BURST_PHASE_DURATION || '30s';
 const burstPhaseSeconds = Number(__ENV.CEDAR_PERF_BURST_PHASE_SECONDS || 30);
+const slowRequestMs = Number(__ENV.CEDAR_PERF_SLOW_REQUEST_MS || 500);
+const slowRequestLogLimit = Number(__ENV.CEDAR_PERF_SLOW_REQUEST_LOG_LIMIT || 3);
+let slowRequestLogs = 0;
 
 const allowedHosts = ['localhost', '127.0.0.1', 'metadatacenter.orgx'];
 const targetHost = resource.replace(/^[a-z]+:\/\//i, '').split('/')[0].split(':')[0];
@@ -50,6 +53,8 @@ const burstBaselineDuration = new Trend('cedar_burst_baseline_duration', true);
 const burstPeakDuration = new Trend('cedar_burst_peak_duration', true);
 const burstRecoveryDuration = new Trend('cedar_burst_recovery_duration', true);
 const operationDuration = new Trend('cedar_operation_duration', true);
+const operationWaiting = new Trend('cedar_operation_waiting', true);
+const operationBlocked = new Trend('cedar_operation_blocked', true);
 const artifactKinds = ['template', 'element', 'field', 'instance'];
 const destructiveKinds = ['template', 'element', 'field', 'instance', 'folder', 'group', 'category'];
 const wildcardTypes = [
@@ -165,7 +170,21 @@ const profileRouteThresholds = {
 
 function recordDuration(operation, response) {
   operationDuration.add(response.timings.duration, { operation });
+  operationWaiting.add(response.timings.waiting, { operation });
+  operationBlocked.add(response.timings.blocked, { operation });
   routeMetrics[operation]?.add(response.timings.duration);
+  if (response.timings.duration >= slowRequestMs && slowRequestLogs < slowRequestLogLimit) {
+    slowRequestLogs += 1;
+    console.warn([
+      'CEDAR slow request', new Date().toISOString(), `operation="${operation}"`,
+      `status=${response.status}`, `total=${response.timings.duration.toFixed(1)}ms`,
+      `waiting=${response.timings.waiting.toFixed(1)}ms`,
+      `blocked=${response.timings.blocked.toFixed(1)}ms`,
+      `connecting=${response.timings.connecting.toFixed(1)}ms`,
+      `tls=${response.timings.tls_handshaking.toFixed(1)}ms`,
+      `receiving=${response.timings.receiving.toFixed(1)}ms`, `vu=${__VU}`, `iter=${__ITER}`,
+    ].join(' '));
+  }
 }
 
 const matrixCases = [
@@ -304,6 +323,7 @@ if (profile === 'resilience' && (!Number.isFinite(faultStartEpochMs) || faultSta
 export const options = {
   ...profiles[profile],
   insecureSkipTLSVerify: true,
+  summaryTrendStats: ['avg', 'min', 'med', 'max', 'p(90)', 'p(95)', 'p(99)'],
   batch: Math.max(20, contentionWidth),
   batchPerHost: Math.max(20, contentionWidth),
   discardResponseBodies: false,
@@ -1417,11 +1437,22 @@ export function handleSummary(data) {
   const p95 = data.metrics.cedar_operation_duration?.values?.['p(95)'];
   const slowest = Object.entries(data.metrics)
       .filter(([name, metric]) => name.startsWith('cedar_route_') && metric.values?.['p(95)'] !== undefined)
-      .map(([name, metric]) => ({ name: name.replace(/^cedar_route_|_duration$/g, ''), p95: metric.values['p(95)'] }))
+      .map(([name, metric]) => ({
+        name: name.replace(/^cedar_route_|_duration$/g, ''),
+        p95: metric.values['p(95)'],
+        max: metric.values.max,
+      }))
       .sort((left, right) => right.p95 - left.p95)
       .slice(0, 8)
-      .map(route => `  ${route.name}: ${route.p95.toFixed(1)} ms`)
+      .map(route => `  ${route.name}: p95 ${route.p95.toFixed(1)} ms, max ${route.max.toFixed(1)} ms`)
       .join('\n');
+  const component = name => {
+    const values = data.metrics[name]?.values;
+    if (!values) return undefined;
+    return `p95 ${values['p(95)'].toFixed(1)} ms, p99 ${values['p(99)'].toFixed(1)} ms, max ${values.max.toFixed(1)} ms`;
+  };
+  const waiting = component('cedar_operation_waiting');
+  const blocked = component('cedar_operation_blocked');
   data.cedar = {
     profile,
     scheduleSeed,
@@ -1430,6 +1461,6 @@ export function handleSummary(data) {
   };
   return {
     [output]: JSON.stringify(data, null, 2),
-    stdout: `\nCEDAR REST ${profile}: checks ${checks === undefined ? 'n/a' : (checks * 100).toFixed(2) + '%'}, HTTP p95 ${p95 === undefined ? 'n/a' : p95.toFixed(1) + ' ms'}, seed ${scheduleSeed}\n${slowest ? `Slowest route p95:\n${slowest}\n` : ''}`,
+    stdout: `\nCEDAR REST ${profile}: checks ${checks === undefined ? 'n/a' : (checks * 100).toFixed(2) + '%'}, HTTP p95 ${p95 === undefined ? 'n/a' : p95.toFixed(1) + ' ms'}, seed ${scheduleSeed}\n${waiting ? `Server wait: ${waiting}\n` : ''}${blocked ? `Client blocked: ${blocked}\n` : ''}${slowest ? `Slowest routes:\n${slowest}\n` : ''}`,
   };
 }

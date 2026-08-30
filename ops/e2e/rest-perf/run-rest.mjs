@@ -40,6 +40,8 @@ const burstBaselineRate = intArg('baseline-rate', 5, { max: 100 });
 const burstPeakRate = intArg('burst-rate', 40, { max: 500 });
 const burstPhaseDuration = arg('phase-duration', '30s');
 const burstRecoveryPercent = intArg('recovery-p95-percent', 150, { min: 100, max: 300 });
+const slowRequestMs = intArg('slow-request-ms', 500, { min: 100, max: 60000 });
+const slowRequestLogLimit = intArg('slow-request-log-limit', 3, { min: 0, max: 20 });
 const vus = Number(arg('vus', String(users)));
 if (!Number.isInteger(vus) || vus < 1 || vus > users) {
   throw new Error(`--vus must be an integer from 1 to the selected user count (${users}); got ${vus}`);
@@ -153,6 +155,8 @@ try {
     CEDAR_PERF_BURST_PEAK_RATE: String(burstPeakRate),
     CEDAR_PERF_BURST_PHASE_DURATION: burstPhaseDuration,
     CEDAR_PERF_BURST_PHASE_SECONDS: String(durationSeconds(burstPhaseDuration)),
+    CEDAR_PERF_SLOW_REQUEST_MS: String(slowRequestMs),
+    CEDAR_PERF_SLOW_REQUEST_LOG_LIMIT: String(slowRequestLogLimit),
   };
   if (profile === 'resilience') {
     const faultStartEpochMs = Date.now() + faultDelaySeconds * 1000;

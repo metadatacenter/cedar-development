@@ -1602,6 +1602,25 @@ summary and fails unless recovery p95 is at most the greater of the configured p
 baseline (150% by default) or baseline plus 100 ms. That relative check distinguishes genuine
 post-load degradation from a universally slow or universally fast run.
 
+Every profile reports server-wait and client-blocked p95/p99/max components in addition to route
+latency. Requests taking at least 500 ms emit a timestamped diagnostic with the operation, status,
+timing components, VU and iteration; `--slow-request-ms=N` changes that boundary and
+`--slow-request-log-limit=N` caps the output per VU (three by default). These diagnostics distinguish
+a backend pause from connection-pool or load-generator delay without turning an ordinary run into a
+trace dump.
+
+For a backend concurrency qualification, run contention first, then churn, resilience, burst and the
+requested soak, one at a time against an otherwise idle stack. Use a named seed for each recorded run
+and keep the default rates unless the purpose is explicitly capacity finding. A green run requires the
+correctness and route thresholds, the profile-specific progress/recovery checks, and successful
+teardown; a low aggregate p95 does not excuse a failed route or recovery gate. If total latency is
+almost entirely `waiting` while `blocked`, connection and TLS time remain near zero, correlate the
+timestamp with the native service and datastore before changing a threshold. In particular, Neo4j
+transaction-log force latency can hold a resource-server graph update at commit even when resource
+and Neo4j GC pauses are negligible. Preserve durability and treat a repeatable phase-level breach as
+a storage/backend finding; an isolated maximum that leaves the p95 and recovery gates green is useful
+tail evidence, not a reason to fail the run by inspection.
+
 `--pool-size=N` can raise the
 ensured identity-pool floor above 50, while a larger `--users` value always expands the pool to fit.
 A VU count may not exceed the selected identities: independent writers must not accidentally contend
