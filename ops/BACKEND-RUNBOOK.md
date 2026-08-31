@@ -746,6 +746,29 @@ does the work in the background; the resource server log reports progress. It is
 instrument, and it discards the index the alias is serving, so prefer a replay when the dead-letter
 queue explains the drift.
 
+### A rebuild that answers 409, and taking the index back
+
+Only one rebuild runs at a time over an index, because each one ends by deleting every index for its
+alias but its own: two together leave the alias naming an index that no longer exists. A second
+command over a busy index is refused with a 409 naming the job that holds it, and
+`GET /command/index-job-status` says what became of the last rebuild of each index and whether one is
+running now. The same exclusion covers the value sets ontology import, whose own status is
+`GET /command/load-valuesets-ontology-status`.
+
+A job that throws releases the index whatever it threw. A job that never returns cannot, so a claim
+is believed for six hours. Past that the status reports it as `overdue`, and the refusal names the
+command that takes the index back:
+
+```bash
+curl -s -X POST http://localhost:9007/command/reset-search-index-job -H "Authorization: apiKey $CEDAR_ADMIN_USER_API_KEY"
+```
+
+`reset-rules-index-job` and `reset-valuesets-import` are the same command for the other two claims.
+A reset does not stop the abandoned job, so read the resource server log first and run it only once
+that job has stopped making progress; the job it abandons can no longer report, so it cannot say
+COMPLETE over the rebuild that follows it. A claim still within its deadline is left alone and
+answers 409, and the reset asks for the same permission as the rebuild it unblocks.
+
 ## Identifiers: what a client sends, and what the server fills
 
 Only the repository assigns an identity. A client says which identifiers it wants assigned rather
