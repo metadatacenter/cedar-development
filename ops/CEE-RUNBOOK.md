@@ -59,24 +59,8 @@ needs **JDK 17** specifically — see
 
 ## Running the app
 
-CEE's standalone dev mode needs a second repo for the sample templates it loads.
-
-```bash
-git clone https://github.com/metadatacenter/cedar-component-distribution.git
-```
-
-Configuration for dev mode lives in `src/app/app.component.dev.ts` — it is
-TypeScript, not JSON, and is compiled in. Point
-`sampleTemplateLocationPrefix` at wherever the component-distribution server is
-serving from.
-
-Terminal 1 — the sample templates:
-
-```bash
-cd cedar-component-distribution && npm install && npx ng serve
-```
-
-Terminal 2 — CEE itself:
+CEE's standalone dev mode serves everything it needs from this repository, so
+one command runs it.
 
 ```bash
 export PATH="/opt/homebrew/opt/node@24/bin:$PATH"
@@ -84,6 +68,25 @@ npm install && npx ng serve
 ```
 
 Then open `http://localhost:4400/`.
+
+The developer app fetches its demo template and instance from CEE's own assets,
+`src/assets/cee-demo/demo/template.json` and `metadata.json`, and hands both to
+the component together so the form is built with the instance already read. The
+template is the nested fixture the visual suite renders as `18-real-nested`: 23
+field types over two pages, every temporal granularity, both choice and both
+list cardinalities, the static widgets, the authority fields, and single and
+multi-instance elements inside two wrappers.
+
+Until 2026-08-15 it instead pulled samples over the network from a second
+repository, `cedar-component-distribution`, cloned and served in a terminal of
+its own and located by a `sampleTemplateLocationPrefix` key. That was the only
+path on which CEE reached the network for an artifact. A host fetches its own
+artifacts, and the developer app is a host like any other, so the key, the
+second repository and the second terminal are all gone.
+
+The rest of dev-mode configuration remains in `src/app/app.component.dev.ts` —
+the terminology and bridge base URLs, the offered languages, the read-only flag.
+It is TypeScript, not JSON, and is compiled in.
 
 ## Building the web component
 
