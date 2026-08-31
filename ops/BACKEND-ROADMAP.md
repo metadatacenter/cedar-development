@@ -354,7 +354,30 @@ lifetime.
   ("DOID (DOID)" instead of "Human Disease Ontology (DOID)") behind a green health check. What remains
   here is the code-owned cause: read `CEDAR_BIOPORTAL_API_KEY` from config and delete the constant.
 
-- **6. Separate CEDAR dependency convergence from the Keycloak provider platform lock.** The eleven
+- **6. Rate limit the edge in every environment.** Nothing in CEDAR bounds how often an anonymous
+  caller may spend the deployment's third-party quota. The `/ext-auth/*` routes are the clearest
+  case: they proxy seven registries, three of them on credentials the deployment holds, and they
+  carry none of their own.
+
+  Those routes are now limited in nginx to 10r/s per source address with a burst of 20, answering
+  `429` above that, in the container configuration and in the native development mirror. A limit
+  rather than a credential is deliberate. The embeddable editor calls them from a browser with
+  nothing to send and nowhere in `CeeConfig` to keep a key, so a gate would break every host that
+  embeds it, and a key shipped to a browser is not a secret and would stop nobody who wanted to
+  relay through CEDAR.
+
+  Three things remain. Staging is not covered: only its `sites-enabled` directory is mirrored here,
+  and `limit_req_zone` is valid only in the `http` context, so the zone has to be added on that
+  host. A per-address limit still multiplies for a caller holding many addresses, so a deployment
+  that cares about the quota needs a ceiling on the total as well as on each source. And the two
+  terminology routes named above spend the same kind of credential with no limit at all; whatever is
+  decided about their gate, they want the same treatment.
+
+  Done when every environment serving an unauthenticated third-party proxy carries a limit, the
+  chosen rates are recorded where the deployment is documented rather than only in the config, and a
+  probe shows the limit taking effect.
+
+- **7. Separate CEDAR dependency convergence from the Keycloak provider platform lock.** The eleven
   apparent test-classpath splits are not eleven candidates for one global version. Re-measuring all
   thirty Maven roots divides them into three different problems, and blindly managing the newer side
   in `cedar-parent` would make the Keycloak event listener compile against libraries its server does
@@ -401,7 +424,7 @@ lifetime.
   prove that Keycloak loads the packaged provider or that a deployed admin operation reaches the
   configured realm.
 
-- **7. Retire routine `CEDAR_VERSION_MODIFIER` cache busting.** Frontend code identity now comes
+- **8. Retire routine `CEDAR_VERSION_MODIFIER` cache busting.** Frontend code identity now comes
   from the source commit in the three AngularJS RequireJS keys and from content-hashed production
   bundles in the modern Angular applications. A deployment should not need a hand-edited modifier
   merely to make a new code revision visible. Keep the variable temporarily as a compatibility
@@ -430,7 +453,7 @@ lifetime.
 
 ## Production data
 
-- **8. Normalize production artifacts to one explicit model contract.** Production contains several
+- **9. Normalize production artifacts to one explicit model contract.** Production contains several
   legacy representations that the current model surfaces tolerate or normalize differently, so bring
   them to canonical shapes before tightening readers or introducing terminology routing across source
   systems. The permission-scoped audit found 76 inherently-multiple fields deployed as JSON objects in
@@ -553,7 +576,7 @@ lifetime.
 
 ## Later decisions
 
-- **9. A published artifact can be deleted, contradicting the docs.** The docs say a published
+- **10. A published artifact can be deleted, contradicting the docs.** The docs say a published
   artifact is permanent, but `DELETE` on one succeeds. The guard in
   `AbstractResourceServerResource.executeArtifactDelete` was briefly re-enabled and then **reverted by
   deliberate decision**: blocking deletion strands published artifacts and the folders holding them with
@@ -564,7 +587,7 @@ lifetime.
   through folder deletion). Immutability of published content is a separate guarantee and is
   unaffected either way — that one is enforced.
 
-- **10. Finish the DataCite DOI minting lifecycle.** The access and validity gates landed on 2026-08-27
+- **11. Finish the DataCite DOI minting lifecycle.** The access and validity gates landed on 2026-08-27
   (`a7dddca`, `e775d6d`). `validateSourceArtifactForDoi` now runs on the mutation endpoint as well as
   the preparatory GET, so a direct POST can no longer bypass write access, the open requirement, or a
   template's published requirement. The endpoint refuses any state other than `draft` or `publish`,
