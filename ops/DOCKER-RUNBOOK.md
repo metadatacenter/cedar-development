@@ -419,6 +419,15 @@ would report false backend failures.
 cedarcli docker status
 ```
 
+A microservice container reads healthy when the dependencies it holds answer, not merely when its
+process is alive: every one of the fifteen probes Neo4j, and each adds Mongo, MySQL, OpenSearch or
+its own Redis queue where it owns one. The `depends_on` edges in the microservice stack order the
+start and do not wait on health, so an unreachable database marks one container unhealthy instead of
+preventing the containers behind it from starting at all. Staged readiness belongs to
+`cedarcli docker start`, which brings up infrastructure, microservices and frontends in turn and
+waits between them. What each server probes, and why a dependency is gating rather than reported, is
+in [BACKEND-RUNBOOK.md](./BACKEND-RUNBOOK.md).
+
 The command renders one compact table grouped by infrastructure, microservices, and (in full Docker
 mode) frontends. Each row shows Compose health, whether the running image matches the configured
 image set, published or internal ports, and the container restart count. `MISMATCH` is the Docker

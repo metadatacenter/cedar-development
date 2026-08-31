@@ -619,7 +619,9 @@ status`, `cedarcli native watch`, `cedarcli native logs <name>`, or `cedarcli na
 | | | | | designer (gulp preview) | 4202 | — |
 | | | | | Keycloak | 8080 / 8443 (https) | |
 
-Admin port = app port + 100; health check at `http://127.0.0.1:<admin>/healthcheck`.
+Admin port = app port + 100; health check at `http://127.0.0.1:<admin>/healthcheck`. The same report
+is served on the application port at `/healthcheck`, where it requires the `monitorManager` role and
+is what the Monitor's cross-service health page reads.
 
 In Docker only the application port is published to the host. Admin connectors bind loopback inside
 their container for the Compose health check and are not host-mapped; do not add `9111:9111` (or any
@@ -1424,22 +1426,51 @@ wire compatibility and does not bypass validation or storage checks. If a privil
 needed again, introduce a separately authorized internal operation rather than reviving the public
 query switch.
 
-Every server that opens the document store reports on it. `initMongoServices` builds the probe and
-the shared bootstrap registers it, so artifact, repo, openview and monitor each carry a `mongo`
-check beside the placeholder `message` one, and `/healthcheck` is non-green on any of them when the
-Mongo ping fails. Registering it where the store is opened is what makes that true of all four:
-while each server registered its own, only the artifact server ever did, and the other three
-answered green while every artifact read through them failed. A passing placeholder check alone is
-not sufficient evidence that artifact traffic will work. Insight endpoints are operationally
-sensitive: `/insight/thread-details` exposes stack and thread state and, like every other insight
-route, requires an authenticated user with the `monitorManager` role (`MONITOR_READ`).
+A green health check means a server's dependencies answer, not that its process is alive. Two
+outcomes are available when a probe fails, and `CedarDependencyHealthCheck` names them. A *gating*
+dependency is one the server cannot serve requests without, and its failure makes the server
+unhealthy. A *reporting* dependency is one whose loss degrades the server without stopping it: the
+condition goes into the health message and the result stays healthy. The distinction has a cost
+attached, because `cedarcli native health` and `cedarcli docker status` exit nonzero unless every
+check passes and both runbooks gate deploys on that. Gating a dependency the server survives without
+blocks a deploy for a condition nobody needs to act on, which is the case `CompToxHealthCheck`
+argues at length for the Bridge server's view of the EPA registry.
 
-Worker health is dependency- and work-aware. Its admin `/healthcheck` includes named `redis`,
-`opensearch`, `neo4j` and `queue-consumers` checks in addition to Dropwizard's generic checks. The
-consumer check fails when a processor thread stops, its latest processing attempt remains failed, a
-dead-letter list is nonempty, or Redis cannot report dead-letter depth. A green worker therefore
-means its three main datastores answer and all four queue consumers can still make clean progress;
-it does not merely mean the HTTP process is alive.
+The shared bootstrap probes what every microservice opens. Neo4j is gating: it resolves the caller
+of every authenticated request, so a server that cannot reach it can serve nothing. The Redis
+application log queue is reporting: enqueueing is best-effort by design and drops events rather
+than failing the request that produced them. Every server therefore carries `neo4j` and
+`app-log-queue` in addition to Dropwizard's own `deadlocks`.
+
+Servers add what they own on top of that. `initMongoServices` builds the document-store probe and
+the shared bootstrap registers it, so artifact, repo, openview and monitor each carry `mongo`.
+Dropwizard's Hibernate bundle registers `hibernate` wherever a server opens MySQL, which is
+messaging, monitor and worker. Resource and valuerecommender gate on `opensearch`, both being
+unable to answer without their index. Submission gates on `ncbi-submission-queue`, whose contents,
+unlike the log queue's, cannot be dropped. Terminology's `ontology-catalogue` reports the size and
+name quality of the loaded catalogue. Bridge's `comp-tox` reports the EPA registry's condition and
+never fails on it.
+
+Each probe carries its own timeout, and the reason is specific: the Neo4j driver waits 30 seconds to
+establish a connection by default, while a container health check gives the whole endpoint 10. An
+unbounded probe would not report a slow dependency, it would hang `/healthcheck` itself, and the
+container would read as down for a reason no check names. At most one probe runs at a time per
+check, so a permanently blocked dependency costs one thread rather than one per poll.
+
+Worker health is also work-aware. Its `queue-consumers` check fails when a processor thread stops,
+its latest processing attempt remains failed, a dead-letter list is nonempty, or Redis cannot report
+dead-letter depth. A green worker means its datastores answer and all four consumers can still make
+clean progress.
+
+The report is served on both connectors. Dropwizard serves it on the admin connector, which is bound
+to loopback so that `/metrics` and `/threads` stay off the network, and which the container health
+check curls on localhost. `CedarHealthCheckResource` serves the same body and status on the
+application connector, because under Compose every server is its own host and the Monitor's
+cross-service health page could otherwise reach no server but itself. That route is gated on
+`MONITOR_READ`, as the insight routes are and for the same reason: nginx proxies the application
+connector to a public host, and a health report names every dependency a server holds and quotes the
+error text when one is unreachable. Insight endpoints are operationally sensitive in the same way:
+`/insight/thread-details` exposes stack and thread state and requires the same role.
 
 Inclusion-subgraph regeneration is a tracked single-flight worker job. An authorized
 `POST /command/regenerate-inclusion-subgraph` returns `202 Accepted`, a job document, and a
