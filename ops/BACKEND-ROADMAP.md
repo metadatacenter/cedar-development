@@ -331,7 +331,39 @@ Frontend work for the embeddable editor is tracked separately in
   chosen rates are recorded where the deployment is documented rather than only in the config, and a
   probe shows the limit taking effect.
 
-- **7. Separate CEDAR dependency convergence from the Keycloak provider platform lock.** The eleven
+- **7. Bound the application-log queue, and let its consumer keep up.** Application logging can
+  consume the host it runs on. The Redis queue has no ceiling, the consumer drains far below what the
+  stack produces under load, and nothing removes old rows, so a busy period grows memory without
+  limit and degrades every service while it does.
+
+  Measured on 2026-08-31, after a day of local performance profiles: `CEDAR-QUEUE-app-log` held
+  3.7 million messages and drained at about 1,054 a second, roughly an hour of backlog. Redis was
+  using 5.77 GB against a peak of 24.86 GB, with `maxmemory` unset. A background save of a dataset
+  that size takes most of a core and stalls every service reading through Redis, which is enough on
+  its own to make a performance run measure the save rather than the code. `cedar_log.log_request`
+  had reached 10.3 million rows, 6.8 GB of data and 4.4 GB of index.
+
+  Three things hold the drain rate down, and they compound. Each message is its own `@UnitOfWork`,
+  so one HTTP request costs several transactions rather than one. Every subtype after the first reads
+  the row back by `localRequestId` before merging into it, so most of those transactions carry a
+  lookup as well as a write. The table then carries fourteen secondary indexes, each maintained on
+  every insert, on a table too large to keep them cached.
+
+  Deliver:
+
+  - A ceiling on the queue, and a stated answer for what happens when it is reached. Logging must not
+    be able to exhaust the host, so dropping the oldest records, shedding new ones, or refusing the
+    write are all acceptable answers and silence is not.
+  - One transaction per batch rather than per message, and the start record carried forward so a
+    merge does not pay for a lookup it could avoid.
+  - An index set chosen from the queries actually run against this table, measured rather than
+    assumed. Fourteen on a write-heavy table is a cost paid on every insert.
+  - A retention policy, so the table has a size it returns to.
+
+  Done when a sustained load profile leaves the queue at a bounded depth it recovers from, Redis
+  memory flat across the run, and the worker healthy throughout.
+
+- **8. Separate CEDAR dependency convergence from the Keycloak provider platform lock.** The eleven
   apparent test-classpath splits are not eleven candidates for one global version. Re-measuring all
   thirty Maven roots divides them into three different problems, and blindly managing the newer side
   in `cedar-parent` would make the Keycloak event listener compile against libraries its server does
@@ -378,7 +410,7 @@ Frontend work for the embeddable editor is tracked separately in
   prove that Keycloak loads the packaged provider or that a deployed admin operation reaches the
   configured realm.
 
-- **8. Retire routine `CEDAR_VERSION_MODIFIER` cache busting.** Frontend code identity now comes
+- **9. Retire routine `CEDAR_VERSION_MODIFIER` cache busting.** Frontend code identity now comes
   from the source commit in the three AngularJS RequireJS keys and from content-hashed production
   bundles in the modern Angular applications. A deployment should not need a hand-edited modifier
   merely to make a new code revision visible. Keep the variable temporarily as a compatibility
@@ -405,7 +437,7 @@ Frontend work for the embeddable editor is tracked separately in
   cache token, the cache-delivery smoke passes in staging and production, and rollback works by
   restoring payloads and routing without inventing a new modifier.
 
-- **9. Converge on one pagination encoding.** Three servers paginate three ways, and all three build
+- **10. Converge on one pagination encoding.** Three servers paginate three ways, and all three build
   on the same `PagedResults` and `LinkHeaderUtil`, so nothing forces the split. The artifact server
   sends `Link` and `Total-Count` as headers and keeps the body to the collection. The resource server
   computes the same link set and puts it in the body under `paging`
@@ -437,7 +469,7 @@ Frontend work for the embeddable editor is tracked separately in
   REST smoke asserts it on a route from each of the three servers, and the superseded encodings are
   either withdrawn or carry a recorded date for withdrawal.
 
-- **10. Bound every outbound call by what the call actually is, and measure before choosing the
+- **11. Bound every outbound call by what the call actually is, and measure before choosing the
   numbers.** Two classes of outbound call are distinguished today, interactive and batch, each with a
   fixed connect, lease and response timeout and its own connection pool. That covers the difference
   between a call a user waits on and a job nobody waits on. It does not cover the difference between
@@ -508,7 +540,7 @@ Frontend work for the embeddable editor is tracked separately in
 
 ## Production data
 
-- **11. Normalize production artifacts to one explicit model contract.** Production contains several
+- **12. Normalize production artifacts to one explicit model contract.** Production contains several
   legacy representations that the current model surfaces tolerate or normalize differently, so bring
   them to canonical shapes before tightening readers or introducing terminology routing across source
   systems. The permission-scoped audit found 76 inherently-multiple fields deployed as JSON objects in
@@ -668,7 +700,7 @@ Frontend work for the embeddable editor is tracked separately in
 
 ## Later decisions
 
-- **12. A published artifact can be deleted, contradicting the docs.** The docs say a published
+- **13. A published artifact can be deleted, contradicting the docs.** The docs say a published
   artifact is permanent, but `DELETE` on one succeeds. The guard in
   `AbstractResourceServerResource.executeArtifactDelete` was briefly re-enabled and then **reverted by
   deliberate decision**: blocking deletion strands published artifacts and the folders holding them with
@@ -679,7 +711,7 @@ Frontend work for the embeddable editor is tracked separately in
   through folder deletion). Immutability of published content is a separate guarantee and is
   unaffected either way — that one is enforced.
 
-- **13. Finish the DataCite DOI minting lifecycle.** The durable lifecycle is what makes the operation
+- **14. Finish the DataCite DOI minting lifecycle.** The durable lifecycle is what makes the operation
   recovery-safe, and none of it exists yet. Minting persists no state of its own: draft/reserved,
   published and locally attached are recorded nowhere, so the `reconciliationRequired` response names a
   condition no code resolves, and a retry after a timeout cannot tell whether the earlier attempt
