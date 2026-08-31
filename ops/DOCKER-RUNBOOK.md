@@ -61,8 +61,9 @@ Homebrew/local data. `docker compose down` retains named volumes and therefore r
   toolchains.
 - `$CEDAR_HOME/set-env-external.sh` and `set-env-internal.sh` configured for the installation.
 - A JDK 17 only when compiling Java; pulling and running a published train does not require it.
-- Custom local certificates in `$CEDAR_HOME/CEDAR_CA`. The setup otherwise falls back to the
-  bundled certificate set, which may be expired.
+- The certificate identity and CA password values in `set-env-internal.sh` configured for the
+  installation. First-time setup creates a local CA and leaves under `$CEDAR_HOME/CEDAR_CA` when
+  they are absent; it reuses complete custom certificate pairs and refuses partial state.
 - At least 32 GB of memory allocated to Docker's virtual machine wherever the terminology server
   reads a local store. The reason, and what too small an allocation looks like from the outside,
   are in [Sizing Docker's Virtual Machine](#sizing-dockers-virtual-machine).
@@ -330,7 +331,10 @@ optional admin images, for 35 total.
 ## One-time Docker setup
 
 Run this before the first deployment, or after intentionally recreating the CEDAR network and
-certificate volumes. It creates `cedarnet` at `192.168.17.0/24`, plus external certificate volumes.
+certificate volumes. It creates `cedarnet` at `192.168.17.0/24`, creates a local CA and any missing
+leaf certificate pairs without rotating existing complete pairs, then populates the two external
+certificate volumes from that local material. It does not fall back to private keys bundled in
+`cedar-docker-deploy`.
 It removes an existing `cedarnet` while recreating it, so do not run it under a live CEDAR stack.
 
 ```bash
