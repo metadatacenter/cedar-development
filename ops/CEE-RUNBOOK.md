@@ -218,7 +218,7 @@ doing so for two minutes of polling. Clear the cache and restart:
 
 ```bash
 cd $CEDAR_HOME/cedar-openview/cedar-openview-src && rm -rf .angular/cache
-bash $CEDAR_HOME/cedar-development/ops/cedar-services.sh restart ui-openview
+cedarcli native restart ui-openview
 ```
 
 The cache is gitignored and rebuilds itself, so deleting it costs a slower first
@@ -298,7 +298,7 @@ the deploy. A Workspace preview image must instead be rebuilt and recreated beca
 its CEE bundle was copied into the image.
 
 ```bash
-bash $CEDAR_HOME/cedar-development/ops/cedar-services.sh restart ui-openview ui-bridging
+cedarcli native restart ui-openview ui-bridging
 ```
 
 Compilation is seconds, not minutes: `ng serve` reports `Compiled successfully` in

@@ -102,7 +102,7 @@ deployment, health, and acceptance procedures.
 
 **It cannot run beside the native stack.** Both want 80/443, 3306, 27017, 6379, 9200, 7474/7687,
 8080 and the 9xxx range. Take the native one down first with `cedarcli native stop all`, which unlike
-`cedar-services.sh stop` also stops the infrastructure. Storage is separate — the containers use
+`cedarcli native stop all` also stops the infrastructure. Storage is separate — the containers use
 their own named volumes and never touch `/opt/homebrew/var/*`, so the two estates keep independent
 data.
 
@@ -225,7 +225,7 @@ The older fallback still works: stop `infra-nginx`, start native nginx on 80/443
 frontends on their default loopback bind. Do not run both nginx instances together.
 
 Use `cedarcli docker status` in hybrid mode. `cedarcli native status` is deliberately rejected because
-the backend ports belong to containers. If the lower-level `cedar-services.sh status` is run directly,
+the backend ports belong to containers. If the lower-level `cedarcli native status` is run directly,
 container-owned services are marked `docker` in the PID and HEALTH columns. This describes ownership,
 not readiness; the footer points to `cedarcli docker status` for the authoritative container health
 check. Native start, stop, and restart still refuse to signal Docker's port-forwarding process.
@@ -492,7 +492,7 @@ success: staging copies the jar faithfully, the image hash matches, and the cont
 code. If you changed a shared library, `./mvnw clean install` in the consuming server before staging.
 
 
-## The controller: `ops/cedar-services.sh`
+## The controller: `cedarcli native`
 
 Manages the 15 microservices + three AngularJS/Gulp frontends + the 4 auxiliary Angular frontends as
 background processes: non-restarting submitted `launchd` jobs on macOS and `nohup` children on other
@@ -500,11 +500,15 @@ systems. Each logs to `$CEDAR_HOME/log/`, with its PID tracked in `$CEDAR_HOME/l
 controller forces `JAVA_HOME=17`, puts `/opt/homebrew/bin` on `PATH` (for `node`/`ng`), and sources
 the profile itself, so it is safe to run standalone.
 
+`cedarcli native` is the interface. `ops/cedar-services.sh` is the controller behind it, and
+`NativeWorker` calls that script for every verb below. Reach for the script directly only for the
+one case the CLI does not cover, noted after the table.
+
 The Gulp frontends deliberately run side by side: `ui-main` is the production monolith on 4200,
 `ui-workspace` is the extracted Workspace preview on 4201, and `ui-designer` is the extracted
 Template Designer preview on 4202. Starting the previews does not change nginx routing or production
-traffic. Use `cedar-services.sh start ui-main ui-workspace ui-designer` for the migration comparison
-set.
+traffic. Start the migration comparison set with `cedarcli native start frontend main`, then
+`workspace` and `designer`.
 
 Native development must not cache frontend responses: the Gulp and Angular development servers use
 stable filenames while their bytes change underneath them. Install the canonical no-store proxy
@@ -531,13 +535,24 @@ too, and will keep it when they stop being AngularJS. Frontend health is **port-
 prefix — `main`, `workspace`, `openview` — which the controller receives as `ui-<name>`.
 
 ```bash
-cedar-services.sh start [name...]     # start all, or only the named services
-cedar-services.sh stop  [name...]
-cedar-services.sh restart [name...]
-cedar-services.sh status              # one-shot table: PID / port / health / binary / error-count
-cedar-services.sh watch               # auto-refreshing status
-cedar-services.sh logs <name>         # tail -f a service log
-cedar-services.sh health [name...]    # exit 0 only if the named services are healthy; all with no names
+cedarcli native start all             # infra + microservices + frontends
+cedarcli native start infra           # or: backends, microservices, frontends
+cedarcli native start microservice <name>   # artifact, bridge, group, resource, …
+cedarcli native start frontend <name>       # main, workspace, designer, openview, …
+cedarcli native stop all              # same shapes as start
+cedarcli native restart [name...]     # all managed applications, or only the named ones
+cedarcli native status                # one-shot table: PID / port / health / binary / error-count
+cedarcli native watch                 # auto-refreshing status
+cedarcli native logs <name>           # tail -f a service log
+cedarcli native health                # exit 0 only if every managed application is healthy
+```
+
+`start` and `stop` name one service at a time through their `microservice` and `frontend`
+subcommands, while `restart` takes a list. Starting an arbitrary named subset in one call is only
+available on the controller itself:
+
+```bash
+bash $CEDAR_HOME/cedar-development/ops/cedar-services.sh start ui-main ui-workspace ui-designer
 ```
 
 `cedarcli native status` is the preferred whole-host view. It renders one grouped table for the
@@ -1133,7 +1148,7 @@ TypeScript, while both emit the same bytes for it.
   one server to produce the fat jar, then restart it:
   ```bash
   mvn -o -f $CEDAR_HOME/cedar-<name>-server/pom.xml install -DskipTests
-  bash $CEDAR_HOME/cedar-development/ops/cedar-services.sh start <name>
+  cedarcli native start microservice <name>
   ```
   (Seen on `repo` in this environment.) Different from the case above: the jar exists, it just isn't
   a runnable artifact.
@@ -1190,7 +1205,7 @@ TypeScript, while both emit the same bytes for it.
   ```bash
   curl -sk http://localhost:9115/healthcheck | python3 -c 'import sys,json;print(json.load(sys.stdin)["comp-tox"]["message"])'
   ```
-  This used to fail the check, which meant an EPA outage made `cedar-services.sh health` exit
+  This used to fail the check, which meant an EPA outage made `cedarcli native health` exit
   non-zero and blocked the full gate below on a third party. A health check answers "should traffic
   reach this instance", and for a dependency the loader will retry forever the answer is yes.
   (`TerminologyServerHealthCheck` is right to do the opposite: the ontology catalogue is that
@@ -1207,13 +1222,13 @@ TypeScript, while both emit the same bytes for it.
   session may have restarted it under you, which is exactly how this happened. The check is one line:
 
   ```bash
-  bash $CEDAR_HOME/cedar-development/ops/cedar-services.sh status | grep STALE \
+  cedarcli native status | grep STALE \
     || echo "every service current"
   ```
   Restart the offender by name so it loads the current jar, and re-check that its **BINARY** column
   reads `current`:
   ```bash
-  bash $CEDAR_HOME/cedar-development/ops/cedar-services.sh restart <name>
+  cedarcli native restart <name>
   ```
   If you suspect the *current* jar is itself a partial build, confirm it is a sound fat jar before
   restarting into it: `unzip -l <app>.jar | grep -c RemovalCause` should be non-zero, and the jar
@@ -1276,7 +1291,7 @@ reports success. Redirect the full log to a file and grep the file.
 **Rebuilding a server without `clean` can ship the previous build's dependency.** Change a shared
 library, `mvn install` it, then `mvn install` a server that depends on it, and the server's fat jar is
 rewritten — with the library's *old* classes still inside. Everything says the build worked: the
-reactor is green, the jar's modification time is seconds old, `cedar-services.sh status` reports the
+reactor is green, the jar's modification time is seconds old, `cedarcli native status` reports the
 binary `current`, and a `dependency:build-classpath` scan finds only the new library. The service then
 runs the old code. The tell is inside the jar rather than around it, and this is how to see it:
 
@@ -1822,9 +1837,9 @@ The full gate, in order:
 
 ```bash
 cedarcli build java                                                # authoritative full build
-bash $CEDAR_HOME/cedar-development/ops/cedar-services.sh restart    # ALL 22 — pass no names
-bash $CEDAR_HOME/cedar-development/ops/cedar-services.sh health     # exit 0 only if all healthy
-bash $CEDAR_HOME/cedar-development/ops/cedar-services.sh status | grep STALE \
+cedarcli native restart          # ALL 22 — pass no names
+cedarcli native health           # exit 0 only if all healthy
+cedarcli native status | grep STALE \
   || echo "every service current"                          # nothing on an old jar or an old editor
 cd $CEDAR_HOME/cedar-development/ops/e2e && npm run smoke
 ```
@@ -1841,7 +1856,7 @@ A full `restart` is slow (it stops and starts 21 processes) and can be cut short
 an interrupt — partway through, leaving some services on the previous build. So after it, run
 `status` and confirm the **BINARY** column reads `current` for every service (see the BINARY/`~pid`
 explanation above); a `STALE` warning means that service kept its old jar. Restart just the
-stragglers by name — `cedar-services.sh restart <name...>` — and re-check. A `health` gate alone
+stragglers by name — `cedarcli native restart <name...>` — and re-check. A `health` gate alone
 will not catch this: a stale service is still healthy. This bit more than once during a fix-and-
 redeploy pass, where a truncated `restart` left the group and messaging servers a build behind.
 
@@ -2471,7 +2486,7 @@ origins, and the live resource service accepts authenticated CORS preflights fro
 
 ```bash
 cd $CEDAR_HOME/cedar-development
-ops/cedar-services.sh start ui-workspace ui-designer
+cedarcli native start frontend workspace   # then: designer
 cd ops/e2e
 npm run smoke:split
 ```
@@ -2666,7 +2681,7 @@ local work and is not an acceptance setting. The record's source commits identif
 its bundle digests identify what was actually generated and served in that environment. Save the
 record with the deployment evidence so cutover and rollback can name exact payloads rather than tags.
 
-Needs the app tier up (frontend, resource, user, group, artifact at least — `cedar-services.sh
+Needs the app tier up (frontend, resource, user, group, artifact at least — `cedarcli native
 status`). Credentials and base URL come from the profile environment, with the local-dev values
 as fallbacks. The UI gestures reuse the selectors verified by the tutorial runner, which now lives
 in `cedar-mkdocs/runner` (`cedar-tutorial` is abandoned and its copy is stale).

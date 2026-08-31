@@ -423,7 +423,7 @@ image reference does not match the selected train or local development tag. The 
 container readiness, acceptance-probe readiness, and the image set in one line; failures are named
 below the table instead of being buried in a wide free-form detail column.
 
-Do not use `cedar-services.sh status` as a container health check. If that lower-level native
+Do not use `cedarcli native status` as a container health check. If that lower-level native
 controller is run directly, it labels container-owned rows `docker` in both PID and HEALTH, labels
 Artifact's unexposed port `internal`, and points back to `cedarcli docker status`. Those labels say
 which runtime owns the service; only the Docker-aware command reads Compose health and acceptance
