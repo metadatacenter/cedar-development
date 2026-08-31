@@ -461,6 +461,7 @@
     "authentication\u001fauthentication: a token signature is verified\u001fand a forgery naming no real user is refused",
     "authentication\u001fauthentication: a token signature is verified\u001fwhile a genuine, correctly-signed token is still accepted",
     "authentication\u001fauthentication: API-key management paths use non-secret ids\u001fa throwaway API key is created",
+    "authentication\u001fauthentication: API-key management paths use non-secret ids\u001fcreation names the new key in a Location header",
     "authentication\u001fauthentication: API-key management paths use non-secret ids\u001fthe created key has both a management id and a credential value",
     "authentication\u001fauthentication: API-key management paths use non-secret ids\u001fthe management id is not the API-key secret",
     "authentication\u001fauthentication: API-key management paths use non-secret ids\u001fthe key is rotated by management id",

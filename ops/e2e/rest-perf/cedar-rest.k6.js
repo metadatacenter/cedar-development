@@ -383,7 +383,38 @@ export function setup() {
     if (!token) fail(`could not authenticate ${actor.username}`);
     tokens.push(token);
   }
+  warmBurstFixtures(tokens);
   return { tokens };
+}
+
+/**
+ * Read every burst fixture once before the first measured phase.
+ *
+ * The burst baseline runs 30 seconds at a low arrival rate, so its route trends hold only a few
+ * hundred iterations, of which one per participant is that artifact's first read of the run. A cold
+ * read costs whole seconds against a warm read's tens of milliseconds, which is enough to carry the
+ * baseline p95 past a route threshold and report warm-up as degradation - the recovery phase then
+ * measures faster than the baseline it is compared against, which is the giveaway. Warming here
+ * keeps that cost out of the measurement: setup runs before any scenario starts, and these requests
+ * feed no cedar_route_* trend.
+ */
+function warmBurstFixtures(tokens) {
+  if (profile !== 'burst') return;
+  for (let index = 0; index < manifest.actors.length; index++) {
+    const artifacts = manifest.actors[index].burst?.artifacts;
+    if (!artifacts) continue;
+    for (const kind of artifactKinds) {
+      const fixture = artifacts[kind];
+      if (!fixture?.path) continue;
+      const response = http.get(`${resource}${fixture.path}`, {
+        headers: { Authorization: authorization(tokens[index]) },
+        tags: { operation: 'burst warm-up', name: 'burst warm-up' },
+      });
+      if (response.status !== 200) {
+        fail(`burst warm-up could not read ${kind} for ${manifest.actors[index].username}: ${response.status}`);
+      }
+    }
+  }
 }
 
 const localTokens = {};

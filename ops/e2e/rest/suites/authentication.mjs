@@ -101,8 +101,13 @@ export async function run({ user1, user2, homeFolderId, folderId }) {
   let throwawayKeyId;
   try {
     const created = await call(auth, 'POST', keysPath, { description }, { base: USER_SERVER });
-    if (check(created.status === 200, 'a throwaway API key is created',
-        `expected 200, got ${created.status}: ${(created.text ?? '').slice(0, 200)}`)) {
+    if (check(created.status === 201, 'a throwaway API key is created',
+        `expected 201, got ${created.status}: ${(created.text ?? '').slice(0, 200)}`)) {
+      // Creating a sub-resource says where it now lives. The body stays the updated profile, because
+      // the new key's credential value is readable in this response and nowhere else.
+      check((created.headers.get('location') ?? '').includes('/api-keys/'),
+          'creation names the new key in a Location header',
+          `expected a Location naming the key, got ${created.headers.get('location') ?? 'none'}`);
       const createdKey = created.body?.apiKeys?.find(key => key.description === description);
       if (check(createdKey?.id && createdKey?.key,
           'the created key has both a management id and a credential value',
