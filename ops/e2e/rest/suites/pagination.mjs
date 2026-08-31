@@ -212,5 +212,32 @@ export async function run({ user1, admin, folderId }) {
         `expected 4xx, got ${nonNumeric.status}`);
   }
 
+  suite('pagination: a window the search index cannot serve is refused with 400');
+
+  // /search asks OpenSearch for offset+limit rows in one request, and OpenSearch refuses a window
+  // wider than index.max_result_window (10,000). That refusal used to reach the caller as a 500 for
+  // what is a client mistake. /search-deep walks to the offset instead, so the same depth is fine
+  // there — which is the whole reason the second endpoint exists.
+  const overWindow = await call(auth, 'GET', `/search?q=${enc(PAGE_TAG)}&offset=10000&limit=100`);
+  check(overWindow.status === 400, 'search past the index result window is refused with 400',
+      `expected 400, got ${overWindow.status}: ${(overWindow.text ?? '').slice(0, 120)}`);
+  check((overWindow.text ?? '').includes('/search-deep'), 'and the refusal names the call that can serve it',
+      `body was ${(overWindow.text ?? '').slice(0, 160)}`);
+
+  const deepAtWindow = await call(auth, 'GET', `/search-deep?q=${enc(PAGE_TAG)}&offset=10000&limit=100`);
+  check(deepAtWindow.status === 200, 'search-deep serves the same depth', `got ${deepAtWindow.status}`);
+
+  // The deep walk is linear in the offset, so it is bounded too, just much further out.
+  const atBound = await call(auth, 'GET', `/search-deep?q=${enc(PAGE_TAG)}&offset=250000&limit=5`);
+  check(atBound.status === 200, 'search-deep serves an offset at the configured maximum', `got ${atBound.status}`);
+  const pastBound = await call(auth, 'GET', `/search-deep?q=${enc(PAGE_TAG)}&offset=250001&limit=5`);
+  check(pastBound.status === 400, 'and refuses one past it with 400',
+      `expected 400, got ${pastBound.status}: ${(pastBound.text ?? '').slice(0, 120)}`);
+
+  // Neither bound belongs to the graph-backed views, which page with SKIP and never touch the index.
+  const sharedDeep = await call(auth, 'GET', '/search?sharing=shared-with-me&offset=20000&limit=5');
+  check(sharedDeep.status === 200, 'a graph-backed sharing view still pages to any depth',
+      `expected 200, got ${sharedDeep.status}: ${(sharedDeep.text ?? '').slice(0, 120)}`);
+
   return {};
 }
