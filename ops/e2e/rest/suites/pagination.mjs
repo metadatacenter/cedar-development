@@ -239,5 +239,55 @@ export async function run({ user1, admin, folderId }) {
   check(sharedDeep.status === 200, 'a graph-backed sharing view still pages to any depth',
       `expected 200, got ${sharedDeep.status}: ${(sharedDeep.text ?? '').slice(0, 120)}`);
 
+  suite('pagination: a continuation walks a whole result set');
+
+  // The offset makes the server skip to a page; a continuation says where the last one stopped, so a
+  // page costs the same wherever it falls and a whole result set can be read without the walk growing.
+  // The tagged set is small, but the mechanism is the one a 400,000-row enumeration uses.
+  const walked = [];
+  let cursor = 'start';
+  let requests = 0;
+  let lastBody = null;
+  let refused = null;
+  while (cursor && requests < 10) {
+    const page = await call(auth, 'GET', `/search-deep?q=${enc(PAGE_TAG)}&limit=2&continuation=${enc(cursor)}`);
+    requests++;
+    if (page.status !== 200) {
+      refused = `page ${requests} answered ${page.status}: ${(page.text ?? '').slice(0, 120)}`;
+      break;
+    }
+    lastBody = page.body;
+    walked.push(...(page.body?.resources ?? []).map(r => r['@id']));
+    cursor = page.body?.continuation ?? null;
+  }
+  check(refused === null, 'every page of the walk answers', refused ?? '');
+  check(walked.length === N && new Set(walked).size === N,
+      'the walk reads every row exactly once', `got ${walked.length} row(s), ${new Set(walked).size} distinct`);
+  check(cursor === null, 'and stops by answering without a continuation', `it was still ${cursor}`);
+  check(lastBody?.totalCount === N, 'every page reports the total the walk began with',
+      `the last page said ${lastBody?.totalCount}`);
+
+  const walkStart = await call(auth, 'GET', `/search-deep?q=${enc(PAGE_TAG)}&limit=2&continuation=start`);
+  if (checkStatus(walkStart, 200, 'the first page of a walk returns')) {
+    check(!!walkStart.body?.paging?.next && walkStart.body.paging.next.includes('continuation='),
+        'its next link carries the continuation, not an offset', `next was ${walkStart.body?.paging?.next}`);
+    const followed = await call(auth, 'GET', walkStart.body.paging.next.replace(/^https?:[/][/][^/]+/, ''));
+    check(followed.status === 200, 'and following that link works', `got ${followed.status}`);
+  }
+
+  // A continuation names a position in one search. Everything that would make it mean something else
+  // is refused rather than answered from the wrong place.
+  const token = walkStart.body?.continuation;
+  check((await call(auth, 'GET', `/search?q=${enc(PAGE_TAG)}&continuation=start`)).status === 400,
+      'search refuses a continuation, which only search-deep serves', 'it did not');
+  check((await call(auth, 'GET', `/search-deep?q=${enc(PAGE_TAG)}&continuation=start&offset=5`)).status === 400,
+      'a continuation together with an offset is refused', 'it did not');
+  check((await call(auth, 'GET', `/search-deep?q=${enc(PAGE_TAG)}&continuation=not-a-real-token`)).status === 400,
+      'a token this server did not issue is refused', 'it did not');
+  if (token) {
+    check((await call(auth, 'GET', `/search-deep?q=${enc(PAGE_TAG)}&limit=2&sort=name&continuation=${enc(token)}`)).status === 400,
+        'and a token replayed against a changed search is refused', 'it did not');
+  }
+
   return {};
 }
