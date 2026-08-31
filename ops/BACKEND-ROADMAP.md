@@ -437,9 +437,78 @@ Frontend work for the embeddable editor is tracked separately in
   REST smoke asserts it on a route from each of the three servers, and the superseded encodings are
   either withdrawn or carry a recorded date for withdrawal.
 
+- **10. Bound every outbound call by what the call actually is, and measure before choosing the
+  numbers.** Two classes of outbound call are distinguished today, interactive and batch, each with a
+  fixed connect, lease and response timeout and its own connection pool. That covers the difference
+  between a call a user waits on and a job nobody waits on. It does not cover the difference between
+  one hop and another, and nothing about it is configurable.
+
+  **The external authorities run on values chosen for a hop to the next CEDAR service.** ORCID,
+  PubMed, ROR, RRID, NIH RePORTER, the LINCS validator and DataCite are all reached through the
+  interactive class, whose one-second connect timeout is generous for a loopback and mean for a cold
+  TLS handshake to a transatlantic host, so a slow third party is reported as an unavailable one.
+  Give the external calls their own class, with a connect timeout in the seconds and a response
+  timeout chosen from what each service does.
+
+  **No latency data exists to choose a response timeout from.** No server's `config.yml` configures
+  `requestLog`, and Dropwizard's default access log format records no duration, so every value in
+  force is arithmetic against nginx's 180-second `proxy_read_timeout` rather than a measured p99. Add
+  `%D` to the request log, or a timer around the proxied calls, and collect a week of traffic before
+  tuning. The artifact server's response timeout is the value most likely to be wrong, since a large
+  instance write with validation is the plausible outlier.
+
+  **Then move the values into configuration.** `servers:` in `cedar-main.yml` already models every hop
+  and `ServerConfig` already reads it, so a per-hop timeout has a home; the external ones have theirs
+  under `externalAuthorities:` and `dataCite:`. `MicroserviceUrlUtil` should hand out the timeouts
+  with the URL, so a call site cannot obtain one without the other.
+  `CedarTestRuntime.dependencyTimeoutMillis` is the precedent for the override and `Neo4JProxies` for
+  applying it.
+
+  **A hard user-facing bound needs a deadline rather than per-hop values.** Updating an artifact makes
+  two proxied calls in series, and three when compensation runs, so the client's worst case is the sum
+  of whatever each hop is allowed. Only a budget stamped on `CedarRequestContext` and decremented
+  across the hops can say that the second call gets what is left of fifteen seconds. Worth doing when
+  a response-time guarantee is promised, not before.
+
+  **The compensating write in that path is still best effort.**
+  `AbstractResourceServerResource.restoreArtifactAfterFailedGraphUpdate` restores the artifact
+  document when the graph update did not commit, in the request, with one attempt and no retry, and
+  its failure is the one that leaves the two stores disagreeing. It carries an `If-Match` on the
+  replacement ETag, so a replay is safe. A replay after an unseen success answers 412 rather than
+  overwriting a newer document. Hand it to the durable completion machinery artifact deletion already
+  uses.
+
+  **Retry belongs only where the verb allows it.** A GET may retry once, and only on a connect
+  failure, a lease timeout, or a reset before any response, never on a response timeout, since the
+  server may still be working. A PUT or DELETE carrying `If-Match` may retry once on a connect failure
+  for the reason above. A create POST has no deduplication key and must not retry. Any retry comes out
+  of the hop's budget rather than doubling it.
+
+  **Circuit breaking earns its place in front of the external authorities and nowhere else.** A dead
+  third party otherwise burns a full response timeout on every request. Keyed per authority, opening
+  after several consecutive failures and half-opening on a single probe, that is a few dozen lines in
+  the authority base class and needs no new dependency. The artifact server is not optional, so a
+  breaker in front of it would only convert a timeout followed by 503 into an immediate 503, and would
+  flap during a rolling restart.
+
+  **Two clients still carry their own numbers, and one dead copy of the constants remains.** The
+  terminology server builds its own pooled client in `HttpClientFactory` with a third set of values,
+  and the submission server's `StatusNotifier` a JAX-RS client with a fourth. Both are defensible in
+  isolation and neither is reachable from the shared configuration. The unused
+  `HttpConnectionConstants` in `cedar-keycloak-event-listener` is a verbatim copy of the shared class
+  that nothing reads.
+
+  **The constants are in the wrong library.** `HttpConnectionConstants` sits in
+  `cedar-model-library`, whose subject is the CEDAR artifact model, and outbound HTTP timeouts have
+  nothing to do with it. `cedar-server-rest-library` is where they belong. Moving them changes a
+  published library's public API, so it wants a coordinated release rather than a quiet edit.
+
+  Done when each class of outbound call takes its timeouts from configuration, the request log carries
+  durations, the compensating write is durable, and the remaining clients read the same settings.
+
 ## Production data
 
-- **10. Normalize production artifacts to one explicit model contract.** Production contains several
+- **11. Normalize production artifacts to one explicit model contract.** Production contains several
   legacy representations that the current model surfaces tolerate or normalize differently, so bring
   them to canonical shapes before tightening readers or introducing terminology routing across source
   systems. The permission-scoped audit found 76 inherently-multiple fields deployed as JSON objects in
@@ -523,6 +592,43 @@ Frontend work for the embeddable editor is tracked separately in
   Java and TypeScript readers replace their current cleanup behavior with strict rejection. Keep the
   inverse drift report-only: the store does not contain enough information to synthesize a missing child.
 
+  **Make the model version explicit, then enforce it.** The two Java readers disagree about
+  `schema:schemaVersion`, so one artifact is accepted as JSON and refused as YAML.
+  `checkSchemaArtifactModelVersion` in `cedar-artifact-library`'s `JsonArtifactShapeChecks` rejects a
+  value it cannot parse and accepts every value it can, because the comparison against the current
+  model version is commented out; `YamlArtifactReader` declares a method of the same name that
+  compares. Absence is the harder half. `readModelVersion` returns an empty result for an artifact
+  that declares no version at all, and the disabled comparison rejects an empty result as well as a
+  stale one, so re-enabling it refuses both the artifact written against an earlier model and the
+  artifact that never carried a version. Production is expected to hold some of each.
+
+  Measure the population before writing a rule for it. Neither `cedar_artifact_rest_audit.py` nor
+  `cedar_artifact_patch.py` reads the field today, so the counts do not exist: how many stored
+  artifacts declare a version older than the current one, which versions appear, and how many declare
+  none. Add the audit rule first and capture its findings as a reviewed manifest, the way the
+  object-shaped repair is checked against 31 artifacts and 76 paths.
+
+  A version cannot be stamped on faith. `schema:schemaVersion` asserts that the artifact conforms to
+  the model it names, so writing the current version into an artifact that does not conform replaces a
+  detectable defect with an undetectable one. The patch rule therefore writes the current version only
+  where the artifact already satisfies the current model — both model libraries read it, and no other
+  patch rule reports a finding against it — and reports the remainder for a scoped repair of its own.
+  Keep it under the tool's existing discipline: report by default, write only under `--apply`, no
+  change when rerun. Only once a repeated audit reports no stale and no absent version should the
+  comparison in `JsonArtifactShapeChecks` be restored and its explanatory note deleted.
+
+  The suites cannot find this defect, which is why it stayed open, and the reason is worth fixing
+  independently of the production run. Every JSON fixture and every programmatic case supplies the
+  version by referencing the same constant the disabled comparison would compare against, and the YAML
+  renderer writes that constant rather than the version its source artifact declared, so a
+  cross-format round trip launders a stale version into a current one before the strict reader sees it.
+  The in-memory model has no field to carry a model version at all. Restoring the comparison against
+  the library's suites as they stood changed no result anywhere in them, across 1,138 tests.
+  `ModelVersionEnforcementTest` now pins the divergence, stating what each reader does with a
+  well-formed stale version and with none, so the difference is a recorded decision and the day it
+  changes is a failure rather than a surprise. Its two JSON acceptances are the tests to replace with
+  rejections once the comparison comes back.
+
   Finally reconcile the inventory boundary. Two search results point at artifacts that the typed
   resource endpoint returns as 404, and two duplicate search rows make the reported row count exceed
   the unique audit set. Determine whether each is a stale search/workspace projection or a missing
@@ -562,7 +668,7 @@ Frontend work for the embeddable editor is tracked separately in
 
 ## Later decisions
 
-- **11. A published artifact can be deleted, contradicting the docs.** The docs say a published
+- **12. A published artifact can be deleted, contradicting the docs.** The docs say a published
   artifact is permanent, but `DELETE` on one succeeds. The guard in
   `AbstractResourceServerResource.executeArtifactDelete` was briefly re-enabled and then **reverted by
   deliberate decision**: blocking deletion strands published artifacts and the folders holding them with
@@ -573,7 +679,7 @@ Frontend work for the embeddable editor is tracked separately in
   through folder deletion). Immutability of published content is a separate guarantee and is
   unaffected either way — that one is enforced.
 
-- **12. Finish the DataCite DOI minting lifecycle.** The durable lifecycle is what makes the operation
+- **13. Finish the DataCite DOI minting lifecycle.** The durable lifecycle is what makes the operation
   recovery-safe, and none of it exists yet. Minting persists no state of its own: draft/reserved,
   published and locally attached are recorded nowhere, so the `reconciliationRequired` response names a
   condition no code resolves, and a retry after a timeout cannot tell whether the earlier attempt
