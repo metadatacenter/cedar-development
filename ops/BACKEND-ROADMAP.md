@@ -261,18 +261,19 @@ Frontend work for the embeddable editor is tracked separately in
   boundary alongside the permission model rather than leaving the two service doors with different
   effective authorization.
 
-  **Two terminology routes authenticate nobody.** `IntegratedRetrieveResource.cedarIntegratedRetrieve`
-  and `IntegratedSearchResource` both carry their credential check as commented-out lines under a
-  `//TODO`, so `POST /bioportal/integrated-retrieve` and `POST /bioportal/integrated-search` answer
-  an anonymous caller. Measured 2026-08-30: a request with no `Authorization` header returned `200`.
-  Both methods reach BioPortal on the server's own `apiKey`, which puts them in the same class as the
-  open `/ext-auth/*` relays — an unauthenticated caller spending the deployment's quota — and the
-  OpenAPI on both methods already documents the `401` they do not return. The fix is the two
-  commented lines, but it changes what an existing client receives, so it belongs with the other
-  status-visible corrections rather than ahead of them.
-  `TerminologyServerApplicationSmokeTest.theIntegratedRetrieveRouteIsReachable` deliberately asserts
-  reachability rather than a status, so it neither fails on today's behaviour nor records the missing
-  gate as intended; tighten it to `401` when the check is restored.
+  **Two terminology routes answer an anonymous caller, and that stays.** `POST
+  /bioportal/integrated-retrieve` and `POST /bioportal/integrated-search` resolve no user. Measured
+  2026-08-31: a request with no `Authorization` header returns `200`. Both reach BioPortal on the
+  server's own `apiKey`, so an anonymous caller spends the deployment's BioPortal quota.
+
+  Requiring a credential is not the remedy, for the reason item 6 gives: third-party deployments of
+  the embeddable editor call these routes from a browser with nothing to send, so a gate would break
+  every host that embeds it. Both methods now carry that reasoning where the check is disabled, and
+  the OpenAPI no longer promises a `401` neither route sends. What bounds the cost is the edge rate
+  limit in item 6, which covers `/ext-auth/*` and should cover these two on the same terms.
+
+  `TerminologyServerApplicationSmokeTest.theIntegratedRetrieveRouteIsReachable` asserts reachability
+  rather than a status, which matches the decision; it should keep doing so.
 
   **Keycloak TLS.** Confirm that staging and production leave `CEDAR_KEYCLOAK_ALLOW_INSECURE_TLS`
   absent or `false`, trust the Keycloak issuer CA, and pass both a JWKS-backed token verification and
@@ -310,7 +311,9 @@ Frontend work for the embeddable editor is tracked separately in
 - **6. Rate limit the edge in every environment.** Nothing in CEDAR bounds how often an anonymous
   caller may spend the deployment's third-party quota. The `/ext-auth/*` routes are the clearest
   case: they proxy seven registries, three of them on credentials the deployment holds, and they
-  carry none of their own.
+  carry none of their own. `POST /bioportal/integrated-search` and `/bioportal/integrated-retrieve`
+  belong in the same limit: both are anonymous by the same decision and both spend the deployment's
+  BioPortal key.
 
   A limit rather than a credential is deliberate. The embeddable editor calls them from a browser with
   nothing to send and nowhere in `CeeConfig` to keep a key, so a gate would break every host that
