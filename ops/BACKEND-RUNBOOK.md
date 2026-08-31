@@ -741,18 +741,30 @@ curl -s -X POST http://localhost:9007/command/regenerate-search-index -H "Author
 ```
 
 Call the resource server directly rather than through nginx, which answers an unmatched path with a
-200 and an HTML body, so a mistyped route looks like success. The command returns immediately and
-does the work in the background; the resource server log reports progress. It is the heavier
-instrument, and it discards the index the alias is serving, so prefer a replay when the dead-letter
-queue explains the drift.
+200 and an HTML body, so a mistyped route looks like success. It is the heavier instrument, and it
+discards the index the alias is serving, so prefer a replay when the dead-letter queue explains the
+drift.
+
+The rebuild is queued rather than performed, so the command answers `202` with the job it started:
+the body carries the job's `jobId` and state, and a `Location` header names where to poll it. Add
+`-D-` to the call above to see that header. Poll it until the state leaves `RUNNING`. It reports the
+job this command started rather than whichever job ran last over the index, so a rebuild somebody
+started after yours cannot be mistaken for it, and a `FAILED` carries the reason — which the resource
+server log has in full.
 
 ### A rebuild that answers 409, and taking the index back
 
 Only one rebuild runs at a time over an index, because each one ends by deleting every index for its
 alias but its own: two together leave the alias naming an index that no longer exists. A second
-command over a busy index is refused with a 409 naming the job that holds it, and
-`GET /command/index-job-status` says what became of the last rebuild of each index and whether one is
-running now. The same exclusion covers the value sets ontology import, whose own status is
+command over a busy index is refused with a 409 that names the job holding it and carries the same
+`Location` a 202 would, so a caller refused a rebuild can watch the one already under way.
+
+Two routes report a job. `GET /command/index-job-status` says what became of the last rebuild of each
+index and whether one is running now, which is the question to ask about an index. Appending a job
+identifier — `GET /command/index-job-status/{jobId}` — asks about one job instead, and that is the
+question to ask about a rebuild you started. Jobs are held in memory, so an identifier from before
+the last restart, or one that twenty later jobs have pushed out, is no longer known and answers 404.
+The same exclusion and the same pair of routes cover the value sets ontology import, under
 `GET /command/load-valuesets-ontology-status`.
 
 A job that throws releases the index whatever it threw. A job that never returns cannot, so a claim
