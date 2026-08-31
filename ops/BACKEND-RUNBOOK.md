@@ -1959,6 +1959,26 @@ Two repositories are aggregators over `../` sibling paths that a lone checkout c
 `cedar-libraries` and `cedar-project` check their component repositories out beside themselves in
 the workspace and run Maven from the aggregator directory.
 
+Each of those workflows gives its tests the same block of `CEDAR_` environment entries, because a
+suite builds a real `CedarConfig` and a variable a component declares but does not receive stops it
+at the first `getInstance`. The block lives once, in `ops/ci-env-block.yml`, and each `ci.yml`
+carries a copy. `ops/check_ci_env.py` asks `CedarConfigEnvironmentDescriptor` through `jshell` what
+the servers actually declare, checks the block still satisfies it, and compares every copy against
+the block; `--apply` rewrites the copies that have drifted. Run it after adding a variable to the
+descriptor, and after any change to a workflow's environment:
+
+```bash
+ops/check_ci_env.py            # report
+ops/check_ci_env.py --apply    # rewrite the drifted copies
+```
+
+It is the same instinct as `check_docker_env.py`, pointed at the other set of copies: ask the code
+rather than reading the declaration by eye. Twenty-two repositories held their own copy and nothing
+compared them, so they had diverged — `cedar-monitor-server` carried 55 of the 118 entries, missing
+`CEDAR_SALT_API_KEY`, `CEDAR_TRUSTED_FOLDERS` and both test-user identifiers among sixty-three
+others. Nothing runs this in CI yet, because a check over every repository has no natural home in
+any one of their workflows; until it does, it is a local step.
+
 The suites need no service container. The two exceptions both come from a real dependency rather
 than from CEDAR code: `cedar-monitor-server` talks to a live MySQL, so its job runs a disposable
 MySQL 8 service, and the embedded MongoDB that `cedar-artifact-server` boots is the 5.0 line the
