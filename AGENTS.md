@@ -29,8 +29,8 @@ cedarcli git status            # working-tree state across all repos
 cedarcli check versions        # version consistency across the estate
 ```
 
-The alias sources `cedar-cli/cli3.sh`, which activates the CLI's own virtualenv. When an alias is not
-available, `bash $CEDAR_HOME/cedar-cli/cli3.sh <args>` is the same thing.
+The alias sources `cedar-cli/cli.sh`, which activates the CLI's own virtualenv. When an alias is not
+available, `bash $CEDAR_HOME/cedar-cli/cli.sh <args>` is the same thing.
 
 Scripts under `ops/` are the implementation behind these commands and may change. Read them to understand a
 failure; do not make them the interface. The full command reference is the
