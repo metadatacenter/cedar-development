@@ -245,6 +245,15 @@ lifetime.
   the opposite evidence: a named owner, current caller, supported contract and meaningful health and
   integration coverage.
 
+  **`cedar-rest-library` is the worked example, and is nearly finished.** The repository holds a
+  README and a `.gitignore`: no sources, no build configuration, no CI, and its two HTTP
+  parameter-constant classes moved to `cedar-model-library` under their original package. What is
+  left is outside the repository. Archive it on GitHub so a clone stops being offered, and drop it
+  from any workspace tooling that still lists it — `cedar-libraries`' CI checked the repository out
+  on every run until this was written down, long after there was anything in it to check out. Until
+  it is archived, its name keeps sending a reader looking for shared REST code somewhere other than
+  `cedar-microservice-libraries/cedar-server-rest-library`, which is where that code is.
+
 - **4. Move the build and runtime to Java 21.** The stack is locked to Java 17 — the zsh profile pins it
   and the build enforces it. 21 is the next LTS and the natural target, but the lock exists for a
   reason: newer JDKs (23/25) crash Keycloak (`getSubject … security manager`) and OpenSearch will not
