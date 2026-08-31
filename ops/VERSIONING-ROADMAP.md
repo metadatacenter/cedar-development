@@ -7,31 +7,9 @@ it — the store, the ingest, the server, the picker — is in
 This covers the whole of versioning, the authoring surface included. `cedar-term-picker`, the Web
 Component an author picks a versioned constraint with, is tracked here rather than in a roadmap of
 its own: it exists to author versioned constraints, and splitting the two put the version UI in one
-document and the version model in another. What is already
-built — content-hash identity, per-submission snapshots, all resolution modes, the canonical-iri
-identity re-key with de-confliction, source-independence against OBO Foundry, multi-source ingest
-(BioPortal, OBO Foundry, any URL, any OntoPortal — serving a non-BioPortal snapshot verified live on the
-running server), `sourceSystem` routing (serve locally or report unavailable, never proxy BioPortal for a
-non-BioPortal source), the value-constraint spec (JSON + YAML) with schema validation,
-freeze-on-publish pinning all four constraint kinds on every artifact type (no value-set collection allow-list),
-author-facing version selection in the term picker (a release list a constraint is pinned from, the
-hierarchy drawn at the release chosen, and "latest" recorded as no version at all), multilingual label +
-synonym capture (every language preserved outside content identity, backfilled across the served
-catalog) and served on the local read path (multilingual + synonym search recall, synonyms on class
-detail, `lang=<code>` on the class and integrated-search endpoints), `owl:Ontology`-header identity
-recovery for acronym-only ontologies, a release list that offers releases rather than
-re-extractions of them (grouped on the raw-bytes hash the catalog already recorded, so a fix to an
-extractor no longer reads as a new release, while a pin naming a superseded reading still resolves
-and says that it does), and a constrained lookup that no longer costs what its ontology is large
-(the index carries the ontology beside the text, so narrowing a search narrows what it reads, and an
-ontology past a quarter of a million terms is answered from the index rather than by comparing every
-label its snapshot holds — NCBITAXON in 103 ms where it took 905, and where the routed answer
-differs it has been the substring match at fault: GAZ answers "acid" with two places rather than
-twenty-five, having dropped those with "acid" inside `Placid` and `Almonacid`) — lives in git and
-the design
-doc. The numbered items track only what remains, in three buckets: **Pending** (to build),
-**Testing** (built, needs live verification), and **Future** (deferred / needs a decision /
-speculative). Items are numbered continuously.
+document and the version model in another. The numbered items track only what remains, in three
+buckets: **Pending** (to build), **Testing** (built, needs live verification), and **Future**
+(deferred / needs a decision / speculative). Items are numbered continuously.
 
 The sections after the numbered items are findings rather than plans, and stay put: what
 [the term picker](#the-term-picker) replaces and has built, the running
@@ -42,11 +20,6 @@ captures and serves for multilingual labels is part of the model rather than a p
 [Multilingual labels](#10-multilingual-labels). Item 9 below is the open question about it.
 
 ## Where the code is, and how it is switched on
-
-All of the above **merged to `develop` on 2026-08-09** — twenty-seven commits, previously on
-`versioned-terminology-server`. CI published the snapshot, and the containerized terminology server
-was rebuilt and redeployed on it, with the REST estate green afterwards. The feature branch is no
-longer the place to read this work.
 
 **The store is off unless something turns it on, and BioPortal is the shipped default.**
 `cedar-main.yml` carries an empty `catalogPath`, so the local store serves nothing until the
@@ -619,7 +592,7 @@ response.
 
    The data half is a defect in stored artifacts rather than in code, so it is also a production
    patch item, under Production Artifact Patch on
-   [BACKEND-ROADMAP.md](BACKEND-ROADMAP.md#production-artifact-patch) — patch what is stored before
+   [BACKEND-ROADMAP.md](BACKEND-ROADMAP.md#production-data) — patch what is stored before
    requiring the new shape of anything that reads it.
 
 - **5. Lookup-coverage tail (replace-BioPortal track, orthogonal to versioning).** Improve display for the

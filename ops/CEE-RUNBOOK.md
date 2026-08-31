@@ -367,7 +367,7 @@ replaced a set that had drifted in both directions at once, low on unit and
 Playwright and high on domain, because removing four snapshot recordings that
 compared minted identifiers took the domain count *down*; and the Playwright figure
 disagreed with the one in
-[The visual baseline suite](#the-visual-baseline-suite) by 42. Prefer citing a date
+[Running the visual baseline](#running-the-visual-baseline) by 42. Prefer citing a date
 and a floor to maintaining an exact number in more than one place.
 
 Use the complete gate before pushing or opening a pull request. The focused

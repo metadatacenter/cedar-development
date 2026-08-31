@@ -25,64 +25,9 @@ the larger work is built once on something settled rather than twice on somethin
 moving.
 
 Item numbers are for referring to items in conversation, and they are not stable
-handles — an item that is finished leaves the list and joins the paragraph above,
-and the rest are renumbered. Name an item rather than its number.
-
-## What Is Built
-
-The element registers itself without bootstrapping anything onto the page and
-renders in shadow DOM, so neither its styles nor a host page's cross the
-boundary. It takes a template as CEDAR JSON or CEDAR YAML, publishes every change
-as CEDAR JSON-LD, and offers the same document as a property. Serialization is
-the CEDAR model library's throughout, so a template written in one form and
-reopened from the other is the same artifact, and identifiers are stable across
-edits rather than minted on each read.
-
-Twenty-six field types author to the model — every type the production designer
-offers, plus the two the production designer cannot render. Which of them may be
-required, take several values, carry a list of options or hold static content is
-one table, read by the builder and by the card that draws the controls, so a
-control is offered only where the artifact can carry the setting behind it.
-
-A field's constraint is chosen with the term picker where a host has loaded it,
-against a terminology server the host names. There is no hardcoded endpoint and
-no invented result: a search that fails says so. The vocabulary snapshot an author
-pinned reaches all four kinds of entry and survives both serializations, so a
-constraint names the release it meant rather than resolving against whatever is
-served on the day it is read.
-
-Preview renders the template with CEE, the renderer that will show the form to
-whoever fills it in, rather than with a drawing of a form of the designer's own.
-It is a third sibling web component the host loads: read-only, without CEE's own
-expand and collapse controls, and with no instance behind it, which is how CEE
-reads a template as a statement of what each field will accept. It is live — one
-editor, handed each new template as the template settles. CEE fixed a template per
-element until this preview asked otherwise, and replacing the element per edit
-cost about a second of Angular bootstrapping whatever the size of the template,
-against about twenty milliseconds to reassign, and took the reader's place in a
-long form with it.
-
-The designer keeps to the box its host gives it, so the fields and the preview
-scroll on their own and the preview stays beside the field being edited. It used
-to measure the viewport and grow from there, which made a forty-field template
-eleven thousand pixels tall and scrolled the embedding page.
-
-Nothing renders the artifact as code any more. Three surfaces did — a hand-drawn
-preview form, the JSON and YAML tabs above it, and two accordions under the
-fields — and an author designing a template is looking at the fields, with the
-form beside them. The File menu writes both serializations as files, and the
-element publishes the template to its host.
-
-It looks like CEDAR. The palette is the teal and rust the Workbench and CEE use,
-the type scale is stated in pixels because a rem would resolve against whatever
-root size the host page happens to set, and Roboto travels in the bundle at three
-weights — registered from an unencapsulated component, because a shadow root
-ignores an `@font-face` declared inside it.
-
-The distribution is one script, its declaration and a staged npm package, held to
-a size ceiling and verified byte for byte. 208 unit tests, 5 packaging tests and
-39 browser tests run against it, the last of them driving the built bundle in a
-hostile host page.
+handles — an item that is finished leaves the document, and the rest are
+renumbered. What was built is recorded in the commits that built it. Name an item
+rather than its number.
 
 ## The Authoring Surface
 

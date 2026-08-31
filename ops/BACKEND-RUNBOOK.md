@@ -1781,7 +1781,7 @@ Where the coverage is thin, stated plainly so nobody reads the class count as re
   the largest single coverage win available.
 - **The thin servers have three classes each** — config, boot, routes. That is a real net, and it is
   what caught the media-type 505, but it means "starts and refuses strangers", not "is correct".
-- **Dependency coverage is partial but now deliberate** (see the degradation item on the roadmap).
+- **Dependency coverage is partial but deliberate.**
   The shared proxy, exception mapper, worker queues and health checks are covered, with real HTTP
   dead-port tests for artifact/MongoDB, resource-to-artifact, monitor-to-artifact, user and group
   Neo4j reads, value-recommender and resource OpenSearch reads, the messaging SQL store and the

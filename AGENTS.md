@@ -59,6 +59,12 @@ says how to run, build, release and deploy; a roadmap tracks open work. Findings
 with whichever of the pair they belong to rather than in files of their own, so start from the pair
 for your area and search within it.
 
+**A roadmap is forward-looking only.** It says what remains, never what was achieved. When work
+finishes, its item leaves the document rather than moving to a summary of what is built: the commits
+that did the work are the record of it, and a runbook carries whatever current state an operator
+needs. Do not open a roadmap with a paragraph of completed work, and do not preserve a finished
+sub-part inside an item that is still open.
+
 Item numbers on a roadmap are for referring to items in conversation, nothing more. They are not
 stable handles. **Numbering is contiguous and has no gaps: when an item is removed, renumber the
 rest and fix the cross-references that named them.** Number in document order. **Never refer to a
@@ -112,9 +118,9 @@ because it exists to author versioned constraints:
   document: the model and why it is that (content-hash identity, the constraint shape,
   freeze-on-publish, multilingual labels), the numbered items still open across the model, the store
   and the picker, the request and response shapes of `POST /search` and `GET /search/hierarchy`, and
-  the findings — what the picker replaces and has built, the ingestion tracker, the BioPortal
-  reconciliation log, and the survey of ingesting from other repositories. A finished item leaves
-  the numbered list and joins the built paragraph at the top; the numbers are not stable handles.
+  the findings — what the picker replaces, the ingestion tracker, the BioPortal reconciliation log,
+  and the survey of ingesting from other repositories. A finished item leaves the document; the
+  numbers are not stable handles.
 
 The MCP servers under `$CEDAR_HOME/mcp` — the four that let a language model author, look at,
 resolve terms for and store CEDAR artifacts:

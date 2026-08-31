@@ -11,37 +11,6 @@ Frontend work for the embeddable editor is tracked separately in
 [CEE-ROADMAP.md](./CEE-ROADMAP.md), and the MCP servers in
 [MCP-ROADMAP.md](./MCP-ROADMAP.md).
 
-The dependency-degradation pass completed on 2026-08-26. Shared exception handling now returns a
-sanitized `503 Service Unavailable` for transport failures from inter-service HTTP, Neo4j, MongoDB,
-OpenSearch, JDBC and Redis. Real HTTP regressions cover the store or client boundaries owned by the
-artifact, resource, monitor, user, group, messaging, value-recommender, OpenView and bridge servers;
-worker queue retry, dead-letter and dependency-health behavior is covered separately. The remaining
-direct clients have intentional contracts: terminology pin resolution during publication is
-fail-safe and counted, monitor's Keycloak detail is an explicitly partial diagnostic, submission's
-messaging and FTP calls run in background submission processing, and DataCite minting remains the
-larger lifecycle refactor tracked below.
-
-The Jakarta EE 10 framework migration completed on 2026-08-29. All fifteen shaded services now run
-on Dropwizard 5.0.2, Jetty 12.1.9, Jersey 3.1.11, Hibernate 6.6.52.Final, Servlet 6 and Persistence
-3.1 while remaining on Java 17. The clean 70-module reactor passed, the dependency trees and shaded
-jars contained no active Jetty 11, Jersey 3.0, Hibernate 6.1, Servlet 5, Persistence 3.0 or Jetty EE9
-runtime, every service booted healthy from the current local jar, and the real-stack smoke passed
-through Keycloak, encoded artifact-IRI routes, live terminology, publication/versioning and instance
-create/update/delete. The operational details and two compatibility accommodations are recorded in
-the runbook's dependency and framework state.
-
-REST concurrency and performance qualification was completed on 2026-08-29. The local k6 harness
-now provisions an isolated identity pool, drives every ETag-enabled artifact and resource mutation,
-and supplies reproducible quick, contention, hot-set, churn, dependency-resilience, burst and soak
-profiles with route-specific thresholds and residue-free cleanup. The qualification runs completed
-without correctness failures, dropped work or leaked fixtures; targeted diagnostics traced the
-remaining isolated latency spikes to Neo4j transaction-log force latency rather than CEDAR lock,
-heap or garbage-collection pressure. A concurrent deletion-outbox tombstone race found by the
-harness was fixed in the resource server. Performance is therefore a regression guardrail rather
-than open roadmap work: revisit it when a threshold breaches repeatably, production telemetry shows
-a degradation trend, or a change materially affects persistence, pools, queues or resource
-lifetime.
-
 ## Next
 
 ### Features
@@ -149,15 +118,11 @@ lifetime.
 - **2. Upgrade the persistence and infrastructure servers.** These versions are pinned in the Docker
   build manifest, while the client libraries have moved on. The
   [Docker roadmap](./DOCKER-ROADMAP.md) owns the shared build and deployment lock; this item owns the
-  remaining server upgrades. Order them by risk, lowest first:
-  Five are **done** on 2026-08-08, each taken together with containerizing that store: Redis
-  6.2.7 → 7.2.7, OpenSearch 1.3.6 → 2.19.1, Mongo 5.0.14 → 5.0.31, Neo4j 5.3.0 → 5.26.0 and MySQL
-  8.0.32 → 8.4.11, the last of those also moving off Oracle's abandoned `mysql/mysql-server` base
-  onto the Docker Official image. **Keycloak is the exception and is still at 22**, held there by
-  CEDAR's own code rather than by this lock: it runs a forward-only Liquibase schema
-  migration on the existing user store, and it is the only one of the six where CEDAR's own code, not
-  just a pin, decides how far the server can go. What that amounts to is measured below. Rehearse each
-  on a copy of production data and gate on the end-to-end smoke.
+  remaining server upgrades. Order them by risk, lowest first. **Keycloak is still at 22**, held
+  there by CEDAR's own code rather than by this lock: it runs a forward-only Liquibase schema
+  migration on the existing user store, and it is the one server where CEDAR's own code, not just a
+  pin, decides how far it can go. What that amounts to is set out below. Rehearse each upgrade on a
+  copy of production data and gate on the end-to-end smoke.
 
   Containerizing the production data stores needs each image pin moved up to the version already
   running, because an older engine cannot open existing data files, so this item unblocks the
@@ -209,10 +174,9 @@ lifetime.
   the reason the estate pins Java 17 at all is that newer JDKs crash *this* Keycloak on the removed
   security manager. Moving Keycloak forward is the thing most likely to retire that constraint.
 
-  The four that are done moved in development only, where the pin move and the containerization were
-  one piece of work per store. Production is the part this item still owns: the same versions, but
-  rehearsed on a copy of production data and gated on the end-to-end smoke. Where the order above and
-  the Docker roadmap disagree, the Docker roadmap governs, since it sequences the remaining work.
+  Production is the part this item owns for every store: each version rehearsed on a copy of
+  production data and gated on the end-to-end smoke. Where the order above and the Docker roadmap
+  disagree, the Docker roadmap governs, since it sequences the remaining work.
 
 - **3. Decide whether four narrowly used servers should be retired.** Treat each as an explicit
   product and operations decision: confirm its real callers and production state, preserve or move any
@@ -313,21 +277,14 @@ lifetime.
   reachability rather than a status, so it neither fails on today's behaviour nor records the missing
   gate as intended; tighten it to `401` when the check is restored.
 
-  **Keycloak TLS.** This was a code vulnerability, not merely a future truststore configuration task:
-  the bearer-token client disabled certificate and
-  hostname checks while fetching signing keys, and the admin client sent the CEDAR administrator
-  password through a trust-all manager. Both clients now default to JVM certificate and hostname
-  verification, with only an explicit native-development flag able to restore the bypass. The
-  remaining deployment gate is to confirm that staging and production leave
-  `CEDAR_KEYCLOAK_ALLOW_INSECURE_TLS` absent or `false`, trust the Keycloak issuer CA, and pass both a
-  JWKS-backed token verification and a read-only admin operation. Never solve a failed trust check by
-  enabling the development flag.
+  **Keycloak TLS.** Confirm that staging and production leave `CEDAR_KEYCLOAK_ALLOW_INSECURE_TLS`
+  absent or `false`, trust the Keycloak issuer CA, and pass both a JWKS-backed token verification and
+  a read-only admin operation. Never solve a failed trust check by enabling the development flag.
 
-  **Keycloak provider rotation.** The 2023-07-05
-  development realm export carried its RSA token-signing key, HS256 secret and AES secret, and both
-  committed copies sat in public repositories, so those providers must be treated as publicly known.
-  Stripping the seed (done, with guard tests and a CI workflow in both repositories) protects only
-  realms created after it: Keycloak stores providers in MySQL, so every realm that ever imported the
+  **Keycloak provider rotation.** The 2023-07-05 development realm export carried its RSA
+  token-signing key, HS256 secret and AES secret, and both committed copies sat in public
+  repositories, so those providers must be treated as publicly known. Stripping the seed protects
+  only realms created after it: Keycloak stores providers in MySQL, so every realm that ever imported the
   old seed — production, staging, and long-lived local stacks alike — still signs tokens with the
   exposed key, and a token it "verifies" proves nothing. In each such realm, create fresh signing,
   HMAC and AES providers, delete the imported ones, and only then treat the installation as trusted;
@@ -351,26 +308,14 @@ lifetime.
   supply it only through deployment configuration, and avoid multiplying copies. Replacing it would
   require external coordination with BioPortal rather than another CEDAR endpoint. BioPortal
   rate-limits per key, and a burnt quota surfaces to users as controlled terms silently not existing,
-  because the picker latches its empty cache for the life of the page: the same defect as the
-  now-fixed term-picker ontology-list failure.
-
-  The *safety* half of this is now done, on both `develop` and the `versioned-terminology-server`
-  branch: a cold or rate-limited fetch that returns a handful of ontologies instead of the full ~1300
-  is caught rather than served. `Cache.getOntologies()` treats a list below `MIN_EXPECTED_ONTOLOGIES`
-  as a failed load and throws, and `TerminologyServerHealthCheck` now probes the list and reports the
-  server unhealthy until it loads fully (it was a `2*2==5` placeholder that always passed). So a
-  degraded key no longer silently serves a partial catalogue with names collapsed to acronyms
-  ("DOID (DOID)" instead of "Human Disease Ontology (DOID)") behind a green health check. What remains
-  here is the code-owned cause: read `CEDAR_BIOPORTAL_API_KEY` from config and delete the constant.
+  because the picker latches its empty cache for the life of the page.
 
 - **6. Rate limit the edge in every environment.** Nothing in CEDAR bounds how often an anonymous
   caller may spend the deployment's third-party quota. The `/ext-auth/*` routes are the clearest
   case: they proxy seven registries, three of them on credentials the deployment holds, and they
   carry none of their own.
 
-  Those routes are now limited in nginx to 10r/s per source address with a burst of 20, answering
-  `429` above that, in the container configuration and in the native development mirror. A limit
-  rather than a credential is deliberate. The embeddable editor calls them from a browser with
+  A limit rather than a credential is deliberate. The embeddable editor calls them from a browser with
   nothing to send and nowhere in `CeeConfig` to keep a key, so a gate would break every host that
   embeds it, and a key shipped to a browser is not a secret and would stop nobody who wanted to
   relay through CEDAR.
@@ -596,29 +541,15 @@ lifetime.
   through folder deletion). Immutability of published content is a separate guarantee and is
   unaffected either way — that one is enforced.
 
-- **11. Finish the DataCite DOI minting lifecycle.** The access and validity gates landed on 2026-08-27
-  (`a7dddca`, `e775d6d`). `validateSourceArtifactForDoi` now runs on the mutation endpoint as well as
-  the preparatory GET, so a direct POST can no longer bypass write access, the open requirement, or a
-  template's published requirement. The endpoint refuses any state other than `draft` or `publish`,
-  and refuses an instance the CEDAR validator rejects instead of computing that result and discarding
-  it. The DataCite and validation calls moved behind an injectable `DataCiteHttpClient` with
-  configured timeouts, so transport failures map to `502` rather than surfacing as a `RuntimeException`
-  or a misleading `400`. The DOI-annotation write-back response is read: when it is rejected or fails
-  in transport, the response is a `502` carrying the minted DOI, the source artifact id and
-  `reconciliationRequired`, which distinguishes a DataCite failure from a local persistence failure.
-  `DataCiteResourceAuthorizationTest`, `DataCitePublicationWorkflowTest` and `DataCiteHttpClientTest`
-  pin that behaviour offline against a fake DataCite boundary, and the live tests stay behind the
-  `datacite` tag.
-
-  The durable lifecycle remains open, and it is what makes the operation recovery-safe. Minting still
-  persists no state of its own: draft/reserved, published and locally attached are recorded nowhere,
-  so the `reconciliationRequired` response names a condition no code resolves, and a retry after a
-  timeout cannot tell whether the earlier attempt already minted a DOI. Define those states, retain
-  the DataCite identifier before the fallible write-back, and make a retry resume or reconcile the
-  same DOI rather than orphan or duplicate one. Tighten how an existing draft is associated with its
-  source artifact: the lookup still matches DataCite records on the OpenView URL. Orchestration also
-  still sits in `DataCiteResource` — only the HTTP client came out — so configuration and error
-  mapping are not yet centralized. The offline suite still lacks create-versus-update, retry after
-  timeout, and repeated publish, each of which needs the durable states before it can be written. Keep
-  normal tests offline; add only an opt-in DataCite sandbox smoke test for the final wire contract and
-  credential/configuration check.
+- **11. Finish the DataCite DOI minting lifecycle.** The durable lifecycle is what makes the operation
+  recovery-safe, and none of it exists yet. Minting persists no state of its own: draft/reserved,
+  published and locally attached are recorded nowhere, so the `reconciliationRequired` response names a
+  condition no code resolves, and a retry after a timeout cannot tell whether the earlier attempt
+  already minted a DOI. Define those states, retain the DataCite identifier before the fallible
+  write-back, and make a retry resume or reconcile the same DOI rather than orphan or duplicate one.
+  Tighten how an existing draft is associated with its source artifact: the lookup still matches
+  DataCite records on the OpenView URL. Orchestration also still sits in `DataCiteResource`, so
+  configuration and error mapping are not yet centralized. The offline suite still lacks
+  create-versus-update, retry after timeout, and repeated publish, each of which needs the durable
+  states before it can be written. Keep normal tests offline; add only an opt-in DataCite sandbox
+  smoke test for the final wire contract and credential/configuration check.

@@ -7,30 +7,6 @@ libraries still answer differently, is in
 [BACKEND-ROADMAP.md](./BACKEND-ROADMAP.md). The reasoning behind an item is in the
 commit that opened it.
 
-The August 2026 structural hardening pass is complete. Host artifact intake now has
-one transactional owner, configuration is a separate collaborator, and the inner
-editor only renders an already-built model state. Model-to-widget synchronization is
-pinned across editable/read-only literal, numeric, temporal, link, authority,
-controlled-term and multi-value fields; page-break pagination is checked over every
-generated boundary layout through six children. Shared widget subscriptions use
-Angular destroy scopes, repeated editor construction/destruction is exercised, and
-CI holds focused coverage floors for the artifact boundary, component registry and
-page representation while running the browser suite in four shards. The numbered
-items below are the remaining product work, not cleanup left by that pass. CEE's
-host signal is now model-based as well: every real field or multi-instance mutation
-publishes a structured `change` carrying its path and validation report, while DOM
-traffic, paging and no-op writes do not. The CEDAR workspace compares the resulting
-metadata with its last loaded or successfully saved baseline, so an edit marks dirty,
-an exact revert clears it, and a save rebases it. Host and temporal behavior now have
-dedicated specs over a typed browser driver: canonical initialization is silent,
-storage-changing temporal normalization is explicit, and every runtime detail member
-is pinned. Authority and
-controlled-term debounce, overlay and hint work is destroy-scoped. The obsolete FooBar
-style-order shim, unused RDF identity pipe, external ROR test route and pre-RxJS-7
-Vitest dependency workaround are gone; the public custom-element declaration types its
-`change` listener, and the never-emitted `eventHandler.message` is deprecated for the
-next major release.
-
 1. **M3 theme adapter and palette.** Replace the M2 compatibility theme with M3 inside
    `_cee-material-theme.scss` as a deliberate visual migration, not a mechanical upgrade:
    choose the CEDAR and neutral palettes, preserve CEE-owned layout, typography, status,

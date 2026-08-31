@@ -484,7 +484,7 @@ next-development tree does not silently return to the train's development CEE. T
 integrates those exact trees into `main` and `develop`, publishes the stable frontend npm packages,
 and verifies their downloaded registry tarballs. Workspace receives the same Git wiring but keeps
 its independent package publication path. Operational details and resume rules are in
-[RELEASE-RUNBOOK.md](./RELEASE-RUNBOOK.md#train-backed-release-route).
+[RELEASE-RUNBOOK.md](./RELEASE-RUNBOOK.md#the-route).
 
 ## Failure rules
 
