@@ -1331,6 +1331,28 @@ or another CEDAR library out of whichever jar its classpath reached first. Keep 
 pom should declare what it uses and publish that, so every consumer resolves each dependency from the
 artifact that owns it.
 
+## How the REST API changes
+
+CEDAR ships one version of its REST API. There is no path segment, no media-type parameter and no
+version header, and none is planned: a correction to a status code, an error body or a route replaces
+the old behaviour for every caller at once, and the clients move in the same release.
+
+That is already the policy in practice. Requiring `If-Match` on artifact updates turned a request that
+answered 200 into one that answers 428, and it shipped without an opt-in. Adding a version mechanism
+now would describe a caution the estate does not otherwise exercise.
+
+What the policy asks in exchange is that a breaking change is deliberate and swept. A change to what a
+client receives moves in one release together with the Template Editor, the embeddable editor, the four
+MCP servers under `mcp/`, `cedar-cli`, and the `ops/e2e` suites. The REST smoke's pinned inventory in
+`rest/expected-checks.json` names every expected check, so regenerating it with `--update-inventory`
+turns the sweep into a diff to read rather than a search to conduct.
+
+Two consequences worth stating. External callers hold API keys and get no migration window, so a
+breaking release needs a note that reaches them. And a correction that can be made additively should
+be: accepting a second spelling of a parameter, adding a field to an error body, adding a `GET`
+alongside an existing `POST`, or sending a header nobody reads yet costs no caller anything and needs
+no release to be coordinated around it.
+
 ## Artifact write and diagnostic contracts
 
 Artifact creation and replacement use different authorization checks even though both can arrive as
