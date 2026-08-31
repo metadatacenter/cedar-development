@@ -405,9 +405,41 @@ Frontend work for the embeddable editor is tracked separately in
   cache token, the cache-delivery smoke passes in staging and production, and rollback works by
   restoring payloads and routing without inventing a new modifier.
 
+- **9. Converge on one pagination encoding.** Three servers paginate three ways, and all three build
+  on the same `PagedResults` and `LinkHeaderUtil`, so nothing forces the split. The artifact server
+  sends `Link` and `Total-Count` as headers and keeps the body to the collection. The resource server
+  computes the same link set and puts it in the body under `paging`
+  (`AbstractSearchResource.java:129`, `CategoriesResource.java:138`,
+  `FolderContentsResource.java:308`). Terminology returns `page`, `pageCount`, `pageSize`,
+  `totalCount`, `prevPage` and `nextPage` as flat body fields, built in
+  `SqliteTerminologyService.java:220`. A client library that can page one server cannot page the
+  other two.
+
+  **The decision is which encoding wins, and it has to come first.** Headers are the conventional
+  answer and the artifact server already implements them alongside the ETag, `If-Match` and `Vary`
+  contract that the rest of the estate is measured against, so moving it would move the reference
+  away from convention. A body field would instead move the artifact server and terminology onto the
+  resource server's shape. Nothing in the code decides this; it is a product call about what a CEDAR
+  client should look like.
+
+  Whichever wins, deliver it additively first. Emit the chosen encoding everywhere alongside what each
+  server sends today, document it as the supported form, and withdraw the others in a later release.
+  Only the withdrawal breaks a caller, which is what keeps this off a flag day. The alternative is one
+  coordinated release across the Template Editor, the embeddable editor, `cedar-cli`, the four MCP
+  servers and `ops/e2e`, which the lockstep policy allows and the pinned check inventory in
+  `rest/expected-checks.json` makes tractable.
+
+  Two things are already in place. `Link` and `Total-Count` are on the CORS exposed-header list, so a
+  browser can read them cross-origin wherever they are sent. And terminology's page-number fields are
+  what the term picker reads, so they have to survive until it moves, whichever encoding wins.
+
+  Done when one encoding is documented as the supported form, every paginating route emits it, the
+  REST smoke asserts it on a route from each of the three servers, and the superseded encodings are
+  either withdrawn or carry a recorded date for withdrawal.
+
 ## Production data
 
-- **9. Normalize production artifacts to one explicit model contract.** Production contains several
+- **10. Normalize production artifacts to one explicit model contract.** Production contains several
   legacy representations that the current model surfaces tolerate or normalize differently, so bring
   them to canonical shapes before tightening readers or introducing terminology routing across source
   systems. The permission-scoped audit found 76 inherently-multiple fields deployed as JSON objects in
@@ -530,7 +562,7 @@ Frontend work for the embeddable editor is tracked separately in
 
 ## Later decisions
 
-- **10. A published artifact can be deleted, contradicting the docs.** The docs say a published
+- **11. A published artifact can be deleted, contradicting the docs.** The docs say a published
   artifact is permanent, but `DELETE` on one succeeds. The guard in
   `AbstractResourceServerResource.executeArtifactDelete` was briefly re-enabled and then **reverted by
   deliberate decision**: blocking deletion strands published artifacts and the folders holding them with
@@ -541,7 +573,7 @@ Frontend work for the embeddable editor is tracked separately in
   through folder deletion). Immutability of published content is a separate guarantee and is
   unaffected either way — that one is enforced.
 
-- **11. Finish the DataCite DOI minting lifecycle.** The durable lifecycle is what makes the operation
+- **12. Finish the DataCite DOI minting lifecycle.** The durable lifecycle is what makes the operation
   recovery-safe, and none of it exists yet. Minting persists no state of its own: draft/reserved,
   published and locally attached are recorded nowhere, so the `reconciliationRequired` response names a
   condition no code resolves, and a retry after a timeout cannot tell whether the earlier attempt
