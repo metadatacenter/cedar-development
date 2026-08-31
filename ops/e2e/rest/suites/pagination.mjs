@@ -228,9 +228,9 @@ export async function run({ user1, admin, folderId }) {
   check(deepAtWindow.status === 200, 'search-deep serves the same depth', `got ${deepAtWindow.status}`);
 
   // The deep walk is linear in the offset, so it is bounded too, just much further out.
-  const atBound = await call(auth, 'GET', `/search-deep?q=${enc(PAGE_TAG)}&offset=250000&limit=5`);
+  const atBound = await call(auth, 'GET', `/search-deep?q=${enc(PAGE_TAG)}&offset=500000&limit=5`);
   check(atBound.status === 200, 'search-deep serves an offset at the configured maximum', `got ${atBound.status}`);
-  const pastBound = await call(auth, 'GET', `/search-deep?q=${enc(PAGE_TAG)}&offset=250001&limit=5`);
+  const pastBound = await call(auth, 'GET', `/search-deep?q=${enc(PAGE_TAG)}&offset=500001&limit=5`);
   check(pastBound.status === 400, 'and refuses one past it with 400',
       `expected 400, got ${pastBound.status}: ${(pastBound.text ?? '').slice(0, 120)}`);
 
