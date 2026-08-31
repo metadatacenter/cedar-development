@@ -2258,7 +2258,12 @@ on; `--ca-file` adds a private CA, while `--allow-http` exists only for a loopba
 Redirects are refused so an authorization header cannot be forwarded to another origin.
 
 The script reads the selected `/search-deep` totals, enumerates and deduplicates the selected IDs, and
-then fetches the first artifact. Each terminal checkpoint therefore reports `processed/total` against
+then fetches the first artifact. Enumeration follows the continuation each page carries instead of
+counting offsets, so one page is one request rather than one request plus everything in front of it,
+and the whole pass reads a single snapshot of the search index. A server that predates continuations
+answers the first page without one while reporting more rows than it returned; the script recognises
+that and finishes the pass by offset. Either way the refs manifest and the summary record which ran,
+under `paginationByType`. Each terminal checkpoint therefore reports `processed/total` against
 the exact unique audit set, percentage, elapsed time and ETA, as well as both batch and cumulative
 affected-artifact counts. The JSONL is streamed and flushed after every artifact,
 and the adjacent `production-schema-findings-summary.json` is atomically checkpointed every **300
@@ -2321,7 +2326,10 @@ versions and publication states. It does not prove that an underprivileged key s
 that Neo4j/search and Mongo have not drifted. A complete instance-wide claim still needs a privileged
 key plus a store/graph parity check; the Mongo patch tool is the authoritative store-side inventory.
 If totals change or pages overlap during the run, the REST audit marks itself partial rather than
-claiming a stable snapshot.
+claiming a stable snapshot. Against a server that serves continuations the enumeration itself reads
+one snapshot, so artifacts created or deleted while it runs no longer move a later page onto rows an
+earlier one already returned; a changed total is then a fact about the deployment rather than about
+the walk.
 
 ## `ops/cedar_ontology_usage.py`
 
