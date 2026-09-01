@@ -90,14 +90,17 @@ def call(u,data=None,method="GET"):
         headers={"Authorization":f"Basic {auth}","Content-Type":"application/json"})
     with urllib.request.urlopen(r,timeout=60) as x:
         return json.load(x) if x.status==200 and x.headers.get("Content-Type","").startswith("application/json") else None
+repositories={r["name"]:r for r in call(f"{API}/v1/repositories")}
 for repo,policy in MAP.items():
-    cfg=call(f"{API}/v1/repositories/{repo}")
-    fmt,typ=cfg["format"],cfg["type"]
+    metadata=repositories[repo]
+    fmt,typ=metadata["format"],metadata["type"]
+    endpoint_fmt="maven" if fmt=="maven2" else fmt
+    cfg=call(f"{API}/v1/repositories/{endpoint_fmt}/{typ}/{repo}")
     existing=set(cfg.get("cleanup",{}).get("policyNames") or []) if cfg.get("cleanup") else set()
     new = (existing | {policy}) if arm else (existing - {policy})
     cfg["cleanup"]={"policyNames":sorted(new)}
     for k in ("format","type","url"): cfg.pop(k,None)
-    call(f"{API}/v1/repositories/{fmt}/{typ}/{repo}",json.dumps(cfg).encode(),"PUT")
+    call(f"{API}/v1/repositories/{endpoint_fmt}/{typ}/{repo}",json.dumps(cfg).encode(),"PUT")
     print("%-24s policies -> %s" % (repo, sorted(new) or "none"))
 print("\nCleanup service cron is 0 0 1 * * ? — it will act on this at the next 01:00 run.")
 PY
