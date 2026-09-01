@@ -45,8 +45,13 @@ This allocates a prospective ID and runs the same local gate as a real dispatch.
 Maven, TypeScript model → CEE → frontend, and 31-image Docker configuration as one contract; checks
 GitHub CLI authentication and the workflow on `develop`; requires the train slot to be idle;
 rejects a colliding ID; rejects dirty or unpushed source; and requires every checked-out source
-repository's `develop` to equal the live remote `develop`. It then prints the exact dispatch
-command. It does not start GitHub Actions, publish an artifact, or write a manifest.
+repository's `develop` to equal the live remote `develop`. It also runs the same read-only
+publication-target probe as hosted preflight: Nexus service and writable status, the
+`cedar-maven-dev` repository root, npm identity, and Docker Registry v2 authentication. Credentials
+come from `BMIR_NEXUS_USERNAME`/`BMIR_NEXUS_PASSWORD` when present, otherwise from the
+`bmir-nexus-releases` server in `~/.m2/settings.xml`; no extra option is needed. It then prints the
+exact dispatch command. It does not start GitHub Actions, publish an artifact, alter Docker or npm
+client configuration, or write a manifest.
 
 Then create the train:
 
@@ -58,15 +63,17 @@ The real command repeats that complete local preflight; `--dry-run` is a useful 
 safety step the operator can accidentally omit. No additional parameter opts into these checks.
 The CLI reads the next version from `cedar-parent`, adds the current UTC minute, and dispatches the
 `cedar-development` workflow. The train ID is allocated automatically; operators do not choose it.
-On a successful dispatch, the CLI prints two views. Use the major-stage summary when the GitHub
-matrix detail obscures the overall state:
+On a successful dispatch, the CLI prints two views. Use the compact watcher when the GitHub matrix
+detail obscures the overall state:
 
 ```bash
-cedarcli publish train-status <TRAIN_ID>
+cedarcli publish train-status <TRAIN_ID> --watch
 ```
 
-For a blocking step-level view, it also prints the exact workflow run URL and command using that
-run ID:
+It reports Maven, all three npm stages, the Docker plan, compact completed/running/queued/failed
+counts for the 31-image matrix, and final verification. Without `--watch`, the same command is a
+one-shot status and recovery decision. For GitHub's full step log, the dispatch also prints the exact
+workflow run URL and `gh run watch` command using that run ID:
 
 ```bash
 gh run watch <RUN_ID> --repo metadatacenter/cedar-development --compact --exit-status
@@ -75,11 +82,12 @@ gh run watch <RUN_ID> --repo metadatacenter/cedar-development --compact --exit-s
 The workflow first captures the exact `develop` commit of every Java, npm, frontend, Docker, CLI,
 and orchestration repository. Before it records train state or starts Maven, a hosted preflight
 validates every captured file and the complete cross-repository configuration, requires green CI
-for each exact source commit that defines a workflow, verifies Node 24.19.0 and every required
-build surface, and requires `IMAGE_VERSION`, `CEDAR_MAVEN_VERSION`, and
+for each exact source commit that defines a workflow, verifies every required build surface, and
+requires `IMAGE_VERSION`, `CEDAR_MAVEN_VERSION`, and
 `CEDAR_APPLICATION_VERSION` in the captured Docker defaults to equal the train's source snapshot.
 It authenticates to Nexus, proves writable status, and reads the `cedar-maven-dev` repository
-root, then runs `npm whoami` against the configured registry and proves Docker registry login.
+root, then reads npm's `/-/whoami` endpoint and completes the Docker Registry v2 token challenge.
+These are HTTP reads: preflight does not run `docker login`/`logout` or change runner credentials.
 The train repository uses a Release version policy, so artifact-level `maven-metadata.xml` is not
 expected and is not a valid health probe there. A
 repository with no workflow has no CI contract to query, so the gate names it and relies on the
@@ -177,6 +185,21 @@ now resolves to different registry content is rejected before any service starts
 
 ## Resume a failed train
 
+Start with the status command. It names the failed job and step when GitHub exposes one, links the
+workflow, reports which publication completions are recorded, and prints the recovery decision:
+
+```bash
+cedarcli publish train-status <TRAIN_ID>
+```
+
+- No source record means publication could not have started: create a new train ID.
+- A source record with incomplete publication is resumable when source and train configuration stay
+  unchanged. If the correction changes either, commit it and create a new train instead.
+- A Docker completion record means the train is complete: neither resume nor abandon it.
+
+Train state has no abandon operation. An incomplete immutable ID remains useful evidence of what was
+attempted; it cannot block a later ID.
+
 Inspect the resume without dispatching it:
 
 ```bash
@@ -201,6 +224,16 @@ failure.
 
 Use a new train rather than resume when you want to include a source change. A train ID always means
 one fixed commit set.
+
+## Publication-target canary
+
+`publication-preflight-canary.yml` runs the same read-only Nexus, Maven, npm, and Docker probe every
+day and on manual dispatch. A failure opens or updates the issue **Build-train publication preflight
+is failing**; recovery closes it. This is an early warning for expired credentials, an unavailable
+registry, or a repository-shape change. Pull-back verification remains part of every real train: npm
+tarballs are compared by integrity and SHA-256, existing Maven paths by content hash/bytes, and all 31
+Docker images by recorded registry digest and provenance labels. A green canary proves reachability
+and authentication, not artifact identity.
 
 ## What the state branch contains
 

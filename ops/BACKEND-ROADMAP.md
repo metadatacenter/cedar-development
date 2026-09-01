@@ -538,9 +538,19 @@ Frontend work for the embeddable editor is tracked separately in
   Done when each class of outbound call takes its timeouts from configuration, the request log carries
   durations, the compensating write is durable, and the remaining clients read the same settings.
 
+- **12. Test operational CLI code on both macOS and Linux.** `cedarcli` is the control surface for
+  developer workstations and Unix servers, but operational paths can still be exercised only on the
+  platform where a change was written. Put its Python tests and the non-destructive `ops/` controller
+  tests in a macOS/Linux CI matrix. Give OS-specific process discovery, port ownership, service-manager
+  integration, path handling, executable selection, and credential/configuration lookup explicit
+  fixtures on both systems rather than hiding one branch behind a platform skip. The full native stack
+  does not need to boot in CI: acceptance is that every portable preflight and status path runs on both
+  runners, every deliberately platform-specific command has a contract test for each supported OS, and
+  a change to shared operational code cannot merge after passing on only the author's platform.
+
 ## Production data
 
-- **12. Normalize production artifacts to one explicit model contract.** Production contains several
+- **13. Normalize production artifacts to one explicit model contract.** Production contains several
   legacy representations that the current model surfaces tolerate or normalize differently, so bring
   them to canonical shapes before tightening readers or introducing terminology routing across source
   systems. The permission-scoped audit found 76 inherently-multiple fields deployed as JSON objects in
@@ -700,7 +710,7 @@ Frontend work for the embeddable editor is tracked separately in
 
 ## Later decisions
 
-- **13. A published artifact can be deleted, contradicting the docs.** The docs say a published
+- **14. A published artifact can be deleted, contradicting the docs.** The docs say a published
   artifact is permanent, but `DELETE` on one succeeds. The guard in
   `AbstractResourceServerResource.executeArtifactDelete` was briefly re-enabled and then **reverted by
   deliberate decision**: blocking deletion strands published artifacts and the folders holding them with
@@ -711,7 +721,7 @@ Frontend work for the embeddable editor is tracked separately in
   through folder deletion). Immutability of published content is a separate guarantee and is
   unaffected either way — that one is enforced.
 
-- **14. Finish the DataCite DOI minting lifecycle.** The durable lifecycle is what makes the operation
+- **15. Finish the DataCite DOI minting lifecycle.** The durable lifecycle is what makes the operation
   recovery-safe, and none of it exists yet. Minting persists no state of its own: draft/reserved,
   published and locally attached are recorded nowhere, so the `reconciliationRequired` response names a
   condition no code resolves, and a retry after a timeout cannot tell whether the earlier attempt

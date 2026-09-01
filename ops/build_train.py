@@ -30,6 +30,8 @@ MAVEN_NS = "http://maven.apache.org/POM/4.0.0"
 NPM_INPUT_RE = re.compile(r"^export (CEDAR_[A-Z0-9_]+_NPM_VERSION)=(\S+)$", re.MULTILINE)
 NEXUS_HOST = "https://nexus.bmir.stanford.edu"
 NEXUS_MAVEN_TRAIN_REPOSITORY = f"{NEXUS_HOST}/repository/cedar-maven-dev/"
+NEXUS_NPM_REPOSITORY = f"{NEXUS_HOST}/repository/npm-cedar/"
+NEXUS_DOCKER_V2 = f"{NEXUS_HOST}/v2/"
 
 
 def run(arguments: list[str], cwd: Path | None = None, capture: bool = False) -> str:
@@ -451,16 +453,134 @@ def prepare(args: argparse.Namespace) -> None:
     print(f"Prepared {version} from {len(repositories)} exact repository commits.")
 
 
-def _authenticated_request(url: str, username: str, password: str) -> bytes:
+def _http_failure(label: str, error: urllib.error.HTTPError) -> RuntimeError:
+    """Translate transport-shaped failures into an operator decision."""
+    if error.code == 401:
+        detail = "credentials were rejected"
+    elif error.code == 403:
+        detail = "the authenticated account is not allowed to read this endpoint"
+    elif error.code == 404:
+        detail = "the expected endpoint is absent; the repository or probe contract has changed"
+    elif error.code == 429:
+        detail = "Nexus is rate limiting requests"
+    elif error.code >= 500:
+        detail = "Nexus is unavailable or unhealthy"
+    else:
+        detail = "the endpoint rejected the read-only probe"
+    return RuntimeError(f"{label} failed: {detail} (HTTP {error.code})")
+
+
+def _request(
+    request: urllib.request.Request,
+    label: str,
+    opener=None,
+    allow_unauthorized: bool = False,
+):
+    opener = opener or urllib.request.urlopen
+    try:
+        return opener(request, timeout=60)
+    except urllib.error.HTTPError as error:
+        if allow_unauthorized and error.code == 401:
+            return error
+        failure = _http_failure(label, error)
+        error.close()
+        raise failure from error
+    except (urllib.error.URLError, TimeoutError, OSError) as error:
+        raise RuntimeError(f"{label} failed: cannot reach Nexus ({error})") from error
+
+
+def _authenticated_request(
+    url: str,
+    username: str,
+    password: str,
+    label: str = "Nexus authentication",
+    opener=None,
+) -> bytes:
     token = base64.b64encode(f"{username}:{password}".encode()).decode()
     request = urllib.request.Request(url, headers={"Authorization": f"Basic {token}"})
+    with _request(request, label, opener=opener) as response:
+        return response.read()
+
+
+def _docker_registry_preflight(username: str, password: str, opener=None) -> None:
+    """Authenticate to the Docker Registry v2 API without changing Docker config."""
+    basic = base64.b64encode(f"{username}:{password}".encode()).decode()
+    request = urllib.request.Request(
+        NEXUS_DOCKER_V2, headers={"Authorization": f"Basic {basic}"})
+    response = _request(
+        request, "Docker registry authentication", opener=opener, allow_unauthorized=True)
+    if getattr(response, "status", None) != 401:
+        with response:
+            response.read()
+        return
+
+    challenge = response.headers.get("WWW-Authenticate", "")
+    response.close()
+    match = re.match(r'^Bearer\s+(.+)$', challenge, re.IGNORECASE)
+    if not match:
+        raise RuntimeError(
+            "Docker registry authentication failed: Nexus returned no Bearer challenge")
+    parameters = dict(re.findall(r'(\w+)="([^"]*)"', match.group(1)))
+    realm = parameters.get("realm")
+    if not realm or not realm.startswith(f"{NEXUS_HOST}/"):
+        raise RuntimeError(
+            "Docker registry authentication failed: Nexus returned an invalid token endpoint")
+    query = {
+        key: value for key, value in parameters.items()
+        if key in {"service", "scope"} and value
+    }
+    token_url = realm + ("?" + urllib.parse.urlencode(query) if query else "")
+    token_body = _authenticated_request(
+        token_url, username, password, "Docker registry token", opener=opener)
     try:
-        with urllib.request.urlopen(request, timeout=60) as response:
-            return response.read()
-    except urllib.error.HTTPError as error:
-        raise RuntimeError(f"Nexus preflight failed for {url}: HTTP {error.code}") from error
-    except (urllib.error.URLError, TimeoutError, OSError) as error:
-        raise RuntimeError(f"Nexus preflight failed for {url}: {error}") from error
+        token_payload = json.loads(token_body)
+    except json.JSONDecodeError as error:
+        raise RuntimeError("Docker registry token failed: Nexus returned invalid JSON") from error
+    bearer = token_payload.get("token") or token_payload.get("access_token")
+    if not isinstance(bearer, str) or not bearer:
+        raise RuntimeError("Docker registry token failed: Nexus returned no access token")
+    authenticated = urllib.request.Request(
+        NEXUS_DOCKER_V2, headers={"Authorization": f"Bearer {bearer}"})
+    with _request(authenticated, "Docker registry authentication", opener=opener) as response:
+        response.read()
+
+
+def publication_target_preflight(environment=None, opener=None) -> None:
+    """Read every publication surface; never upload, log in, or alter client config."""
+    environment = os.environ if environment is None else environment
+    username = environment.get("BMIR_NEXUS_USERNAME")
+    password = environment.get("BMIR_NEXUS_PASSWORD")
+    if not username or not password:
+        raise RuntimeError("BMIR_NEXUS_USERNAME and BMIR_NEXUS_PASSWORD are required")
+
+    probes = (
+        ("Nexus service status", f"{NEXUS_HOST}/service/rest/v1/status/check"),
+        ("Nexus writable status", f"{NEXUS_HOST}/service/rest/v1/status/writable"),
+        # cedar-maven-dev has a Release version policy, so artifact-level
+        # maven-metadata.xml is expected to be absent. Its repository root is the contract.
+        ("Maven train repository root", NEXUS_MAVEN_TRAIN_REPOSITORY),
+    )
+    for label, url in probes:
+        _authenticated_request(url, username, password, label, opener=opener)
+        print(f"OK {label}")
+
+    npm_body = _authenticated_request(
+        f"{NEXUS_NPM_REPOSITORY}-/whoami",
+        username,
+        password,
+        "npm registry authentication",
+        opener=opener,
+    )
+    try:
+        npm_identity = json.loads(npm_body).get("username")
+    except (AttributeError, json.JSONDecodeError) as error:
+        raise RuntimeError("npm registry authentication failed: Nexus returned invalid JSON") from error
+    if not isinstance(npm_identity, str) or not npm_identity:
+        raise RuntimeError("npm registry authentication failed: Nexus returned no username")
+    print(f"OK npm registry authentication ({npm_identity})")
+
+    _docker_registry_preflight(username, password, opener=opener)
+    print("OK Docker registry authentication")
 
 
 def _github_ci_preflight(source: dict, workspace: Path) -> None:
@@ -540,42 +660,7 @@ def publication_preflight(args: argparse.Namespace) -> None:
     )
     _github_ci_preflight(source, args.workspace)
 
-    username = os.environ.get("BMIR_NEXUS_USERNAME")
-    password = os.environ.get("BMIR_NEXUS_PASSWORD")
-    if not username or not password:
-        raise RuntimeError("BMIR_NEXUS_USERNAME and BMIR_NEXUS_PASSWORD are required")
-    for url in (
-        f"{NEXUS_HOST}/service/rest/v1/status/check",
-        f"{NEXUS_HOST}/service/rest/v1/status/writable",
-        # cedar-maven-dev has a Release version policy, so Nexus does not create the
-        # artifact-level maven-metadata.xml produced by a snapshot repository. Probe
-        # the actual target repository instead of requiring a file that cannot exist.
-        NEXUS_MAVEN_TRAIN_REPOSITORY,
-    ):
-        _authenticated_request(url, username, password)
-
-    npm = subprocess.run(
-        ["npm", "whoami", "--registry", "https://nexus.bmir.stanford.edu/repository/npm-cedar/"],
-        text=True, capture_output=True, check=False,
-    )
-    if npm.returncode:
-        detail = (npm.stderr or npm.stdout).strip().splitlines()
-        raise RuntimeError(
-            "npm authentication preflight failed"
-            + (f": {detail[-1]}" if detail else ""))
-    docker = subprocess.run(
-        ["docker", "login", "nexus.bmir.stanford.edu", "--username", username, "--password-stdin"],
-        input=password, text=True, capture_output=True, check=False,
-    )
-    if docker.returncode:
-        detail = (docker.stderr or docker.stdout).strip().splitlines()
-        raise RuntimeError(
-            "Docker registry authentication preflight failed"
-            + (f": {detail[-1]}" if detail else ""))
-    subprocess.run(
-        ["docker", "logout", "nexus.bmir.stanford.edu"],
-        text=True, capture_output=True, check=False,
-    )
+    publication_target_preflight()
     print(
         "Train preflight passed: "
         f"{summary['repositories']} repositories, {summary['mavenRepositories']} Maven, "
@@ -854,6 +939,12 @@ def parser() -> argparse.ArgumentParser:
     preflight_parser.add_argument("--frontend-config", type=Path, default=DEFAULT_FRONTEND_CONFIG)
     preflight_parser.add_argument("--docker-config", type=Path, default=DEFAULT_DOCKER_CONFIG)
     preflight_parser.set_defaults(handler=publication_preflight)
+
+    target_parser = commands.add_parser(
+        "probe-publication",
+        help="Read-only Nexus, npm, and Docker publication-target preflight",
+    )
+    target_parser.set_defaults(handler=lambda _args: publication_target_preflight())
 
     build_parser = commands.add_parser("build")
     build_parser.add_argument("--version", required=True)

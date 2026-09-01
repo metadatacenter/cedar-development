@@ -1,0 +1,80 @@
+name: Publication preflight canary
+
+run-name: Publication preflight canary
+
+# This is the same read-only external-surface probe used by local train dry-run and the hosted
+# train preflight. Running it independently catches a changed Nexus repository shape, expired
+# credentials, or broken npm/Docker authentication before an operator spends time on a train.
+on:
+  schedule:
+    - cron: "43 7 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: cedar-development-publication-preflight-canary
+  cancel-in-progress: false
+
+env:
+  ISSUE_TITLE: "Build-train publication preflight is failing"
+
+jobs:
+  probe:
+    name: Read every publication target
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      BMIR_NEXUS_USERNAME: ${{ secrets.BMIR_NEXUS_USERNAME }}
+      BMIR_NEXUS_PASSWORD: ${{ secrets.BMIR_NEXUS_PASSWORD }}
+    steps:
+      - name: Check out the train controller
+        uses: actions/checkout@v7
+
+      - name: Probe Nexus, Maven, npm, and Docker without writing
+        id: probe
+        run: |
+          set +e
+          python3 ops/build_train.py probe-publication > report.txt 2>&1
+          echo "status=$?" >> "$GITHUB_OUTPUT"
+          cat report.txt
+          {
+            echo '## Publication preflight canary'
+            echo '```'
+            cat report.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Open or update the issue when the canary fails
+        if: steps.probe.outputs.status != '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          body="$(printf '%s\n\n```\n%s\n```\n' \
+            'The read-only preflight used before a build train cannot authenticate to or read one of its publication targets. Fix this before dispatching another train.' \
+            "$(cat report.txt)")"
+          existing=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open \
+            --search "in:title \"$ISSUE_TITLE\"" --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --repo "$GITHUB_REPOSITORY" --body "$body"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$ISSUE_TITLE" --body "$body"
+          fi
+
+      - name: Close the issue once every target is readable
+        if: steps.probe.outputs.status == '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          existing=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open \
+            --search "in:title \"$ISSUE_TITLE\"" --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            gh issue close "$existing" --repo "$GITHUB_REPOSITORY" \
+              --comment 'The build-train publication targets are readable again.'
+          fi
+
+      - name: Fail the run when a publication target is unavailable
+        if: steps.probe.outputs.status != '0'
+        run: exit 1

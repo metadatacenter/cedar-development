@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
+import urllib.error
 from unittest.mock import patch
 
 
@@ -219,10 +220,6 @@ class BuildTrainTest(unittest.TestCase):
                 "frontend_config": paths[1],
                 "docker_config": paths[2],
             })()
-            requests = []
-            completed = type("Completed", (), {
-                "returncode": 0, "stdout": "", "stderr": "",
-            })()
             with patch.dict(os.environ, {
                 "BMIR_NEXUS_USERNAME": "user", "BMIR_NEXUS_PASSWORD": "secret",
             }, clear=False), \
@@ -231,13 +228,87 @@ class BuildTrainTest(unittest.TestCase):
                         "frontends": 1, "images": 31,
                     }), \
                     patch.object(build_train, "_github_ci_preflight"), \
-                    patch.object(build_train, "_authenticated_request",
-                                 side_effect=lambda url, *_args: requests.append(url)), \
-                    patch.object(build_train.subprocess, "run", return_value=completed):
+                    patch.object(build_train, "publication_target_preflight") as targets:
                 build_train.publication_preflight(arguments)
 
-        self.assertEqual(build_train.NEXUS_MAVEN_TRAIN_REPOSITORY, requests[-1])
-        self.assertNotIn("maven-metadata.xml", requests[-1])
+        targets.assert_called_once_with()
+
+    def test_read_only_target_preflight_uses_real_repository_shapes(self):
+        requests = []
+
+        def authenticated(url, _username, _password, label, opener=None):
+            self.assertIsNone(opener)
+            requests.append((label, url))
+            if label == "npm registry authentication":
+                return json.dumps({"username": "cedar"}).encode()
+            return b""
+
+        with patch.object(build_train, "_authenticated_request", side_effect=authenticated), \
+                patch.object(build_train, "_docker_registry_preflight") as docker:
+            build_train.publication_target_preflight({
+                "BMIR_NEXUS_USERNAME": "user",
+                "BMIR_NEXUS_PASSWORD": "secret",
+            })
+
+        self.assertIn(
+            ("Maven train repository root", build_train.NEXUS_MAVEN_TRAIN_REPOSITORY),
+            requests,
+        )
+        self.assertIn(
+            ("npm registry authentication", build_train.NEXUS_NPM_REPOSITORY + "-/whoami"),
+            requests,
+        )
+        self.assertFalse(any("maven-metadata.xml" in url for _label, url in requests))
+        docker.assert_called_once_with("user", "secret", opener=None)
+
+    def test_preflight_404_names_an_absent_probe_contract(self):
+        def opener(request, timeout):
+            self.assertEqual(60, timeout)
+            raise urllib.error.HTTPError(request.full_url, 404, "not found", {}, None)
+
+        with self.assertRaisesRegex(
+                RuntimeError, "expected endpoint is absent.*HTTP 404"):
+            build_train._authenticated_request(
+                build_train.NEXUS_MAVEN_TRAIN_REPOSITORY,
+                "user",
+                "secret",
+                "Maven train repository root",
+                opener=opener,
+            )
+
+    def test_docker_probe_sends_credentials_without_writing_client_config(self):
+        requests = []
+
+        class Response(io.BytesIO):
+            status = 200
+            headers = {}
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                self.close()
+
+        def opener(request, timeout):
+            self.assertEqual(60, timeout)
+            requests.append(request)
+            return Response(b"{}")
+
+        build_train._docker_registry_preflight("user", "secret", opener=opener)
+
+        self.assertEqual(1, len(requests))
+        self.assertTrue(requests[0].get_header("Authorization").startswith("Basic "))
+
+    def test_publication_canary_runs_only_the_read_only_probe(self):
+        workflow = (
+            Path(__file__).resolve().parents[2]
+            / ".github" / "workflows" / "publication-preflight-canary.yml"
+        ).read_text(encoding="utf-8")
+        self.assertIn("schedule:", workflow)
+        self.assertIn("python3 ops/build_train.py probe-publication", workflow)
+        self.assertNotIn("docker login", workflow)
+        self.assertNotIn("docker logout", workflow)
+        self.assertNotIn("npm publish", workflow)
 
     def test_train_order_compares_numeric_release_components(self):
         self.assertGreater(
