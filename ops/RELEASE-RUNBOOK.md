@@ -90,6 +90,11 @@ source commit defines no workflow is reported as advisory because it has no CI c
 both the more precise question and the stable one, since a release advances `develop` everywhere at
 once and a run against the new head answers for a commit nobody is releasing.
 
+The Docker source carries three suite selectors: `IMAGE_VERSION`, `CEDAR_MAVEN_VERSION`, and
+`CEDAR_APPLICATION_VERSION`. Plan requires all three to equal the train source version, and release
+stamping advances all three together on the release and next-development variants. This prevents a
+new Docker tag from silently building old Maven or frontend application inputs.
+
 Those runs used to go red as a matter of course, because the snapshots they resolve arrived after
 the pushes that triggered them. Publishing the snapshots first removed that, so a red `develop` now
 means something. If you are looking at a release cut before that change, re-run the failed builds:

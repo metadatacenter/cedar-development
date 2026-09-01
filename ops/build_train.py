@@ -79,6 +79,7 @@ def _require_file(workspace: Path, repository: str, relative: str, label: str) -
 
 def validate_configuration(
     build: dict, frontend: dict, docker: dict, workspace: Path,
+    expected_source_version: str | None = None,
 ) -> dict:
     """Validate every cross-file train contract against the captured source tree."""
     repositories = _unique_strings(build.get("repositories"), "build repositories")
@@ -165,6 +166,18 @@ def validate_configuration(
         _require_file(workspace, repository, consumer.get("manifest"), "CEE consumer manifest")
         _require_file(workspace, repository, consumer.get("lock"), "CEE consumer lock")
 
+    docker_manifest = workspace / "cedar-docker-build" / "bin" / "cedar-images-base.sh"
+    docker_text = docker_manifest.read_text(encoding="utf-8")
+    if expected_source_version is not None:
+        for variable in (
+            "IMAGE_VERSION", "CEDAR_MAVEN_VERSION", "CEDAR_APPLICATION_VERSION",
+        ):
+            match = re.search(rf"^export {variable}=(\S+)$", docker_text, re.MULTILINE)
+            actual = match.group(1) if match else None
+            if actual != expected_source_version:
+                raise RuntimeError(
+                    f"Docker {variable} is {actual!r}, expected source version "
+                    f"{expected_source_version!r}")
     docker_inputs = frontend_inputs(workspace)
     required_inputs = {item["npmVersionVariable"] for item in frontends}
     required_inputs.add(frontend.get("dockerCeeVersionVariable"))
@@ -481,6 +494,20 @@ def _github_ci_preflight(source: dict, workspace: Path) -> None:
         if not isinstance(runs, list) or not runs:
             failures.append(f"{repository}: no CI run for {revision[:8]}")
             continue
+        # The train workflow is the caller currently performing this check. Counting it would
+        # make cedar-development wait on itself forever (or inherit a previous train failure).
+        runs = [
+            run_record for run_record in runs
+            if not (
+                repository == "cedar-development"
+                and run_record.get("path") == ".github/workflows/build-train.yml"
+            )
+        ]
+        if not runs:
+            print(
+                "CI advisory: cedar-development has no separate source-validation run; "
+                "the train controller is executing its captured code now.")
+            continue
         latest_by_name = {}
         for run_record in runs:
             name = run_record.get("name") or str(run_record.get("workflow_id") or "CI")
@@ -507,6 +534,7 @@ def publication_preflight(args: argparse.Namespace) -> None:
         load_config(args.frontend_config),
         load_config(args.docker_config),
         args.workspace,
+        source.get("sourceVersion"),
     )
     _github_ci_preflight(source, args.workspace)
 

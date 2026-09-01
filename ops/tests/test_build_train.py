@@ -63,6 +63,9 @@ class BuildTrainTest(unittest.TestCase):
         manifest = workspace / "cedar-docker-build" / "bin" / "cedar-images-base.sh"
         manifest.parent.mkdir()
         manifest.write_text(
+            "export IMAGE_VERSION=2.9.3-SNAPSHOT\n"
+            "export CEDAR_MAVEN_VERSION=2.9.3-SNAPSHOT\n"
+            "export CEDAR_APPLICATION_VERSION=2.9.3-SNAPSHOT\n"
             "export CEDAR_FRONTEND_NPM_VERSION=1\n"
             "export CEDAR_CEE_NPM_VERSION=1\n",
             encoding="utf-8",
@@ -113,7 +116,8 @@ class BuildTrainTest(unittest.TestCase):
     def test_complete_configuration_contract_passes_before_build(self):
         with tempfile.TemporaryDirectory() as directory:
             workspace, build, frontend, docker = self._preflight_fixture(Path(directory))
-            summary = build_train.validate_configuration(build, frontend, docker, workspace)
+            summary = build_train.validate_configuration(
+                build, frontend, docker, workspace, "2.9.3-SNAPSHOT")
 
         self.assertEqual(31, summary["images"])
         self.assertEqual(1, summary["frontends"])
@@ -125,11 +129,27 @@ class BuildTrainTest(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "Maven wrapper"):
                 build_train.validate_configuration(build, frontend, docker, workspace)
 
+    def test_docker_suite_versions_must_match_the_captured_source(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workspace, build, frontend, docker = self._preflight_fixture(Path(directory))
+            manifest = workspace / "cedar-docker-build" / "bin" / "cedar-images-base.sh"
+            manifest.write_text(
+                manifest.read_text(encoding="utf-8").replace(
+                    "CEDAR_MAVEN_VERSION=2.9.3-SNAPSHOT",
+                    "CEDAR_MAVEN_VERSION=2.9.2-SNAPSHOT",
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(RuntimeError, "CEDAR_MAVEN_VERSION"):
+                build_train.validate_configuration(
+                    build, frontend, docker, workspace, "2.9.3-SNAPSHOT")
+
     def test_exact_source_ci_must_have_a_completed_green_run(self):
         class Response:
             def __enter__(self):
                 return io.BytesIO(json.dumps({"workflow_runs": [{
-                    "name": "CI", "status": "completed", "conclusion": "cancelled",
+                "name": "CI", "status": "completed", "conclusion": "cancelled",
+                    "path": ".github/workflows/ci.yml",
                 }]}).encode())
 
             def __exit__(self, *_args):
@@ -145,6 +165,27 @@ class BuildTrainTest(unittest.TestCase):
                     patch.object(build_train.urllib.request, "urlopen", return_value=Response()):
                 with self.assertRaisesRegex(RuntimeError, "concluded cancelled"):
                     build_train._github_ci_preflight(source, workspace)
+
+    def test_train_workflow_does_not_block_on_itself(self):
+        class Response:
+            def __enter__(self):
+                return io.BytesIO(json.dumps({"workflow_runs": [{
+                    "name": "Build train", "status": "in_progress", "conclusion": None,
+                    "path": ".github/workflows/build-train.yml",
+                }]}).encode())
+
+            def __exit__(self, *_args):
+                return False
+
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            workflows = workspace / "cedar-development" / ".github" / "workflows"
+            workflows.mkdir(parents=True)
+            (workflows / "build-train.yml").write_text("name: train\n", encoding="utf-8")
+            source = {"repositories": {"cedar-development": "a" * 40}}
+            with patch.dict(os.environ, {"GH_TOKEN": "token"}, clear=False), \
+                    patch.object(build_train.urllib.request, "urlopen", return_value=Response()):
+                build_train._github_ci_preflight(source, workspace)
 
     def test_exact_source_without_a_workflow_is_advisory(self):
         with tempfile.TemporaryDirectory() as directory:

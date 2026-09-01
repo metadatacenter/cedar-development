@@ -76,7 +76,9 @@ The workflow first captures the exact `develop` commit of every Java, npm, front
 and orchestration repository. Before it records train state or starts Maven, a hosted preflight
 validates every captured file and the complete cross-repository configuration, requires green CI
 for each exact source commit that defines a workflow, verifies Node 24.19.0 and every required
-build surface, authenticates to Nexus and proves both writable status and a real Maven repository
+build surface, and requires `IMAGE_VERSION`, `CEDAR_MAVEN_VERSION`, and
+`CEDAR_APPLICATION_VERSION` in the captured Docker defaults to equal the train's source snapshot.
+It authenticates to Nexus and proves both writable status and a real Maven repository
 read, runs `npm whoami` against the configured registry, and proves Docker registry login. A
 repository with no workflow has no CI contract to query, so the gate names it and relies on the
 train's own build gates. This hosted check uses the workflow's existing secrets and requires no
