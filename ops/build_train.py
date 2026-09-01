@@ -28,6 +28,8 @@ DEFAULT_DOCKER_CONFIG = ROOT / "docker-train.json"
 TRAIN_RE = re.compile(r"^\d+\.\d+\.\d+-dev\.\d{8}\.\d{4}$")
 MAVEN_NS = "http://maven.apache.org/POM/4.0.0"
 NPM_INPUT_RE = re.compile(r"^export (CEDAR_[A-Z0-9_]+_NPM_VERSION)=(\S+)$", re.MULTILINE)
+NEXUS_HOST = "https://nexus.bmir.stanford.edu"
+NEXUS_MAVEN_TRAIN_REPOSITORY = f"{NEXUS_HOST}/repository/cedar-maven-dev/"
 
 
 def run(arguments: list[str], cwd: Path | None = None, capture: bool = False) -> str:
@@ -542,11 +544,13 @@ def publication_preflight(args: argparse.Namespace) -> None:
     password = os.environ.get("BMIR_NEXUS_PASSWORD")
     if not username or not password:
         raise RuntimeError("BMIR_NEXUS_USERNAME and BMIR_NEXUS_PASSWORD are required")
-    nexus = "https://nexus.bmir.stanford.edu"
     for url in (
-        f"{nexus}/service/rest/v1/status/check",
-        f"{nexus}/service/rest/v1/status/writable",
-        f"{nexus}/repository/cedar-maven-dev/org/metadatacenter/cedar-parent/maven-metadata.xml",
+        f"{NEXUS_HOST}/service/rest/v1/status/check",
+        f"{NEXUS_HOST}/service/rest/v1/status/writable",
+        # cedar-maven-dev has a Release version policy, so Nexus does not create the
+        # artifact-level maven-metadata.xml produced by a snapshot repository. Probe
+        # the actual target repository instead of requiring a file that cannot exist.
+        NEXUS_MAVEN_TRAIN_REPOSITORY,
     ):
         _authenticated_request(url, username, password)
 

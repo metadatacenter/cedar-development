@@ -197,6 +197,48 @@ class BuildTrainTest(unittest.TestCase):
                 build_train._github_ci_preflight(source, workspace)
             urlopen.assert_not_called()
 
+    def test_publication_preflight_probes_the_release_policy_repository_root(self):
+        version = "2.9.3-dev.20260824.1847"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            state = root / "state"
+            (state / "trains").mkdir(parents=True)
+            (state / "trains" / f"{version}.json").write_text(json.dumps({
+                "sourceVersion": "2.9.3-SNAPSHOT", "repositories": {},
+            }), encoding="utf-8")
+            paths = []
+            for name in ("build", "frontend", "docker"):
+                path = root / f"{name}.json"
+                path.write_text("{}\n", encoding="utf-8")
+                paths.append(path)
+            arguments = type("Arguments", (), {
+                "version": version,
+                "state": state,
+                "workspace": root / "workspace",
+                "config": paths[0],
+                "frontend_config": paths[1],
+                "docker_config": paths[2],
+            })()
+            requests = []
+            completed = type("Completed", (), {
+                "returncode": 0, "stdout": "", "stderr": "",
+            })()
+            with patch.dict(os.environ, {
+                "BMIR_NEXUS_USERNAME": "user", "BMIR_NEXUS_PASSWORD": "secret",
+            }, clear=False), \
+                    patch.object(build_train, "validate_configuration", return_value={
+                        "repositories": 1, "mavenRepositories": 1,
+                        "frontends": 1, "images": 31,
+                    }), \
+                    patch.object(build_train, "_github_ci_preflight"), \
+                    patch.object(build_train, "_authenticated_request",
+                                 side_effect=lambda url, *_args: requests.append(url)), \
+                    patch.object(build_train.subprocess, "run", return_value=completed):
+                build_train.publication_preflight(arguments)
+
+        self.assertEqual(build_train.NEXUS_MAVEN_TRAIN_REPOSITORY, requests[-1])
+        self.assertNotIn("maven-metadata.xml", requests[-1])
+
     def test_train_order_compares_numeric_release_components(self):
         self.assertGreater(
             build_train.train_key("2.10.0-dev.20260824.1847"),

@@ -78,8 +78,10 @@ validates every captured file and the complete cross-repository configuration, r
 for each exact source commit that defines a workflow, verifies Node 24.19.0 and every required
 build surface, and requires `IMAGE_VERSION`, `CEDAR_MAVEN_VERSION`, and
 `CEDAR_APPLICATION_VERSION` in the captured Docker defaults to equal the train's source snapshot.
-It authenticates to Nexus and proves both writable status and a real Maven repository
-read, runs `npm whoami` against the configured registry, and proves Docker registry login. A
+It authenticates to Nexus, proves writable status, and reads the `cedar-maven-dev` repository
+root, then runs `npm whoami` against the configured registry and proves Docker registry login.
+The train repository uses a Release version policy, so artifact-level `maven-metadata.xml` is not
+expected and is not a valid health probe there. A
 repository with no workflow has no CI contract to query, so the gate names it and relies on the
 train's own build gates. This hosted check uses the workflow's existing secrets and requires no
 new CLI parameter.
