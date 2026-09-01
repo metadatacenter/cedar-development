@@ -125,8 +125,11 @@ The release runs these phases, each verifying its work before the next begins:
 3. Run the release Maven test builds, the next-development Maven builds, all frontend installs, and
    the production frontend builds. Generated distribution bytes are inventoried, so an ignored
    `dist` file cannot change before publication.
-4. Create and verify local `release/pre-<VER>`, `release/post-<NEXT>`, and `release-<VER>` refs,
-   without touching the ordinary CEDAR working trees.
+4. Replace each tracked frontend distribution with its byte-inventoried production build, retaining
+   only its package metadata and removing obsolete generated files, then create and verify local
+   `release/pre-<VER>`, `release/post-<NEXT>`, and `release-<VER>` refs without touching the ordinary
+   CEDAR working trees. For OpenView, this also proves that the distributed CEE bundle is the public
+   CEE selected by `--cee-version`, with only the declared production endpoint normalization.
 5. Deploy the next-development Maven snapshots, in dependency order, from the prepared `develop`
    trees, and verify their Nexus inventory. Immutable build trains remain the owner of development
    frontend packages, so this route does not republish `-SNAPSHOT` npm versions.
@@ -135,9 +138,11 @@ The release runs these phases, each verifying its work before the next begins:
    `develop`.
 7. Upload the exact locally validated Maven release bytes to Nexus, accepting an existing immutable
    path only when its bytes match, and verify the required artifact inventory.
-8. Pack the six stable npm frontend surfaces from the exact integrated commits, overlay only the
-   byte-inventoried production output for distribution packages, record `gitHead`, publish to CEDAR
-   Nexus, then download each registry tarball and verify its integrity and content hash.
+8. Pack the six stable npm frontend surfaces from the exact integrated commits, record `gitHead`,
+   and retain explicitly declared runtime assets that npm normally excludes. OpenView's packaged
+   `node_modules` assets therefore include the exact CEE and Web Components files committed in its
+   release distribution. Publish to CEDAR Nexus, then download each registry tarball and verify its
+   integrity, content hash, provenance, and runtime-asset hashes.
 9. Accept the release, proving from outside the ledger that it holds.
 
 Nothing reaches a remote until every local ref has been created and verified, so a release that
@@ -173,14 +178,23 @@ snapshot records do not inflate the release-artifact count.
 Acceptance is the last phase, and it is what makes the release self-proving. It asks, from outside
 the ledger that recorded the work, whether every repository carries the release tag, every remote ref
 stands where the ledger says, every published artifact still matches its recorded bytes, and the
-frontends pin the proven CEE. A completed release reports `Release <VER> — COMPLETE` and shows
-acceptance at `1/1`.
+frontends pin the proven CEE. It also proves that OpenView's committed distribution and published
+npm artifact contain the normalized bytes of that exact public CEE. This is artifact acceptance;
+after deployment, the environment smoke check must still prove which artifact the web server is
+actually serving. A completed release reports `Release <VER> — COMPLETE` and shows acceptance at
+`1/1`.
+
+Acceptance also marks the release concluded and frees the active slot. There is no separate
+`finish` command. If the process stops after writing the accepted ledger but before marking its
+pointer concluded, `cedarcli release resume` repairs that final bookkeeping step without rerunning
+the release.
 
 The exact-ref query already proves each tag at its recorded commit, so acceptance does not make a
 second tag-only request across all repositories. This matters on a forty-repository release and on a
 Nexus installation with a finite request budget.
 
-Treat any other final phase as an incomplete release, whatever else the output says.
+Only `COMPLETE` means successfully released. `ABANDONED` means the retained attempt was closed
+without releasing it; every other status remains incomplete.
 
 ## If a Phase Fails
 
@@ -197,11 +211,30 @@ Resume starts at the recorded phase, verifies the completed evidence that phase 
 continues. Remote ref drift, changed local evidence, or a different immutable registry object is a
 hard stop; transient transport retry is automatic.
 
+An attempt whose immutable train is itself the problem cannot be repaired by `resume`. If the
+release has not gone beyond `local-refs-created`, retain and close it explicitly:
+
+```bash
+cedarcli release abandon \
+  --version <VER> \
+  --reason "superseded by corrected train <TRAIN_ID>"
+```
+
+The exact version is a guard against closing the wrong active release, and the reason is stored in
+the ledger. Abandonment marks status `ABANDONED`, retains the manifest and numbered attempt tree,
+frees the active slot, and permits another attempt at the same release version. It never deletes or
+rolls back evidence.
+
+`abandon` is deliberately unavailable once snapshot publication may have begun, even when no
+snapshot task reached its completed-ledger write: Maven may have changed Nexus before returning a
+failure. It likewise refuses any attempt with snapshot, remote-integration, or artifact-publication
+evidence. From that boundary onward, repair the state and use `release resume`.
+
 Never edit a ledger or a release manifest by hand. Those files are the release's own record of what
 it verified, and a hand-edited record makes every guard downstream of it meaningless.
 
-One release is active at a time. Acceptance is the only path that marks it finished and frees the
-slot for the next release.
+One release is active at a time. Acceptance closes a successful release; guarded abandonment closes
+a local-only attempt that must be replaced by another train.
 
 ### Known Failure Signatures
 
@@ -209,6 +242,7 @@ slot for the next release.
 |-----------|---------|----------|
 | HTTP 502/503/504 or a direct connection failure on `./mvnw deploy` | transient Nexus transport/service failure | `release resume`; bounded retry is automatic |
 | Nexus HTTP 500 while status is writable but a repository read fails | likely daily request budget exhaustion | stop; check Usage Center and wait for the rolling 24-hour window to recover |
+| a prepared or generated file cannot match the immutable train, before snapshot publication | the attempt needs a corrected train rather than a retry | `release abandon --version <VER> --reason "…"`, then plan the corrected train |
 | `git pull` hangs at `Username:` | expired PAT with an empty credential store | refresh the PAT, re-cache, keep `GIT_TERMINAL_PROMPT=0` set |
 | `RPC failed; curl 92 Stream error in the HTTP/2 framing layer` | transient push | `release resume`, or `git config http.version HTTP/1.1` |
 | `remote: fatal error in commit_refs` / GitHub HTTP 5xx | transient GitHub backend | `release resume`; bounded retry is automatic |
