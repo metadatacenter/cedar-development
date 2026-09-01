@@ -2098,6 +2098,40 @@ that job installs `libssl1.1` on the runner first; without it `mongod` cannot st
 resource test errors out. Moving the tests onto a newer MongoDB would drop that step, at the cost of
 testing against a different engine than production runs.
 
+### Snapshot freshness
+
+A merge to `develop` publishes that repository's snapshot to Nexus, and every downstream build
+resolves CEDAR artifacts from Nexus rather than from a checkout. A repository whose commit is on
+`develop` but whose snapshot never published is therefore invisible in the place anyone looks: its
+branch is green and its source is right, while every consumer builds against the artifact it
+replaced.
+
+```bash
+cedarcli check snapshots
+```
+
+It asks Nexus for each publishing repository's recorded timestamp and GitHub for the time of the
+head commit on `develop`, and reports a snapshot that is older than its source, or absent. It exits
+non-zero on either. An unreadable Nexus or GitHub is reported and does not fail the check, because
+failing there would blame the estate's source for a fault in the network reaching it. The grace
+period is two hours, so a build still running is not a finding; `--grace-hours` moves it.
+
+`.github/workflows/snapshot-freshness.yml` runs the same command daily and opens an issue naming the
+repositories, commenting on it while the condition lasts and closing it when every snapshot is
+current again. It reports through an issue rather than a red run because a scheduled workflow that
+merely goes red notifies whoever last touched it and nobody else.
+
+What it is for happened on 2026-08-29. A Dropwizard upgrade landed in `cedar-parent`, its deploy step
+met a Nexus 500, and the snapshot stayed a day old. Every Java repository's CI failed from then on,
+resolving a parent that did not manage a dependency the new poms named, and every build train failed
+with it. Four unrelated regressions — a Keycloak entrypoint that aborted on its own diagnostic, seven
+frontend nginx configs that could not be parsed, stale CEE visual baselines, and the parent snapshot
+itself — accumulated behind that one unpublished artifact before anyone compared the two sides. The
+repair, when it was finally found, was to re-run the failed deploy.
+
+When the check reports a repository, re-run that repository's failed CI run. If its deploy step is
+what failed, the publication needs repeating rather than the source.
+
 ### Automated dependency updates
 
 The Mend-hosted Renovate GitHub App runs for `cedar-parent` and `cedar-docker-build`. Both
