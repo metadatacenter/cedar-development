@@ -144,7 +144,8 @@ export CEDAR_TERMINOLOGY_STORE_CATALOG="${CEDAR_HOME}/cedar-term/prod/catalog.sq
 export CEDAR_TERMINOLOGY_STORE_INDEX="${CEDAR_HOME}/cedar-term/prod/search-index.sqlite"
 ```
 
-Both are in `cedar-profile-native-develop.sh`, and `cedar-services.sh` passes them to the
+Both belong to the host rather than to the versioned profile, so they go in this installation's own
+`set-env-internal.sh`, and `cedar-services.sh` passes them to the
 terminology service alone. The catalog and the index are separate variables because they are
 separate files: a catalog can be served without an index, and `POST /search` and
 `GET /search/hierarchy` then report themselves unavailable while `/bioportal/*` carries on.

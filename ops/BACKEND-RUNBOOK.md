@@ -41,11 +41,27 @@ export CEDAR_HOME=$HOME/CEDAR
 cedarcli mode
 ```
 
-If the result says no mode is set:
+If the result says no mode is set, select the mode and name the environment this host runs:
 
 ```bash
-cedarcli mode native
+cedarcli mode native --profile develop
 ```
+
+`--profile` takes `develop` for a workstation or `server` for a staging or production host, and it
+is required, because the two differ in ways nothing can safely guess. The choice is recorded beside
+the mode in `.cedar/mode.json`, and `cedarcli env status` shows it. A host that selected its mode
+before profiles existed adds the missing one with the same command, which records it in place
+without stopping anything.
+
+One versioned file serves every native host,
+`cedar-development/bin/templates/cedar-profile-native.sh`, read straight from the checkout as the
+Docker profile already is. It takes `CEDAR_PROFILE` as its only input and derives everything else
+from `CEDAR_HOME`, from this installation's own `set-env-external.sh` and `set-env-internal.sh`,
+and from `uname -s` for the infrastructure aliases. `develop` builds the frontends locally, targets
+`local`, and bypasses Keycloak TLS verification for the reason below; `server` serves built
+payloads, targets `server`, and verifies certificates. Selecting a mode validates what the profile
+produced, and refuses a server whose environment carries the bypass or whose credentials are still
+the template's `changeme` placeholders.
 
 If it reports `docker` or `hybrid`, stop the components owned by that topology and clear the mode
 before selecting native. The complete transition commands are in the
@@ -1173,7 +1189,7 @@ TypeScript, while both emit the same bytes for it.
   login session; for permanence add it to a login item (editing the brew plist won't stick — brew
   regenerates it).
 
-- **Profile vars empty** → you sourced `cedar-profile-native-develop.sh` before exporting
+- **Profile vars empty** → you sourced `cedar-profile-native.sh` before exporting
   `CEDAR_HOME`. Export it first.
 
 - **A microservice shows `down` in status with no jar** → that server was never built. Build it:
@@ -1663,7 +1679,7 @@ that is not committed:
 
 ```bash
 export CEDAR_HOME=/Users/martin/CEDAR
-source "$CEDAR_HOME/cedar-profile-native-develop.sh"
+CEDAR_PROFILE=develop source "$CEDAR_HOME/cedar-development/bin/templates/cedar-profile-native.sh"
 export CEDAR_PERF_USER_PASSWORD='choose-a-local-password'
 cd "$CEDAR_HOME/cedar-development/ops/e2e"
 ```

@@ -28,14 +28,32 @@
 # ------------------------------------------------------------------------------
 export CEDAR_HOME="${CEDAR_HOME:-$HOME/CEDAR}"
 SCRIPT_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
-if [ "${CEDAR_SERVICES_INSPECT_ONLY:-false}" != true ]; then
-  if ! source "$CEDAR_HOME/cedar-profile-native-develop.sh" >/dev/null 2>&1; then
-    echo "Cannot load native CEDAR profile: $CEDAR_HOME/cedar-profile-native-develop.sh" >&2
+# cedarcli hands this script the environment it resolved from the recorded profile, so a caller
+# that already has one is trusted. Someone running the script directly gets the same environment
+# from the one versioned profile, told which one to load by CEDAR_PROFILE.
+if [ "${CEDAR_SERVICES_INSPECT_ONLY:-false}" != true ] && [ -z "${CEDAR_DEVELOP_HOME:-}" ]; then
+  NATIVE_PROFILE="$CEDAR_HOME/cedar-development/bin/templates/cedar-profile-native.sh"
+  if [ -z "${CEDAR_PROFILE:-}" ]; then
+    echo "No CEDAR environment is loaded. Run this through cedarcli, or export CEDAR_PROFILE" >&2
+    echo "as develop or server and source $NATIVE_PROFILE first." >&2
+    exit 1
+  fi
+  if ! source "$NATIVE_PROFILE" >/dev/null 2>&1; then
+    echo "Cannot load native CEDAR profile: $NATIVE_PROFILE" >&2
     exit 1
   fi
 fi
-export JAVA_HOME="$(/usr/libexec/java_home -v 17 2>/dev/null)"   # CEDAR + Keycloak need JDK 17
-PATH="$JAVA_HOME/bin:/opt/homebrew/bin:$PATH"                    # /opt/homebrew/bin for node + ng (aux frontends)
+if [ "${CEDAR_SERVICES_INSPECT_ONLY:-false}" != true ]; then
+  # JDK 17 comes from the caller. cedarcli resolves it per platform; a login shell exports it.
+  if [ -z "${JAVA_HOME:-}" ] && [ -x /usr/libexec/java_home ]; then
+    export JAVA_HOME="$(/usr/libexec/java_home -v 17 2>/dev/null)"
+  fi
+  if [ -z "${JAVA_HOME:-}" ]; then
+    echo "JAVA_HOME is not set, and CEDAR needs JDK 17" >&2
+    exit 1
+  fi
+fi
+PATH="${JAVA_HOME:+$JAVA_HOME/bin:}/opt/homebrew/bin:$PATH"      # /opt/homebrew/bin for node + ng (aux frontends)
 # Loopback is safest for the native-only stack. Set this to 0.0.0.0 when Docker nginx must proxy
 # to the native Angular development servers through host.docker.internal.
 CEDAR_FRONTEND_BIND_HOST="${CEDAR_FRONTEND_BIND_HOST:-127.0.0.1}"

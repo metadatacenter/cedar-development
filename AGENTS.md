@@ -167,8 +167,10 @@ The rest:
 ## The four things that bite first (don't skip)
 
 1. **Do not set the environment by hand.** `cedarcli` needs only `CEDAR_HOME`; it resolves the mode and
-   sources the profile. Source `cedar-profile-native-develop.sh` yourself only when running `mvn`, `npm` or
-   a script outside the CLI, and export `CEDAR_HOME` before you do or its variables come out empty.
+   sources the profile. One versioned file, `cedar-development/bin/templates/cedar-profile-native.sh`,
+   serves every native host, and `CEDAR_PROFILE` selects `develop` for a workstation or `server` for a
+   staging or production host. Source it yourself only when running `mvn`, `npm` or a script outside the
+   CLI, and export `CEDAR_HOME` and `CEDAR_PROFILE` before you do or its variables come out empty.
 2. **Use Java 17.** `export JAVA_HOME=$(/usr/libexec/java_home -v 17)`. Newer JDKs (23/25) crash
    Keycloak (`getSubject … security manager`). The zsh shell already pins 17; bash pins 21 (avoid).
 3. **OpenSearch** fails to start under Homebrew's JDK 25 → point it at 17:

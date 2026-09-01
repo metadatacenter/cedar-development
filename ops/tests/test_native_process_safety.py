@@ -14,14 +14,13 @@ class NativeProcessSafetyTest(unittest.TestCase):
     def run_library(self, body):
         with tempfile.TemporaryDirectory() as temporary:
             cedar_home = Path(temporary)
-            (cedar_home / "cedar-profile-native-develop.sh").write_text(
-                "export CEDAR_VERSION=2.9.3-SNAPSHOT\n"
-                f"export CEDAR_DEVELOP_HOME={DEVELOPMENT}\n",
-                encoding="utf-8",
-            )
+            # The controller takes the environment its caller already loaded, which is how
+            # cedarcli invokes it, so the test supplies one rather than a profile to source.
             environment = {
                 **os.environ,
                 "CEDAR_HOME": str(cedar_home),
+                "CEDAR_DEVELOP_HOME": str(DEVELOPMENT),
+                "CEDAR_VERSION": "2.9.3-SNAPSHOT",
                 "CEDAR_SERVICES_LIBRARY_ONLY": "true",
             }
             return subprocess.run(
