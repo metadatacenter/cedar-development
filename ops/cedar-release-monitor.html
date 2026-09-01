@@ -1,6 +1,6 @@
 <title>CEDAR Release Monitor</title>
 <!--
-  CEDAR Release Monitor — a self-contained page for running & watching `cedarcli release all-in-one`.
+  CEDAR Release Monitor — a self-contained page for running & watching `cedarcli release start`.
   Two tabs: a live phase timeline (fill the CONFIG block below per release) and a standalone
   Runbook with the full command sequence — usable by a human with no LLM in the loop.
   No build step, no dependencies: open the file in a browser. All state is in the CONFIG block near
@@ -128,7 +128,7 @@
 <div class="wrap">
   <header class="mast">
     <div class="title">
-      <div class="eyebrow">your-build-server · cedarcli release all-in-one</div>
+      <div class="eyebrow">your-build-server · cedarcli release start</div>
       <h1>CEDAR <b>{{VER}}</b> Release Monitor</h1>
     </div>
     <div class="statuspill"><span class="dot"></span><span id="pillText">TEMPLATE</span></div>
@@ -138,7 +138,7 @@
     <div class="stat"><div class="k">Started</div><div class="v mono">{{START}}</div><div class="sub">{{DATE}}</div></div>
     <div class="stat"><div class="k">Elapsed</div><div class="v mono now" id="elapsed">—</div><div class="sub" id="pctSub">—</div></div>
     <div class="stat"><div class="k">Est. finish</div><div class="v mono accent" id="eta">—</div><div class="sub" id="remain">—</div></div>
-    <div class="stat"><div class="k">Current phase</div><div class="v mono" id="curPhase" style="font-size:14px;line-height:1.25;padding-top:4px">—</div><div class="sub" id="curSub">of 8</div></div>
+    <div class="stat"><div class="k">Current phase</div><div class="v mono" id="curPhase" style="font-size:14px;line-height:1.25;padding-top:4px">—</div><div class="sub" id="curSub">&mdash;</div></div>
   </div>
 
   <div class="tabs" role="tablist" aria-label="Views">
@@ -148,7 +148,7 @@
 
   <section class="panel card" id="p-timeline" role="tabpanel" aria-labelledby="t-timeline">
     <h2>Execution map · phase vs. time</h2>
-    <p class="lede">Eight sequential phases of <code>release all-in-one</code>. The bar colors, NOW marker, and finish estimate are computed <b>live in the browser</b> off the start time in <code>CONFIG</code>; teal ticks are checkpoints you record as it runs. Phase durations are estimates from prior clean runs (typically ~1h50m–2h30m end to end); open any row for its real sub-steps and exact task counts.</p>
+    <p class="lede">Nine sequential phases of <code>release start</code>. The bar colors, NOW marker, and finish estimate are computed <b>live in the browser</b> off the start time in <code>CONFIG</code>; teal ticks are checkpoints you record as it runs. Durations are measured from the 2.9.3 run (1h47m end to end), except the two preparation phases, which that run resumed from an earlier attempt and are therefore marked as estimates. Open any row for its sub-steps.</p>
     <div class="track-wrap">
       <div class="checkmarks" id="checkmarks"></div>
       <div class="track" id="track"></div>
@@ -168,9 +168,9 @@
 
   <section class="panel card" id="p-runbook" role="tabpanel" aria-labelledby="t-runbook" hidden style="padding:22px">
     <h2 style="margin-bottom:6px">The full sequence — run top to bottom</h2>
-    <p class="lede" style="margin-bottom:18px">Everything to cut a release by hand: connect, verify auth, pre-flight build, dry-run the versions, run it, watch it, and recover if it stalls. Commands use the versions from <code>CONFIG</code> (change those for your release). <code>cedarcli</code> is a shell alias — run it in an interactive <code>cedar</code> shell, not a plain script.</p>
+    <p class="lede" style="margin-bottom:18px">Everything to cut a release: connect, verify auth, build a train, rehearse the preflight, run it, watch it, and recover if a phase fails. Commands use the versions from <code>CONFIG</code> (change those for your release). <code>cedarcli</code> is a shell alias — run it in an interactive <code>cedar</code> shell, not a plain script.</p>
 
-    <div class="step"><h3><span class="n">A</span>Connect</h3><p>Log in, become the build user, start a tmux so the ~2h run survives a disconnect.</p>
+    <div class="step"><h3><span class="n">A</span>Connect</h3><p>Log in, become the build user, start a tmux so the ~1h50m run survives a disconnect.</p>
       <pre><code>ssh youruser@your-build-server
 sudo su - cedar
 tmux
@@ -182,49 +182,47 @@ git ls-remote https://github.com/&lt;org&gt;/&lt;a-private-repo&gt;.git HEAD \
   &gt;/dev/null 2&gt;&amp;1 &amp;&amp; echo AUTH_OK || echo AUTH_FAIL</code></pre>
       <div class="why"><b>Why:</b> an expired PAT makes a private-repo <code>git pull</code> hang forever at a silent <code>Username:</code> prompt. <code>GIT_TERMINAL_PROMPT=0</code> turns that hang into an instant error. On AUTH_FAIL: refresh the PAT (SSO-authorize if the org needs it), then <code>cd $CEDAR_HOME/&lt;a-private-repo&gt; &amp;&amp; git pull</code> once to re-cache it. Keep the export set for the whole run.</div></div>
 
-    <div class="step"><h3><span class="n">1</span>Refresh + pre-flight build</h3><p>Pull the merged branches, <b>re-source the shell</b>, then compile everything — so a bad merge surfaces in ~20 min, not 2 hours.</p>
-      <pre><code>cedarcli git checkout develop &amp;&amp; cedarcli git pull &amp;&amp; cedarcli clean maven all
-exec bash -l                 # re-read the freshly-pulled env / aliases / cedarcli
-export GIT_TERMINAL_PROMPT=0
-cedarcli build all           # ~20 min; ends with "Execution succeeded"</code></pre>
-      <div class="why"><b>Why re-source:</b> a pull can update the CEDAR profile, aliases, or <code>cedarcli</code> itself; the current shell holds the pre-pull versions until a fresh login shell.</div></div>
+    <div class="step"><h3><span class="n">1</span>Build a train</h3><p>A release consumes a train rather than building one. The train builds and verifies the coordinated source state first.</p>
+      <pre><code>cedarcli publish train           # note the TRAIN_ID it prints</code></pre>
+      <div class="why"><b>Why a train:</b> the release takes the train's exact source commits, so it never compiles from a moving target.</div></div>
 
-    <div class="step"><h3><span class="n">2</span>Dry run — the version guardrail</h3><p>Generate the whole plan without executing anything, then verify only the intended versions appear.</p>
-      <pre><code>export CEDAR_RELEASE_VERSION={{VER}}
-export CEDAR_NEXT_DEVELOPMENT_VERSION={{NEXT}}
-cedarcli env release                        # confirm the two versions
-cedarcli release all-in-one --dump-plan     # builds the plan, runs nothing
+    <div class="step"><h3><span class="n">2</span>Export the Nexus credentials</h3><p>Nexus reads fall back to anonymous and succeed either way, so an unset credential is invisible until the first upload. Preflight authenticates them for you, but they have to be in the environment first.</p>
+      <pre><code>export BMIR_NEXUS_USERNAME=...   # from the bmir-nexus-releases server
+export BMIR_NEXUS_PASSWORD=...   # entry in ~/.m2/settings.xml
+export GIT_TERMINAL_PROMPT=0</code></pre></div>
 
-# verify the plan (only your two versions should appear):
-grep -oE '[0-9]+\.[0-9]+\.[0-9]+(-SNAPSHOT)?' ~/.cedar/last_plan_content.sh | sort | uniq -c</code></pre>
-      <div class="why"><b>Expect:</b> tag <code>{{TAG}}</code>, branches <code>release/pre-{{VER}}/…</code> + <code>release/post-{{NEXT}}/…</code>, and <b>only</b> <code>{{VER}}</code> / <code>{{NEXT}}</code> — no stray older versions, no <code>{{VER}}-SNAPSHOT</code>. Nothing irreversible has happened yet.</div></div>
+    <div class="step"><h3><span class="n">3</span>Rehearse — the preflight</h3><p>Settles every precondition a release can check before it changes anything, in about a minute.</p>
+      <pre><code>cedarcli release plan \
+  --version {{VER}} \
+  --next-version {{NEXT}} \
+  --from-train &lt;TRAIN_ID&gt; \
+  --cee-version &lt;PUBLIC_CEE_VERSION&gt;</code></pre>
+      <div class="why"><b>Expect:</b> the CEE byte-equivalence proof, <code>Preflight: every precondition settled</code>, and <code>No changes made.</code> A blocking finding names the exact command that clears it. Nothing irreversible has happened yet.</div></div>
 
-    <div class="step"><h3><span class="n">3</span>Run the release</h3><p>The real thing — merges to main/develop, pushes, tags, then deploys to Nexus + npm. Tee to a log so it's watchable.</p>
-      <pre><code>{ cedarcli release all-in-one; echo "CEDARCLI_EXIT=$?"; } 2>&amp;1 | tee /tmp/cedar-release.log</code></pre>
-      <div class="why">~1h50m–2h30m. Leave it in tmux; detach with <code>Ctrl-b d</code> and it keeps running.</div></div>
+    <div class="step"><h3><span class="n">4</span>Run the release</h3><p>The same preflight runs again, so the release cannot begin from a state the rehearsal would have refused.</p>
+      <pre><code>{ cedarcli release start \
+    --version {{VER}} \
+    --next-version {{NEXT}} \
+    --from-train &lt;TRAIN_ID&gt; \
+    --cee-version &lt;PUBLIC_CEE_VERSION&gt;; echo "CEDARCLI_EXIT=$?"; } 2>&amp;1 | tee /tmp/cedar-release.log</code></pre>
+      <div class="why">~1h50m. Leave it in tmux; detach with <code>Ctrl-b d</code> and it keeps running. Transient connection failures are retried with backoff; a changed tree or a failed verification still stops it at once.</div></div>
 
-    <div class="step"><h3><span class="n">4</span>Watch it</h3><p>From any shell on the box:</p>
-      <pre><code>tail -f /tmp/cedar-release.log
-# landmarks only:
-tail -f /tmp/cedar-release.log | grep -E "Updating|Execution|BUILD (SUCCESS|FAILURE)|-> (main|develop)|npm notice"</code></pre></div>
+    <div class="step"><h3><span class="n">5</span>Watch it</h3><p>The ledger, rather than the log, is the source of truth.</p>
+      <pre><code>cedarcli release status
+tail -f /tmp/cedar-release.log</code></pre></div>
 
-    <div class="step gotcha"><h3><span class="n">!</span>The exit code lies</h3><p>On a mid-run failure cedarcli prints <code>Execution halted</code> but still exits <code>0</code>. Never trust <code>$?</code> — grep the log.</p>
-      <pre><code>grep "Execution succeeded" /tmp/cedar-release.log      # the real success signal
-grep -E "Execution halted|remote rejected|Return code: [1-9]|BUILD FAILURE|npm ERR!" /tmp/cedar-release.log</code></pre></div>
+    <div class="step"><h3><span class="n">6</span>Finish</h3><p>Acceptance is the last phase, and it proves the release from outside the ledger that recorded it.</p>
+      <pre><code>cedarcli release status | grep Phase        # expect: accepted</code></pre>
+      <div class="why"><b>Only <code>accepted</code> means done.</b> Acceptance re-asks whether every repository carries {{TAG}}, every remote ref stands where the ledger says, every published artifact still matches its recorded bytes, and the frontends pin the proven CEE. Treat any other final phase as an incomplete release.</div></div>
 
-    <div class="step"><h3><span class="n">5</span>Verify</h3><p>Confirm the release landed on every repo.</p>
-      <pre><code>cedarcli check versions
-cedarcli git list tag | grep {{TAG}}         # tag pushed everywhere
-# each release repo should show main at {{VER}}, develop at {{NEXT}}</code></pre></div>
-
-    <div class="step"><h3><span class="n">R</span>If it halts mid-commit — resume, don't roll back</h3><p>A halt in the commit phase leaves some repos pushed and some not. The commit pushes are the historical soft spot (transient GitHub push errors such as <code>fatal error in commit_refs</code>). Finish forward.</p>
-      <pre><code>cedarcli release commit        # no args → prints the exact resume command; then run it
-cedarcli release cleanup       # no args → prints its command too</code></pre>
-      <div class="why"><b>Why not rollback:</b> <code>release rollback</code> only deletes the branch + tag — it does <b>not</b> un-push merges already landed on main/develop, so rollback + rerun collides. <code>release commit</code> is idempotent: already-done repos no-op ("Everything up-to-date"), the rest complete and retry the failed push. If a transient GitHub push is rejected, re-running the same push usually just works.</div></div>
+    <div class="step"><h3><span class="n">R</span>If a phase fails — resume, don't restart</h3><p>The failure is recorded and the failed attempt is retained as evidence under <code>~/.cedar/train-releases/attempts/{{VER}}/</code>. Nothing is rolled back and nothing is deleted.</p>
+      <pre><code>cedarcli release status         # the recorded phase and failure
+cedarcli release resume         # continue from it</code></pre>
+      <div class="why">Resume re-verifies every completed ref, build log, generated-output hash, Maven byte, npm tarball, and registry inventory before continuing. Drift in any of them is a hard stop. <b>Never edit a ledger or manifest by hand</b> — those files are the release's record of what it verified.</div></div>
 
     <div class="step"><h3><span class="n">N</span>Notes</h3>
-      <p><b>Branch layout for the deploy:</b> the ~48 release repos deploy from <code>main</code>; the 5 <code>skip_from_release</code> frontends (artifact-viewer, embeddable-editor, model-typescript-library ×3) build from <code>develop</code>. <code>release all-in-one</code> sets this up itself — do <em>not</em> force a blanket <code>cedarcli git checkout main</code>, which sweeps those onto their stale main.</p>
-      <p><b>Counts are tasks, not repos:</b> ~48 release repos (53 total). The plan shows 96 checkouts (48 × develop + 48 × main), 48 commits, 48 cleanups, ~14 npm publishes.</p></div>
+      <p><b>Branch layout:</b> the release repos publish from <code>main</code>; the <code>skip_from_release</code> frontends build from <code>develop</code>. The release arranges this itself — do <em>not</em> force a blanket <code>cedarcli git checkout main</code>, which sweeps those onto their stale main.</p>
+      <p><b>Red CI after a release now means something.</b> The snapshots are deployed before the remotes are integrated, so the CI each develop push triggers finds the parent and libraries already in Nexus. Releases cut before that change left a tail of red builds that passed unmodified on a re-run.</p></div>
   </section>
 
   <p class="cfg" id="cfgline"></p>
@@ -242,15 +240,18 @@ cedarcli release cleanup       # no args → prints its command too</code></pre>
      - Finished run: set finishedISO to the wrap time to freeze the board at COMPLETE.
      The block below is the last run kept as a worked example.                              */
   var CONFIG = {
-    releaseVersion: "2.9.0",                     // version 1 — the release
-    nextDevVersion: "2.9.1-SNAPSHOT",            // version 2 — next development
-    prevSnapshot:   "2.8.5-SNAPSHOT",            // the develop version before this release
-    startISO:       "2026-07-27T15:15:12-07:00", // when `release all-in-one` started
-    finishedISO:    "2026-07-27T17:03:38-07:00", // wrap time, or null while running
-    totalEstMin:    108,                         // full-run estimate (this run: 1:48:26)
-    // checkpoints you note from the log: elapsed minutes → short label
+    releaseVersion: "2.9.3",                     // version 1 — the release
+    nextDevVersion: "2.9.4-SNAPSHOT",            // version 2 — next development
+    prevSnapshot:   "2.9.3-SNAPSHOT",            // the develop version before this release
+    startISO:       "2026-08-28T13:32:00-07:00", // when `release start` began
+    finishedISO:    "2026-08-28T15:19:19-07:00", // wrap time, or null while running
+    totalEstMin:    107,                         // full-run estimate (this run: 1:47:18)
+    // Checkpoints you note from the ledger: elapsed minutes → short label. These are from the
+    // 2.9.3 run, which deployed the snapshots after integrating the remotes rather than before,
+    // so its push time does not correspond to a phase boundary here and is left out rather than
+    // guessed at. Everything up to "built" happened before the phases that were reordered.
     checkpoints: [
-      {t:0,txt:"start"},{t:21,txt:"tag"},{t:54,txt:"commit"},{t:102,txt:"npm"},{t:108,txt:"done"}
+      {t:0,txt:"start"},{t:2,txt:"stamped"},{t:28,txt:"built"},{t:107,txt:"accepted"}
     ]
   };
   /* ═════════════════════════════════════════════════════════════════════════════════════ */
@@ -270,33 +271,38 @@ cedarcli release cleanup       # no args → prints its command too</code></pre>
     .split("{{TAG}}").join(TAG).split("{{START}}").join(startClock).split("{{DATE}}").join(startDate);
 
   var PHASES = [
-    {n:"Checkout develop", sub:"put release repos on develop", dur:1, est:false,
-     subs:[["48×","<b>Check out branch on repo</b> — the 48 release repos onto <b>develop</b> <em>(96 checkouts total = these 48 + the 48 onto main in phase 6)</em>"]]},
-    {n:"Deploy snapshot", sub:"build + deploy current "+CUR, dur:14, est:false,
-     subs:[["4×","<b>Maven deploy</b> — parent · libraries · project · clients → Nexus <em>snapshots</em>"],
-           ["~7×","<b>NPM install + NG build</b> — the Angular frontends"],
-           ["copy","<b>Assemble dist</b> — copy built bundles into distribution repos"],
-           ["~7×","<b>NPM publish</b> — frontend packages (SNAPSHOT)"]]},
-    {n:"Prepare → "+V, sub:"set release version, branch, tag", dur:26, est:false,
-     subs:[["branch","<b>Create</b> release/pre-"+V+" + release/post-"+N],
-           ["~48×","<b>versions:set "+V+"</b> — stamp the release version into every POM/package"],
-           ["~137","<b>'prepare for next dev'</b> — set "+N+" on the post branch, per repo/type"],
-           ["tag","<b>Commit + tag</b> "+TAG+" <em>(writes the rollback handles to ~/.cedar/last_release_*)</em>"]]},
-    {n:"Commit", sub:"merge + push into main & develop", dur:12, est:true,
-     subs:[["48×","<b>Committing generic repo</b> — per repo: checkout main → merge tag → <b>push</b>; checkout develop → merge post-branch → <b>push</b>"],
-           ["⚠","<em>The push-heavy phase — the historical soft spot for transient GitHub push errors. If it halts here, resume with <code>cedarcli release commit</code>, never rollback.</em>"]]},
-    {n:"Cleanup", sub:"delete temp branches", dur:1, est:true,
-     subs:[["48×","<b>Cleanup of generic repo</b> — delete local release/pre + release/post branches"]]},
-    {n:"Checkout main", sub:"onto the release branch", dur:1, est:true,
-     subs:[["48×","<b>Check out main</b> — release repos onto main <em>(skip_from_release frontends stay on develop)</em>"]]},
-    {n:"Deploy develop", sub:"publish "+N+" snapshots", dur:35, est:true,
-     subs:[["4×","<b>Maven deploy</b> — java → Nexus <em>snapshots</em> ("+N+")"],
-           ["~7×","<b>NPM install + NG build</b> — rebuild Angular frontends"],
-           ["~7×","<b>NPM publish</b> — snapshot packages"]]},
-    {n:"Deploy main", sub:"publish "+V+" release → Nexus + npm", dur:57, est:true,
-     subs:[["4×","<b>Maven deploy</b> — java → Nexus <em>releases</em> ("+V+") — the actual release"],
-           ["~7×","<b>NPM install + NG build</b> — rebuild frontends at release version"],
-           ["~14","<b>NPM publish</b> — release packages <em>(irreversible)</em>"]]}
+    {n:"Prepare frontends", sub:"clone train commits, pin the proven CEE", dur:1, est:true,
+     subs:[["39×","<b>Clone</b> each train source commit into an isolated workspace"],
+           ["7×","<b>Pin</b> the proven public CEE into every frontend consumer manifest and lockfile"]]},
+    {n:"Prepare versions", sub:"stamp "+V+" and "+N, dur:1, est:true,
+     subs:[["39×","<b>Stamp</b> the release and next-development versions from the same source commits"],
+           ["39×","<b>Copyright</b> — move the year in license.txt to the release year on both variants"],
+           ["guard","<b>Byte inventory</b> — every changed file is declared, and nothing else changed"]]},
+    {n:"Validate builds", sub:"build both variants, inventory the output", dur:26, est:false,
+     subs:[["2×","<b>Maven</b> — the release test builds and the next-development builds"],
+           ["7×","<b>Frontends</b> — install and production build"],
+           ["guard","<b>Inventory</b> the generated distribution bytes, so an ignored dist file cannot change before publication"]]},
+    {n:"Create local refs", sub:"commits and tag, no remote touched", dur:1, est:false,
+     subs:[["39×","<b>Create</b> release/pre-"+V+", release/post-"+N+", and "+TAG+" locally"],
+           ["✓","<em>Nothing has reached a remote yet. A failure up to here has changed nothing outside this machine.</em>"]]},
+    {n:"Deploy snapshots", sub:"publish "+N+" before any push", dur:14, est:false,
+     subs:[["deploy","<b>Maven deploy</b> in dependency order from the prepared develop trees"],
+           ["verify","<b>Verify</b> the snapshot inventory in Nexus"],
+           ["!","<em>Before the remotes, not after: integrating them advances develop everywhere at once, and the CI those pushes trigger resolves the parent and libraries at the new version from Nexus.</em>"]]},
+    {n:"Integrate remotes", sub:"write main, tag, develop", dur:8, est:false,
+     subs:[["39×","<b>Push</b> the release branches, the tag, main, and develop"],
+           ["!","<em>Each integration commit is written from the prepared tree rather than merged towards it, so main comes to hold exactly the released content.</em>"]]},
+    {n:"Publish Maven", sub:"release artifacts → Nexus", dur:30, est:false,
+     subs:[["upload","<b>Upload</b> the exact locally validated bytes, accepting an existing immutable path only when its bytes match"],
+           ["verify","<b>Verify</b> the required artifact inventory in Nexus"]]},
+    {n:"Publish npm", sub:"six stable frontend surfaces", dur:25, est:false,
+     subs:[["6×","<b>Pack</b> from the exact integrated commits, recording gitHead"],
+           ["verify","<b>Download</b> each registry tarball and verify its integrity and content hash"]]},
+    {n:"Accept", sub:"prove the release from outside the ledger", dur:1, est:false,
+     subs:[["39×","<b>Tag</b> — every repository carries "+TAG],
+           ["refs","<b>Remotes</b> — every ref stands where the ledger says"],
+           ["bytes","<b>Artifacts</b> — every published task still matches its recorded bytes"],
+           ["✓","<em>Only the accepted phase means the release is done.</em>"]]}
   ];
   var CHECKPOINTS = CONFIG.checkpoints;
 
@@ -334,7 +340,7 @@ cedarcli release cleanup       # no args → prints its command too</code></pre>
     pl.appendChild(d);
   });
   document.getElementById("phaseNote").innerHTML=
-    "Task counts are exact (from the generated plan); phase <b>durations</b> are estimates — the two tail deploys (7,8) dominate because each re-runs the Angular <code>ng build</code>s + <code>mvn deploy</code> + <code>npm publish</code>, where phase 2 did that once. Recorded checkpoint ticks are ground truth.";
+    "Publication (5, 7\u20138) dominates the run: every artifact is uploaded, then downloaded again and verified against the bytes the release recorded. Phases 1 and 2 are estimates because the 2.9.3 run resumed them from an earlier attempt. Recorded checkpoint ticks are ground truth.";
 
   var segs=track.querySelectorAll(".seg");
   var chips=pl.querySelectorAll(".st");
@@ -356,7 +362,7 @@ cedarcli release cleanup       # no args → prints its command too</code></pre>
     elEl.textContent=Math.floor(secs/3600)+"h"+pad(Math.floor(secs%3600/60))+"m";
     if(FINISH){
       etaEl.textContent=clock(FINISH); remEl.textContent="complete";
-      pctEl.textContent="released ✓"; cpEl.textContent="Released ✓"; csEl.textContent="all 8 phases done";
+      pctEl.textContent="released ✓"; cpEl.textContent="Released ✓"; csEl.textContent="all "+PHASES.length+" phases done";
       pill.textContent="COMPLETE ✓";
       var sp=pill.parentNode;
       sp.style.background="color-mix(in srgb,var(--done) 16%,transparent)";
@@ -369,7 +375,7 @@ cedarcli release cleanup       # no args → prints its command too</code></pre>
       pill.textContent="RUNNING";
       var idx=PHASES.findIndex(function(p){return elapsed<p.end});
       if(elapsed>=TOTAL||idx<0){cpEl.textContent="Finishing…";csEl.textContent="past estimate";pill.textContent="FINISHING";}
-      else{cpEl.textContent=(idx+1)+". "+PHASES[idx].n;csEl.textContent="phase "+(idx+1)+" of 8"+(PHASES[idx].est?" · est":"");}
+      else{cpEl.textContent=(idx+1)+". "+PHASES[idx].n;csEl.textContent="phase "+(idx+1)+" of "+PHASES.length+(PHASES[idx].est?" · est":"");}
     }
   }
   tick();if(!FINISH){setInterval(tick,1000);}

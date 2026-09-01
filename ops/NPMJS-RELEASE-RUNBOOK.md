@@ -296,9 +296,27 @@ NODE
 Both manifests now say the same exact unscoped version. Both lockfiles resolve the same npmjs
 tarball and integrity; neither resolves `@org.metadatacenter/...` or Nexus in a stable release.
 
-Add `## [${CEE_VERSION}] - <date>` to `CHANGELOG.md`. Update
-`CedarEmbeddableMetadataEditorComponent.INNER_VERSION` to the release preparation time. That stamp
-is only the load trace; `package.json` supplies the public runtime version.
+Add `## [${CEE_VERSION}] - <date>` to `CHANGELOG.md`. **Add it and change nothing else.** The release
+proves the public package is a promotion of the train's by cutting that one dated entry out of the
+public changelog, from its heading to the next `## [`, and requiring what remains to equal the
+train's changelog byte for byte. Anything else that moves breaks that equality: entries relocated
+from `## [Unreleased]` into the new section leave an empty `Unreleased` behind, which is not what the
+train captured, and the release refuses with `CEE promotion changes CHANGELOG.md outside the one
+current-release entry`.
+
+So the entry records what this release is — the public model version it aligns to, which it must
+declare exactly once — and the notes already under `## [Unreleased]` stay there. The 2.0.3 entry is
+the shape to copy: a heading, a sentence naming the model, and one bullet. Its diff is additions
+only.
+
+That constraint applies when the train was built before the release entry existed. Publish CEE
+first and build the train afterwards and it does not arise at all: the two changelogs are then
+identical, and the release compares bundle provenance instead. Either order is supported; the
+second is harder to get wrong, and its cost is that the train cannot be built in parallel with the
+release preparation.
+
+Update `CedarEmbeddableMetadataEditorComponent.INNER_VERSION` to the release preparation time. That
+stamp is only the load trace; `package.json` supplies the public runtime version.
 
 Run the complete release gate:
 
@@ -484,7 +502,7 @@ next-development tree does not silently return to the train's development CEE. T
 integrates those exact trees into `main` and `develop`, publishes the stable frontend npm packages,
 and verifies their downloaded registry tarballs. Workspace receives the same Git wiring but keeps
 its independent package publication path. Operational details and resume rules are in
-[RELEASE-RUNBOOK.md](./RELEASE-RUNBOOK.md#train-backed-release-route).
+[RELEASE-RUNBOOK.md](./RELEASE-RUNBOOK.md#the-route).
 
 ## Failure rules
 

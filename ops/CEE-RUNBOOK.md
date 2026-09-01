@@ -2,11 +2,10 @@
 
 Building, running and testing **CEE** (`cedar-embeddable-editor`) locally.
 Everything here has been run on macOS (Apple silicon), against Angular 22. The latest
-stable release documented here is CEE 2.0.1; all seven embedding manifests, including
-the extracted Workspace, currently pin the scoped Nexus snapshot
-`2.0.2-dev.20260824.48283fb`. Consumer coherence is verified from manifests and lockfiles,
-and deployed identity is verified by the bundle sha256 rather than only by the version
-each host reports.
+stable release documented here is CEE 2.0.3; all seven embedding manifests, including
+the extracted Workspace, pin that public npmjs release. Consumer coherence is verified
+from manifests and lockfiles, and deployed identity is verified by the bundle sha256
+rather than only by the version each host reports.
 
 Sibling runbooks:
 - [CEE-ROADMAP.md](./CEE-ROADMAP.md) — where CEE currently is, and the open
@@ -60,24 +59,8 @@ needs **JDK 17** specifically — see
 
 ## Running the app
 
-CEE's standalone dev mode needs a second repo for the sample templates it loads.
-
-```bash
-git clone https://github.com/metadatacenter/cedar-component-distribution.git
-```
-
-Configuration for dev mode lives in `src/app/app.component.dev.ts` — it is
-TypeScript, not JSON, and is compiled in. Point
-`sampleTemplateLocationPrefix` at wherever the component-distribution server is
-serving from.
-
-Terminal 1 — the sample templates:
-
-```bash
-cd cedar-component-distribution && npm install && npx ng serve
-```
-
-Terminal 2 — CEE itself:
+CEE's standalone dev mode serves everything it needs from this repository, so
+one command runs it.
 
 ```bash
 export PATH="/opt/homebrew/opt/node@24/bin:$PATH"
@@ -85,6 +68,25 @@ npm install && npx ng serve
 ```
 
 Then open `http://localhost:4400/`.
+
+The developer app fetches its demo template and instance from CEE's own assets,
+`src/assets/cee-demo/demo/template.json` and `metadata.json`, and hands both to
+the component together so the form is built with the instance already read. The
+template is the nested fixture the visual suite renders as `18-real-nested`: 23
+field types over two pages, every temporal granularity, both choice and both
+list cardinalities, the static widgets, the authority fields, and single and
+multi-instance elements inside two wrappers.
+
+Until 2026-08-15 it instead pulled samples over the network from a second
+repository, `cedar-component-distribution`, cloned and served in a terminal of
+its own and located by a `sampleTemplateLocationPrefix` key. That was the only
+path on which CEE reached the network for an artifact. A host fetches its own
+artifacts, and the developer app is a host like any other, so the key, the
+second repository and the second terminal are all gone.
+
+The rest of dev-mode configuration remains in `src/app/app.component.dev.ts` —
+the terminology and bridge base URLs, the offered languages, the read-only flag.
+It is TypeScript, not JSON, and is compiled in.
 
 ## Building the web component
 
@@ -160,7 +162,7 @@ can be pointed at to try an unpublished build, by symlinking its
 Build Into the Frontends". A fresh clone has no `dist-npm/` until something stages
 it, so **run the gate, or `npm run package:npm:prebuilt` alone, before expecting a
 symlinked consumer to serve CEE.** Nothing is symlinked at present: every consumer
-holds the installed scoped Nexus snapshot `2.0.2-dev.20260824.48283fb`.
+holds the installed public npmjs release 2.0.3.
 
 `dist-npm/` used to be committed, and the stage used to be a drift check
 (`check:staged`) rather than a staging step. That arrangement cost more than it
@@ -219,7 +221,7 @@ doing so for two minutes of polling. Clear the cache and restart:
 
 ```bash
 cd $CEDAR_HOME/cedar-openview/cedar-openview-src && rm -rf .angular/cache
-bash $CEDAR_HOME/cedar-development/ops/cedar-services.sh restart ui-openview
+cedarcli native restart ui-openview
 ```
 
 The cache is gitignored and rebuilds itself, so deleting it costs a slower first
@@ -275,7 +277,7 @@ Each frontend then names the snapshot through an npm alias, because npm routes b
 scope and this is the only package taken from Nexus:
 
 ```json
-"cedar-embeddable-editor": "npm:@org.metadatacenter/cedar-embeddable-editor@2.0.0-dev.20260818.6dca9bf"
+"cedar-embeddable-editor": "npm:@org.metadatacenter/cedar-embeddable-editor@<next>-dev.<date>.<sha>"
 ```
 
 All seven manifests already carry the `@org.metadatacenter:registry` line an alias
@@ -287,7 +289,7 @@ needs. Install, then get the bundle into what each host serves:
 | `cedar-template-editor` | plain | `npx gulp copy:cee` (needs the profile sourced) |
 | `cedar-bridging` | plain | `cedarcli build this --wd "$PWD"` |
 | `cedar-openview` | `--legacy-peer-deps` | `cedarcli build this --wd "$PWD"` — it copies `dist/cedar-openview` into `cedar-openview-dist` |
-| `cedar-component-demo` (Angular) | `--legacy-peer-deps` | `cedarcli build this --wd "$PWD"` |
+| `cedar-component-demo` (Angular) | plain | `cedarcli build this --wd "$PWD"` |
 | `cedar-component-demo` (Ember, React) | plain | nothing — they run from source |
 
 A build refreshes what is on disk. A **running `ng serve` still serves what it
@@ -299,7 +301,7 @@ the deploy. A Workspace preview image must instead be rebuilt and recreated beca
 its CEE bundle was copied into the image.
 
 ```bash
-bash $CEDAR_HOME/cedar-development/ops/cedar-services.sh restart ui-openview ui-bridging
+cedarcli native restart ui-openview ui-bridging
 ```
 
 Compilation is seconds, not minutes: `ng serve` reports `Compiled successfully` in
@@ -320,7 +322,7 @@ and checking the wrong file reads exactly like a failed deploy:
 For the first two, compare sha256 against the staged bundle. For the bundled case
 there is no file to hash: grep the bundle for the load-trace stamp, which names
 one build exactly. The version string alone is not enough — the bundle holds every
-dependency's version, so a bare `2.0.1` in it may belong to something else
+dependency's version, so a bare semver such as `2.0.3` in it may belong to something else
 entirely.
 
 Ask the dev server for `vendor.js` and the dist for `main.*.js`. Grepping the other
@@ -368,7 +370,7 @@ replaced a set that had drifted in both directions at once, low on unit and
 Playwright and high on domain, because removing four snapshot recordings that
 compared minted identifiers took the domain count *down*; and the Playwright figure
 disagreed with the one in
-[The visual baseline suite](#the-visual-baseline-suite) by 42. Prefer citing a date
+[Running the visual baseline](#running-the-visual-baseline) by 42. Prefer citing a date
 and a floor to maintaining an exact number in more than one place.
 
 Use the complete gate before pushing or opening a pull request. The focused
@@ -1203,9 +1205,9 @@ instead, where the dev versions do not exist.
 `main` is owned by the release process. Work lands on `develop`.
 
 There is one stable publish target: the unscoped `cedar-embeddable-editor` on public npmjs, under the
-default `latest` tag. 2.0.1 is the latest stable release, published 2026-08-21. All seven
-embedding manifests currently pin the scoped Nexus snapshot `2.0.2-dev.20260824.48283fb`;
-the propagation check confirms the matching manifest and lockfile resolution in every consumer.
+default `latest` tag. 2.0.3 is the latest stable release, published 2026-08-27. All seven embedding
+manifests pin 2.0.3 from npmjs; the propagation check confirms the matching manifest and lockfile
+resolution in every consumer.
 The stable registry goes from 1.5.2 straight to 2.0.1: 1.6.0 was
 published on 2026-08-12 and unpublished from npmjs afterwards, so a manifest still naming 1.6.0
 cannot install, and the tarball it named cannot be fetched for comparison.
@@ -1215,8 +1217,9 @@ own `name` and `publishConfig` are not what publishes.
 
 Dev snapshots are a second channel: the scoped `@org.metadatacenter/cedar-embeddable-editor` on
 Stanford Nexus under a `dev` tag, versioned `<next>-dev.<date>.<sha>`. It was retired for a while and
-is live again — `dev` currently names `2.0.0-dev.20260820.a8cc4cc`. Reach it from an embedding app
-through an npm alias, since npm routes by scope and this is the only package taken from Nexus.
+is live again. Query the registry before relying on the mutable `dev` tag; pin an exact version in
+an embedding app through an npm alias, since npm routes by scope and this is the only package taken
+from Nexus.
 Train-owned snapshots use the more specific
 `<next>-dev.<train-date><train-minute>.g<sha12>` identity, tying the package to both the train and
 the captured CEE commit without rewriting CEE source history.
@@ -1255,7 +1258,7 @@ A token is a credential — keep it in `~/.npmrc` only, never in a repo or these
 
 ### 1 · Bump the version
 
-A release version is plain semver — `2.0.1`. Only **two** files hold it by hand:
+A release version is plain semver — for example, `2.0.3`. Only **two** files hold it by hand:
 
 | File | Occurrences |
 |---|---|
@@ -1383,7 +1386,7 @@ each candidate commit settles which tree was staged. That is what distinguishes 
 Then draft the release notes against the tag:
 
 ```bash
-gh release create release-2.0.1 --draft --title "CEE 2.0.1" --notes-file <notes.md>
+gh release create "release-${CEE_VERSION}" --draft --title "CEE ${CEE_VERSION}" --notes-file <notes.md>
 ```
 
 ### 5 · Advance development
@@ -1410,7 +1413,7 @@ git commit -m "Advance CEE to next development version"
 git push
 ```
 
-CEE's notes follow the shape 2.0.1's carry, which is not the one
+CEE's notes follow the shape 2.0.3's carry, which is not the one
 [cedar-project's releases](https://github.com/metadatacenter/cedar-project/releases) use — those
 announce a platform deployment to the people who use the Workbench, and CEE ships a package to the
 people who embed it. One opening line names the release and links the npm package. One paragraph
@@ -1439,7 +1442,7 @@ production monolith and the existing auxiliary/demo frontends. A stable release 
 version resolved from npmjs:
 
 ```json
-"cedar-embeddable-editor": "2.0.1"
+"cedar-embeddable-editor": "2.0.3"
 ```
 
 Its lockfiles record the npmjs tarball and integrity hash, so what installs is reproducible.
@@ -1455,12 +1458,14 @@ while a development snapshot is pinned and harmless for a stable npmjs release.
 | `cedar-template-editor` | `package.json` | plain |
 | `cedar-bridging` | `cedar-bridging-src/package.json` | plain |
 | `cedar-openview` | `cedar-openview-src/package.json` | `--legacy-peer-deps` |
-| `cedar-component-demo` | `cedar-cee-demo-angular-src` | `--legacy-peer-deps` |
+| `cedar-component-demo` | `cedar-cee-demo-angular-src` | plain |
 | `cedar-component-demo` | `cedar-cee-demo-ember-src`, `cedar-cee-demo-react` | plain |
 
-Two repos fail a plain `npm install` on a peer conflict that has nothing to do with CEE:
-`ngx-youtube-player-14` demands `@angular/common@^14.1.3` from projects on Angular 15 and 16. Both
-predate this wiring and both need `--legacy-peer-deps`.
+One repo fails a plain `npm install` on a peer conflict that has nothing to do with CEE:
+`cedar-openview` carries `ngx-youtube-player-14`, which demands `@angular/common@^14.1.3` from a
+project on Angular 16, so it needs `--legacy-peer-deps`. The Angular demo needed the same flag until
+it moved to Angular 22, for a different reason — it declared `@angular/material`, which wants
+`@angular/forms`, and used neither.
 
 Propagate all seven pins with the checked cross-repository helper. It updates each manifest and
 lockfile using the appropriate npm peer-dependency mode, then fails unless Workspace and every

@@ -1,0 +1,111 @@
+name: Snapshot freshness
+
+run-name: Snapshot freshness
+
+# Every downstream build resolves CEDAR artifacts from Nexus rather than from a checkout, so a
+# repository whose commit is on develop but whose snapshot never published is invisible where people
+# look: its own branch is green and its source is right, while every consumer builds against the
+# artifact it replaced. On 2026-08-29 a deploy step met a Nexus 500, cedar-parent's snapshot stayed
+# a day old, and four unrelated regressions accumulated behind it before anyone compared the two.
+#
+# Daily rather than per-push: the condition worth alarming on lasts days, and a push-triggered check
+# would race the very CI run that publishes the snapshot it is about to judge.
+on:
+  schedule:
+    - cron: "17 7 * * *"
+  workflow_dispatch:
+    inputs:
+      grace_hours:
+        description: How long a snapshot may lag its source before that counts as unpublished
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: cedar-development-snapshot-freshness
+  cancel-in-progress: false
+
+env:
+  ISSUE_TITLE: "Published snapshots are behind their source"
+
+jobs:
+  check:
+    name: Compare Nexus against develop
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out the CLI that owns the repository inventory
+        uses: actions/checkout@v7
+        with:
+          repository: metadatacenter/cedar-cli
+          ref: develop
+          path: cedar-cli
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install the CLI's dependencies
+        working-directory: cedar-cli
+        run: pip install --quiet -r requirements.txt
+
+      - name: Compare each published snapshot with the head commit on develop
+        id: check
+        working-directory: cedar-cli
+        env:
+          CEDAR_HOME: ${{ github.workspace }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          python3 cedar.py check snapshots \
+            ${{ inputs.grace_hours && format('--grace-hours {0}', inputs.grace_hours) || '' }} \
+            > report.txt 2>&1
+          echo "status=$?" >> "$GITHUB_OUTPUT"
+          cat report.txt
+          {
+            echo '## Snapshot freshness'
+            echo '```'
+            cat report.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # The report goes to an issue rather than to a failed run. A scheduled workflow that merely
+      # goes red notifies whoever last touched it and nobody else, which is how the condition this
+      # watches for stayed unnoticed in the first place.
+      - name: Open or update the issue when a snapshot is behind
+        if: steps.check.outputs.status != '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          body="$(printf '%s\n\n```\n%s\n```\n' \
+            "A repository below has a commit on develop that its published snapshot does not contain, so every consumer resolves the artifact it replaced. Re-run that repository's failed CI run; if the deploy step failed against Nexus, the publication needs repeating rather than the source." \
+            "$(cat report.txt)")"
+          existing=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open \
+            --search "in:title \"$ISSUE_TITLE\"" --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --repo "$GITHUB_REPOSITORY" --body "$body"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$ISSUE_TITLE" --body "$body"
+          fi
+
+      - name: Close the issue once every snapshot is current
+        if: steps.check.outputs.status == '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          existing=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open \
+            --search "in:title \"$ISSUE_TITLE\"" --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            gh issue close "$existing" --repo "$GITHUB_REPOSITORY" \
+              --comment "Every publishing repository's snapshot was built from its current source."
+          fi
+
+      # The run's own status still reflects the finding, so the schedule's history reads correctly
+      # and a dispatch used as a gate behaves like the local command.
+      - name: Fail the run when a snapshot is behind
+        if: steps.check.outputs.status != '0'
+        run: exit 1

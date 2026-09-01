@@ -7,30 +7,6 @@ libraries still answer differently, is in
 [BACKEND-ROADMAP.md](./BACKEND-ROADMAP.md). The reasoning behind an item is in the
 commit that opened it.
 
-The August 2026 structural hardening pass is complete. Host artifact intake now has
-one transactional owner, configuration is a separate collaborator, and the inner
-editor only renders an already-built model state. Model-to-widget synchronization is
-pinned across editable/read-only literal, numeric, temporal, link, authority,
-controlled-term and multi-value fields; page-break pagination is checked over every
-generated boundary layout through six children. Shared widget subscriptions use
-Angular destroy scopes, repeated editor construction/destruction is exercised, and
-CI holds focused coverage floors for the artifact boundary, component registry and
-page representation while running the browser suite in four shards. The numbered
-items below are the remaining product work, not cleanup left by that pass. CEE's
-host signal is now model-based as well: every real field or multi-instance mutation
-publishes a structured `change` carrying its path and validation report, while DOM
-traffic, paging and no-op writes do not. The CEDAR workspace compares the resulting
-metadata with its last loaded or successfully saved baseline, so an edit marks dirty,
-an exact revert clears it, and a save rebases it. Host and temporal behavior now have
-dedicated specs over a typed browser driver: canonical initialization is silent,
-storage-changing temporal normalization is explicit, and every runtime detail member
-is pinned. Authority and
-controlled-term debounce, overlay and hint work is destroy-scoped. The obsolete FooBar
-style-order shim, unused RDF identity pipe, external ROR test route and pre-RxJS-7
-Vitest dependency workaround are gone; the public custom-element declaration types its
-`change` listener, and the never-emitted `eventHandler.message` is deprecated for the
-next major release.
-
 1. **M3 theme adapter and palette.** Replace the M2 compatibility theme with M3 inside
    `_cee-material-theme.scss` as a deliberate visual migration, not a mechanical upgrade:
    choose the CEDAR and neutral palettes, preserve CEE-owned layout, typography, status,
@@ -81,8 +57,7 @@ next major release.
    `schema.service.js` and `data-manipulation.service.js` is unreachable, because the only
    expressions that call it name `$root.getUnescapedContent` and nothing puts that function on
    `$rootScope`. The same dead expression leaves the legacy metadata editor rendering a static
-   rich-text field as an empty box, tracked as a bug in
-   [TEMPLATE-DESIGNER-ROADMAP.md](./TEMPLATE-DESIGNER-ROADMAP.md).
+   rich-text field as an empty box.
 4. **The authority marks are three different things pretending to be one.** ORCID, PFAS, NIH
    Grant and DOI are not those organisations' logos: they are approximations someone drew — an
    `iD` in a green circle, `NIH` in a navy box — inlined as SVG data URIs. PubMed and RRID are
@@ -243,3 +218,31 @@ next major release.
    lint/unit gates pass, and the production bundle remains under both size limits. Remove the pin
    paragraph when those checks are green on the new dependency; leaving it behind would turn this
    item into the same stale workaround it records.
+
+9. **Reconcile the remaining CEE GitHub issue backlog with the product that now ships.**
+   The August 2026 audit closed nineteen completed or superseded reports and left twelve open.
+   Reproduce every item in the
+   [open backlog](https://github.com/metadatacenter/cedar-embeddable-editor/issues) against the current
+   stable CEE and classify it as current product work, an upstream terminology or host concern, a
+   product decision, or obsolete history. Split mixed reports into independently verifiable issues,
+   close superseded ones with the relevant implementation or test evidence, and move real work into
+   this roadmap or the owning roadmap with an explicit acceptance test.
+
+   Start with the cases the audit could not resolve from source alone: visually review
+   [75](https://github.com/metadatacenter/cedar-embeddable-editor/issues/75) and
+   [131](https://github.com/metadatacenter/cedar-embeddable-editor/issues/131); remeasure
+   [15](https://github.com/metadatacenter/cedar-embeddable-editor/issues/15) and
+   [125](https://github.com/metadatacenter/cedar-embeddable-editor/issues/125) against current builds
+   and services; rerun an accessibility audit for
+   [14](https://github.com/metadatacenter/cedar-embeddable-editor/issues/14); and split and reproduce
+   [12](https://github.com/metadatacenter/cedar-embeddable-editor/issues/12). Keep
+   [29](https://github.com/metadatacenter/cedar-embeddable-editor/issues/29) aligned with the
+   validation and save-experience work already described above, and confirm the still-current UI and
+   model gaps in [22](https://github.com/metadatacenter/cedar-embeddable-editor/issues/22),
+   [28](https://github.com/metadatacenter/cedar-embeddable-editor/issues/28),
+   [35](https://github.com/metadatacenter/cedar-embeddable-editor/issues/35),
+   [36](https://github.com/metadatacenter/cedar-embeddable-editor/issues/36), and
+   [99](https://github.com/metadatacenter/cedar-embeddable-editor/issues/99) before assigning
+   priority. This item is complete when every open issue names an owning surface and has either a
+   current reproduction or an explicit disposition, and GitHub and this roadmap no longer carry
+   contradictory backlogs.

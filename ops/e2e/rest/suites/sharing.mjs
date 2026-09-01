@@ -1,6 +1,6 @@
 // Sharing over HTTP, as two real users. The permission matrices in the Java suites assert what a
 // grant confers; this asserts that asking for it over the API produces exactly that grant.
-import { suite, check, checkStatus, call, cleanup, enc, RUN } from '../lib.mjs';
+import { suite, check, checkStatus, call, mutate, cleanup, enc, RUN } from '../lib.mjs';
 
 export const name = 'sharing';
 
@@ -26,9 +26,9 @@ export async function run({ user1, user2, homeFolderId }) {
       userPermissions: [{ user: { '@id': user2.profile['@id'] }, permission: level }],
       groupPermissions: [],
     };
-    const share = await call(user1.auth, 'PUT', `${at}/permissions`, requestedPermissions);
+    const share = await mutate(user1.auth, 'PUT', `${at}/permissions`, requestedPermissions);
     if (!checkStatus(share, 200, `${level}: shared with the second user`)) continue;
-    checkStatus(await call(user1.auth, 'PUT', `${at}/permissions`, requestedPermissions), 200,
+    checkStatus(await mutate(user1.auth, 'PUT', `${at}/permissions`, requestedPermissions), 200,
         `${level}: repeating the same grant is accepted`);
 
     // What the API says it did. Replacing an ACL with the same document must not duplicate a grant.
@@ -41,7 +41,7 @@ export async function run({ user1, user2, homeFolderId }) {
     // What the second user can actually do. The negative half is the point: asserting only that a
     // reader can read would pass just as well if read had quietly become write.
     checkStatus(await call(user2.auth, 'GET', at), 200, `${level}: the second user can read it`);
-    const write = await call(user2.auth, 'PUT', at,
+    const write = await mutate(user2.auth, 'PUT', at,
         { 'schema:name': `${folderName} renamed by the grantee`, 'schema:description': 'attempt' });
     if (level === 'read') {
       check(write.status >= 400, 'read: the grantee cannot rename it',
@@ -62,11 +62,11 @@ export async function run({ user1, user2, homeFolderId }) {
     const at = `/folders/${enc(made.body['@id'])}/permissions`;
     cleanup('folder', `/folders/${enc(made.body['@id'])}`, folderName);
 
-    checkStatus(await call(user1.auth, 'PUT', at,
+    checkStatus(await mutate(user1.auth, 'PUT', at,
         { userPermissions: [], groupPermissions: [] }), 400,
         'a permissions request without an owner is refused');
 
-    checkStatus(await call(user1.auth, 'PUT', at, {
+    checkStatus(await mutate(user1.auth, 'PUT', at, {
       owner: { '@id': user1.profile['@id'] },
       userPermissions: [
         { user: { '@id': user2.profile['@id'] }, permission: 'read' },
@@ -75,7 +75,7 @@ export async function run({ user1, user2, homeFolderId }) {
       groupPermissions: [],
     }), 400, 'naming one user twice is refused');
 
-    checkStatus(await call(user1.auth, 'PUT', at, {
+    checkStatus(await mutate(user1.auth, 'PUT', at, {
       owner: { '@id': user1.profile['@id'] },
       userPermissions: [{ user: { '@id': user1.profile['@id'] }, permission: 'read' }],
       groupPermissions: [],

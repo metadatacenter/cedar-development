@@ -138,6 +138,28 @@ export async function run({ user1, folderId }) {
         `${deep1.body?.totalCount} then ${deep2.body?.totalCount}`);
   }
 
+  // The offset is walked one page at a time behind the endpoint, so a page holds what the walk landed
+  // on: read the tagged set a row at a time and it must reassemble in order, with nothing repeated.
+  const oneByOne = [];
+  let walked = 0;
+  for (let offset = 0; offset < 3; offset++) {
+    const page = await call(auth, 'GET', `/search-deep?q=${enc(tag)}&limit=1&offset=${offset}&sort=name`);
+    if (page.status !== 200) break;
+    walked++;
+    oneByOne.push(...(page.body?.resources ?? []).map(r => r['@id']));
+  }
+  check(walked === 3 && new Set(oneByOne).size === oneByOne.length && oneByOne.length === 3,
+      'walking the set one row at a time repeats nothing', `walked ${walked} page(s), got ${oneByOne.join(', ')}`);
+
+  // An offset past the last row is the end of the walk, not an error: an empty page, same total.
+  const past = await call(auth, 'GET', `/search-deep?q=${enc(tag)}&limit=5&offset=10000`);
+  if (checkStatus(past, 200, 'search-deep answers an offset past the last row')) {
+    check((past.body?.resources ?? []).length === 0, 'it returns no rows there',
+        `got ${(past.body?.resources ?? []).length} row(s)`);
+    check(past.body?.totalCount === deep.body?.totalCount, 'and still reports the same total',
+        `${past.body?.totalCount} against ${deep.body?.totalCount}`);
+  }
+
   check((await call(auth, 'GET', `/search-deep?q=${enc(tag)}&limit=100000`)).status === 400,
       'search-deep refuses an excessive limit with 400', 'it did not');
   check((await call(auth, 'GET', `/search-deep?q=${enc(tag)}&limit=0`)).status === 400,

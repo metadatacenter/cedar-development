@@ -1,9 +1,14 @@
 // End-to-end smoke test against a running CEDAR stack: log in through the real
-// Keycloak form, create a folder, create a template inside it with a Disease field
-// constrained to the DOID "disease" branch via the live BioPortal picker, populate
-// the template and confirm the field suggests a live DOID term, publish it to the
-// public OpenView site and confirm an anonymous visitor sees it presented, then
-// delete the template and the folder — verifying each step.
+// Keycloak form; exercise Workspace folder, sharing, group, membership, rename,
+// OpenView open/close, artifact/folder move and delete mutations with current ETags;
+// create a template with a Disease field
+// constrained to the DOID "disease" branch via the live BioPortal picker; save it
+// twice without reloading; prove stale-editor rejection and reload recovery; run a
+// real two-user read/write/revoke sharing lifecycle; recover Workspace and Designer
+// mutations after an expired access token; publish an independent template, prove it
+// immutable, and create an editable draft; populate the main template and confirm a
+// live DOID suggestion; exercise CEE's dirty-navigation contract; publish it to
+// OpenView and confirm an anonymous visitor sees it; then clean up everything.
 //
 //   npm run smoke                        production monolith, headless
 //   npm run smoke:headed                 production monolith, headed
@@ -28,7 +33,8 @@ import { dirname, resolve } from 'node:path';
 import * as S from './selectors.mjs';
 // REST helpers, used to seed setup fixtures (folder, standalone field) without driving the UI, and
 // to tear them down. The browser drives only the gestures under test (designer, metadata editor).
-import { actors, call as restCall, artifactBody } from './rest/lib.mjs';
+import { actors, call as restCall, mutate as restMutate, artifactBody,
+  group as groupCall, mutateGroup, OPENVIEW } from './rest/lib.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const FAIL_DIR = resolve(__dirname, 'failures');
@@ -45,6 +51,9 @@ const OPENVIEW_FRONTEND = process.env.CEDAR_OPENVIEW_FRONTEND
   ?? `https://openview.${process.env.CEDAR_HOST ?? 'metadatacenter.orgx'}`;
 const USER = process.env.CEDAR_FRONTEND_local_USER1_LOGIN ?? 'test1@test.com';
 const PASSWORD = process.env.CEDAR_FRONTEND_local_USER1_PASSWORD ?? 'test1';
+const USER2 = process.env.CEDAR_FRONTEND_local_USER2_LOGIN ?? 'test2@test.com';
+const PASSWORD2 = process.env.CEDAR_FRONTEND_local_USER2_PASSWORD ?? 'test2';
+const USER2_NAME = process.env.CEDAR_FRONTEND_local_USER2_NAME ?? 'Test User 2';
 const HEADED = !!process.env.HEADED;
 const EXPECTED_CEE_VERSION = process.env.CEDAR_EXPECT_CEE_VERSION;
 
@@ -55,12 +64,21 @@ const RUN_ID = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
 // artifacts inside stay timestamped, so successive runs still cannot collide.
 const FOLDER_NAME = 'Smoke Tests';
 const TEMPLATE_NAME = `E2E Smoke Template ${RUN_ID}`;
+const DELETE_CONFLICT_TEMPLATE_NAME = `E2E Delete Conflict ${RUN_ID}`;
+const VERSION_TEMPLATE_NAME = `E2E Version Lifecycle ${RUN_ID}`;
 const FIELD_NAME = `E2E Standalone Field ${RUN_ID}`;
 const TEXT_FIELD_NAME = 'Notes';
+const MUTATION_FOLDER_NAME = `E2E ETag Folder ${RUN_ID}`;
+const MUTATION_FOLDER_FINAL_NAME = `${MUTATION_FOLDER_NAME} twice`;
+const MUTATION_GROUP_NAME = `E2E ETag Group ${RUN_ID}`;
+const MOVE_DESTINATION_NAME = `E2E Move Destination ${RUN_ID}`;
+const MOVE_TEMPLATE_NAME = `E2E Movable Template ${RUN_ID}`;
+const INHERITED_OPEN_TEMPLATE_NAME = `E2E Folder Open Template ${RUN_ID}`;
 // A saved browser session, reused across runs so the Keycloak login is paid once. Regenerated
 // automatically when missing or stale. Gitignored — it holds live tokens.
 const AUTH_DIR = resolve(__dirname, '.auth');
 const AUTH_STATE = resolve(AUTH_DIR, 'storage-state.json');
+const AUTH_STATE_USER2 = resolve(AUTH_DIR, 'storage-state-user2.json');
 
 // ── working folder ─────────────────────────────────────────────────────────
 
@@ -188,6 +206,222 @@ async function verifySplitNavigation(page) {
   console.log('✓ Workspace launched Designer with an exact return URL; Designer SSO and cancel-return succeeded');
 }
 
+// Exercise the live Workspace application's own services against the real servers. These are less
+// brittle than reproducing every click in the old sharing dialog, while still running the shipped
+// browser code, its Angular authorization layer, CORS, and the real conditional endpoints.
+async function verifyWorkspaceConditionalMutations(page, folderId, mutableFolderId, groupId) {
+  await gotoListing(page, folderId);
+  await page.evaluate(async ({folderId, mutableFolderId, groupId, firstName, secondName}) => {
+    const injector = window.angular.element(document).injector();
+    if (!injector) throw new Error('Workspace Angular injector is unavailable');
+    const resources = injector.get('resourceService');
+    const backend = injector.get('AuthorizedBackendService');
+    const folder = id => ({'@id': id, resourceType: 'folder'});
+    const call = register => new Promise((resolve, reject) => register(resolve, error => {
+      const status = error?.status ?? 'unknown';
+      const detail = error?.data?.errorMessage ?? error?.data?.message ?? error?.statusText ?? 'request failed';
+      reject(new Error(`${status}: ${detail}`));
+    }));
+    const currentResource = resource => call((ok, fail) => resources.getCurrentResource(resource, ok, fail));
+    const rename = async (id, name) => {
+      const current = await currentResource(folder(id));
+      await call((ok, fail) => backend.doCall(resources.renameNode(current, name, null), ok, fail));
+    };
+
+    await rename(mutableFolderId, firstName);
+    await rename(mutableFolderId, secondName);
+
+    const workspaceFolder = folder(folderId);
+    const permissions = await call((ok, fail) => resources.getResourceShare(workspaceFolder, ok, fail));
+    await call((ok, fail) => resources.setResourceShare(workspaceFolder, permissions, ok, fail));
+    await call((ok, fail) => resources.setResourceShare(workspaceFolder, permissions, ok, fail));
+
+    const group = await call((ok, fail) => resources.getGroup(groupId, ok, fail));
+    group['schema:description'] = 'Workspace conditional update one';
+    await call((ok, fail) => resources.updateGroup(group, ok, fail));
+    group['schema:description'] = 'Workspace conditional update two';
+    await call((ok, fail) => resources.updateGroup(group, ok, fail));
+
+    const members = await call((ok, fail) => resources.getGroupMembers(group, ok, fail));
+    group.users = members.users;
+    await call((ok, fail) => resources.updateGroupMembers(group, ok, fail));
+    await call((ok, fail) => resources.updateGroupMembers(group, ok, fail));
+    await call((ok, fail) => resources.deleteGroup(group, ok, fail));
+  }, {
+    folderId,
+    mutableFolderId,
+    groupId,
+    firstName: `${MUTATION_FOLDER_NAME} once`,
+    secondName: MUTATION_FOLDER_FINAL_NAME,
+  });
+  console.log('✓ Workspace conditionally renamed a folder twice, replaced permissions twice, and completed group update/membership/delete lifecycles');
+}
+
+async function waitForListingRow(page, folderId, title) {
+  for (let attempt = 1; attempt <= 12; attempt++) {
+    await gotoListing(page, folderId);
+    if (await row(page, title).count()) return;
+    if (attempt < 12) await page.waitForTimeout(1250);
+  }
+  throw new Error(`Workspace never listed "${title}" in ${folderId}`);
+}
+
+async function waitForAnonymousArtifact(templateId, expectedStatus, label) {
+  let last;
+  for (let attempt = 1; attempt <= 12; attempt++) {
+    last = await restCall(null, 'GET', `/templates/${enc(templateId)}`, undefined, { base: OPENVIEW });
+    if (last.status === expectedStatus) return;
+    if (attempt < 12) await new Promise(resolve => setTimeout(resolve, 1000));
+  }
+  throw new Error(`${label}: OpenView answered ${last?.status}; expected ${expectedStatus}`);
+}
+
+// Drive an OpenView visibility change through the row menu. Search indexing can briefly leave the
+// old menu state in the listing after the preceding command, so reload until the intended action is
+// enabled rather than bypassing the UI with a REST command.
+async function setOpenViewThroughWorkspace(page, folderId, title, kind, makeOpen) {
+  const command = `make-${kind}-${makeOpen ? 'open' : 'not-open'}`;
+  const selector = makeOpen ? S.MENU_ENABLE_OPENVIEW : S.MENU_DISABLE_OPENVIEW;
+  let item;
+  for (let attempt = 1; attempt <= 12; attempt++) {
+    await waitForListingRow(page, folderId, title);
+    await openRowMenu(page, title);
+    item = page.locator(selector).filter({ visible: true }).first();
+    await item.waitFor({ timeout: 8000 });
+    const classes = (await item.getAttribute('class')) ?? '';
+    if (!classes.includes('link-disabled')) break;
+    await page.keyboard.press('Escape');
+    item = null;
+    if (attempt < 12) await page.waitForTimeout(1250);
+  }
+  if (!item) throw new Error(`${title}: Workspace never enabled ${command}`);
+
+  const pending = page.waitForResponse(response => response.request().method() === 'POST'
+      && response.url().includes(`/command/${command}`), { timeout: 15_000 }).catch(() => null);
+  await item.click();
+  const response = await pending;
+  if (!response) throw new Error(`${title}: Workspace sent no ${command} request`);
+  if (!response.ok()) throw new Error(`${command} answered ${response.status()}`);
+  const ifMatch = await response.request().headerValue('if-match');
+  const returnedEtag = await response.headerValue('etag');
+  if (!ifMatch || !returnedEtag) {
+    throw new Error(`${command} omitted ${!ifMatch ? 'If-Match' : 'the response ETag'}`);
+  }
+  return { ifMatch, returnedEtag };
+}
+
+async function waitForMovedResource(user, resourceId, sourceFolderId, destinationFolderId, label) {
+  let source;
+  let destination;
+  for (let attempt = 1; attempt <= 12; attempt++) {
+    [source, destination] = await Promise.all([
+      restCall(user.auth, 'GET', `/folders/${enc(sourceFolderId)}/contents?limit=500`),
+      restCall(user.auth, 'GET', `/folders/${enc(destinationFolderId)}/contents?limit=500`),
+    ]);
+    const sourceIds = new Set((source.body?.resources ?? []).map(resource => resource['@id']));
+    const destinationIds = new Set((destination.body?.resources ?? []).map(resource => resource['@id']));
+    if (!sourceIds.has(resourceId) && destinationIds.has(resourceId)) return;
+    if (attempt < 12) await new Promise(resolve => setTimeout(resolve, 1250));
+  }
+  throw new Error(`${label}: source/destination listings never reflected the move`);
+}
+
+// Use the actual Workspace modal: open the row menu, choose the exact folder in the modal, and
+// confirm. This covers the browser service, destination picker, conditional command and refresh
+// path together for both artifact and folder rows.
+async function moveThroughWorkspace(page, user, sourceFolderId, destinationFolderId,
+                                    resourceId, resourceTitle, destinationTitle) {
+  await waitForListingRow(page, sourceFolderId, resourceTitle);
+  await openRowMenu(page, resourceTitle);
+  const move = page.locator(S.MENU_MOVE).filter({ visible: true }).first();
+  if (((await move.getAttribute('class')) ?? '').includes('link-disabled')) {
+    throw new Error(`${resourceTitle}: Workspace disabled Move for a writable resource`);
+  }
+  await move.click();
+
+  const modal = page.locator(S.MOVE_MODAL);
+  await modal.waitFor({ state: 'visible', timeout: 15_000 });
+  const destination = page.locator(S.MOVE_DESTINATION_ROW, {
+    has: page.getByText(destinationTitle, { exact: true }),
+  }).first();
+  await destination.waitFor({ state: 'visible', timeout: 15_000 });
+  await destination.locator('a.contents-folder-title').click();
+
+  const confirm = page.locator(S.MOVE_CONFIRM).filter({ visible: true }).first();
+  await confirm.waitFor({ state: 'visible', timeout: 8000 });
+  const pending = page.waitForResponse(response => response.request().method() === 'POST'
+      && response.url().includes('/command/move-resource-to-folder'),
+  { timeout: 20_000 }).catch(() => null);
+  await confirm.click();
+  const response = await pending;
+  if (!response) throw new Error(`${resourceTitle}: Move sent no move-resource-to-folder request`);
+  if (!response.ok()) throw new Error(`${resourceTitle}: move answered ${response.status()}`);
+  const ifMatch = await response.request().headerValue('if-match');
+  const returnedEtag = await response.headerValue('etag');
+  if (!ifMatch || !returnedEtag) {
+    throw new Error(`${resourceTitle}: move omitted ${!ifMatch ? 'If-Match' : 'the response ETag'}`);
+  }
+  const body = JSON.parse(response.request().postData() ?? '{}');
+  if (body['@id'] !== resourceId || body.targetFolderId !== destinationFolderId) {
+    throw new Error(`${resourceTitle}: move targeted ${body['@id']} → ${body.targetFolderId}`);
+  }
+  await waitForMovedResource(user, resourceId, sourceFolderId, destinationFolderId, resourceTitle);
+}
+
+async function verifyWorkspaceOpenAndMoveOperations(page, user, folderId, mutableFolderId) {
+  let destinationId;
+  let movableTemplateId;
+  let inheritedTemplateId;
+  try {
+    const destination = await restCall(user.auth, 'POST', '/folders', {
+      folderId,
+      name: MOVE_DESTINATION_NAME,
+      description: 'Destination for real Workspace move-modal coverage',
+    });
+    if (destination.status !== 201) {
+      throw new Error(`could not create move destination: ${destination.status} ${destination.text}`);
+    }
+    destinationId = destination.body['@id'];
+
+    const movable = await restCall(user.auth, 'POST', `/templates?folder_id=${enc(folderId)}`,
+        artifactBody('template', MOVE_TEMPLATE_NAME));
+    if (movable.status !== 201) {
+      throw new Error(`could not create movable template: ${movable.status} ${movable.text}`);
+    }
+    movableTemplateId = movable.body['@id'];
+
+    const inherited = await restCall(user.auth, 'POST', `/templates?folder_id=${enc(mutableFolderId)}`,
+        artifactBody('template', INHERITED_OPEN_TEMPLATE_NAME));
+    if (inherited.status !== 201) {
+      throw new Error(`could not create inherited-open template: ${inherited.status} ${inherited.text}`);
+    }
+    inheritedTemplateId = inherited.body['@id'];
+
+    await waitForAnonymousArtifact(inheritedTemplateId, 401, 'closed folder baseline');
+    await setOpenViewThroughWorkspace(page, folderId, MUTATION_FOLDER_FINAL_NAME, 'folder', true);
+    await waitForAnonymousArtifact(inheritedTemplateId, 200, 'folder open');
+    await setOpenViewThroughWorkspace(page, folderId, MUTATION_FOLDER_FINAL_NAME, 'folder', false);
+    await waitForAnonymousArtifact(inheritedTemplateId, 401, 'folder close');
+
+    await moveThroughWorkspace(page, user, folderId, destinationId,
+        movableTemplateId, MOVE_TEMPLATE_NAME, MOVE_DESTINATION_NAME);
+    await moveThroughWorkspace(page, user, folderId, destinationId,
+        mutableFolderId, MUTATION_FOLDER_FINAL_NAME, MOVE_DESTINATION_NAME);
+    console.log('✓ Workspace opened/closed a folder and moved both an artifact and a folder with fresh If-Match validators');
+  } finally {
+    if (inheritedTemplateId) {
+      await restMutate(user.auth, 'DELETE', `/templates/${enc(inheritedTemplateId)}`).catch(() => {});
+    }
+    if (movableTemplateId) {
+      await restMutate(user.auth, 'DELETE', `/templates/${enc(movableTemplateId)}`).catch(() => {});
+    }
+    await restMutate(user.auth, 'DELETE', `/folders/${enc(mutableFolderId)}`).catch(() => {});
+    if (destinationId) {
+      await restMutate(user.auth, 'DELETE', `/folders/${enc(destinationId)}`).catch(() => {});
+    }
+  }
+}
+
 // Delete a row by name, retrying the whole gesture.
 //
 // The gesture can no-op in silence. The row menu is an Angular dropdown that
@@ -235,6 +469,10 @@ async function deleteRow(page, name, folderId) {
     if (!response.ok()) {
       throw new Error(`DELETE for "${name}" answered ${response.status()}: ${response.url()}`);
     }
+    const ifMatch = await response.request().headerValue('if-match');
+    if (!ifMatch) {
+      throw new Error(`DELETE for "${name}" reached the server without If-Match: ${response.url()}`);
+    }
 
     // The server has deleted it. The listing is served from the search index,
     // which can lag by tens of seconds just after a restart.
@@ -263,6 +501,526 @@ async function addTextField(page, name, help) {
   await page.locator(S.PALETTE_TEXT_FIELD).click(); // text field palette icon
   await setText(page.getByRole('textbox', { name: 'Enter Field Name' }).last(), name);
   if (help) await setText(page.getByRole('textbox', { name: 'Enter Field Help Text' }).last(), help);
+}
+
+// Save the same loaded Designer representation twice without reloading. The first response must
+// advance the validator held by the live editor model; the second request must use that new value.
+// A one-save smoke cannot distinguish correct propagation from a client that forever reuses the
+// ETag it got on the initial GET.
+async function verifyRepeatedTemplateUpdates(page) {
+  const description = page.getByRole('textbox', { name: 'Description' }).first();
+  const save = page.getByRole('button', { name: 'Save Template' });
+  const validators = [];
+
+  for (const value of ['Concurrency smoke: first update', 'Concurrency smoke: second update']) {
+    await setText(description, value);
+    const pending = page.waitForResponse(response => response.request().method() === 'PUT'
+        && /\/templates\//.test(response.url()), { timeout: 20_000 });
+    await save.click();
+    const response = await pending;
+    if (!response.ok()) {
+      throw new Error(`Designer repeated update answered ${response.status()}: ${response.url()}`);
+    }
+    const ifMatch = await response.request().headerValue('if-match');
+    const etag = await response.headerValue('etag');
+    if (!ifMatch || !etag) {
+      throw new Error(`Designer update omitted ${!ifMatch ? 'If-Match' : 'ETag'} on ${response.url()}`);
+    }
+    validators.push({ifMatch, etag});
+  }
+
+  if (validators[1].ifMatch !== validators[0].etag) {
+    throw new Error(`Designer did not advance its live validator: first response ${validators[0].etag}, second request ${validators[1].ifMatch}`);
+  }
+  console.log(`✓ Designer saved the same live template twice (${validators[0].ifMatch} → ${validators[0].etag} → ${validators[1].etag})`);
+}
+
+async function saveTemplateDescription(page, value, expectedStatus = 200) {
+  await setText(page.getByRole('textbox', { name: 'Description' }).first(), value);
+  const pending = page.waitForResponse(response => response.request().method() === 'PUT'
+      && /\/templates\//.test(response.url()) && response.status() === expectedStatus,
+    { timeout: 20_000 });
+  await page.getByRole('button', { name: 'Save Template' }).click();
+  const response = await pending;
+  if (response.status() !== expectedStatus) {
+    throw new Error(`template update answered ${response.status()}, expected ${expectedStatus}: ${response.url()}`);
+  }
+  return response;
+}
+
+// Make the next authenticated call receive the resource server's exact expired-access-token
+// contract. A random invalid bearer is intentionally a different case — it asks the UI to log out —
+// and waiting several minutes for a real signed token to expire would make this smoke unusable.
+// Fulfil one matching request with the real authorization error shape, then let the retry reach the
+// live server. AuthorizedBackendService must reauthenticate through a fresh Keycloak silent-SSO
+// handler and retry exactly once. This also covers sessions that lack a refresh token, where the
+// stock adapter would otherwise fall back to logout. No token value is read out of the page or
+// logged.
+async function withExpiredAccessToken(page, mutationPredicate, action, label) {
+  const exactUrl = page.url();
+  const mutationStatuses = [];
+  const refreshStatuses = [];
+  const observe = response => {
+    if (mutationPredicate(response)) mutationStatuses.push(response.status());
+    if (/\/protocol\/openid-connect\/token(?:\?|$)/.test(response.url())) {
+      refreshStatuses.push(response.status());
+    }
+  };
+  page.on('response', observe);
+  let intercepted = false;
+  const intercept = async route => {
+    const request = route.request();
+    const responseShape = { url: () => request.url(), request: () => request };
+    if (!intercepted && mutationPredicate(responseShape)) {
+      intercepted = true;
+      await route.fulfill({
+        status: 401,
+        contentType: 'application/json',
+        body: JSON.stringify({ errorType: 'authorization', suggestedAction: 'refreshToken' }),
+      });
+    } else {
+      await route.continue();
+    }
+  };
+  await page.route('**/*', intercept);
+  await page.evaluate(() => {
+    const injector = window.angular.element(document).injector();
+    if (!injector) throw new Error('Angular injector is unavailable for the session-expiry probe');
+    const user = injector.get('UserService');
+    if (user.__smokeRestoreExpiredAccessToken) throw new Error('session-expiry probe is already armed');
+    const originalGetToken = user.getToken;
+    const originalRefreshToken = user.refreshToken;
+    user.refreshToken = function (_minValidity, success, failure) {
+      return new Promise((resolve, reject) => {
+        const fresh = new window.KeycloakUserHandler();
+        fresh.initUserHandler(
+          authenticated => {
+            if (!authenticated) {
+              failure();
+              reject(new Error('Keycloak silent SSO did not authenticate'));
+              return;
+            }
+            user.getToken = fresh.getToken;
+            Promise.resolve(success(true)).then(resolve, reject);
+          },
+          error => {
+            failure(error);
+            reject(error ?? new Error('Keycloak silent SSO failed'));
+          },
+        );
+      });
+    };
+    user.__smokeRestoreExpiredAccessToken = function () {
+      user.getToken = originalGetToken;
+      user.refreshToken = originalRefreshToken;
+      delete user.__smokeRestoreExpiredAccessToken;
+    };
+  });
+
+  try {
+    let result;
+    try {
+      result = await action();
+    } catch (error) {
+      throw new Error(`${label}: ${error.message}; mutation responses ${mutationStatuses.join(' → ') || 'none'}; Keycloak refreshes ${refreshStatuses.join(', ') || 'none'}`);
+    }
+    await page.waitForTimeout(300);
+    const denied = mutationStatuses.filter(status => status === 401).length;
+    const succeeded = mutationStatuses.filter(status => status >= 200 && status < 300).length;
+    const refreshed = refreshStatuses.filter(status => status >= 200 && status < 300).length;
+    if (!intercepted || denied !== 1 || succeeded !== 1 || refreshed !== 1) {
+      throw new Error(`${label} session recovery was ${mutationStatuses.join(' → ') || 'no mutation response'}; Keycloak refreshes ${refreshStatuses.join(', ') || 'none'}`);
+    }
+    if (page.url() !== exactUrl) {
+      throw new Error(`${label} session recovery changed route from ${exactUrl} to ${page.url()}`);
+    }
+    return result;
+  } finally {
+    await page.evaluate(() => {
+      const injector = window.angular.element(document).injector();
+      injector?.get('UserService').__smokeRestoreExpiredAccessToken?.();
+    }).catch(() => {});
+    await page.unroute('**/*', intercept);
+    page.off('response', observe);
+  }
+}
+
+function etagRevision(etag) {
+  const match = etag?.match(/\d+/);
+  return match ? Number(match[0]) : null;
+}
+
+// Two independently loaded editor pages start from one revision. One wins; the other must be
+// refused, must tell the user rather than flashing success, and must not overwrite the winner.
+// Reloading the refused editor is the recovery contract: it receives the current representation and
+// can then make a deliberate new update.
+async function verifyConcurrentTemplateConflict(page, user1, templateId) {
+  const stalePage = await page.context().newPage();
+  const editUrl = page.url();
+  try {
+    await stalePage.goto(editUrl, { waitUntil: 'domcontentloaded' });
+    await stalePage.getByRole('textbox', { name: 'Description' }).first()
+      .waitFor({ state: 'visible', timeout: 30_000 });
+
+    const winnerValue = 'Concurrency smoke: winning editor update';
+    const staleValue = 'Concurrency smoke: stale editor must not win';
+    const recoveredValue = 'Concurrency smoke: recovered editor update';
+    const winner = await saveTemplateDescription(page, winnerValue);
+    const winnerEtag = await winner.headerValue('etag');
+    if (!winnerEtag) throw new Error('winning concurrent update returned no ETag');
+
+    const refused = await saveTemplateDescription(stalePage, staleValue, 412);
+    const staleIfMatch = await refused.request().headerValue('if-match');
+    if (!staleIfMatch || staleIfMatch === winnerEtag) {
+      throw new Error(`stale editor did not submit its older validator (sent ${staleIfMatch}, winner returned ${winnerEtag})`);
+    }
+    const successToast = stalePage.getByText(/has been updated/i);
+    if (await successToast.isVisible()) throw new Error('stale editor displayed an update-success message after HTTP 412');
+    await stalePage.locator('.sweet-alert:visible, .toast-error:visible, .toasty-type-error:visible')
+      .first().waitFor({ state: 'visible', timeout: 5_000 });
+
+    const afterConflict = await restCall(user1.auth, 'GET', `/templates/${enc(templateId)}`);
+    if (afterConflict.status !== 200 || afterConflict.body?.['schema:description'] !== winnerValue) {
+      throw new Error(`stale save changed server content: ${afterConflict.status} ${afterConflict.body?.['schema:description']}`);
+    }
+
+    await stalePage.reload({ waitUntil: 'domcontentloaded' });
+    await stalePage.getByRole('textbox', { name: 'Description' }).first()
+      .waitFor({ state: 'visible', timeout: 30_000 });
+    const recovered = await saveTemplateDescription(stalePage, recoveredValue);
+    const recoveredIfMatch = await recovered.request().headerValue('if-match');
+    if (etagRevision(recoveredIfMatch) !== etagRevision(winnerEtag)) {
+      throw new Error(`recovered editor used ${recoveredIfMatch}; expected revision from winning ETag ${winnerEtag}`);
+    }
+    console.log(`✓ competing Designer pages rejected the stale save, preserved the winner, and recovered after reload (${staleIfMatch} ✕, ${winnerEtag} → ${await recovered.headerValue('etag')})`);
+  } finally {
+    await stalePage.close();
+  }
+}
+
+// A loaded editor is also stale when another actor deletes the artifact. Designer may stop at its
+// check-update preflight (404, no PUT) or reach the conditional write (412); either way it must show
+// an error and leave the identifier absent rather than recreating it through PUT-as-create.
+async function verifyDeleteVsStaleSave(page, user1, folderId) {
+  const stalePage = await page.context().newPage();
+  let templateId;
+  try {
+    const designerReturn = `${BASE}/dashboard?folderId=${enc(folderId)}`;
+    await stalePage.goto(
+        `${DESIGNER_BASE}/templates/create?folderId=${enc(folderId)}&returnTo=${enc(designerReturn)}`,
+        { waitUntil: 'domcontentloaded' });
+    await stalePage.getByRole('textbox', { name: 'Name' }).fill(DELETE_CONFLICT_TEMPLATE_NAME);
+    await stalePage.waitForTimeout(1100);
+    await addTextField(stalePage, 'Delete conflict field', 'Makes this a saveable Designer fixture');
+    await stalePage.waitForTimeout(1100);
+
+    const pendingCreate = stalePage.waitForResponse(response => response.request().method() === 'POST'
+        && /\/templates(?:\?|$)/.test(response.url()) && response.status() === 201,
+      { timeout: 20_000 });
+    await stalePage.getByRole('button', { name: 'Save Template' }).click();
+    const created = await pendingCreate;
+    const createdBody = await created.json();
+    templateId = createdBody['@id'];
+    if (!templateId) throw new Error('Designer delete-conflict fixture returned no identifier');
+    await stalePage.getByText(/has been (created|updated)/i).first().waitFor({ timeout: 20_000 });
+    await stalePage.waitForURL(/\/templates\/edit\//, { timeout: 20_000 });
+
+    // Reload out of the create transition, then prove this exact edit page can complete an ordinary
+    // conditional update. The subsequent failure is therefore specifically caused by the external
+    // delete, not by a fixture whose post-create form never reached its normal editable state.
+    await stalePage.reload({ waitUntil: 'domcontentloaded' });
+    await stalePage.getByRole('textbox', { name: 'Description' }).first()
+      .waitFor({ state: 'visible', timeout: 20_000 });
+    const baseline = await saveTemplateDescription(stalePage, 'Delete conflict: baseline live save');
+
+    const at = `/templates/${enc(templateId)}`;
+    const loaded = await restCall(user1.auth, 'GET', at);
+    const loadedEtag = loaded.headers?.get('etag');
+    const baselineEtag = await baseline.headerValue('etag');
+    if (!loadedEtag || etagRevision(loadedEtag) !== etagRevision(baselineEtag)) {
+      throw new Error(`delete-conflict fixture loaded ${loadedEtag} after its baseline save returned ${baselineEtag}`);
+    }
+    const deleted = await restCall(user1.auth, 'DELETE', at, undefined,
+        { headers: loadedEtag ? { 'If-Match': loadedEtag } : {} });
+    if (deleted.status !== 204) throw new Error(`fixture DELETE answered ${deleted.status}: ${deleted.text}`);
+
+    await setText(stalePage.getByRole('textbox', { name: 'Description' }).first(),
+        'Delete conflict: this stale save must not recreate the template');
+    const saveButton = stalePage.getByRole('button', { name: 'Save Template' });
+    for (let poll = 0; poll < 20 && !await saveButton.isEnabled(); poll++) {
+      await stalePage.waitForTimeout(250);
+    }
+    if (!await saveButton.isEnabled()) {
+      throw new Error('Designer did not enable Save after the deleted fixture was edited');
+    }
+    const putRequests = [];
+    const observePut = request => {
+      if (request.method() === 'PUT' && /\/templates\//.test(request.url())) putRequests.push(request);
+    };
+    stalePage.on('request', observePut);
+    const pendingRefusal = stalePage.waitForResponse(response =>
+      (response.request().method() === 'POST' && /\/command\/check-update-template\//.test(response.url())
+          && response.status() === 404)
+        || (response.request().method() === 'PUT' && /\/templates\//.test(response.url())
+          && response.status() === 412),
+    { timeout: 20_000 });
+    await saveButton.click();
+    const refused = await pendingRefusal;
+    await stalePage.waitForTimeout(500);
+    stalePage.off('request', observePut);
+
+    let refusalSummary;
+    if (refused.request().method() === 'PUT') {
+      const submittedEtag = await refused.request().headerValue('if-match');
+      if (etagRevision(submittedEtag) !== etagRevision(loadedEtag)) {
+        throw new Error(`deleted editor submitted ${submittedEtag}; it loaded ${loadedEtag}`);
+      }
+      refusalSummary = `${submittedEtag} → 412`;
+    } else {
+      if (putRequests.length) {
+        throw new Error(`Designer sent ${putRequests.length} template PUT(s) after its deleted-artifact preflight returned 404`);
+      }
+      refusalSummary = 'preflight 404, no PUT';
+    }
+    await stalePage.locator('.sweet-alert:visible, .toast-error:visible, .toasty-type-error:visible')
+      .first().waitFor({ state: 'visible', timeout: 5_000 });
+    const stillGone = await restCall(user1.auth, 'GET', at);
+    if (stillGone.status !== 404) {
+      throw new Error(`stale UI save recreated deleted template: GET answered ${stillGone.status}`);
+    }
+    console.log(`✓ a stale Designer page cannot recreate a deleted template (${refusalSummary}, still 404)`);
+  } finally {
+    await stalePage.close();
+    if (templateId) {
+      const at = `/templates/${enc(templateId)}`;
+      const survivor = await restCall(user1.auth, 'GET', at).catch(() => null);
+      if (survivor?.status === 200) await restMutate(user1.auth, 'DELETE', at).catch(() => {});
+    }
+  }
+}
+
+async function openShareDialog(page, folderId, templateName) {
+  await gotoListing(page, folderId);
+  await openRowMenu(page, templateName);
+  await row(page, templateName).locator('a.share:visible').click();
+  const modal = page.locator('#share-modal .modal-content');
+  await modal.waitFor({ state: 'visible', timeout: 15_000 });
+  await modal.locator('#share-people input.user-name').waitFor({ state: 'visible', timeout: 15_000 });
+  return modal;
+}
+
+async function expectPermissionUpdate(page, action) {
+  const pending = page.waitForResponse(response => response.request().method() === 'PUT'
+      && /\/permissions(?:\?|$)/.test(response.url()) && response.ok(),
+    { timeout: 20_000 }).catch(() => null);
+  await action();
+  const response = await pending;
+  if (!response) throw new Error('sharing control sent no permissions PUT');
+  if (!response.ok()) throw new Error(`permission update answered ${response.status()}: ${response.url()}`);
+  if (!await response.request().headerValue('if-match')) {
+    throw new Error(`permission update reached the server without If-Match: ${response.url()}`);
+  }
+}
+
+async function closeShareDialog(modal) {
+  await modal.getByRole('button', { name: 'Done' }).click();
+  await modal.waitFor({ state: 'hidden', timeout: 10_000 });
+}
+
+async function chooseVisiblePermission(scope, permission) {
+  const label = permission === 'write' ? /can write/i : /can read/i;
+  const picker = scope.locator('.bootstrap-select').first();
+  const button = picker.locator('button.dropdown-toggle');
+  if (label.test((await button.innerText()).trim())) return;
+  await button.click();
+  const option = picker.locator('ul.dropdown-menu li a:visible').filter({ hasText: label }).first();
+  await option.waitFor({ state: 'visible', timeout: 10_000 });
+  await option.click();
+}
+
+async function shareWithUser(page, folderId, templateName, userName, permission, recoverExpiredSession = false) {
+  const modal = await openShareDialog(page, folderId, templateName);
+  const input = modal.locator('#share-people input.user-name');
+  await input.fill(userName);
+  const option = page.locator('ul.dropdown-menu:visible li').filter({ hasText: userName }).first();
+  // Exact matches select themselves in this Angular typeahead. Some builds briefly render the
+  // dropdown first and some go straight to the confirmation row, so click the option only when it
+  // actually appeared; the visible OK button is the authoritative selected-model signal.
+  await option.waitFor({ state: 'visible', timeout: 1_000 }).then(() => option.click()).catch(() => {});
+  const confirm = modal.locator('#share-people .confirmation.first button.btn-save');
+  await confirm.waitFor({ state: 'visible', timeout: 10_000 });
+  await chooseVisiblePermission(modal.locator('#share-people'), permission);
+  const grant = () => expectPermissionUpdate(page, () => confirm.click());
+  if (recoverExpiredSession) {
+    await withExpiredAccessToken(
+      page,
+      response => response.request().method() === 'PUT' && /\/permissions(?:\?|$)/.test(response.url()),
+      grant,
+      'Workspace permission update',
+    );
+  } else {
+    await grant();
+  }
+  await closeShareDialog(modal);
+}
+
+async function changeUserShare(page, folderId, templateName, userName, permission) {
+  const modal = await openShareDialog(page, folderId, templateName);
+  const shareRow = modal.locator('#shared-users .row').filter({ hasText: userName }).first();
+  await shareRow.waitFor({ state: 'visible', timeout: 10_000 });
+  await expectPermissionUpdate(page, async () => {
+    await shareRow.locator('select').selectOption(permission, { force: true });
+  });
+  const expectedLabel = permission === 'write' ? /can write/i : /can read/i;
+  if (!expectedLabel.test(await shareRow.locator('.bootstrap-select button.dropdown-toggle').innerText())) {
+    throw new Error(`sharing dialog did not visibly change ${userName} to ${permission}`);
+  }
+  await closeShareDialog(modal);
+}
+
+async function revokeUserShare(page, folderId, templateName, userName) {
+  const modal = await openShareDialog(page, folderId, templateName);
+  const shareRow = modal.locator('#shared-users .row').filter({ hasText: userName }).first();
+  await shareRow.waitFor({ state: 'visible', timeout: 10_000 });
+  await expectPermissionUpdate(page, () => shareRow.locator('button.btn-delete').click());
+  await closeShareDialog(modal);
+}
+
+async function newAuthenticatedContext(browser, user, password, statePath) {
+  const context = await browser.newContext({
+    ignoreHTTPSErrors: true,
+    viewport: { width: 1280, height: 900 },
+    ...(existsSync(statePath) ? { storageState: statePath } : {}),
+  });
+  await context.route('**://*:35729/**', route => route.abort());
+  const page = await context.newPage();
+  await page.goto(`${BASE}/dashboard`, { waitUntil: 'domcontentloaded' });
+  const loginForm = page.locator(S.KC_USERNAME).first();
+  const newButton = page.getByRole('button', { name: 'New' });
+  const seen = await Promise.race([
+    loginForm.waitFor({ state: 'visible', timeout: 30_000 }).then(() => 'login').catch(() => null),
+    newButton.waitFor({ state: 'visible', timeout: 30_000 }).then(() => 'reused').catch(() => null),
+  ]);
+  if (seen === 'login') {
+    await loginForm.fill(user);
+    await page.locator(S.KC_PASSWORD).first().fill(password);
+    await page.locator(S.KC_SUBMIT).first().click();
+    await newButton.waitFor({ timeout: 60_000 });
+    await mkdir(AUTH_DIR, { recursive: true });
+    await context.storageState({ path: statePath });
+  } else if (seen !== 'reused') {
+    await context.close();
+    throw new Error(`neither the Keycloak login form nor Workspace appeared for ${user}`);
+  }
+  return { context, page };
+}
+
+async function gotoSharedWithMe(page, homeFolderId) {
+  await gotoListing(page, homeFolderId);
+  await page.locator('a[ng-click="dc.goToSharedWithMe()"]:visible').click();
+  await page.waitForURL(/sharing=shared-with-me/, { timeout: 15_000 });
+  await page.getByRole('button', { name: 'New' }).waitFor({ timeout: 15_000 });
+  await page.waitForTimeout(500);
+}
+
+async function waitForSharedRow(page, homeFolderId, templateName, present) {
+  for (let attempt = 1; attempt <= 8; attempt++) {
+    await gotoSharedWithMe(page, homeFolderId);
+    if ((await row(page, templateName).count() > 0) === present) return;
+    await page.waitForTimeout(1000);
+  }
+  throw new Error(`shared template "${templateName}" ${present ? 'never appeared' : 'remained visible after revocation'}`);
+}
+
+// Drive the visible sharing dialog as the owner and a separate authenticated browser as the
+// recipient. This proves more than the ACL endpoint: Workspace must construct the grant correctly,
+// render the right controls after each transition, carry the recipient into Designer through SSO,
+// and stop an already-open editor after revocation.
+async function verifyTwoUserSharing(browser, ownerPage, folderId, templateId, user1, user2) {
+  await shareWithUser(ownerPage, folderId, TEMPLATE_NAME, USER2_NAME, 'read', true);
+  const secondary = await newAuthenticatedContext(browser, USER2, PASSWORD2, AUTH_STATE_USER2);
+  try {
+    const recipientPage = secondary.page;
+    await waitForSharedRow(recipientPage, user2.profile.homeFolderId, TEMPLATE_NAME, true);
+    await openRowMenu(recipientPage, TEMPLATE_NAME);
+    const readOnlyRename = recipientPage.locator('a.rename:visible').first();
+    if (!((await readOnlyRename.getAttribute('class')) ?? '').includes('link-disabled')) {
+      throw new Error('read-only recipient was offered an enabled Rename action');
+    }
+
+    await changeUserShare(ownerPage, folderId, TEMPLATE_NAME, USER2_NAME, 'write');
+    await waitForSharedRow(recipientPage, user2.profile.homeFolderId, TEMPLATE_NAME, true);
+    await openRowMenu(recipientPage, TEMPLATE_NAME);
+    const writableRename = recipientPage.locator('a.rename:visible').first();
+    if (((await writableRename.getAttribute('class')) ?? '').includes('link-disabled')) {
+      throw new Error('write recipient still saw Rename disabled');
+    }
+    await menuItem(recipientPage, 'Open');
+    await recipientPage.waitForURL(/\/templates\/edit\//, { timeout: 30_000 });
+    await recipientPage.getByRole('textbox', { name: 'Description' }).first()
+      .waitFor({ state: 'visible', timeout: 30_000 });
+
+    const writerValue = 'Two-user smoke: recipient write succeeded';
+    const writerResponse = await saveTemplateDescription(recipientPage, writerValue);
+    if (!await writerResponse.request().headerValue('if-match')) {
+      throw new Error('recipient write reached the server without If-Match');
+    }
+
+    await revokeUserShare(ownerPage, folderId, TEMPLATE_NAME, USER2_NAME);
+    const deniedValue = 'Two-user smoke: revoked writer must not win';
+    await setText(recipientPage.getByRole('textbox', { name: 'Description' }).first(), deniedValue);
+    const deniedPending = recipientPage.waitForResponse(response => response.status() === 403
+        && ((response.request().method() === 'PUT' && /\/templates\//.test(response.url()))
+          || (response.request().method() === 'POST' && /\/command\/check-update-template\//.test(response.url()))),
+      { timeout: 20_000 });
+    await recipientPage.getByRole('button', { name: 'Save Template' }).click();
+    await deniedPending;
+    await recipientPage.locator('.sweet-alert:visible, .toast-error:visible, .toasty-type-error:visible')
+      .first().waitFor({ state: 'visible', timeout: 5_000 });
+
+    const afterRevoke = await restCall(user1.auth, 'GET', `/templates/${enc(templateId)}`);
+    if (afterRevoke.status !== 200 || afterRevoke.body?.['schema:description'] !== writerValue) {
+      throw new Error(`revoked editor changed server content: ${afterRevoke.status} ${afterRevoke.body?.['schema:description']}`);
+    }
+    await waitForSharedRow(recipientPage, user2.profile.homeFolderId, TEMPLATE_NAME, false);
+    console.log('✓ visible sharing UI granted read, upgraded to write, allowed the recipient save, then revoked access and blocked the already-open editor');
+  } finally {
+    await secondary.context.close();
+  }
+}
+
+async function waitForDesignerTemplate(page, expectedName) {
+  const name = page.getByRole('textbox', { name: 'Name' }).first();
+  await name.waitFor({ state: 'visible', timeout: 30_000 });
+  await page.waitForFunction(expected => {
+    const boxes = [...document.querySelectorAll('input')];
+    return boxes.some(input => input.value === expected);
+  }, expectedName, { timeout: 30_000 });
+}
+
+async function verifyDesignerSessionRecovery(page, editUrl, templateId, user1) {
+  await page.goto(editUrl, { waitUntil: 'domcontentloaded' });
+  await waitForDesignerTemplate(page, TEMPLATE_NAME);
+
+  const before = await restCall(user1.auth, 'GET', `/templates/${enc(templateId)}`);
+  if (before.status !== 200) throw new Error(`could not read template before session recovery: ${before.status}`);
+  const beforeRevision = etagRevision(before.headers.get('etag'));
+  const value = 'Session smoke: Designer preserved this unsaved edit through token refresh';
+  const saved = await withExpiredAccessToken(
+    page,
+    response => response.request().method() === 'PUT' && /\/templates\//.test(response.url()),
+    () => saveTemplateDescription(page, value),
+    'Designer save',
+  );
+  const afterRevision = etagRevision(await saved.headerValue('etag'));
+  if (beforeRevision == null || afterRevision !== beforeRevision + 1) {
+    throw new Error(`Designer session recovery advanced revision ${beforeRevision} → ${afterRevision}; expected exactly one update`);
+  }
+  const after = await restCall(user1.auth, 'GET', `/templates/${enc(templateId)}`);
+  if (after.status !== 200 || after.body?.['schema:description'] !== value) {
+    throw new Error(`Designer lost the edit during session recovery: ${after.status} ${after.body?.['schema:description']}`);
+  }
+  console.log('✓ expired sessions recovered in Workspace and Designer through one Keycloak refresh and one successful retry, without changing route or losing the edit');
 }
 
 // Constrain the just-added text field to the "disease" BRANCH of DOID via the live
@@ -430,6 +1188,83 @@ async function reEditInstance(page, newValue) {
   if (resp.status() !== 200) throw new Error(`instance update answered ${resp.status()}`);
 }
 
+async function waitForEditorDirty(page, dirty) {
+  await page.waitForFunction(expected => {
+    const injector = window.angular.element(document).injector();
+    return injector?.get('UIUtilService').isDirty() === expected;
+  }, dirty, { timeout: 10_000 });
+}
+
+async function notesValue(page) {
+  const input = page.locator('cedar-embeddable-editor')
+    .getByLabel(TEXT_FIELD_NAME, { exact: false }).first();
+  await input.waitFor({ state: 'visible', timeout: 20_000 });
+  return input.inputValue();
+}
+
+function sameNavigationTarget(left, right) {
+  const a = new URL(left);
+  const b = new URL(right);
+  const decodedPath = url => {
+    try {
+      return decodeURIComponent(url.pathname);
+    } catch {
+      return url.pathname;
+    }
+  };
+  if (a.origin !== b.origin || decodedPath(a) !== decodedPath(b) || a.hash !== b.hash) return false;
+  const entries = url => [...url.searchParams.entries()]
+    .sort(([aKey, aValue], [bKey, bValue]) => aKey.localeCompare(bKey) || aValue.localeCompare(bValue));
+  return JSON.stringify(entries(a)) === JSON.stringify(entries(b));
+}
+
+// A dirty form must warn on the actual header-back gesture, preserve the model when the user
+// cancels, and become navigable again after an exact revert. Returning to the edit URL lets the
+// ordinary update test continue; its successful save then establishes the next clean baseline.
+async function verifyDirtyNavigationProtection(page, cleanValue, returnUrl) {
+  const editUrl = page.url();
+  const dirtyValue = 'dirty-navigation probe: keep me when Cancel is pressed';
+  await fillCeeTextField(page, TEXT_FIELD_NAME, dirtyValue);
+  await waitForEditorDirty(page, true);
+  await page.locator('.back-arrow-click:visible').click();
+  const warning = page.locator('.sweet-alert:visible');
+  await warning.waitFor({ state: 'visible', timeout: 10_000 });
+  if (!/recent changes will be lost/i.test(await warning.innerText())) {
+    throw new Error(`dirty-navigation warning had unexpected text: ${(await warning.innerText()).trim()}`);
+  }
+  await warning.locator('button.cancel').click();
+  await warning.waitFor({ state: 'hidden', timeout: 10_000 });
+  const afterCancelUrl = page.url();
+  const afterCancelValue = await notesValue(page);
+  if (!sameNavigationTarget(afterCancelUrl, editUrl) || afterCancelValue !== dirtyValue) {
+    throw new Error(`cancelling dirty navigation changed route or discarded the entered value: ` +
+      `url ${JSON.stringify(editUrl)} → ${JSON.stringify(afterCancelUrl)}, ` +
+      `value ${JSON.stringify(dirtyValue)} → ${JSON.stringify(afterCancelValue)}`);
+  }
+
+  await fillCeeTextField(page, TEXT_FIELD_NAME, cleanValue);
+  await waitForEditorDirty(page, false);
+  await page.locator('.back-arrow-click:visible').click();
+  await page.waitForURL(url => sameNavigationTarget(url.href, returnUrl), { timeout: 20_000 });
+  if (await page.locator('.sweet-alert:visible').count()) {
+    throw new Error('exactly reverting to the saved value still produced a dirty-navigation warning');
+  }
+
+  await page.goto(editUrl, { waitUntil: 'domcontentloaded' });
+  await page.locator('cedar-embeddable-editor').waitFor({ state: 'attached', timeout: 20_000 });
+  await fillCeeTextField(page, TEXT_FIELD_NAME, cleanValue);
+  await waitForEditorDirty(page, false);
+}
+
+async function verifyAdvancedDirtyBaseline(page, savedValue) {
+  await waitForEditorDirty(page, false);
+  await fillCeeTextField(page, TEXT_FIELD_NAME, 'post-save baseline probe');
+  await waitForEditorDirty(page, true);
+  await fillCeeTextField(page, TEXT_FIELD_NAME, savedValue);
+  await waitForEditorDirty(page, false);
+  console.log('✓ CEE warned on dirty navigation, Cancel preserved the value, exact revert removed the warning, and save advanced the clean baseline');
+}
+
 // Exercise the serialization config against the deployed CEE bundle, in the browser.
 //
 // The library round-trip is proven in the CEE harness; this proves the shipped web
@@ -543,13 +1378,150 @@ async function verifySerializationConfig(page, expectedValue, templateObject) {
   }
 }
 
+// ── version lifecycle ────────────────────────────────────────────────────────
+
+async function setVersionModal(page, version) {
+  const modal = page.locator('#publish-modal .modal-content');
+  await modal.waitFor({ state: 'visible', timeout: 10_000 });
+  const parts = version.split('.');
+  for (const [index, id] of ['#version-major', '#version-minor', '#version-build'].entries()) {
+    await modal.locator(id).fill(parts[index]);
+  }
+  return modal;
+}
+
+async function publishFromWorkspace(page, folderId, templateName, version) {
+  await gotoListing(page, folderId);
+  await openRowMenu(page, templateName);
+  const publish = row(page, templateName).locator('a.publish:visible');
+  if (((await publish.getAttribute('class')) ?? '').includes('link-disabled')) {
+    throw new Error('Workspace disabled Publish for a writable draft');
+  }
+  await publish.click();
+  const modal = await setVersionModal(page, version);
+  const pending = page.waitForResponse(response => response.request().method() === 'POST'
+      && /\/command\/publish-artifact(?:\?|$)/.test(response.url()) && response.ok(),
+    { timeout: 20_000 });
+  await modal.locator('button.confirm').click();
+  return pending;
+}
+
+async function createDraftFromWorkspace(page, folderId, templateName, version) {
+  await gotoListing(page, folderId);
+  await openRowMenu(page, templateName);
+  const createDraft = row(page, templateName).locator('a.createDraft:visible');
+  if (((await createDraft.getAttribute('class')) ?? '').includes('link-disabled')) {
+    throw new Error('Workspace disabled Create version for a published template');
+  }
+  await createDraft.click();
+  const modal = await setVersionModal(page, version);
+  const pending = page.waitForResponse(response => response.request().method() === 'POST'
+      && /\/command\/create-draft-artifact(?:\?|$)/.test(response.url()) && response.ok(),
+    { timeout: 20_000 });
+  await modal.locator('button.confirm').click();
+  return pending;
+}
+
+async function waitForTemplate(user1, id, predicate, description) {
+  for (let attempt = 1; attempt <= 10; attempt++) {
+    const response = await restCall(user1.auth, 'GET', `/templates/${enc(id)}`);
+    if (response.status === 200 && predicate(response.body)) return response;
+    await new Promise(resolve => setTimeout(resolve, 500));
+  }
+  throw new Error(`template never reached ${description}`);
+}
+
+// Use a dedicated disposable template so the version chain does not complicate the main authoring
+// journey. The UI performs publish, OpenView enablement, and draft creation; REST is used only for
+// strong state assertions and unconditional cleanup in the finally block.
+async function verifyPublishDraftLifecycle(browser, page, folderId, user1) {
+  let publishedId;
+  let draftId;
+  const seeded = await restCall(user1.auth, 'POST', `/templates?folder_id=${enc(folderId)}`,
+    artifactBody('template', VERSION_TEMPLATE_NAME));
+  if (seeded.status !== 201) throw new Error(`could not seed version-lifecycle template: ${seeded.status} ${seeded.text}`);
+  publishedId = seeded.body['@id'];
+  const originalDescription = seeded.body['schema:description'];
+
+  try {
+    await publishFromWorkspace(page, folderId, VERSION_TEMPLATE_NAME, '1.0.0');
+    const published = await waitForTemplate(user1, publishedId,
+      body => body['bibo:status'] === 'bibo:published' && body['pav:version'] === '1.0.0',
+      'published 1.0.0 state');
+
+    let immutableControls = false;
+    for (let attempt = 1; attempt <= 10; attempt++) {
+      await gotoListing(page, folderId);
+      await openRowMenu(page, VERSION_TEMPLATE_NAME);
+      const versionRow = row(page, VERSION_TEMPLATE_NAME);
+      const publishClass = (await versionRow.locator('a.publish:visible').getAttribute('class')) ?? '';
+      const draftClass = (await versionRow.locator('a.createDraft:visible').getAttribute('class')) ?? '';
+      if (publishClass.includes('link-disabled') && !draftClass.includes('link-disabled')) {
+        immutableControls = true;
+        break;
+      }
+      await page.waitForTimeout(750);
+    }
+    if (!immutableControls) throw new Error('published template never converged to republish-disabled/create-version-enabled Workspace controls');
+    const versionRow = row(page, VERSION_TEMPLATE_NAME);
+    await versionRow.locator('a.open:visible').click();
+    await page.waitForURL(/\/templates\/edit\//, { timeout: 30_000 });
+    const openedPublished = decodeURIComponent(page.url().match(/\/templates\/edit\/(.+?)(?:\?|$)/)?.[1] ?? '');
+    if (openedPublished !== publishedId) throw new Error(`Workspace opened ${openedPublished}; expected published ${publishedId}`);
+    await waitForDesignerTemplate(page, VERSION_TEMPLATE_NAME);
+    const save = page.locator('#button-save-template');
+    await save.waitFor({ state: 'visible', timeout: 30_000 });
+    await page.waitForFunction(() => document.querySelector('#button-save-template')?.disabled === true,
+      null, { timeout: 15_000 }).catch(() => {});
+    if (!await save.isDisabled()) throw new Error('published template remained editable in Designer');
+
+    const openedId = await enableOpenView(page, folderId, VERSION_TEMPLATE_NAME);
+    if (openedId !== publishedId) throw new Error(`OpenView enabled ${openedId}; expected published ${publishedId}`);
+    const openViewCeeVersion = await verifyPresentedInOpenView(browser, publishedId, VERSION_TEMPLATE_NAME);
+
+    const draftResponse = await createDraftFromWorkspace(page, folderId, VERSION_TEMPLATE_NAME, '1.0.1');
+    const draftBody = await draftResponse.json();
+    draftId = draftBody?.['@id'];
+    if (!draftId || draftId === publishedId) throw new Error('Create version did not mint a distinct draft identifier');
+    const draft = await waitForTemplate(user1, draftId,
+      body => body['bibo:status'] === 'bibo:draft' && body['pav:version'] === '1.0.1',
+      'draft 1.0.1 state');
+    if (draft.body['pav:previousVersion'] !== publishedId) {
+      throw new Error(`draft pav:previousVersion was ${draft.body['pav:previousVersion']}; expected ${publishedId}`);
+    }
+
+    await gotoListing(page, folderId);
+    await openRowMenu(page, VERSION_TEMPLATE_NAME);
+    await row(page, VERSION_TEMPLATE_NAME).locator('a.open:visible').click();
+    await page.waitForURL(/\/templates\/edit\//, { timeout: 30_000 });
+    const openedDraft = decodeURIComponent(page.url().match(/\/templates\/edit\/(.+?)(?:\?|$)/)?.[1] ?? '');
+    if (openedDraft !== draftId) throw new Error(`Workspace opened ${openedDraft}; expected latest draft ${draftId}`);
+    await waitForDesignerTemplate(page, VERSION_TEMPLATE_NAME);
+    await page.getByRole('textbox', { name: 'Description' }).first()
+      .waitFor({ state: 'visible', timeout: 30_000 });
+    const draftDescription = 'Version smoke: editable draft changed independently';
+    await saveTemplateDescription(page, draftDescription);
+    const sourceAfterDraftEdit = await restCall(user1.auth, 'GET', `/templates/${enc(publishedId)}`);
+    if (sourceAfterDraftEdit.status !== 200
+        || sourceAfterDraftEdit.body?.['schema:description'] !== originalDescription
+        || published.body?.['schema:description'] !== originalDescription) {
+      throw new Error('editing the draft changed the published source');
+    }
+    console.log('✓ Workspace published 1.0.0, Designer locked it, OpenView rendered it, and Create version minted an independently editable 1.0.1 draft');
+    return openViewCeeVersion;
+  } finally {
+    if (draftId) await restMutate(user1.auth, 'DELETE', `/templates/${enc(draftId)}`).catch(() => {});
+    if (publishedId) await restMutate(user1.auth, 'DELETE', `/templates/${enc(publishedId)}`).catch(() => {});
+  }
+}
+
 // ── OpenView helpers ───────────────────────────────────────────────────────────
 
 // Publish a template to OpenView via the row ⋮ → "Enable OpenView" menu item. That
 // item POSTs make-artifact-open and shows a success flash — there is no confirm
-// dialog (unlike delete). The command body carries the artifact's @id, which is the
-// one place the smoke can learn it, and which the OpenView URL is built from, so this
-// captures it off the request and returns it.
+// dialog (unlike delete). The frontend first reads the graph details ETag and sends it
+// as If-Match; the successful command returns the new graph ETag. The command body also
+// carries the artifact's @id, which is what the OpenView URL is built from.
 async function enableOpenView(page, folderId, templateName) {
   await gotoListing(page, folderId);
   await openRowMenu(page, templateName);
@@ -564,6 +1536,11 @@ async function enableOpenView(page, folderId, templateName) {
   const resp = await pending;
   if (!resp) throw new Error('Enable OpenView sent no make-artifact-open request');
   if (!resp.ok()) throw new Error(`make-artifact-open answered ${resp.status()}`);
+  const ifMatch = await resp.request().headerValue('if-match');
+  const returnedEtag = await resp.headerValue('etag');
+  if (!ifMatch || !returnedEtag) {
+    throw new Error(`make-artifact-open omitted ${!ifMatch ? 'If-Match' : 'the response ETag'}`);
+  }
   const id = JSON.parse(resp.request().postData() ?? '{}')['@id'];
   if (!id) throw new Error('make-artifact-open request carried no @id');
   return id;
@@ -582,7 +1559,7 @@ async function enableOpenView(page, folderId, templateName) {
 // The OpenView server's view of the grant can lag the make-open command by a moment,
 // and the app fetches once per load and latches an error, so reload while the editor
 // is absent rather than polling in place.
-async function verifyPresentedInOpenView(browser, templateId) {
+async function verifyPresentedInOpenView(browser, templateId, expectedTemplateName = TEMPLATE_NAME) {
   const anon = await browser.newContext({
     ignoreHTTPSErrors: true,
     viewport: { width: 1280, height: 900 },
@@ -603,7 +1580,7 @@ async function verifyPresentedInOpenView(browser, templateId) {
           if (!customElements.get('cedar-embeddable-editor') || !cee?.shadowRoot) return false;
           return cee.shadowRoot.querySelectorAll('*').length > 0
             && cee.shadowRoot.textContent.includes(expectedName);
-        }, TEMPLATE_NAME, { timeout: 12_000 });
+        }, expectedTemplateName, { timeout: 12_000 });
         if (pageErrors.length > 0) {
           throw new Error(`OpenView raised browser errors: ${pageErrors.join(' | ')}`);
         }
@@ -646,6 +1623,12 @@ await context.route('**://*:35729/**', route => route.abort());
 
 const page = await context.newPage();
 let step = 'init';
+let cleanupUser1;
+let mutationFolderId;
+let mutationGroupId;
+let cleanupStandaloneFieldId;
+let cleanupTemplateId;
+let cleanupInstanceId;
 
 try {
   // 1. Reuse a saved session if the storage state carried a valid one; otherwise log in through
@@ -685,13 +1668,41 @@ try {
   //    one of the artifact shapes the CEE renders; seeding it exercises field-artifact create/teardown
   //    and leaves it available for later use. The same REST token tears both down at the end.
   step = 'seed';
-  const { user1 } = await actors();
+  const { user1, user2 } = await actors();
+  cleanupUser1 = user1;
   const { id: folderId, created } = await findOrCreateWorkingFolder(user1);
   const fieldResp = await restCall(user1.auth, 'POST', `/template-fields?folder_id=${enc(folderId)}`,
       artifactBody('field', FIELD_NAME));
   if (fieldResp.status !== 201) throw new Error(`could not seed standalone field: ${fieldResp.status} ${fieldResp.text}`);
   const standaloneFieldId = fieldResp.body['@id'];
+  cleanupStandaloneFieldId = standaloneFieldId;
   console.log(`✓ ${created ? 'created' : 'reused'} the "${FOLDER_NAME}" folder, seeded a standalone field over REST`);
+
+  // Exercise concurrency-sensitive Workspace mutations before entering Designer. Setup uses REST;
+  // every mutation below runs through the loaded frontend's actual Angular services.
+  step = 'workspace-conditional-mutations';
+  const mutationFolder = await restCall(user1.auth, 'POST', '/folders', {
+    folderId,
+    name: MUTATION_FOLDER_NAME,
+    description: 'Disposable folder for frontend ETag coverage',
+  });
+  if (mutationFolder.status !== 201) {
+    throw new Error(`could not create mutation folder: ${mutationFolder.status} ${mutationFolder.text}`);
+  }
+  mutationFolderId = mutationFolder.body['@id'];
+  const mutationGroup = await groupCall(user1.auth, 'POST', '/groups', {
+    'schema:name': MUTATION_GROUP_NAME,
+    'schema:description': 'Disposable group for frontend ETag coverage',
+  });
+  if (mutationGroup.status !== 201) {
+    throw new Error(`could not create mutation group: ${mutationGroup.status} ${mutationGroup.text}`);
+  }
+  mutationGroupId = mutationGroup.body['@id'];
+  await verifyWorkspaceConditionalMutations(page, folderId, mutationFolderId, mutationGroupId);
+  mutationGroupId = null;
+  step = 'workspace-open-close-and-move';
+  await verifyWorkspaceOpenAndMoveOperations(page, user1, folderId, mutationFolderId);
+  mutationFolderId = null;
 
   // 3. Create a template inside the folder via the designer deep link, name it, add
   //    a Disease field and constrain it to the DOID "disease" branch through the
@@ -739,6 +1750,27 @@ try {
   await page.waitForTimeout(1100);
   await page.getByRole('button', { name: 'Save Template' }).click();
   await page.getByText(/has been (created|updated)/i).first().waitFor({ timeout: 20_000 });
+  await page.waitForURL(/\/templates\/edit\//, { timeout: 20_000 });
+  const templateMatch = page.url().match(/\/templates\/edit\/(.+?)(?:\?|$)/);
+  if (!templateMatch) throw new Error('post-create Designer URL carried no template id');
+  const templateId = decodeURIComponent(templateMatch[1]);
+  cleanupTemplateId = templateId;
+  const templateEditUrl = page.url();
+  step = 'repeat-template-update';
+  await verifyRepeatedTemplateUpdates(page);
+
+  step = 'concurrent-template-conflict';
+  await verifyConcurrentTemplateConflict(page, user1, templateId);
+
+  step = 'delete-vs-stale-template-save';
+  await verifyDeleteVsStaleSave(page, user1, folderId);
+
+  step = 'two-user-sharing';
+  await verifyTwoUserSharing(browser, page, folderId, templateId, user1, user2);
+
+  step = 'expired-session-recovery';
+  await verifyDesignerSessionRecovery(page, templateEditUrl, templateId, user1);
+
   // Confirm it is listed inside the folder.
   let templateListed = false;
   for (let poll = 1; poll <= 6 && !templateListed; poll++) {
@@ -748,6 +1780,9 @@ try {
   }
   if (!templateListed) throw new Error(`template "${TEMPLATE_NAME}" never appeared in the folder`);
   console.log(`✓ template created in folder: ${TEMPLATE_NAME}`);
+
+  step = 'publish-draft-lifecycle';
+  const versionOpenViewCeeVersion = await verifyPublishDraftLifecycle(browser, page, folderId, user1);
 
   // 3b. Populate the template and confirm the constrained Disease field offers a
   //     live DOID suggestion (type a disease, verify a matching term appears). The
@@ -759,6 +1794,9 @@ try {
   console.log('✓ populate: Disease field suggested a DOID term for "asthma"');
   const deployedCeeVersion = await readCeeVersion(page);
   console.log(`✓ Metadata Editor rendered with CEE ${deployedCeeVersion}`);
+  if (versionOpenViewCeeVersion !== deployedCeeVersion) {
+    throw new Error(`CEE version mismatch: version-lifecycle OpenView has ${versionOpenViewCeeVersion}, Metadata Editor has ${deployedCeeVersion}`);
+  }
 
   // Fill the plain text field too, so the instance carries free text alongside the controlled term
   // and the re-edit step has something to change.
@@ -772,12 +1810,21 @@ try {
   step = 'save-instance';
   await page.waitForTimeout(500);
   const savedInstance = await saveInstanceInEditor(page);
+  cleanupInstanceId = savedInstance.id;
   console.log(`✓ Metadata Editor saved the populated instance (create → 201, redirected to edit)`);
+
+  step = 'dirty-navigation-protection';
+  await verifyDirtyNavigationProtection(
+    page,
+    'initial notes',
+    `${BASE}/dashboard?folderId=${enc(folderId)}`,
+  );
 
   // 3b-iii. Re-edit through the post-save redirect (which must render, then update).
   step = 're-edit-instance';
   await reEditInstance(page, 'edited notes');
   console.log('✓ Metadata Editor rendered the post-save edit view, re-edited, and updated');
+  await verifyAdvancedDirtyBaseline(page, 'edited notes');
 
   // 3b-iv. The deployed CEE offers the instance in both formats, from getters a host
   //        cannot configure away: currentMetadata as JSON and currentMetadataYaml as a
@@ -800,7 +1847,10 @@ try {
   //     the make-open command, the OpenView server's anonymous read, and OpenView's
   //     CEE-based rendering end to end.
   step = 'enable-openview';
-  const templateId = await enableOpenView(page, folderId, TEMPLATE_NAME);
+  const openedTemplateId = await enableOpenView(page, folderId, TEMPLATE_NAME);
+  if (openedTemplateId !== templateId) {
+    throw new Error(`OpenView command targeted ${openedTemplateId}; expected ${templateId}`);
+  }
   console.log(`✓ OpenView enabled on the template`);
 
   step = 'verify-openview';
@@ -810,31 +1860,47 @@ try {
   }
   console.log(`✓ OpenView presents the template anonymously with CEE ${openViewCeeVersion}`);
 
+  step = 'disable-openview';
+  await setOpenViewThroughWorkspace(page, folderId, TEMPLATE_NAME, 'artifact', false);
+  await waitForAnonymousArtifact(templateId, 401, 'artifact close');
+  console.log('✓ Workspace disabled OpenView on the artifact and anonymous access disappeared');
+
   // 4. Delete the saved instance, then the template, then the (now empty) folder, verifying each.
   //    The instance goes first because it lives in the folder and a non-empty folder cannot be
-  //    deleted. Deleting an open artifact is allowed and removes it from OpenView too, so no need
-  //    to disable OpenView first.
+  //    deleted. The template was explicitly closed above, so deletion also proves the ordinary
+  //    post-OpenView lifecycle remains usable.
   // Delete the instance over REST by id (robust across the post-save navigation, and independent of
   // its display name); the template and folder follow.
   step = 'delete-instance';
-  await restCall(user1.auth, 'DELETE', `/template-instances/${enc(savedInstance.id)}`);
+  const deleteInstance = await restMutate(user1.auth, 'DELETE',
+      `/template-instances/${enc(savedInstance.id)}`);
+  if (deleteInstance.status !== 204 && deleteInstance.status !== 200) {
+    throw new Error(`instance DELETE answered ${deleteInstance.status}: ${deleteInstance.text}`);
+  }
+  cleanupInstanceId = null;
   console.log('✓ instance deleted');
 
   step = 'delete-template';
   await deleteRow(page, TEMPLATE_NAME, folderId);
+  cleanupTemplateId = null;
   console.log('✓ template deleted');
 
   // The standalone field was seeded over REST, so tear it down the same way. The working folder
   // stays: it is `Smoke Tests` in the home folder and every run shares it.
   step = 'delete-standalone-field';
-  await restCall(user1.auth, 'DELETE', `/template-fields/${enc(standaloneFieldId)}`);
+  const deleteField = await restMutate(user1.auth, 'DELETE',
+      `/template-fields/${enc(standaloneFieldId)}`);
+  if (deleteField.status !== 204 && deleteField.status !== 200) {
+    throw new Error(`standalone-field DELETE answered ${deleteField.status}: ${deleteField.text}`);
+  }
+  cleanupStandaloneFieldId = null;
   console.log('✓ standalone field deleted');
 
   step = 'verify-folder-cleared';
   await assertWorkingFolderCleared(user1, folderId, [savedInstance.id, templateId, standaloneFieldId]);
   console.log(`✓ "${FOLDER_NAME}" holds none of this run's artifacts`);
 
-  console.log(`\nPASS [CEE ${deployedCeeVersion}]: login (reusable session) → "${FOLDER_NAME}" folder + seeded field → template w/ DOID + text field → populate + fill → save instance → re-edit (update) → both serializations (JSON/YAML) → OpenView presented anonymously → delete → folder cleared`);
+  console.log(`\nPASS [CEE ${deployedCeeVersion}]: login (reusable sessions) → conditional Workspace mutations → folder open/close + artifact/folder moves → "${FOLDER_NAME}" folder + seeded field → template w/ DOID + text field → repeated saves + stale-editor and delete-conflict protection → two-user read/write/revoke lifecycle → expired-session refresh in Workspace + Designer → publish/immutable/OpenView/new-draft lifecycle → populate + fill → save instance → dirty-navigation protection → re-edit (update) + advanced clean baseline → both serializations (JSON/YAML) → artifact OpenView open/close → conditional delete → folder cleared`);
   await browser.close();
   process.exit(0);
 } catch (e) {
@@ -843,6 +1909,21 @@ try {
   await page.screenshot({ path: shotPath }).catch(() => {});
   console.error(`\nFAIL at step "${step}": ${e.message}`);
   console.error(`screenshot: ${shotPath}`);
+  if (cleanupUser1 && mutationGroupId) {
+    await mutateGroup(cleanupUser1.auth, 'DELETE', `/groups/${enc(mutationGroupId)}`).catch(() => {});
+  }
+  if (cleanupUser1 && mutationFolderId) {
+    await restMutate(cleanupUser1.auth, 'DELETE', `/folders/${enc(mutationFolderId)}`).catch(() => {});
+  }
+  if (cleanupUser1 && cleanupInstanceId) {
+    await restMutate(cleanupUser1.auth, 'DELETE', `/template-instances/${enc(cleanupInstanceId)}`).catch(() => {});
+  }
+  if (cleanupUser1 && cleanupTemplateId) {
+    await restMutate(cleanupUser1.auth, 'DELETE', `/templates/${enc(cleanupTemplateId)}`).catch(() => {});
+  }
+  if (cleanupUser1 && cleanupStandaloneFieldId) {
+    await restMutate(cleanupUser1.auth, 'DELETE', `/template-fields/${enc(cleanupStandaloneFieldId)}`).catch(() => {});
+  }
   await browser.close();
   process.exit(1);
 }

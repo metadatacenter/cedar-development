@@ -6,7 +6,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
-import { suite, check, checkStatus, call, cleanup, artifactBody, enc, RUN, RESOURCE } from '../lib.mjs';
+import { suite, check, checkStatus, call, mutate, cleanup, artifactBody, enc, RUN, RESOURCE } from '../lib.mjs';
 
 const FIXTURES = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', 'fixtures');
 
@@ -94,7 +94,7 @@ export async function run({ user1, user2, folderId }) {
     const pid = priv.body['@id'];
     cleanup('template', `/templates/${enc(pid)}`, privateLabel);
 
-    const shareRead = at => call(auth, 'PUT', `${at}/permissions`, {
+    const shareRead = at => mutate(auth, 'PUT', `${at}/permissions`, {
       owner: { '@id': user1.profile['@id'] },
       userPermissions: [{ user: { '@id': user2.profile['@id'] }, permission: 'read' }],
       groupPermissions: [],

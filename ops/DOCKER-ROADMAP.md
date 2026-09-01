@@ -6,20 +6,6 @@ total). The build also produces two Java base images, for 31 core images; four o
 administration images bring `cedarcli docker build all` to 35. Current deployment and operating
 procedures are in [DOCKER-RUNBOOK.md](./DOCKER-RUNBOOK.md).
 
-The local build and deployment path is working: `cedarcli` builds dependency bases before their
-consumers, applies one validated image prefix across builds and Compose, and validates all four
-Compose stacks. A persistent `native`, `hybrid`, or `docker` mode validates the required profiles
-without mutating the shell, rejects commands from the wrong runtime surface, and supplies the right
-profile internally even from a bare shell. The aggregate Docker workflow preflights the host, starts
-each layer in dependency order, waits for health and route acceptance, records the selected image
-train, and stops the deployment without deleting data. Java development artifacts can now be
-published as one immutable build train, and Docker build/start resolve the most recently completed
-train or an exact older train. Full 29-container deployments and both REST and browser smoke suites
-have passed locally. Train consumption now checks selected local tags against the completion
-record's registry digests before Compose starts, and Java services run as UID/GID 10001 with an
-automatic one-time ownership migration for existing named volumes. The numbered items below are
-the remaining delivery and operational work.
-
 1. **Complete the Docker release, promotion, and rollback pipeline.** Run the 22-container backend
    and all 19 REST suites on an 8-vCPU Linux runner with 32 GB of RAM and 300 GB of SSD storage, or
    equivalent self-hosted capacity; the current backend requires about 7.4 GB of compressed
@@ -70,3 +56,17 @@ the remaining delivery and operational work.
    the routing-switch rehearsal before it reaches a shared environment. The seven frontend nginx
    containers already run unprivileged; this item finishes the estate.
 
+6. **Publish stable CEDAR releases to Docker Hub.** Extend the train-backed release route so the
+   tested runtime image manifests and layer bytes are copied to the public `metadatacenter`
+   namespace without rebuilding them. Give every image an immutable CEDAR-version tag, verify the
+   complete public inventory by digest, and move `latest` only after every versioned tag and its
+   release evidence are present. Preserve the architecture manifests, signatures, SBOMs, provenance,
+   and source-to-image mapping produced by the release pipeline rather than creating a second,
+   weaker publication path.
+
+   Define which internal base and optional administration images are public, the retention policy,
+   and the repository descriptions and pull examples a user needs to select a coherent release.
+   Exercise an anonymous pull into a clean environment and run the full-stack smoke against the
+   Docker Hub prefix. A CEDAR release is not Docker-complete until its advertised image set can be
+   pulled without CEDAR registry credentials, resolves to the recorded release digests, and starts
+   with the matching Compose and configuration version.

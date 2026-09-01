@@ -27,19 +27,34 @@ from pathlib import Path
 
 CEDAR_HOME = Path(os.environ.get("CEDAR_HOME", Path.home() / "CEDAR"))
 BUILD = CEDAR_HOME / "cedar-docker-build"
-COMPOSE = CEDAR_HOME / "cedar-docker-deploy" / "cedar-microservices" / "docker-compose.yml"
+DEPLOY = CEDAR_HOME / "cedar-docker-deploy"
 
-# Bases every server image inherits ENV from, outermost first.
-BASE_IMAGES = ["cedar-java", "cedar-microservice"]
+# Every stack holding containers whose configuration cedar-main.yml builds, with the compose
+# service names it declares and the base images those services inherit ENV from, outermost first.
+# The admin tool is here because it reads the same configuration and stops on the same absent
+# variable, and it was left unchecked long enough to ship unable to start.
+STACKS = [
+    {
+        "compose": DEPLOY / "cedar-microservices" / "docker-compose.yml",
+        "service": r"server-([a-z]+)",
+        "bases": ["cedar-java", "cedar-microservice"],
+        "image": "cedar-server-{}",
+    },
+    {
+        "compose": DEPLOY / "cedar-admin" / "docker-compose.yml",
+        "service": r"(admin-tool)",
+        "bases": ["cedar-java"],
+        "image": "cedar-{}",
+    },
+]
 
 DUMP = """
 import org.metadatacenter.config.environment.*;
 import org.metadatacenter.model.SystemComponent;
 for (SystemComponent c : SystemComponent.values()) {
-  if (c.getServerName() == null) continue;
   var names = new java.util.TreeSet<String>();
   for (var v : CedarConfigEnvironmentDescriptor.getVariableNamesFor(c)) names.add(v.getName());
-  System.out.println("REQ\\t" + c.getServerName() + "\\t" + String.join(",", names));
+  System.out.println("REQ\\t" + c.getStringValue() + "\\t" + String.join(",", names));
 }
 /exit
 """
@@ -86,10 +101,14 @@ def env_from_dockerfile(path):
     return names
 
 
-def compose_env_by_service():
-    text = COMPOSE.read_text()
+def compose_env_by_service(compose, service_pattern):
+    """The CEDAR_ variables a stack's compose file passes to each of its services."""
+    if not compose.exists():
+        sys.exit(f"Compose file not found: {compose}")
+    text = compose.read_text()
     out = {}
-    for name, body in re.findall(r"^  server-([a-z]+):\n((?:    .*\n|      .*\n)+)", text, re.M):
+    pattern = rf"^  {service_pattern}:\n((?:    .*\n|      .*\n)+)"
+    for name, body in re.findall(pattern, text, re.M):
         out[name] = set(re.findall(r"- (CEDAR_[A-Z0-9_]+)$", body, re.M))
     return out
 
@@ -108,36 +127,45 @@ def main():
         sys.exit("No cedar-core-library jar found. Build the libraries, or fetch it from Nexus.")
 
     required = required_by_server(config_jar, core_jar)
-    compose = compose_env_by_service()
-    base_env = set()
-    for base in BASE_IMAGES:
-        base_env |= env_from_dockerfile(BUILD / base / "Dockerfile")
 
     print(f"config library : {config_jar.name}")
-    print(f"compose file   : {COMPOSE}")
+    for stack in STACKS:
+        print(f"compose file   : {stack['compose']}")
     print()
 
     failures = 0
-    for server in sorted(compose):
-        need = required.get(server)
-        if need is None:
-            print(f"{server:<18} ?  no SystemComponent named this server")
+    checked = 0
+    for stack in STACKS:
+        base_env = set()
+        for base in stack["bases"]:
+            base_env |= env_from_dockerfile(BUILD / base / "Dockerfile")
+        compose = compose_env_by_service(stack["compose"], stack["service"])
+        if not compose:
+            print(f"{stack['compose'].parent.name:<18} ?  declares no services to check")
             failures += 1
             continue
-        given = compose[server] | base_env | env_from_dockerfile(BUILD / f"cedar-server-{server}" / "Dockerfile")
-        missing = sorted(need - given)
-        if missing:
-            failures += 1
-            print(f"{server:<18} MISSING {len(missing)}: {', '.join(missing)}")
-        else:
-            print(f"{server:<18} ok ({len(need)} required)")
+        for service in sorted(compose):
+            checked += 1
+            need = required.get(service)
+            if need is None:
+                print(f"{service:<18} ?  no SystemComponent named this container")
+                failures += 1
+                continue
+            image = BUILD / stack["image"].format(service) / "Dockerfile"
+            given = compose[service] | base_env | env_from_dockerfile(image)
+            missing = sorted(need - given)
+            if missing:
+                failures += 1
+                print(f"{service:<18} MISSING {len(missing)}: {', '.join(missing)}")
+            else:
+                print(f"{service:<18} ok ({len(need)} required)")
 
     print()
     if failures:
-        print(f"{failures} server(s) would fail to start: the configuration sandbox rejects a")
-        print("variable the server needs and the container is not given.")
+        print(f"{failures} container(s) would fail to start: the configuration sandbox rejects a")
+        print("variable the container needs and is not given.")
         return 1
-    print("Every server is given every variable its code declares it needs.")
+    print(f"All {checked} containers are given every variable their code declares they need.")
     return 0
 
 

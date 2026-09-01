@@ -41,11 +41,27 @@ export CEDAR_HOME=$HOME/CEDAR
 cedarcli mode
 ```
 
-If the result says no mode is set:
+If the result says no mode is set, select the mode and name the environment this host runs:
 
 ```bash
-cedarcli mode native
+cedarcli mode native --profile develop
 ```
+
+`--profile` takes `develop` for a workstation or `server` for a staging or production host, and it
+is required, because the two differ in ways nothing can safely guess. The choice is recorded beside
+the mode in `.cedar/mode.json`, and `cedarcli env status` shows it. A host that selected its mode
+before profiles existed adds the missing one with the same command, which records it in place
+without stopping anything.
+
+One versioned file serves every native host,
+`cedar-development/bin/templates/cedar-profile-native.sh`, read straight from the checkout as the
+Docker profile already is. It takes `CEDAR_PROFILE` as its only input and derives everything else
+from `CEDAR_HOME`, from this installation's own `set-env-external.sh` and `set-env-internal.sh`,
+and from `uname -s` for the infrastructure aliases. `develop` builds the frontends locally, targets
+`local`, and bypasses Keycloak TLS verification for the reason below; `server` serves built
+payloads, targets `server`, and verifies certificates. Selecting a mode validates what the profile
+produced, and refuses a server whose environment carries the bypass or whose credentials are still
+the template's `changeme` placeholders.
 
 If it reports `docker` or `hybrid`, stop the components owned by that topology and clear the mode
 before selecting native. The complete transition commands are in the
@@ -102,7 +118,7 @@ deployment, health, and acceptance procedures.
 
 **It cannot run beside the native stack.** Both want 80/443, 3306, 27017, 6379, 9200, 7474/7687,
 8080 and the 9xxx range. Take the native one down first with `cedarcli native stop all`, which unlike
-`cedar-services.sh stop` also stops the infrastructure. Storage is separate — the containers use
+`cedarcli native stop all` also stops the infrastructure. Storage is separate — the containers use
 their own named volumes and never touch `/opt/homebrew/var/*`, so the two estates keep independent
 data.
 
@@ -225,7 +241,7 @@ The older fallback still works: stop `infra-nginx`, start native nginx on 80/443
 frontends on their default loopback bind. Do not run both nginx instances together.
 
 Use `cedarcli docker status` in hybrid mode. `cedarcli native status` is deliberately rejected because
-the backend ports belong to containers. If the lower-level `cedar-services.sh status` is run directly,
+the backend ports belong to containers. If the lower-level `cedarcli native status` is run directly,
 container-owned services are marked `docker` in the PID and HEALTH columns. This describes ownership,
 not readiness; the footer points to `cedarcli docker status` for the authoritative container health
 check. Native start, stop, and restart still refuse to signal Docker's port-forwarding process.
@@ -492,17 +508,23 @@ success: staging copies the jar faithfully, the image hash matches, and the cont
 code. If you changed a shared library, `./mvnw clean install` in the consuming server before staging.
 
 
-## The controller: `ops/cedar-services.sh`
+## The controller: `cedarcli native`
 
 Manages the 15 microservices + three AngularJS/Gulp frontends + the 4 auxiliary Angular frontends as
-background (`nohup`) processes, each logging to `$CEDAR_HOME/log/`, PIDs tracked in
-`$CEDAR_HOME/log/run/`. It forces `JAVA_HOME=17`, puts `/opt/homebrew/bin` on `PATH` (for `node`/`ng`),
-and sources the profile itself, so it is safe to run standalone.
+background processes: non-restarting submitted `launchd` jobs on macOS and `nohup` children on other
+systems. Each logs to `$CEDAR_HOME/log/`, with its PID tracked in `$CEDAR_HOME/log/run/`. The
+controller forces `JAVA_HOME=17`, puts `/opt/homebrew/bin` on `PATH` (for `node`/`ng`), and sources
+the profile itself, so it is safe to run standalone.
 
-The Gulp frontends deliberately run side by side: `frontend` is the production monolith on 4200,
-`workspace` is the extracted Workspace preview on 4201, and `designer` is the extracted Template
-Designer preview on 4202. Starting the previews does not change nginx routing or production traffic.
-Use `cedar-services.sh start frontend workspace designer` for the migration comparison set.
+`cedarcli native` is the interface. `ops/cedar-services.sh` is the controller behind it, and
+`NativeWorker` calls that script for every verb below. Reach for the script directly only for the
+one case the CLI does not cover, noted after the table.
+
+The Gulp frontends deliberately run side by side: `ui-main` is the production monolith on 4200,
+`ui-workspace` is the extracted Workspace preview on 4201, and `ui-designer` is the extracted
+Template Designer preview on 4202. Starting the previews does not change nginx routing or production
+traffic. Start the migration comparison set with `cedarcli native start frontend main`, then
+`workspace` and `designer`.
 
 Native development must not cache frontend responses: the Gulp and Angular development servers use
 stable filenames while their bytes change underneath them. Install the canonical no-store proxy
@@ -518,22 +540,44 @@ use their Git source commit in that key; `CEDAR_VERSION_MODIFIER` remains the ex
 for two environment-specific payloads built from the same commit. It is not needed merely to make a
 new source revision visible.
 
-The auxiliary frontends are the `ui-*` entries — `ui-openview` (4220), `ui-content` (4240),
-`ui-monitoring` (4300), `ui-bridging` (4340) — each run as `ng serve` from its
-`cedar-<name>[-src]` source dir (see `fe_dir()`). They are named `ui-*` because `openview`/`monitor`/
-`bridge` are already microservice names. Their health is **port-only** (no Dropwizard `/healthcheck`).
-`cedarcli native start frontends` starts all seven through this controller. The non-essential CEE demos
-(`cee-dev`/`demo.cee`) are not managed here — `cedarcli` doesn't start them by default either.
+The remaining four are Angular applications, each run as `ng serve` from its `cedar-<name>[-src]`
+source dir (see `fe_dir()`): `ui-openview` (4220), `ui-content` (4240), `ui-monitoring` (4300) and
+`ui-bridging` (4340). Every frontend is named `ui-*`, which keeps `ui-openview` apart from the
+`openview` microservice and `ui-monitoring` and `ui-bridging` apart from `monitor` and `bridge`. The
+prefix marks the category, not the launcher: `ui-main`, `ui-workspace` and `ui-designer` carry it
+too, and will keep it when they stop being AngularJS. Frontend health is **port-only** (no Dropwizard
+`/healthcheck`). `cedarcli native start frontends` starts all seven through this controller, and the
+`cedarcli native`, `start frontend` and `stop frontend` subcommands name a frontend without the
+prefix — `main`, `workspace`, `openview` — which the controller receives as `ui-<name>`.
 
 ```bash
-cedar-services.sh start [name...]     # start all, or only the named services
-cedar-services.sh stop  [name...]
-cedar-services.sh restart [name...]
-cedar-services.sh status              # one-shot table: PID / port / health / binary / error-count
-cedar-services.sh watch               # auto-refreshing status
-cedar-services.sh logs <name>         # tail -f a service log
-cedar-services.sh health [name...]    # exit 0 only if the named services are healthy; all with no names
+cedarcli native start all             # infra + microservices + frontends
+cedarcli native start infra           # or: backends, microservices, frontends
+cedarcli native start microservice <name>   # artifact, bridge, group, resource, …
+cedarcli native start frontend <name>       # main, workspace, designer, openview, …
+cedarcli native stop all              # same shapes as start
+cedarcli native restart [name...]     # all managed applications, or only the named ones
+cedarcli native status                # one-shot table: PID / port / health / binary / error-count
+cedarcli native watch                 # auto-refreshing status
+cedarcli native logs <name>           # tail -f a service log
+cedarcli native health                # exit 0 only if every managed application is healthy
 ```
+
+`start` and `stop` name one service at a time through their `microservice` and `frontend`
+subcommands, while `restart` takes a list. Starting an arbitrary named subset in one call is only
+available on the controller itself:
+
+```bash
+bash $CEDAR_HOME/cedar-development/ops/cedar-services.sh start ui-main ui-workspace ui-designer
+```
+
+`cedarcli native status` is the preferred whole-host view. It renders one grouped table for the
+managed applications and native infrastructure. Managed rows retain every
+controller diagnostic — PID ownership, application port and listener state, health, binary
+freshness and cumulative log-error count — instead of printing the controller table followed by a
+second, less informative port table. The controller exposes the same rows to the CLI through its
+internal tab-separated status action; its ordinary `status` output remains convenient for shell
+use and gates such as the `STALE` check below.
 
 It recognizes a native service already listening on its port, including one started in a terminal,
 and **reports any service whose jar or configuration is not built/present**. An occupied port is not
@@ -543,7 +587,19 @@ Dropwizard admin `/healthcheck` endpoint (200 = healthy, 500 = unhealthy).
 
 Two columns exist so a green table cannot hide a stale one. **BINARY** compares when a process started
 against when its jar was written: `STALE` means the service is serving a jar older than the build, so
-its health says nothing about your latest code. **PID** shows `~pid` (a leading tilde) only for a
+its health says nothing about your latest code. For the `ui-main` row the column asks the equivalent
+question of the Embeddable Editor, which the Template Designer takes from npm and a gulp task copies
+out of `node_modules` into the tree gulp serves. Those two hops are invisible to git, because the
+served copy is ignored, so moving the pin without `npm ci`, or running `npm ci` without `copy:cee`,
+keeps the previous editor on screen while `package.json`, the lock and the release ledger all name
+the new one. `STALE` there means the served bundle is not the one `package-lock.json` names, and the
+remedy the footer prints is a reinstall and a recopy rather than a restart:
+
+```bash
+(cd $CEDAR_HOME/cedar-template-editor && npm ci && npx gulp copy:cee)
+```
+
+The other frontends read `-`: none of them depends on the Embeddable Editor. **PID** shows `~pid` (a leading tilde) only for a
 verified CEDAR process listening without this controller's pidfile — for example, one started in a
 terminal. `stop` may safely adopt that verified process, so `restart` brings it onto the current
 build. `docker` in the PID and HEALTH columns means the port belongs to Docker; Artifact is also
@@ -579,15 +635,17 @@ status`, `cedarcli native watch`, `cedarcli native logs <name>`, or `cedarcli na
 | | | | | designer (gulp preview) | 4202 | — |
 | | | | | Keycloak | 8080 / 8443 (https) | |
 
-Admin port = app port + 100; health check at `http://127.0.0.1:<admin>/healthcheck`.
+Admin port = app port + 100; health check at `http://127.0.0.1:<admin>/healthcheck`. The same report
+is served on the application port at `/healthcheck`, where it requires the `monitorManager` role and
+is what the Monitor's cross-service health page reads.
 
 In Docker only the application port is published to the host. Admin connectors bind loopback inside
 their container for the Compose health check and are not host-mapped; do not add `9111:9111` (or any
 other admin mapping) to the core Compose stack. Native admin connectors likewise bind `127.0.0.1`.
 
-Auxiliary frontends (Angular `ng serve`, port-only health): `ui-openview` 4220, `ui-content` 4240,
-`ui-monitoring` 4300, `ui-bridging` 4340. Non-essential CEE demos (not started by
-default): `demo.cee` 4260, `cee-dev` 4400.
+Frontends (port-only health): `ui-main` 4200, `ui-workspace` 4201 and `ui-designer` 4202 under
+gulp; `ui-openview` 4220, `ui-content` 4240, `ui-monitoring` 4300 and `ui-bridging` 4340 under
+`ng serve`.
 
 ## API-key credentials and management identifiers
 
@@ -656,6 +714,19 @@ cd $CEDAR_HOME/cedar-development/ops/e2e
 npm run smoke:permission-outbox -- --manage-homebrew-redis
 ```
 
+The producer validates persisted outbox records before relay. A record missing its outbox id,
+resource id or event type, or naming an unknown event type, is relabelled
+`CedarSearchPermissionOutboxDeadLetter` with `deadLetterReason` and `deadLetteredAtTS`; it no longer
+blocks valid records behind it, but remains in Neo4j for inspection. A relay failure after the new
+event has been persisted is contained by the producer and retried in the background rather than
+turning the already-committed REST mutation into a `500`. Resource and group relay the same outbox;
+if one acknowledges and removes an event while the other is materializing it, the losing relay
+ignores Neo4j's null projection because the winning relay has already delivered that event. Their
+outbox scans and acknowledgements also take the same `CedarSearchPermissionOutboxRelayLock` mutex
+in Neo4j, protected by a unique lock-name constraint. This prevents one producer from deleting a
+node while the other is reading it; lock initialization occurs in the contained relay path, so an
+unavailable Neo4j instance does not turn application construction into a startup failure.
+
 Read what is parked before deciding anything. Each entry is the original JSON event, carrying the
 resource id, the event type and the time it was created:
 
@@ -668,12 +739,20 @@ dependency simply parks the events again. Then move them back, oldest first, app
 whatever is already queued rather than jumping ahead of it:
 
 ```bash
-while [ "$(redis-cli llen CEDAR-QUEUE-search-permission-dead-letter)" -gt 0 ]; do redis-cli lmove CEDAR-QUEUE-search-permission-dead-letter CEDAR-QUEUE-search-permission LEFT RIGHT > /dev/null; done
+while [ "$(redis-cli llen CEDAR-QUEUE-search-permission-dead-letter)" -gt 0 ]; do redis-cli eval "local m = redis.call('LPOP', KEYS[1]); if m then redis.call('RPUSH', KEYS[2], m); end; return m" 2 CEDAR-QUEUE-search-permission-dead-letter CEDAR-QUEUE-search-permission > /dev/null; done
 ```
 
 A message that cannot be parsed is parked on its first failure rather than retried, since retrying
 will not make it parse. Such a message will never apply, so drop it once the log has been read
 rather than replaying it.
+
+That replay is a Lua script, as the queues themselves are, so that it runs on every Redis CEDAR
+deploys to. A consumer claims a message by moving it from the queue to the processing list in one
+step, which `LMOVE` does as a single command from Redis 6.2 onwards. Development runs 7.2.7 and
+staging runs 6.0.16, so the queue library builds that move out of `EVAL`, available since 2.6,
+rather than requiring the newer command. Each server's Redis health check compares the server's
+reported version against that minimum and names a server below it, instead of leaving consumers to
+retry a command the server will never accept.
 
 When the dead-letter transfer itself cannot reach Redis, the message remains in the processing list
 whenever Redis retained the earlier claim and is recovered on the next consumer initialization. The
@@ -688,10 +767,45 @@ curl -s -X POST http://localhost:9007/command/regenerate-search-index -H "Author
 ```
 
 Call the resource server directly rather than through nginx, which answers an unmatched path with a
-200 and an HTML body, so a mistyped route looks like success. The command returns immediately and
-does the work in the background; the resource server log reports progress. It is the heavier
-instrument, and it discards the index the alias is serving, so prefer a replay when the dead-letter
-queue explains the drift.
+200 and an HTML body, so a mistyped route looks like success. It is the heavier instrument, and it
+discards the index the alias is serving, so prefer a replay when the dead-letter queue explains the
+drift.
+
+The rebuild is queued rather than performed, so the command answers `202` with the job it started:
+the body carries the job's `jobId` and state, and a `Location` header names where to poll it. Add
+`-D-` to the call above to see that header. Poll it until the state leaves `RUNNING`. It reports the
+job this command started rather than whichever job ran last over the index, so a rebuild somebody
+started after yours cannot be mistaken for it, and a `FAILED` carries the reason — which the resource
+server log has in full.
+
+### A rebuild that answers 409, and taking the index back
+
+Only one rebuild runs at a time over an index, because each one ends by deleting every index for its
+alias but its own: two together leave the alias naming an index that no longer exists. A second
+command over a busy index is refused with a 409 that names the job holding it and carries the same
+`Location` a 202 would, so a caller refused a rebuild can watch the one already under way.
+
+Two routes report a job. `GET /command/index-job-status` says what became of the last rebuild of each
+index and whether one is running now, which is the question to ask about an index. Appending a job
+identifier — `GET /command/index-job-status/{jobId}` — asks about one job instead, and that is the
+question to ask about a rebuild you started. Jobs are held in memory, so an identifier from before
+the last restart, or one that twenty later jobs have pushed out, is no longer known and answers 404.
+The same exclusion and the same pair of routes cover the value sets ontology import, under
+`GET /command/load-valuesets-ontology-status`.
+
+A job that throws releases the index whatever it threw. A job that never returns cannot, so a claim
+is believed for six hours. Past that the status reports it as `overdue`, and the refusal names the
+command that takes the index back:
+
+```bash
+curl -s -X POST http://localhost:9007/command/reset-search-index-job -H "Authorization: apiKey $CEDAR_ADMIN_USER_API_KEY"
+```
+
+`reset-rules-index-job` and `reset-valuesets-import` are the same command for the other two claims.
+A reset does not stop the abandoned job, so read the resource server log first and run it only once
+that job has stopped making progress; the job it abandons can no longer report, so it cannot say
+COMPLETE over the rebuild that follows it. A claim still within its deadline is left alone and
+answers 409, and the reset asks for the same permission as the rebuild it unblocks.
 
 ## Identifiers: what a client sends, and what the server fills
 
@@ -1010,7 +1124,7 @@ TypeScript, while both emit the same bytes for it.
     crt=$(ls "$d"*.crt | head -1); cp "$crt" "${crt%.crt}.key" "$tgt/"; done   # install into nginx ssl dirs
   sudo "$(brew --prefix)/bin/nginx" -s reload                 # nginx master runs as root → needs sudo
   ```
-  Notes: `cedar cert domains` writes leaves to `$CEDAR_CA_HOME/certs/<subdomain>/`, but nginx reads from
+  Notes: `cedarcli cert domains` writes leaves to `$CEDAR_CA_HOME/certs/<subdomain>/`, but nginx reads from
   `$SSL/<subdomain>/` — hence the copy step. The subdomain dir names match on both sides. Skipping the
   `--force` option protects existing leaves from accidental replacement. Renewal keeps the CA issuance
   history and writes each replacement atomically, so a failed OpenSSL command leaves the prior leaf in
@@ -1075,7 +1189,7 @@ TypeScript, while both emit the same bytes for it.
   login session; for permanence add it to a login item (editing the brew plist won't stick — brew
   regenerates it).
 
-- **Profile vars empty** → you sourced `cedar-profile-native-develop.sh` before exporting
+- **Profile vars empty** → you sourced `cedar-profile-native.sh` before exporting
   `CEDAR_HOME`. Export it first.
 
 - **A microservice shows `down` in status with no jar** → that server was never built. Build it:
@@ -1095,7 +1209,7 @@ TypeScript, while both emit the same bytes for it.
   one server to produce the fat jar, then restart it:
   ```bash
   mvn -o -f $CEDAR_HOME/cedar-<name>-server/pom.xml install -DskipTests
-  bash $CEDAR_HOME/cedar-development/ops/cedar-services.sh start <name>
+  cedarcli native start microservice <name>
   ```
   (Seen on `repo` in this environment.) Different from the case above: the jar exists, it just isn't
   a runnable artifact.
@@ -1152,7 +1266,7 @@ TypeScript, while both emit the same bytes for it.
   ```bash
   curl -sk http://localhost:9115/healthcheck | python3 -c 'import sys,json;print(json.load(sys.stdin)["comp-tox"]["message"])'
   ```
-  This used to fail the check, which meant an EPA outage made `cedar-services.sh health` exit
+  This used to fail the check, which meant an EPA outage made `cedarcli native health` exit
   non-zero and blocked the full gate below on a third party. A health check answers "should traffic
   reach this instance", and for a dependency the loader will retry forever the answer is yes.
   (`TerminologyServerHealthCheck` is right to do the opposite: the ontology catalogue is that
@@ -1169,13 +1283,13 @@ TypeScript, while both emit the same bytes for it.
   session may have restarted it under you, which is exactly how this happened. The check is one line:
 
   ```bash
-  bash $CEDAR_HOME/cedar-development/ops/cedar-services.sh status | grep -q STALE \
-    && echo "a backend service is STALE — restart it" || echo "all backend services current"
+  cedarcli native status | grep STALE \
+    || echo "every service current"
   ```
   Restart the offender by name so it loads the current jar, and re-check that its **BINARY** column
   reads `current`:
   ```bash
-  bash $CEDAR_HOME/cedar-development/ops/cedar-services.sh restart <name>
+  cedarcli native restart <name>
   ```
   If you suspect the *current* jar is itself a partial build, confirm it is a sound fat jar before
   restarting into it: `unzip -l <app>.jar | grep -c RemovalCause` should be non-zero, and the jar
@@ -1238,7 +1352,7 @@ reports success. Redirect the full log to a file and grep the file.
 **Rebuilding a server without `clean` can ship the previous build's dependency.** Change a shared
 library, `mvn install` it, then `mvn install` a server that depends on it, and the server's fat jar is
 rewritten — with the library's *old* classes still inside. Everything says the build worked: the
-reactor is green, the jar's modification time is seconds old, `cedar-services.sh status` reports the
+reactor is green, the jar's modification time is seconds old, `cedarcli native status` reports the
 binary `current`, and a `dependency:build-classpath` scan finds only the new library. The service then
 runs the old code. The tell is inside the jar rather than around it, and this is how to see it:
 
@@ -1278,6 +1392,28 @@ or another CEDAR library out of whichever jar its classpath reached first. Keep 
 pom should declare what it uses and publish that, so every consumer resolves each dependency from the
 artifact that owns it.
 
+## How the REST API changes
+
+CEDAR ships one version of its REST API. There is no path segment, no media-type parameter and no
+version header, and none is planned: a correction to a status code, an error body or a route replaces
+the old behaviour for every caller at once, and the clients move in the same release.
+
+That is already the policy in practice. Requiring `If-Match` on artifact updates turned a request that
+answered 200 into one that answers 428, and it shipped without an opt-in. Adding a version mechanism
+now would describe a caution the estate does not otherwise exercise.
+
+What the policy asks in exchange is that a breaking change is deliberate and swept. A change to what a
+client receives moves in one release together with the Template Editor, the embeddable editor, the four
+MCP servers under `mcp/`, `cedar-cli`, and the `ops/e2e` suites. The REST smoke's pinned inventory in
+`rest/expected-checks.json` names every expected check, so regenerating it with `--update-inventory`
+turns the sweep into a diff to read rather than a search to conduct.
+
+Two consequences worth stating. External callers hold API keys and get no migration window, so a
+breaking release needs a note that reaches them. And a correction that can be made additively should
+be: accepting a second spelling of a parameter, adding a field to an error body, adding a `GET`
+alongside an existing `POST`, or sending a header nobody reads yet costs no caller anything and needs
+no release to be coordinated around it.
+
 ## Artifact write and diagnostic contracts
 
 Artifact creation and replacement use different authorization checks even though both can arrive as
@@ -1314,18 +1450,51 @@ wire compatibility and does not bypass validation or storage checks. If a privil
 needed again, introduce a separately authorized internal operation rather than reviving the public
 query switch.
 
-Artifact-server health contains both `message` and `mongo`. `/healthcheck` must be non-green when the
-Mongo ping fails; a passing placeholder check alone is not sufficient evidence that artifact traffic
-will work. Insight endpoints are operationally sensitive: `/insight/thread-details` exposes stack and
-thread state and, like every other insight route, requires an authenticated user with the
-`monitorManager` role (`MONITOR_READ`).
+A green health check means a server's dependencies answer, not that its process is alive. Two
+outcomes are available when a probe fails, and `CedarDependencyHealthCheck` names them. A *gating*
+dependency is one the server cannot serve requests without, and its failure makes the server
+unhealthy. A *reporting* dependency is one whose loss degrades the server without stopping it: the
+condition goes into the health message and the result stays healthy. The distinction has a cost
+attached, because `cedarcli native health` and `cedarcli docker status` exit nonzero unless every
+check passes and both runbooks gate deploys on that. Gating a dependency the server survives without
+blocks a deploy for a condition nobody needs to act on, which is the case `CompToxHealthCheck`
+argues at length for the Bridge server's view of the EPA registry.
 
-Worker health is dependency- and work-aware. Its admin `/healthcheck` includes named `redis`,
-`opensearch`, `neo4j` and `queue-consumers` checks in addition to Dropwizard's generic checks. The
-consumer check fails when a processor thread stops, its latest processing attempt remains failed, a
-dead-letter list is nonempty, or Redis cannot report dead-letter depth. A green worker therefore
-means its three main datastores answer and all four queue consumers can still make clean progress;
-it does not merely mean the HTTP process is alive.
+The shared bootstrap probes what every microservice opens. Neo4j is gating: it resolves the caller
+of every authenticated request, so a server that cannot reach it can serve nothing. The Redis
+application log queue is reporting: enqueueing is best-effort by design and drops events rather
+than failing the request that produced them. Every server therefore carries `neo4j` and
+`app-log-queue` in addition to Dropwizard's own `deadlocks`.
+
+Servers add what they own on top of that. `initMongoServices` builds the document-store probe and
+the shared bootstrap registers it, so artifact, repo, openview and monitor each carry `mongo`.
+Dropwizard's Hibernate bundle registers `hibernate` wherever a server opens MySQL, which is
+messaging, monitor and worker. Resource and valuerecommender gate on `opensearch`, both being
+unable to answer without their index. Submission gates on `ncbi-submission-queue`, whose contents,
+unlike the log queue's, cannot be dropped. Terminology's `ontology-catalogue` reports the size and
+name quality of the loaded catalogue. Bridge's `comp-tox` reports the EPA registry's condition and
+never fails on it.
+
+Each probe carries its own timeout, and the reason is specific: the Neo4j driver waits 30 seconds to
+establish a connection by default, while a container health check gives the whole endpoint 10. An
+unbounded probe would not report a slow dependency, it would hang `/healthcheck` itself, and the
+container would read as down for a reason no check names. At most one probe runs at a time per
+check, so a permanently blocked dependency costs one thread rather than one per poll.
+
+Worker health is also work-aware. Its `queue-consumers` check fails when a processor thread stops,
+its latest processing attempt remains failed, a dead-letter list is nonempty, or Redis cannot report
+dead-letter depth. A green worker means its datastores answer and all four consumers can still make
+clean progress.
+
+The report is served on both connectors. Dropwizard serves it on the admin connector, which is bound
+to loopback so that `/metrics` and `/threads` stay off the network, and which the container health
+check curls on localhost. `CedarHealthCheckResource` serves the same body and status on the
+application connector, because under Compose every server is its own host and the Monitor's
+cross-service health page could otherwise reach no server but itself. That route is gated on
+`MONITOR_READ`, as the insight routes are and for the same reason: nginx proxies the application
+connector to a public host, and a health report names every dependency a server holds and quotes the
+error text when one is unreachable. Insight endpoints are operationally sensitive in the same way:
+`/insight/thread-details` exposes stack and thread state and requires the same role.
 
 Inclusion-subgraph regeneration is a tracked single-flight worker job. An authorized
 `POST /command/regenerate-inclusion-subgraph` returns `202 Accepted`, a job document, and a
@@ -1375,8 +1544,8 @@ timeouts.
 Worker processor tests inject short poll and retry intervals directly; the public constructors
 retain the production five-second value-recommender poll and one-second handling retry. This
 shortens the clock without skipping the queue state transitions or the retry/dead-letter assertions
-the tests exist to cover. Blocking Redis consumers retain their one-second `BLMOVE` timeout even in
-tests: the embedded Redis version does not implement fractional `BLMOVE` timeouts correctly.
+the tests exist to cover. Blocking Redis consumers retain their one-second idle wait even in tests,
+which is what a consumer spends between claims when its queue is empty.
 
 Test servers boot on the alternate `19xxx` port range (test port = dev port + 10000), so a running
 dev stack and a test run coexist. Redirection goes through `CedarEnvironmentSource.setOverride(map)`,
@@ -1412,14 +1581,24 @@ from, because they answer very different questions:
 | Matrices | 7 | Authorization, permission levels and artifact lifecycle, as tables |
 | Sharing and ownership | 1 | The `PUT .../permissions` round trip, including ownership transfer |
 | Content negotiation | 2 | YAML and JSON transcode both ways |
-| REST smoke | 1 | The real stack, no browser: 19 suites, 729 expected checks |
+| REST smoke | 1 | The real stack, no browser: 19 suites, 803 expected checks |
 | End-to-end smoke | 1 | The real stack, through a browser |
 
-**The browser smoke is green as of 2026-08-17.** It logs in, creates a template with a DOID-constrained
-field and a text field, fills and saves an instance, reopens and updates it, checks the JSON and YAML
-getters, opens the result anonymously through OpenView, and deletes the temporary folder and its
-contents. A failed run can stop before teardown and leave its folder, template, field and instance
-behind; `ops/e2e/cleanup-smoke-leftovers.mjs` removes them.
+**The browser smoke is green as of 2026-08-29 in both monolith and authenticated split-frontend
+modes.** It logs in through Keycloak and treats browser-observed request and response headers as part
+of the acceptance contract. In Workspace it conditionally renames and deletes a folder, replaces its
+permissions twice, updates a group twice, replaces that group's membership twice, and conditionally
+deletes the group. It also opens and closes a folder while checking inherited anonymous access,
+moves an artifact and a folder through the real destination-picker modal, and enables and disables
+OpenView on an artifact; all six commands must send `If-Match` and return an `ETag`. In Designer it
+creates a template with a DOID-constrained field and a text field,
+saves the same open template twice without reloading, and proves the second `If-Match` is the first
+update's returned `ETag`. It then fills and saves an instance, reopens and updates it, checks the JSON
+and YAML getters, opens the result anonymously through OpenView, and conditionally deletes the
+temporary artifacts through the UI. A failed run can stop before teardown and leave its folder,
+template, field, instance, mutation folder or mutation group behind;
+`ops/e2e/cleanup-smoke-leftovers.mjs` removes timestamped artifact leftovers, while the smoke's own
+catch path removes every fixture whose identifier it acquired before the failure.
 
 `ops/e2e` holds the two whole-stack tests, and they answer different questions. `npm run smoke:rest`
 drives the REST API directly, in about 65–80 seconds, and reaches what no unit suite can: the artifact
@@ -1430,7 +1609,7 @@ in the profile, so there are no API keys to keep. Run one suite with `npm run sm
 the suites are `apidocs`, `artifacts`, `authentication`, `categories`, `contract`, `download`,
 `finding`, `folders`, `freeze`, `group-sharing`, `groups`, `inclusion`, `negotiation`, `openness`,
 `pagination`, `search`, `sharing`, `validation` and `versioning`. The committed
-`rest/expected-checks.json` inventory holds 729 exact suite/section/check identities; a passing run
+`rest/expected-checks.json` inventory holds 803 exact suite/section/check identities; a passing run
 must execute that same ordered inventory, so an early return, removed loop or conditional omission is
 a failure even when every check that did run passed. Freeze keeps the inventory stable when the local
 terminology store is absent by recording its seven checks as skipped rather than silently omitting
@@ -1490,6 +1669,197 @@ Anything younger than fifteen minutes is reported and skipped, because a run sti
 its working folder exactly as a dead one did and two sessions share this stack. `--min-age=0`
 includes it, which is what to pass when the run is known to be over.
 
+### REST performance testing
+
+`ops/e2e/rest-perf` is the k6 load harness for the real REST stack. It is deliberately separate from
+the REST smoke: the smoke proves the complete contract once, while this harness repeats a bounded
+representative workload and records latency, error and concurrency behaviour. Install k6 once on the
+development host (`brew install k6` on macOS), source the native profile, and choose a local password
+that is not committed:
+
+```bash
+export CEDAR_HOME=/Users/martin/CEDAR
+CEDAR_PROFILE=develop source "$CEDAR_HOME/cedar-development/bin/templates/cedar-profile-native.sh"
+export CEDAR_PERF_USER_PASSWORD='choose-a-local-password'
+cd "$CEDAR_HOME/cedar-development/ops/e2e"
+```
+
+Every performance command first ensures the 50-identity pool exists. This idempotent phase creates
+`restperf-001@test.com` through `restperf-050@test.com`, assigns the normal realm role, performs a real
+`cedar-angular-app` password grant, and waits until CEDAR has created each user, Everybody membership
+and home folder. It also repairs a fresh install or system reset and resets the pool to the supplied
+password. The phase completes before fixture setup and k6 measurement. `test1@test.com` and
+`test2@test.com` remain smoke identities and receive no performance-fixture grants. The generated
+non-secret inventory is ignored under `reports/rest-perf/users.json`.
+
+The provisioning command remains useful as a standalone preflight, but is not required before a load
+command:
+
+```bash
+npm run perf:rest:provision -- --count=50
+```
+
+The seven load profiles are:
+
+| Command | Default shape | What it exercises |
+|---|---:|---|
+| `npm run perf:rest:quick` | 10 identities, ramp 1 → 5 → 10 → 0 in 4.5 minutes | Artifact reads, folder listings, search, conditional artifact updates, conditional moves, and OpenView toggles |
+| `npm run perf:rest:contention` | 20 identities, three complete matrix rounds | Twenty-way compare-and-swap races across artifact content, workspace graph state, ACLs, group records and membership, and categories; update/delete, repeated-delete and wildcard/delete cases use sacrificial fixtures |
+| `npm run perf:rest:hotset` | 20 identities and 20 VUs for 10 minutes | Sustained independent GET/conditional-mutation loops over a small shared set of templates, elements, fields, instances, folders, groups and categories; both conflicts and successful forward progress are required |
+| `npm run perf:rest:resilience` | 10 identities and 10 VUs for 90 seconds | Independent artifact reads and conditional updates while resource-server is stopped for five seconds and restarted; the run requires an observed outage and at least 20 successful responses after the recovery budget |
+| `npm run perf:rest:churn` | 10 identities, two complete lifecycles per second for 5 minutes | Low-rate POST → GET → conditional PUT → conditional DELETE → verified `404` turnover, distributed reproducibly across templates, elements, fields and instances |
+| `npm run perf:rest:burst` | 50 identities; 5/s baseline, 40/s burst, then 5/s recovery, 30 seconds each | Reproducible artifact reads and conditional updates across all four artifact kinds; requires no dropped arrivals and post-burst p95 to return near the measured pre-burst baseline; the full pool prevents a brief server stall from exhausting the load generator first |
+| `npm run perf:rest:soak` | 50 identities and 50 VUs for 30 minutes | A steady, non-destructive mix across template, element, field and instance reads and conditional updates; folder listing, search, moves and OpenView; artifact and folder ACLs; group records and membership; and category records and ACLs |
+
+`--users=N`, `--vus=N` and `--duration=10s` override those defaults. `--seed=NAME` makes the soak's
+per-user schedule reproducible; without it, the run ID is the seed. The contention profile also
+accepts `--rounds=N`; its `--duration` is a maximum rather than a steady-state duration.
+The resilience profile accepts `--fault-delay=N`, `--fault-downtime=N` and
+`--recovery-budget=N`, all in seconds. Its duration must leave at least ten seconds of traffic after
+the recovery budget. The package command deliberately supplies `--allow-service-restart=true`; a
+direct resilience invocation without that explicit opt-in is refused.
+
+The churn profile accepts `--churn-rate=N` (default 2 and capped at 20 complete artifact lifecycles
+per second). Its constant-arrival-rate executor fails the run if the selected VU ceiling cannot keep
+up rather than silently reducing the intended pressure. Each dynamic artifact is created inside the
+participant's stamped run root and deleted immediately. Teardown recursively inventories every run
+root before removing the setup manifest, deleting any dynamic artifact left by an interrupt between
+creation and deletion; it never searches or deletes outside those roots.
+
+The burst profile accepts `--baseline-rate=N`, `--burst-rate=N`, `--phase-duration=30s` and
+`--recovery-p95-percent=N`. The burst rate must exceed the baseline. Three non-overlapping
+constant-arrival-rate phases use the same operation mix, with a five-second graceful boundary between
+them. Besides the ordinary correctness and no-drop thresholds, the controller reads the completed
+summary and fails unless recovery p95 is at most the greater of the configured percentage of
+baseline (150% by default) or baseline plus 100 ms. That relative check distinguishes genuine
+post-load degradation from a universally slow or universally fast run.
+
+Every profile reports server-wait and client-blocked p95/p99/max components in addition to route
+latency. Requests taking at least 500 ms emit a timestamped diagnostic with the operation, status,
+timing components, VU and iteration; `--slow-request-ms=N` changes that boundary and
+`--slow-request-log-limit=N` caps the output per VU (three by default). These diagnostics distinguish
+a backend pause from connection-pool or load-generator delay without turning an ordinary run into a
+trace dump.
+
+For a backend concurrency qualification, run contention first, then churn, resilience, burst and the
+requested soak, one at a time against an otherwise idle stack. Use a named seed for each recorded run
+and keep the default rates unless the purpose is explicitly capacity finding. A green run requires the
+correctness and route thresholds, the profile-specific progress/recovery checks, and successful
+teardown; a low aggregate p95 does not excuse a failed route or recovery gate. If total latency is
+almost entirely `waiting` while `blocked`, connection and TLS time remain near zero, correlate the
+timestamp with the native service and datastore before changing a threshold. In particular, Neo4j
+transaction-log force latency can hold a resource-server graph update at commit even when resource
+and Neo4j GC pauses are negligible. Preserve durability and treat a repeatable phase-level breach as
+a storage/backend finding; an isolated maximum that leaves the p95 and recovery gates green is useful
+tail evidence, not a reason to fail the run by inspection.
+
+The 2026-08-29 qualification exercised all ETag-enabled artifact kinds and the workspace, ACL,
+group, membership and category mutation routes. Churn completed 601 full create/update/delete
+lifecycles without interruption; dependency resilience completed 15,927 iterations, including 442
+expected outage responses and 10,447 recovered operations, with no unexpected response. The final
+burst completed 1,501 iterations with no failed checks or dropped iterations; operation p95 was
+170.9 ms, server-wait p99 was 285.5 ms and the recovery p95 remained below its gate. Fixture cleanup
+reported no residue. Together with the completed 30-minute soak and 20-minute stress runs, this is
+the current native-stack performance baseline. The burst profile's 50-user pool is identity and VU
+capacity; it does not mean that fifty requests execute continuously throughout an arrival-rate run.
+
+A 30-minute soak is the routine qualification gate. Do not run an overnight soak merely to repeat
+the same concurrency coverage: contention, churn, resilience and burst create useful failure modes
+far more efficiently. Use a six-to-eight-hour soak when investigating a suspected slow heap,
+connection, queue or fixture leak; after a material change to caches, pools, asynchronous workers,
+storage or deployment topology; or when production telemetry shows latency or resource use drifting
+over hours. Such a run needs an otherwise idle host and observation of heap/RSS, garbage collection,
+queue and outbox depth, database/storage latency and cleanup residue at both the beginning and end.
+
+`--pool-size=N` can raise the
+ensured identity-pool floor above 50, while a larger `--users` value always expands the pool to fit.
+A VU count may not exceed the selected identities: independent writers must not accidentally contend
+merely because the runner reused an account. The identity ensure phase and initial authentication
+happen outside the measured workload; expired tokens are refreshed during a long soak. `412` is
+expected only in the contention and hot-set profiles. Category setup and administrator-only ACL mutations use
+the administrator key loaded by the native profile; it is never stored in a manifest or summary.
+The soak gives every VU its own artifacts, folders, group and category, and executes a 24-operation
+mix that is half pure reads/list/search and half conditional mutations. Each complete cycle preserves
+that exact mix but shuffles it deterministically by seed, identity and cycle, with a per-identity phase
+offset. This avoids synchronized VUs while keeping failures replayable: error lines name the seed, VU
+and iteration, and the JSON summary records the seed. ACL operations alternate real
+grant and revocation transitions for a paired identity, then verify both the stored permission set and
+that identity's resulting access. Group membership likewise alternates join and leave against a folder
+with a stable group grant, proving that the membership transition changes effective access rather than
+merely accepting an unchanged roster. Category ACLs alternate a peer's write grant and revocation and
+verify that the peer gains and loses access to the ACL. Any semantic mismatch fails the run through a
+zero-tolerance invariant metric. The soak deliberately excludes
+create/delete churn, update-versus-delete, repeated DELETE and wildcard deletion: those operations
+belong to the bounded contention matrix, where exact winner/loser outcomes and cleanup can be asserted
+without corrupting the steady-state latency and resource-leak signal.
+Mutation bodies are parsed afresh from the wire representation before editing. Do not mutate the
+object returned by k6's cached `Response.json()` and assume the outgoing body changed: a replacement
+PUT can validly advance the ETag even when that cached object left the serialized body unchanged.
+
+The hot-set profile is the bridge between the finite contention matrix and the long independent soak.
+Its users continuously race on seven shared revision domains. Each successful write must return the
+submitted state and advance exactly one revision; each loser must receive `412`. The run fails if
+fewer than one percent of mutations conflict, because it did not create a hot set, or if at least 95
+percent conflict, because the test has stopped demonstrating useful forward progress. It creates no
+sacrificial delete fixtures and teardown removes the bounded shared set normally.
+
+The resilience profile is local-only even when ordinary performance runs have been allowed to target
+a remote host. A sidecar waits until the declared fault time, stops only resource-server through
+`cedar-services.sh`, holds it down for the bounded interval, starts it through the same controller and
+waits for the admin health check. k6 accepts gateway failures only from one second before the fault
+until the recovery deadline. It requires at least one such response, rejects any that escape that
+window, and requires more than 20 successful responses after it. An interrupted sidecar restores
+resource-server before exiting; the wrapper waits for that restoration before fixture cleanup.
+Gateway failures impose 200–299 ms of deterministic per-VU backoff. Without it, a fast `502` path
+turns a small constant-VU test into an accidental retry storm precisely while the service is down.
+The aggregate latency guard remains broad (`p95 < 3 s`), but a fast route is not allowed to hide a
+slow one. Every route exercised by the selected profile has a p95 threshold: ordinary reads,
+preflights and verification requests are capped at 750 ms (2.5 s in the deliberately saturated
+contention matrix); mutations are capped at 1.5 s, with 2 s for the quick mix, 2.5 s for shared
+hot-set mutations and 5 s for the finite contention races. These are regression guardrails rather
+than capacity claims: they sit comfortably above repeated quiet-host measurements while still
+failing a several-fold route-specific slowdown.
+
+Every participant gets one stamped root holding source and destination folders plus four templates:
+read, mutable, movable and OpenView. Burst and soak runs add independently writable element, field
+and instance fixtures. A soak also adds a group and category for each participant; the mutable
+template and stamped root serve as that participant's ACL fixtures. A contention run instead creates a separate shared fixture for
+each revision domain: all four artifact-content routes, artifact and folder graph records, artifact
+and folder ACLs, a group record and membership roster, and a category record and ACL. Three bounded
+sacrificial pools cover update-versus-delete, repeated delete and wildcard deletion for templates,
+elements, fields, instances, folders, groups and categories. Setup writes every returned ID to
+`reports/rest-perf/runs/<run-id>/run.json` immediately, before creating the next resource. k6 writes
+its complete summary beside that manifest. In addition to the aggregate trend, each measured route
+has its own `cedar_route_*_duration` trend so a fast read cannot hide a slow mutation.
+
+The wrapper checks that k6 exists before setup, then always performs teardown after the load process,
+including a failed threshold or first `SIGINT`/`SIGTERM`. Teardown reads the current ETag, deletes in
+reverse dependency order, requires the verification GET to return 404, and lists every participating
+home folder to ensure the run stamp is absent. A second signal is the explicit emergency exit that
+forgoes remaining cleanup.
+
+A machine crash and `kill -9` cannot run `finally`, so the independent janitor searches all 50 home
+folders for the exact `CEDAR REST PERF User <n> <timestamp>-<nonce>` convention. It reports only by
+default, ignores runs younger than 24 hours, refuses unexpected resource kinds, and deletes only with
+`--apply`:
+
+```bash
+npm run perf:rest:cleanup
+npm run perf:rest:cleanup -- --apply
+# A known failed run can be included immediately:
+npm run perf:rest:cleanup -- --min-age-hours=0 --apply
+```
+
+The Node-side naming, token-subject and concurrency helpers have a fast local gate:
+
+```bash
+npm run test:rest-perf
+```
+
+Unless `CEDAR_PERF_ALLOW_REMOTE=1` is explicit, both the Node setup and k6 refuse targets outside
+localhost and the `.metadatacenter.orgx` development names. Do not use that override casually: the
+harness is write-heavy by design.
+
 **The artifact server is addressed on its port, not through a vhost.** Several checks read it directly
 to confirm a write reached the datastore, and `artifact.${CEDAR_HOST}` answers 404: the artifact server
 authorizes on global roles alone and holds no resource-level ACL, so anything that reaches it can read
@@ -1538,7 +1908,7 @@ Where the coverage is thin, stated plainly so nobody reads the class count as re
   the largest single coverage win available.
 - **The thin servers have three classes each** — config, boot, routes. That is a real net, and it is
   what caught the media-type 505, but it means "starts and refuses strangers", not "is correct".
-- **Dependency coverage is partial but now deliberate** (see the degradation item on the roadmap).
+- **Dependency coverage is partial but deliberate.**
   The shared proxy, exception mapper, worker queues and health checks are covered, with real HTTP
   dead-port tests for artifact/MongoDB, resource-to-artifact, monitor-to-artifact, user and group
   Neo4j reads, value-recommender and resource OpenSearch reads, the messaging SQL store and the
@@ -1579,10 +1949,10 @@ The full gate, in order:
 
 ```bash
 cedarcli build java                                                # authoritative full build
-bash $CEDAR_HOME/cedar-development/ops/cedar-services.sh restart    # ALL 22 — pass no names
-bash $CEDAR_HOME/cedar-development/ops/cedar-services.sh health     # exit 0 only if all healthy
-bash $CEDAR_HOME/cedar-development/ops/cedar-services.sh status | grep -q STALE \
-  && echo "a backend service is STALE — restart the straggler(s) before trusting the run"   # no service on an old jar
+cedarcli native restart          # ALL 22 — pass no names
+cedarcli native health           # exit 0 only if all healthy
+cedarcli native status | grep STALE \
+  || echo "every service current"                          # nothing on an old jar or an old editor
 cd $CEDAR_HOME/cedar-development/ops/e2e && npm run smoke
 ```
 
@@ -1598,7 +1968,7 @@ A full `restart` is slow (it stops and starts 21 processes) and can be cut short
 an interrupt — partway through, leaving some services on the previous build. So after it, run
 `status` and confirm the **BINARY** column reads `current` for every service (see the BINARY/`~pid`
 explanation above); a `STALE` warning means that service kept its old jar. Restart just the
-stragglers by name — `cedar-services.sh restart <name...>` — and re-check. A `health` gate alone
+stragglers by name — `cedarcli native restart <name...>` — and re-check. A `health` gate alone
 will not catch this: a stale service is still healthy. This bit more than once during a fix-and-
 redeploy pass, where a truncated `restart` left the group and messaging servers a build behind.
 
@@ -1716,6 +2086,26 @@ Two repositories are aggregators over `../` sibling paths that a lone checkout c
 `cedar-libraries` and `cedar-project` check their component repositories out beside themselves in
 the workspace and run Maven from the aggregator directory.
 
+Each of those workflows gives its tests the same block of `CEDAR_` environment entries, because a
+suite builds a real `CedarConfig` and a variable a component declares but does not receive stops it
+at the first `getInstance`. The block lives once, in `ops/ci-env-block.yml`, and each `ci.yml`
+carries a copy. `ops/check_ci_env.py` asks `CedarConfigEnvironmentDescriptor` through `jshell` what
+the servers actually declare, checks the block still satisfies it, and compares every copy against
+the block; `--apply` rewrites the copies that have drifted. Run it after adding a variable to the
+descriptor, and after any change to a workflow's environment:
+
+```bash
+ops/check_ci_env.py            # report
+ops/check_ci_env.py --apply    # rewrite the drifted copies
+```
+
+It is the same instinct as `check_docker_env.py`, pointed at the other set of copies: ask the code
+rather than reading the declaration by eye. Twenty-two repositories held their own copy and nothing
+compared them, so they had diverged — `cedar-monitor-server` carried 55 of the 118 entries, missing
+`CEDAR_SALT_API_KEY`, `CEDAR_TRUSTED_FOLDERS` and both test-user identifiers among sixty-three
+others. Nothing runs this in CI yet, because a check over every repository has no natural home in
+any one of their workflows; until it does, it is a local step.
+
 The suites need no service container. The two exceptions both come from a real dependency rather
 than from CEDAR code: `cedar-monitor-server` talks to a live MySQL, so its job runs a disposable
 MySQL 8 service, and the embedded MongoDB that `cedar-artifact-server` boots is the 5.0 line the
@@ -1723,6 +2113,40 @@ deployment runs, whose only Linux build links against OpenSSL 1.1. Ubuntu 24.04 
 that job installs `libssl1.1` on the runner first; without it `mongod` cannot start and every
 resource test errors out. Moving the tests onto a newer MongoDB would drop that step, at the cost of
 testing against a different engine than production runs.
+
+### Snapshot freshness
+
+A merge to `develop` publishes that repository's snapshot to Nexus, and every downstream build
+resolves CEDAR artifacts from Nexus rather than from a checkout. A repository whose commit is on
+`develop` but whose snapshot never published is therefore invisible in the place anyone looks: its
+branch is green and its source is right, while every consumer builds against the artifact it
+replaced.
+
+```bash
+cedarcli check snapshots
+```
+
+It asks Nexus for each publishing repository's recorded timestamp and GitHub for the time of the
+head commit on `develop`, and reports a snapshot that is older than its source, or absent. It exits
+non-zero on either. An unreadable Nexus or GitHub is reported and does not fail the check, because
+failing there would blame the estate's source for a fault in the network reaching it. The grace
+period is two hours, so a build still running is not a finding; `--grace-hours` moves it.
+
+`.github/workflows/snapshot-freshness.yml` runs the same command daily and opens an issue naming the
+repositories, commenting on it while the condition lasts and closing it when every snapshot is
+current again. It reports through an issue rather than a red run because a scheduled workflow that
+merely goes red notifies whoever last touched it and nobody else.
+
+What it is for happened on 2026-08-29. A Dropwizard upgrade landed in `cedar-parent`, its deploy step
+met a Nexus 500, and the snapshot stayed a day old. Every Java repository's CI failed from then on,
+resolving a parent that did not manage a dependency the new poms named, and every build train failed
+with it. Four unrelated regressions — a Keycloak entrypoint that aborted on its own diagnostic, seven
+frontend nginx configs that could not be parsed, stale CEE visual baselines, and the parent snapshot
+itself — accumulated behind that one unpublished artifact before anyone compared the two sides. The
+repair, when it was finally found, was to re-run the failed deploy.
+
+When the check reports a repository, re-run that repository's failed CI run. If its deploy step is
+what failed, the publication needs repeating rather than the source.
 
 ### Automated dependency updates
 
@@ -1801,7 +2225,7 @@ cd $CEDAR_HOME/cedar-<name> && ./mvnw --batch-mode deploy --settings .m2/nexus-s
 ```
 
 The extracted AngularJS frontends publish to the npm repository on Nexus, not through Maven. They
-remain outside `release all-in-one` during migration and are excluded from the generic frontend/all
+remain outside the release during migration and are excluded from the generic frontend/all
 publish selectors. Publishing them therefore requires the explicit command and never changes a
 running environment:
 
@@ -1849,16 +2273,18 @@ theme are a coordinate change, no change at all, and two FreeMarker files respec
 and the two routes forward are on the roadmap under upgrading the persistence and infrastructure
 servers; do not restate them here.
 
-Current framework baseline (all jakarta-namespace, all on Java 17): Dropwizard 4.0.17, Jetty
-11.0.26, Jersey 3.0.18, Hibernate 6.1.7, jackson 2.17. Recently modernized client libraries: jedis
-5.2, Apache HttpClient 5 (the exceptions are the OpenSearch low-level REST client and the Keycloak
-event listener, which stay on HttpClient 4 because those external APIs require v4 types), slf4j 2.0
+Current framework baseline (Jakarta EE 10, all on Java 17): Dropwizard 5.0.2, Jetty 12.1.9, Jersey
+3.1.11, Hibernate 6.6.52.Final, Servlet 6, Persistence 3.1 and Jackson 2.21.4. Recently modernized
+client libraries: jedis 5.2, Apache HttpClient 5 (the exceptions are the OpenSearch low-level REST
+client and the Keycloak event listener, which stay on HttpClient 4 because those external APIs
+require v4 types), slf4j 2.0
 with logback 1.5, swagger-core v3 (OpenAPI 3), mysql-connector-j 8.4, log4j 2.24, commons-lang3.
 
-The test stack pins Mockito 5.23.0 and manages both `byte-buddy` and `byte-buddy-agent` at 1.18.4 in
-`cedar-parent`. Mockito's own POM names byte-buddy 1.17.7; the newer managed pair is intentional so
-Mockito and Dropwizard Hibernate share one version. Keep the core and agent together, and verify a
-change against the complete `cedar-microservice-libraries`, `cedar-bridge-server` and
+The test stack pins Mockito 5.23.0 and manages both `byte-buddy` and `byte-buddy-agent` at
+1.18.8-jdk5 in `cedar-parent`. Mockito's own POM names byte-buddy 1.17.7; the newer managed pair is
+intentional so Mockito and Dropwizard Hibernate share one version. Keep the core and agent
+together, and verify a change against the complete `cedar-microservice-libraries`,
+`cedar-bridge-server` and
 `cedar-worker-server` reactors rather than compile alone. The current pairing passes all 1,083 tests
 in those reactors with no failures, errors or skips.
 
@@ -1869,13 +2295,29 @@ reject valid CEDAR data (relative `@id` references, colon-less timezone offsets)
 Draft-04 meta-schema to preserve the exact accept boundary. The java-json-tools (FGE) fork is
 otherwise fully removed — no module depends on it.
 
-The **jakarta namespace migration (Dropwizard 4) is complete.** It runs on Java 17 (Dropwizard
-4.0.17, Jetty 11, Jersey 3.0, Hibernate 6). `dropwizard-sundial` had no Dropwizard 4 release, so it
-was retired rather than forked: the worker and valuerecommender schedulers are now plain `Managed`
-poll loops. The namespace flip was mechanical; the four risk points all landed — the Jetty CORS
-filter, the reflective `@Context`-injection feature, the Hibernate 6 data layer (its `AUTO` id
-generation changed, so `@GeneratedValue` columns moved to `IDENTITY` on `AUTO_INCREMENT` tables), and
-`commons-fileupload` to its jakarta successor `commons-fileupload2`.
+The **Jakarta EE 10 framework migration (Dropwizard 5) is complete.** `dropwizard-sundial` had no
+Dropwizard 4 release and remains retired rather than forked: the worker and value-recommender
+schedulers are plain `Managed` poll loops. Multipart upload uses
+`commons-fileupload2-jakarta-servlet6`, and CORS uses Jetty's EE10 servlet package.
+
+Two compatibility settings are deliberate. CEDAR artifact identifiers are IRIs encoded into path
+segments and can contain `%2F`; Jetty 12 checks that ambiguity once at the HTTP connector and again
+in the EE10 servlet handler. `CedarMicroserviceApplication` permits only
+`AMBIGUOUS_PATH_SEPARATOR` in `UriCompliance` and enables ambiguous-URI decoding on the servlet
+handler, rather than selecting Jetty's broad unsafe mode. Hibernate 6.6's grouped JDBC metadata can
+otherwise match MariaDB system relations with the same name in another catalog, so the messaging
+and database-logging bundles set `hibernate.default_catalog` to their configured application
+databases. Messaging's physical `user` table is quoted, and its recipient/sender/user
+find-or-create paths use one atomic `INSERT ... ON DUPLICATE KEY UPDATE` followed by the connection's
+`LAST_INSERT_ID()`; this avoids the repeatable-read miss and concurrent gap-lock deadlock exposed by
+the new Hibernate line.
+
+The 2026-08-29 acceptance run used only locally installed CEDAR snapshots while Nexus was
+unavailable. A clean 70-module reactor passed; dependency trees and all fifteen shaded jars were
+free of active Jetty 11, Jersey 3.0, Hibernate 6.1, Servlet 5, Persistence 3.0 and Jetty EE9 runtime
+content; all fifteen services booted healthy with `BINARY` = `current`; and `ops/e2e` passed the
+real-stack smoke through login, live terminology, publication/versioning and instance
+create/update/delete.
 
 ## Auditing production artifacts through REST
 
@@ -1905,7 +2347,12 @@ on; `--ca-file` adds a private CA, while `--allow-http` exists only for a loopba
 Redirects are refused so an authorization header cannot be forwarded to another origin.
 
 The script reads the selected `/search-deep` totals, enumerates and deduplicates the selected IDs, and
-then fetches the first artifact. Each terminal checkpoint therefore reports `processed/total` against
+then fetches the first artifact. Enumeration follows the continuation each page carries instead of
+counting offsets, so one page is one request rather than one request plus everything in front of it,
+and the whole pass reads a single snapshot of the search index. A server that predates continuations
+answers the first page without one while reporting more rows than it returned; the script recognises
+that and finishes the pass by offset. Either way the refs manifest and the summary record which ran,
+under `paginationByType`. Each terminal checkpoint therefore reports `processed/total` against
 the exact unique audit set, percentage, elapsed time and ETA, as well as both batch and cumulative
 affected-artifact counts. The JSONL is streamed and flushed after every artifact,
 and the adjacent `production-schema-findings-summary.json` is atomically checkpointed every **300
@@ -1968,7 +2415,10 @@ versions and publication states. It does not prove that an underprivileged key s
 that Neo4j/search and Mongo have not drifted. A complete instance-wide claim still needs a privileged
 key plus a store/graph parity check; the Mongo patch tool is the authoritative store-side inventory.
 If totals change or pages overlap during the run, the REST audit marks itself partial rather than
-claiming a stable snapshot.
+claiming a stable snapshot. Against a server that serves continuations the enumeration itself reads
+one snapshot, so artifacts created or deleted while it runs no longer move a later page onto rows an
+earlier one already returned; a changed total is then a fact about the deployment rather than about
+the walk.
 
 ## `ops/cedar_ontology_usage.py`
 
@@ -2146,17 +2596,34 @@ referenced by any `version_tag`.
 
 ## End-to-End Smoke Test: `ops/e2e`
 
-One command that proves the whole stack works from the outside, the way a user would exercise it:
-a Playwright script logs in through the real Keycloak form as test user 1, creates a folder on the
-dashboard, creates a template inside it, then deletes both, verifying each step. Pass = exit 0;
-a failure leaves a screenshot in `ops/e2e/failures/`.
+One command that proves the whole stack works from the outside, the way users would exercise it.
+The Playwright script logs in through the real Keycloak form, uses Workspace and Designer to create
+and mutate a template, populates and re-edits an instance in CEE, presents the template anonymously
+in OpenView, and conditionally deletes its artifacts. Pass = exit 0; a failure leaves a screenshot
+in `ops/e2e/failures/`.
 
 ```bash
 cd ops/e2e
 npm install            # once per machine
-npm run smoke          # headless, ~30 s
+npm run smoke          # headless, ~60 s
 npm run smoke:headed   # watch it in a real browser
 ```
+
+The concurrency coverage includes two independently loaded Designer pages: the first update wins,
+the stale page receives HTTP 412 and visible failure feedback, the stored winner is preserved, and
+the stale page reloads and saves successfully with the new revision. The sharing coverage uses a
+second authenticated browser context for test user 2: the owner grants read access through the
+visible Workspace dialog, the recipient sees read-only controls in **Shared with Me**, the owner
+upgrades the grant to write, the recipient edits in Designer, and the owner revokes the grant. The
+already-open recipient editor must then receive HTTP 403 without overwriting the stored value, and
+the artifact must disappear from the recipient's **Shared with Me** listing. Every permission and
+artifact update is also checked for an `If-Match` request header.
+
+Workspace's graph-command coverage drives all six UI variants: make an artifact open and not open,
+make a folder open and not open, and move an artifact and a folder. The visibility checks prove the
+corresponding anonymous-access transition; the move checks prove the source loses the resource and
+the chosen destination gains it. The browser observes `If-Match` on each command and the fresh
+`ETag` on every successful response.
 
 The smoke reads and prints the package version rendered by CEE in both Metadata Editor and
 OpenView, fails if those two served surfaces disagree, and includes the version in its final PASS
@@ -2173,7 +2640,7 @@ origins, and the live resource service accepts authenticated CORS preflights fro
 
 ```bash
 cd $CEDAR_HOME/cedar-development
-ops/cedar-services.sh start workspace designer
+cedarcli native start frontend workspace   # then: designer
 cd ops/e2e
 npm run smoke:split
 ```
@@ -2368,7 +2835,7 @@ local work and is not an acceptance setting. The record's source commits identif
 its bundle digests identify what was actually generated and served in that environment. Save the
 record with the deployment evidence so cutover and rollback can name exact payloads rather than tags.
 
-Needs the app tier up (frontend, resource, user, group, artifact at least — `cedar-services.sh
+Needs the app tier up (frontend, resource, user, group, artifact at least — `cedarcli native
 status`). Credentials and base URL come from the profile environment, with the local-dev values
 as fallbacks. The UI gestures reuse the selectors verified by the tutorial runner, which now lives
 in `cedar-mkdocs/runner` (`cedar-tutorial` is abandoned and its copy is stale).

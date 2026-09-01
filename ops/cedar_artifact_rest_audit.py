@@ -3,7 +3,12 @@
 
 The auditor defaults to every template and element visible to one API key through ``/search-deep``;
 ``--types all`` adds standalone fields and instances. It fetches each full artifact through its typed
-resource endpoint and issues GET requests only. Findings are streamed as JSONL, a machine-readable
+resource endpoint and issues GET requests only.
+
+Enumeration follows the continuation each page carries rather than counting offsets, so a page costs
+one request wherever it falls and the whole pass reads one snapshot of the search index. Against a
+server that predates continuations it detects the first answer that carries none while reporting more
+rows than it returned, and falls back to offsets; the refs manifest records which of the two ran. Findings are streamed as JSONL, a machine-readable
 summary is checkpointed every 300 artifacts by default, and a concise progress line reports both the
 processed and selected totals at the same interval. An adjacent refs JSONL stores the exact audit set
 and per-artifact completions so an interrupted run can continue with ``--resume``.
@@ -59,6 +64,8 @@ TYPE_ORDER = ("template", "element", "field", "instance")
 # Stored in every summary so a long-running result says which behavior it actually audited. The
 # script hash distinguishes edits made without changing this human-readable ruleset version.
 AUDIT_RULESET_VERSION = "2026-08-18.2"
+# What /search-deep takes to begin a walk, in the parameter it hands positions back in.
+SEARCH_CONTINUATION_START = "start"
 BEHAVIORAL_BASELINES = {
     "cedar-artifact-library": "9250a4f",
     "cedar-model-typescript-library": "bf97976",
@@ -192,6 +199,7 @@ class AuditState:
     duplicates: int = 0
     expected_by_type: dict[str, int] = field(default_factory=dict)
     enumerated_by_type: dict[str, int] = field(default_factory=dict)
+    pagination_by_type: dict[str, str] = field(default_factory=dict)
     enumeration_complete: bool = False
     total_count_changes: list[dict[str, Any]] = field(default_factory=list)
     fetch_error_details: list[dict[str, Any]] = field(default_factory=list)
@@ -835,15 +843,24 @@ def typed_artifact_path(ref: ArtifactRef) -> str:
     return f"/{ARTIFACT_PATHS[ref.artifact_type]}/{urllib.parse.quote(ref.artifact_id, safe='')}"
 
 
-def search_deep_page(client: GetOnlyClient, artifact_type: str, limit: int, offset: int) -> dict[str, Any]:
-    data = client.get_json("/search-deep", {
+def search_deep_page(client: GetOnlyClient, artifact_type: str, limit: int, offset: Optional[int] = None,
+                     continuation: Optional[str] = None) -> dict[str, Any]:
+    """One page, asked for either by offset or by where the previous page stopped.
+
+    The two are mutually exclusive: a server that serves continuations refuses a request carrying both.
+    """
+    parameters: dict[str, Any] = {
         "resource_types": artifact_type,
         "version": "all",
         "publication_status": "all",
         "sort": "createdOnTS,name",
         "limit": limit,
-        "offset": offset,
-    })
+    }
+    if continuation is not None:
+        parameters["continuation"] = continuation
+    else:
+        parameters["offset"] = offset or 0
+    data = client.get_json("/search-deep", parameters)
     if (not isinstance(data, dict) or not isinstance(data.get("resources"), list)
             or not isinstance(data.get("totalCount"), int) or data["totalCount"] < 0):
         raise ResponseError(f"search-deep returned an unexpected body for {artifact_type}")
@@ -859,27 +876,57 @@ def preflight_expected_counts(client: GetOnlyClient, artifact_types: list[str], 
 
 def iter_artifact_refs(client: GetOnlyClient, artifact_type: str, page_size: int,
                        state: AuditState, hard_limit: Optional[int] = None) -> Iterator[ArtifactRef]:
-    offset = 0
+    """Every artifact of one type the key can enumerate, in one pass over the search index.
+
+    Pages are asked for by continuation: each answer says where it stopped and the next resumes there,
+    so a page costs one request rather than one request plus the offset in front of it. The pass also
+    reads a single snapshot of the index, so a row created or deleted while it runs cannot shift a
+    later page onto rows an earlier one already returned.
+
+    A server too old to serve continuations ignores the parameter and answers by offset. Its first
+    answer carries no continuation while reporting more rows than it returned, which is what the pass
+    falls back on: the sort is stable, so it carries on by offset from where the first page ended.
+    """
     expected: Optional[int] = state.expected_by_type.get(artifact_type)
     seen: set[str] = set()
     page_signatures: set[tuple[str, ...]] = set()
+    continuation: Optional[str] = SEARCH_CONTINUATION_START
+    offset = 0
+    mode = "continuation"
+    first_page = True
+
     while True:
-        data = search_deep_page(client, artifact_type, page_size, offset)
+        if continuation is not None:
+            data = search_deep_page(client, artifact_type, page_size, continuation=continuation)
+        else:
+            data = search_deep_page(client, artifact_type, page_size, offset=offset)
         resources = data.get("resources") or []
         total = data.get("totalCount")
         if total != expected:
             state.total_count_changes.append({
-                "artifactType": artifact_type, "offset": offset, "was": expected, "now": total,
+                "artifactType": artifact_type,
+                "position": "continuation" if continuation is not None else offset,
+                "was": expected, "now": total,
             })
             expected = total
             state.expected_by_type[artifact_type] = total
+
+        next_continuation = data.get("continuation")
+        if not isinstance(next_continuation, str) or not next_continuation:
+            next_continuation = None
+        if first_page and next_continuation is None and isinstance(total, int) and total > len(resources):
+            # A walk that ends on its first page reports every row it has. This one reported more, so
+            # the parameter went unread and the rest of the pass has to ask by offset.
+            mode = "offset"
+        first_page = False
+
         if not resources:
             break
 
         signature = tuple(str(resource.get("@id")) for resource in resources if isinstance(resource, dict))
         if signature in page_signatures:
             raise ResponseError(
-                f"search-deep repeated a page for {artifact_type} at offset {offset}; stopping to avoid a loop"
+                f"search-deep repeated a page for {artifact_type}; stopping to avoid a loop"
             )
         page_signatures.add(signature)
 
@@ -898,11 +945,22 @@ def iter_artifact_refs(client: GetOnlyClient, artifact_type: str, page_size: int
             name = resource.get("schema:name") or resource.get("schema:title") or ""
             yield ArtifactRef(artifact_type, artifact_id, str(name))
             if hard_limit is not None and len(seen) >= hard_limit:
+                # A sample stops early and walks away from the rest. Nothing needs releasing: the
+                # snapshot the server holds for an abandoned walk expires on its own.
+                state.pagination_by_type[artifact_type] = mode
                 return
 
-        offset += page_size
-        if expected is not None and offset >= expected:
-            break
+        if mode == "continuation":
+            continuation = next_continuation
+            if continuation is None:
+                break
+        else:
+            continuation = None
+            offset += len(resources)
+            if expected is not None and offset >= expected:
+                break
+
+    state.pagination_by_type[artifact_type] = mode
 
     if hard_limit is None and expected is not None and len(seen) != expected:
         state.listing_errors += 1
@@ -989,6 +1047,7 @@ def summary_document(state: AuditState, status: str, server: str, types: list[st
         "fetchedByType": dict(state.fetched_by_type),
         "expectedByType": state.expected_by_type,
         "enumeratedByType": state.enumerated_by_type,
+        "paginationByType": state.pagination_by_type,
         "affectedArtifacts": len(state.affected_artifacts),
         "affectedArtifactsByType": {
             key: len(values) for key, values in sorted(state.affected_by_type.items())
@@ -1058,6 +1117,7 @@ def refs_manifest_document(arguments: argparse.Namespace, state: AuditState,
         "startedAt": state.started_at,
         "expectedByType": state.expected_by_type,
         "enumeratedByType": state.enumerated_by_type,
+        "paginationByType": state.pagination_by_type,
         "listingErrors": state.listing_errors,
         "duplicateSearchRowsSkipped": state.duplicates,
         "searchTotalCountChanges": state.total_count_changes,

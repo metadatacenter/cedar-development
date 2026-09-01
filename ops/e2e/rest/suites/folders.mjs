@@ -1,6 +1,6 @@
 // Folders and the filesystem commands: the operations a user performs constantly and which had
 // no REST coverage beyond the create the other suites depend on.
-import { suite, check, checkStatus, call, cleanup, artifactBody, enc, RUN } from '../lib.mjs';
+import { suite, check, checkStatus, call, mutate, cleanup, artifactBody, enc, RUN } from '../lib.mjs';
 
 export const name = 'folders';
 
@@ -41,7 +41,7 @@ export async function run({ user1, homeFolderId }) {
 
   // Rename through PUT, and confirm it took.
   const renamed = `${parentName} renamed`;
-  const put = await call(auth, 'PUT', parentAt,
+  const put = await mutate(auth, 'PUT', parentAt,
       { 'schema:name': renamed, 'schema:description': 'renamed by the REST suites' });
   if (checkStatus(put, 200, 'folder renamed')) {
     const after = await call(auth, 'GET', parentAt);
@@ -106,10 +106,10 @@ export async function run({ user1, homeFolderId }) {
   // version of this suite renamed test1's home folder for real (the rename was not guarded then) and
   // it had to be put back by hand. This asserts the guard now holds.
   const home = `/folders/${enc(homeFolderId)}`;
-  const deleteHome = await call(auth, 'DELETE', home);
+  const deleteHome = await mutate(auth, 'DELETE', home);
   check(deleteHome.status >= 400, 'the home folder cannot be deleted',
       `expected 4xx, got ${deleteHome.status}`);
-  const renameHome = await call(auth, 'PUT', home,
+  const renameHome = await mutate(auth, 'PUT', home,
       { 'schema:name': `Home renamed by the REST suites ${RUN}`, 'schema:description': 'attempt' });
   check(renameHome.status >= 400, 'the home folder cannot be renamed',
       `expected 4xx, got ${renameHome.status} — if 200, the home folder was just renamed for real`);
@@ -132,12 +132,26 @@ export async function run({ user1, homeFolderId }) {
     const artId = art.body['@id'];
     cleanup('template', `/templates/${enc(artId)}`, artName);
 
-    const move = await call(auth, 'POST', '/command/move-resource-to-folder',
-        { '@id': artId, targetFolderId: destId });
+    const moveBody = { '@id': artId, targetFolderId: destId };
+    const graphBeforeMove = await call(auth, 'GET', `/templates/${enc(artId)}/details`);
+    const moveEtag = graphBeforeMove.headers?.get('etag');
+    checkStatus(await call(auth, 'POST', '/command/move-resource-to-folder', moveBody), 428,
+        'a move without the source If-Match is refused');
+    checkStatus(await call(auth, 'POST', '/command/move-resource-to-folder', moveBody,
+        { headers: { 'If-Match': '"0"' } }), 412,
+    'a move with a stale source If-Match is refused');
+    const move = await call(auth, 'POST', '/command/move-resource-to-folder', moveBody,
+        { headers: moveEtag ? { 'If-Match': moveEtag } : {} });
     if (checkStatus(move, [200, 201, 204], 'template moved to another folder')) {
+      const movedEtag = move.headers?.get('etag');
+      check(!!movedEtag && movedEtag !== moveEtag,
+          'the move returns a fresh source ETag', `before ${moveEtag}, after ${movedEtag}`);
       checkStatus(await call(auth, 'POST', '/command/move-resource-to-folder',
-          { '@id': artId, targetFolderId: destId }), [200, 201, 204],
-          'repeating the same move is accepted');
+          moveBody, { headers: moveEtag ? { 'If-Match': moveEtag } : {} }), 412,
+      'the pre-move ETag cannot move the resource again');
+      checkStatus(await call(auth, 'POST', '/command/move-resource-to-folder', moveBody,
+          { headers: { 'If-Match': '*' } }), [200, 201, 204],
+      'the wildcard accepts a repeat move while the source still exists');
       const there = await call(auth, 'GET', `/folders/${enc(destId)}/contents`);
       const occurrences = (there.body?.resources ?? []).filter(resource => resource['@id'] === artId).length;
       check(occurrences === 1,
@@ -150,12 +164,22 @@ export async function run({ user1, homeFolderId }) {
     }
 
     const newName = `${artName} via command`;
+    const beforeRename = await call(auth, 'GET', `/templates/${enc(artId)}`);
+    const renameEtag = beforeRename.headers?.get('etag');
+    checkStatus(await call(auth, 'POST', '/command/rename-resource',
+        { '@id': artId, 'schema:name': newName, 'schema:description': 'renamed by command' }),
+    428, 'template command rename without If-Match is refused');
     const rename = await call(auth, 'POST', '/command/rename-resource',
-        { '@id': artId, 'schema:name': newName, 'schema:description': 'renamed by command' });
+        { '@id': artId, 'schema:name': newName, 'schema:description': 'renamed by command' },
+        { headers: renameEtag ? { 'If-Match': renameEtag } : {} });
     if (checkStatus(rename, [200, 201, 204], 'template renamed by command')) {
       const after = await call(auth, 'GET', `/templates/${enc(artId)}/details`);
       check(after.body?.['schema:name'] === newName, 'the command rename is visible on a fresh read',
           `name was "${after.body?.['schema:name']}"`);
+      checkStatus(await call(auth, 'POST', '/command/rename-resource',
+          { '@id': artId, 'schema:name': `${newName} stale` },
+          { headers: renameEtag ? { 'If-Match': renameEtag } : {} }),
+      412, 'template command rename with a stale If-Match is refused');
     }
 
     const copy = await call(auth, 'POST', '/command/copy-artifact-to-folder',

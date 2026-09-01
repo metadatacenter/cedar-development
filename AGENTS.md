@@ -10,6 +10,33 @@ Start multi-repository sessions with `$CEDAR_HOME` as the workspace root so the 
 discovered before work begins. Paths and Markdown links in this file are written from the
 `cedar-development` repository unless they begin with `cedar-development/`.
 
+## Use `cedarcli` (this is the first rule)
+
+`cedarcli` is the control surface for the whole estate: repositories, builds, the stack, certificates,
+releases. Reach for it before any script, and before setting an environment variable by hand. It needs only
+`CEDAR_HOME` exported; it resolves the mode and sources the right profile itself.
+
+```bash
+cedarcli env status            # mode, profile, host — start here when a value is not what you expect
+cedarcli cheat                 # the command cheatsheet
+cedarcli build java            # authoritative full build
+cedarcli native start all      # infra + microservices + frontends, headless
+cedarcli native status         # health + BINARY column; every row must read `current` after a redeploy
+cedarcli native restart <svc>  # redeploy one service
+cedarcli native logs <svc>     # follow one log
+cedarcli native health         # exits non-zero unless every managed application is healthy
+cedarcli git status            # working-tree state across all repos
+cedarcli check versions        # version consistency across the estate
+```
+
+The alias sources `cedar-cli/cli.sh`, which activates the CLI's own virtualenv. When an alias is not
+available, `bash $CEDAR_HOME/cedar-cli/cli.sh <args>` is the same thing.
+
+Scripts under `ops/` are the implementation behind these commands and may change. Read them to understand a
+failure; do not make them the interface. The full command reference is the
+[cedarcli Manual](https://metadatacenter.readthedocs.io/en/latest/developer-guide/cedarcli/), and
+[CONTRIBUTING.md](CONTRIBUTING.md) covers the contributor path end to end.
+
 ## Managing the local CEDAR system → read the runbook
 
 Choose the guide by task:
@@ -22,12 +49,11 @@ Choose the guide by task:
 - **Public npmjs releases (TypeScript model library and CEE):**
   `cedar-development/ops/NPMJS-RELEASE-RUNBOOK.md`
 - **Production deployment:** `cedar-development/ops/PROD-DEPLOY-RUNBOOK.md`
+- **The embeddable template designer:** `cedar-development/ops/DESIGNER-RUNBOOK.md`
 
-Helper scripts are in `cedar-development/ops/`:
-- `cedar-services.sh` — start / stop / **status** / watch / logs for the microservices + frontends,
-  as background processes (no Terminal-tab sprawl). `status` shows a **BINARY** column and marks an
-  unmanaged process `~pid`, so a green health check can't hide a service running an old jar; confirm
-  every row reads `current` after a redeploy.
+Helper scripts are in `cedar-development/ops/`. `cedar-services.sh` is the implementation behind
+`cedarcli native start|stop|status|watch|restart|logs` — call the CLI, not the script. The analysis tools
+below have no CLI front end yet, so call them directly:
 - `cedar_ontology_usage.py` — inventory ontologies referenced by templates/elements. With
   `--emit-constraints` it also harvests each field's `_valueConstraints` as integrated-search-ready
   JSONL, the raw corpus for terminology differential testing.
@@ -58,6 +84,12 @@ says how to run, build, release and deploy; a roadmap tracks open work. Findings
 with whichever of the pair they belong to rather than in files of their own, so start from the pair
 for your area and search within it.
 
+**A roadmap is forward-looking only.** It says what remains, never what was achieved. When work
+finishes, its item leaves the document rather than moving to a summary of what is built: the commits
+that did the work are the record of it, and a runbook carries whatever current state an operator
+needs. Do not open a roadmap with a paragraph of completed work, and do not preserve a finished
+sub-part inside an item that is still open.
+
 Item numbers on a roadmap are for referring to items in conversation, nothing more. They are not
 stable handles. **Numbering is contiguous and has no gaps: when an item is removed, renumber the
 rest and fix the cross-references that named them.** Number in document order. **Never refer to a
@@ -65,7 +97,7 @@ numbered item — or to a phase number — in a commit or check-in message**; de
 change and the surface it affects.
 
 The backend — the microservices, the shared Java libraries, the stack itself:
-- [BACKEND-RUNBOOK.md](ops/BACKEND-RUNBOOK.md) — architecture, bring-up, the `cedar-services.sh`
+- [BACKEND-RUNBOOK.md](ops/BACKEND-RUNBOOK.md) — architecture, bring-up, the `cedarcli native`
   controller, port map, the expensive gotchas, building and testing (including which integration
   baseline each microservice meets), continuous integration and snapshot publishing, the e2e smoke
   test, and the current framework state.
@@ -90,6 +122,17 @@ The embeddable editor (CEE) and the TypeScript model library it consumes:
   left behind, styling and theming, the host contract, plus the model library's own items and
   adoption status.
 
+The embeddable designer (CED) — `cedar-embeddable-designer`, the authoring half of the pair CEE
+completes, and the replacement for the AngularJS Template Designer:
+- [DESIGNER-RUNBOOK.md](ops/DESIGNER-RUNBOOK.md) — running the development host, the two builds,
+  the four test gates, the single-file distribution and the channel its version selects, embedding
+  it alongside `<cedar-term-picker>`, and why controlled-term search needs a local terminology
+  server today.
+- [DESIGNER-ROADMAP.md](ops/DESIGNER-ROADMAP.md) — the distance to a designer anyone could switch
+  to, measured against the production designer's own palette configuration, in the order to do it:
+  the capability rules the palette still lacks, several constraints on one field, the
+  save-and-publish lifecycle it has none of, and then template elements.
+
 Terminology versioning, the authoring surface included — `cedar-term-picker`, the Web Component
 replacing the Workbench's controlled-term picker, is tracked here rather than in a pair of its own,
 because it exists to author versioned constraints:
@@ -100,9 +143,9 @@ because it exists to author versioned constraints:
   document: the model and why it is that (content-hash identity, the constraint shape,
   freeze-on-publish, multilingual labels), the numbered items still open across the model, the store
   and the picker, the request and response shapes of `POST /search` and `GET /search/hierarchy`, and
-  the findings — what the picker replaces and has built, the ingestion tracker, the BioPortal
-  reconciliation log, and the survey of ingesting from other repositories. A finished item leaves
-  the numbered list and joins the built paragraph at the top; the numbers are not stable handles.
+  the findings — what the picker replaces, the ingestion tracker, the BioPortal reconciliation log,
+  and the survey of ingesting from other repositories. A finished item leaves the document; the
+  numbers are not stable handles.
 
 The MCP servers under `$CEDAR_HOME/mcp` — the four that let a language model author, look at,
 resolve terms for and store CEDAR artifacts:
@@ -114,38 +157,36 @@ resolve terms for and store CEDAR artifacts:
   the calling model ever reads.
 
 The rest:
-- [RELEASE-RUNBOOK.md](ops/RELEASE-RUNBOOK.md) — `cedarcli release all-in-one` across the ~48
+- [RELEASE-RUNBOOK.md](ops/RELEASE-RUNBOOK.md) — `cedarcli release start` across the ~48
   versioned repos, front and back. CEE, the TypeScript model library and three others are
   `skip_from_release` and publish themselves; their public procedure is in
   [NPMJS-RELEASE-RUNBOOK.md](ops/NPMJS-RELEASE-RUNBOOK.md).
 - [PROD-DEPLOY-RUNBOOK.md](ops/PROD-DEPLOY-RUNBOOK.md) — deploying CEDAR to production.
-- [TEMPLATE-DESIGNER-ROADMAP.md](ops/TEMPLATE-DESIGNER-ROADMAP.md) — the AngularJS Template Designer
-  frontend (`cedar-template-editor`).
 - [WORDPRESS-RUNBOOK.md](ops/WORDPRESS-RUNBOOK.md) — the CEDAR WordPress site.
 
 ## The four things that bite first (don't skip)
 
-1. **Source the profile with `CEDAR_HOME` exported first**, or its vars come out empty:
-   ```bash
-   export CEDAR_HOME=/Users/martin/CEDAR
-   source $CEDAR_HOME/cedar-profile-native-develop.sh
-   ```
+1. **Do not set the environment by hand.** `cedarcli` needs only `CEDAR_HOME`; it resolves the mode and
+   sources the profile. One versioned file, `cedar-development/bin/templates/cedar-profile-native.sh`,
+   serves every native host, and `CEDAR_PROFILE` selects `develop` for a workstation or `server` for a
+   staging or production host. Source it yourself only when running `mvn`, `npm` or a script outside the
+   CLI, and export `CEDAR_HOME` and `CEDAR_PROFILE` before you do or its variables come out empty.
 2. **Use Java 17.** `export JAVA_HOME=$(/usr/libexec/java_home -v 17)`. Newer JDKs (23/25) crash
    Keycloak (`getSubject … security manager`). The zsh shell already pins 17; bash pins 21 (avoid).
 3. **OpenSearch** fails to start under Homebrew's JDK 25 → point it at 17:
    `launchctl setenv OPENSEARCH_JAVA_HOME "$(/usr/libexec/java_home -v 17)"; brew services restart opensearch`.
 4. **Login shows a browser cert error but `curl -sk` works** → the local `.orgx` TLS **leaves expired**
-   (~824-day life; the CEDAR CA is fine). Re-issue them from the CA and `sudo nginx -s reload` — full
-   sequence in `cedar-development/ops/BACKEND-RUNBOOK.md` ("Browser blocks login with a cert error"). Check with:
+   (~824-day life; the CEDAR CA is fine). Re-issue them with `cedarcli cert domains`, then
+   `sudo nginx -s reload` — full sequence in `cedar-development/ops/BACKEND-RUNBOOK.md` ("Browser blocks login with a cert error"). Check with:
    `echo | openssl s_client -connect cedar.metadatacenter.orgx:443 -servername cedar.metadatacenter.orgx 2>/dev/null | openssl x509 -noout -dates`.
 
 ## Bring it up
 
 ```bash
-bash $CEDAR_UTIL_BIN/services-generic/startinfra.sh          # infra (after the env is set as above)
-bash $CEDAR_HOME/cedar-development/ops/cedar-services.sh start
-bash $CEDAR_HOME/cedar-development/ops/cedar-services.sh status
+cedarcli native start all
+cedarcli native status
 ```
+`cedarcli native start infra`, `start microservices` and `start frontends` bring up one layer at a time.
 Then log in at **https://cedar.metadatacenter.orgx** as `test1@test.com` / `test1`
 (also `test2@test.com` / `test2`).
 
@@ -186,5 +227,6 @@ suggestion, ~30 s): `cd cedar-development/ops/e2e && npm run smoke` — details 
 
 - Commit/push only when asked. Several `cedar-*` repos may be edited by parallel sessions —
   check `git status` and stage specific files; never blanket `git add -A`.
-- `cedar-cli` is the control CLI (build/publish/start/stop); on macOS its `start` opens Terminal
-  tabs, which is why `cedar-services.sh` exists for headless/background management.
+- `cedarcli` is the control CLI and the first thing to reach for. It runs headless on every platform:
+  the Terminal-tab behaviour is gone, and the CLI's own tests assert that no `osascript` reaches a
+  command line.

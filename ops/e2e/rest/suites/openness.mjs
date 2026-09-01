@@ -18,7 +18,16 @@ export async function run({ user1, user2, folderId }) {
 
   /** The OpenView server, with no credential of any kind. */
   const anonymously = (path) => call(null, 'GET', path, undefined, { base: OPENVIEW });
-  const open = (command, id) => call(auth, 'POST', `/command/${command}`, { '@id': id });
+  // Visibility lives in the resource graph, not in the artifact document. Read the graph
+  // representation immediately before the command and condition the change on that revision.
+  const open = async (command, id, etagPath) => {
+    const current = await call(auth, 'GET', etagPath);
+    const etag = current.headers?.get('etag');
+    if (!etag) return current;
+    return call(auth, 'POST', `/command/${command}`, { '@id': id }, {
+      headers: { 'If-Match': etag },
+    });
+  };
 
   suite('openness: an open artifact is readable without logging in');
 
@@ -47,7 +56,8 @@ export async function run({ user1, user2, folderId }) {
     check(before.status === 401, `${kind}: not open, so OpenView refuses an anonymous caller`,
         `expected 401, got ${before.status}: ${(before.text ?? '').slice(0, 160)}`);
 
-    if (!checkStatus(await open('make-artifact-open', id), 200, `${kind}: made open by its owner`)) continue;
+    if (!checkStatus(await open('make-artifact-open', id, `${at}/details`), 200,
+        `${kind}: made open by its owner`)) continue;
 
     const after = await anonymously(at);
     check(after.status === 200, `${kind}: OpenView now serves it anonymously`,
@@ -59,7 +69,8 @@ export async function run({ user1, user2, folderId }) {
         `${kind}: and the resource server still refuses the same anonymous caller`,
         `expected 401 from the resource server, got ${direct.status}`);
 
-    if (checkStatus(await open('make-artifact-not-open', id), 200, `${kind}: made not open again`)) {
+    if (checkStatus(await open('make-artifact-not-open', id, `${at}/details`), 200,
+        `${kind}: made not open again`)) {
       const closed = await anonymously(at);
       check(closed.status === 401, `${kind}: and OpenView refuses it once more`,
           `expected 401, got ${closed.status}`);
@@ -87,14 +98,16 @@ export async function run({ user1, user2, folderId }) {
       check((await anonymously(at)).status === 401, 'which is refused anonymously to begin with',
           'it was served before anything was made open');
 
-      if (checkStatus(await open('make-folder-open', nestedId), 200, 'the folder is made open')) {
+      if (checkStatus(await open('make-folder-open', nestedId, `/folders/${enc(nestedId)}`), 200,
+          'the folder is made open')) {
         const inherited = await anonymously(at);
         check(inherited.status === 200,
             'and the template inside becomes readable anonymously without being marked open itself',
             `expected 200, got ${inherited.status}`);
       }
 
-      if (checkStatus(await open('make-folder-not-open', nestedId), 200, 'the folder is made not open')) {
+      if (checkStatus(await open('make-folder-not-open', nestedId, `/folders/${enc(nestedId)}`), 200,
+          'the folder is made not open')) {
         check((await anonymously(at)).status === 401, 'and the template is refused again',
             'it stayed readable after the folder was closed');
       }
@@ -136,7 +149,8 @@ export async function run({ user1, user2, folderId }) {
       check((await listing(leaf.id)).status === 401, 'and its folder cannot be listed anonymously either',
           'the listing was served before anything was made open');
 
-      if (checkStatus(await open('make-folder-open', top.id), 200, 'the top of the branch is made open')) {
+      if (checkStatus(await open('make-folder-open', top.id, `/folders/${enc(top.id)}`), 200,
+          'the top of the branch is made open')) {
         check((await anonymously(at)).status === 200,
             'the template two levels below becomes readable anonymously',
             'openness reached one level but not two');
@@ -162,7 +176,8 @@ export async function run({ user1, user2, folderId }) {
             'the parent of the open folder was listed anonymously');
       }
 
-      if (checkStatus(await open('make-folder-not-open', top.id), 200, 'the top of the branch is closed again')) {
+      if (checkStatus(await open('make-folder-not-open', top.id, `/folders/${enc(top.id)}`), 200,
+          'the top of the branch is closed again')) {
         check((await anonymously(at)).status === 401, 'the buried template is refused once more',
             'it stayed readable after the branch was closed');
         check((await listing(leaf.id)).status === 401, 'and the listing is refused with it',
@@ -178,7 +193,40 @@ export async function run({ user1, user2, folderId }) {
       artifactBody('template', guardedName));
   if (checkStatus(guarded, 201, 'a template is created to guard')) {
     const gid = guarded.body['@id'];
-    cleanup('template', `/templates/${enc(gid)}`, guardedName);
+    const guardedAt = `/templates/${enc(gid)}`;
+    const guardedDetails = `${guardedAt}/details`;
+    cleanup('template', guardedAt, guardedName);
+
+    const initial = await call(auth, 'GET', guardedDetails);
+    const initialEtag = initial.headers?.get('etag');
+    check(!!initialEtag, 'the artifact details representation supplies its graph ETag',
+        `GET ${guardedDetails} returned ${initial.status} without an ETag`);
+    checkStatus(await call(auth, 'POST', '/command/make-artifact-open', { '@id': gid }), 428,
+        'the owner cannot change artifact visibility without If-Match');
+
+    const opened = await call(auth, 'POST', '/command/make-artifact-open', { '@id': gid }, {
+      headers: initialEtag ? { 'If-Match': initialEtag } : {},
+    });
+    if (checkStatus(opened, 200, 'the owner can open it with the current graph ETag')) {
+      const openedEtag = opened.headers?.get('etag');
+      check(!!openedEtag && openedEtag !== initialEtag,
+          'the visibility change returns a fresh graph ETag',
+          `before ${initialEtag}; after ${openedEtag}`);
+      checkStatus(await call(auth, 'POST', '/command/make-artifact-not-open', { '@id': gid }, {
+        headers: initialEtag ? { 'If-Match': initialEtag } : {},
+      }), 412, 'a stale graph ETag cannot close the artifact');
+      check((await anonymously(guardedAt)).status === 200,
+          'the rejected stale close leaves the artifact open',
+          'the stale mutation changed visibility');
+      if (openedEtag) {
+        checkStatus(await call(auth, 'POST', '/command/make-artifact-not-open', { '@id': gid }, {
+          headers: { 'If-Match': openedEtag },
+        }), 200, 'the fresh graph ETag closes the artifact');
+        check((await anonymously(guardedAt)).status === 401,
+            'and the successful close removes anonymous access',
+            'the artifact stayed open after the accepted close');
+      }
+    }
 
     // Making something open is a publication decision, so it takes write access, not mere reach.
     checkStatus(await call(user2.auth, 'POST', '/command/make-artifact-open', { '@id': gid }), [403, 404],

@@ -309,26 +309,108 @@ def build(args: argparse.Namespace) -> None:
         print(f"\n=== {phase['name']}: {phase['repository']} ({version}) ===", flush=True)
         run(command, cwd=repository)
     assert_no_local_maven_snapshots(local_repository)
-    publish_local_repository(local_repository, config["mavenRepository"], version)
+    publish_local_repository(
+        local_repository, config["mavenRepository"], version, resuming=args.resume,
+    )
+
+
+# Nexus answers a transient fault with one of these rather than a refused connection, and a
+# train uploads a few hundred files, so without a retry one blip anywhere in the run discards
+# the whole build. None of them says anything about the artifact being uploaded.
+TRANSIENT_STATUSES = frozenset({429, 500, 502, 503, 504})
+# Nexus does not fail one request in isolation: it goes unavailable for a burst and then
+# recovers, so the budget is sized to outlast a burst rather than to survive a single blip.
+# Eight attempts with the backoff below span about three minutes, which is cheap against a
+# train that runs for twenty-five and is discarded whole if the burst outlasts the retries.
+UPLOAD_ATTEMPTS = 8
+MAX_RETRY_DELAY = 60
+THROTTLED_RETRY_DELAY = 120
+
+
+def with_retries(what: str, attempt_call):
+    """Run a Nexus call, retrying only the failures that carry no verdict about the content."""
+    for attempt in range(1, UPLOAD_ATTEMPTS + 1):
+        throttled_for = None
+        try:
+            return attempt_call()
+        except urllib.error.HTTPError as error:
+            if error.code not in TRANSIENT_STATUSES or attempt == UPLOAD_ATTEMPTS:
+                raise
+            reason = f"HTTP {error.code}"
+            # A registry over its request budget answers 429, or 500 on every repository path
+            # while its status endpoints stay green. Retrying such a fault at the pace of a
+            # dropped connection spends the very budget that is exhausted, so wait for as long
+            # as the server asks, and otherwise for the longest wait allowed.
+            after = error.headers.get("Retry-After") if error.headers else None
+            if after and after.strip().isdigit():
+                throttled_for = min(THROTTLED_RETRY_DELAY, int(after.strip()))
+            elif error.code == 429:
+                throttled_for = THROTTLED_RETRY_DELAY
+        except (urllib.error.URLError, TimeoutError, OSError) as error:
+            if attempt == UPLOAD_ATTEMPTS:
+                raise
+            reason = str(error)
+        delay = throttled_for if throttled_for is not None else min(MAX_RETRY_DELAY, 2 ** attempt)
+        print(f"retry {attempt}/{UPLOAD_ATTEMPTS - 1} after {reason}: {what} (waiting {delay}s)",
+              flush=True)
+        time.sleep(delay)
 
 
 def remote_bytes(url: str) -> bytes | None:
-    try:
-        with urllib.request.urlopen(url, timeout=30) as response:
-            return response.read()
-    except urllib.error.HTTPError as error:
-        if error.code == 404:
-            return None
-        raise
+    def read():
+        try:
+            with urllib.request.urlopen(url, timeout=30) as response:
+                body = response.read()
+                # A degraded registry can close a connection mid-body and leave a short read
+                # looking like a successful one. Comparing that against the bytes going up
+                # reports an immutable path as holding different content, which is a far more
+                # alarming thing to be told than the truth, so a short read is a failed read.
+                declared = response.headers.get("Content-Length")
+                if declared is not None and declared.isdigit() and len(body) != int(declared):
+                    raise urllib.error.URLError(
+                        f"truncated read: {len(body)} of {declared} bytes from {url}")
+                return body
+        except urllib.error.HTTPError as error:
+            if error.code == 404:
+                return None
+            raise
+    return with_retries(f"read {url}", read)
 
 
-def upload_file(source: Path, destination: str, username: str, password: str) -> str:
+def remote_sha1(url: str) -> str | None:
+    """Read the checksum Nexus stores beside an artifact, rather than the artifact.
+
+    The immutability guard only needs to know whether the bytes already there are the bytes
+    going up. Answering that by downloading the artifact costs its whole size, and the
+    largest of them are over 130 MB, so it is answered from the sidecar Nexus writes next
+    to every file instead.
+
+    A missing sidecar therefore reads as a free path. That holds because Nexus stores the
+    checksum for a hosted Maven repository as part of accepting the artifact, so the two are
+    present or absent together; a request that fails rather than returning 404 is retried by
+    remote_bytes and raises instead of arriving here as None.
+    """
+    digest = remote_bytes(url + ".sha1")
+    if digest is None:
+        return None
+    text = digest.decode("utf-8", "replace").strip().split()
+    return text[0].lower() if text else None
+
+
+def upload_file(
+    source: Path,
+    destination: str,
+    username: str,
+    password: str,
+    check_existing: bool = True,
+) -> str:
     content = source.read_bytes()
-    existing = remote_bytes(destination)
-    if existing is not None:
-        if hashlib.sha256(existing).digest() != hashlib.sha256(content).digest():
-            raise RuntimeError(f"immutable Nexus path contains different bytes: {destination}")
-        return "unchanged"
+    if check_existing:
+        existing = remote_sha1(destination)
+        if existing is not None:
+            if existing != hashlib.sha1(content).hexdigest():
+                raise RuntimeError(f"immutable Nexus path contains different bytes: {destination}")
+            return "unchanged"
     credentials = base64.b64encode(f"{username}:{password}".encode()).decode()
     request = urllib.request.Request(
         destination,
@@ -339,13 +421,20 @@ def upload_file(source: Path, destination: str, username: str, password: str) ->
             "Content-Type": "application/octet-stream",
         },
     )
-    with urllib.request.urlopen(request, timeout=120) as response:
-        if response.status not in (200, 201, 204):
-            raise RuntimeError(f"Nexus returned HTTP {response.status} for {destination}")
+    def put():
+        with urllib.request.urlopen(request, timeout=300) as response:
+            if response.status not in (200, 201, 204):
+                raise RuntimeError(f"Nexus returned HTTP {response.status} for {destination}")
+    with_retries(f"upload {destination}", put)
     return "uploaded"
 
 
-def publish_local_repository(local_repository: Path, repository_url: str, version: str) -> None:
+def publish_local_repository(
+    local_repository: Path,
+    repository_url: str,
+    version: str,
+    resuming: bool = True,
+) -> None:
     username = os.environ.get("BMIR_NEXUS_USERNAME")
     password = os.environ.get("BMIR_NEXUS_PASSWORD")
     if not username or not password:
@@ -362,10 +451,20 @@ def publish_local_repository(local_repository: Path, repository_url: str, versio
     )
     if not candidates:
         raise RuntimeError(f"the local Maven repository contains no files for {version}")
+    # A train ID is confirmed unused before a new train is dispatched, so on a fresh build
+    # nothing can be at these paths and asking about each one costs a request per file to
+    # learn what was already established. A resume asks, because a resume exists precisely
+    # because some of them are already there.
+    if not resuming:
+        print(f"Fresh train {version}: uploading {len(candidates)} files without existence checks.",
+              flush=True)
     counts = {"uploaded": 0, "unchanged": 0}
     for source in candidates:
         relative = source.relative_to(local_repository).as_posix()
-        result = upload_file(source, repository_url.rstrip("/") + "/" + relative, username, password)
+        result = upload_file(
+            source, repository_url.rstrip("/") + "/" + relative, username, password,
+            check_existing=resuming,
+        )
         counts[result] += 1
         print(f"{result:9} {relative}", flush=True)
     print(
@@ -454,6 +553,10 @@ def parser() -> argparse.ArgumentParser:
     build_parser.add_argument("--version", required=True)
     build_parser.add_argument("--workspace", type=Path, required=True)
     build_parser.add_argument("--settings", type=Path, default=ROOT / "maven-train-settings.xml")
+    build_parser.add_argument(
+        "--resume", action="store_true",
+        help="Check each destination before uploading, because some may already be there",
+    )
     build_parser.set_defaults(handler=build)
 
     complete_parser = commands.add_parser("complete")

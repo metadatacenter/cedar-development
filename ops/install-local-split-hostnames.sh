@@ -6,7 +6,7 @@
 set -euo pipefail
 
 : "${CEDAR_HOME:?CEDAR_HOME must point to the CEDAR checkout root}"
-: "${CEDAR_CA_HOME:?source cedar-profile-native-develop.sh first}"
+: "${CEDAR_CA_HOME:?source cedar-development/bin/templates/cedar-profile-native.sh first}"
 
 nginx_root="${CEDAR_LOCAL_NGINX_ROOT:-/opt/homebrew/etc/nginx/cedar}"
 mirror_root="${CEDAR_HOME}/cedar-development/os-mirror/development-macos/opt/homebrew/etc/nginx/cedar"

@@ -1,6 +1,6 @@
 // Categories: the classification tree, and attaching artifacts to it. Twelve routes, none of which
 // had REST coverage.
-import { suite, check, checkStatus, call, cleanup, artifactBody, ok, enc, RUN } from '../lib.mjs';
+import { suite, check, checkStatus, call, mutate, cleanup, artifactBody, ok, enc, RUN } from '../lib.mjs';
 
 export const name = 'categories';
 
@@ -65,6 +65,16 @@ export async function run({ user1, user2, admin, folderId }) {
   const at = `/categories/${enc(id)}`;
   cleanup('category', at, label, adm);
 
+  const duplicate = await call(adm, 'POST', '/categories', {
+    'schema:name': label,
+    'schema:description': 'Duplicate create must be rejected',
+    parentCategoryId: rootId,
+    'schema:identifier': `rest-suites-duplicate-${RUN}`,
+  });
+  checkStatus(duplicate, 409, 'creating a duplicate sibling category is a conflict');
+  check(!duplicate.headers?.get('etag'), 'the duplicate conflict does not claim a newly-created ETag',
+      `conflict returned ETag ${duplicate.headers?.get('etag')}`);
+
   const got = await call(adm, 'GET', at);
   checkStatus(got, 200, 'category read back');
   check(got.body?.['schema:name'] === label, 'the category carries the name it was given',
@@ -80,7 +90,7 @@ export async function run({ user1, user2, admin, folderId }) {
       `expected 403, got ${otherAcl.status}`);
 
   const renamed = `${label} renamed`;
-  const put = await call(adm, 'PUT', at,
+  const put = await mutate(adm, 'PUT', at,
       { 'schema:name': renamed, 'schema:description': 'renamed by the REST suites' });
   if (checkStatus(put, 200, 'category renamed')) {
     const after = await call(adm, 'GET', at);
@@ -124,7 +134,7 @@ export async function run({ user1, user2, admin, folderId }) {
 
     // ATTACH is a real, enforced permission — unlike four of the six filesystem levels. Granting it
     // is what makes the attach possible, and asserting the pair is what shows the grant did the work.
-    const grant = await call(adm, 'PUT', `${at}/permissions`, {
+    const grant = await mutate(adm, 'PUT', `${at}/permissions`, {
       owner: { '@id': admin.profile?.['@id'] ?? undefined },
       userPermissions: [{ user: { '@id': user1.profile['@id'] }, permission: 'attach' }],
       groupPermissions: [],
@@ -135,7 +145,7 @@ export async function run({ user1, user2, admin, folderId }) {
       const acl = await call(adm, 'GET', `${at}/permissions`);
       const ownerId = acl.body?.owner?.['@id'];
       if (ownerId) {
-        const retry = await call(adm, 'PUT', `${at}/permissions`, {
+        const retry = await mutate(adm, 'PUT', `${at}/permissions`, {
           owner: { '@id': ownerId },
           userPermissions: [{ user: { '@id': user1.profile['@id'] }, permission: 'attach' }],
           groupPermissions: [],
@@ -184,7 +194,7 @@ export async function run({ user1, user2, admin, folderId }) {
       404, 'an unknown category answers 404');
 
   // A second user may read the vocabulary but must not extend or alter someone else's branch.
-  const intrude = await call(auth, 'PUT', at,
+  const intrude = await mutate(auth, 'PUT', at,
       { 'schema:name': 'Renamed by an intruder', 'schema:description': 'nope' });
   check(intrude.status >= 400, 'a normal user cannot rename an administrator\'s category',
       `expected 4xx, got ${intrude.status}`);

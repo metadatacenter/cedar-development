@@ -385,6 +385,9 @@ class _FakeCedarHandler(BaseHTTPRequestHandler):
     extra_search_rows = []
     unfetchable = set()
     requests = []
+    # A server too old to know the parameter ignores it and answers by offset, which is what the
+    # auditor has to notice for itself. Flip this off to be that server.
+    serves_continuations = True
 
     def log_message(self, *_args):
         pass
@@ -395,8 +398,8 @@ class _FakeCedarHandler(BaseHTTPRequestHandler):
         if parsed.path == "/search-deep":
             query = urllib.parse.parse_qs(parsed.query)
             artifact_type = query["resource_types"][0]
-            offset = int(query.get("offset", ["0"])[0])
             limit = int(query.get("limit", ["100"])[0])
+            continuation = query.get("continuation", [None])[0]
             rows = [
                 {"@id": identifier, "schema:name": body.get("schema:name", ""),
                  "resourceType": kind}
@@ -407,6 +410,17 @@ class _FakeCedarHandler(BaseHTTPRequestHandler):
                 row for row in self.__class__.extra_search_rows
                 if row.get("resourceType") == artifact_type
             )
+            if continuation is not None and self.__class__.serves_continuations:
+                # The token says where the last page stopped. A real one carries a snapshot and a sort
+                # position; here the row count is enough to resume at.
+                start = 0 if continuation == "start" else int(continuation)
+                page = rows[start:start + limit]
+                answer = {"resources": page, "totalCount": len(rows)}
+                if len(page) == limit and start + limit < len(rows):
+                    answer["continuation"] = str(start + limit)
+                self.send_json(answer)
+                return
+            offset = int(query.get("offset", ["0"])[0])
             self.send_json({"resources": rows[offset:offset + limit], "totalCount": len(rows)})
             return
         parts = parsed.path.strip("/").split("/", 1)
@@ -454,6 +468,7 @@ class RestIntegrationTests(unittest.TestCase):
         _FakeCedarHandler.unfetchable = set()
         _FakeCedarHandler.extra_search_rows = []
         _FakeCedarHandler.requests = []
+        _FakeCedarHandler.serves_continuations = True
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), _FakeCedarHandler)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
@@ -543,6 +558,69 @@ class RestIntegrationTests(unittest.TestCase):
             self.assertEqual(report["status"], "PARTIAL_ERRORS")
             self.assertEqual(report["findingsByRule"]["artifact-fetch-failed"], 1)
             self.assertEqual(report["fetchErrorDetails"][0]["artifactId"], field_id)
+
+    def _enumerate_templates(self, page_size, extra_rows):
+        """Run an audit over templates alone and hand back its refs manifest and the requests it made."""
+        _FakeCedarHandler.extra_search_rows = extra_rows
+        origin = f"http://127.0.0.1:{self.server.server_port}"
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        findings = Path(directory.name) / "findings.jsonl"
+        summary = Path(directory.name) / "summary.json"
+        refs = Path(directory.name) / "refs.jsonl"
+        previous = os.environ.get("CEDAR_API_KEY")
+        os.environ["CEDAR_API_KEY"] = "test-secret"
+        _FakeCedarHandler.requests = []
+        try:
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                audit.main([
+                    "--server", origin,
+                    "--allow-http",
+                    "--types", "template",
+                    "--page-size", str(page_size),
+                    "--out", str(findings),
+                    "--summary", str(summary),
+                    "--refs", str(refs),
+                ])
+        finally:
+            if previous is None:
+                os.environ.pop("CEDAR_API_KEY", None)
+            else:
+                os.environ["CEDAR_API_KEY"] = previous
+        manifest = json.loads(refs.read_text().splitlines()[0])
+        enumerated = [json.loads(line)["artifactId"] for line in refs.read_text().splitlines()[1:]
+                      if json.loads(line)["record"] == "artifact-ref"]
+        searches = [path for _, path, _ in _FakeCedarHandler.requests if path.startswith("/search-deep")]
+        return manifest, enumerated, searches
+
+    def test_enumeration_follows_continuations_and_asks_for_no_offsets(self):
+        extra = [{"@id": f"https://repo.example/templates/t{index}", "schema:name": f"T{index}",
+                  "resourceType": "template"} for index in range(2, 6)]
+
+        manifest, enumerated, searches = self._enumerate_templates(2, extra)
+
+        self.assertEqual(len(enumerated), 5)
+        self.assertEqual(len(set(enumerated)), 5)
+        self.assertEqual(manifest["paginationByType"], {"template": "continuation"})
+        # Every page of the walk was asked for by position. Only the preflight count, which asks for a
+        # single row to read the total, goes by offset.
+        walk = [path for path in searches if "limit=2" in path]
+        self.assertTrue(walk)
+        self.assertTrue(all("continuation=" in path and "offset=" not in path for path in walk), walk)
+
+    def test_enumeration_falls_back_to_offsets_against_a_server_that_ignores_them(self):
+        _FakeCedarHandler.serves_continuations = False
+        extra = [{"@id": f"https://repo.example/templates/t{index}", "schema:name": f"T{index}",
+                  "resourceType": "template"} for index in range(2, 6)]
+
+        manifest, enumerated, searches = self._enumerate_templates(2, extra)
+
+        # The same artifacts, read the old way, because the first answer reported more rows than it
+        # returned while carrying no continuation.
+        self.assertEqual(len(enumerated), 5)
+        self.assertEqual(len(set(enumerated)), 5)
+        self.assertEqual(manifest["paginationByType"], {"template": "offset"})
+        self.assertTrue(any("offset=2" in path for path in searches), searches)
 
     def test_progress_total_uses_unique_enumerated_ids_when_search_has_duplicates(self):
         template_id = "https://repo.example/templates/t1"

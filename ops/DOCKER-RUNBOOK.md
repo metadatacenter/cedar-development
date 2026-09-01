@@ -61,8 +61,9 @@ Homebrew/local data. `docker compose down` retains named volumes and therefore r
   toolchains.
 - `$CEDAR_HOME/set-env-external.sh` and `set-env-internal.sh` configured for the installation.
 - A JDK 17 only when compiling Java; pulling and running a published train does not require it.
-- Custom local certificates in `$CEDAR_HOME/CEDAR_CA`. The setup otherwise falls back to the
-  bundled certificate set, which may be expired.
+- The certificate identity and CA password values in `set-env-internal.sh` configured for the
+  installation. First-time setup creates a local CA and leaves under `$CEDAR_HOME/CEDAR_CA` when
+  they are absent; it reuses complete custom certificate pairs and refuses partial state.
 - At least 32 GB of memory allocated to Docker's virtual machine wherever the terminology server
   reads a local store. The reason, and what too small an allocation looks like from the outside,
   are in [Sizing Docker's Virtual Machine](#sizing-dockers-virtual-machine).
@@ -242,9 +243,9 @@ cedarcli publish train
 The workflow records one source manifest, then completes three ordered publication stages:
 
 1. It compiles and publishes the immutable Maven graph.
-2. It records the npm dependency graph, requires the separately released TypeScript model and CEE
-   packages, publishes the seven frontend packages, and verifies every tarball, integrity value,
-   and source commit.
+2. It stamps and publishes the captured TypeScript model as an immutable development package, wires
+   and tests the captured CEE against that exact model, publishes CEE, pins it into the seven
+   captured frontend packages, and verifies every tarball, integrity value, and source commit.
 3. It builds the two internal bases and 29 runtime images from those Maven and npm inputs, then
    pulls and verifies all 31 before advancing `docker/current.json`.
 
@@ -282,9 +283,11 @@ cedarcli docker build microservices --train <TRAIN_ID>
 ### Checked-out Java source: explicit local build
 
 This is the path used for the 2026-08-21 deployment proof. The Java build installs the parent,
-shared libraries, the 70-module server reactor, and clients in dependency order. It deliberately
-skips tests; the REST gate below supplies runtime coverage. `--local` then stages each newly built
-fat JAR into its server image and clears the staged file after the build.
+shared libraries, the 70-module server reactor, and clients in dependency order, running the unit
+and embedded integration suites by default. Use `--skip-tests` explicitly only for a previously
+verified compile/install loop; the REST gate below remains the deployment acceptance test. `--local`
+then stages each newly built fat JAR into its server image and clears the staged file after the
+build.
 
 ```bash
 cedarcli build java
@@ -328,7 +331,10 @@ optional admin images, for 35 total.
 ## One-time Docker setup
 
 Run this before the first deployment, or after intentionally recreating the CEDAR network and
-certificate volumes. It creates `cedarnet` at `192.168.17.0/24`, plus external certificate volumes.
+certificate volumes. It creates `cedarnet` at `192.168.17.0/24`, creates a local CA and any missing
+leaf certificate pairs without rotating existing complete pairs, then populates the two external
+certificate volumes from that local material. It does not fall back to private keys bundled in
+`cedar-docker-deploy`.
 It removes an existing `cedarnet` while recreating it, so do not run it under a live CEDAR stack.
 
 ```bash
@@ -413,7 +419,24 @@ would report false backend failures.
 cedarcli docker status
 ```
 
-Do not use `cedar-services.sh status` as a container health check. If that lower-level native
+A microservice container reads healthy when the dependencies it holds answer, not merely when its
+process is alive: every one of the fifteen probes Neo4j, and each adds Mongo, MySQL, OpenSearch or
+its own Redis queue where it owns one. The `depends_on` edges in the microservice stack order the
+start and do not wait on health, so an unreachable database marks one container unhealthy instead of
+preventing the containers behind it from starting at all. Staged readiness belongs to
+`cedarcli docker start`, which brings up infrastructure, microservices and frontends in turn and
+waits between them. What each server probes, and why a dependency is gating rather than reported, is
+in [BACKEND-RUNBOOK.md](./BACKEND-RUNBOOK.md).
+
+The command renders one compact table grouped by infrastructure, microservices, and (in full Docker
+mode) frontends. Each row shows Compose health, whether the running image matches the configured
+image set, published or internal ports, and the container restart count. `MISMATCH` is the Docker
+equivalent of a native `STALE` binary: a healthy container is still rejected when its configured
+image reference does not match the selected train or local development tag. The summary records
+container readiness, acceptance-probe readiness, and the image set in one line; failures are named
+below the table instead of being buried in a wide free-form detail column.
+
+Do not use `cedarcli native status` as a container health check. If that lower-level native
 controller is run directly, it labels container-owned rows `docker` in both PID and HEALTH, labels
 Artifact's unexposed port `internal`, and points back to `cedarcli docker status`. Those labels say
 which runtime owns the service; only the Docker-aware command reads Compose health and acceptance
@@ -572,11 +595,11 @@ single public TLS and routing layer.
 
 The frontend source repositories remain Docker-agnostic. All Dockerfiles, entrypoints, and private
 nginx configurations are in `cedar-docker-build`; Compose topology is in `cedar-docker-deploy`.
-Each image downloads one immutable npm package from Nexus. The build train derives the seven
-package versions from the captured source commits, publishes and verifies those packages, then
-injects their exact identities into the Docker build. The TypeScript model and CEE releases must
-already have passed their own release gates; the train verifies those shared inputs before it
-publishes any frontend package.
+Each image downloads one immutable npm package from Nexus. The build train derives the TypeScript
+model, CEE, and seven frontend package versions from their captured source commits, publishes and
+verifies that complete graph, then injects its exact identities into the Docker build. Public npmjs
+releases remain independent; a formal CEDAR release later proves its chosen public CEE is
+byte-equivalent to the development CEE the train tested.
 
 Commit the frontend source changes and publish the coordinated train:
 
@@ -744,8 +767,6 @@ calling shell.
   for an explicitly local experiment.
 - Artifact is intentionally private to `cedarnet`; host-only test runners cannot exercise its
   cross-store contract directly.
-- Java build success means compilation/package success because `cedarcli build java` uses
-  `-DskipTests`.
 - The runtime OpenSearch image is 2.19.1 while `cedar-parent` declares Java clients 2.19.2. This is
   accepted because their compatibility contract is the shared 2.19 line; Docker-build CI enforces
   that major/minor pairing mechanically.

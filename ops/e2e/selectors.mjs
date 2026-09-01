@@ -27,6 +27,12 @@ export const KC_SUBMIT = '#kc-login, button[type="submit"], input[type="submit"]
 export const ROW = 'div.resource-instance';
 // The per-row overflow ("⋮") menu.
 export const ROW_MENU_BUTTON = 'button.more-button';
+// Row-menu move action and its destination picker. The picker lists folders as
+// `.box-row` entries; callers select the exact named destination before confirming.
+export const MENU_MOVE = 'a.move';
+export const MOVE_MODAL = '#move-modal';
+export const MOVE_DESTINATION_ROW = '#moveModalContent .box-row';
+export const MOVE_CONFIRM = '#move-modal .modal-footer button.confirm';
 // Accessible button name, not a CSS selector: used with getByRole('button', {name}).
 // The dialog is sweetalert, which binds its handler as it animates in — see
 // confirmDelete in login-smoke-test.mjs for why that matters.

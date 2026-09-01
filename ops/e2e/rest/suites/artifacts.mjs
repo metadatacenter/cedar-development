@@ -120,6 +120,28 @@ export async function run({ user1, user2, folderId }) {
       `/templates/${enc('https://repo.metadatacenter.orgx/templates/00000000-0000-0000-0000-000000000000')}`),
       404, 'an unknown artifact answers 404');
 
+  const deletedName = `Deleted Conditional PUT ${RUN}`;
+  const doomed = await call(auth, 'POST', `/templates?folder_id=${enc(folderId)}`,
+      artifactBody('template', deletedName));
+  if (checkStatus(doomed, 201, 'a disposable template is created for delete-vs-update')) {
+    const doomedId = doomed.body['@id'];
+    const doomedAt = `/templates/${enc(doomedId)}`;
+    const beforeDelete = await call(auth, 'GET', doomedAt);
+    const deletedEtag = beforeDelete.headers?.get('etag');
+    const deletedBody = beforeDelete.body;
+    if (checkStatus(await call(auth, 'DELETE', doomedAt, undefined,
+        { headers: deletedEtag ? { 'If-Match': deletedEtag } : {} }), 204,
+    'the disposable template is deleted')) {
+      for (const ifMatch of [deletedEtag, '*'].filter(Boolean)) {
+        checkStatus(await call(auth, 'PUT', doomedAt, deletedBody,
+            { headers: { 'If-Match': ifMatch } }), 412,
+        `a conditional PUT cannot recreate the deleted template (${ifMatch})`);
+      }
+      checkStatus(await call(auth, 'GET', doomedAt), 404,
+          'the refused stale PUTs leave the template absent');
+    }
+  }
+
   suite('artifacts: a DOI is set once, and only by someone with write access');
 
   // POST /command/annotations/doi sets an artifact's DOI. It needs write access, and a DOI is
