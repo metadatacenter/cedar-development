@@ -23,6 +23,8 @@ import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parent
 DEFAULT_CONFIG = ROOT / "build-train.json"
+DEFAULT_FRONTEND_CONFIG = ROOT / "frontend-train.json"
+DEFAULT_DOCKER_CONFIG = ROOT / "docker-train.json"
 TRAIN_RE = re.compile(r"^\d+\.\d+\.\d+-dev\.\d{8}\.\d{4}$")
 MAVEN_NS = "http://maven.apache.org/POM/4.0.0"
 NPM_INPUT_RE = re.compile(r"^export (CEDAR_[A-Z0-9_]+_NPM_VERSION)=(\S+)$", re.MULTILINE)
@@ -47,6 +49,154 @@ def run(arguments: list[str], cwd: Path | None = None, capture: bool = False) ->
 def load_config(path: Path) -> dict:
     with path.open(encoding="utf-8") as stream:
         return json.load(stream)
+
+
+def _unique_strings(value, label: str) -> list[str]:
+    if (
+        not isinstance(value, list) or not value
+        or not all(isinstance(item, str) and item for item in value)
+        or len(value) != len(set(value))
+    ):
+        raise RuntimeError(f"{label} must be a non-empty unique string list")
+    return value
+
+
+def _safe_relative(value, label: str) -> str:
+    if not isinstance(value, str) or not value:
+        raise RuntimeError(f"{label} must be a non-empty relative path")
+    path = Path(value)
+    if path.is_absolute() or ".." in path.parts:
+        raise RuntimeError(f"{label} is not a safe relative path: {value!r}")
+    return value
+
+
+def _require_file(workspace: Path, repository: str, relative: str, label: str) -> Path:
+    path = workspace / repository / _safe_relative(relative, label)
+    if not path.is_file():
+        raise RuntimeError(f"{label} is missing from {repository}: {relative}")
+    return path
+
+
+def validate_configuration(
+    build: dict, frontend: dict, docker: dict, workspace: Path,
+) -> dict:
+    """Validate every cross-file train contract against the captured source tree."""
+    repositories = _unique_strings(build.get("repositories"), "build repositories")
+    if build.get("organization") != "metadatacenter" or build.get("sourceBranch") != "develop":
+        raise RuntimeError("build train source must be metadatacenter/develop")
+    maven = _unique_strings(build.get("mavenRepositories"), "Maven repositories")
+    if not set(maven).issubset(repositories):
+        raise RuntimeError("Maven repositories must be part of the source repository set")
+    phases = build.get("phases")
+    if not isinstance(phases, list) or not phases:
+        raise RuntimeError("build train must declare Maven phases")
+    phase_names = []
+    for phase in phases:
+        if not isinstance(phase, dict):
+            raise RuntimeError(f"invalid Maven phase: {phase!r}")
+        name = phase.get("name")
+        repository = phase.get("repository")
+        if not isinstance(name, str) or not name or repository not in maven:
+            raise RuntimeError(f"invalid Maven phase: {phase!r}")
+        phase_names.append(name)
+        wrapper = workspace / repository / "mvnw"
+        if not wrapper.is_file() or not os.access(wrapper, os.X_OK):
+            raise RuntimeError(f"Maven wrapper is missing or not executable: {wrapper}")
+    if len(phase_names) != len(set(phase_names)):
+        raise RuntimeError("Maven phase names must be unique")
+    _unique_strings(build.get("requiredArtifacts"), "required Maven artifacts")
+
+    model = frontend.get("model", {})
+    cee = frontend.get("cee", {})
+    model_repository = model.get("repository")
+    cee_repository = cee.get("repository")
+    if (
+        model_repository not in repositories or cee_repository not in repositories
+        or model_repository == cee_repository
+    ):
+        raise RuntimeError("frontend train must declare distinct captured model and CEE repositories")
+    for field in ("sourceManifest", "publishedManifest"):
+        _require_file(workspace, model_repository, model.get(field), f"model {field}")
+    for field in ("sourceManifest", "sourceLock"):
+        _require_file(workspace, cee_repository, cee.get(field), f"CEE {field}")
+    for consumer in cee.get("additionalModelConsumers", []):
+        _require_file(workspace, cee_repository, consumer.get("manifest"), "CEE model manifest")
+        _require_file(workspace, cee_repository, consumer.get("lock"), "CEE model lock")
+
+    frontends = frontend.get("frontends")
+    if not isinstance(frontends, list) or not frontends:
+        raise RuntimeError("frontend train must declare published frontends")
+    for key in ("id", "image", "npmVersionVariable"):
+        values = [item.get(key) for item in frontends if isinstance(item, dict)]
+        if len(values) != len(frontends) or any(not isinstance(item, str) or not item for item in values) \
+                or len(values) != len(set(values)):
+            raise RuntimeError(f"frontend {key} values must be present and unique")
+    for item in frontends:
+        repository = item.get("repository")
+        if repository not in repositories:
+            raise RuntimeError(f"frontend repository is absent from source train: {repository}")
+        package_path = _safe_relative(item.get("packagePath"), "frontend packagePath")
+        _require_file(workspace, repository, f"{package_path}/package.json", "frontend manifest")
+        _require_file(workspace, repository, f"{package_path}/package-lock.json", "frontend lock")
+        consumer = item.get("ceeConsumer")
+        if consumer is not None:
+            if not isinstance(consumer, dict):
+                raise RuntimeError(f"invalid CEE consumer for {repository}")
+            _require_file(workspace, repository, consumer.get("manifest"), "CEE consumer manifest")
+            _require_file(workspace, repository, consumer.get("lock"), "CEE consumer lock")
+        prepared = item.get("preparedBuild")
+        if prepared is not None:
+            directory = workspace / repository / _safe_relative(
+                prepared.get("directory"), "prepared build directory")
+            if not directory.is_dir():
+                raise RuntimeError(f"prepared build directory is missing: {directory}")
+            commands = prepared.get("commands")
+            if not isinstance(commands, list) or not commands or not all(
+                isinstance(command, list) and command and all(
+                    isinstance(part, str) and part for part in command)
+                for command in commands
+            ):
+                raise RuntimeError(f"invalid prepared build commands for {repository}")
+            _safe_relative(prepared.get("output"), "prepared build output")
+    for consumer in frontend.get("additionalCeeConsumers", []):
+        repository = consumer.get("repository")
+        if repository not in repositories:
+            raise RuntimeError(f"additional CEE consumer is absent from source train: {repository}")
+        _require_file(workspace, repository, consumer.get("manifest"), "CEE consumer manifest")
+        _require_file(workspace, repository, consumer.get("lock"), "CEE consumer lock")
+
+    docker_inputs = frontend_inputs(workspace)
+    required_inputs = {item["npmVersionVariable"] for item in frontends}
+    required_inputs.add(frontend.get("dockerCeeVersionVariable"))
+    required_inputs.update(item.get("versionVariable") for item in frontend.get("runtimePackages", []))
+    invalid_inputs = sorted(item for item in required_inputs if not isinstance(item, str) or not item)
+    missing_inputs = sorted(set(required_inputs) - set(docker_inputs)) if not invalid_inputs else []
+    if invalid_inputs or missing_inputs:
+        raise RuntimeError(
+            f"Docker npm inputs are invalid or missing: invalid={invalid_inputs}, missing={missing_inputs}")
+
+    groups = docker.get("groups")
+    if not isinstance(groups, dict):
+        raise RuntimeError("Docker train has no image groups")
+    ordered = []
+    for group in ("javaBase", "microserviceBase", "infrastructure", "microservices", "frontends"):
+        images = _unique_strings(groups.get(group), f"Docker {group} images")
+        ordered.extend(images)
+    if len(ordered) != 31 or len(ordered) != len(set(ordered)):
+        raise RuntimeError(f"Docker train must contain 31 unique core images, found {len(set(ordered))}")
+    configured_frontends = {item["image"] for item in frontends}
+    if configured_frontends != set(groups["frontends"]):
+        raise RuntimeError("frontend and Docker train image sets differ")
+    docker_root = workspace / "cedar-docker-build"
+    missing_images = sorted(image for image in ordered if not (docker_root / image).is_dir())
+    if missing_images:
+        raise RuntimeError("Docker build directories are missing: " + ", ".join(missing_images))
+    return {
+        "repositories": len(repositories),
+        "mavenRepositories": len(maven),
+        "frontends": len(frontends),
+        "images": len(ordered),
+    }
 
 
 def validate_train(version: str) -> str:
@@ -284,6 +434,122 @@ def prepare(args: argparse.Namespace) -> None:
     stamp_workspace(config, args.workspace, manifest["sourceVersion"], version)
     assert_no_snapshot_poms(config, args.workspace)
     print(f"Prepared {version} from {len(repositories)} exact repository commits.")
+
+
+def _authenticated_request(url: str, username: str, password: str) -> bytes:
+    token = base64.b64encode(f"{username}:{password}".encode()).decode()
+    request = urllib.request.Request(url, headers={"Authorization": f"Basic {token}"})
+    try:
+        with urllib.request.urlopen(request, timeout=60) as response:
+            return response.read()
+    except urllib.error.HTTPError as error:
+        raise RuntimeError(f"Nexus preflight failed for {url}: HTTP {error.code}") from error
+    except (urllib.error.URLError, TimeoutError, OSError) as error:
+        raise RuntimeError(f"Nexus preflight failed for {url}: {error}") from error
+
+
+def _github_ci_preflight(source: dict, workspace: Path) -> None:
+    token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+    if not token:
+        raise RuntimeError("GH_TOKEN is required for exact-source CI preflight")
+    organization = "metadatacenter"
+    failures = []
+    for repository, revision in sorted(source.get("repositories", {}).items()):
+        workflow_root = workspace / repository / ".github" / "workflows"
+        if not workflow_root.is_dir() or not any(path.is_file() for path in workflow_root.iterdir()):
+            print(f"CI advisory: {repository} has no workflow contract; train gates its outputs.")
+            continue
+        url = (
+            f"https://api.github.com/repos/{organization}/{repository}/actions/runs?"
+            + urllib.parse.urlencode({"head_sha": revision, "per_page": 20})
+        )
+        request = urllib.request.Request(url, headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+        })
+        try:
+            with urllib.request.urlopen(request, timeout=60) as response:
+                payload = json.load(response)
+        except urllib.error.HTTPError as error:
+            failures.append(f"{repository}: CI state returned HTTP {error.code}")
+            continue
+        except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as error:
+            failures.append(f"{repository}: CI state is unreadable ({error})")
+            continue
+        runs = payload.get("workflow_runs", [])
+        if not isinstance(runs, list) or not runs:
+            failures.append(f"{repository}: no CI run for {revision[:8]}")
+            continue
+        latest_by_name = {}
+        for run_record in runs:
+            name = run_record.get("name") or str(run_record.get("workflow_id") or "CI")
+            latest_by_name.setdefault(name, run_record)
+        for name, run_record in latest_by_name.items():
+            status = run_record.get("status")
+            conclusion = run_record.get("conclusion")
+            if status != "completed":
+                failures.append(f"{repository}: {name} is {status or 'pending'}")
+            elif conclusion not in {"success", "skipped", "neutral"}:
+                failures.append(f"{repository}: {name} concluded {conclusion or 'without a result'}")
+    if failures:
+        raise RuntimeError("train source CI is not settled: " + "; ".join(failures))
+
+
+def publication_preflight(args: argparse.Namespace) -> None:
+    version = validate_train(args.version)
+    source_path = args.state / "trains" / f"{version}.json"
+    if not source_path.is_file():
+        raise RuntimeError(f"train {version} has no captured source manifest")
+    source = load_config(source_path)
+    summary = validate_configuration(
+        load_config(args.config),
+        load_config(args.frontend_config),
+        load_config(args.docker_config),
+        args.workspace,
+    )
+    _github_ci_preflight(source, args.workspace)
+
+    username = os.environ.get("BMIR_NEXUS_USERNAME")
+    password = os.environ.get("BMIR_NEXUS_PASSWORD")
+    if not username or not password:
+        raise RuntimeError("BMIR_NEXUS_USERNAME and BMIR_NEXUS_PASSWORD are required")
+    nexus = "https://nexus.bmir.stanford.edu"
+    for url in (
+        f"{nexus}/service/rest/v1/status/check",
+        f"{nexus}/service/rest/v1/status/writable",
+        f"{nexus}/repository/cedar-maven-dev/org/metadatacenter/cedar-parent/maven-metadata.xml",
+    ):
+        _authenticated_request(url, username, password)
+
+    npm = subprocess.run(
+        ["npm", "whoami", "--registry", "https://nexus.bmir.stanford.edu/repository/npm-cedar/"],
+        text=True, capture_output=True, check=False,
+    )
+    if npm.returncode:
+        detail = (npm.stderr or npm.stdout).strip().splitlines()
+        raise RuntimeError(
+            "npm authentication preflight failed"
+            + (f": {detail[-1]}" if detail else ""))
+    docker = subprocess.run(
+        ["docker", "login", "nexus.bmir.stanford.edu", "--username", username, "--password-stdin"],
+        input=password, text=True, capture_output=True, check=False,
+    )
+    if docker.returncode:
+        detail = (docker.stderr or docker.stdout).strip().splitlines()
+        raise RuntimeError(
+            "Docker registry authentication preflight failed"
+            + (f": {detail[-1]}" if detail else ""))
+    subprocess.run(
+        ["docker", "logout", "nexus.bmir.stanford.edu"],
+        text=True, capture_output=True, check=False,
+    )
+    print(
+        "Train preflight passed: "
+        f"{summary['repositories']} repositories, {summary['mavenRepositories']} Maven, "
+        f"{summary['frontends']} frontends, {summary['images']} Docker images; "
+        "source CI and all publication credentials are settled."
+    )
 
 
 def build(args: argparse.Namespace) -> None:
@@ -548,6 +814,14 @@ def parser() -> argparse.ArgumentParser:
     prepare_parser.add_argument("--workspace", type=Path, required=True)
     prepare_parser.add_argument("--state", type=Path, required=True)
     prepare_parser.set_defaults(handler=prepare)
+
+    preflight_parser = commands.add_parser("preflight")
+    preflight_parser.add_argument("--version", required=True)
+    preflight_parser.add_argument("--workspace", type=Path, required=True)
+    preflight_parser.add_argument("--state", type=Path, required=True)
+    preflight_parser.add_argument("--frontend-config", type=Path, default=DEFAULT_FRONTEND_CONFIG)
+    preflight_parser.add_argument("--docker-config", type=Path, default=DEFAULT_DOCKER_CONFIG)
+    preflight_parser.set_defaults(handler=publication_preflight)
 
     build_parser = commands.add_parser("build")
     build_parser.add_argument("--version", required=True)

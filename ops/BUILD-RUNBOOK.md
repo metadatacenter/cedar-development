@@ -35,16 +35,18 @@ write repository contents. The workflow uses that permission only for the dedica
 
 ## Create a train
 
-Run the side-effect-free preflight from a configured CEDAR shell first:
+Optionally rehearse the side-effect-free local preflight from a configured CEDAR shell:
 
 ```bash
 cedarcli publish train --dry-run
 ```
 
-This allocates a prospective ID, checks GitHub CLI authentication and the workflow on `develop`,
-rejects an existing train ID, validates that the source-capture and TypeScript model → CEE →
-frontend configurations agree, and prints the exact dispatch command. It does not start GitHub
-Actions, publish an artifact, or write a manifest.
+This allocates a prospective ID and runs the same local gate as a real dispatch. It validates the
+Maven, TypeScript model → CEE → frontend, and 31-image Docker configuration as one contract; checks
+GitHub CLI authentication and the workflow on `develop`; requires the train slot to be idle;
+rejects a colliding ID; rejects dirty or unpushed source; and requires every checked-out source
+repository's `develop` to equal the live remote `develop`. It then prints the exact dispatch
+command. It does not start GitHub Actions, publish an artifact, or write a manifest.
 
 Then create the train:
 
@@ -52,6 +54,8 @@ Then create the train:
 cedarcli publish train
 ```
 
+The real command repeats that complete local preflight; `--dry-run` is a useful rehearsal, not a
+safety step the operator can accidentally omit. No additional parameter opts into these checks.
 The CLI reads the next version from `cedar-parent`, adds the current UTC minute, and dispatches the
 `cedar-development` workflow. The train ID is allocated automatically; operators do not choose it.
 On a successful dispatch, the CLI prints two views. Use the major-stage summary when the GitHub
@@ -68,9 +72,18 @@ run ID:
 gh run watch <RUN_ID> --repo metadatacenter/cedar-development --compact --exit-status
 ```
 
-The workflow first records the exact `develop` commit of every Java, npm, frontend, Docker, CLI,
-and orchestration repository. It then builds Maven in the dependency order already encoded by the
-CEDAR reactors:
+The workflow first captures the exact `develop` commit of every Java, npm, frontend, Docker, CLI,
+and orchestration repository. Before it records train state or starts Maven, a hosted preflight
+validates every captured file and the complete cross-repository configuration, requires green CI
+for each exact source commit that defines a workflow, verifies Node 24.19.0 and every required
+build surface, authenticates to Nexus and proves both writable status and a real Maven repository
+read, runs `npm whoami` against the configured registry, and proves Docker registry login. A
+repository with no workflow has no CI contract to query, so the gate names it and relies on the
+train's own build gates. This hosted check uses the workflow's existing secrets and requires no
+new CLI parameter.
+
+Only after that gate passes does the workflow record the immutable source manifest. It then builds
+Maven in the dependency order already encoded by the CEDAR reactors:
 
 1. `cedar-parent`
 2. `cedar-libraries` and its six library repositories
@@ -166,15 +179,16 @@ Inspect the resume without dispatching it:
 cedarcli publish train --resume <TRAIN_ID> --dry-run
 ```
 
-The preflight requires the immutable source manifest and reports the first incomplete stage. Then
-resume it:
+The preflight requires the immutable source manifest, repeats the applicable local source and
+configuration checks, and reports the first incomplete stage. Then resume it:
 
 ```bash
 cedarcli publish train --resume <TRAIN_ID>
 ```
 
 Resume requires `trains/<TRAIN_ID>.json` on the `build-trains` branch and checks out the commits in that
-manifest—not whatever is now at the head of `develop`. Identical Maven files already present in
+manifest—not whatever is now at the head of `develop`. The hosted exact-source, credential,
+registry, and configuration preflight runs again before the workflow continues. Identical Maven files already present in
 Nexus are accepted; missing files are uploaded. When Maven publication is already complete, resume
 skips it and continues with npm and Docker. npm artifacts are accepted only when their `gitHead`,
 integrity, and tarball bytes match the recorded graph. A Docker tag already present is accepted only

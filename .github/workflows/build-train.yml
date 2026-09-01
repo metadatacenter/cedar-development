@@ -49,6 +49,11 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      - name: Set up Node 24.19.0 for publication preflight
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.19.0
+
       - name: Check Nexus credentials
         run: |
           test -n "$BMIR_NEXUS_USERNAME" || { echo 'BMIR_NEXUS_USERNAME is unavailable to cedar-development'; exit 1; }
@@ -82,6 +87,23 @@ jobs:
           fi
           python3 controller/ops/build_train.py prepare \
             "${args[@]}" \
+            --workspace "$TRAIN_WORKSPACE" \
+            --state "$TRAIN_STATE"
+
+      - name: Preflight every train source and publication target
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NPM_CONFIG_USERCONFIG: ${{ github.workspace }}/cedar-npmrc
+        run: |
+          password_base64=$(printf '%s' "$BMIR_NEXUS_PASSWORD" | base64 -w 0)
+          printf '%s\n' \
+            '@org.metadatacenter:registry=https://nexus.bmir.stanford.edu/repository/npm-cedar/' \
+            "//nexus.bmir.stanford.edu/repository/npm-cedar/:username=$BMIR_NEXUS_USERNAME" \
+            "//nexus.bmir.stanford.edu/repository/npm-cedar/:_password=$password_base64" \
+            '//nexus.bmir.stanford.edu/repository/npm-cedar/:email=cedar-admin@metadatacenter.org' \
+            > "$NPM_CONFIG_USERCONFIG"
+          python3 controller/ops/build_train.py preflight \
+            --version "$TRAIN_VERSION" \
             --workspace "$TRAIN_WORKSPACE" \
             --state "$TRAIN_STATE"
 

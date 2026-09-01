@@ -31,7 +31,8 @@ cedarcli release plan \
 ```
 
 `plan` changes nothing. It validates the completed train, the exact source commits, the artifact
-inventories, the explicit versions, and the byte-equivalence proof between the train's development
+inventories—including the complete 31-image Docker plan and immutable registry digests—the explicit
+versions, and the byte-equivalence proof between the train's development
 CEE and the public npmjs CEE, and then runs the complete release gate. It must finish with
 `No changes made.`
 
@@ -46,24 +47,34 @@ would have refused. It answers in about a minute what previously took a build ph
 
 The plan settles four groups of question:
 
-- **The machine can run a release.** Java 17 is active, `git`, `mvn`, `node`, and `npm` are on PATH,
-  the CEDAR profile is sourced, and there is disk for the train, the attempt tree, and the archives.
-- **The source is ready.** Every repository is on `develop`, clean, and pushed, and the CI run for
-  the exact commit the train was built from is green.
-- **The writes will be accepted.** Both Nexus credentials are set and authenticate, npm holds an
-  identity for CEDAR's Nexus registry, the release version is unused in every repository, and each
-  remote accepts a dry-run push of the `main` update and the release tag.
+- **The machine can run a release.** Java 17 and Node 24.19.0 are active, `git`, `mvn`, and `npm`
+  are on PATH, Git author name and email are configured, the CEDAR profile is sourced, and there is
+  disk for the train, the attempt tree, and the archives.
+- **The source is ready.** Every participating repository—including the independent repositories
+  whose CEE wiring the release integrates—is clean and pushed, and the CI run for the exact commit
+  the train was built from is green wherever that commit defines a workflow. The immutable source
+  also contains every declared wrapper, manifest, lock, build, preserve, version, and Docker stamp
+  input before a long build is allowed to start.
+- **The writes will be accepted.** Both Nexus credentials are available and authenticate, npm holds an
+  identity for CEDAR's Nexus registry, the release version is absent from both Maven and npm target
+  namespaces, and each remote accepts dry-run pushes of every ref the release can create: `main`,
+  `develop`, `release/pre-<VER>`, `release-<VER>`, and, where applicable,
+  `release/post-<NEXT>`.
 - **The content is stampable.** Every file a Maven build regenerates with the version inside is
   declared, every `license.txt` carries a recognisable copyright line, and each remote's `main`
   holds nothing that `develop` does not.
 
 Two of those deserve their own note.
 
-**Nexus reads fall back to anonymous** and succeed whether or not credentials are set, so the
-presence of `BMIR_NEXUS_USERNAME` and `BMIR_NEXUS_PASSWORD` proves nothing. The plan authenticates
-against an endpoint anonymous callers cannot reach, and reads a repository as well, because the
-status endpoints answer from the web tier and stay green while everything behind them fails. Export
-both from the `bmir-nexus-releases` server entry in `~/.m2/settings.xml` before starting.
+**Nexus reads fall back to anonymous** and succeed whether or not credentials are available, so the
+presence of `BMIR_NEXUS_USERNAME` and `BMIR_NEXUS_PASSWORD` proves nothing. The CLI uses those
+variables when both are set; otherwise it reads the username and password from the
+`bmir-nexus-releases` server entry in `~/.m2/settings.xml`. The Maven settings reader handles both
+namespaced and unnamespaced settings files and never prints either value. There is no `release auth`
+command: credential resolution and authentication happen automatically during `release plan`,
+`release start`, and `release resume`. The plan then authenticates against an endpoint anonymous
+callers cannot reach, and reads a repository as well, because the status endpoints answer from the
+web tier and stay green while everything behind them fails.
 
 **A Nexus over its request budget looks like an outage.** The instance is Community Edition, with a
 limit on requests per day, and when it is over that limit it serves its status endpoints and returns
@@ -73,7 +84,9 @@ budget that is exhausted. The budget is a rolling 24-hour window, so the answer 
 roll off, and to check the Usage Center for what is consuming it. A train is a few hundred requests,
 so a run of failed trains is itself a substantial contributor.
 
-**CI is asked about the train's source commit**, not about whatever `develop` points at now. That is
+**CI is asked about the train's source commit**, not about whatever `develop` points at now. A
+missing, unreadable, queued, or running required check blocks the release; a repository whose exact
+source commit defines no workflow is reported as advisory because it has no CI contract. That is
 both the more precise question and the stable one, since a release advances `develop` everywhere at
 once and a run against the new head answers for a commit nobody is releasing.
 
@@ -171,9 +184,13 @@ cedarcli release status
 ```
 
 The human view is a phase table with completed/total counts. It says `COMPLETE` only at acceptance,
-marks the single next or failed phase, and prints the exact safe commands to run next. Ledgers
-written by the earlier combined publication phase are interpreted by task identity, so their
-snapshot records do not inflate the release-artifact count.
+marks the single next or failed phase, and prints the exact safe commands to run next. During the
+Maven release upload, the running command prints every file as uploaded or already present. After
+each file it also checkpoints completed/total, both disposition counts, and the current path in the
+ledger; a concurrent or post-failure `release status` therefore expands the artifact row with, for
+example, `Maven files 47/126` instead of appearing stuck at `0/8`. Resume rechecks immutable bytes
+and continues safely. Ledgers written by the earlier combined publication phase are interpreted by
+task identity, so their snapshot records do not inflate the release-artifact count.
 
 Acceptance is the last phase, and it is what makes the release self-proving. It asks, from outside
 the ledger that recorded the work, whether every repository carries the release tag, every remote ref
@@ -208,8 +225,13 @@ cedarcli release resume
 ```
 
 Resume starts at the recorded phase, verifies the completed evidence that phase consumes, and then
-continues. Remote ref drift, changed local evidence, or a different immutable registry object is a
-hard stop; transient transport retry is automatic.
+continues. Before doing so, it automatically reruns the checks that are still relevant at that
+phase: local preparation rechecks the source and toolchain contract; remote integration rechecks
+the exact refs and push permissions; publication rechecks credentials, registry health, and target
+objects. It does not demand that conditions deliberately changed by an already completed phase
+still look like a brand-new release. Remote ref drift, changed local evidence, or a different
+immutable registry object is a hard stop; transient transport retry is automatic. No resume option
+is required to enable this phase-aware gate.
 
 An attempt whose immutable train is itself the problem cannot be repaired by `resume`. If the
 release has not gone beyond `local-refs-created`, retain and close it explicitly:
