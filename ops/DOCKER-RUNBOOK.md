@@ -170,6 +170,22 @@ on an allowed surface remain available when the selected mode and runtime disagr
 hybrid permits Docker frontend stops even though it refuses Docker frontend starts, so a stale
 frontend project can be removed without changing modes first.
 
+Native and hybrid selections must name the native environment explicitly:
+
+```bash
+cedarcli mode native --profile develop   # workstation
+cedarcli mode native --profile server    # staging or production host
+cedarcli mode hybrid --profile develop   # workstation hybrid stack
+cedarcli mode docker                     # no native profile
+```
+
+There is no default profile: `cedarcli mode native` or `cedarcli mode hybrid` without
+`--profile develop|server` fails without recording a mode. `develop` selects local frontend builds
+and the workstation-only TLS allowance for `.orgx`; `server` selects served frontend payloads,
+requires certificate verification, and rejects placeholder server secrets. The option chooses the
+environment that later native child processes receive; it does not start anything. By contrast,
+`cedarcli mode` with no mode argument only reports the recorded mode and profile.
+
 Mode clearing checks the components owned by the selected topology. In native mode, stop the native
 applications and infrastructure. In hybrid mode, stop the native frontends and Docker deployment.
 In Docker mode, stop the Docker deployment. The CLI refuses to discard the mode while those
@@ -540,7 +556,7 @@ those child processes. Backend-native targets are rejected in this mode.
 
 ```bash
 export CEDAR_HOME=$HOME/CEDAR
-cedarcli mode hybrid
+cedarcli mode hybrid --profile develop
 cedarcli native start frontends
 ```
 
@@ -582,9 +598,9 @@ Three frontend deployment modes remain distinct:
 
 | Mode | Where frontend code is served | How it is started | Current status |
 | --- | --- | --- | --- |
-| Hybrid | Seven macOS development-server processes | `cedarcli mode hybrid`, then native frontends and `cedarcli docker start all` | Proven local development mode |
+| Hybrid | Seven macOS development-server processes | `cedarcli mode hybrid --profile develop`, then native frontends and `cedarcli docker start all` | Proven local development mode |
 | All-Docker frontends | Seven containers on `cedarnet` | `cedarcli mode docker`, then `cedarcli docker start all` | Proven on 2026-08-21 |
-| Native-only stack | Seven native development servers | `cedarcli mode native`, then `cedarcli native start all` | Preserved; Docker work does not change it |
+| Native-only stack | Seven native development servers | `cedarcli mode native --profile develop`, then `cedarcli native start all` | Preserved; Docker work does not change it |
 
 Do not run native and containerized frontends on the same published ports. The normal frontend
 Compose stack now contains Template Editor, Workspace, Designer, OpenView, Content, Monitoring, and
@@ -752,7 +768,7 @@ After the Docker projects are down and the ports are clear, clear the Docker mod
 
 ```bash
 cedarcli mode --clear
-cedarcli mode native
+cedarcli mode native --profile develop
 ```
 
 The CLI supplies the selected profile internally; do not mix native and Docker profile values in the

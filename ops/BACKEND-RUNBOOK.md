@@ -184,7 +184,7 @@ native before starting anything on the host:
 ```bash
 cedarcli docker stop all
 cedarcli mode --clear
-cedarcli mode native
+cedarcli mode native --profile develop
 cedarcli native start all
 ```
 
@@ -223,7 +223,7 @@ them, and refuses any native backend operation that would collide with the conta
 
 ```bash
 export CEDAR_HOME=$HOME/CEDAR
-cedarcli mode hybrid
+cedarcli mode hybrid --profile develop
 cedarcli native start frontends
 cedarcli docker start all --pull never
 ```
@@ -257,7 +257,7 @@ native backend to decide whether this is a frontend defect or a mixed-topology a
 This older diagnostic arrangement puts selected data stores in containers while the JVMs remain
 native. It is not one of the three CLI modes and is not a supported aggregate deployment. The
 procedures below use direct Homebrew, Docker, and maintenance commands intentionally; do not infer
-that `cedarcli mode native` or `hybrid` owns this mixed runtime.
+that `native` or `hybrid` mode owns this mixed runtime.
 
 `set-env-generic.sh` derives every infrastructure host from `CEDAR_NET_GATEWAY`, the native profile
 sets it to `127.0.0.1`, and the containers publish the selected stores on the same host ports the
