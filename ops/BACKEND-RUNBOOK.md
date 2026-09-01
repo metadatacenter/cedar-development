@@ -723,12 +723,20 @@ dependency simply parks the events again. Then move them back, oldest first, app
 whatever is already queued rather than jumping ahead of it:
 
 ```bash
-while [ "$(redis-cli llen CEDAR-QUEUE-search-permission-dead-letter)" -gt 0 ]; do redis-cli lmove CEDAR-QUEUE-search-permission-dead-letter CEDAR-QUEUE-search-permission LEFT RIGHT > /dev/null; done
+while [ "$(redis-cli llen CEDAR-QUEUE-search-permission-dead-letter)" -gt 0 ]; do redis-cli eval "local m = redis.call('LPOP', KEYS[1]); if m then redis.call('RPUSH', KEYS[2], m); end; return m" 2 CEDAR-QUEUE-search-permission-dead-letter CEDAR-QUEUE-search-permission > /dev/null; done
 ```
 
 A message that cannot be parsed is parked on its first failure rather than retried, since retrying
 will not make it parse. Such a message will never apply, so drop it once the log has been read
 rather than replaying it.
+
+That replay is a Lua script, as the queues themselves are, so that it runs on every Redis CEDAR
+deploys to. A consumer claims a message by moving it from the queue to the processing list in one
+step, which `LMOVE` does as a single command from Redis 6.2 onwards. Development runs 7.2.7 and
+staging runs 6.0.16, so the queue library builds that move out of `EVAL`, available since 2.6,
+rather than requiring the newer command. Each server's Redis health check compares the server's
+reported version against that minimum and names a server below it, instead of leaving consumers to
+retry a command the server will never accept.
 
 When the dead-letter transfer itself cannot reach Redis, the message remains in the processing list
 whenever Redis retained the earlier claim and is recovered on the next consumer initialization. The
@@ -1520,8 +1528,8 @@ timeouts.
 Worker processor tests inject short poll and retry intervals directly; the public constructors
 retain the production five-second value-recommender poll and one-second handling retry. This
 shortens the clock without skipping the queue state transitions or the retry/dead-letter assertions
-the tests exist to cover. Blocking Redis consumers retain their one-second `BLMOVE` timeout even in
-tests: the embedded Redis version does not implement fractional `BLMOVE` timeouts correctly.
+the tests exist to cover. Blocking Redis consumers retain their one-second idle wait even in tests,
+which is what a consumer spends between claims when its queue is empty.
 
 Test servers boot on the alternate `19xxx` port range (test port = dev port + 10000), so a running
 dev stack and a test run coexist. Redirection goes through `CedarEnvironmentSource.setOverride(map)`,
