@@ -1,7 +1,7 @@
 {
-  "completedAt": "2026-09-01T21:38:34.039682+00:00",
-  "completion": "docker/completed/2.9.6-dev.20260901.2103.json",
-  "plan": "docker/trains/2.9.6-dev.20260901.2103.json",
+  "completedAt": "2026-09-02T00:23:54.952631+00:00",
+  "completion": "docker/completed/2.9.6-dev.20260901.2349.json",
+  "plan": "docker/trains/2.9.6-dev.20260901.2349.json",
   "schemaVersion": 1,
-  "version": "2.9.6-dev.20260901.2103"
+  "version": "2.9.6-dev.20260901.2349"
 }
