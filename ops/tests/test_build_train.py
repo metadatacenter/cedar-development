@@ -51,7 +51,7 @@ class BuildTrainTest(unittest.TestCase):
         wrapper = workspace / "model" / "mvnw"
         wrapper.write_text("#!/bin/sh\n", encoding="utf-8")
         wrapper.chmod(0o755)
-        for relative in ("package.json", "package-dist.json"):
+        for relative in ("package.json", "package-dist.json", "package-lock.json"):
             (workspace / "model" / relative).write_text("{}\n", encoding="utf-8")
         for relative in ("package.json", "package-lock.json", "visual/package.json",
                          "visual/package-lock.json"):
@@ -102,6 +102,14 @@ class BuildTrainTest(unittest.TestCase):
                 "repository": "demo", "manifest": "package.json", "lock": "package-lock.json",
             }],
             "dockerCeeVersionVariable": "CEDAR_CEE_NPM_VERSION",
+            "auditBaselines": [{
+                "repository": "model",
+                "lock": "package-lock.json",
+                "sha256": hashlib.sha256(b"{}\n").hexdigest(),
+                "vulnerabilities": {
+                    "low": 0, "moderate": 0, "high": 0, "critical": 0,
+                },
+            }],
         }
         return workspace, build, frontend, {"groups": groups}
 
@@ -122,6 +130,32 @@ class BuildTrainTest(unittest.TestCase):
 
         self.assertEqual(31, summary["images"])
         self.assertEqual(1, summary["frontends"])
+        self.assertEqual(1, summary["auditBaselines"])
+
+    def test_changed_npm_lock_is_an_early_preflight_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workspace, build, frontend, docker = self._preflight_fixture(Path(directory))
+            (workspace / "model" / "package-lock.json").write_text(
+                '{"changed": true}\n', encoding="utf-8")
+            with self.assertRaisesRegex(RuntimeError, "npm dependency graph changed.*model"):
+                build_train.validate_configuration(build, frontend, docker, workspace)
+
+    def test_unreviewed_npm_install_script_is_an_early_preflight_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workspace, build, frontend, docker = self._preflight_fixture(Path(directory))
+            lock = workspace / "model" / "package-lock.json"
+            lock.write_text(json.dumps({
+                "packages": {"node_modules/native-addon": {
+                    "version": "1.2.3", "hasInstallScript": True,
+                }},
+            }) + "\n", encoding="utf-8")
+            baseline = frontend["auditBaselines"][0]
+            baseline["sha256"] = hashlib.sha256(lock.read_bytes()).hexdigest()
+            baseline["strictInstallScripts"] = True
+            (workspace / "model" / "package.json").write_text(
+                '{"allowScripts": {}}\n', encoding="utf-8")
+            with self.assertRaisesRegex(RuntimeError, "unreviewed npm install scripts.*native-addon"):
+                build_train.validate_configuration(build, frontend, docker, workspace)
 
     def test_missing_maven_wrapper_is_a_preflight_failure(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -225,7 +259,7 @@ class BuildTrainTest(unittest.TestCase):
             }, clear=False), \
                     patch.object(build_train, "validate_configuration", return_value={
                         "repositories": 1, "mavenRepositories": 1,
-                        "frontends": 1, "images": 31,
+                        "frontends": 1, "images": 31, "auditBaselines": 1,
                     }), \
                     patch.object(build_train, "_github_ci_preflight"), \
                     patch.object(build_train, "publication_target_preflight") as targets:
@@ -463,6 +497,39 @@ class BuildTrainTest(unittest.TestCase):
                     build_train.upload_file(artifact, "https://nexus/example.jar", "u", "p"),
                 )
             self.assertEqual(1, put.call_count)
+
+    def test_transient_nexus_failure_is_retried_but_content_verdict_is_not_changed(self):
+        attempts = []
+
+        def operation():
+            attempts.append(len(attempts) + 1)
+            if len(attempts) == 1:
+                raise urllib.error.HTTPError(
+                    "https://nexus/example.jar", 503, "unavailable", {}, None)
+            return b"verified"
+
+        with patch.object(build_train.time, "sleep") as sleep:
+            self.assertEqual(b"verified", build_train.with_retries("read artifact", operation))
+        self.assertEqual([1, 2], attempts)
+        sleep.assert_called_once_with(2)
+
+    def test_truncated_nexus_read_is_retried_before_byte_comparison(self):
+        class Response(io.BytesIO):
+            def __init__(self, body, declared):
+                super().__init__(body)
+                self.headers = {"Content-Length": str(declared)}
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                self.close()
+
+        responses = [Response(b"abc", 5), Response(b"abcde", 5)]
+        with patch.object(build_train.urllib.request, "urlopen", side_effect=responses), \
+                patch.object(build_train.time, "sleep") as sleep:
+            self.assertEqual(b"abcde", build_train.remote_bytes("https://nexus/example.jar"))
+        sleep.assert_called_once_with(2)
 
 
 if __name__ == "__main__":

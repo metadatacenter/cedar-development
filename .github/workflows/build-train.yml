@@ -25,6 +25,8 @@ concurrency:
 env:
   TRAIN_VERSION: ${{ inputs.version }}
   CEDAR_DOCKER_REGISTRY_HOST: nexus.bmir.stanford.edu
+  # Dependency install scripts are reviewed and version-pinned in each owning package.json.
+  NPM_CONFIG_STRICT_ALLOW_SCRIPTS: "true"
 
 jobs:
   publish-maven:

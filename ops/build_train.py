@@ -81,6 +81,78 @@ def _require_file(workspace: Path, repository: str, relative: str, label: str) -
     return path
 
 
+def validate_audit_baselines(frontend: dict, workspace: Path,
+                             repositories: list[str]) -> int:
+    """Bind reviewed npm advisory counts to the exact dependency graphs that produced them."""
+    baselines = frontend.get("auditBaselines")
+    if not isinstance(baselines, list) or not baselines:
+        raise RuntimeError("frontend train must declare npm audit baselines")
+    seen = set()
+    severities = {"low", "moderate", "high", "critical"}
+    for baseline in baselines:
+        if not isinstance(baseline, dict):
+            raise RuntimeError(f"invalid npm audit baseline: {baseline!r}")
+        repository = baseline.get("repository")
+        if repository not in repositories:
+            raise RuntimeError(
+                f"npm audit baseline repository is absent from source train: {repository}")
+        relative = _safe_relative(baseline.get("lock"), "npm audit baseline lock")
+        identity = (repository, relative)
+        if identity in seen:
+            raise RuntimeError(f"duplicate npm audit baseline: {repository}:{relative}")
+        seen.add(identity)
+        expected = baseline.get("sha256")
+        if not isinstance(expected, str) or not re.fullmatch(r"[0-9a-f]{64}", expected):
+            raise RuntimeError(f"invalid npm audit baseline digest for {repository}:{relative}")
+        counts = baseline.get("vulnerabilities")
+        if (
+            not isinstance(counts, dict) or set(counts) != severities
+            or any(not isinstance(value, int) or value < 0 for value in counts.values())
+        ):
+            raise RuntimeError(f"invalid npm audit counts for {repository}:{relative}")
+        lock = _require_file(workspace, repository, relative, "npm audit baseline lock")
+        actual = hashlib.sha256(lock.read_bytes()).hexdigest()
+        if actual != expected:
+            raise RuntimeError(
+                f"npm dependency graph changed for {repository}:{relative}; expected audit "
+                f"baseline {expected}, found {actual}. Review npm audit and update the "
+                "digest and severity counts before starting a train")
+        if baseline.get("strictInstallScripts", False):
+            manifest = lock.with_name("package.json")
+            if not manifest.is_file():
+                raise RuntimeError(
+                    f"strict install-script manifest is missing for {repository}:{relative}")
+            package = load_config(manifest)
+            policy = package.get("allowScripts")
+            if not isinstance(policy, dict):
+                raise RuntimeError(
+                    f"{repository}:{manifest.relative_to(workspace / repository)} has no "
+                    "allowScripts policy")
+            locked = load_config(lock).get("packages", {})
+            pending = []
+            for installed_path, record in locked.items():
+                if not installed_path or not isinstance(record, dict) \
+                        or not record.get("hasInstallScript"):
+                    continue
+                name = installed_path.rsplit("node_modules/", 1)[-1]
+                version = record.get("version")
+                covered = policy.get(name) is False
+                for key in policy:
+                    prefix = name + "@"
+                    if key.startswith(prefix) and version in {
+                        item.strip() for item in key[len(prefix):].split("||")
+                    }:
+                        covered = True
+                        break
+                if not covered:
+                    pending.append(f"{name}@{version}")
+            if pending:
+                raise RuntimeError(
+                    f"unreviewed npm install scripts in {repository}:{relative}: "
+                    + ", ".join(sorted(pending)))
+    return len(baselines)
+
+
 def validate_configuration(
     build: dict, frontend: dict, docker: dict, workspace: Path,
     expected_source_version: str | None = None,
@@ -170,6 +242,8 @@ def validate_configuration(
         _require_file(workspace, repository, consumer.get("manifest"), "CEE consumer manifest")
         _require_file(workspace, repository, consumer.get("lock"), "CEE consumer lock")
 
+    audit_baselines = validate_audit_baselines(frontend, workspace, repositories)
+
     docker_manifest = workspace / "cedar-docker-build" / "bin" / "cedar-images-base.sh"
     docker_text = docker_manifest.read_text(encoding="utf-8")
     if expected_source_version is not None:
@@ -213,6 +287,7 @@ def validate_configuration(
         "mavenRepositories": len(maven),
         "frontends": len(frontends),
         "images": len(ordered),
+        "auditBaselines": audit_baselines,
     }
 
 
@@ -664,8 +739,26 @@ def publication_preflight(args: argparse.Namespace) -> None:
     print(
         "Train preflight passed: "
         f"{summary['repositories']} repositories, {summary['mavenRepositories']} Maven, "
-        f"{summary['frontends']} frontends, {summary['images']} Docker images; "
+        f"{summary['frontends']} frontends, {summary['images']} Docker images, "
+        f"{summary['auditBaselines']} reviewed npm lock baselines; "
         "source CI and all publication credentials are settled."
+    )
+
+
+def local_configuration_preflight(args: argparse.Namespace) -> None:
+    source_version = pom_version(args.workspace / "cedar-parent" / "pom.xml")
+    summary = validate_configuration(
+        load_config(args.config),
+        load_config(args.frontend_config),
+        load_config(args.docker_config),
+        args.workspace,
+        source_version,
+    )
+    print(
+        "Local train configuration passed: "
+        f"{summary['repositories']} repositories, {summary['frontends']} frontends, "
+        f"{summary['images']} Docker images, "
+        f"{summary['auditBaselines']} reviewed npm lock baselines."
     )
 
 
@@ -729,6 +822,7 @@ def with_retries(what: str, attempt_call):
                 throttled_for = min(THROTTLED_RETRY_DELAY, int(after.strip()))
             elif error.code == 429:
                 throttled_for = THROTTLED_RETRY_DELAY
+            error.close()
         except (urllib.error.URLError, TimeoutError, OSError) as error:
             if attempt == UPLOAD_ATTEMPTS:
                 raise
@@ -939,6 +1033,15 @@ def parser() -> argparse.ArgumentParser:
     preflight_parser.add_argument("--frontend-config", type=Path, default=DEFAULT_FRONTEND_CONFIG)
     preflight_parser.add_argument("--docker-config", type=Path, default=DEFAULT_DOCKER_CONFIG)
     preflight_parser.set_defaults(handler=publication_preflight)
+
+    local_parser = commands.add_parser(
+        "validate-local",
+        help="Validate the checked-out train configuration without network access",
+    )
+    local_parser.add_argument("--workspace", type=Path, required=True)
+    local_parser.add_argument("--frontend-config", type=Path, default=DEFAULT_FRONTEND_CONFIG)
+    local_parser.add_argument("--docker-config", type=Path, default=DEFAULT_DOCKER_CONFIG)
+    local_parser.set_defaults(handler=local_configuration_preflight)
 
     target_parser = commands.add_parser(
         "probe-publication",

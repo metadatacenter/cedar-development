@@ -240,9 +240,9 @@ Frontend work for the embeddable editor is tracked separately in
 
   Moving to 21 touches all four, so it is the natural moment to make them agree rather than merely
   move together: pin the enforcer and CI to the same exact version the runtime image ships, and give
-  Keycloak's JVM the same treatment when its own upgrade lands. Maven is no longer part of this
-  problem — every Java repository now carries a wrapper at 3.9.14 and CI invokes `./mvnw` — except
-  inside the build images, which still `microdnf -y install maven` unversioned.
+  Keycloak's JVM the same treatment when its own upgrade lands. Maven is not part of this problem:
+  repository builds use the wrapper, while container jar-fetch stages use a separately pinned Maven
+  builder image that never enters the runtime.
 
 - **5. Complete the remaining backend trust-boundary, transport and credential security work.**
 

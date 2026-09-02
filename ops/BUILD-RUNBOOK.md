@@ -41,7 +41,8 @@ Optionally rehearse the side-effect-free local preflight from a configured CEDAR
 cedarcli publish train --dry-run
 ```
 
-This allocates a prospective ID and runs the same local gate as a real dispatch. It validates the
+This displays a prospective, non-reserved ID and runs the same local gate as a real dispatch. A
+later real dispatch allocates again and can therefore receive the next minute's ID. It validates the
 Maven, TypeScript model → CEE → frontend, and 31-image Docker configuration as one contract; checks
 GitHub CLI authentication and the workflow on `develop`; requires the train slot to be idle;
 rejects a colliding ID; rejects dirty or unpushed source; and requires every checked-out source
@@ -71,7 +72,8 @@ cedarcli publish train-status <TRAIN_ID> --watch
 ```
 
 It reports Maven, all three npm stages, the Docker plan, compact completed/running/queued/failed
-counts for the 31-image matrix, and final verification. Without `--watch`, the same command is a
+counts for the 31-image matrix, and final verification. During a long unchanged stage it prints a
+quiet one-minute heartbeat with the active job/step and elapsed time. Without `--watch`, the same command is a
 one-shot status and recovery decision. For GitHub's full step log, the dispatch also prints the exact
 workflow run URL and `gh run watch` command using that run ID:
 
@@ -93,6 +95,15 @@ expected and is not a valid health probe there. A
 repository with no workflow has no CI contract to query, so the gate names it and relies on the
 train's own build gates. This hosted check uses the workflow's existing secrets and requires no
 new CLI parameter.
+
+The configuration also binds every npm install surface to the SHA-256 of the reviewed lockfile and
+records the advisory counts observed by the last successful baseline train. A changed dependency
+graph stops in preflight and names the repository and lockfile; review `npm audit`, update the
+counts and digest deliberately, and rerun. This is a no-silent-regression gate, not a claim that the
+legacy AngularJS build-time graphs contain no advisories. CEE's shipped dependency audit remains a
+separate blocking zero-vulnerability gate. npm 11 install scripts are similarly explicit: each
+required package/version is pinned in `allowScripts`, and the train enables
+`strict-allow-scripts`, so a newly introduced lifecycle script fails instead of merely warning.
 
 Only after that gate passes does the workflow record the immutable source manifest. It then builds
 Maven in the dependency order already encoded by the CEDAR reactors:
@@ -234,6 +245,12 @@ registry, or a repository-shape change. Pull-back verification remains part of e
 tarballs are compared by integrity and SHA-256, existing Maven paths by content hash/bytes, and all 31
 Docker images by recorded registry digest and provenance labels. A green canary proves reachability
 and authentication, not artifact identity.
+
+Server jars are fetched in a pinned official Maven builder stage and only the resulting jar and
+configuration cross into the UBI runtime. The 15 server builds therefore do not install Maven with
+`microdnf`. This also avoids repeating libdnf's RHEL 9.7 OpenPGP-v6 warning for Red Hat's retained
+post-quantum signing key; the two UBI base builds may still show the upstream warning while Red Hat's
+multisignature plugin is unavailable in the minimal UBI repositories. Do not remove that key.
 
 ## What the state branch contains
 

@@ -1324,8 +1324,9 @@ to 3.9.14, CI invokes it, and `cedarcli` does too, so the build tool is the same
 of whatever each developer and each runner happens to have installed. It is script-only — no jar is
 committed — and fetches its distribution into `~/.m2/wrapper` on first use. Run `./mvnw` rather than
 `mvn` from inside a repository; the exceptions in this document are the commands that pass `-f` with
-an absolute path from outside one, where a wrapper cannot be resolved. The build images are the one
-place Maven still floats: they install it with `microdnf` unversioned.
+an absolute path from outside one, where a wrapper cannot be resolved. Container jar-fetch stages
+use the `MAVEN_BUILDER_VERSION` pinned in `cedar-images-base.sh`; Maven and its JDK never enter a
+served runtime image.
 
 Java is not pinned this tightly. The enforcer requires `[17,18)` and CI asks for `17`, both major
 only, while the runtime image ships an exact Temurin build — so the thing that runs the servers is
