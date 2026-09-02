@@ -178,7 +178,45 @@ Frontend work for the embeddable editor is tracked separately in
   production data and gated on the end-to-end smoke. Where the order above and the Docker roadmap
   disagree, the Docker roadmap governs, since it sequences the remaining work.
 
-- **3. Decide whether four narrowly used servers should be retired.** Treat each as an explicit
+- **3. Make database schema evolution an explicit, privileged release operation.** Application
+  startup can change CEDAR's relational schemas today: monitor, worker and messaging all ship
+  `hibernate.hbm2ddl.auto=update`, and monitor and worker both register the logging entities against
+  the same log database. A mapping change can therefore become unreviewed DDL before either service
+  binds its connector, with two processes attempting it concurrently. The tests do not exercise that
+  risk: they create a fresh empty MySQL or embedded MariaDB schema, while the production runbook says
+  to run a release's migration set without providing a versioned mechanism or a gate that requires
+  one.
+
+  Remove schema-mutation authority from the applications at both layers. Every non-test runtime must
+  use Hibernate `validate` (or no schema action where validation is unsuitable), while disposable
+  test databases opt into `create-drop` explicitly. Production application accounts must have no
+  `ALTER`, `CREATE`, `DROP` or `INDEX` grants; a separate migration identity holds DDL authority, so a
+  configuration regression fails at startup rather than rebuilding a live table.
+
+  Introduce one versioned, forward-only migration mechanism for each CEDAR-owned relational schema,
+  baseline existing installations, and make its immutable migrations part of the release. Run them
+  once, under the migration identity and a migration lock, before applications start. Prefer
+  expand/contract changes that remain compatible with the old and new binaries. Any large-table DDL
+  must state the MySQL algorithm and lock behavior and must use an evaluated online-schema method or
+  an explicit maintenance window rather than inheriting whatever Hibernate chooses.
+
+  Put the policy in the build and release gates. A change to a persistence mapping, Hibernate schema
+  setting or migration directory must carry the target database and table, generated or expected
+  DDL, compatibility window, production row-count and size evidence, expected algorithm and locking,
+  timing, execution order and recovery plan. CI should reject automatic DDL outside test resources
+  and reject a persistence-model change with neither a migration nor an explicit no-schema-change
+  declaration. `cedarcli release start` should refuse a train whose required migrations are absent or
+  unverified, and the production deploy should record exactly which migration checksums it applied.
+
+  Test upgrades rather than only installations: build the previous schema with representative data,
+  apply every pending migration, start the new applications in validation mode, and prove the data
+  remains readable. Rehearse large changes against a recent sanitized production copy or a table with
+  equivalent size and indexes on the production MySQL version; a small staging table is not evidence
+  that a table-copy operation is safe. Done when no production application credential can execute
+  DDL, no application startup can request it, each owned schema has an auditable migration history,
+  and both CI and the release controller enforce the migration contract.
+
+- **4. Decide whether four narrowly used servers should be retired.** Treat each as an explicit
   product and operations decision: confirm its real callers and production state, preserve or move any
   capability that remains required, then either retain it with a stated role or remove it completely.
 
@@ -215,7 +253,7 @@ Frontend work for the embeddable editor is tracked separately in
   code somewhere other than `cedar-microservice-libraries/cedar-server-rest-library`, which is where
   that code is.
 
-- **4. Move the build and runtime to Java 21.** The stack is locked to Java 17 — the zsh profile pins it
+- **5. Move the build and runtime to Java 21.** The stack is locked to Java 17 — the zsh profile pins it
   and the build enforces it. 21 is the next LTS and the natural target, but the lock exists for a
   reason: newer JDKs (23/25) crash Keycloak (`getSubject … security manager`) and OpenSearch will not
   start under them. So this is not a blind bump — verify Keycloak and OpenSearch run on 21 first, then
@@ -244,7 +282,7 @@ Frontend work for the embeddable editor is tracked separately in
   repository builds use the wrapper, while container jar-fetch stages use a separately pinned Maven
   builder image that never enters the runtime.
 
-- **5. Complete the remaining backend trust-boundary, transport and credential security work.**
+- **6. Complete the remaining backend trust-boundary, transport and credential security work.**
 
   **Artifact-server trust boundary.** The workspace authorization model lives in Neo4j and is enforced
   by the resource server, while the Mongo-backed artifact server checks only authentication and a
@@ -266,11 +304,11 @@ Frontend work for the embeddable editor is tracked separately in
   2026-08-31: a request with no `Authorization` header returns `200`. Both reach BioPortal on the
   server's own `apiKey`, so an anonymous caller spends the deployment's BioPortal quota.
 
-  Requiring a credential is not the remedy, for the reason item 6 gives: third-party deployments of
+  Requiring a credential is not the remedy, for the reason item 7 gives: third-party deployments of
   the embeddable editor call these routes from a browser with nothing to send, so a gate would break
   every host that embeds it. Both methods now carry that reasoning where the check is disabled, and
   the OpenAPI no longer promises a `401` neither route sends. What bounds the cost is the edge rate
-  limit in item 6, which covers `/ext-auth/*` and should cover these two on the same terms.
+  limit in item 7, which covers `/ext-auth/*` and should cover these two on the same terms.
 
   `TerminologyServerApplicationSmokeTest.theIntegratedRetrieveRouteIsReachable` asserts reachability
   rather than a status, which matches the decision; it should keep doing so.
@@ -308,7 +346,7 @@ Frontend work for the embeddable editor is tracked separately in
   rate-limits per key, and a burnt quota surfaces to users as controlled terms silently not existing,
   because the picker latches its empty cache for the life of the page.
 
-- **6. Rate limit the edge in every environment.** Nothing in CEDAR bounds how often an anonymous
+- **7. Rate limit the edge in every environment.** Nothing in CEDAR bounds how often an anonymous
   caller may spend the deployment's third-party quota. The `/ext-auth/*` routes are the clearest
   case: they proxy seven registries, three of them on credentials the deployment holds, and they
   carry none of their own. `POST /bioportal/integrated-search` and `/bioportal/integrated-retrieve`
@@ -331,7 +369,7 @@ Frontend work for the embeddable editor is tracked separately in
   chosen rates are recorded where the deployment is documented rather than only in the config, and a
   probe shows the limit taking effect.
 
-- **7. Bound the application-log queue, and let its consumer keep up.** Application logging can
+- **8. Bound the application-log queue, and let its consumer keep up.** Application logging can
   consume the host it runs on. The Redis queue has no ceiling, the consumer drains far below what the
   stack produces under load, and nothing removes old rows, so a busy period grows memory without
   limit and degrades every service while it does.
@@ -363,7 +401,7 @@ Frontend work for the embeddable editor is tracked separately in
   Done when a sustained load profile leaves the queue at a bounded depth it recovers from, Redis
   memory flat across the run, and the worker healthy throughout.
 
-- **8. Separate CEDAR dependency convergence from the Keycloak provider platform lock.** The eleven
+- **9. Separate CEDAR dependency convergence from the Keycloak provider platform lock.** The eleven
   apparent test-classpath splits are not eleven candidates for one global version. Re-measuring all
   thirty Maven roots divides them into three different problems, and blindly managing the newer side
   in `cedar-parent` would make the Keycloak event listener compile against libraries its server does
@@ -410,7 +448,7 @@ Frontend work for the embeddable editor is tracked separately in
   prove that Keycloak loads the packaged provider or that a deployed admin operation reaches the
   configured realm.
 
-- **9. Retire routine `CEDAR_VERSION_MODIFIER` cache busting.** Frontend code identity now comes
+- **10. Retire routine `CEDAR_VERSION_MODIFIER` cache busting.** Frontend code identity now comes
   from the source commit in the three AngularJS RequireJS keys and from content-hashed production
   bundles in the modern Angular applications. A deployment should not need a hand-edited modifier
   merely to make a new code revision visible. Keep the variable temporarily as a compatibility
@@ -437,7 +475,7 @@ Frontend work for the embeddable editor is tracked separately in
   cache token, the cache-delivery smoke passes in staging and production, and rollback works by
   restoring payloads and routing without inventing a new modifier.
 
-- **10. Converge on one pagination encoding.** Three servers paginate three ways, and all three build
+- **11. Converge on one pagination encoding.** Three servers paginate three ways, and all three build
   on the same `PagedResults` and `LinkHeaderUtil`, so nothing forces the split. The artifact server
   sends `Link` and `Total-Count` as headers and keeps the body to the collection. The resource server
   computes the same link set and puts it in the body under `paging`
@@ -469,7 +507,7 @@ Frontend work for the embeddable editor is tracked separately in
   REST smoke asserts it on a route from each of the three servers, and the superseded encodings are
   either withdrawn or carry a recorded date for withdrawal.
 
-- **11. Bound every outbound call by what the call actually is, and measure before choosing the
+- **12. Bound every outbound call by what the call actually is, and measure before choosing the
   numbers.** Two classes of outbound call are distinguished today, interactive and batch, each with a
   fixed connect, lease and response timeout and its own connection pool. That covers the difference
   between a call a user waits on and a job nobody waits on. It does not cover the difference between
@@ -538,7 +576,7 @@ Frontend work for the embeddable editor is tracked separately in
   Done when each class of outbound call takes its timeouts from configuration, the request log carries
   durations, the compensating write is durable, and the remaining clients read the same settings.
 
-- **12. Test operational CLI code on both macOS and Linux.** `cedarcli` is the control surface for
+- **13. Test operational CLI code on both macOS and Linux.** `cedarcli` is the control surface for
   developer workstations and Unix servers, but operational paths can still be exercised only on the
   platform where a change was written. Put its Python tests and the non-destructive `ops/` controller
   tests in a macOS/Linux CI matrix. Give OS-specific process discovery, port ownership, service-manager
@@ -548,9 +586,38 @@ Frontend work for the embeddable editor is tracked separately in
   runners, every deliberately platform-specific command has a contract test for each supported OS, and
   a change to shared operational code cannot merge after passing on only the author's platform.
 
+- **14. Stop an interactive dev server from killing a build train, and report a killed step as
+  killed.** `cedarcli build` compiles each frontend in the developer's own working copy, where an
+  `ng serve` may already be running against that same copy. Both open the same Angular disk cache,
+  the LMDB environment at `.angular/cache/<version>/<project>/angular-compiler.db`. The second
+  process to open it fails, and `lmdb` 3.5.6 frees an unallocated pointer on that failure path and
+  calls `abort()`, so the build dies on `SIGABRT` having compiled nothing. npm re-raises the signal,
+  and the train reports `Return code: -6` with no further output. Three repositories are exposed:
+  the Angular 22 builds in `cedar-embeddable-editor`, `cedar-embeddable-designer` and
+  `cedar-component-demo/cedar-cee-demo-angular-src`. The Angular 15 and 16 frontends use a builder
+  that keeps no such cache. Observed 2026-09-02: a dev server started at 15:09 aborted the 16:45
+  train, the cache file proved intact when opened alone, and the same build succeeded with the cache
+  disabled.
+
+  Separate the build train's cache from any interactive one. `@angular/build` skips the disk cache
+  when `CI` is set, so the frontend build steps can set it, at the cost of a cold compile of a few
+  seconds per repository. A dedicated `cli.cache.path` for the train avoids the contention instead
+  and keeps incremental compilation. Either way, whether a developer happens to be serving a
+  frontend must not decide whether the train completes.
+
+  Report signals as signals. A step killed by `SIGABRT`, `SIGKILL` or `SIGSEGV` currently reaches
+  the operator as a negative return code that names neither the signal nor the reason, and a native
+  crash writes its only evidence to the platform's crash reporter rather than to the build log. Name
+  the signal, state that the step produced no diagnostic output of its own, and point at the crash
+  report directory for the host platform. The same gap hides every other native crash a build step
+  can suffer, so fix the reporting whether or not the cache changes.
+
+  Done when a frontend train completes with a dev server running against the same working copy, and a
+  signal-killed step names its signal and the location of its evidence in the CLI's own output.
+
 ## Production data
 
-- **13. Normalize production artifacts to one explicit model contract.** Production contains several
+- **15. Normalize production artifacts to one explicit model contract.** Production contains several
   legacy representations that the current model surfaces tolerate or normalize differently, so bring
   them to canonical shapes before tightening readers or introducing terminology routing across source
   systems. The permission-scoped audit found 76 inherently-multiple fields deployed as JSON objects in
@@ -710,7 +777,7 @@ Frontend work for the embeddable editor is tracked separately in
 
 ## Later decisions
 
-- **14. A published artifact can be deleted, contradicting the docs.** The docs say a published
+- **16. A published artifact can be deleted, contradicting the docs.** The docs say a published
   artifact is permanent, but `DELETE` on one succeeds. The guard in
   `AbstractResourceServerResource.executeArtifactDelete` was briefly re-enabled and then **reverted by
   deliberate decision**: blocking deletion strands published artifacts and the folders holding them with
@@ -721,7 +788,7 @@ Frontend work for the embeddable editor is tracked separately in
   through folder deletion). Immutability of published content is a separate guarantee and is
   unaffected either way — that one is enforced.
 
-- **15. Finish the DataCite DOI minting lifecycle.** The durable lifecycle is what makes the operation
+- **17. Finish the DataCite DOI minting lifecycle.** The durable lifecycle is what makes the operation
   recovery-safe, and none of it exists yet. Minting persists no state of its own: draft/reserved,
   published and locally attached are recorded nowhere, so the `reconciliationRequired` response names a
   condition no code resolves, and a retry after a timeout cannot tell whether the earlier attempt
