@@ -469,7 +469,16 @@ start_one() {
     # launchctl's -o/-e files append by default; retain the old nohup launcher's one-log-per-run
     # behavior so status does not attribute an earlier process's errors to the current binary.
     : > "$log"
-    launchctl submit -l "$label" -o "$log" -e "$log" -- /bin/bash "$SCRIPT_PATH" run-one "$name" || return 1
+    # launchd starts a submitted job from its own environment and not this shell's, so the child
+    # arrives with no CEDAR variables at all and loads the profile for itself. Name which one it
+    # is, since nothing may guess that on the host's behalf.
+    if [ -z "${CEDAR_PROFILE:-}" ]; then
+      echo "  $name: CEDAR_PROFILE is not set, and launchd cannot inherit this shell's environment" >&2
+      return 1
+    fi
+    launchctl submit -l "$label" -o "$log" -e "$log" -- /bin/bash -c \
+      'export CEDAR_HOME="$1" CEDAR_PROFILE="$2"; exec "$3" run-one "$4"' \
+      cedar-launchd-run "$CEDAR_HOME" "$CEDAR_PROFILE" "$SCRIPT_PATH" "$name" || return 1
     p=""
     for attempt in 1 2 3 4 5; do
       p=$(launchd_job_pid "$name")

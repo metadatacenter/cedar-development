@@ -20,6 +20,7 @@ class NativeProcessSafetyTest(unittest.TestCase):
                 **os.environ,
                 "CEDAR_HOME": str(cedar_home),
                 "CEDAR_DEVELOP_HOME": str(DEVELOPMENT),
+                "CEDAR_PROFILE": "develop",
                 "CEDAR_VERSION": "2.9.3-SNAPSHOT",
                 "CEDAR_SERVICES_LIBRARY_ONLY": "true",
             }
@@ -115,8 +116,28 @@ class NativeProcessSafetyTest(unittest.TestCase):
 
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertIn("submit -l org.metadatacenter.cedar.native.group", result.stdout)
-        self.assertIn(f"-- /bin/bash {SCRIPT} run-one group", result.stdout)
+        self.assertIn("-- /bin/bash -c", result.stdout)
+        self.assertIn('exec "$3" run-one "$4"', result.stdout)
+        self.assertIn(f"develop {SCRIPT} group", result.stdout)
         self.assertIn("started group (pid 4242)", result.stdout)
+
+    def test_macos_start_refuses_a_job_launchd_would_start_without_a_profile(self):
+        """launchd hands a submitted job its own environment, so an unnamed profile is fatal."""
+        result = self.run_library(
+            'unset CEDAR_PROFILE; '
+            'base="$CEDAR_HOME/cedar-group-server/cedar-group-server-application"; '
+            'mkdir -p "$base/target" "$base/src/main/resources"; '
+            'touch "$base/target/cedar-group-server-application-$CEDAR_VERSION.jar"; '
+            'touch "$base/src/main/resources/config.yml"; '
+            'port_open() { return 1; }; uname() { echo Darwin; }; '
+            'remove_launchd_job() { return 1; }; launchd_job_pid() { echo 4242; }; '
+            'launchctl() { printf "%s\\n" "$*"; }; '
+            'start_one group'
+        )
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("CEDAR_PROFILE is not set", result.stderr)
+        self.assertNotIn("submit -l", result.stdout)
 
     def test_stop_removes_a_launchd_job_and_its_pidfile(self):
         result = self.run_library(
