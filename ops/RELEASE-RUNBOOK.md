@@ -40,6 +40,15 @@ The CEE version bases need not match. A train may already have advanced to the n
 base after the public package was cut, so eligibility comes from the tarball proof rather than from
 version-name similarity.
 
+The proof permits only named, source-bound non-executable differences. Besides package channel
+metadata and the declared version, model identity, load trace, and release changelog entry, this
+includes CEE's exact `allowScripts` install policy when Angular has embedded the root `package.json`
+into the bundle. The planner reads that policy from `package.json` at the CEE commit captured by the
+train, requires its minified literal exactly once in the development bundle, and removes only those
+bytes before comparison. An undeclared policy, a malformed entry, a second occurrence, or any
+adjacent JavaScript change still fails the byte proof. This keeps npm's build/install allowlist from
+forcing a new public CEE release while preserving the rule that executable changes do.
+
 ## What Plan Checks
 
 `plan` and `start` run the identical complete gate, so a release cannot begin from a state `plan`

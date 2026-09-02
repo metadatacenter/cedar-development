@@ -548,9 +548,27 @@ Frontend work for the embeddable editor is tracked separately in
   runners, every deliberately platform-specific command has a contract test for each supported OS, and
   a change to shared operational code cannot merge after passing on only the author's platform.
 
+- **13. Make exact-commit GitHub CI probes tolerant of indexing delay and transient API failures.**
+  The push-to-train handoff on 2026-09-02 observed both shapes against the same green CEE commit: an
+  immediate exact-SHA run query returned no runs, the next API request returned HTTP 502, and seconds
+  later the run was visible and passed its prepare job plus all four browser shards. Today the hosted
+  train preflight treats an empty run list and any HTTP error as a final verdict, while release plan
+  similarly reports the exact-source CI state as unreadable. That is fail-fast in the wrong place: the
+  source has no verdict yet, but the operator is told it has no CI evidence.
+
+  Put the exact-source CI query in the local `cedarcli publish train` preflight as well as retaining
+  the hosted repetition. Give both train and release probes one shared bounded policy: retry network
+  failures, timeouts and HTTP 502/503/504; allow a short indexing grace when a captured commit with a
+  workflow has no run; and print the repository, short SHA, attempt and remaining wait. Never retry an
+  authentication or authorization refusal, a completed red conclusion, a malformed response, or a
+  persistently absent run. A queued or running check remains a semantic refusal with the exact run URL
+  and a command to watch it, rather than being waited on for the duration of CI. Cover empty-to-visible,
+  502-to-success, persistent-empty, pending, red and 401/403 cases in both controller test suites. No
+  new operator parameter is needed.
+
 ## Production data
 
-- **13. Normalize production artifacts to one explicit model contract.** Production contains several
+- **14. Normalize production artifacts to one explicit model contract.** Production contains several
   legacy representations that the current model surfaces tolerate or normalize differently, so bring
   them to canonical shapes before tightening readers or introducing terminology routing across source
   systems. The permission-scoped audit found 76 inherently-multiple fields deployed as JSON objects in
@@ -710,7 +728,7 @@ Frontend work for the embeddable editor is tracked separately in
 
 ## Later decisions
 
-- **14. A published artifact can be deleted, contradicting the docs.** The docs say a published
+- **15. A published artifact can be deleted, contradicting the docs.** The docs say a published
   artifact is permanent, but `DELETE` on one succeeds. The guard in
   `AbstractResourceServerResource.executeArtifactDelete` was briefly re-enabled and then **reverted by
   deliberate decision**: blocking deletion strands published artifacts and the folders holding them with
@@ -721,7 +739,7 @@ Frontend work for the embeddable editor is tracked separately in
   through folder deletion). Immutability of published content is a separate guarantee and is
   unaffected either way — that one is enforced.
 
-- **15. Finish the DataCite DOI minting lifecycle.** The durable lifecycle is what makes the operation
+- **16. Finish the DataCite DOI minting lifecycle.** The durable lifecycle is what makes the operation
   recovery-safe, and none of it exists yet. Minting persists no state of its own: draft/reserved,
   published and locally attached are recorded nowhere, so the `reconciliationRequired` response names a
   condition no code resolves, and a retry after a timeout cannot tell whether the earlier attempt
