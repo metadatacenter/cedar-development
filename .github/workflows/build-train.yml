@@ -25,6 +25,8 @@ concurrency:
 env:
   TRAIN_VERSION: ${{ inputs.version }}
   CEDAR_DOCKER_REGISTRY_HOST: nexus.bmir.stanford.edu
+  # Dependency install scripts are reviewed and version-pinned in each owning package.json.
+  NPM_CONFIG_STRICT_ALLOW_SCRIPTS: "true"
 
 jobs:
   publish-maven:
@@ -82,6 +84,15 @@ jobs:
           fi
           python3 controller/ops/build_train.py prepare \
             "${args[@]}" \
+            --workspace "$TRAIN_WORKSPACE" \
+            --state "$TRAIN_STATE"
+
+      - name: Preflight every train source and publication target
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 controller/ops/build_train.py preflight \
+            --version "$TRAIN_VERSION" \
             --workspace "$TRAIN_WORKSPACE" \
             --state "$TRAIN_STATE"
 

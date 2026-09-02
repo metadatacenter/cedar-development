@@ -35,16 +35,24 @@ write repository contents. The workflow uses that permission only for the dedica
 
 ## Create a train
 
-Run the side-effect-free preflight from a configured CEDAR shell first:
+Optionally rehearse the side-effect-free local preflight from a configured CEDAR shell:
 
 ```bash
 cedarcli publish train --dry-run
 ```
 
-This allocates a prospective ID, checks GitHub CLI authentication and the workflow on `develop`,
-rejects an existing train ID, validates that the source-capture and TypeScript model → CEE →
-frontend configurations agree, and prints the exact dispatch command. It does not start GitHub
-Actions, publish an artifact, or write a manifest.
+This displays a prospective, non-reserved ID and runs the same local gate as a real dispatch. A
+later real dispatch allocates again and can therefore receive the next minute's ID. It validates the
+Maven, TypeScript model → CEE → frontend, and 31-image Docker configuration as one contract; checks
+GitHub CLI authentication and the workflow on `develop`; requires the train slot to be idle;
+rejects a colliding ID; rejects dirty or unpushed source; and requires every checked-out source
+repository's `develop` to equal the live remote `develop`. It also runs the same read-only
+publication-target probe as hosted preflight: Nexus service and writable status, the
+`cedar-maven-dev` repository root, npm identity, and Docker Registry v2 authentication. Credentials
+come from `BMIR_NEXUS_USERNAME`/`BMIR_NEXUS_PASSWORD` when present, otherwise from the
+`bmir-nexus-releases` server in `~/.m2/settings.xml`; no extra option is needed. It then prints the
+exact dispatch command. It does not start GitHub Actions, publish an artifact, alter Docker or npm
+client configuration, or write a manifest.
 
 Then create the train:
 
@@ -52,25 +60,53 @@ Then create the train:
 cedarcli publish train
 ```
 
+The real command repeats that complete local preflight; `--dry-run` is a useful rehearsal, not a
+safety step the operator can accidentally omit. No additional parameter opts into these checks.
 The CLI reads the next version from `cedar-parent`, adds the current UTC minute, and dispatches the
 `cedar-development` workflow. The train ID is allocated automatically; operators do not choose it.
-On a successful dispatch, the CLI prints two views. Use the major-stage summary when the GitHub
-matrix detail obscures the overall state:
+On a successful dispatch, the CLI prints two views. Use the compact watcher when the GitHub matrix
+detail obscures the overall state:
 
 ```bash
-cedarcli publish train-status <TRAIN_ID>
+cedarcli publish train-status <TRAIN_ID> --watch
 ```
 
-For a blocking step-level view, it also prints the exact workflow run URL and command using that
-run ID:
+It reports Maven, all three npm stages, the Docker plan, compact completed/running/queued/failed
+counts for the 31-image matrix, and final verification. During a long unchanged stage it prints a
+quiet one-minute heartbeat with the active job/step and elapsed time. Without `--watch`, the same command is a
+one-shot status and recovery decision. For GitHub's full step log, the dispatch also prints the exact
+workflow run URL and `gh run watch` command using that run ID:
 
 ```bash
 gh run watch <RUN_ID> --repo metadatacenter/cedar-development --compact --exit-status
 ```
 
-The workflow first records the exact `develop` commit of every Java, npm, frontend, Docker, CLI,
-and orchestration repository. It then builds Maven in the dependency order already encoded by the
-CEDAR reactors:
+The workflow first captures the exact `develop` commit of every Java, npm, frontend, Docker, CLI,
+and orchestration repository. Before it records train state or starts Maven, a hosted preflight
+validates every captured file and the complete cross-repository configuration, requires green CI
+for each exact source commit that defines a workflow, verifies every required build surface, and
+requires `IMAGE_VERSION`, `CEDAR_MAVEN_VERSION`, and
+`CEDAR_APPLICATION_VERSION` in the captured Docker defaults to equal the train's source snapshot.
+It authenticates to Nexus, proves writable status, and reads the `cedar-maven-dev` repository
+root, then reads npm's `/-/whoami` endpoint and completes the Docker Registry v2 token challenge.
+These are HTTP reads: preflight does not run `docker login`/`logout` or change runner credentials.
+The train repository uses a Release version policy, so artifact-level `maven-metadata.xml` is not
+expected and is not a valid health probe there. A
+repository with no workflow has no CI contract to query, so the gate names it and relies on the
+train's own build gates. This hosted check uses the workflow's existing secrets and requires no
+new CLI parameter.
+
+The configuration also binds every npm install surface to the SHA-256 of the reviewed lockfile and
+records the advisory counts observed by the last successful baseline train. A changed dependency
+graph stops in preflight and names the repository and lockfile; review `npm audit`, update the
+counts and digest deliberately, and rerun. This is a no-silent-regression gate, not a claim that the
+legacy AngularJS build-time graphs contain no advisories. CEE's shipped dependency audit remains a
+separate blocking zero-vulnerability gate. npm 11 install scripts are similarly explicit: each
+required package/version is pinned in `allowScripts`, and the train enables
+`strict-allow-scripts`, so a newly introduced lifecycle script fails instead of merely warning.
+
+Only after that gate passes does the workflow record the immutable source manifest. It then builds
+Maven in the dependency order already encoded by the CEDAR reactors:
 
 1. `cedar-parent`
 2. `cedar-libraries` and its six library repositories
@@ -160,21 +196,37 @@ now resolves to different registry content is rejected before any service starts
 
 ## Resume a failed train
 
+Start with the status command. It names the failed job and step when GitHub exposes one, links the
+workflow, reports which publication completions are recorded, and prints the recovery decision:
+
+```bash
+cedarcli publish train-status <TRAIN_ID>
+```
+
+- No source record means publication could not have started: create a new train ID.
+- A source record with incomplete publication is resumable when source and train configuration stay
+  unchanged. If the correction changes either, commit it and create a new train instead.
+- A Docker completion record means the train is complete: neither resume nor abandon it.
+
+Train state has no abandon operation. An incomplete immutable ID remains useful evidence of what was
+attempted; it cannot block a later ID.
+
 Inspect the resume without dispatching it:
 
 ```bash
 cedarcli publish train --resume <TRAIN_ID> --dry-run
 ```
 
-The preflight requires the immutable source manifest and reports the first incomplete stage. Then
-resume it:
+The preflight requires the immutable source manifest, repeats the applicable local source and
+configuration checks, and reports the first incomplete stage. Then resume it:
 
 ```bash
 cedarcli publish train --resume <TRAIN_ID>
 ```
 
 Resume requires `trains/<TRAIN_ID>.json` on the `build-trains` branch and checks out the commits in that
-manifest—not whatever is now at the head of `develop`. Identical Maven files already present in
+manifest—not whatever is now at the head of `develop`. The hosted exact-source, credential,
+registry, and configuration preflight runs again before the workflow continues. Identical Maven files already present in
 Nexus are accepted; missing files are uploaded. When Maven publication is already complete, resume
 skips it and continues with npm and Docker. npm artifacts are accepted only when their `gitHead`,
 integrity, and tarball bytes match the recorded graph. A Docker tag already present is accepted only
@@ -183,6 +235,22 @@ failure.
 
 Use a new train rather than resume when you want to include a source change. A train ID always means
 one fixed commit set.
+
+## Publication-target canary
+
+`publication-preflight-canary.yml` runs the same read-only Nexus, Maven, npm, and Docker probe every
+day and on manual dispatch. A failure opens or updates the issue **Build-train publication preflight
+is failing**; recovery closes it. This is an early warning for expired credentials, an unavailable
+registry, or a repository-shape change. Pull-back verification remains part of every real train: npm
+tarballs are compared by integrity and SHA-256, existing Maven paths by content hash/bytes, and all 31
+Docker images by recorded registry digest and provenance labels. A green canary proves reachability
+and authentication, not artifact identity.
+
+Server jars are fetched in a pinned official Maven builder stage and only the resulting jar and
+configuration cross into the UBI runtime. The 15 server builds therefore do not install Maven with
+`microdnf`. This also avoids repeating libdnf's RHEL 9.7 OpenPGP-v6 warning for Red Hat's retained
+post-quantum signing key; the two UBI base builds may still show the upstream warning while Red Hat's
+multisignature plugin is unavailable in the minimal UBI repositories. Do not remove that key.
 
 ## What the state branch contains
 
@@ -274,3 +342,43 @@ A credentials preflight failure means the organization secrets have not been sha
 `cedar-development`, or their Nexus account lacks access to `cedar-maven-dev`. A failure when
 pushing the state branch means Actions does not have write permission. Maven compilation failures
 need a source fix and a new train; transient upload failures can use `--resume`.
+
+### CEE source CI cannot install its pinned model package
+
+A CEE source check can fail before a train with an npm 404 for an exact
+`@org.metadatacenter/cedar-model-typescript-library` development tarball. A valid lockfile does not
+prove that Nexus still retains every tarball it names: CEE's root and visual manifests may still
+pin a package from an older development train after cleanup has removed that package. Do not
+re-publish bytes under the missing immutable version and do not replace the dependency with an npm
+tag.
+
+Choose an appropriate completed train whose model package is still present. Its byte-verified
+identity is recorded on the `build-trains` branch; read the version rather than guessing it:
+
+```bash
+gh api \
+  -H 'Accept: application/vnd.github.raw+json' \
+  'repos/metadatacenter/cedar-development/contents/npm/model/completed/<COMPLETED_TRAIN>.json?ref=build-trains' \
+  --jq '.package.version'
+```
+
+Pin that recorded version in both dependency surfaces and regenerate both locks with Node 24.19.0:
+
+```bash
+cd $CEDAR_HOME/cedar-embeddable-editor
+npm install --package-lock-only --ignore-scripts --no-audit --no-fund --save-exact \
+  cedar-model-typescript-library@npm:@org.metadatacenter/cedar-model-typescript-library@<RECORDED_MODEL_VERSION>
+npm --prefix visual install --package-lock-only --ignore-scripts --no-audit --no-fund --save-exact \
+  cedar-model-typescript-library@npm:@org.metadatacenter/cedar-model-typescript-library@<RECORDED_MODEL_VERSION>
+
+NPM_CONFIG_STRICT_ALLOW_SCRIPTS=true npm ci --no-audit --no-fund
+NPM_CONFIG_STRICT_ALLOW_SCRIPTS=true npm --prefix visual ci --no-audit --no-fund
+```
+
+Review the resulting dependency graphs, then update the corresponding root and visual SHA-256
+entries—and the recorded advisory counts if they changed—in
+`cedar-development/ops/frontend-train.json`. `cedarcli publish train --dry-run` must pass the local
+lock-baseline check, and the pushed CEE commit must pass its complete CI workflow before dispatch.
+This correction changes captured source, so create a new train ID; never resume an immutable train
+to incorporate it. The new train will still replace this source-development pin in its disposable
+checkout with the model package built and verified by that new train.

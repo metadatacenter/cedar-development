@@ -23,9 +23,15 @@ import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parent
 DEFAULT_CONFIG = ROOT / "build-train.json"
+DEFAULT_FRONTEND_CONFIG = ROOT / "frontend-train.json"
+DEFAULT_DOCKER_CONFIG = ROOT / "docker-train.json"
 TRAIN_RE = re.compile(r"^\d+\.\d+\.\d+-dev\.\d{8}\.\d{4}$")
 MAVEN_NS = "http://maven.apache.org/POM/4.0.0"
 NPM_INPUT_RE = re.compile(r"^export (CEDAR_[A-Z0-9_]+_NPM_VERSION)=(\S+)$", re.MULTILINE)
+NEXUS_HOST = "https://nexus.bmir.stanford.edu"
+NEXUS_MAVEN_TRAIN_REPOSITORY = f"{NEXUS_HOST}/repository/cedar-maven-dev/"
+NEXUS_NPM_REPOSITORY = f"{NEXUS_HOST}/repository/npm-cedar/"
+NEXUS_DOCKER_V2 = f"{NEXUS_HOST}/v2/"
 
 
 def run(arguments: list[str], cwd: Path | None = None, capture: bool = False) -> str:
@@ -47,6 +53,242 @@ def run(arguments: list[str], cwd: Path | None = None, capture: bool = False) ->
 def load_config(path: Path) -> dict:
     with path.open(encoding="utf-8") as stream:
         return json.load(stream)
+
+
+def _unique_strings(value, label: str) -> list[str]:
+    if (
+        not isinstance(value, list) or not value
+        or not all(isinstance(item, str) and item for item in value)
+        or len(value) != len(set(value))
+    ):
+        raise RuntimeError(f"{label} must be a non-empty unique string list")
+    return value
+
+
+def _safe_relative(value, label: str) -> str:
+    if not isinstance(value, str) or not value:
+        raise RuntimeError(f"{label} must be a non-empty relative path")
+    path = Path(value)
+    if path.is_absolute() or ".." in path.parts:
+        raise RuntimeError(f"{label} is not a safe relative path: {value!r}")
+    return value
+
+
+def _require_file(workspace: Path, repository: str, relative: str, label: str) -> Path:
+    path = workspace / repository / _safe_relative(relative, label)
+    if not path.is_file():
+        raise RuntimeError(f"{label} is missing from {repository}: {relative}")
+    return path
+
+
+def validate_audit_baselines(frontend: dict, workspace: Path,
+                             repositories: list[str]) -> int:
+    """Bind reviewed npm advisory counts to the exact dependency graphs that produced them."""
+    baselines = frontend.get("auditBaselines")
+    if not isinstance(baselines, list) or not baselines:
+        raise RuntimeError("frontend train must declare npm audit baselines")
+    seen = set()
+    severities = {"low", "moderate", "high", "critical"}
+    for baseline in baselines:
+        if not isinstance(baseline, dict):
+            raise RuntimeError(f"invalid npm audit baseline: {baseline!r}")
+        repository = baseline.get("repository")
+        if repository not in repositories:
+            raise RuntimeError(
+                f"npm audit baseline repository is absent from source train: {repository}")
+        relative = _safe_relative(baseline.get("lock"), "npm audit baseline lock")
+        identity = (repository, relative)
+        if identity in seen:
+            raise RuntimeError(f"duplicate npm audit baseline: {repository}:{relative}")
+        seen.add(identity)
+        expected = baseline.get("sha256")
+        if not isinstance(expected, str) or not re.fullmatch(r"[0-9a-f]{64}", expected):
+            raise RuntimeError(f"invalid npm audit baseline digest for {repository}:{relative}")
+        counts = baseline.get("vulnerabilities")
+        if (
+            not isinstance(counts, dict) or set(counts) != severities
+            or any(not isinstance(value, int) or value < 0 for value in counts.values())
+        ):
+            raise RuntimeError(f"invalid npm audit counts for {repository}:{relative}")
+        lock = _require_file(workspace, repository, relative, "npm audit baseline lock")
+        actual = hashlib.sha256(lock.read_bytes()).hexdigest()
+        if actual != expected:
+            raise RuntimeError(
+                f"npm dependency graph changed for {repository}:{relative}; expected audit "
+                f"baseline {expected}, found {actual}. Review npm audit and update the "
+                "digest and severity counts before starting a train")
+        if baseline.get("strictInstallScripts", False):
+            manifest = lock.with_name("package.json")
+            if not manifest.is_file():
+                raise RuntimeError(
+                    f"strict install-script manifest is missing for {repository}:{relative}")
+            package = load_config(manifest)
+            policy = package.get("allowScripts")
+            if not isinstance(policy, dict):
+                raise RuntimeError(
+                    f"{repository}:{manifest.relative_to(workspace / repository)} has no "
+                    "allowScripts policy")
+            locked = load_config(lock).get("packages", {})
+            pending = []
+            for installed_path, record in locked.items():
+                if not installed_path or not isinstance(record, dict) \
+                        or not record.get("hasInstallScript"):
+                    continue
+                name = installed_path.rsplit("node_modules/", 1)[-1]
+                version = record.get("version")
+                covered = policy.get(name) is False
+                for key in policy:
+                    prefix = name + "@"
+                    if key.startswith(prefix) and version in {
+                        item.strip() for item in key[len(prefix):].split("||")
+                    }:
+                        covered = True
+                        break
+                if not covered:
+                    pending.append(f"{name}@{version}")
+            if pending:
+                raise RuntimeError(
+                    f"unreviewed npm install scripts in {repository}:{relative}: "
+                    + ", ".join(sorted(pending)))
+    return len(baselines)
+
+
+def validate_configuration(
+    build: dict, frontend: dict, docker: dict, workspace: Path,
+    expected_source_version: str | None = None,
+) -> dict:
+    """Validate every cross-file train contract against the captured source tree."""
+    repositories = _unique_strings(build.get("repositories"), "build repositories")
+    if build.get("organization") != "metadatacenter" or build.get("sourceBranch") != "develop":
+        raise RuntimeError("build train source must be metadatacenter/develop")
+    maven = _unique_strings(build.get("mavenRepositories"), "Maven repositories")
+    if not set(maven).issubset(repositories):
+        raise RuntimeError("Maven repositories must be part of the source repository set")
+    phases = build.get("phases")
+    if not isinstance(phases, list) or not phases:
+        raise RuntimeError("build train must declare Maven phases")
+    phase_names = []
+    for phase in phases:
+        if not isinstance(phase, dict):
+            raise RuntimeError(f"invalid Maven phase: {phase!r}")
+        name = phase.get("name")
+        repository = phase.get("repository")
+        if not isinstance(name, str) or not name or repository not in maven:
+            raise RuntimeError(f"invalid Maven phase: {phase!r}")
+        phase_names.append(name)
+        wrapper = workspace / repository / "mvnw"
+        if not wrapper.is_file() or not os.access(wrapper, os.X_OK):
+            raise RuntimeError(f"Maven wrapper is missing or not executable: {wrapper}")
+    if len(phase_names) != len(set(phase_names)):
+        raise RuntimeError("Maven phase names must be unique")
+    _unique_strings(build.get("requiredArtifacts"), "required Maven artifacts")
+
+    model = frontend.get("model", {})
+    cee = frontend.get("cee", {})
+    model_repository = model.get("repository")
+    cee_repository = cee.get("repository")
+    if (
+        model_repository not in repositories or cee_repository not in repositories
+        or model_repository == cee_repository
+    ):
+        raise RuntimeError("frontend train must declare distinct captured model and CEE repositories")
+    for field in ("sourceManifest", "publishedManifest"):
+        _require_file(workspace, model_repository, model.get(field), f"model {field}")
+    for field in ("sourceManifest", "sourceLock"):
+        _require_file(workspace, cee_repository, cee.get(field), f"CEE {field}")
+    for consumer in cee.get("additionalModelConsumers", []):
+        _require_file(workspace, cee_repository, consumer.get("manifest"), "CEE model manifest")
+        _require_file(workspace, cee_repository, consumer.get("lock"), "CEE model lock")
+
+    frontends = frontend.get("frontends")
+    if not isinstance(frontends, list) or not frontends:
+        raise RuntimeError("frontend train must declare published frontends")
+    for key in ("id", "image", "npmVersionVariable"):
+        values = [item.get(key) for item in frontends if isinstance(item, dict)]
+        if len(values) != len(frontends) or any(not isinstance(item, str) or not item for item in values) \
+                or len(values) != len(set(values)):
+            raise RuntimeError(f"frontend {key} values must be present and unique")
+    for item in frontends:
+        repository = item.get("repository")
+        if repository not in repositories:
+            raise RuntimeError(f"frontend repository is absent from source train: {repository}")
+        package_path = _safe_relative(item.get("packagePath"), "frontend packagePath")
+        _require_file(workspace, repository, f"{package_path}/package.json", "frontend manifest")
+        _require_file(workspace, repository, f"{package_path}/package-lock.json", "frontend lock")
+        consumer = item.get("ceeConsumer")
+        if consumer is not None:
+            if not isinstance(consumer, dict):
+                raise RuntimeError(f"invalid CEE consumer for {repository}")
+            _require_file(workspace, repository, consumer.get("manifest"), "CEE consumer manifest")
+            _require_file(workspace, repository, consumer.get("lock"), "CEE consumer lock")
+        prepared = item.get("preparedBuild")
+        if prepared is not None:
+            directory = workspace / repository / _safe_relative(
+                prepared.get("directory"), "prepared build directory")
+            if not directory.is_dir():
+                raise RuntimeError(f"prepared build directory is missing: {directory}")
+            commands = prepared.get("commands")
+            if not isinstance(commands, list) or not commands or not all(
+                isinstance(command, list) and command and all(
+                    isinstance(part, str) and part for part in command)
+                for command in commands
+            ):
+                raise RuntimeError(f"invalid prepared build commands for {repository}")
+            _safe_relative(prepared.get("output"), "prepared build output")
+    for consumer in frontend.get("additionalCeeConsumers", []):
+        repository = consumer.get("repository")
+        if repository not in repositories:
+            raise RuntimeError(f"additional CEE consumer is absent from source train: {repository}")
+        _require_file(workspace, repository, consumer.get("manifest"), "CEE consumer manifest")
+        _require_file(workspace, repository, consumer.get("lock"), "CEE consumer lock")
+
+    audit_baselines = validate_audit_baselines(frontend, workspace, repositories)
+
+    docker_manifest = workspace / "cedar-docker-build" / "bin" / "cedar-images-base.sh"
+    docker_text = docker_manifest.read_text(encoding="utf-8")
+    if expected_source_version is not None:
+        for variable in (
+            "IMAGE_VERSION", "CEDAR_MAVEN_VERSION", "CEDAR_APPLICATION_VERSION",
+        ):
+            match = re.search(rf"^export {variable}=(\S+)$", docker_text, re.MULTILINE)
+            actual = match.group(1) if match else None
+            if actual != expected_source_version:
+                raise RuntimeError(
+                    f"Docker {variable} is {actual!r}, expected source version "
+                    f"{expected_source_version!r}")
+    docker_inputs = frontend_inputs(workspace)
+    required_inputs = {item["npmVersionVariable"] for item in frontends}
+    required_inputs.add(frontend.get("dockerCeeVersionVariable"))
+    required_inputs.update(item.get("versionVariable") for item in frontend.get("runtimePackages", []))
+    invalid_inputs = sorted(item for item in required_inputs if not isinstance(item, str) or not item)
+    missing_inputs = sorted(set(required_inputs) - set(docker_inputs)) if not invalid_inputs else []
+    if invalid_inputs or missing_inputs:
+        raise RuntimeError(
+            f"Docker npm inputs are invalid or missing: invalid={invalid_inputs}, missing={missing_inputs}")
+
+    groups = docker.get("groups")
+    if not isinstance(groups, dict):
+        raise RuntimeError("Docker train has no image groups")
+    ordered = []
+    for group in ("javaBase", "microserviceBase", "infrastructure", "microservices", "frontends"):
+        images = _unique_strings(groups.get(group), f"Docker {group} images")
+        ordered.extend(images)
+    if len(ordered) != 31 or len(ordered) != len(set(ordered)):
+        raise RuntimeError(f"Docker train must contain 31 unique core images, found {len(set(ordered))}")
+    configured_frontends = {item["image"] for item in frontends}
+    if configured_frontends != set(groups["frontends"]):
+        raise RuntimeError("frontend and Docker train image sets differ")
+    docker_root = workspace / "cedar-docker-build"
+    missing_images = sorted(image for image in ordered if not (docker_root / image).is_dir())
+    if missing_images:
+        raise RuntimeError("Docker build directories are missing: " + ", ".join(missing_images))
+    return {
+        "repositories": len(repositories),
+        "mavenRepositories": len(maven),
+        "frontends": len(frontends),
+        "images": len(ordered),
+        "auditBaselines": audit_baselines,
+    }
 
 
 def validate_train(version: str) -> str:
@@ -286,6 +528,240 @@ def prepare(args: argparse.Namespace) -> None:
     print(f"Prepared {version} from {len(repositories)} exact repository commits.")
 
 
+def _http_failure(label: str, error: urllib.error.HTTPError) -> RuntimeError:
+    """Translate transport-shaped failures into an operator decision."""
+    if error.code == 401:
+        detail = "credentials were rejected"
+    elif error.code == 403:
+        detail = "the authenticated account is not allowed to read this endpoint"
+    elif error.code == 404:
+        detail = "the expected endpoint is absent; the repository or probe contract has changed"
+    elif error.code == 429:
+        detail = "Nexus is rate limiting requests"
+    elif error.code >= 500:
+        detail = "Nexus is unavailable or unhealthy"
+    else:
+        detail = "the endpoint rejected the read-only probe"
+    return RuntimeError(f"{label} failed: {detail} (HTTP {error.code})")
+
+
+def _request(
+    request: urllib.request.Request,
+    label: str,
+    opener=None,
+    allow_unauthorized: bool = False,
+):
+    opener = opener or urllib.request.urlopen
+    try:
+        return opener(request, timeout=60)
+    except urllib.error.HTTPError as error:
+        if allow_unauthorized and error.code == 401:
+            return error
+        failure = _http_failure(label, error)
+        error.close()
+        raise failure from error
+    except (urllib.error.URLError, TimeoutError, OSError) as error:
+        raise RuntimeError(f"{label} failed: cannot reach Nexus ({error})") from error
+
+
+def _authenticated_request(
+    url: str,
+    username: str,
+    password: str,
+    label: str = "Nexus authentication",
+    opener=None,
+) -> bytes:
+    token = base64.b64encode(f"{username}:{password}".encode()).decode()
+    request = urllib.request.Request(url, headers={"Authorization": f"Basic {token}"})
+    with _request(request, label, opener=opener) as response:
+        return response.read()
+
+
+def _docker_registry_preflight(username: str, password: str, opener=None) -> None:
+    """Authenticate to the Docker Registry v2 API without changing Docker config."""
+    basic = base64.b64encode(f"{username}:{password}".encode()).decode()
+    request = urllib.request.Request(
+        NEXUS_DOCKER_V2, headers={"Authorization": f"Basic {basic}"})
+    response = _request(
+        request, "Docker registry authentication", opener=opener, allow_unauthorized=True)
+    if getattr(response, "status", None) != 401:
+        with response:
+            response.read()
+        return
+
+    challenge = response.headers.get("WWW-Authenticate", "")
+    response.close()
+    match = re.match(r'^Bearer\s+(.+)$', challenge, re.IGNORECASE)
+    if not match:
+        raise RuntimeError(
+            "Docker registry authentication failed: Nexus returned no Bearer challenge")
+    parameters = dict(re.findall(r'(\w+)="([^"]*)"', match.group(1)))
+    realm = parameters.get("realm")
+    if not realm or not realm.startswith(f"{NEXUS_HOST}/"):
+        raise RuntimeError(
+            "Docker registry authentication failed: Nexus returned an invalid token endpoint")
+    query = {
+        key: value for key, value in parameters.items()
+        if key in {"service", "scope"} and value
+    }
+    token_url = realm + ("?" + urllib.parse.urlencode(query) if query else "")
+    token_body = _authenticated_request(
+        token_url, username, password, "Docker registry token", opener=opener)
+    try:
+        token_payload = json.loads(token_body)
+    except json.JSONDecodeError as error:
+        raise RuntimeError("Docker registry token failed: Nexus returned invalid JSON") from error
+    bearer = token_payload.get("token") or token_payload.get("access_token")
+    if not isinstance(bearer, str) or not bearer:
+        raise RuntimeError("Docker registry token failed: Nexus returned no access token")
+    authenticated = urllib.request.Request(
+        NEXUS_DOCKER_V2, headers={"Authorization": f"Bearer {bearer}"})
+    with _request(authenticated, "Docker registry authentication", opener=opener) as response:
+        response.read()
+
+
+def publication_target_preflight(environment=None, opener=None) -> None:
+    """Read every publication surface; never upload, log in, or alter client config."""
+    environment = os.environ if environment is None else environment
+    username = environment.get("BMIR_NEXUS_USERNAME")
+    password = environment.get("BMIR_NEXUS_PASSWORD")
+    if not username or not password:
+        raise RuntimeError("BMIR_NEXUS_USERNAME and BMIR_NEXUS_PASSWORD are required")
+
+    probes = (
+        ("Nexus service status", f"{NEXUS_HOST}/service/rest/v1/status/check"),
+        ("Nexus writable status", f"{NEXUS_HOST}/service/rest/v1/status/writable"),
+        # cedar-maven-dev has a Release version policy, so artifact-level
+        # maven-metadata.xml is expected to be absent. Its repository root is the contract.
+        ("Maven train repository root", NEXUS_MAVEN_TRAIN_REPOSITORY),
+    )
+    for label, url in probes:
+        _authenticated_request(url, username, password, label, opener=opener)
+        print(f"OK {label}")
+
+    npm_body = _authenticated_request(
+        f"{NEXUS_NPM_REPOSITORY}-/whoami",
+        username,
+        password,
+        "npm registry authentication",
+        opener=opener,
+    )
+    try:
+        npm_identity = json.loads(npm_body).get("username")
+    except (AttributeError, json.JSONDecodeError) as error:
+        raise RuntimeError("npm registry authentication failed: Nexus returned invalid JSON") from error
+    if not isinstance(npm_identity, str) or not npm_identity:
+        raise RuntimeError("npm registry authentication failed: Nexus returned no username")
+    print(f"OK npm registry authentication ({npm_identity})")
+
+    _docker_registry_preflight(username, password, opener=opener)
+    print("OK Docker registry authentication")
+
+
+def _github_ci_preflight(source: dict, workspace: Path) -> None:
+    token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+    if not token:
+        raise RuntimeError("GH_TOKEN is required for exact-source CI preflight")
+    organization = "metadatacenter"
+    failures = []
+    for repository, revision in sorted(source.get("repositories", {}).items()):
+        workflow_root = workspace / repository / ".github" / "workflows"
+        if not workflow_root.is_dir() or not any(path.is_file() for path in workflow_root.iterdir()):
+            print(f"CI advisory: {repository} has no workflow contract; train gates its outputs.")
+            continue
+        url = (
+            f"https://api.github.com/repos/{organization}/{repository}/actions/runs?"
+            + urllib.parse.urlencode({"head_sha": revision, "per_page": 20})
+        )
+        request = urllib.request.Request(url, headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+        })
+        try:
+            with urllib.request.urlopen(request, timeout=60) as response:
+                payload = json.load(response)
+        except urllib.error.HTTPError as error:
+            failures.append(f"{repository}: CI state returned HTTP {error.code}")
+            continue
+        except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as error:
+            failures.append(f"{repository}: CI state is unreadable ({error})")
+            continue
+        runs = payload.get("workflow_runs", [])
+        if not isinstance(runs, list) or not runs:
+            failures.append(f"{repository}: no CI run for {revision[:8]}")
+            continue
+        # The train workflow is the caller currently performing this check. Counting it would
+        # make cedar-development wait on itself forever (or inherit a previous train failure).
+        runs = [
+            run_record for run_record in runs
+            if not (
+                repository == "cedar-development"
+                and run_record.get("path") == ".github/workflows/build-train.yml"
+            )
+        ]
+        if not runs:
+            print(
+                "CI advisory: cedar-development has no separate source-validation run; "
+                "the train controller is executing its captured code now.")
+            continue
+        latest_by_name = {}
+        for run_record in runs:
+            name = run_record.get("name") or str(run_record.get("workflow_id") or "CI")
+            latest_by_name.setdefault(name, run_record)
+        for name, run_record in latest_by_name.items():
+            status = run_record.get("status")
+            conclusion = run_record.get("conclusion")
+            if status != "completed":
+                failures.append(f"{repository}: {name} is {status or 'pending'}")
+            elif conclusion not in {"success", "skipped", "neutral"}:
+                failures.append(f"{repository}: {name} concluded {conclusion or 'without a result'}")
+    if failures:
+        raise RuntimeError("train source CI is not settled: " + "; ".join(failures))
+
+
+def publication_preflight(args: argparse.Namespace) -> None:
+    version = validate_train(args.version)
+    source_path = args.state / "trains" / f"{version}.json"
+    if not source_path.is_file():
+        raise RuntimeError(f"train {version} has no captured source manifest")
+    source = load_config(source_path)
+    summary = validate_configuration(
+        load_config(args.config),
+        load_config(args.frontend_config),
+        load_config(args.docker_config),
+        args.workspace,
+        source.get("sourceVersion"),
+    )
+    _github_ci_preflight(source, args.workspace)
+
+    publication_target_preflight()
+    print(
+        "Train preflight passed: "
+        f"{summary['repositories']} repositories, {summary['mavenRepositories']} Maven, "
+        f"{summary['frontends']} frontends, {summary['images']} Docker images, "
+        f"{summary['auditBaselines']} reviewed npm lock baselines; "
+        "source CI and all publication credentials are settled."
+    )
+
+
+def local_configuration_preflight(args: argparse.Namespace) -> None:
+    source_version = pom_version(args.workspace / "cedar-parent" / "pom.xml")
+    summary = validate_configuration(
+        load_config(args.config),
+        load_config(args.frontend_config),
+        load_config(args.docker_config),
+        args.workspace,
+        source_version,
+    )
+    print(
+        "Local train configuration passed: "
+        f"{summary['repositories']} repositories, {summary['frontends']} frontends, "
+        f"{summary['images']} Docker images, "
+        f"{summary['auditBaselines']} reviewed npm lock baselines."
+    )
+
+
 def build(args: argparse.Namespace) -> None:
     config = load_config(args.config)
     version = validate_train(args.version)
@@ -346,6 +822,7 @@ def with_retries(what: str, attempt_call):
                 throttled_for = min(THROTTLED_RETRY_DELAY, int(after.strip()))
             elif error.code == 429:
                 throttled_for = THROTTLED_RETRY_DELAY
+            error.close()
         except (urllib.error.URLError, TimeoutError, OSError) as error:
             if attempt == UPLOAD_ATTEMPTS:
                 raise
@@ -548,6 +1025,29 @@ def parser() -> argparse.ArgumentParser:
     prepare_parser.add_argument("--workspace", type=Path, required=True)
     prepare_parser.add_argument("--state", type=Path, required=True)
     prepare_parser.set_defaults(handler=prepare)
+
+    preflight_parser = commands.add_parser("preflight")
+    preflight_parser.add_argument("--version", required=True)
+    preflight_parser.add_argument("--workspace", type=Path, required=True)
+    preflight_parser.add_argument("--state", type=Path, required=True)
+    preflight_parser.add_argument("--frontend-config", type=Path, default=DEFAULT_FRONTEND_CONFIG)
+    preflight_parser.add_argument("--docker-config", type=Path, default=DEFAULT_DOCKER_CONFIG)
+    preflight_parser.set_defaults(handler=publication_preflight)
+
+    local_parser = commands.add_parser(
+        "validate-local",
+        help="Validate the checked-out train configuration without network access",
+    )
+    local_parser.add_argument("--workspace", type=Path, required=True)
+    local_parser.add_argument("--frontend-config", type=Path, default=DEFAULT_FRONTEND_CONFIG)
+    local_parser.add_argument("--docker-config", type=Path, default=DEFAULT_DOCKER_CONFIG)
+    local_parser.set_defaults(handler=local_configuration_preflight)
+
+    target_parser = commands.add_parser(
+        "probe-publication",
+        help="Read-only Nexus, npm, and Docker publication-target preflight",
+    )
+    target_parser.set_defaults(handler=lambda _args: publication_target_preflight())
 
     build_parser = commands.add_parser("build")
     build_parser.add_argument("--version", required=True)

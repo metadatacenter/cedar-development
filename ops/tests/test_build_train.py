@@ -1,9 +1,12 @@
 import hashlib
+import io
 import importlib.util
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
+import urllib.error
 from unittest.mock import patch
 
 
@@ -39,6 +42,77 @@ POM = """<project xmlns="http://maven.apache.org/POM/4.0.0">
 
 
 class BuildTrainTest(unittest.TestCase):
+    @staticmethod
+    def _preflight_fixture(root: Path):
+        workspace = root / "workspace"
+        repositories = ["model", "cee", "frontend", "demo", "cedar-docker-build"]
+        for repository in repositories:
+            (workspace / repository).mkdir(parents=True)
+        wrapper = workspace / "model" / "mvnw"
+        wrapper.write_text("#!/bin/sh\n", encoding="utf-8")
+        wrapper.chmod(0o755)
+        for relative in ("package.json", "package-dist.json", "package-lock.json"):
+            (workspace / "model" / relative).write_text("{}\n", encoding="utf-8")
+        for relative in ("package.json", "package-lock.json", "visual/package.json",
+                         "visual/package-lock.json"):
+            path = workspace / "cee" / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("{}\n", encoding="utf-8")
+        for repository in ("frontend", "demo"):
+            for relative in ("package.json", "package-lock.json"):
+                (workspace / repository / relative).write_text("{}\n", encoding="utf-8")
+        manifest = workspace / "cedar-docker-build" / "bin" / "cedar-images-base.sh"
+        manifest.parent.mkdir()
+        manifest.write_text(
+            "export IMAGE_VERSION=2.9.3-SNAPSHOT\n"
+            "export CEDAR_MAVEN_VERSION=2.9.3-SNAPSHOT\n"
+            "export CEDAR_APPLICATION_VERSION=2.9.3-SNAPSHOT\n"
+            "export CEDAR_FRONTEND_NPM_VERSION=1\n"
+            "export CEDAR_CEE_NPM_VERSION=1\n",
+            encoding="utf-8",
+        )
+        groups = {
+            "javaBase": ["java"],
+            "microserviceBase": ["microservice"],
+            "infrastructure": [f"infra-{index}" for index in range(7)],
+            "microservices": [f"server-{index}" for index in range(21)],
+            "frontends": ["frontend-image"],
+        }
+        for image in (item for values in groups.values() for item in values):
+            (workspace / "cedar-docker-build" / image).mkdir()
+        build = {
+            "organization": "metadatacenter", "sourceBranch": "develop",
+            "repositories": repositories, "mavenRepositories": ["model"],
+            "phases": [{"name": "model", "repository": "model"}],
+            "requiredArtifacts": ["model"],
+        }
+        frontend = {
+            "model": {"repository": "model", "sourceManifest": "package.json",
+                      "publishedManifest": "package-dist.json"},
+            "cee": {"repository": "cee", "sourceManifest": "package.json",
+                    "sourceLock": "package-lock.json", "additionalModelConsumers": [{
+                        "manifest": "visual/package.json", "lock": "visual/package-lock.json",
+                    }]},
+            "frontends": [{
+                "id": "frontend", "image": "frontend-image", "repository": "frontend",
+                "packagePath": ".", "npmVersionVariable": "CEDAR_FRONTEND_NPM_VERSION",
+                "ceeConsumer": {"manifest": "package.json", "lock": "package-lock.json"},
+            }],
+            "additionalCeeConsumers": [{
+                "repository": "demo", "manifest": "package.json", "lock": "package-lock.json",
+            }],
+            "dockerCeeVersionVariable": "CEDAR_CEE_NPM_VERSION",
+            "auditBaselines": [{
+                "repository": "model",
+                "lock": "package-lock.json",
+                "sha256": hashlib.sha256(b"{}\n").hexdigest(),
+                "vulnerabilities": {
+                    "low": 0, "moderate": 0, "high": 0, "critical": 0,
+                },
+            }],
+        }
+        return workspace, build, frontend, {"groups": groups}
+
     def test_train_id_is_strict(self):
         self.assertEqual(
             "2.9.3-dev.20260824.1847",
@@ -47,6 +121,228 @@ class BuildTrainTest(unittest.TestCase):
         for invalid in ("2.9.3-SNAPSHOT", "2.9.3-dev", "2.9.3-dev.20260824.184700"):
             with self.subTest(invalid=invalid), self.assertRaises(ValueError):
                 build_train.validate_train(invalid)
+
+    def test_complete_configuration_contract_passes_before_build(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workspace, build, frontend, docker = self._preflight_fixture(Path(directory))
+            summary = build_train.validate_configuration(
+                build, frontend, docker, workspace, "2.9.3-SNAPSHOT")
+
+        self.assertEqual(31, summary["images"])
+        self.assertEqual(1, summary["frontends"])
+        self.assertEqual(1, summary["auditBaselines"])
+
+    def test_changed_npm_lock_is_an_early_preflight_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workspace, build, frontend, docker = self._preflight_fixture(Path(directory))
+            (workspace / "model" / "package-lock.json").write_text(
+                '{"changed": true}\n', encoding="utf-8")
+            with self.assertRaisesRegex(RuntimeError, "npm dependency graph changed.*model"):
+                build_train.validate_configuration(build, frontend, docker, workspace)
+
+    def test_unreviewed_npm_install_script_is_an_early_preflight_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workspace, build, frontend, docker = self._preflight_fixture(Path(directory))
+            lock = workspace / "model" / "package-lock.json"
+            lock.write_text(json.dumps({
+                "packages": {"node_modules/native-addon": {
+                    "version": "1.2.3", "hasInstallScript": True,
+                }},
+            }) + "\n", encoding="utf-8")
+            baseline = frontend["auditBaselines"][0]
+            baseline["sha256"] = hashlib.sha256(lock.read_bytes()).hexdigest()
+            baseline["strictInstallScripts"] = True
+            (workspace / "model" / "package.json").write_text(
+                '{"allowScripts": {}}\n', encoding="utf-8")
+            with self.assertRaisesRegex(RuntimeError, "unreviewed npm install scripts.*native-addon"):
+                build_train.validate_configuration(build, frontend, docker, workspace)
+
+    def test_missing_maven_wrapper_is_a_preflight_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workspace, build, frontend, docker = self._preflight_fixture(Path(directory))
+            (workspace / "model" / "mvnw").unlink()
+            with self.assertRaisesRegex(RuntimeError, "Maven wrapper"):
+                build_train.validate_configuration(build, frontend, docker, workspace)
+
+    def test_docker_suite_versions_must_match_the_captured_source(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workspace, build, frontend, docker = self._preflight_fixture(Path(directory))
+            manifest = workspace / "cedar-docker-build" / "bin" / "cedar-images-base.sh"
+            manifest.write_text(
+                manifest.read_text(encoding="utf-8").replace(
+                    "CEDAR_MAVEN_VERSION=2.9.3-SNAPSHOT",
+                    "CEDAR_MAVEN_VERSION=2.9.2-SNAPSHOT",
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(RuntimeError, "CEDAR_MAVEN_VERSION"):
+                build_train.validate_configuration(
+                    build, frontend, docker, workspace, "2.9.3-SNAPSHOT")
+
+    def test_exact_source_ci_must_have_a_completed_green_run(self):
+        class Response:
+            def __enter__(self):
+                return io.BytesIO(json.dumps({"workflow_runs": [{
+                "name": "CI", "status": "completed", "conclusion": "cancelled",
+                    "path": ".github/workflows/ci.yml",
+                }]}).encode())
+
+            def __exit__(self, *_args):
+                return False
+
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            workflows = workspace / "repository" / ".github" / "workflows"
+            workflows.mkdir(parents=True)
+            (workflows / "ci.yml").write_text("name: CI\n", encoding="utf-8")
+            source = {"repositories": {"repository": "a" * 40}}
+            with patch.dict(os.environ, {"GH_TOKEN": "token"}, clear=False), \
+                    patch.object(build_train.urllib.request, "urlopen", return_value=Response()):
+                with self.assertRaisesRegex(RuntimeError, "concluded cancelled"):
+                    build_train._github_ci_preflight(source, workspace)
+
+    def test_train_workflow_does_not_block_on_itself(self):
+        class Response:
+            def __enter__(self):
+                return io.BytesIO(json.dumps({"workflow_runs": [{
+                    "name": "Build train", "status": "in_progress", "conclusion": None,
+                    "path": ".github/workflows/build-train.yml",
+                }]}).encode())
+
+            def __exit__(self, *_args):
+                return False
+
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            workflows = workspace / "cedar-development" / ".github" / "workflows"
+            workflows.mkdir(parents=True)
+            (workflows / "build-train.yml").write_text("name: train\n", encoding="utf-8")
+            source = {"repositories": {"cedar-development": "a" * 40}}
+            with patch.dict(os.environ, {"GH_TOKEN": "token"}, clear=False), \
+                    patch.object(build_train.urllib.request, "urlopen", return_value=Response()):
+                build_train._github_ci_preflight(source, workspace)
+
+    def test_exact_source_without_a_workflow_is_advisory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            (workspace / "repository").mkdir()
+            source = {"repositories": {"repository": "a" * 40}}
+            with patch.dict(os.environ, {"GH_TOKEN": "token"}, clear=False), \
+                    patch.object(build_train.urllib.request, "urlopen") as urlopen:
+                build_train._github_ci_preflight(source, workspace)
+            urlopen.assert_not_called()
+
+    def test_publication_preflight_probes_the_release_policy_repository_root(self):
+        version = "2.9.3-dev.20260824.1847"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            state = root / "state"
+            (state / "trains").mkdir(parents=True)
+            (state / "trains" / f"{version}.json").write_text(json.dumps({
+                "sourceVersion": "2.9.3-SNAPSHOT", "repositories": {},
+            }), encoding="utf-8")
+            paths = []
+            for name in ("build", "frontend", "docker"):
+                path = root / f"{name}.json"
+                path.write_text("{}\n", encoding="utf-8")
+                paths.append(path)
+            arguments = type("Arguments", (), {
+                "version": version,
+                "state": state,
+                "workspace": root / "workspace",
+                "config": paths[0],
+                "frontend_config": paths[1],
+                "docker_config": paths[2],
+            })()
+            with patch.dict(os.environ, {
+                "BMIR_NEXUS_USERNAME": "user", "BMIR_NEXUS_PASSWORD": "secret",
+            }, clear=False), \
+                    patch.object(build_train, "validate_configuration", return_value={
+                        "repositories": 1, "mavenRepositories": 1,
+                        "frontends": 1, "images": 31, "auditBaselines": 1,
+                    }), \
+                    patch.object(build_train, "_github_ci_preflight"), \
+                    patch.object(build_train, "publication_target_preflight") as targets:
+                build_train.publication_preflight(arguments)
+
+        targets.assert_called_once_with()
+
+    def test_read_only_target_preflight_uses_real_repository_shapes(self):
+        requests = []
+
+        def authenticated(url, _username, _password, label, opener=None):
+            self.assertIsNone(opener)
+            requests.append((label, url))
+            if label == "npm registry authentication":
+                return json.dumps({"username": "cedar"}).encode()
+            return b""
+
+        with patch.object(build_train, "_authenticated_request", side_effect=authenticated), \
+                patch.object(build_train, "_docker_registry_preflight") as docker:
+            build_train.publication_target_preflight({
+                "BMIR_NEXUS_USERNAME": "user",
+                "BMIR_NEXUS_PASSWORD": "secret",
+            })
+
+        self.assertIn(
+            ("Maven train repository root", build_train.NEXUS_MAVEN_TRAIN_REPOSITORY),
+            requests,
+        )
+        self.assertIn(
+            ("npm registry authentication", build_train.NEXUS_NPM_REPOSITORY + "-/whoami"),
+            requests,
+        )
+        self.assertFalse(any("maven-metadata.xml" in url for _label, url in requests))
+        docker.assert_called_once_with("user", "secret", opener=None)
+
+    def test_preflight_404_names_an_absent_probe_contract(self):
+        def opener(request, timeout):
+            self.assertEqual(60, timeout)
+            raise urllib.error.HTTPError(request.full_url, 404, "not found", {}, None)
+
+        with self.assertRaisesRegex(
+                RuntimeError, "expected endpoint is absent.*HTTP 404"):
+            build_train._authenticated_request(
+                build_train.NEXUS_MAVEN_TRAIN_REPOSITORY,
+                "user",
+                "secret",
+                "Maven train repository root",
+                opener=opener,
+            )
+
+    def test_docker_probe_sends_credentials_without_writing_client_config(self):
+        requests = []
+
+        class Response(io.BytesIO):
+            status = 200
+            headers = {}
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                self.close()
+
+        def opener(request, timeout):
+            self.assertEqual(60, timeout)
+            requests.append(request)
+            return Response(b"{}")
+
+        build_train._docker_registry_preflight("user", "secret", opener=opener)
+
+        self.assertEqual(1, len(requests))
+        self.assertTrue(requests[0].get_header("Authorization").startswith("Basic "))
+
+    def test_publication_canary_runs_only_the_read_only_probe(self):
+        workflow = (
+            Path(__file__).resolve().parents[2]
+            / ".github" / "workflows" / "publication-preflight-canary.yml"
+        ).read_text(encoding="utf-8")
+        self.assertIn("schedule:", workflow)
+        self.assertIn("python3 ops/build_train.py probe-publication", workflow)
+        self.assertNotIn("docker login", workflow)
+        self.assertNotIn("docker logout", workflow)
+        self.assertNotIn("npm publish", workflow)
 
     def test_train_order_compares_numeric_release_components(self):
         self.assertGreater(
@@ -201,6 +497,39 @@ class BuildTrainTest(unittest.TestCase):
                     build_train.upload_file(artifact, "https://nexus/example.jar", "u", "p"),
                 )
             self.assertEqual(1, put.call_count)
+
+    def test_transient_nexus_failure_is_retried_but_content_verdict_is_not_changed(self):
+        attempts = []
+
+        def operation():
+            attempts.append(len(attempts) + 1)
+            if len(attempts) == 1:
+                raise urllib.error.HTTPError(
+                    "https://nexus/example.jar", 503, "unavailable", {}, None)
+            return b"verified"
+
+        with patch.object(build_train.time, "sleep") as sleep:
+            self.assertEqual(b"verified", build_train.with_retries("read artifact", operation))
+        self.assertEqual([1, 2], attempts)
+        sleep.assert_called_once_with(2)
+
+    def test_truncated_nexus_read_is_retried_before_byte_comparison(self):
+        class Response(io.BytesIO):
+            def __init__(self, body, declared):
+                super().__init__(body)
+                self.headers = {"Content-Length": str(declared)}
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                self.close()
+
+        responses = [Response(b"abc", 5), Response(b"abcde", 5)]
+        with patch.object(build_train.urllib.request, "urlopen", side_effect=responses), \
+                patch.object(build_train.time, "sleep") as sleep:
+            self.assertEqual(b"abcde", build_train.remote_bytes("https://nexus/example.jar"))
+        sleep.assert_called_once_with(2)
 
 
 if __name__ == "__main__":

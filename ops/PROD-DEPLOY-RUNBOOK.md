@@ -56,9 +56,10 @@ cedarcli mode       # production must report native
 ```
 
 If this host predates persistent mode selection and reports that no mode is set, run
-`cedarcli mode native` once. Stop if it reports `docker` or `hybrid`; do not change a production
-topology until the deployment using that mode has been identified and stopped through its own
-command surface.
+`cedarcli mode native --profile server` once. The profile is required: it enables certificate
+verification, selects served frontend payloads, and refuses placeholder server secrets. Stop if
+the existing mode reports `docker` or `hybrid`; do not change a production topology until the
+deployment using that mode has been identified and stopped through its own command surface.
 
 ### 1 · Reconcile local state — revert any hot-patches
 Prod can drift from git when someone live-patches the box. Check, and discard working-tree edits so
