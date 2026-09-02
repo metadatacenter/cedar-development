@@ -548,65 +548,9 @@ Frontend work for the embeddable editor is tracked separately in
   runners, every deliberately platform-specific command has a contract test for each supported OS, and
   a change to shared operational code cannot merge after passing on only the author's platform.
 
-- **13. Make exact-commit GitHub CI probes tolerant of indexing delay and transient API failures.**
-  The push-to-train handoff on 2026-09-02 observed both shapes against the same green CEE commit: an
-  immediate exact-SHA run query returned no runs, the next API request returned HTTP 502, and seconds
-  later the run was visible and passed its prepare job plus all four browser shards. Today the hosted
-  train preflight treats an empty run list and any HTTP error as a final verdict, while release plan
-  similarly reports the exact-source CI state as unreadable. That is fail-fast in the wrong place: the
-  source has no verdict yet, but the operator is told it has no CI evidence.
-
-  Put the exact-source CI query in the local `cedarcli publish train` preflight as well as retaining
-  the hosted repetition. Give both train and release probes one shared bounded policy: retry network
-  failures, timeouts and HTTP 502/503/504; allow a short indexing grace when a captured commit with a
-  workflow has no run; and print the repository, short SHA, attempt and remaining wait. Never retry an
-  authentication or authorization refusal, a completed red conclusion, a malformed response, or a
-  persistently absent run. A queued or running check remains a semantic refusal with the exact run URL
-  and a command to watch it, rather than being waited on for the duration of CI. Cover empty-to-visible,
-  502-to-success, persistent-empty, pending, red and 401/403 cases in both controller test suites. No
-  new operator parameter is needed.
-
-- **14. Apply the train's fine-grained npm install policy to release consumer preparation.** Train
-  builds reject an undeclared dependency install script, but the 2.9.6 release preparation only
-  reported pending scripts and continued: OpenView exposed five (`@parcel/watcher`, `@scarf/scarf`,
-  `core-js`, `esbuild` and `fsevents`), the Angular demo exposed five (`@parcel/watcher`, `esbuild`,
-  `fsevents`, `lmdb` and `msgpackr-extract`), and the Ember and React demos each exposed `fsevents`.
-  That makes the same lockfile acceptable in the train and less constrained while building the public
-  release.
-
-  Make `release plan`, `release start` and `release resume` derive the exact `allowScripts` policy from
-  each captured source revision and install with `NPM_CONFIG_STRICT_ALLOW_SCRIPTS=true`, using the same
-  source-bound validation and semantic failure messages as train preflight. Fail during planning or
-  preparation, before any build or publication, and report the consumer and exact package versions
-  whose scripts are undeclared. Add parity tests proving that a lockfile/policy pair receives the same
-  verdict in train and release paths. This is a safety invariant, not a new operator parameter.
-
-  Validate npm configuration once in the same preflight. npm 11 warned on every install in this run
-  that the user's `always-auth`, `email` and malformed `init.author.*` keys will stop working in npm 12;
-  repeating the warnings throughout the release hid the one correction an operator needs. Inspect the
-  effective user configuration without printing credentials, name the configuration file and invalid
-  keys once, and give the command or edit needed to correct them. Treat a setting that changes
-  authentication or publication semantics as a blocker; keep harmless future-version deprecations as
-  one advisory.
-
-- **15. Give releases the train's compact operational progress view.** The 2.9.6 release completed
-  correctly, but its foreground output mixed npm advisory inventories, full `npm pack` file lists,
-  Maven integration logs, embedded service logs and expected HTTP-error tests at a volume too high to
-  supervise. The durable ledger already has the useful shape — phase/task counts, including 39 builds,
-  40 remote integrations, 126 Maven files, 8 publication tasks and acceptance — but an operator must
-  repeatedly invoke `release status` to see it.
-
-  Add a compact `release status --watch` view, or make `release start` and `release resume` render that
-  view by default while retaining raw output in per-task logs. Show the active repository/module, major
-  phase and count, publication byte progress, retry state, workflow or artifact URL, and a short failure
-  tail; print the detailed-log path and keep an explicit verbose mode for live diagnostics. The compact
-  path must not discard evidence, hide a blocked subcheck, or change resume semantics. Exercise it with
-  high-volume subprocess fixtures and assert that both successful progress and the exact failed check
-  remain visible.
-
 ## Production data
 
-- **16. Normalize production artifacts to one explicit model contract.** Production contains several
+- **13. Normalize production artifacts to one explicit model contract.** Production contains several
   legacy representations that the current model surfaces tolerate or normalize differently, so bring
   them to canonical shapes before tightening readers or introducing terminology routing across source
   systems. The permission-scoped audit found 76 inherently-multiple fields deployed as JSON objects in
@@ -766,7 +710,7 @@ Frontend work for the embeddable editor is tracked separately in
 
 ## Later decisions
 
-- **17. A published artifact can be deleted, contradicting the docs.** The docs say a published
+- **14. A published artifact can be deleted, contradicting the docs.** The docs say a published
   artifact is permanent, but `DELETE` on one succeeds. The guard in
   `AbstractResourceServerResource.executeArtifactDelete` was briefly re-enabled and then **reverted by
   deliberate decision**: blocking deletion strands published artifacts and the folders holding them with
@@ -777,7 +721,7 @@ Frontend work for the embeddable editor is tracked separately in
   through folder deletion). Immutability of published content is a separate guarantee and is
   unaffected either way — that one is enforced.
 
-- **18. Finish the DataCite DOI minting lifecycle.** The durable lifecycle is what makes the operation
+- **15. Finish the DataCite DOI minting lifecycle.** The durable lifecycle is what makes the operation
   recovery-safe, and none of it exists yet. Minting persists no state of its own: draft/reserved,
   published and locally attached are recorded nowhere, so the `reconciliationRequired` response names a
   condition no code resolves, and a retry after a timeout cannot tell whether the earlier attempt

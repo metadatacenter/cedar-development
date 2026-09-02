@@ -57,13 +57,16 @@ would have refused. It answers in about a minute what previously took a build ph
 The plan settles four groups of question:
 
 - **The machine can run a release.** Java 17 and Node 24.19.0 are active, `git`, `mvn`, and `npm`
-  are on PATH, Git author name and email are configured, the CEDAR profile is sourced, and there is
-  disk for the train, the attempt tree, and the archives.
+  are on PATH, Git author name and email are configured, the CEDAR profile is sourced, npm's
+  effective user configuration contains no obsolete authentication setting, and there is disk for
+  the train, the attempt tree, and the archives. The npmrc check reads key names only and never
+  prints registry tokens or values.
 - **The source is ready.** Every participating repository—including the independent repositories
   whose CEE wiring the release integrates—is clean and pushed, and the CI run for the exact commit
   the train was built from is green wherever that commit defines a workflow. The immutable source
   also contains every declared wrapper, manifest, lock, build, preserve, version, and Docker stamp
-  input before a long build is allowed to start.
+  input before a long build is allowed to start. Every frontend lifecycle script in the captured
+  lockfiles has an exact true/false `allowScripts` decision.
 - **The writes will be accepted.** Both Nexus credentials are available and authenticate, npm holds an
   identity for CEDAR's Nexus registry, the release version is absent from both Maven and npm target
   namespaces, and each remote accepts dry-run pushes of every ref the release can create: `main`,
@@ -98,6 +101,20 @@ missing, unreadable, queued, or running required check blocks the release; a rep
 source commit defines no workflow is reported as advisory because it has no CI contract. That is
 both the more precise question and the stable one, since a release advances `develop` everywhere at
 once and a run against the new head answers for a commit nobody is releasing.
+
+GitHub may briefly return no run while indexing a just-pushed SHA, and it may transiently return
+502/503/504. The shared train/release probe gives only those cases a bounded retry, naming the
+repository, short SHA, attempt, and delay. Authentication or authorization refusal, malformed data,
+settled red CI, and a persistently absent run fail immediately or at the end of that short grace. A
+queued or running run is not waited through; the refusal carries its workflow URL.
+
+**Frontend installs use the same policy in train and release.** `plan` reads `package.json` and
+`package-lock.json` from each train-captured commit, requires every `hasInstallScript` dependency to
+have an exact true/false `allowScripts` decision, and names any missing package/version before a
+workspace is created. Preparation and both release/next build variants then set
+`NPM_CONFIG_STRICT_ALLOW_SCRIPTS=true`; no release path merely warns and continues. npm user settings
+that npm no longer recognises are reported once in plan rather than on every install. Obsolete
+authentication semantics such as `always-auth` block; harmless author metadata is one advisory.
 
 The Docker source carries three suite selectors: `IMAGE_VERSION`, `CEDAR_MAVEN_VERSION`, and
 `CEDAR_APPLICATION_VERSION`. Plan requires all three to equal the train source version, and release
@@ -194,17 +211,22 @@ keeps its independent publication path. Template Designer also remains independe
 ## Watching and Finishing
 
 ```bash
-cedarcli release status
+cedarcli release status --watch
 ```
 
-The human view is a phase table with completed/total counts. It says `COMPLETE` only at acceptance,
-marks the single next or failed phase, and prints the exact safe commands to run next. During the
-Maven release upload, the running command prints every file as uploaded or already present. After
-each file it also checkpoints completed/total, both disposition counts, and the current path in the
-ledger; a concurrent or post-failure `release status` therefore expands the artifact row with, for
-example, `Maven files 47/126` instead of appearing stuck at `0/8`. Resume rechecks immutable bytes
-and continues safely. Ledgers written by the earlier combined publication phase are interpreted by
-task identity, so their snapshot records do not inflate the release-artifact count.
+`start` and `resume` show compact phase/task progress by default. Full Maven, npm, embedded-service,
+and package output is retained in the attempt's preparation, build, and publication logs instead of
+flooding the terminal; add `--verbose` only when live raw output is useful. The watcher prints on a
+state change and otherwise a quiet one-minute heartbeat with elapsed time, the active task, phase
+counts, Maven file counts, a scheduled transient retry, and the exact terminal failure. Ctrl-C
+stops only the watcher; it remains attached while automatic backoff is in progress.
+
+Without `--watch`, `release status` is a one-shot phase table. It says `COMPLETE` only at acceptance,
+marks the single next or failed phase, and prints the exact safe commands to run next. Every Maven
+file is still checkpointed with completed/total, both disposition counts, and its current path, so
+status can show `Maven files 47/126` instead of appearing stuck at `0/8`. Resume rechecks immutable
+bytes and continues safely. Ledgers written by the earlier combined publication phase are interpreted
+by task identity, so their snapshot records do not inflate the release-artifact count.
 
 Acceptance is the last phase, and it is what makes the release self-proving. It asks, from outside
 the ledger that recorded the work, whether every repository carries the release tag, every remote ref

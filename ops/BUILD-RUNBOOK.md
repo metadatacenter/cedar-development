@@ -44,7 +44,8 @@ cedarcli publish train --dry-run
 This displays a prospective, non-reserved ID and runs the same local gate as a real dispatch. A
 later real dispatch allocates again and can therefore receive the next minute's ID. It validates the
 Maven, TypeScript model → CEE → frontend, and 31-image Docker configuration as one contract; checks
-GitHub CLI authentication and the workflow on `develop`; requires the train slot to be idle;
+GitHub CLI authentication and the workflow on `develop`; checks CI for every exact remote
+`develop` SHA that defines a workflow; requires the train slot to be idle;
 rejects a colliding ID; rejects dirty or unpushed source; and requires every checked-out source
 repository's `develop` to equal the live remote `develop`. It also runs the same read-only
 publication-target probe as hosted preflight: Nexus service and writable status, the
@@ -53,6 +54,15 @@ come from `BMIR_NEXUS_USERNAME`/`BMIR_NEXUS_PASSWORD` when present, otherwise fr
 `bmir-nexus-releases` server in `~/.m2/settings.xml`; no extra option is needed. It then prints the
 exact dispatch command. It does not start GitHub Actions, publish an artifact, alter Docker or npm
 client configuration, or write a manifest.
+
+The exact-SHA CI probe retries only a short GitHub indexing absence and transient network or
+502/503/504 failures. It names the repository, SHA, attempt, and delay. Pending or red CI,
+401/403, malformed data, and a persistently absent run remain early failures; a pending verdict
+includes the workflow URL rather than waiting through CI. The same captured CLI implementation is
+loaded by hosted preflight, so the local rehearsal and runner cannot disagree about the policy.
+Local preflight also inspects npmrc key names once without reading values: an obsolete setting that
+changes authentication semantics blocks, while harmless future-version author-setting warnings are
+reported once.
 
 Then create the train:
 
@@ -104,6 +114,10 @@ legacy AngularJS build-time graphs contain no advisories. CEE's shipped dependen
 separate blocking zero-vulnerability gate. npm 11 install scripts are similarly explicit: each
 required package/version is pinned in `allowScripts`, and the train enables
 `strict-allow-scripts`, so a newly introduced lifecycle script fails instead of merely warning.
+The release uses this same validator and strict environment for every consumer install. When a
+release stamps a version into a tracked root lockfile, it also refreshes that lock's train baseline
+in the release and next-development `frontend-train.json`; the next train therefore does not inherit
+a stale byte digest merely because the release changed the root package version.
 
 Only after that gate passes does the workflow record the immutable source manifest. It then builds
 Maven in the dependency order already encoded by the CEDAR reactors:
