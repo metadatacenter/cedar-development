@@ -342,3 +342,43 @@ A credentials preflight failure means the organization secrets have not been sha
 `cedar-development`, or their Nexus account lacks access to `cedar-maven-dev`. A failure when
 pushing the state branch means Actions does not have write permission. Maven compilation failures
 need a source fix and a new train; transient upload failures can use `--resume`.
+
+### CEE source CI cannot install its pinned model package
+
+A CEE source check can fail before a train with an npm 404 for an exact
+`@org.metadatacenter/cedar-model-typescript-library` development tarball. A valid lockfile does not
+prove that Nexus still retains every tarball it names: CEE's root and visual manifests may still
+pin a package from an older development train after cleanup has removed that package. Do not
+re-publish bytes under the missing immutable version and do not replace the dependency with an npm
+tag.
+
+Choose an appropriate completed train whose model package is still present. Its byte-verified
+identity is recorded on the `build-trains` branch; read the version rather than guessing it:
+
+```bash
+gh api \
+  -H 'Accept: application/vnd.github.raw+json' \
+  'repos/metadatacenter/cedar-development/contents/npm/model/completed/<COMPLETED_TRAIN>.json?ref=build-trains' \
+  --jq '.package.version'
+```
+
+Pin that recorded version in both dependency surfaces and regenerate both locks with Node 24.19.0:
+
+```bash
+cd $CEDAR_HOME/cedar-embeddable-editor
+npm install --package-lock-only --ignore-scripts --no-audit --no-fund --save-exact \
+  cedar-model-typescript-library@npm:@org.metadatacenter/cedar-model-typescript-library@<RECORDED_MODEL_VERSION>
+npm --prefix visual install --package-lock-only --ignore-scripts --no-audit --no-fund --save-exact \
+  cedar-model-typescript-library@npm:@org.metadatacenter/cedar-model-typescript-library@<RECORDED_MODEL_VERSION>
+
+NPM_CONFIG_STRICT_ALLOW_SCRIPTS=true npm ci --no-audit --no-fund
+NPM_CONFIG_STRICT_ALLOW_SCRIPTS=true npm --prefix visual ci --no-audit --no-fund
+```
+
+Review the resulting dependency graphs, then update the corresponding root and visual SHA-256
+entries—and the recorded advisory counts if they changed—in
+`cedar-development/ops/frontend-train.json`. `cedarcli publish train --dry-run` must pass the local
+lock-baseline check, and the pushed CEE commit must pass its complete CI workflow before dispatch.
+This correction changes captured source, so create a new train ID; never resume an immutable train
+to incorporate it. The new train will still replace this source-development pin in its disposable
+checkout with the model package built and verified by that new train.
