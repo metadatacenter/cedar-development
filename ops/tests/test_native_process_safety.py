@@ -139,6 +139,71 @@ class NativeProcessSafetyTest(unittest.TestCase):
         self.assertIn("CEDAR_PROFILE is not set", result.stderr)
         self.assertNotIn("submit -l", result.stdout)
 
+    def test_logs_resolves_the_two_logs_a_service_writes(self):
+        result = self.run_library(
+            'echo "stdout:$(logfile terminology)"; '
+            'echo "appender:$(dropwizard_logfile terminology)"; '
+            'echo "frontend:$(dropwizard_logfile ui-main)"'
+        )
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn("stdout:", result.stdout)
+        self.assertIn("/log/cedar-terminology-server.log", result.stdout)
+        self.assertIn("/log/cedar-terminology-server/dropwizard.log", result.stdout)
+        # A frontend declares no appender, so there is no second log to offer for one.
+        self.assertIn("frontend:\n", result.stdout)
+
+    def test_the_dropwizard_log_is_where_the_service_config_says_it_is(self):
+        """The controller derives this path; each service's config.yml is what actually sets it."""
+        config = (DEVELOPMENT.parent / "cedar-terminology-server"
+                  / "cedar-terminology-server-application"
+                  / "src/main/resources/config.yml")
+        if not config.is_file():
+            self.skipTest("cedar-terminology-server is not checked out beside cedar-development")
+        declared = [line.split("currentLogFilename:")[1].strip()
+                    for line in config.read_text().splitlines()
+                    if "currentLogFilename:" in line]
+
+        result = self.run_library('dropwizard_logfile terminology')
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        derived = result.stdout.strip()
+        expected = declared[0].replace("${CEDAR_HOME}", os.environ.get("CEDAR_HOME", ""))
+        self.assertEqual(Path(expected).name, Path(derived).name)
+        self.assertEqual(Path(expected).parent.name, Path(derived).parent.name)
+
+    def test_logs_refuses_a_service_it_does_not_manage(self):
+        result = self.run_library('follow_log bogus')
+
+        self.assertEqual(2, result.returncode)
+        self.assertIn("unknown service 'bogus'", result.stderr)
+
+    def test_logs_refuses_a_dropwizard_log_no_frontend_writes(self):
+        result = self.run_library('follow_log ui-main --dropwizard')
+
+        self.assertEqual(2, result.returncode)
+        self.assertIn("declares no Dropwizard appender", result.stderr)
+
+    def test_logs_refuses_a_line_count_that_is_not_a_number(self):
+        result = self.run_library('follow_log terminology -n twenty')
+
+        self.assertEqual(2, result.returncode)
+        self.assertIn("--lines takes a number", result.stderr)
+
+    def test_logs_refuses_more_than_the_one_log_it_can_follow(self):
+        result = self.run_library('follow_log terminology user')
+
+        self.assertEqual(2, result.returncode)
+        self.assertIn("follows one service", result.stderr)
+
+    def test_logs_says_which_log_is_missing_rather_than_following_nothing(self):
+        # The harness CEDAR_HOME is empty, so no service has written a log into it.
+        result = self.run_library('follow_log terminology')
+
+        self.assertEqual(1, result.returncode)
+        self.assertIn("has written no log yet at", result.stderr)
+        self.assertIn("cedar-terminology-server.log", result.stderr)
+
     def test_stop_removes_a_launchd_job_and_its_pidfile(self):
         result = self.run_library(
             'echo 4242 > "$(pidfile group)"; '
