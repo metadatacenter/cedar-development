@@ -40,6 +40,80 @@ build, using `cedar-logging-operations-library/db-migrations/2026-07-29-log-capt
 (`ADD ... ALGORITHM=INSTANT`, `CREATE INDEX ... ALGORITHM=INPLACE, LOCK=NONE`). Then the new build's
 hbm2ddl finds everything present and does nothing. Let hbm2ddl create the (new, empty) `agg_*` tables.
 
+### 3a. The rule is about DDL cost, not about indexes (learned the hard way, 2026-09-01)
+The paragraph above named indexes because indexes were what this rollout was adding. **Read the rule
+as: no schema change to a log entity may first be attempted by hbm2ddl at boot.** A *column type
+change* is just as capable of stalling startup, and one duly did.
+
+`a7eaa255` (2026-08-31, cedar-microservice-libraries) widened
+`ApplicationRequestLog.queryParameters` from `varchar(350)` to `@Lob`/`Length.LONG32`, a correct fix
+for a real dead-lettering bug. Its commit message says "hbm2ddl widens the column on the next start"
+— true, and that is the failure. varchar→LONGTEXT is **neither INSTANT nor INPLACE** in InnoDB; it is
+`ALGORITHM=COPY`, a full rebuild of the largest table in CEDAR, which also blocks writes to it.
+
+**Why it takes the servers down rather than merely being slow.** Dropwizard runs the Hibernate
+bundle's schema update **before the Jetty connector binds**. `cedar-monitor-server` (9014) and
+`cedar-worker-server` (9011) are the only two services pointing Hibernate at the log DB, and both
+ship `hbm2ddl.auto=update`. So both sat inside the ALTER with the JVM alive in `ps` and nothing
+listening; nginx answered its own `/errors/502.json`. A *fast* 502 is the signature — connection
+refused, not the 504 a hung-but-listening app gives. They also attempt the same ALTER concurrently
+and contend on the metadata lock, each extending the other's outage. Observed down 23:19 UTC,
+back by 01:29 UTC, recovering untouched when the rebuild finished.
+
+**This is the hole in §0.** "No CEDAR app path reads it synchronously, so CEDAR stays up" holds for
+*runtime writes* — it does not hold for *boot*. Monitor and worker cannot start without this DB.
+Heavy log-DB work is still safe while they are already running; it is deploys and restarts that are
+exposed.
+
+**Staging cannot catch this.** Identical code, identical config — the only variable is row count, and
+staging's `log_request` is small. Any log-entity DDL is therefore prod-only risk by construction.
+
+### 3b. Cost model before you touch a log entity
+Two measured points, both on these tables:
+
+| Date | Table | Data age | COPY cost |
+|---|---|---|---|
+| 2026-07-28 | `log_cypher` (pre-rename) | years | 14% in ~2.5h → est. **13–18h** |
+| 2026-09-01 | `log_request` (current) | ~5 weeks | **≤ ~2h** |
+
+The 2026-09-01 rebuild was cheap only because the 2026-07-28 rename recreated the table empty.
+Extrapolating that rate: ~6 months ≈ 10h, ~1 year ≈ 20h, ~2 years ≈ **1.7 days**. Every unpruned
+month adds roughly 25 minutes to the next rebuild.
+
+**Disk.** `ALGORITHM=COPY` materialises a complete second copy (`#sql-*.ibd`) beside the original
+before swapping, so peak usage is **table + full rebuild + undo/redo**. Free space must exceed the
+current size of the table. Running out fails the ALTER and rolls back — the original survives, as the
+killed 2026-07-28 copy proved — but a full volume takes `cedr-prd-db-01` down with it. Check the
+headroom ratio *before* the deploy, not after:
+
+```sql
+SELECT table_name,
+       ROUND(data_length/1073741824,2)                    AS data_gb,
+       ROUND(index_length/1073741824,2)                   AS idx_gb,
+       ROUND((data_length+index_length)/1073741824,2)     AS total_gb,
+       table_rows
+FROM information_schema.tables
+WHERE table_schema='cedar_log_production'
+ORDER BY data_length+index_length DESC;
+-- then, on the host:  df -h "$(mysql -N -e 'SELECT @@datadir')"
+```
+
+Note the `*_pre284` tables are still holding the pre-2026-07-28 history and are consuming exactly the
+headroom a rebuild needs. Dropping them (§7) is now a disk-safety measure, not only a tidy-up.
+
+### 3c. Checklist for any change to a log entity
+1. Diff the entity and ask what DDL Hibernate will infer — column adds are usually INSTANT; **type
+   changes, widening into LOB, AUTO_INCREMENT and indexes are not**.
+2. Confirm the algorithm rather than assuming: run the `ALTER` with `ALGORITHM=INSTANT` (or
+   `INPLACE, LOCK=NONE`) explicitly and let MySQL reject it if unsupported.
+3. If only COPY is possible, do **not** deploy and let boot discover it. Either apply it by hand
+   off-peak in tmux with monitor and worker stopped, or use the 2026-07-28 escape hatch —
+   `RENAME TABLE` to `*_preNNN` and let hbm2ddl create a fresh empty table (instant, metadata only;
+   this is what brought prod back in minutes instead of ~13h).
+4. Verify the headroom query above before starting.
+5. Watch progress: `SELECT stage, work_completed, work_estimated FROM
+   performance_schema.events_stages_current;`
+
 ## 4. Order of jobs — live first, then backfill (safe; your intuition addressed)
 You asked if starting the live aggregator before the history backfill intermixes/loses precision. **It
 does not.** Live covers post-2026-07-28 days; backfill covers pre-2026-07-28 history — **disjoint hour
