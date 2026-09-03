@@ -247,20 +247,27 @@ commit that opened it.
    current reproduction or an explicit disposition, and GitHub and this roadmap no longer carry
    contradictory backlogs.
 
-10. **Bring the widgets the read-write audit did not reach up to the same footing.**
+10. **Finish the widget coverage the read-write audit started.**
     The September 2026 audit fixed thirteen defects in the code that presents and reads
-    values, and every one of them sat in a layer no test stage was watching. Three stages
-    now divide that work explicitly — see "Which stage sees a widget defect" in the
-    [runbook](CEE-RUNBOOK.md) — and two table-driven specs state the invariants the widget
-    family shares. What is left is the widgets those tables do not yet reach.
+    values, and every one sat in a layer no test stage was watching. Three stages now divide
+    that work explicitly — see "Which stage sees a widget defect" in the
+    [runbook](CEE-RUNBOOK.md) — two table-driven specs state the invariants the widget family
+    shares, and the seven widgets carrying real untested logic have specs of their own.
 
-    The six external authority subclasses run no specs of their own; their behaviour lives in
-    `AbstractAuthorityInputComponent`, which sits at 46% statements and 15% branches, and the
-    blur-reconciliation rules that decide whether typed text is discarded are the densest
-    untested logic left in the editor. The time picker's segment editing — the draft/blur/
-    restore cycle, and arrow stepping — is at 36%. Both are reachable from the root unit
-    suite as it stands; neither needs a new tier.
+    What is left is thinner and mostly presentational. `cedar-embeddable-metadata-editor` is
+    the largest at 54%, and most of what it does is read host configuration. The static
+    image and YouTube widgets are at zero, though their view logic was extracted into pure
+    helpers that are fully covered and the visual suite renders both. `cedar-field-spec` and
+    `cedar-component-renderer` decide what a read-only form states in place of a control, on
+    a path the audit did not examine.
 
-    The audit covered read-write behaviour only. It did not examine the read-only presentation
-    path, the download menu, the source panel, or the static widgets, and drew no conclusions
-    about them.
+    That read-only path is the real gap rather than any one file. The audit covered
+    read-write behaviour only, and drew no conclusions about the read-only presentation, the
+    download menu, or the source panel.
+
+    One known leniency, deliberately left: `TimezonePickerComponent.zoneForOffset` accepts
+    `-13:00` and `-13:45`, which are not offsets that exist. A user cannot choose one, since
+    the offered list is correctly bounded; it takes a host-supplied instance carrying it.
+    Tightening it would blank the control over a value the instance holds, so which of those
+    is wanted is a product call. `timezone-picker.component.spec.ts` records the behaviour
+    and says why.
