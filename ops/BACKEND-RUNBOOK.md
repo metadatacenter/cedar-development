@@ -807,6 +807,11 @@ that job has stopped making progress; the job it abandons can no longer report, 
 COMPLETE over the rebuild that follows it. A claim still within its deadline is left alone and
 answers 409, and the reset asks for the same permission as the rebuild it unblocks.
 
+The deadline governs the reset alone, not the refusal. A new rebuild is refused whenever a claim is
+held, whatever age that claim has reached, so an abandoned one blocks every rebuild until someone
+resets it. Nothing expires a claim on a timer, and waiting out the six hours changes only what the
+status calls it. The value sets import behaves the same way.
+
 ## Identifiers: what a client sends, and what the server fills
 
 Only the repository assigns an identity. A client says which identifiers it wants assigned rather
