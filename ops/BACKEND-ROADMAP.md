@@ -723,6 +723,20 @@ Frontend work for the embeddable editor is tracked separately in
   this urgent repair. Empty `pav:derivedFrom` is the first candidate because the strict Java reader
   cannot open it even though the compatibility reader and ordinary update can recover it.
 
+  Null identifier annotations belong in that production inventory as a scoped repair of their own.
+  A request path has been able to persist a top-level annotation such as
+  `_annotations: {"https://datacite.com/doi": {"@id": null}}`, and the current meta-schemas define
+  the intended annotation content without applying that definition to the artifact's top-level
+  `_annotations` member. Add an audit rule that reports every annotation object carrying an explicit
+  null `@id`, with the artifact ID and JSON Pointer, before changing validation. The patch may remove
+  an annotation entry only when null `@id` is its sole payload, removing the `_annotations` container
+  as well when that leaves it empty; an entry with any additional payload stays report-only for human
+  review. Do not include `@value: null`, which is a separately supported value annotation, and never
+  invent an identifier. Capture the production count and paths in the reviewed manifest, prove the
+  patch is idempotent, and require a repeated audit to report zero null identifier annotations. Only
+  then wire the existing annotation-content definition into every applicable top-level meta-schema so
+  direct artifact writes cannot recreate the shape.
+
   Child definitions present in `properties` but absent from `_ui.order` are another such repair, and
   production contains enough of them that the model libraries cannot simply start refusing the shape.
   Add a raw-store audit rule that distinguishes this case from the inverse drift (an order entry with no
