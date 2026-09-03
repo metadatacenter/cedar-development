@@ -1017,19 +1017,10 @@ printf 'type: template\nname: Minimal\n' | curl -sk -X POST -H "Authorization: a
 
 Two things to know before relying on it:
 
-- **`?compact=true` is a read parameter.** It returns the lean form — on a 23-field template, 40% of
-  the full YAML and under a seventh of the JSON — by dropping provenance, version, status, the model
-  version and the identifier. Passing it on a `POST` or `PUT` is refused: writing compact is not a
-  thing to ask for.
-
-  A compact **body**, though, is accepted on create and refused on update, and both follow from what it
-  carries. Having no identifier, it is the same document as the minimal authoring form, so a create
-  loses nothing — there is no stored artifact to damage, and the server supplies the identifier,
-  version, status, model version and provenance. An update is refused because it names no artifact to
-  update. A guard used to catch a compact body by its signature, an id with none of the system-recorded
-  keys; that signature went when the identifier did, and nothing emits it now. The shape is still
-  refused if a client writes one by hand, because naming an artifact selects the full form and the full
-  form requires a model version.
+- **`?compact=true` is read-only.** It returns the lean form — on a 23-field template, 40% of the
+  full YAML and under a seventh of the JSON — by dropping provenance, version, status, and model
+  version while retaining the artifact identifier. Writing it back is rejected with a `400` naming
+  the compact form. Write the full form, or omit `id` to author minimally.
 - **A template instance takes `?format=` ahead of `Accept`.** That parameter already names the
   representation (`jsonld`, `json`, `rdf-nquad`), so YAML negotiation applies only when it is absent.
 
@@ -1076,9 +1067,8 @@ npm run parity:yaml:compact
 
 Each reads as a summary — a case with output on only one side is counted and skipped rather than
 thrown — and a green run names the four artifact kinds with `0 differing` against 18 fields, 6
-elements, 37 templates and 21 instances. The compact form went without a comparison of its own for a
-long time, which is how a missing identifier in the TypeScript library's compact output went
-unnoticed; both are gates now.
+elements, 37 templates and 21 instances. Full and compact output have independent parity gates, so
+drift in either representation fails explicitly.
 
 Each library also holds two properties about itself as tests, so a regression fails a build rather
 than waiting for a comparison run. Every scalar returns as the string it went in as, over a few

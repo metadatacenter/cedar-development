@@ -81,6 +81,9 @@ export async function run({ user1, folderId }) {
       check(!SYSTEM_KEY.test('\n' + compactYaml),
           `${kind}: the compact YAML drops the system keys the full form carries`,
           'a system key survived into the compact form');
+      check(new RegExp(`^id: ["']?${id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}["']?$`, 'm').test(compactYaml),
+          `${kind}: the compact YAML retains the artifact identifier`,
+          `id ${id} was absent from the compact form`);
       check(compactYaml.length < fullYaml.length,
           `${kind}: the compact form is smaller than the full form`,
           `compact ${compactYaml.length} >= full ${fullYaml.length} bytes`);
@@ -100,24 +103,17 @@ export async function run({ user1, folderId }) {
         `expected 200 + yaml, got ${xy.status} / ${xy.headers.get('content-type')}`);
   }
 
-  suite('download: a compact body creates a new artifact rather than writing one back');
+  suite('download: compact YAML is read-only');
 
-  // The compact form describes an artifact being authored: it carries no identifier, because a
-  // repository assigns that on save. So a compact download can be POSTed — and what it creates is a
-  // new artifact, not an overwrite of the one it came from. That is the asymmetry worth pinning now:
-  // the form cannot name a stored artifact, so it cannot silently replace one.
+  // A compact download retains the stored artifact's identifier but omits its system-recorded
+  // metadata. Posting it would silently regenerate the omitted state, so the write path recognizes
+  // and refuses it.
   if (compactTemplateYaml) {
     const back = await call(auth, 'POST', `/templates?folder_id=${enc(folderId)}`,
         compactTemplateYaml, { contentType: GET_YAML });
-    check(back.status === 201, 'a compact YAML download is accepted as a create',
-        `expected 201, got ${back.status}: ${(back.text ?? '').slice(0, 160)}`);
-    const createdId = back.body?.['@id'];
-    check(Boolean(createdId) && createdId !== baseTemplateId,
-        'and what it creates is a new artifact, not the one it was downloaded from',
-        `downloaded ${baseTemplateId}, created ${createdId}`);
-    if (createdId) {
-      cleanup('template', `/templates/${enc(createdId)}`, 'compact create');
-    }
+    check(back.status === 400 && /compact form/i.test(back.text ?? ''),
+        'a compact YAML download is refused as a write body',
+        `expected a compact-form 400, got ${back.status}: ${(back.text ?? '').slice(0, 160)}`);
   }
 
   suite('download: the plain GET negotiates YAML and compact for every kind');
@@ -142,9 +138,11 @@ export async function run({ user1, folderId }) {
     const compactGet = await call(auth, 'GET', `${at}?compact=true`, undefined, { accept: GET_YAML });
     if (checkStatus(compactGet, 200, `${kind}: GET returns compact YAML for ?compact=true`) && full !== null) {
       const compact = compactGet.text ?? '';
-      check(!SYSTEM_KEY.test('\n' + compact) && compact.length < full.length,
-          `${kind}: the compact GET drops system keys and is smaller than full`,
-          `compact ${compact.length} vs full ${full.length}; system key present: ${SYSTEM_KEY.test('\n' + compact)}`);
+      check(!SYSTEM_KEY.test('\n' + compact) && compact.length < full.length
+              && /^id:/m.test(compact),
+          `${kind}: the compact GET retains id, drops system keys, and is smaller than full`,
+          `compact ${compact.length} vs full ${full.length}; id present: ${/^id:/m.test(compact)}; `
+              + `system key present: ${SYSTEM_KEY.test('\n' + compact)}`);
     }
   }
 

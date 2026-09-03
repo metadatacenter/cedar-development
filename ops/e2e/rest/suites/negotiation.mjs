@@ -78,45 +78,23 @@ export async function run({ user1, folderId }) {
     checkStatus(put, 200, 'the full form is accepted on update');
   }
 
-  // The compact form creates, and there is nothing left to refuse it as. It strips the system-recorded
-  // keys and, since the identifier went too, is the same document as the minimal authoring form — so on
-  // a create it loses nothing: there is no stored artifact to damage and the server supplies what the
-  // form omits. It cannot update, which is where the loss would have been, because it names no
-  // artifact. A guard used to catch it here by its old signature, an id with none of those keys.
+  // The two rejections come from different guards and must stay distinguishable: a test that only
+  // checked for 400 would not notice if the compact guard stopped firing and the generic identifier
+  // rule started catching it instead.
   const compact = await call(auth, 'POST', `/templates?folder_id=${enc(folderId)}`,
       yaml('template-compact.yml'), { contentType: 'application/yaml' });
-  if (checkStatus(compact, 201, 'the compact form creates, being what authoring one looks like')) {
-    const compactId = compact.body['@id'];
-    cleanup('template', `/templates/${enc(compactId)}`, `YAML compact ${RUN}`);
-    check(!!compactId && !!compact.body['pav:version'] && !!compact.body['schema:schemaVersion'],
-        'and the server supplies the identifier and the keys compact strips',
-        `id ${compactId}, version ${compact.body['pav:version']}, model ${compact.body['schema:schemaVersion']}`);
-
-    const putBack = await updateArtifact(auth, `/templates/${enc(compactId)}`,
-        yaml('template-compact.yml'), { contentType: 'application/yaml' });
-    check(putBack.status === 400,
-        'but it cannot update, because it names no artifact — which is what the guard protected',
-        `expected 400, got ${putBack.status}`);
+  if (checkStatus(compact, 400, 'the compact form is refused on create')) {
+    check(/compact form/i.test(compact.text ?? ''),
+        'and refused specifically as the compact form, not as a stray identifier',
+        `the message was "${(compact.text ?? '').slice(0, 200)}"`);
   }
 
   const fullOnCreate = await call(auth, 'POST', `/templates?folder_id=${enc(folderId)}`,
       yaml('template-full.yml'), { contentType: 'application/yaml' });
   if (checkStatus(fullOnCreate, 400, 'the full form is refused on create, because it carries an id')) {
     check(/@id/.test(fullOnCreate.text ?? ''),
-        'and refused for the identifier, which is the server\'s to assign',
+        'and refused for the identifier rather than as the compact form',
         `the message was "${(fullOnCreate.text ?? '').slice(0, 200)}"`);
-  }
-
-  // The old compact signature — an id with none of the system-recorded keys — is still refused, by the
-  // reader rather than a guard: naming an artifact selects the full form, which requires a model version.
-  const namingWithoutModelVersion = 'type: template\nname: Naming ' + RUN
-      + '\nid: https://repo.metadatacenter.org/templates/11111111-1111-1111-1111-111111111111\n';
-  const naming = await call(auth, 'POST', `/templates?folder_id=${enc(folderId)}`,
-      namingWithoutModelVersion, { contentType: 'application/yaml' });
-  if (checkStatus(naming, 400, 'a body naming an artifact without its model version is refused')) {
-    check(/modelVersion/.test(naming.text ?? ''),
-        'and refused for what the form it was read as requires',
-        `the message was "${(naming.text ?? '').slice(0, 200)}"`);
   }
 
   suite('content negotiation: YAML in across element, field and instance');
