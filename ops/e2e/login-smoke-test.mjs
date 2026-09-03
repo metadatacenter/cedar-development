@@ -1635,6 +1635,26 @@ const context = await browser.newContext({
 await context.route('**://*:35729/**', route => route.abort());
 
 const page = await context.newPage();
+
+// The embeddable editor takes one configuration per element and reports every later assignment
+// as ignored, so a host that configures it twice silently loses whatever the second assignment
+// carried — which is how a read-only instance stayed editable while both frontends set the flag.
+// Counting what the editor reports is the only way to see it from outside.
+const ceeConfig = { accepted: 0, refused: 0 };
+const resetCeeConfigCounts = () => { ceeConfig.accepted = 0; ceeConfig.refused = 0; };
+page.on('console', message => {
+  const text = message.text();
+  if (text.includes('Embeddable Editor config set to:')) ceeConfig.accepted++;
+  if (text.includes('already configured')) ceeConfig.refused++;
+});
+const expectOneCeeConfiguration = where => {
+  if (ceeConfig.accepted !== 1 || ceeConfig.refused !== 0) {
+    throw new Error(`${where}: the embeddable editor took ${ceeConfig.accepted} configuration(s) `
+      + `and refused ${ceeConfig.refused}; it must take exactly one, or settings decided after the `
+      + `first assignment never arrive`);
+  }
+};
+
 let step = 'init';
 let cleanupUser1;
 let mutationFolderId;
@@ -1801,12 +1821,14 @@ try {
   //     live DOID suggestion (type a disease, verify a matching term appears). The
   //     instance is not saved, so teardown stays a simple template + folder delete.
   step = 'populate-suggestions';
+  resetCeeConfigCounts();
   await openPopulate(page, folderId, TEMPLATE_NAME);
   await page.waitForTimeout(1200);
   await verifyDiseaseSuggestion(page, 'asthma');
   console.log('✓ populate: Disease field suggested a DOID term for "asthma"');
   const deployedCeeVersion = await readCeeVersion(page);
-  console.log(`✓ Metadata Editor rendered with CEE ${deployedCeeVersion}`);
+  expectOneCeeConfiguration('Metadata Editor, populating a template');
+  console.log(`✓ Metadata Editor rendered with CEE ${deployedCeeVersion}, configured once`);
   if (versionOpenViewCeeVersion !== deployedCeeVersion) {
     throw new Error(`CEE version mismatch: version-lifecycle OpenView has ${versionOpenViewCeeVersion}, Metadata Editor has ${deployedCeeVersion}`);
   }
@@ -1822,6 +1844,9 @@ try {
   //        trace on a new instance's null @id and saved nothing.
   step = 'save-instance';
   await page.waitForTimeout(500);
+  // The save redirects to the edit route, which is the load that reads the write permission —
+  // the one where a second configuration used to be the flag's only carrier.
+  resetCeeConfigCounts();
   const savedInstance = await saveInstanceInEditor(page);
   cleanupInstanceId = savedInstance.id;
   console.log(`✓ Metadata Editor saved the populated instance (create → 201, redirected to edit)`);
@@ -1836,7 +1861,8 @@ try {
   // 3b-iii. Re-edit through the post-save redirect (which must render, then update).
   step = 're-edit-instance';
   await reEditInstance(page, 'edited notes');
-  console.log('✓ Metadata Editor rendered the post-save edit view, re-edited, and updated');
+  expectOneCeeConfiguration('Metadata Editor, editing a saved instance');
+  console.log('✓ Metadata Editor rendered the post-save edit view, re-edited, and updated, configured once');
   await verifyAdvancedDirtyBaseline(page, 'edited notes');
 
   // 3b-iv. The deployed CEE offers the instance in both formats, from getters a host
