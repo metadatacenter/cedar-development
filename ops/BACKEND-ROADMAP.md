@@ -615,9 +615,41 @@ Frontend work for the embeddable editor is tracked separately in
   Done when a frontend train completes with a dev server running against the same working copy, and a
   signal-killed step names its signal and the location of its evidence in the CLI's own output.
 
+- **15. Make native bring-up prove a service runs, and make one already-running layer not stop the
+  rest.** `cedarcli native start` reports what the launcher accepted rather than what the stack ends
+  up running, and the gap swallowed a whole-stack outage on 2026-09-02: every application exited in
+  milliseconds for want of `CEDAR_PROFILE`, launchd's keepalive respawned each one, and the CLI
+  printed `started <name> (pid N)` for all twenty-two because a PID existed each time it looked. The
+  launcher passes that environment through today, rejects a service that dies at once, and covers
+  both in tests. Three things remain.
+
+  Confirm a service is serving, not merely alive. The survival check waits half a second and asks
+  whether the process still exists, which catches the failures that land before a JVM starts and
+  none after that. A microservice that boots, fails to reach Neo4j or Mongo, and exits after ten
+  seconds is still reported as started. `cedarcli native health` already knows how to judge this and
+  exits non-zero unless every managed application is healthy, so let `start` end by waiting for the
+  services it just launched to pass that same gate, bounded by a timeout, and report the ones that
+  never arrive along with the last lines of their logs.
+
+  Let `start all` reach the applications when infrastructure is already up. It runs infrastructure,
+  microservices and frontends in order, and a layer that is already running fails its ports with
+  `Address already in use` and halts the run, so the applications never start and the operator is
+  left to run the two remaining layers by hand. Treat an already-listening infrastructure port as
+  the satisfied precondition it is.
+
+  Validate a caller-supplied `JAVA_HOME` instead of trusting it. Any non-empty value passes, and the
+  launcher prepends `$JAVA_HOME/bin` to `PATH`, so a wrong path contributes nothing and `java`
+  resolves from a later entry. A service then starts on an unintended JDK and says nothing, which is
+  a poor failure mode given that Java 17 is a hard version lock. Require an executable
+  `$JAVA_HOME/bin/java`, check that it reports 17, and name both the value given and the version
+  found when it does not.
+
+  Done when `start` reports a service only once it is healthy or names why it is not, `start all`
+  completes against running infrastructure, and a `JAVA_HOME` without a Java 17 fails at startup.
+
 ## Production data
 
-- **15. Normalize production artifacts to one explicit model contract.** Production contains several
+- **16. Normalize production artifacts to one explicit model contract.** Production contains several
   legacy representations that the current model surfaces tolerate or normalize differently, so bring
   them to canonical shapes before tightening readers or introducing terminology routing across source
   systems. The permission-scoped audit found 76 inherently-multiple fields deployed as JSON objects in
@@ -777,7 +809,7 @@ Frontend work for the embeddable editor is tracked separately in
 
 ## Later decisions
 
-- **16. A published artifact can be deleted, contradicting the docs.** The docs say a published
+- **17. A published artifact can be deleted, contradicting the docs.** The docs say a published
   artifact is permanent, but `DELETE` on one succeeds. The guard in
   `AbstractResourceServerResource.executeArtifactDelete` was briefly re-enabled and then **reverted by
   deliberate decision**: blocking deletion strands published artifacts and the folders holding them with
@@ -788,7 +820,7 @@ Frontend work for the embeddable editor is tracked separately in
   through folder deletion). Immutability of published content is a separate guarantee and is
   unaffected either way — that one is enforced.
 
-- **17. Finish the DataCite DOI minting lifecycle.** The durable lifecycle is what makes the operation
+- **18. Finish the DataCite DOI minting lifecycle.** The durable lifecycle is what makes the operation
   recovery-safe, and none of it exists yet. Minting persists no state of its own: draft/reserved,
   published and locally attached are recorded nowhere, so the `reconciliationRequired` response names a
   condition no code resolves, and a retry after a timeout cannot tell whether the earlier attempt
