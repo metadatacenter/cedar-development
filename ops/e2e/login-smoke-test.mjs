@@ -1647,11 +1647,17 @@ page.on('console', message => {
   if (text.includes('Embeddable Editor config set to:')) ceeConfig.accepted++;
   if (text.includes('already configured')) ceeConfig.refused++;
 });
-const expectOneCeeConfiguration = where => {
-  if (ceeConfig.accepted !== 1 || ceeConfig.refused !== 0) {
+// A refusal is the failure this guards: it means the host decided something after the editor was
+// already configured, and the decision was dropped. Each page load configures a fresh element and
+// so contributes one acceptance, which is why only a window known to cover a single load can
+// require exactly one.
+const expectCeeConfiguredCleanly = (where, { loads = null } = {}) => {
+  const wanted = loads === null ? 'at least one' : `exactly ${loads}`;
+  if (ceeConfig.refused !== 0 || ceeConfig.accepted < 1
+      || (loads !== null && ceeConfig.accepted !== loads)) {
     throw new Error(`${where}: the embeddable editor took ${ceeConfig.accepted} configuration(s) `
-      + `and refused ${ceeConfig.refused}; it must take exactly one, or settings decided after the `
-      + `first assignment never arrive`);
+      + `and refused ${ceeConfig.refused}; it must take ${wanted} and refuse none, or settings `
+      + `decided after the first assignment never arrive`);
   }
 };
 
@@ -1827,7 +1833,7 @@ try {
   await verifyDiseaseSuggestion(page, 'asthma');
   console.log('✓ populate: Disease field suggested a DOID term for "asthma"');
   const deployedCeeVersion = await readCeeVersion(page);
-  expectOneCeeConfiguration('Metadata Editor, populating a template');
+  expectCeeConfiguredCleanly('Metadata Editor, populating a template', { loads: 1 });
   console.log(`✓ Metadata Editor rendered with CEE ${deployedCeeVersion}, configured once`);
   if (versionOpenViewCeeVersion !== deployedCeeVersion) {
     throw new Error(`CEE version mismatch: version-lifecycle OpenView has ${versionOpenViewCeeVersion}, Metadata Editor has ${deployedCeeVersion}`);
@@ -1861,8 +1867,10 @@ try {
   // 3b-iii. Re-edit through the post-save redirect (which must render, then update).
   step = 're-edit-instance';
   await reEditInstance(page, 'edited notes');
-  expectOneCeeConfiguration('Metadata Editor, editing a saved instance');
-  console.log('✓ Metadata Editor rendered the post-save edit view, re-edited, and updated, configured once');
+  // This window spans the post-save redirect and the dirty-navigation round trip, so it covers
+  // more than one load; what it pins is that none of them was configured twice.
+  expectCeeConfiguredCleanly('Metadata Editor, editing a saved instance');
+  console.log('✓ Metadata Editor rendered the post-save edit view, re-edited, and updated, never configured twice');
   await verifyAdvancedDirtyBaseline(page, 'edited notes');
 
   // 3b-iv. The deployed CEE offers the instance in both formats, from getters a host
