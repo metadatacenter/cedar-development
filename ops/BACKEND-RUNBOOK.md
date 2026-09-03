@@ -1349,10 +1349,11 @@ pinned harder than the thing that compiles them. The roadmap carries that, with 
 
 The CLI build runs the Java test suites by default: every Java repo is built with
 `./mvnw clean install`, so a green `cedarcli build` means its unit and embedded integration suites
-passed as well as compiled. Every suite is backend-free, so nothing needs to be up. The seven build
-commands that can reach Java — `this`, `parent`, `libraries`, `project`, `clients`, `java`, and
-`all` — accept the paired `--tests` / `--skip-tests` option; use `--skip-tests` explicitly for a
-fast compile/install loop. Frontend-only build commands do not expose an inert Java-test option.
+passed as well as compiled. The default suites are backend-free, so nothing needs to be up. The
+seven build commands that can reach Java — `this`, `parent`, `libraries`, `project`, `clients`,
+`java`, and `all` — accept the paired `--tests` / `--skip-tests` option; use `--skip-tests`
+explicitly for a fast compile/install loop. Frontend-only build commands do not expose an inert
+Java-test option.
 Release preparation, Maven publication, and immutable build-train assembly remain explicit
 `-DskipTests` paths; verify with the default CLI build or repository CI before invoking them.
 
@@ -1534,8 +1535,8 @@ history and interrupts a running regeneration; resubmit after confirming the old
 
 ## Testing CEDAR
 
-Every server's test suite runs backend-free: no live Keycloak, Neo4j, Mongo, MySQL, or Redis. The
-shared `cedar-microservice-libraries/cedar-test-support-library` supplies in-memory authentication
+Every server's default test suite runs backend-free: no live Keycloak, Neo4j, Mongo, MySQL, Redis or
+OpenSearch. The shared `cedar-microservice-libraries/cedar-test-support-library` supplies in-memory authentication
 (`TestAuthUtil` / `InMemoryUserService`, exercising the real API-key path) and embedded backends
 (in-process Neo4j via neo4j-harness, Mongo via Flapdoodle, MariaDB via MariaDB4j standing in for
 MySQL). Nor does any suite need an external service. The tests that do call one are tagged and
@@ -1545,13 +1546,24 @@ exclusion with `-DexcludedGroups=` to run them against the real service. Their C
 still be set even when the tests are excluded, because the configuration substitutes them as it
 loads; a placeholder value is enough.
 
+Search is the deliberate exception in CI. `cedar-microservice-libraries` and
+`cedar-resource-server` run `verify -Popensearch-it` against a disposable OpenSearch 2.19.1 service.
+The library integration test executes the materialized user/everybody permission filter,
+grant/revoke materialization changes and a point-in-time continuation walk against the engine. The
+resource server integration test sends real `/search` and `/search-deep` requests through
+Dropwizard to the same engine. For a local reproduction, start the native infrastructure and run
+the matching module with the profile; the usual `CEDAR_OPENSEARCH_HOST` and
+`CEDAR_OPENSEARCH_REST_PORT` select the engine and default to `127.0.0.1:9200`. The tests use
+disposable or run-unique documents and clean them afterward.
+
 Backend-free Maven tests suppress the application-log queue through the
 `cedar.test.suppressAppLogQueue` system property inherited from `cedar-parent`. This is deliberate
 test harness behavior: pointing Redis at a dead port while leaving the logger active turns every
 request into a connection timeout and can make the HTTP client time out first, producing broken-pipe
 failures unrelated to the behavior under test. The queue and logging libraries test Redis delivery,
-outage and recovery separately against an embedded real Redis. The property exists only in Surefire
-JVMs; native and deployed servers retain the production queue behavior.
+outage and recovery separately against an embedded real Redis. The property exists only in Maven
+test JVMs (Surefire by default and the resource-server OpenSearch Failsafe profile); native and
+deployed servers retain the production queue behavior.
 
 The same inherited Surefire configuration pins both CEDAR Redis hosts to `127.0.0.1` and both ports
 to the deliberately dead port `1`. Other best-effort queue paths can therefore exercise an absent
@@ -2133,8 +2145,11 @@ Every Java repository builds in GitHub Actions from `.github/workflows/ci.yml`, 
 pull request to `develop` and on manual dispatch. The workflow is the same everywhere: Java 17 from
 temurin with the Maven cache, the BMIR Nexus credentials from the `BMIR_NEXUS_USERNAME` and
 `BMIR_NEXUS_PASSWORD` repository secrets, `./mvnw --update-snapshots verify`, and the surefire reports
-uploaded whatever the outcome. Jobs carry a hard timeout: twenty minutes for a component,
-forty-five for `cedar-project`, which builds nineteen repositories in one reactor.
+uploaded whatever the outcome. The search-library and resource-server workflows also upload their
+Failsafe reports, add the `opensearch-it` profile and an OpenSearch service; other component
+workflows remain backend-free. Jobs carry a hard timeout: twenty minutes for a component, thirty
+for those two OpenSearch jobs, forty-five for `cedar-project`, which builds nineteen repositories
+in one reactor.
 
 Two repositories are aggregators over `../` sibling paths that a lone checkout cannot satisfy, so
 `cedar-libraries` and `cedar-project` check their component repositories out beside themselves in
@@ -2160,8 +2175,10 @@ compared them, so they had diverged — `cedar-monitor-server` carried 55 of the
 others. Nothing runs this in CI yet, because a check over every repository has no natural home in
 any one of their workflows; until it does, it is a local step.
 
-The suites need no service container. The two exceptions both come from a real dependency rather
-than from CEDAR code: `cedar-monitor-server` talks to a live MySQL, so its job runs a disposable
+Most suites need no service container. Search-library and resource-server CI intentionally use
+OpenSearch to verify permission-filter semantics rather than merely the shape of a mocked request.
+Two other exceptions both come from a real dependency rather than from CEDAR code:
+`cedar-monitor-server` talks to a live MySQL, so its job runs a disposable
 MySQL 8 service, and the embedded MongoDB that `cedar-artifact-server` boots is the 5.0 line the
 deployment runs, whose only Linux build links against OpenSSL 1.1. Ubuntu 24.04 ships OpenSSL 3, so
 that job installs `libssl1.1` on the runner first; without it `mongod` cannot start and every
