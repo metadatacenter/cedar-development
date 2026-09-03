@@ -982,6 +982,54 @@ files and fails below 45% statements, 35% branches, 55% functions, or 45% lines.
 root runner excludes `*.coordinator.spec.ts`; adding a TestBed spec anywhere else is therefore
 a configuration error rather than an accidentally half-working test.
 
+### Which stage sees a widget defect
+
+The stages divide by what they can observe, and a defect is only caught by a
+stage that can see the layer it lives in. A read-write audit in September 2026
+found thirteen defects in the widgets, every one of them in a layer no stage was
+watching, so the division is worth stating.
+
+The domain harness sees pure functions and model shapes, and sees them
+thoroughly — `ClockTime`, `CedarTemporalValue`, `narrowByQuery`, what an
+unanswered field records. What it cannot see is the widget that calls them.
+`clock-time.spec.ts` proved the arithmetic of a 12-hour face while the picker
+above it recorded midnight for a field nobody had entered a time into.
+
+The root unit suite sees a widget's own decisions, constructing it directly with
+stub collaborators. This is where a widget belongs, and where most of the
+thirteen were caught once asked. It sees nothing of the template.
+
+The coordinator tier sees rendered markup. It is the only stage that can answer
+whether anything reached the screen — a required checkbox group had a validator
+deciding its fate and no `mat-error` to state the verdict, which every other
+stage reports as working. A widget check that is genuinely about markup goes
+here, as `checkbox-required-notice.coordinator.spec.ts` does.
+
+Three rules follow, each of them written after a defect that ignored it.
+
+**Drive the widget the way the browser does.** Angular and Material semantics are
+where these hid: `FormGroup.get` splits a name on `.`, so a `Dr.` option
+registered a control that could never be looked up again; `addControl` keeps the
+control already registered rather than replacing it; a form control bound to a
+text input coerces an array through `String`; Material's checkbox writes its own
+value during `click`, before the `input` handler overwrites it. None of that is
+reachable by calling a method and asserting on a field. Send the event.
+
+**A stub has to be a stub of what production builds.** The clearest failure in
+the set was a green test: `widget-validators.spec.ts` handed `atLeastOneChecked`
+a `{ Alpha: false, Beta: true }` that no widget produces, and passed for years
+over a required field that could never be satisfied. Coverage does not help
+here — the validator was covered.
+
+**State an invariant once, across the family.** The widgets are copies of each
+other, and a fix reaching one of them is the recurring shape: `performItemAdd`
+was hardened and its two siblings kept the assertion it was hardened against;
+`narrowByQuery` was written for seven authority fields and the eighth kept the
+rule it replaced; seven widgets built a form group around a control they then
+replaced. `input-control-binding.spec.ts` and `emptying-a-field.spec.ts` are
+table-driven for that reason, and a new widget joins the table rather than
+copying a spec.
+
 ---
 
 ## Troubleshooting

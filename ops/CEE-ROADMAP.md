@@ -246,3 +246,21 @@ commit that opened it.
    priority. This item is complete when every open issue names an owning surface and has either a
    current reproduction or an explicit disposition, and GitHub and this roadmap no longer carry
    contradictory backlogs.
+
+10. **Bring the widgets the read-write audit did not reach up to the same footing.**
+    The September 2026 audit fixed thirteen defects in the code that presents and reads
+    values, and every one of them sat in a layer no test stage was watching. Three stages
+    now divide that work explicitly — see "Which stage sees a widget defect" in the
+    [runbook](CEE-RUNBOOK.md) — and two table-driven specs state the invariants the widget
+    family shares. What is left is the widgets those tables do not yet reach.
+
+    The six external authority subclasses run no specs of their own; their behaviour lives in
+    `AbstractAuthorityInputComponent`, which sits at 46% statements and 15% branches, and the
+    blur-reconciliation rules that decide whether typed text is discarded are the densest
+    untested logic left in the editor. The time picker's segment editing — the draft/blur/
+    restore cycle, and arrow stepping — is at 36%. Both are reachable from the root unit
+    suite as it stands; neither needs a new tier.
+
+    The audit covered read-write behaviour only. It did not examine the read-only presentation
+    path, the download menu, the source panel, or the static widgets, and drew no conclusions
+    about them.
