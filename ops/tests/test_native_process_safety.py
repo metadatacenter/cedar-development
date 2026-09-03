@@ -110,6 +110,7 @@ class NativeProcessSafetyTest(unittest.TestCase):
             'touch "$base/src/main/resources/config.yml"; '
             'port_open() { return 1; }; uname() { echo Darwin; }; '
             'remove_launchd_job() { return 1; }; launchd_job_pid() { echo 4242; }; '
+            'process_alive() { return 0; }; '
             'launchctl() { printf "%s\\n" "$*"; }; '
             'start_one group'
         )
@@ -131,6 +132,7 @@ class NativeProcessSafetyTest(unittest.TestCase):
             'touch "$base/src/main/resources/config.yml"; '
             'port_open() { return 1; }; uname() { echo Darwin; }; '
             'remove_launchd_job() { return 1; }; launchd_job_pid() { echo 4242; }; '
+            'process_alive() { return 0; }; '
             'launchctl() { printf "%s\\n" "$*"; }; '
             'start_one group'
         )
@@ -138,6 +140,29 @@ class NativeProcessSafetyTest(unittest.TestCase):
         self.assertNotEqual(0, result.returncode)
         self.assertIn("CEDAR_PROFILE is not set", result.stderr)
         self.assertNotIn("submit -l", result.stdout)
+
+    def test_start_reports_a_service_that_exits_at_once_rather_than_starting_it(self):
+        """A submitted job restarts on exit, so a PID alone never proves a service runs."""
+        result = self.run_library(
+            'base="$CEDAR_HOME/cedar-group-server/cedar-group-server-application"; '
+            'mkdir -p "$base/target" "$base/src/main/resources"; '
+            'touch "$base/target/cedar-group-server-application-$CEDAR_VERSION.jar"; '
+            'touch "$base/src/main/resources/config.yml"; '
+            'port_open() { return 1; }; uname() { echo Darwin; }; '
+            'remove_launchd_job() { echo "removed $1"; }; launchd_job_pid() { echo 4242; }; '
+            'process_alive() { return 1; }; '
+            # start_one truncates the log before submitting, so the child's message has to land
+            # after that, which is where a real service writes it.
+            'launchctl() { printf "%s\\n" "$*"; '
+            'echo "Cannot load native CEDAR profile" >> "$(logfile group)"; }; '
+            'start_one group'
+        )
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("exited immediately (pid 4242)", result.stderr)
+        self.assertIn("Cannot load native CEDAR profile", result.stderr)
+        self.assertNotIn("started group", result.stdout)
+        self.assertIn("removed group", result.stdout)
 
     def test_logs_resolves_the_two_logs_a_service_writes(self):
         result = self.run_library(

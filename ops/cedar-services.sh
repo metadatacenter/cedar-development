@@ -149,6 +149,7 @@ auxiliary_ports() {
 port_owner() { lsof -ti "tcp:$1" -sTCP:LISTEN 2>/dev/null | head -1; }
 port_owners() { lsof -nP -tiTCP:"$1" -sTCP:LISTEN 2>/dev/null | sort -nu; }
 process_command() { ps -p "$1" -o command= 2>/dev/null; }
+process_alive() { kill -0 "$1" 2>/dev/null; }
 process_cwd() { lsof -a -p "$1" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -1; }
 
 is_docker_port_forwarder() {
@@ -495,6 +496,18 @@ start_one() {
   else
     nohup "$SCRIPT_PATH" run-one "$name" >"$log" 2>&1 &
     p=$!
+  fi
+  # A PID proves only that the launcher spawned something. A submitted job restarts when it exits,
+  # so a service that cannot start shows a fresh PID on every look and buries its first, useful
+  # error under identical repeats. Give it a moment and confirm this same process is still there,
+  # which catches what fails before a JVM starts: an unreadable profile, a missing config, no JDK.
+  # A service that dies later still reads as unhealthy in status and health.
+  sleep 0.5
+  if ! process_alive "$p"; then
+    remove_launchd_job "$name" || true
+    echo "  $name: exited immediately (pid $p); last lines of $log:" >&2
+    tail -n 4 "$log" 2>/dev/null | sed 's/^/    /' >&2
+    return 1
   fi
   echo "$p" > "$(pidfile "$name")"
   echo "  started $name (pid $p) -> port $app, log $log"
