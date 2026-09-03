@@ -1588,6 +1588,32 @@ terminology 246 (61 more excluded under `bioportal`), model-validation 220, reso
 cadsr-tools 70, core-library 57, user 23, group 15, messaging 15, bridge 57, monitor 8, and a
 one-to-seven-test boot-and-config tier on the remaining thin servers.
 
+### Reproducing a Flake That Depends on Class Order
+
+Test classes share a JVM, so process-wide state outlives the class that set it. A test that holds a
+static field or a singleton past its own end decides what the next class sees, and JUnit 5 fixes
+neither class order nor method order in a way a reader can predict. Such a suite passes locally,
+passes five CI runs, and fails the sixth.
+
+Surefire pins both halves of that order. `-Dsurefire.runOrder=alphabetical` and its
+`reversealphabetical` counterpart fix which class runs first, and
+`-Dtest='Leaker#theMethodThatLeaks,Victim'` fixes which method runs last before the victim. An
+intermittent failure then either happens on every run or on none.
+
+Running the whole suspect class first often proves nothing, because state usually escapes from
+particular methods rather than from all of them. The job-claim tests show it. Most of their claims
+sit at a fixed instant in the past, which any deadline-gated cleanup already clears, and only the
+single method claiming at the wall clock leaves a claim that survives one. Name that method rather
+than its class, and run both orders after a fix rather than only the order that failed.
+
+Suites that boot an application need the CEDAR variables the CI workflow supplies, and `env:` in a
+repository's `.github/workflows/ci.yml` holds them. Sourcing those values runs a suite without a
+developer profile's pointers to live services. Each value has to arrive verbatim.
+`CEDAR_TRUSTED_FOLDERS` carries backslash-escaped quotes, and `cedar-main.yml` substitutes it into a
+double-quoted scalar, so an unescaped quote closes that scalar early. Dropwizard reports the parse
+error that follows as `Could not read the CEDAR configuration file cedar-main.yml`, which reads like
+a missing file.
+
 ### What the suites actually cover
 
 Roughly 113 test classes. They fall into layers, and it is worth knowing which layer a failure comes
