@@ -871,8 +871,9 @@ cd visual
 npm run prepare:all && npm test
 ```
 
-Expect **over 400 passing** in about four minutes — 416 on 17 August 2026. The count
-grows as tests are added; treat a *fall* as something to explain. `prepare:all` re-concatenates the
+Expect **over 490 passing** in about a minute and a half — 497 on 3 September 2026,
+416 on 17 August. The count grows as tests are added; treat a *fall* as something to
+explain. `prepare:all` re-concatenates the
 bundle from `../dist` and regenerates the template fixtures; run it after any
 rebuild.
 
