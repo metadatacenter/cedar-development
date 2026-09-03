@@ -1425,6 +1425,18 @@ be: accepting a second spelling of a parameter, adding a field to an error body,
 alongside an existing `POST`, or sending a header nobody reads yet costs no caller anything and needs
 no release to be coordinated around it.
 
+The committed `swagger.json` and `swagger.yaml` in each server are the machine-readable side of the
+same contract. Maven regenerates them from the resource annotations and `src/main/swagger/openapi-base.yaml`
+during `prepare-package`; a source change and its generated documents belong in one commit. Adding an
+OpenAPI-only `@RequestBody`, response `content`, or documentation schema does not change JAX-RS body
+binding, content negotiation, Jackson serialization, or an HTTP status. It does change regenerated
+client source: an untyped `Object` or `void` result can become a concrete return type, and a formerly
+implicit body can become a typed method argument. Treat that as an SDK compatibility change even when
+the bytes on the wire did not move. Never add a JAX-RS method parameter merely to make the generator
+see a body, and keep open JSON-LD artifacts open with `additionalProperties: true` rather than publishing
+a closed schema the server does not enforce. Focused `OpenApiContractTest` classes pin the high-value
+request and response schemas in resource, artifact, group, messaging, and worker server CI.
+
 ## Artifact write and diagnostic contracts
 
 Artifact creation and replacement use different authorization checks even though both can arrive as
