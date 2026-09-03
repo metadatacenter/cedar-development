@@ -1272,10 +1272,11 @@ TypeScript, while both emit the same bytes for it.
   (`TerminologyServerHealthCheck` is right to do the opposite: the ontology catalogue is that
   server's entire job, and its degraded mode silently served a partial catalogue.)
 
-- **The whole stack is green, but real requests 500 — often with `NoClassDefFoundError`** → a backend
-  service is **`STALE`**: running a jar older than the one on disk, and that jar can be a *broken* build,
-  not merely old code. A parallel session or an interrupted `restart` can start a service from a
-  half-written or unshaded jar — one whose shade dropped a class, say Guava's
+- **The whole stack is green, but real requests 500 (often with `NoClassDefFoundError`), or a
+  service answers as an older build would** → a backend service is **`STALE`**: running a jar older
+  than the one on disk, and that jar can be a *broken* build, not merely old code. A parallel
+  session or an interrupted `restart` can start a service from a half-written or unshaded jar — one
+  whose shade dropped a class, say Guava's
   `com.google.common.cache.RemovalCause` — and it boots and passes `/healthcheck`, then throws on the
   first request that needs the missing class (seen as a 500 on `GET /folders`, which breaks the whole
   dashboard). `health` cannot catch this: a stale service is still healthy. So **confirm no backend
@@ -1295,6 +1296,15 @@ TypeScript, while both emit the same bytes for it.
   restarting into it: `unzip -l <app>.jar | grep -c RemovalCause` should be non-zero, and the jar
   should be ~130 MB, not a few MB (a thin jar has no `Main-Class` and dies at start instead — a
   different, louder failure covered above).
+
+  Staleness does not always announce itself. A jar that is merely old rather than broken answers
+  `200` and does exactly what the build it came from did, so nothing reaches any log and the service
+  simply disagrees with the source in front of you. Suspect the binary before the code whenever what
+  the stack does contradicts what the source says it should do. One tell settles it without a
+  redeploy: pick a line the code path logs unconditionally — `BioPortalFailure.relay` warns for
+  every BioPortal status at or above 400, say — and if the running service never wrote it, that
+  service does not have that code. A terminology-server relay path was reported broken on this,
+  having been read in source that already handled the case while the running jar predated it.
 
 ## cedarcli (headless invocation)
 
