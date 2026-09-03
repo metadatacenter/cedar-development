@@ -1474,6 +1474,19 @@ async function verifyPublishDraftLifecycle(browser, page, folderId, user1) {
     await page.waitForFunction(() => document.querySelector('#button-save-template')?.disabled === true,
       null, { timeout: 15_000 }).catch(() => {});
     if (!await save.isDisabled()) throw new Error('published template remained editable in Designer');
+    // The header fields sit outside the form the save button guards, so a published template has to
+    // refuse them itself, and the Designer has to say why rather than leaving the top-bar lock icon
+    // as the only sign.
+    for (const field of ['#template-name', '#template-identifier', '#template-description']) {
+      if (await page.locator(field).getAttribute('readonly') === null) {
+        throw new Error(`published template left ${field} editable in Designer`);
+      }
+    }
+    const lockNotice = page.locator('.locked-notice');
+    await lockNotice.waitFor({ state: 'visible', timeout: 15_000 });
+    if (!/published/i.test(await lockNotice.innerText())) {
+      throw new Error('Designer did not say why the published template cannot be saved');
+    }
 
     const openedId = await enableOpenView(page, folderId, VERSION_TEMPLATE_NAME);
     if (openedId !== publishedId) throw new Error(`OpenView enabled ${openedId}; expected published ${publishedId}`);
