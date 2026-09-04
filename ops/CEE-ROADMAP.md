@@ -247,23 +247,33 @@ commit that opened it.
    current reproduction or an explicit disposition, and GitHub and this roadmap no longer carry
    contradictory backlogs.
 
-10. **Finish the widget coverage the read-write audit started.**
-    The September 2026 audit fixed thirteen defects in the code that presents and reads
-    values, and every one sat in a layer no test stage was watching. Three stages now divide
-    that work explicitly — see "Which stage sees a widget defect" in the
-    [runbook](CEE-RUNBOOK.md) — two table-driven specs state the invariants the widget family
-    shares, and the seven widgets carrying real untested logic have specs of their own.
+10. **Finish the widget coverage the two read-write audits started.**
+    Both September 2026 audits covered read-write behaviour only, and drew no conclusions
+    about the read-only presentation, the download menu, or the source panel. Which stage
+    watches which layer, and the five tables that state what the widget family shares, are in
+    "Which stage sees a widget defect" in the [runbook](CEE-RUNBOOK.md). What remains is the
+    read-only path, two files beside it, and the messages two widgets state in English.
 
-    What is left is thinner and mostly presentational. `cedar-embeddable-metadata-editor` is
-    the largest at 54%, and most of what it does is read host configuration. The static
-    image and YouTube widgets are at zero, though their view logic was extracted into pure
-    helpers that are fully covered and the visual suite renders both. `cedar-field-spec` and
-    `cedar-component-renderer` decide what a read-only form states in place of a control, on
-    a path the audit did not examine.
+    The read-only path is the gap rather than any one file, and it is where the untested files
+    sit. `cedar-field-spec` and `cedar-spec-box` state a field's specification in place of an
+    empty control and have no unit spec at all, and `cedar-component-renderer`, which decides
+    between a control and its specification, is at 40% of statements and 12% of branches. The
+    paging table reaches read-only behaviour only where a widget carries a presentation of its
+    own, as the text widget does for an identifier.
 
-    That read-only path is the real gap rather than any one file. The audit covered
-    read-write behaviour only, and drew no conclusions about the read-only presentation, the
-    download menu, or the source panel.
+    Two files beside it are thin for a different reason. `cedar-embeddable-metadata-editor` is
+    at 54% and mostly reads host configuration. The static image and YouTube widgets are at
+    zero, though their view logic is in pure helpers that are fully covered and the visual
+    suite renders both.
+
+    Two widgets state a problem in the validator's English whatever the language. The temporal
+    widget prints `FieldValueValidator`'s own message, or `The value is required.`, where every
+    other widget maps an error key to the language files, and the numeric widget prints the
+    sentence `describeNumberType` composes for a value of the wrong type. A Hungarian reader
+    sees English under those two fields and nowhere else. The validator's messages are also the
+    data quality report's, which a host reads, so translating them means deciding whether the
+    report's text is a contract or a rendering. Each problem carries a `code`, which is what a
+    translation would key on.
 
     One known leniency, deliberately left: `TimezonePickerComponent.zoneForOffset` accepts
     `-13:00` and `-13:45`, which are not offsets that exist. A user cannot choose one, since
