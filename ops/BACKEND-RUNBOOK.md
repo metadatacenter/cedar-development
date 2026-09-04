@@ -540,15 +540,23 @@ use their Git source commit in that key; `CEDAR_VERSION_MODIFIER` remains the ex
 for two environment-specific payloads built from the same commit. It is not needed merely to make a
 new source revision visible.
 
-The remaining four are Angular applications, each run as `ng serve` from its `cedar-<name>[-src]`
-source dir (see `fe_dir()`): `ui-openview` (4220), `ui-content` (4240), `ui-monitoring` (4300) and
-`ui-bridging` (4340). Every frontend is named `ui-*`, which keeps `ui-openview` apart from the
+The remaining four are Angular applications, each run with its project-local `ng serve` from its
+`cedar-<name>[-src]` source dir (see `fe_dir()`): `ui-openview` (4220), `ui-content` (4240),
+`ui-monitoring` (4300) and `ui-bridging` (4340). Every frontend is named `ui-*`, which keeps
+`ui-openview` apart from the
 `openview` microservice and `ui-monitoring` and `ui-bridging` apart from `monitor` and `bridge`. The
 prefix marks the category, not the launcher: `ui-main`, `ui-workspace` and `ui-designer` carry it
-too, and will keep it when they stop being AngularJS. Frontend health is **port-only** (no Dropwizard
-`/healthcheck`). `cedarcli native start frontends` starts all seven through this controller, and the
+too, and will keep it when they stop being AngularJS. Frontends have no Dropwizard `/healthcheck`,
+so the controller requests their HTTP root: an Angular compiler failure leaves `ng serve` listening
+but returning 404 and is therefore `UNHEALTHY`, not green. `cedarcli native start frontends` starts
+all seven through this controller, and the
 `cedarcli native`, `start frontend` and `stop frontend` subcommands name a frontend without the
 prefix — `main`, `workspace`, `openview` — which the controller receives as `ui-<name>`.
+
+Each managed Angular start clears that checkout's ignored `.angular/cache` before compiling. This
+matters when an ordinary frontend build ran `npm ci` while the old development server was live: the
+server may otherwise persist a module graph observed while `node_modules` was being replaced, then
+reuse the invalid graph after a restart even though the completed lock install builds correctly.
 
 ```bash
 cedarcli native start all             # infra + microservices + frontends
@@ -582,8 +590,9 @@ use and gates such as the `STALE` check below.
 It recognizes a native service already listening on its port, including one started in a terminal,
 and **reports any service whose jar or configuration is not built/present**. An occupied port is not
 treated as proof of ownership: if the listener is not the expected CEDAR jar or frontend process in
-the expected source directory, start and stop both fail without signalling it. Health uses the
-Dropwizard admin `/healthcheck` endpoint (200 = healthy, 500 = unhealthy).
+the expected source directory, start and stop both fail without signalling it. Backend health uses
+the Dropwizard admin `/healthcheck` endpoint (200 = healthy, 500 = unhealthy); frontend health
+requires a successful response from the served root.
 
 Two columns exist so a green table cannot hide a stale one. **BINARY** compares when a process started
 against when its jar was written: `STALE` means the service is serving a jar older than the build, so
@@ -643,9 +652,9 @@ In Docker only the application port is published to the host. Admin connectors b
 their container for the Compose health check and are not host-mapped; do not add `9111:9111` (or any
 other admin mapping) to the core Compose stack. Native admin connectors likewise bind `127.0.0.1`.
 
-Frontends (port-only health): `ui-main` 4200, `ui-workspace` 4201 and `ui-designer` 4202 under
-gulp; `ui-openview` 4220, `ui-content` 4240, `ui-monitoring` 4300 and `ui-bridging` 4340 under
-`ng serve`.
+Frontends (HTTP-root health): `ui-main` 4200, `ui-workspace` 4201 and `ui-designer` 4202 under
+gulp; `ui-openview` 4220, `ui-content` 4240, `ui-monitoring` 4300 and `ui-bridging` 4340 under their
+project-local `ng serve`.
 
 ## API-key credentials and management identifiers
 

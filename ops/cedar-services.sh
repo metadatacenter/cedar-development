@@ -9,7 +9,8 @@
 # macOS uses a non-restarting launchd submitted job so the services survive shells whose command
 # runner reaps its whole process group; other systems retain the nohup launcher. One `status` view
 # shows PID / port / health / error-count.
-# Frontend health is port-only (no Dropwizard /healthcheck).
+# Frontend health probes the served root (they have no Dropwizard /healthcheck). A failed
+# Angular compiler still leaves its development server listening, so a port-only check lies.
 #
 # Infra (Keycloak, Mongo, Neo4j, MySQL, Redis, OpenSearch, nginx) is NOT managed here —
 # bring that up separately (it is already running in this session).
@@ -399,7 +400,13 @@ run_one_foreground() {
     ui-openview|ui-content|ui-monitoring|ui-bridging)
       local dir; dir=$(fe_dir "$name")
       cd "$dir" || return 1
-      exec ng serve --port "$app" --host "$CEDAR_FRONTEND_BIND_HOST" ;;
+      # npm ci replaces node_modules in place. If a build runs while this development server is
+      # live, Angular can persist a module graph assembled during that replacement; a restart then
+      # reuses it and fails compilation even though the completed lock install is sound. The cache
+      # is generated and ignored, so every managed start rebuilds it from the stable dependency
+      # tree. Use the CLI locked by this application for both operations.
+      ./node_modules/.bin/ng cache clean || return 1
+      exec ./node_modules/.bin/ng serve --port "$app" --host "$CEDAR_FRONTEND_BIND_HOST" ;;
     *)
       local jar="$CEDAR_HOME/cedar-$name-server/cedar-$name-server-application/target/cedar-$name-server-application-${CEDAR_VERSION}.jar"
       local cfg="$CEDAR_HOME/cedar-$name-server/cedar-$name-server-application/src/main/resources/config.yml"
@@ -563,8 +570,13 @@ names() { if [ $# -gt 0 ]; then printf '%s\n' "$@"; else for s in "${SERVICES[@]
 
 health_of() {  # echoes healthy|UNHEALTHY|starting|down
   local name=$1 app admin; app=$(app_port "$name"); admin=$(admin_port "$name")
-  if [ "$admin" = 0 ]; then port_open "$app" && echo healthy || echo down; return; fi
-  local code; code=$(curl -s -o /dev/null -m 2 -w '%{http_code}' "http://127.0.0.1:$admin/healthcheck" 2>/dev/null)
+  local code
+  if [ "$admin" = 0 ]; then
+    code=$(curl -s -o /dev/null -m 2 -w '%{http_code}' "http://127.0.0.1:$app/" 2>/dev/null)
+    case "$code" in 2??|3??) echo healthy;; *) port_open "$app" && echo UNHEALTHY || echo down;; esac
+    return
+  fi
+  code=$(curl -s -o /dev/null -m 2 -w '%{http_code}' "http://127.0.0.1:$admin/healthcheck" 2>/dev/null)
   case "$code" in 200) echo healthy;; 500) echo UNHEALTHY;; *) port_open "$app" && echo starting || echo down;; esac
 }
 

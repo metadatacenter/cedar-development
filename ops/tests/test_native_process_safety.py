@@ -284,6 +284,33 @@ class NativeProcessSafetyTest(unittest.TestCase):
 
         self.assertNotEqual(0, result.returncode)
 
+    def test_angular_frontends_clear_generated_cache_and_use_their_local_cli(self):
+        script = SCRIPT.read_text()
+
+        self.assertIn('./node_modules/.bin/ng cache clean || return 1', script)
+        self.assertIn('exec ./node_modules/.bin/ng serve --port "$app"', script)
+        self.assertNotIn('exec ng serve --port "$app"', script)
+
+    def test_frontend_health_rejects_a_listening_failed_compiler(self):
+        result = self.run_library(
+            'app_port() { echo 4220; }; admin_port() { echo 0; }; '
+            'curl() { printf 404; }; port_open() { return 0; }; '
+            'health_of ui-openview'
+        )
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual("UNHEALTHY", result.stdout.strip())
+
+    def test_frontend_health_accepts_a_served_application(self):
+        result = self.run_library(
+            'app_port() { echo 4220; }; admin_port() { echo 0; }; '
+            'curl() { printf 200; }; port_open() { return 0; }; '
+            'health_of ui-openview'
+        )
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual("healthy", result.stdout.strip())
+
     def test_status_defers_docker_owned_services_to_docker_status(self):
         result = self.run_library(
             'names() { printf "group\\nartifact\\n"; }; '
