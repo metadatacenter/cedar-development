@@ -104,7 +104,7 @@
       "repository": "cedar-model-typescript-library",
       "lock": "package-lock.json",
       "strictInstallScripts": true,
-      "sha256": "d35df71d9e8fe3c2bb4723aa8e1b680d76955a6838b23898246c3abc115b4595",
+      "sha256": "96bc46c906f2a6a4c1020ed69b8e6bebaef0a100739f62fc61edaf9fcd8b541b",
       "vulnerabilities": {"low": 0, "moderate": 0, "high": 0, "critical": 0}
     },
     {
