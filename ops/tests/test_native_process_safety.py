@@ -11,7 +11,7 @@ DEVELOPMENT = Path(__file__).resolve().parents[2]
 
 class NativeProcessSafetyTest(unittest.TestCase):
 
-    def run_library(self, body):
+    def run_library(self, body, **overrides):
         with tempfile.TemporaryDirectory() as temporary:
             cedar_home = Path(temporary)
             # The controller takes the environment its caller already loaded, which is how
@@ -23,6 +23,7 @@ class NativeProcessSafetyTest(unittest.TestCase):
                 "CEDAR_PROFILE": "develop",
                 "CEDAR_VERSION": "2.9.3-SNAPSHOT",
                 "CEDAR_SERVICES_LIBRARY_ONLY": "true",
+                **overrides,
             }
             return subprocess.run(
                 ["bash", "-c", 'source "$1"; eval "$2"', "test", str(SCRIPT), body],
@@ -31,6 +32,59 @@ class NativeProcessSafetyTest(unittest.TestCase):
                 text=True,
                 check=False,
             )
+
+    def a_jdk_reporting(self, directory, first_line):
+        """A JAVA_HOME whose java says what the test wants it to say."""
+        binaries = Path(directory) / "bin"
+        binaries.mkdir(parents=True, exist_ok=True)
+        java = binaries / "java"
+        java.write_text("#!/bin/bash\nprintf '%s\\n' \"$1 is not read\" >/dev/null\n"
+                        f"printf '%s\\n' '{first_line}' >&2\n")
+        java.chmod(0o755)
+        return str(directory)
+
+    def test_a_java_home_with_no_java_in_it_is_refused(self):
+        """Only $JAVA_HOME/bin joins PATH, so an unusable one leaves java coming from elsewhere."""
+        with tempfile.TemporaryDirectory() as empty:
+            result = self.run_library("true", JAVA_HOME=empty)
+
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("has no java to run", result.stderr)
+            self.assertIn(empty, result.stderr)
+
+    def test_a_java_home_on_the_wrong_jdk_is_refused_by_version(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home = self.a_jdk_reporting(directory, 'openjdk version "21.0.2" 2024-01-16')
+            result = self.run_library("true", JAVA_HOME=home)
+
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("CEDAR needs JDK 17", result.stderr)
+            self.assertIn("reports 21", result.stderr)
+
+    def test_a_java_home_that_reports_no_version_is_refused(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home = self.a_jdk_reporting(directory, "not a version at all")
+            result = self.run_library("true", JAVA_HOME=home)
+
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("no version this can read", result.stderr)
+
+    def test_a_java_home_on_jdk_17_is_accepted(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home = self.a_jdk_reporting(directory, 'openjdk version "17.0.9" 2023-10-17')
+            result = self.run_library("echo controller loaded", JAVA_HOME=home)
+
+            self.assertEqual(0, result.returncode, result.stderr)
+            self.assertIn("controller loaded", result.stdout)
+
+    def test_the_legacy_jdk_version_spelling_is_read_as_its_major(self):
+        """A pre-9 JDK says 1.8.0_202, and reading that as 1 would accept it."""
+        with tempfile.TemporaryDirectory() as directory:
+            home = self.a_jdk_reporting(directory, 'java version "1.8.0_202"')
+            result = self.run_library("true", JAVA_HOME=home)
+
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("reports 8", result.stderr)
 
     def test_docker_port_proxy_is_not_a_native_microservice(self):
         result = self.run_library(

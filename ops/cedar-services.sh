@@ -44,6 +44,20 @@ if [ "${CEDAR_SERVICES_INSPECT_ONLY:-false}" != true ] && [ -z "${CEDAR_DEVELOP_
     exit 1
   fi
 fi
+# Reads the major version a JDK reports, from either the modern "21.0.2" or the legacy "1.8.0_202"
+# spelling. Echoes nothing when the binary will not run or says nothing a version can be read from.
+java_major_version() {
+  local first release
+  first=$("$1" -version 2>&1 | head -1) || return 1
+  case "$first" in *\"*\"*) ;; *) return 1 ;; esac
+  release=${first#*\"}; release=${release%%\"*}
+  case "$release" in
+    1.*) release=${release#1.} ;;
+  esac
+  release=${release%%.*}; release=${release%%-*}
+  case "$release" in ''|*[!0-9]*) return 1 ;; esac
+  echo "$release"
+}
 if [ "${CEDAR_SERVICES_INSPECT_ONLY:-false}" != true ]; then
   # JDK 17 comes from the caller. cedarcli resolves it per platform; a login shell exports it.
   if [ -z "${JAVA_HOME:-}" ] && [ -x /usr/libexec/java_home ]; then
@@ -51,6 +65,19 @@ if [ "${CEDAR_SERVICES_INSPECT_ONLY:-false}" != true ]; then
   fi
   if [ -z "${JAVA_HOME:-}" ]; then
     echo "JAVA_HOME is not set, and CEDAR needs JDK 17" >&2
+    exit 1
+  fi
+  # Hold the value to what the message above promises. Only $JAVA_HOME/bin joins PATH below, so a
+  # value with no JDK behind it contributes nothing, java resolves from a later entry, and the
+  # service runs on a JDK nobody chose. Keycloak and OpenSearch do not survive the newer ones, and
+  # that failure arrives later as strange behaviour rather than here as a refusal to start.
+  if [ ! -x "$JAVA_HOME/bin/java" ]; then
+    echo "JAVA_HOME has no java to run, and CEDAR needs JDK 17: $JAVA_HOME" >&2
+    exit 1
+  fi
+  CEDAR_JAVA_MAJOR=$(java_major_version "$JAVA_HOME/bin/java")
+  if [ "$CEDAR_JAVA_MAJOR" != 17 ]; then
+    echo "CEDAR needs JDK 17, and $JAVA_HOME reports ${CEDAR_JAVA_MAJOR:-no version this can read}" >&2
     exit 1
   fi
 fi
