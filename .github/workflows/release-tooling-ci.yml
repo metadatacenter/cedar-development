@@ -43,6 +43,14 @@ jobs:
         with:
           python-version: "3.12"
 
+      # The frontend train suite shells out to node and npm. Both happen to be present on the
+      # hosted runners, so the suite passed without asking for them, and would have started failing
+      # on whichever runner image dropped them first.
+      - name: Set up Node 24.19.0
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.19.0
+
       # These suites mock publication and service operations, but exercise real platform process
       # discovery. They validate the captured controllers without starting a CEDAR service or
       # writing external state.
