@@ -1963,6 +1963,14 @@ delete the pin and assert the right behaviour. Each corresponds to a roadmap ite
 but it is bound to AngularJS markup, so it is the more brittle of the two and the one that will not
 survive a frontend replacement. Prefer adding to the REST smoke.
 
+Two smaller browser smokes cover the frontends that one does not reach. `npm run smoke:frontend-cache`
+checks all seven origins for a 200 and `Cache-Control: no-store` without credentials, which a
+completely broken application still passes. `npm run smoke:frontend-app` signs in through Keycloak and
+waits for Monitoring and Bridging to render content only their own components produce, failing on the
+console errors an application cannot run through. That distinction is the point: the Angular 22 upgrade
+left OpenView building clean and dying at bootstrap with an injector error, which every gate then in
+place reported as green.
+
 Two reusable helpers live in `cedar-test-support-library` and are the right starting point for new
 work. `RouteSurface` reflects over a server's JAX-RS classes and asserts every route answers a given
 status, honouring `@Consumes` so a probe reaches the auth check instead of being rejected during
