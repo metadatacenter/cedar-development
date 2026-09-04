@@ -9,6 +9,14 @@ normal Maven snapshot such as `<NEXT>-SNAPSHOT`. A train job checks out exact co
 disposable workspace, changes their CEDAR versions only there, and publishes a version such as
 `<NEXT>-dev.YYYYMMDD.HHMM` to the immutable `cedar-maven-dev` Nexus repository.
 
+Local frontend builds are compile-only. `cedarcli build frontends`, `cedarcli build all`, and
+`cedarcli build this` write generated output under the source repository and never materialize it
+into a tracked sibling such as `cedar-monitoring-dist`. Publication owns that transition: the build
+and release trains validate the source build, replace the legacy distribution exactly in their
+disposable workspaces, preserve the package metadata, and record the resulting hashes. The legacy
+`cedarcli publish frontends` path also materializes distributions, but only because an explicit
+publish requested that side effect.
+
 Keep the three identities distinct:
 
 | Identity | Meaning | May its bytes change? |

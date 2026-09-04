@@ -288,7 +288,7 @@ needs. Install, then get the bundle into what each host serves:
 | `cedar-workspace` | plain | `npx gulp copy:cee` (needs the profile sourced) |
 | `cedar-template-editor` | plain | `npx gulp copy:cee` (needs the profile sourced) |
 | `cedar-bridging` | plain | `cedarcli build this --wd "$PWD"` |
-| `cedar-openview` | `--legacy-peer-deps` | `cedarcli build this --wd "$PWD"` — it copies `dist/cedar-openview` into `cedar-openview-dist` |
+| `cedar-openview` | `--legacy-peer-deps` | `cedarcli build this --wd "$PWD"` — it compiles the source output; publication alone materializes `cedar-openview-dist` |
 | `cedar-component-demo` (Angular) | plain | `cedarcli build this --wd "$PWD"` |
 | `cedar-component-demo` (Ember, React) | plain | nothing — they run from source |
 
