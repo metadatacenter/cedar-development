@@ -648,10 +648,6 @@ Frontend work for the embeddable editor is tracked separately in
     in a compile.
   - **Embedded Mongo 4.20.0 to 5.0.0.** Test lifecycle only, but that lifecycle was reworked twice
     in early September 2026, so this wants settled code under it.
-  - **JsonPath 2.9.0 to 3.0.0.**
-  - **The Maven Release plugin 2.5.3 to 3.3.1, with its SCM provider 1.11.1 to 2.2.1.** These decide
-    how `cedarcli release start` cuts a release across the versioned repositories. Rehearse the
-    release rather than trusting a build.
   - **Logback 1.5.33 to 1.6.3** needs SLF4J 2.1, which has only an alpha, so it waits on the last
     group below.
 
