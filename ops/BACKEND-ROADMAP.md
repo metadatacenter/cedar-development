@@ -675,14 +675,6 @@ Frontend work for the embeddable editor is tracked separately in
   validation and XML binding, and the Maven 4.0.0 betas of Clean, Compiler, Deploy, Install, Jar,
   Resources and Source, with Site at a milestone.
 
-  Every upgrade above is verified the same way, and that path carries a hazard worth planning
-  around. A full local `cedarcli build java` cannot currently be trusted as the gate.
-  `MonitorRoutesAndPermissionsTest` asserts a 503 from a stopped artifact server and fails
-  deterministically on any workstation whose stack is up, and the embedded Redis in
-  `QueueOutageTest` intermittently loses a race for its ephemeral port. Both make an unrelated
-  upgrade look guilty. Either fix those two before starting, or verify in CI, where neither
-  condition holds.
-
   Done when each upgrade above has either landed or been recorded as refused with its reason, and
   the estate no longer carries a dependency held back only because nobody looked at it.
 
