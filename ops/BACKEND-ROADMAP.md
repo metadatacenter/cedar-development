@@ -634,22 +634,26 @@ Frontend work for the embeddable editor is tracked separately in
   Done when `start` reports a service only once it is healthy or names why it is not, and `start
   all` completes against running infrastructure.
 
-- **14. Take the dependency upgrades that need code changes.** Three sweeps on 2026-09-04 moved
-  every version that could move without consequence: the patch-level libraries, the build plugins,
-  and the test infrastructure with its pinned transitives. What stayed behind stayed deliberately,
-  and it separates into work to do, a server lock to wait on, and versions that are not released.
+- **14. Take the dependency upgrades that need code changes.** The versions that could move without
+  consequence have moved. What stayed behind stayed deliberately, and it separates into work to do,
+  versions that follow something else, and versions upstream has not released.
 
   **The upgrades that need code or test changes.** Each of these is a change to make rather than a
   version to raise, which is why none of them rode along with a sweep.
 
-  - **JUnit 5.11.3 to 6.1.3, and Hamcrest 2.2 to 3.0.** A major line across every Java repository's
-    suites, and the two move together because the assertion libraries are used side by side. The
-    estate runs 7,814 tests, so the cost here is migration effort rather than risk to the product.
   - **json-schema-validator 1.5.9 to 3.0.7.** Two major lines on the library that decides which
     stored artifacts CEDAR accepts. A change in validation behaviour is a change to the product, so
     this one is settled by differential testing against production artifacts, not by a green build.
   - **OWLAPI 4.5.9 to 5.5.1.** Ontology semantics, where a behavioural difference does not show up
     in a compile.
+  - **The JAXB reference implementation 3.0.0 to 4.0.9.** Worth taking first, because the pairing
+    already looks wrong: jaxb-core and jaxb-impl are pinned on the 3.0 line while the API they
+    implement, jakarta.xml.bind-api, is at 4.0.5. Establish which combination the impex and
+    submission upload paths actually run on before choosing a version.
+  - **The two code generators, jaxb2-maven-plugin 3.1.0 to 4.1.0 and jsonschema2pojo 1.0.0 to
+    1.3.3.** Both emit sources that are then compiled, so a major is read through its output: the
+    generated diff is the review, not the plugin version. The small jax plugin, 0.1.5 to 0.2, is
+    part of the same generation path and moves with them.
   - **Embedded Mongo 4.20.0 to 5.0.0.** Test lifecycle only, but that lifecycle was reworked twice
     in early September 2026, so this wants settled code under it.
   - **JsonPath 2.9.0 to 3.0.0.**
@@ -658,22 +662,30 @@ Frontend work for the embeddable editor is tracked separately in
   - **The Maven Release plugin 2.5.3 to 3.3.1, with its SCM provider 1.11.1 to 2.2.1.** These decide
     how `cedarcli release start` cuts a release across the versioned repositories. Rehearse the
     release rather than trusting a build.
-  - **Logback 1.5.33 to 1.6.3** needs SLF4J 2.1, which has only an alpha, so it waits on the group
-    below.
+  - **Logback 1.5.33 to 1.6.3** needs SLF4J 2.1, which has only an alpha, so it waits on the last
+    group below.
 
   **Versions that follow a locked server.** Six sit here: the Neo4j driver 5.28.14 to 6.2.1, MySQL
   Connector/J 8.4.0 to 26.7.0, the Mongo driver 5.1.2 to 5.11.0, the OpenSearch client 2.19.2 to
   3.8.0, the Lucene pin 9.12.1 to 10.5.1, and the Neo4j test harness 5.3.0 to 2026.07.1. Client
   libraries are free to move in general, but a driver crossing a major has to be proven against the
   pinned server it talks to, so these are sequenced behind item 2 rather than taken on their own.
-  RESTEasy 6.2.4 to 7.0.4 is held the same way by the Keycloak client stack, which items 2 and 9
-  own.
+  Keycloak 22.0.4 to 25.0.3 is item 2's own, and RESTEasy 6.2.4 to 7.0.4 is held by the Keycloak
+  client stack, which items 2 and 9 own.
 
-  **Versions that are not released.** These wait on upstream to ship a final: HttpCore
-  5.5-beta2 and HttpClient 5.7-alpha1, Hibernate 8.0.0.Beta1, Jedis 8.1.0-beta1, SLF4J 2.1.0-alpha1,
-  Log4j 3.0.0-beta2, Jersey 5.0.0-M1, the Jakarta API milestones for persistence, servlet,
-  validation and XML binding, and the Maven 4.0.0 betas of Clean, Compiler, Deploy, Install, Jar,
-  Resources and Source, with Site at a milestone.
+  **Versions that follow whatever pulls them in.** The transitive block exists so that every module
+  resolves one version of an artifact nothing here depends on directly, which makes these five
+  nobody's choice to raise: HK2 locator 3.0.6 to 4.0.2, Jandex 2.4.3 to 3.3.1, Netty 4.1.115 to
+  4.2.17, protobuf-java 3.25.5 to 4.36.1 and Reactor Core 3.5.20 to 3.8.7. Each belongs to a
+  framework above it, so each moves when Jersey, Hibernate, the Neo4j driver or OpenSearch moves.
+  Raising one on its own would pin a version its owner does not expect.
+
+  **Versions that are not released.** These wait on upstream to ship a final: HttpCore 5.5-beta2 and
+  HttpClient 5.7-alpha1, Hibernate 8.0.0.Beta1, Jedis 8.1.0-beta1, SLF4J 2.1.0-alpha1, Log4j
+  3.0.0-beta2, Jersey 5.0.0-M1, Angus Activation 2.1.0-M1, the Jakarta activation, persistence,
+  servlet, validation and XML binding milestones, and the Maven 4.0.0 betas of Clean, Compiler,
+  Deploy, Install, Jar, Resources and Source, with Site at a milestone. The old javax
+  jaxb-api's only newer version is a 2018 build that was never finalized, so it stays too.
 
   Done when each upgrade above has either landed or been recorded as refused with its reason, and
   the estate no longer carries a dependency held back only because nobody looked at it.
