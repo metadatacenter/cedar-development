@@ -385,26 +385,54 @@ Frontend work for the embeddable editor is tracked separately in
   Three things hold the drain rate down, and they compound. Each message is its own `@UnitOfWork`,
   so one HTTP request costs several transactions rather than one. Every subtype after the first reads
   the row back by `localRequestId` before merging into it, so most of those transactions carry a
-  lookup as well as a write. The table then carries seventeen secondary indexes, each maintained on
-  every insert, on a table too large to keep them cached. That count rose by three when aggregation
-  landed, so the write cost is growing rather than holding.
+  lookup as well as a write. The table then carries seventeen declared secondary indexes, each
+  maintained on every insert, on a table too large to keep them cached. That count rose by three when
+  aggregation landed, so the write cost is growing rather than holding.
+
+  The message count is larger than the usual request-filter START, request-handler and request-filter
+  END triplet. `AbstractNeo4JProxy` also emits a `CYPHER_QUERY` message for every graph query. The
+  comment in `AppLoggerQueueService` says this high-volume stream is disabled, but the condition that
+  would disable it is itself commented out. Establish whether raw query logging still has an active
+  operational consumer; if it does, make it explicitly configurable and consider sampling it. If it
+  does not, stop producing it before optimizing a consumer for work the estate did not intend to keep.
 
   Deliver:
 
-  - A ceiling on the queue, and a stated answer for what happens when it is reached. Logging must not
-    be able to exhaust the host, so dropping the oldest records, shedding new ones, or refusing the
-    write are all acceptable answers and silence is not.
-  - One transaction per batch rather than per message, and the start record carried forward so a
-    merge does not pay for a lookup it could avoid.
-  - An index set chosen from the queries actually run against this table, measured rather than
-    assumed. Seventeen on a write-heavy table is a cost paid on every insert.
+  - An application-log-specific ceiling on the queue and its dead-letter queue, with a stated answer
+    for what happens when either is reached. Enforce the pending-queue limit with one atomic Redis
+    operation rather than an `LLEN`/`RPUSH` race. Prefer shedding new messages to trimming the oldest:
+    trimming removes a request's START first and leaves later messages with no row to merge into.
+    Count and expose every shed message. All five durable queues share this Redis, so do not use an
+    `allkeys-*` eviction policy that can evict security-sensitive permission work; a host-level limit,
+    if added as a final guard, needs a deliberate `noeviction`/isolation decision and enough headroom.
+  - One transaction per bounded batch rather than per message. Group messages by `localRequestId`,
+    carry a START record forward inside the batch, fetch all cross-batch request ids in one query, and
+    write each request row once. Preserve the existing claim/processing/ack protocol: acknowledge only
+    after commit, make replay after a commit-before-ack crash idempotent, and isolate a poison message
+    without ambiguously replaying an already committed batch.
   - A retention window chosen and turned on. `LogPruneJob` deletes aggregated rows past a window in
     bounded batches, defaulting to thirty days, and stays off behind `CEDAR_LOG_PRUNE_ENABLED`
     because deletion is the irreversible step. What remains is trusting the rollups enough to
     enable it, and saying which window each environment keeps.
 
+  **Production database migration — a separate, explicitly controlled workstream.** Reducing the
+  `log_request` index set is not an annotation cleanup and must not ride silently inside the consumer
+  change. First inventory the physical production indexes with `SHOW INDEX`: the entity declares
+  seventeen indexes as well as a unique constraint on `localRequestId`, and the actual structures can
+  differ from the annotations after years of `hbm2ddl.auto=update`. Use the real `LogQueryDAO`,
+  `LogExplorerDAO`, aggregation and prune queries with `EXPLAIN`; treat
+  `sys.schema_unused_indexes` only as supporting evidence because its counters reset. Then prepare
+  explicit forward and rollback DDL, establish the algorithm/lock behavior and disk headroom, and
+  rehearse both directions against a production-sized copy. Deploy the index migration separately,
+  during a named production window with a backup, observable progress, abort criteria and post-change
+  query-plan and latency verification. Removing `@Index` annotations is not a migration, and no index
+  is to be dropped merely because its name looks redundant.
+
   Done when a sustained load profile leaves the queue at a bounded depth it recovers from, Redis
-  memory flat across the run, and the worker healthy throughout.
+  memory flat across the run, shed and orphaned messages visible, and the worker healthy throughout.
+  The item is not complete until any production index changes have also passed the separately staged
+  migration and rollback procedure above; a green Java build is not evidence that a live-table DDL
+  change is safe.
 
 - **9. Separate CEDAR dependency convergence from the Keycloak provider platform lock.** The eleven
   apparent test-classpath splits are not eleven candidates for one global version. Re-measuring all
@@ -581,17 +609,7 @@ Frontend work for the embeddable editor is tracked separately in
   Done when each class of outbound call takes its timeouts from configuration, the request log carries
   durations, the compensating write is durable, and the remaining clients read the same settings.
 
-- **13. Test operational CLI code on both macOS and Linux.** `cedarcli` is the control surface for
-  developer workstations and Unix servers, but operational paths can still be exercised only on the
-  platform where a change was written. Put its Python tests and the non-destructive `ops/` controller
-  tests in a macOS/Linux CI matrix. Give OS-specific process discovery, port ownership, service-manager
-  integration, path handling, executable selection, and credential/configuration lookup explicit
-  fixtures on both systems rather than hiding one branch behind a platform skip. The full native stack
-  does not need to boot in CI: acceptance is that every portable preflight and status path runs on both
-  runners, every deliberately platform-specific command has a contract test for each supported OS, and
-  a change to shared operational code cannot merge after passing on only the author's platform.
-
-- **14. Make native bring-up prove a service runs, and make one already-running layer not stop the
+- **13. Make native bring-up prove a service runs, and make one already-running layer not stop the
   rest.** `cedarcli native start` reports what the launcher accepted rather than what the stack ends
   up running, and the gap swallowed a whole-stack outage on 2026-09-02: every application exited in
   milliseconds for want of `CEDAR_PROFILE`, launchd's keepalive respawned each one, and the CLI
@@ -618,7 +636,7 @@ Frontend work for the embeddable editor is tracked separately in
 
 ## Production data
 
-- **15. Normalize production artifacts to one explicit model contract.** Production contains several
+- **14. Normalize production artifacts to one explicit model contract.** Production contains several
   legacy representations that the current model surfaces tolerate or normalize differently, so bring
   them to canonical shapes before tightening readers or introducing terminology routing across source
   systems. The permission-scoped audit found 76 inherently-multiple fields deployed as JSON objects in
@@ -792,7 +810,7 @@ Frontend work for the embeddable editor is tracked separately in
 
 ## Later decisions
 
-- **16. A published artifact can be deleted, contradicting the docs.** The docs say a published
+- **15. A published artifact can be deleted, contradicting the docs.** The docs say a published
   artifact is permanent, but `DELETE` on one succeeds. The guard in
   `AbstractResourceServerResource.executeArtifactDelete` was briefly re-enabled and then **reverted by
   deliberate decision**: blocking deletion strands published artifacts and the folders holding them with
@@ -803,7 +821,7 @@ Frontend work for the embeddable editor is tracked separately in
   through folder deletion). Immutability of published content is a separate guarantee and is
   unaffected either way — that one is enforced.
 
-- **17. Finish the DataCite DOI minting lifecycle.** The durable lifecycle is what makes the operation
+- **16. Finish the DataCite DOI minting lifecycle.** The durable lifecycle is what makes the operation
   recovery-safe, and none of it exists yet. Minting persists no state of its own: draft/reserved,
   published and locally attached are recorded nowhere, so the `reconciliationRequired` response names a
   condition no code resolves, and a retry after a timeout cannot tell whether the earlier attempt
