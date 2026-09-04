@@ -123,6 +123,12 @@ app_port()  { svc_field "$1" 2; }
 admin_port(){ svc_field "$1" 3; }
 pidfile()   { echo "$RUN/$1.pid"; }
 logfile()   { case "$1" in ui-*) echo "$LOGDIR/$1.log";; *) echo "$LOGDIR/cedar-$1-server.log";; esac; }
+# Every service writes two logs. The one above is its standard output and error, which carries the
+# console appender plus everything the JVM and its libraries print before logback exists and
+# whatever a failing launcher reports, and which start truncates. The one below is the Dropwizard
+# file appender named in each config.yml: logging events only, but it survives restarts and
+# rotates daily, so an earlier run's history is still there. Frontends declare no appender.
+dropwizard_logfile() { case "$1" in ui-*) echo "";; *) echo "$LOGDIR/cedar-$1-server/dropwizard.log";; esac; }
 log_error_count() {
   local log=$1
   [ -r "$log" ] || { echo 0; return; }
@@ -143,6 +149,7 @@ auxiliary_ports() {
 port_owner() { lsof -ti "tcp:$1" -sTCP:LISTEN 2>/dev/null | head -1; }
 port_owners() { lsof -nP -tiTCP:"$1" -sTCP:LISTEN 2>/dev/null | sort -nu; }
 process_command() { ps -p "$1" -o command= 2>/dev/null; }
+process_alive() { kill -0 "$1" 2>/dev/null; }
 process_cwd() { lsof -a -p "$1" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -1; }
 
 is_docker_port_forwarder() {
@@ -469,7 +476,16 @@ start_one() {
     # launchctl's -o/-e files append by default; retain the old nohup launcher's one-log-per-run
     # behavior so status does not attribute an earlier process's errors to the current binary.
     : > "$log"
-    launchctl submit -l "$label" -o "$log" -e "$log" -- /bin/bash "$SCRIPT_PATH" run-one "$name" || return 1
+    # launchd starts a submitted job from its own environment and not this shell's, so the child
+    # arrives with no CEDAR variables at all and loads the profile for itself. Name which one it
+    # is, since nothing may guess that on the host's behalf.
+    if [ -z "${CEDAR_PROFILE:-}" ]; then
+      echo "  $name: CEDAR_PROFILE is not set, and launchd cannot inherit this shell's environment" >&2
+      return 1
+    fi
+    launchctl submit -l "$label" -o "$log" -e "$log" -- /bin/bash -c \
+      'export CEDAR_HOME="$1" CEDAR_PROFILE="$2"; exec "$3" run-one "$4"' \
+      cedar-launchd-run "$CEDAR_HOME" "$CEDAR_PROFILE" "$SCRIPT_PATH" "$name" || return 1
     p=""
     for attempt in 1 2 3 4 5; do
       p=$(launchd_job_pid "$name")
@@ -480,6 +496,18 @@ start_one() {
   else
     nohup "$SCRIPT_PATH" run-one "$name" >"$log" 2>&1 &
     p=$!
+  fi
+  # A PID proves only that the launcher spawned something. A submitted job restarts when it exits,
+  # so a service that cannot start shows a fresh PID on every look and buries its first, useful
+  # error under identical repeats. Give it a moment and confirm this same process is still there,
+  # which catches what fails before a JVM starts: an unreadable profile, a missing config, no JDK.
+  # A service that dies later still reads as unhealthy in status and health.
+  sleep 0.5
+  if ! process_alive "$p"; then
+    remove_launchd_job "$name" || true
+    echo "  $name: exited immediately (pid $p); last lines of $log:" >&2
+    tail -n 4 "$log" 2>/dev/null | sed 's/^/    /' >&2
+    return 1
   fi
   echo "$p" > "$(pidfile "$name")"
   echo "  started $name (pid $p) -> port $app, log $log"
@@ -681,6 +709,38 @@ running_infrastructure() {
   done
 }
 
+follow_log() {
+  local lines=100 appender=stdout name="" log
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -n|--lines)
+        case "${2:-}" in
+          "" | *[!0-9]*) echo "logs: --lines takes a number, not '${2:-}'" >&2; return 2 ;;
+        esac
+        lines=$2; shift 2 ;;
+      --dropwizard) appender=dropwizard; shift ;;
+      --stdout) appender=stdout; shift ;;
+      -*) echo "usage: $0 logs <service> [-n LINES] [--dropwizard]" >&2; return 2 ;;
+      *)
+        [ -z "$name" ] || { echo "logs: follows one service, and '$name' was already named" >&2; return 2; }
+        name=$1; shift ;;
+    esac
+  done
+  [ -n "$name" ] || { echo "usage: $0 logs <service> [-n LINES] [--dropwizard]" >&2; return 2; }
+  [ -n "$(app_port "$name")" ] || { echo "logs: unknown service '$name'" >&2; return 2; }
+  if [ "$appender" = dropwizard ]; then
+    log=$(dropwizard_logfile "$name")
+    [ -n "$log" ] || { echo "logs: $name is a frontend and declares no Dropwizard appender" >&2; return 2; }
+  else
+    log=$(logfile "$name")
+  fi
+  [ -e "$log" ] || { echo "logs: $name has written no log yet at $log" >&2; return 1; }
+  echo "==> $log"
+  # -F rather than -f: start truncates the stdout log in place and the appender rotates itself at
+  # midnight, and either one leaves a -f following a file nothing writes to any more.
+  exec tail -F -n "$lines" "$log"
+}
+
 if [ "${CEDAR_SERVICES_LIBRARY_ONLY:-false}" = true ]; then
   return 0 2>/dev/null || exit 0
 fi
@@ -697,6 +757,7 @@ case "$cmd" in
   running) running "$@" ;;
   running-infra) running_infrastructure ;;
   health)  health "$@"; exit $? ;;
-  logs)    [ -n "$1" ] && tail -f "$(logfile "$1")" || echo "usage: $0 logs <service>" ;;
-  *) echo "usage: $0 {start|stop|restart|status|watch|running|running-infra|logs <name>|health} [name...]" ;;
+  logs)    follow_log "$@"; exit $? ;;
+  *) echo "usage: $0 {start|stop|restart|status|watch|running|running-infra|health} [name...]"
+     echo "       $0 logs <name> [-n LINES] [--dropwizard]" ;;
 esac

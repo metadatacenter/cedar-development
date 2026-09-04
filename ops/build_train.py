@@ -8,6 +8,7 @@ import base64
 import concurrent.futures
 import datetime as dt
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -122,30 +123,13 @@ def validate_audit_baselines(frontend: dict, workspace: Path,
             if not manifest.is_file():
                 raise RuntimeError(
                     f"strict install-script manifest is missing for {repository}:{relative}")
-            package = load_config(manifest)
-            policy = package.get("allowScripts")
-            if not isinstance(policy, dict):
-                raise RuntimeError(
-                    f"{repository}:{manifest.relative_to(workspace / repository)} has no "
-                    "allowScripts policy")
-            locked = load_config(lock).get("packages", {})
-            pending = []
-            for installed_path, record in locked.items():
-                if not installed_path or not isinstance(record, dict) \
-                        or not record.get("hasInstallScript"):
-                    continue
-                name = installed_path.rsplit("node_modules/", 1)[-1]
-                version = record.get("version")
-                covered = policy.get(name) is False
-                for key in policy:
-                    prefix = name + "@"
-                    if key.startswith(prefix) and version in {
-                        item.strip() for item in key[len(prefix):].split("||")
-                    }:
-                        covered = True
-                        break
-                if not covered:
-                    pending.append(f"{name}@{version}")
+            npm_policy = _captured_npm_policy(workspace)
+            identity = f"{repository}:{lock.relative_to(workspace / repository)}"
+            try:
+                pending = npm_policy.unreviewed_install_scripts(
+                    load_config(manifest), load_config(lock), identity)
+            except ValueError as error:
+                raise RuntimeError(str(error)) from error
             if pending:
                 raise RuntimeError(
                     f"unreviewed npm install scripts in {repository}:{relative}: "
@@ -658,64 +642,82 @@ def publication_target_preflight(environment=None, opener=None) -> None:
     print("OK Docker registry authentication")
 
 
-def _github_ci_preflight(source: dict, workspace: Path) -> None:
+def _captured_ci_policy(workspace: Path):
+    path = workspace / "cedar-cli" / "org" / "metadatacenter" / "github_ci.py"
+    if not path.is_file():
+        raise RuntimeError(f"captured GitHub CI probe policy is missing: {path}")
+    name = "cedar_train_captured_github_ci"
+    spec = importlib.util.spec_from_file_location(name, path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"cannot load captured GitHub CI probe policy: {path}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def _captured_npm_policy(workspace: Path):
+    path = workspace / "cedar-cli" / "org" / "metadatacenter" / "npm_policy.py"
+    if not path.is_file():
+        raise RuntimeError(f"captured npm install policy is missing: {path}")
+    name = "cedar_train_captured_npm_policy"
+    spec = importlib.util.spec_from_file_location(name, path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"cannot load captured npm install policy: {path}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def _github_ci_preflight(source: dict, workspace: Path, policy=None) -> None:
     token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
     if not token:
         raise RuntimeError("GH_TOKEN is required for exact-source CI preflight")
-    organization = "metadatacenter"
+    policy = policy or _captured_ci_policy(workspace)
     failures = []
     for repository, revision in sorted(source.get("repositories", {}).items()):
         workflow_root = workspace / repository / ".github" / "workflows"
         if not workflow_root.is_dir() or not any(path.is_file() for path in workflow_root.iterdir()):
             print(f"CI advisory: {repository} has no workflow contract; train gates its outputs.")
             continue
-        url = (
-            f"https://api.github.com/repos/{organization}/{repository}/actions/runs?"
-            + urllib.parse.urlencode({"head_sha": revision, "per_page": 20})
-        )
-        request = urllib.request.Request(url, headers={
-            "Authorization": f"Bearer {token}",
-            "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2022-11-28",
-        })
         try:
-            with urllib.request.urlopen(request, timeout=60) as response:
-                payload = json.load(response)
-        except urllib.error.HTTPError as error:
-            failures.append(f"{repository}: CI state returned HTTP {error.code}")
+            probe = policy.probe_exact_commit(
+                repository,
+                revision,
+                reporter=lambda message: print(f"CI retry: {message}", flush=True),
+            )
+        except policy.GithubCIProbeError as error:
+            failures.append(str(error))
             continue
-        except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as error:
-            failures.append(f"{repository}: CI state is unreadable ({error})")
-            continue
-        runs = payload.get("workflow_runs", [])
-        if not isinstance(runs, list) or not runs:
-            failures.append(f"{repository}: no CI run for {revision[:8]}")
-            continue
+        runs = list(probe.runs)
         # The train workflow is the caller currently performing this check. Counting it would
         # make cedar-development wait on itself forever (or inherit a previous train failure).
-        runs = [
-            run_record for run_record in runs
-            if not (
-                repository == "cedar-development"
-                and run_record.get("path") == ".github/workflows/build-train.yml"
-            )
-        ]
+        if repository == "cedar-development":
+            runs = [
+                run_record for run_record in runs
+                if run_record.get("path") != ".github/workflows/build-train.yml"
+            ]
+            if not runs:
+                print(
+                    "CI advisory: cedar-development has no separate source-validation run; "
+                    "the train controller is executing its captured code now.")
+                continue
         if not runs:
-            print(
-                "CI advisory: cedar-development has no separate source-validation run; "
-                "the train controller is executing its captured code now.")
+            failures.append(
+                f"{repository}: no CI run for {revision[:8]} after bounded indexing grace")
             continue
-        latest_by_name = {}
-        for run_record in runs:
-            name = run_record.get("name") or str(run_record.get("workflow_id") or "CI")
-            latest_by_name.setdefault(name, run_record)
-        for name, run_record in latest_by_name.items():
+        for name, run_record in policy.latest_runs_by_name(runs).items():
             status = run_record.get("status")
             conclusion = run_record.get("conclusion")
+            url = policy.run_url(run_record)
+            suffix = f" ({url})" if url else ""
             if status != "completed":
-                failures.append(f"{repository}: {name} is {status or 'pending'}")
-            elif conclusion not in {"success", "skipped", "neutral"}:
-                failures.append(f"{repository}: {name} concluded {conclusion or 'without a result'}")
+                failures.append(f"{repository}: {name} is {status or 'pending'}{suffix}")
+            elif conclusion not in policy.GREEN_CONCLUSIONS:
+                failures.append(
+                    f"{repository}: {name} concluded "
+                    f"{conclusion or 'without a result'}{suffix}")
     if failures:
         raise RuntimeError("train source CI is not settled: " + "; ".join(failures))
 

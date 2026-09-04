@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import tempfile
+from types import SimpleNamespace
 import unittest
 import urllib.error
 from unittest.mock import patch
@@ -14,6 +15,25 @@ MODULE_PATH = Path(__file__).resolve().parents[1] / "build_train.py"
 SPEC = importlib.util.spec_from_file_location("build_train", MODULE_PATH)
 build_train = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(build_train)
+
+
+class FakeCIPolicy:
+    GREEN_CONCLUSIONS = {"success", "skipped", "neutral"}
+    GithubCIProbeError = RuntimeError
+
+    def __init__(self, runs):
+        self.runs = runs
+
+    def probe_exact_commit(self, _repository, _revision, reporter=None):
+        return SimpleNamespace(runs=tuple(self.runs))
+
+    @staticmethod
+    def latest_runs_by_name(runs):
+        return {record.get("name", "CI"): record for record in runs}
+
+    @staticmethod
+    def run_url(_record):
+        return ""
 
 
 POM = """<project xmlns="http://maven.apache.org/POM/4.0.0">
@@ -154,8 +174,12 @@ class BuildTrainTest(unittest.TestCase):
             baseline["strictInstallScripts"] = True
             (workspace / "model" / "package.json").write_text(
                 '{"allowScripts": {}}\n', encoding="utf-8")
-            with self.assertRaisesRegex(RuntimeError, "unreviewed npm install scripts.*native-addon"):
-                build_train.validate_configuration(build, frontend, docker, workspace)
+            policy = SimpleNamespace(
+                unreviewed_install_scripts=lambda *_args: ["native-addon@1.2.3"])
+            with patch.object(build_train, "_captured_npm_policy", return_value=policy):
+                with self.assertRaisesRegex(
+                    RuntimeError, "unreviewed npm install scripts.*native-addon"):
+                    build_train.validate_configuration(build, frontend, docker, workspace)
 
     def test_missing_maven_wrapper_is_a_preflight_failure(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -180,57 +204,54 @@ class BuildTrainTest(unittest.TestCase):
                     build, frontend, docker, workspace, "2.9.3-SNAPSHOT")
 
     def test_exact_source_ci_must_have_a_completed_green_run(self):
-        class Response:
-            def __enter__(self):
-                return io.BytesIO(json.dumps({"workflow_runs": [{
-                "name": "CI", "status": "completed", "conclusion": "cancelled",
-                    "path": ".github/workflows/ci.yml",
-                }]}).encode())
-
-            def __exit__(self, *_args):
-                return False
-
         with tempfile.TemporaryDirectory() as directory:
             workspace = Path(directory)
             workflows = workspace / "repository" / ".github" / "workflows"
             workflows.mkdir(parents=True)
             (workflows / "ci.yml").write_text("name: CI\n", encoding="utf-8")
             source = {"repositories": {"repository": "a" * 40}}
-            with patch.dict(os.environ, {"GH_TOKEN": "token"}, clear=False), \
-                    patch.object(build_train.urllib.request, "urlopen", return_value=Response()):
+            policy = FakeCIPolicy([{
+                "name": "CI", "status": "completed", "conclusion": "cancelled",
+                "path": ".github/workflows/ci.yml",
+            }])
+            with patch.dict(os.environ, {"GH_TOKEN": "token"}, clear=False):
                 with self.assertRaisesRegex(RuntimeError, "concluded cancelled"):
-                    build_train._github_ci_preflight(source, workspace)
+                    build_train._github_ci_preflight(source, workspace, policy=policy)
 
     def test_train_workflow_does_not_block_on_itself(self):
-        class Response:
-            def __enter__(self):
-                return io.BytesIO(json.dumps({"workflow_runs": [{
-                    "name": "Build train", "status": "in_progress", "conclusion": None,
-                    "path": ".github/workflows/build-train.yml",
-                }]}).encode())
-
-            def __exit__(self, *_args):
-                return False
-
         with tempfile.TemporaryDirectory() as directory:
             workspace = Path(directory)
             workflows = workspace / "cedar-development" / ".github" / "workflows"
             workflows.mkdir(parents=True)
             (workflows / "build-train.yml").write_text("name: train\n", encoding="utf-8")
             source = {"repositories": {"cedar-development": "a" * 40}}
-            with patch.dict(os.environ, {"GH_TOKEN": "token"}, clear=False), \
-                    patch.object(build_train.urllib.request, "urlopen", return_value=Response()):
-                build_train._github_ci_preflight(source, workspace)
+            policy = FakeCIPolicy([{
+                "name": "Build train", "status": "in_progress", "conclusion": None,
+                "path": ".github/workflows/build-train.yml",
+            }])
+            with patch.dict(os.environ, {"GH_TOKEN": "token"}, clear=False):
+                build_train._github_ci_preflight(source, workspace, policy=policy)
+
+    def test_non_train_workflow_without_a_run_blocks_after_indexing_grace(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            workflows = workspace / "repository" / ".github" / "workflows"
+            workflows.mkdir(parents=True)
+            (workflows / "ci.yml").write_text("name: CI\n", encoding="utf-8")
+            source = {"repositories": {"repository": "a" * 40}}
+            with patch.dict(os.environ, {"GH_TOKEN": "token"}, clear=False):
+                with self.assertRaisesRegex(RuntimeError, "no CI run.*bounded indexing"):
+                    build_train._github_ci_preflight(
+                        source, workspace, policy=FakeCIPolicy([]))
 
     def test_exact_source_without_a_workflow_is_advisory(self):
         with tempfile.TemporaryDirectory() as directory:
             workspace = Path(directory)
             (workspace / "repository").mkdir()
             source = {"repositories": {"repository": "a" * 40}}
-            with patch.dict(os.environ, {"GH_TOKEN": "token"}, clear=False), \
-                    patch.object(build_train.urllib.request, "urlopen") as urlopen:
-                build_train._github_ci_preflight(source, workspace)
-            urlopen.assert_not_called()
+            policy = FakeCIPolicy([])
+            with patch.dict(os.environ, {"GH_TOKEN": "token"}, clear=False):
+                build_train._github_ci_preflight(source, workspace, policy=policy)
 
     def test_publication_preflight_probes_the_release_policy_repository_root(self):
         version = "2.9.3-dev.20260824.1847"

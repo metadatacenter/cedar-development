@@ -186,9 +186,8 @@ git ls-remote https://github.com/&lt;org&gt;/&lt;a-private-repo&gt;.git HEAD \
       <pre><code>cedarcli publish train           # note the TRAIN_ID it prints</code></pre>
       <div class="why"><b>Why a train:</b> the release takes the train's exact source commits, so it never compiles from a moving target.</div></div>
 
-    <div class="step"><h3><span class="n">2</span>Export the Nexus credentials</h3><p>Nexus reads fall back to anonymous and succeed either way, so an unset credential is invisible until the first upload. Preflight authenticates them for you, but they have to be in the environment first.</p>
-      <pre><code>export BMIR_NEXUS_USERNAME=...   # from the bmir-nexus-releases server
-export BMIR_NEXUS_PASSWORD=...   # entry in ~/.m2/settings.xml
+    <div class="step"><h3><span class="n">2</span>Confirm credentials are configured</h3><p>Preflight resolves Nexus credentials from the environment or the <code>bmir-nexus-releases</code> server in <code>~/.m2/settings.xml</code>, authenticates them, and never prints their values. No export or separate auth command is required.</p>
+      <pre><code>cedarcli env status
 export GIT_TERMINAL_PROMPT=0</code></pre></div>
 
     <div class="step"><h3><span class="n">3</span>Rehearse — the preflight</h3><p>Settles every precondition a release can check before it changes anything, in about a minute.</p>
@@ -197,22 +196,21 @@ export GIT_TERMINAL_PROMPT=0</code></pre></div>
   --next-version {{NEXT}} \
   --from-train &lt;TRAIN_ID&gt; \
   --cee-version &lt;PUBLIC_CEE_VERSION&gt;</code></pre>
-      <div class="why"><b>Expect:</b> the CEE byte-equivalence proof, <code>Preflight: every precondition settled</code>, and <code>No changes made.</code> A blocking finding names the exact command that clears it. Nothing irreversible has happened yet.</div></div>
+      <div class="why"><b>Expect:</b> the CEE byte-equivalence proof, <code>Release checks: every precondition settled</code>, and <code>No changes made.</code> A blocking finding names the exact command that clears it. Nothing irreversible has happened yet.</div></div>
 
     <div class="step"><h3><span class="n">4</span>Run the release</h3><p>The same preflight runs again, so the release cannot begin from a state the rehearsal would have refused.</p>
-      <pre><code>{ cedarcli release start \
-    --version {{VER}} \
-    --next-version {{NEXT}} \
-    --from-train &lt;TRAIN_ID&gt; \
-    --cee-version &lt;PUBLIC_CEE_VERSION&gt;; echo "CEDARCLI_EXIT=$?"; } 2>&amp;1 | tee /tmp/cedar-release.log</code></pre>
-      <div class="why">~1h50m. Leave it in tmux; detach with <code>Ctrl-b d</code> and it keeps running. Transient connection failures are retried with backoff; a changed tree or a failed verification still stops it at once.</div></div>
+      <pre><code>cedarcli release start \
+  --version {{VER}} \
+  --next-version {{NEXT}} \
+  --from-train &lt;TRAIN_ID&gt; \
+  --cee-version &lt;PUBLIC_CEE_VERSION&gt;</code></pre>
+      <div class="why">~1h50m. Leave it in tmux; detach with <code>Ctrl-b d</code> and it keeps running. Compact task progress is printed while full output is retained under the numbered attempt; add <code>--verbose</code> only for live raw logs. Transient connection failures are retried with backoff; a changed tree or a failed verification still stops it at once.</div></div>
 
     <div class="step"><h3><span class="n">5</span>Watch it</h3><p>The ledger, rather than the log, is the source of truth.</p>
-      <pre><code>cedarcli release status
-tail -f /tmp/cedar-release.log</code></pre></div>
+      <pre><code>cedarcli release status --watch</code></pre></div>
 
     <div class="step"><h3><span class="n">6</span>Finish</h3><p>Acceptance is the last phase, and it proves the release from outside the ledger that recorded it.</p>
-      <pre><code>cedarcli release status | grep Phase        # expect: accepted</code></pre>
+      <pre><code>cedarcli release status | grep COMPLETE</code></pre>
       <div class="why"><b>Only <code>accepted</code> means done.</b> Acceptance re-asks whether every repository carries {{TAG}}, every remote ref stands where the ledger says, every published artifact still matches its recorded bytes, and the frontends pin the proven CEE. Treat any other final phase as an incomplete release.</div></div>
 
     <div class="step"><h3><span class="n">R</span>If a phase fails — resume, don't restart</h3><p>The failure is recorded and the failed attempt is retained as evidence under <code>~/.cedar/train-releases/attempts/{{VER}}/</code>. Nothing is rolled back and nothing is deleted.</p>

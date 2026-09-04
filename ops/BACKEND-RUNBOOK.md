@@ -807,6 +807,11 @@ that job has stopped making progress; the job it abandons can no longer report, 
 COMPLETE over the rebuild that follows it. A claim still within its deadline is left alone and
 answers 409, and the reset asks for the same permission as the rebuild it unblocks.
 
+The deadline governs the reset alone, not the refusal. A new rebuild is refused whenever a claim is
+held, whatever age that claim has reached, so an abandoned one blocks every rebuild until someone
+resets it. Nothing expires a claim on a timer, and waiting out the six hours changes only what the
+status calls it. The value sets import behaves the same way.
+
 ## Identifiers: what a client sends, and what the server fills
 
 Only the repository assigns an identity. A client says which identifiers it wants assigned rather
@@ -1012,19 +1017,10 @@ printf 'type: template\nname: Minimal\n' | curl -sk -X POST -H "Authorization: a
 
 Two things to know before relying on it:
 
-- **`?compact=true` is a read parameter.** It returns the lean form — on a 23-field template, 40% of
-  the full YAML and under a seventh of the JSON — by dropping provenance, version, status, the model
-  version and the identifier. Passing it on a `POST` or `PUT` is refused: writing compact is not a
-  thing to ask for.
-
-  A compact **body**, though, is accepted on create and refused on update, and both follow from what it
-  carries. Having no identifier, it is the same document as the minimal authoring form, so a create
-  loses nothing — there is no stored artifact to damage, and the server supplies the identifier,
-  version, status, model version and provenance. An update is refused because it names no artifact to
-  update. A guard used to catch a compact body by its signature, an id with none of the system-recorded
-  keys; that signature went when the identifier did, and nothing emits it now. The shape is still
-  refused if a client writes one by hand, because naming an artifact selects the full form and the full
-  form requires a model version.
+- **`?compact=true` is read-only.** It returns the lean form — on a 23-field template, 40% of the
+  full YAML and under a seventh of the JSON — by dropping provenance, version, status, and model
+  version while retaining the artifact identifier. Writing it back is rejected with a `400` naming
+  the compact form. Write the full form, or omit `id` to author minimally.
 - **A template instance takes `?format=` ahead of `Accept`.** That parameter already names the
   representation (`jsonld`, `json`, `rdf-nquad`), so YAML negotiation applies only when it is absent.
 
@@ -1071,9 +1067,8 @@ npm run parity:yaml:compact
 
 Each reads as a summary — a case with output on only one side is counted and skipped rather than
 thrown — and a green run names the four artifact kinds with `0 differing` against 18 fields, 6
-elements, 37 templates and 21 instances. The compact form went without a comparison of its own for a
-long time, which is how a missing identifier in the TypeScript library's compact output went
-unnoticed; both are gates now.
+elements, 37 templates and 21 instances. Full and compact output have independent parity gates, so
+drift in either representation fails explicitly.
 
 Each library also holds two properties about itself as tests, so a regression fails a build rather
 than waiting for a comparison run. Every scalar returns as the string it went in as, over a few
@@ -1272,10 +1267,11 @@ TypeScript, while both emit the same bytes for it.
   (`TerminologyServerHealthCheck` is right to do the opposite: the ontology catalogue is that
   server's entire job, and its degraded mode silently served a partial catalogue.)
 
-- **The whole stack is green, but real requests 500 — often with `NoClassDefFoundError`** → a backend
-  service is **`STALE`**: running a jar older than the one on disk, and that jar can be a *broken* build,
-  not merely old code. A parallel session or an interrupted `restart` can start a service from a
-  half-written or unshaded jar — one whose shade dropped a class, say Guava's
+- **The whole stack is green, but real requests 500 (often with `NoClassDefFoundError`), or a
+  service answers as an older build would** → a backend service is **`STALE`**: running a jar older
+  than the one on disk, and that jar can be a *broken* build, not merely old code. A parallel
+  session or an interrupted `restart` can start a service from a half-written or unshaded jar — one
+  whose shade dropped a class, say Guava's
   `com.google.common.cache.RemovalCause` — and it boots and passes `/healthcheck`, then throws on the
   first request that needs the missing class (seen as a 500 on `GET /folders`, which breaks the whole
   dashboard). `health` cannot catch this: a stale service is still healthy. So **confirm no backend
@@ -1295,6 +1291,15 @@ TypeScript, while both emit the same bytes for it.
   restarting into it: `unzip -l <app>.jar | grep -c RemovalCause` should be non-zero, and the jar
   should be ~130 MB, not a few MB (a thin jar has no `Main-Class` and dies at start instead — a
   different, louder failure covered above).
+
+  Staleness does not always announce itself. A jar that is merely old rather than broken answers
+  `200` and does exactly what the build it came from did, so nothing reaches any log and the service
+  simply disagrees with the source in front of you. Suspect the binary before the code whenever what
+  the stack does contradicts what the source says it should do. One tell settles it without a
+  redeploy: pick a line the code path logs unconditionally — `BioPortalFailure.relay` warns for
+  every BioPortal status at or above 400, say — and if the running service never wrote it, that
+  service does not have that code. A terminology-server relay path was reported broken on this,
+  having been read in source that already handled the case while the running jar predated it.
 
 ## cedarcli (headless invocation)
 
@@ -1334,10 +1339,11 @@ pinned harder than the thing that compiles them. The roadmap carries that, with 
 
 The CLI build runs the Java test suites by default: every Java repo is built with
 `./mvnw clean install`, so a green `cedarcli build` means its unit and embedded integration suites
-passed as well as compiled. Every suite is backend-free, so nothing needs to be up. The seven build
-commands that can reach Java — `this`, `parent`, `libraries`, `project`, `clients`, `java`, and
-`all` — accept the paired `--tests` / `--skip-tests` option; use `--skip-tests` explicitly for a
-fast compile/install loop. Frontend-only build commands do not expose an inert Java-test option.
+passed as well as compiled. The default suites are backend-free, so nothing needs to be up. The
+seven build commands that can reach Java — `this`, `parent`, `libraries`, `project`, `clients`,
+`java`, and `all` — accept the paired `--tests` / `--skip-tests` option; use `--skip-tests`
+explicitly for a fast compile/install loop. Frontend-only build commands do not expose an inert
+Java-test option.
 Release preparation, Maven publication, and immutable build-train assembly remain explicit
 `-DskipTests` paths; verify with the default CLI build or repository CI before invoking them.
 
@@ -1414,6 +1420,18 @@ breaking release needs a note that reaches them. And a correction that can be ma
 be: accepting a second spelling of a parameter, adding a field to an error body, adding a `GET`
 alongside an existing `POST`, or sending a header nobody reads yet costs no caller anything and needs
 no release to be coordinated around it.
+
+The committed `swagger.json` and `swagger.yaml` in each server are the machine-readable side of the
+same contract. Maven regenerates them from the resource annotations and `src/main/swagger/openapi-base.yaml`
+during `prepare-package`; a source change and its generated documents belong in one commit. Adding an
+OpenAPI-only `@RequestBody`, response `content`, or documentation schema does not change JAX-RS body
+binding, content negotiation, Jackson serialization, or an HTTP status. It does change regenerated
+client source: an untyped `Object` or `void` result can become a concrete return type, and a formerly
+implicit body can become a typed method argument. Treat that as an SDK compatibility change even when
+the bytes on the wire did not move. Never add a JAX-RS method parameter merely to make the generator
+see a body, and keep open JSON-LD artifacts open with `additionalProperties: true` rather than publishing
+a closed schema the server does not enforce. Focused `OpenApiContractTest` classes pin the high-value
+request and response schemas in resource, artifact, group, messaging, and worker server CI.
 
 ## Artifact write and diagnostic contracts
 
@@ -1507,8 +1525,8 @@ history and interrupts a running regeneration; resubmit after confirming the old
 
 ## Testing CEDAR
 
-Every server's test suite runs backend-free: no live Keycloak, Neo4j, Mongo, MySQL, or Redis. The
-shared `cedar-microservice-libraries/cedar-test-support-library` supplies in-memory authentication
+Every server's default test suite runs backend-free: no live Keycloak, Neo4j, Mongo, MySQL, Redis or
+OpenSearch. The shared `cedar-microservice-libraries/cedar-test-support-library` supplies in-memory authentication
 (`TestAuthUtil` / `InMemoryUserService`, exercising the real API-key path) and embedded backends
 (in-process Neo4j via neo4j-harness, Mongo via Flapdoodle, MariaDB via MariaDB4j standing in for
 MySQL). Nor does any suite need an external service. The tests that do call one are tagged and
@@ -1518,13 +1536,24 @@ exclusion with `-DexcludedGroups=` to run them against the real service. Their C
 still be set even when the tests are excluded, because the configuration substitutes them as it
 loads; a placeholder value is enough.
 
+Search is the deliberate exception in CI. `cedar-microservice-libraries` and
+`cedar-resource-server` run `verify -Popensearch-it` against a disposable OpenSearch 2.19.1 service.
+The library integration test executes the materialized user/everybody permission filter,
+grant/revoke materialization changes and a point-in-time continuation walk against the engine. The
+resource server integration test sends real `/search` and `/search-deep` requests through
+Dropwizard to the same engine. For a local reproduction, start the native infrastructure and run
+the matching module with the profile; the usual `CEDAR_OPENSEARCH_HOST` and
+`CEDAR_OPENSEARCH_REST_PORT` select the engine and default to `127.0.0.1:9200`. The tests use
+disposable or run-unique documents and clean them afterward.
+
 Backend-free Maven tests suppress the application-log queue through the
 `cedar.test.suppressAppLogQueue` system property inherited from `cedar-parent`. This is deliberate
 test harness behavior: pointing Redis at a dead port while leaving the logger active turns every
 request into a connection timeout and can make the HTTP client time out first, producing broken-pipe
 failures unrelated to the behavior under test. The queue and logging libraries test Redis delivery,
-outage and recovery separately against an embedded real Redis. The property exists only in Surefire
-JVMs; native and deployed servers retain the production queue behavior.
+outage and recovery separately against an embedded real Redis. The property exists only in Maven
+test JVMs (Surefire by default and the resource-server OpenSearch Failsafe profile); native and
+deployed servers retain the production queue behavior.
 
 The same inherited Surefire configuration pins both CEDAR Redis hosts to `127.0.0.1` and both ports
 to the deliberately dead port `1`. Other best-effort queue paths can therefore exercise an absent
@@ -1565,6 +1594,32 @@ server-rest 281, workspace-operations 182, search-operations 208, artifact-libra
 terminology 246 (61 more excluded under `bioportal`), model-validation 220, resource 63,
 cadsr-tools 70, core-library 57, user 23, group 15, messaging 15, bridge 57, monitor 8, and a
 one-to-seven-test boot-and-config tier on the remaining thin servers.
+
+### Reproducing a Flake That Depends on Class Order
+
+Test classes share a JVM, so process-wide state outlives the class that set it. A test that holds a
+static field or a singleton past its own end decides what the next class sees, and JUnit 5 fixes
+neither class order nor method order in a way a reader can predict. Such a suite passes locally,
+passes five CI runs, and fails the sixth.
+
+Surefire pins both halves of that order. `-Dsurefire.runOrder=alphabetical` and its
+`reversealphabetical` counterpart fix which class runs first, and
+`-Dtest='Leaker#theMethodThatLeaks,Victim'` fixes which method runs last before the victim. An
+intermittent failure then either happens on every run or on none.
+
+Running the whole suspect class first often proves nothing, because state usually escapes from
+particular methods rather than from all of them. The job-claim tests show it. Most of their claims
+sit at a fixed instant in the past, which any deadline-gated cleanup already clears, and only the
+single method claiming at the wall clock leaves a claim that survives one. Name that method rather
+than its class, and run both orders after a fix rather than only the order that failed.
+
+Suites that boot an application need the CEDAR variables the CI workflow supplies, and `env:` in a
+repository's `.github/workflows/ci.yml` holds them. Sourcing those values runs a suite without a
+developer profile's pointers to live services. Each value has to arrive verbatim.
+`CEDAR_TRUSTED_FOLDERS` carries backslash-escaped quotes, and `cedar-main.yml` substitutes it into a
+double-quoted scalar, so an unescaped quote closes that scalar early. Dropwizard reports the parse
+error that follows as `Could not read the CEDAR configuration file cedar-main.yml`, which reads like
+a missing file.
 
 ### What the suites actually cover
 
@@ -2080,8 +2135,11 @@ Every Java repository builds in GitHub Actions from `.github/workflows/ci.yml`, 
 pull request to `develop` and on manual dispatch. The workflow is the same everywhere: Java 17 from
 temurin with the Maven cache, the BMIR Nexus credentials from the `BMIR_NEXUS_USERNAME` and
 `BMIR_NEXUS_PASSWORD` repository secrets, `./mvnw --update-snapshots verify`, and the surefire reports
-uploaded whatever the outcome. Jobs carry a hard timeout: twenty minutes for a component,
-forty-five for `cedar-project`, which builds nineteen repositories in one reactor.
+uploaded whatever the outcome. The search-library and resource-server workflows also upload their
+Failsafe reports, add the `opensearch-it` profile and an OpenSearch service; other component
+workflows remain backend-free. Jobs carry a hard timeout: twenty minutes for a component, thirty
+for those two OpenSearch jobs, forty-five for `cedar-project`, which builds nineteen repositories
+in one reactor.
 
 Two repositories are aggregators over `../` sibling paths that a lone checkout cannot satisfy, so
 `cedar-libraries` and `cedar-project` check their component repositories out beside themselves in
@@ -2107,8 +2165,10 @@ compared them, so they had diverged — `cedar-monitor-server` carried 55 of the
 others. Nothing runs this in CI yet, because a check over every repository has no natural home in
 any one of their workflows; until it does, it is a local step.
 
-The suites need no service container. The two exceptions both come from a real dependency rather
-than from CEDAR code: `cedar-monitor-server` talks to a live MySQL, so its job runs a disposable
+Most suites need no service container. Search-library and resource-server CI intentionally use
+OpenSearch to verify permission-filter semantics rather than merely the shape of a mocked request.
+Two other exceptions both come from a real dependency rather than from CEDAR code:
+`cedar-monitor-server` talks to a live MySQL, so its job runs a disposable
 MySQL 8 service, and the embedded MongoDB that `cedar-artifact-server` boots is the 5.0 line the
 deployment runs, whose only Linux build links against OpenSSL 1.1. Ubuntu 24.04 ships OpenSSL 3, so
 that job installs `libssl1.1` on the runner first; without it `mongod` cannot start and every

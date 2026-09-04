@@ -6,8 +6,9 @@ echo
 
 source "$(dirname "${BASH_SOURCE[0]}")/../services-generic/wait-for-port.sh"
 
-# Only the persistent instance is brew-managed here. CEDAR_REDIS_NONPERSISTENT_PORT
-# (6380) is a separate instance this script has never started.
+# One Redis, brew-managed. A second, non-persistent instance was configured for years and never
+# started by anything; its configuration resolved to a placeholder in every service and its getter had
+# no callers, so it was removed rather than repaired.
 REDIS_PORT="${CEDAR_REDIS_PERSISTENT_PORT:-6379}"
 REDIS_WAIT_SECONDS=30
 

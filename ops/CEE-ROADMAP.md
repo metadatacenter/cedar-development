@@ -246,3 +246,28 @@ commit that opened it.
    priority. This item is complete when every open issue names an owning surface and has either a
    current reproduction or an explicit disposition, and GitHub and this roadmap no longer carry
    contradictory backlogs.
+
+10. **Finish the widget coverage the read-write audit started.**
+    The September 2026 audit fixed thirteen defects in the code that presents and reads
+    values, and every one sat in a layer no test stage was watching. Three stages now divide
+    that work explicitly — see "Which stage sees a widget defect" in the
+    [runbook](CEE-RUNBOOK.md) — two table-driven specs state the invariants the widget family
+    shares, and the seven widgets carrying real untested logic have specs of their own.
+
+    What is left is thinner and mostly presentational. `cedar-embeddable-metadata-editor` is
+    the largest at 54%, and most of what it does is read host configuration. The static
+    image and YouTube widgets are at zero, though their view logic was extracted into pure
+    helpers that are fully covered and the visual suite renders both. `cedar-field-spec` and
+    `cedar-component-renderer` decide what a read-only form states in place of a control, on
+    a path the audit did not examine.
+
+    That read-only path is the real gap rather than any one file. The audit covered
+    read-write behaviour only, and drew no conclusions about the read-only presentation, the
+    download menu, or the source panel.
+
+    One known leniency, deliberately left: `TimezonePickerComponent.zoneForOffset` accepts
+    `-13:00` and `-13:45`, which are not offsets that exist. A user cannot choose one, since
+    the offered list is correctly bounded; it takes a host-supplied instance carrying it.
+    Tightening it would blank the control over a value the instance holds, so which of those
+    is wanted is a product call. `timezone-picker.component.spec.ts` records the behaviour
+    and says why.
