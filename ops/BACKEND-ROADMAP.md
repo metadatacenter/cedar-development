@@ -346,10 +346,10 @@ Frontend work for the embeddable editor is tracked separately in
   rate-limits per key, and a burnt quota surfaces to users as controlled terms silently not existing,
   because the picker latches its empty cache for the life of the page.
 
-- **7. Rate limit the edge in every environment.** Nothing in CEDAR bounds how often an anonymous
-  caller may spend the deployment's third-party quota. The `/ext-auth/*` routes are the clearest
-  case: they proxy seven registries, three of them on credentials the deployment holds, and they
-  carry none of their own. `POST /bioportal/integrated-search` and `/bioportal/integrated-retrieve`
+- **7. Rate limit the edge in every environment.** An anonymous caller can spend the deployment's
+  third-party quota, and only the development host bounds how fast. The `/ext-auth/*` routes are
+  the clearest case: they proxy seven registries, three of them on credentials the deployment
+  holds, and they carry none of their own. `POST /bioportal/integrated-search` and `/bioportal/integrated-retrieve`
   belong in the same limit: both are anonymous by the same decision and both spend the deployment's
   BioPortal key.
 
