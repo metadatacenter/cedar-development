@@ -46,6 +46,16 @@ Frontend work for the embeddable editor is tracked separately in
     the donor's own tree is still reachable by the donor, because permissions inherit from the parent
     they still own. So handing something over leaves the donor with read and write on it, and the
     recipient is unlikely to expect that. Pinned in `SharingRoundTripTest`.
+  - **The Workbench cannot transfer ownership at all.** The share dialog offers it in two places and
+    neither works. On the row of an existing share the option is shown on
+    `share.canBeOwner(sh.node.id)`, where that node comes from the permissions API as JSON-LD and
+    carries `@id`, so the check always receives `undefined` and the option never appears. The
+    add-user picker passes `['@id']` correctly, and choosing ownership there reports success in the
+    dialog while the owner is unchanged afterwards: `select-picker` copies options into a dropdown of
+    its own, so a click can land on an option Angular's model refuses. This one is not pinned. The
+    browser smoke covers the rename and description controls a share governs and stops at ownership,
+    because there is no working control to drive, and the Protractor spec that claimed to cover it
+    could not have run for years.
   - **Ownership is the one thing a WRITE grantee cannot take**, which is the model working: the owner
     check in `validateOwnerSetPermission` holds across folders and all four artifact types. Noted here
     because it is the boundary the rest of the model leans on, and because it is the only place
