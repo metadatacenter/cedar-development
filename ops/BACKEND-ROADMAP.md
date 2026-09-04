@@ -591,8 +591,8 @@ Frontend work for the embeddable editor is tracked separately in
   up running, and the gap swallowed a whole-stack outage on 2026-09-02: every application exited in
   milliseconds for want of `CEDAR_PROFILE`, launchd's keepalive respawned each one, and the CLI
   printed `started <name> (pid N)` for all twenty-two because a PID existed each time it looked. The
-  launcher passes that environment through today, rejects a service that dies at once, and covers
-  both in tests. Three things remain.
+  launcher passes that environment through today, rejects a service that dies at once, refuses a
+  `JAVA_HOME` that is not a Java 17, and covers all three in tests. Two things remain.
 
   Confirm a service is serving, not merely alive. The survival check waits half a second and asks
   whether the process still exists, which catches the failures that land before a JVM starts and
@@ -608,15 +608,8 @@ Frontend work for the embeddable editor is tracked separately in
   left to run the two remaining layers by hand. Treat an already-listening infrastructure port as
   the satisfied precondition it is.
 
-  Validate a caller-supplied `JAVA_HOME` instead of trusting it. Any non-empty value passes, and the
-  launcher prepends `$JAVA_HOME/bin` to `PATH`, so a wrong path contributes nothing and `java`
-  resolves from a later entry. A service then starts on an unintended JDK and says nothing, which is
-  a poor failure mode given that Java 17 is a hard version lock. Require an executable
-  `$JAVA_HOME/bin/java`, check that it reports 17, and name both the value given and the version
-  found when it does not.
-
-  Done when `start` reports a service only once it is healthy or names why it is not, `start all`
-  completes against running infrastructure, and a `JAVA_HOME` without a Java 17 fails at startup.
+  Done when `start` reports a service only once it is healthy or names why it is not, and `start
+  all` completes against running infrastructure.
 
 ## Production data
 
