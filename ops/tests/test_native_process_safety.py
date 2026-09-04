@@ -95,6 +95,25 @@ class NativeProcessSafetyTest(unittest.TestCase):
 
         self.assertNotEqual(0, result.returncode)
 
+    def test_process_details_come_from_a_real_platform_process(self):
+        """Exercise ps and lsof on both Linux and macOS instead of replacing them."""
+        with tempfile.TemporaryDirectory() as directory:
+            process = subprocess.Popen(["sleep", "30"], cwd=directory)
+            try:
+                result = self.run_library(
+                    f'printf "command=%s\\ncwd=%s\\n" '
+                    f'"$(process_command {process.pid})" "$(process_cwd {process.pid})"'
+                )
+            finally:
+                process.terminate()
+                process.wait(timeout=5)
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        if "command=\n" in result.stdout and os.environ.get("CODEX_SANDBOX"):
+            self.skipTest("the test sandbox does not permit ps process inspection")
+        self.assertIn("sleep 30", result.stdout)
+        self.assertIn(f"cwd={Path(directory).resolve()}", result.stdout)
+
     def test_an_older_native_jar_is_still_recognized_for_safe_shutdown(self):
         result = self.run_library(
             'process_command() { echo "java -jar '

@@ -30,6 +30,14 @@ A negative Python subprocess status is a Unix signal, not an exit code. The CLI 
 train controllers report `SIGABRT`, `SIGKILL`, or `SIGSEGV` by name and point to macOS Diagnostic
 Reports or Linux coredumps when that is the only crash evidence.
 
+`Angular build isolation canary` is the live regression proof for that boundary. On a weekly
+schedule, on manual dispatch, and whenever its implementation changes, it runs on both Linux and
+macOS. The job starts Monitoring's real development server with persistent Angular disk caching
+forced on, runs `cedarcli build this`, and requires the CLI to discover the live runtime and isolate
+the build. It then proves the server is still healthy and that its cache, source output,
+`cedar-monitoring-dist`, and repository state did not change. Development-server and build logs plus
+machine-readable evidence are retained as workflow artifacts even on failure.
+
 Keep the three identities distinct:
 
 | Identity | Meaning | May its bytes change? |

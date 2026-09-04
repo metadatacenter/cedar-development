@@ -1,0 +1,107 @@
+name: Angular build isolation canary
+
+run-name: Angular build isolation canary (${{ inputs.reason || 'scheduled/changed' }})
+
+# Keep a real Monitoring development server and its persistent disk cache live while the same
+# cedarcli path used by an ordinary frontend build installs and compiles an isolated copy.
+on:
+  push:
+    branches:
+      - develop
+    paths:
+      - ".github/workflows/angular-build-isolation-canary.yml"
+      - "ops/angular_build_isolation_canary.py"
+      - "ops/tests/test_angular_build_isolation_canary.py"
+  pull_request:
+    branches:
+      - develop
+    paths:
+      - ".github/workflows/angular-build-isolation-canary.yml"
+      - "ops/angular_build_isolation_canary.py"
+      - "ops/tests/test_angular_build_isolation_canary.py"
+  schedule:
+    - cron: "17 9 * * 1"
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: Why this canary is being run
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: angular-build-isolation-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  canary:
+    name: live server and isolated build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+    env:
+      NPM_CONFIG_STRICT_ALLOW_SCRIPTS: "true"
+
+    steps:
+      - name: Check out cedar-development
+        uses: actions/checkout@v7
+        with:
+          path: CEDAR/cedar-development
+
+      - name: Check out cedar-cli
+        uses: actions/checkout@v7
+        with:
+          repository: metadatacenter/cedar-cli
+          ref: develop
+          path: CEDAR/cedar-cli
+
+      - name: Check out Monitoring
+        uses: actions/checkout@v7
+        with:
+          repository: metadatacenter/cedar-monitoring
+          ref: develop
+          path: CEDAR/cedar-monitoring
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Set up Node 24.19.0
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.19.0
+          cache: npm
+          cache-dependency-path: CEDAR/cedar-monitoring/cedar-monitoring-src/package-lock.json
+
+      - name: Prepare cedarcli
+        run: |
+          python -m venv CEDAR/cedar-cli/.venv
+          CEDAR/cedar-cli/.venv/bin/python -m pip install --upgrade pip
+          CEDAR/cedar-cli/.venv/bin/python -m pip install -r CEDAR/cedar-cli/requirements.txt
+
+      - name: Install Monitoring dependencies
+        working-directory: CEDAR/cedar-monitoring/cedar-monitoring-src
+        run: npm ci --legacy-peer-deps
+
+      - name: Run live cache/build collision canary
+        run: |
+          python CEDAR/cedar-development/ops/angular_build_isolation_canary.py \
+            --workspace "$GITHUB_WORKSPACE/CEDAR" \
+            --evidence-dir "$RUNNER_TEMP/angular-build-isolation"
+
+      - name: Upload canary evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: angular-build-isolation-${{ matrix.os }}
+          path: ${{ runner.temp }}/angular-build-isolation
+          if-no-files-found: error
+          retention-days: 14

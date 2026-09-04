@@ -18,25 +18,39 @@ concurrency:
 
 jobs:
   test:
-    name: train and lifecycle controllers (Python 3.12)
-    runs-on: ubuntu-latest
+    name: train and lifecycle controllers (${{ matrix.os }}, Python 3.12)
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
 
     steps:
       - name: Check out cedar-development
         uses: actions/checkout@v7
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
-      # These suites mock publication and service operations. They validate the captured
-      # train/release controllers without starting services or writing external state.
+      # These suites mock publication and service operations, but exercise real platform process
+      # discovery. They validate the captured controllers without starting a CEDAR service or
+      # writing external state.
       - name: Run non-destructive controller tests
         run: |
           python -m unittest -v \
             ops.tests.test_build_train \
             ops.tests.test_docker_train \
             ops.tests.test_frontend_train \
-            ops.tests.test_native_process_safety
+            ops.tests.test_native_process_safety \
+            ops.tests.test_angular_build_isolation_canary
