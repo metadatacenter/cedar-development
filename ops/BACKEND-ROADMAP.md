@@ -370,9 +370,10 @@ Frontend work for the embeddable editor is tracked separately in
   probe shows the limit taking effect.
 
 - **8. Bound the application-log queue, and let its consumer keep up.** Application logging can
-  consume the host it runs on. The Redis queue has no ceiling, the consumer drains far below what the
-  stack produces under load, and nothing removes old rows, so a busy period grows memory without
-  limit and degrades every service while it does.
+  consume the host it runs on. The Redis queue has no ceiling and the consumer drains far below what
+  the stack produces under load, so a busy period grows memory without limit and degrades every
+  service while it does. Old rows have a way out, in the prune job the log aggregation work brought
+  with it, but it ships disabled.
 
   Measured on 2026-08-31, after a day of local performance profiles: `CEDAR-QUEUE-app-log` held
   3.7 million messages and drained at about 1,054 a second, roughly an hour of backlog. Redis was
@@ -384,8 +385,9 @@ Frontend work for the embeddable editor is tracked separately in
   Three things hold the drain rate down, and they compound. Each message is its own `@UnitOfWork`,
   so one HTTP request costs several transactions rather than one. Every subtype after the first reads
   the row back by `localRequestId` before merging into it, so most of those transactions carry a
-  lookup as well as a write. The table then carries fourteen secondary indexes, each maintained on
-  every insert, on a table too large to keep them cached.
+  lookup as well as a write. The table then carries seventeen secondary indexes, each maintained on
+  every insert, on a table too large to keep them cached. That count rose by three when aggregation
+  landed, so the write cost is growing rather than holding.
 
   Deliver:
 
@@ -395,8 +397,11 @@ Frontend work for the embeddable editor is tracked separately in
   - One transaction per batch rather than per message, and the start record carried forward so a
     merge does not pay for a lookup it could avoid.
   - An index set chosen from the queries actually run against this table, measured rather than
-    assumed. Fourteen on a write-heavy table is a cost paid on every insert.
-  - A retention policy, so the table has a size it returns to.
+    assumed. Seventeen on a write-heavy table is a cost paid on every insert.
+  - A retention window chosen and turned on. `LogPruneJob` deletes aggregated rows past a window in
+    bounded batches, defaulting to thirty days, and stays off behind `CEDAR_LOG_PRUNE_ENABLED`
+    because deletion is the irreversible step. What remains is trusting the rollups enough to
+    enable it, and saying which window each environment keeps.
 
   Done when a sustained load profile leaves the queue at a bounded depth it recovers from, Redis
   memory flat across the run, and the worker healthy throughout.
