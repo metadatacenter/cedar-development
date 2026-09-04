@@ -187,7 +187,10 @@ The release runs these phases, each verifying its work before the next begins:
    `node_modules` assets therefore include the exact CEE and Web Components files committed in its
    release distribution. Publish to CEDAR Nexus, then download each registry tarball and verify its
    integrity, content hash, provenance, and runtime-asset hashes.
-9. Accept the release, proving from outside the ledger that it holds.
+9. Accept the release, proving from outside the ledger that it holds. Acceptance also runs the
+   captured build-train configuration validator against the complete `<NEXT>` workspace and its
+   exact expected snapshot version, so `develop` is not considered ready merely because version
+   stamping and publication succeeded.
 
 Nothing reaches a remote until every local ref has been created and verified, so a release that
 fails during preparation has changed nothing outside the machine it ran on.
@@ -232,7 +235,9 @@ Acceptance is the last phase, and it is what makes the release self-proving. It 
 the ledger that recorded the work, whether every repository carries the release tag, every remote ref
 stands where the ledger says, every published artifact still matches its recorded bytes, and the
 frontends pin the proven CEE. It also proves that OpenView's committed distribution and published
-npm artifact contain the normalized bytes of that exact public CEE. This is artifact acceptance;
+npm artifact contain the normalized bytes of that exact public CEE, and that the complete prepared
+next-development workspace passes its captured Maven/frontend/Docker train configuration with the
+exact `<NEXT>` snapshot version. This is artifact and development-state acceptance;
 after deployment, the environment smoke check must still prove which artifact the web server is
 actually serving. A completed release reports `Release <VER> — COMPLETE` and shows acceptance at
 `1/1`.

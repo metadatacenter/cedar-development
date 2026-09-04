@@ -142,6 +142,32 @@ class BuildTrainTest(unittest.TestCase):
             with self.subTest(invalid=invalid), self.assertRaises(ValueError):
                 build_train.validate_train(invalid)
 
+    def test_negative_command_return_code_names_the_signal(self):
+        result = SimpleNamespace(returncode=-6, stdout="", stderr="")
+        with patch.object(build_train.subprocess, "run", return_value=result):
+            with self.assertRaisesRegex(RuntimeError, r"terminated by SIGABRT \(signal 6\)"):
+                build_train.run(["npm", "run", "build"])
+
+    def test_local_preflight_rejects_a_different_expected_development_version(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            parent = workspace / "cedar-parent"
+            parent.mkdir()
+            (parent / "pom.xml").write_text(
+                '<project xmlns="http://maven.apache.org/POM/4.0.0">'
+                '<version>2.9.4-SNAPSHOT</version></project>\n',
+                encoding="utf-8",
+            )
+            args = SimpleNamespace(
+                workspace=workspace,
+                expected_source_version="2.9.5-SNAPSHOT",
+                config=workspace / "build.json",
+                frontend_config=workspace / "frontend.json",
+                docker_config=workspace / "docker.json",
+            )
+            with self.assertRaisesRegex(RuntimeError, "cedar-parent version.*expected"):
+                build_train.local_configuration_preflight(args)
+
     def test_complete_configuration_contract_passes_before_build(self):
         with tempfile.TemporaryDirectory() as directory:
             workspace, build, frontend, docker = self._preflight_fixture(Path(directory))

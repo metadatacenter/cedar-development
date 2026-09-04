@@ -15,6 +15,12 @@ import sys
 import urllib.error
 import urllib.request
 
+try:
+    from subprocess_diagnostics import describe_return_code
+except ModuleNotFoundError:  # Loaded directly by the unit-test harness.
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from subprocess_diagnostics import describe_return_code
+
 
 ROOT = Path(__file__).resolve().parent
 DEFAULT_CONFIG = ROOT / "docker-train.json"
@@ -49,7 +55,14 @@ def run(arguments: list[str], cwd: Path | None = None, capture: bool = False,
     if check and result.returncode:
         if capture:
             sys.stderr.write(result.stderr)
-        raise RuntimeError(f"command failed with exit code {result.returncode}: {' '.join(arguments)}")
+        no_output = (
+            "; the process produced no diagnostic output of its own"
+            if capture and result.returncode < 0 and not (result.stdout or result.stderr) else ""
+        )
+        raise RuntimeError(
+            f"command {describe_return_code(result.returncode)}{no_output}: "
+            f"{' '.join(arguments)}"
+        )
     return result
 
 

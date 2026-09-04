@@ -586,36 +586,7 @@ Frontend work for the embeddable editor is tracked separately in
   runners, every deliberately platform-specific command has a contract test for each supported OS, and
   a change to shared operational code cannot merge after passing on only the author's platform.
 
-- **14. Stop an interactive dev server from killing a build train, and report a killed step as
-  killed.** `cedarcli build` compiles each frontend in the developer's own working copy, where an
-  `ng serve` may already be running against that same copy. Both open the same Angular disk cache,
-  the LMDB environment at `.angular/cache/<version>/<project>/angular-compiler.db`. The second
-  process to open it fails, and `lmdb` 3.5.6 frees an unallocated pointer on that failure path and
-  calls `abort()`, so the build dies on `SIGABRT` having compiled nothing. npm re-raises the signal,
-  and the train reports `Return code: -6` with no further output. Three repositories are exposed:
-  the Angular 22 builds in `cedar-embeddable-editor`, `cedar-embeddable-designer` and
-  `cedar-component-demo/cedar-cee-demo-angular-src`. The Angular 15 and 16 frontends use a builder
-  that keeps no such cache. Observed 2026-09-02: a dev server started at 15:09 aborted the 16:45
-  train, the cache file proved intact when opened alone, and the same build succeeded with the cache
-  disabled.
-
-  Separate the build train's cache from any interactive one. `@angular/build` skips the disk cache
-  when `CI` is set, so the frontend build steps can set it, at the cost of a cold compile of a few
-  seconds per repository. A dedicated `cli.cache.path` for the train avoids the contention instead
-  and keeps incremental compilation. Either way, whether a developer happens to be serving a
-  frontend must not decide whether the train completes.
-
-  Report signals as signals. A step killed by `SIGABRT`, `SIGKILL` or `SIGSEGV` currently reaches
-  the operator as a negative return code that names neither the signal nor the reason, and a native
-  crash writes its only evidence to the platform's crash reporter rather than to the build log. Name
-  the signal, state that the step produced no diagnostic output of its own, and point at the crash
-  report directory for the host platform. The same gap hides every other native crash a build step
-  can suffer, so fix the reporting whether or not the cache changes.
-
-  Done when a frontend train completes with a dev server running against the same working copy, and a
-  signal-killed step names its signal and the location of its evidence in the CLI's own output.
-
-- **15. Make native bring-up prove a service runs, and make one already-running layer not stop the
+- **14. Make native bring-up prove a service runs, and make one already-running layer not stop the
   rest.** `cedarcli native start` reports what the launcher accepted rather than what the stack ends
   up running, and the gap swallowed a whole-stack outage on 2026-09-02: every application exited in
   milliseconds for want of `CEDAR_PROFILE`, launchd's keepalive respawned each one, and the CLI
@@ -649,7 +620,7 @@ Frontend work for the embeddable editor is tracked separately in
 
 ## Production data
 
-- **16. Normalize production artifacts to one explicit model contract.** Production contains several
+- **15. Normalize production artifacts to one explicit model contract.** Production contains several
   legacy representations that the current model surfaces tolerate or normalize differently, so bring
   them to canonical shapes before tightening readers or introducing terminology routing across source
   systems. The permission-scoped audit found 76 inherently-multiple fields deployed as JSON objects in
@@ -823,7 +794,7 @@ Frontend work for the embeddable editor is tracked separately in
 
 ## Later decisions
 
-- **17. A published artifact can be deleted, contradicting the docs.** The docs say a published
+- **16. A published artifact can be deleted, contradicting the docs.** The docs say a published
   artifact is permanent, but `DELETE` on one succeeds. The guard in
   `AbstractResourceServerResource.executeArtifactDelete` was briefly re-enabled and then **reverted by
   deliberate decision**: blocking deletion strands published artifacts and the folders holding them with
@@ -834,7 +805,7 @@ Frontend work for the embeddable editor is tracked separately in
   through folder deletion). Immutability of published content is a separate guarantee and is
   unaffected either way — that one is enforced.
 
-- **18. Finish the DataCite DOI minting lifecycle.** The durable lifecycle is what makes the operation
+- **17. Finish the DataCite DOI minting lifecycle.** The durable lifecycle is what makes the operation
   recovery-safe, and none of it exists yet. Minting persists no state of its own: draft/reserved,
   published and locally attached are recorded nowhere, so the `reconciliationRequired` response names a
   condition no code resolves, and a retry after a timeout cannot tell whether the earlier attempt
