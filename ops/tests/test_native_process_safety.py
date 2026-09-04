@@ -1,6 +1,8 @@
 import os
+import socket
 import subprocess
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -9,7 +11,30 @@ SCRIPT = Path(__file__).resolve().parents[1] / "cedar-services.sh"
 DEVELOPMENT = Path(__file__).resolve().parents[2]
 
 
+def a_jdk_reporting(directory, first_line):
+    """A JAVA_HOME whose java says what the caller wants it to say."""
+    binaries = Path(directory) / "bin"
+    binaries.mkdir(parents=True, exist_ok=True)
+    java = binaries / "java"
+    java.write_text("#!/bin/bash\nprintf '%s\\n' \"$1 is not read\" >/dev/null\n"
+                    f"printf '%s\\n' '{first_line}' >&2\n")
+    java.chmod(0o755)
+    return str(directory)
+
+
 class NativeProcessSafetyTest(unittest.TestCase):
+
+    # The controller requires a JDK 17, so the suite carries one rather than borrowing whatever the
+    # machine happens to have. Without this the tests pass only where a JDK is already installed and
+    # exported, which is a CI runner and a developer's own workstation, and nowhere else.
+    @classmethod
+    def setUpClass(cls):
+        cls._java_home = tempfile.TemporaryDirectory()
+        cls.java_home = a_jdk_reporting(cls._java_home.name, 'openjdk version "17.0.9" 2023-10-17')
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._java_home.cleanup()
 
     def run_library(self, body, **overrides):
         with tempfile.TemporaryDirectory() as temporary:
@@ -23,6 +48,7 @@ class NativeProcessSafetyTest(unittest.TestCase):
                 "CEDAR_PROFILE": "develop",
                 "CEDAR_VERSION": "2.9.3-SNAPSHOT",
                 "CEDAR_SERVICES_LIBRARY_ONLY": "true",
+                "JAVA_HOME": self.java_home,
                 **overrides,
             }
             return subprocess.run(
@@ -34,14 +60,7 @@ class NativeProcessSafetyTest(unittest.TestCase):
             )
 
     def a_jdk_reporting(self, directory, first_line):
-        """A JAVA_HOME whose java says what the test wants it to say."""
-        binaries = Path(directory) / "bin"
-        binaries.mkdir(parents=True, exist_ok=True)
-        java = binaries / "java"
-        java.write_text("#!/bin/bash\nprintf '%s\\n' \"$1 is not read\" >/dev/null\n"
-                        f"printf '%s\\n' '{first_line}' >&2\n")
-        java.chmod(0o755)
-        return str(directory)
+        return a_jdk_reporting(directory, first_line)
 
     def test_a_java_home_with_no_java_in_it_is_refused(self):
         """Only $JAVA_HOME/bin joins PATH, so an unusable one leaves java coming from elsewhere."""
@@ -85,6 +104,70 @@ class NativeProcessSafetyTest(unittest.TestCase):
 
             self.assertNotEqual(0, result.returncode)
             self.assertIn("reports 8", result.stderr)
+
+    # These say what the controller has to be able to do, not which system it is doing it on, so
+    # each runner in the CI matrix supplies a platform and the same assertions cover both. They use
+    # the real tools with nothing stubbed, which is the only way a command that is valid on one
+    # system and rejected by the other gets caught.
+
+    def test_port_open_sees_a_port_that_is_listening(self):
+        with socket.socket() as listener:
+            listener.bind(("127.0.0.1", 0))
+            listener.listen(1)
+            port = listener.getsockname()[1]
+            result = self.run_library(f"port_open {port} && echo listening || echo silent")
+
+            self.assertEqual("listening", result.stdout.strip(), result.stderr)
+
+    def test_port_open_sees_a_port_that_is_not(self):
+        with socket.socket() as probe:
+            probe.bind(("127.0.0.1", 0))
+            port = probe.getsockname()[1]
+        # The socket is closed, so nothing holds the port and the answer has to be no.
+        result = self.run_library(f"port_open {port} && echo listening || echo silent")
+
+        self.assertEqual("silent", result.stdout.strip(), result.stderr)
+
+    def test_port_owner_names_the_process_holding_the_port(self):
+        """What keeps stop from signalling a listener that is not CEDAR, so it has to be right."""
+        with socket.socket() as listener:
+            listener.bind(("127.0.0.1", 0))
+            listener.listen(1)
+            port = listener.getsockname()[1]
+            result = self.run_library(f"port_owner {port}")
+
+            self.assertEqual(0, result.returncode, result.stderr)
+            self.assertEqual(str(os.getpid()), result.stdout.strip())
+
+    def test_file_mtime_reads_the_modification_time_as_a_number(self):
+        with tempfile.TemporaryDirectory() as directory:
+            written = Path(directory) / "artifact.jar"
+            written.write_text("")
+            expected = int(written.stat().st_mtime)
+            result = self.run_library(f'file_mtime "{written}"')
+
+            self.assertEqual(0, result.returncode, result.stderr)
+            self.assertRegex(result.stdout.strip(), r"^\d+$")
+            self.assertLessEqual(abs(int(result.stdout.strip()) - expected), 1)
+
+    def test_process_start_epoch_reads_a_live_process_as_a_number(self):
+        result = self.run_library("process_start_epoch $$")
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertRegex(result.stdout.strip(), r"^\d+$")
+        # A shell started moments ago, not the epoch and not the future.
+        self.assertLess(abs(int(result.stdout.strip()) - time.time()), 600)
+
+    def test_a_stale_jar_is_recognized_against_the_running_process(self):
+        """The whole point of the BINARY column, and it rests on the two readings above agreeing."""
+        with tempfile.TemporaryDirectory() as directory:
+            jar = Path(directory) / "cedar-group-server-application-2.9.3-SNAPSHOT.jar"
+            jar.write_text("")
+            os.utime(jar, (time.time() + 3600, time.time() + 3600))
+            result = self.run_library(
+                f'jar_of() {{ echo "{jar}"; }}; binary_of group $$')
+
+            self.assertEqual("STALE", result.stdout.strip(), result.stderr)
 
     def test_docker_port_proxy_is_not_a_native_microservice(self):
         result = self.run_library(
@@ -194,6 +277,25 @@ class NativeProcessSafetyTest(unittest.TestCase):
         self.assertIn('exec "$3" run-one "$4"', result.stdout)
         self.assertIn(f"develop {SCRIPT} group", result.stdout)
         self.assertIn("started group (pid 4242)", result.stdout)
+
+    def test_linux_start_uses_the_background_launcher_and_not_launchd(self):
+        """The other half of the branch above, which no test reached while every test said Darwin."""
+        result = self.run_library(
+            'base="$CEDAR_HOME/cedar-group-server/cedar-group-server-application"; '
+            'mkdir -p "$base/target" "$base/src/main/resources"; '
+            'touch "$base/target/cedar-group-server-application-$CEDAR_VERSION.jar"; '
+            'touch "$base/src/main/resources/config.yml"; '
+            'port_open() { return 1; }; uname() { echo Linux; }; '
+            # Stands in for the launched service: backgrounded by the script, so $! is a live pid.
+            'nohup() { sleep 2; }; '
+            'launchctl() { echo "launchctl reached on Linux: $*"; }; '
+            'start_one group'
+        )
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn("started group", result.stdout)
+        self.assertNotIn("launchctl reached on Linux", result.stdout)
+        self.assertNotIn("submit -l", result.stdout)
 
     def test_macos_start_refuses_a_job_launchd_would_start_without_a_profile(self):
         """launchd hands a submitted job its own environment, so an unnamed profile is fatal."""

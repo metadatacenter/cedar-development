@@ -165,7 +165,11 @@ log_error_count() {
   # introduced them rather than being additional errors of their own.
   awk '/^ERROR([[:space:]]|$)/ { count++ } END { print count + 0 }' "$log"
 }
-port_open() { nc -z -G1 127.0.0.1 "$1" >/dev/null 2>&1; }
+# bash opens the socket itself, so this needs no nc. The two nc builds spell the connect timeout
+# differently and each rejects the other's flag outright, which made a single spelling of this check
+# wrong on one of the two systems CEDAR runs on. Loopback accepts or refuses at once, so the timeout
+# the flag provided is not needed here.
+port_open() { (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }
 auxiliary_ports() {
   local admin; admin=$(admin_port "$1")
   [ "$admin" != 0 ] && printf '%s\n%s\n' "$admin" "$((admin+100))"
@@ -178,6 +182,25 @@ port_owner() { lsof -ti "tcp:$1" -sTCP:LISTEN 2>/dev/null | head -1; }
 port_owners() { lsof -nP -tiTCP:"$1" -sTCP:LISTEN 2>/dev/null | sort -nu; }
 process_command() { ps -p "$1" -o command= 2>/dev/null; }
 process_alive() { kill -0 "$1" 2>/dev/null; }
+# Ask each system in its own spelling, and take the first answer that is actually a number. Exit
+# status alone is not enough to choose between them: GNU stat reads -f as "describe the filesystem"
+# and succeeds, so a chain that trusted the status would report a mount point as a modification time.
+first_epoch() {
+  local value
+  for value in "$@"; do
+    case "$value" in ''|*[!0-9]*) ;; *) echo "$value"; return 0 ;; esac
+  done
+  return 1
+}
+file_mtime() {
+  first_epoch "$(stat -c %Y "$1" 2>/dev/null)" "$(stat -f %m "$1" 2>/dev/null)"
+}
+process_start_epoch() {
+  local started; started=$(ps -o lstart= -p "$1" 2>/dev/null) || return 1
+  [ -n "$started" ] || return 1
+  first_epoch "$(date -j -f '%a %b %e %T %Y' "$started" +%s 2>/dev/null)" \
+              "$(date -d "$started" +%s 2>/dev/null)"
+}
 process_cwd() { lsof -a -p "$1" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -1; }
 
 is_docker_port_forwarder() {
@@ -395,18 +418,15 @@ cee_of() {  # echoes current|STALE|- for the Embeddable Editor the Template Desi
 # A service can be healthy and still be serving code from before the last build, which makes a green
 # gate meaningless. Compare when the process started against when its jar was written.
 binary_of() {  # echoes current|STALE|- for a service and the pid serving it
-  local name=$1 pid=$2 jar started j_epoch p_epoch
+  local name=$1 pid=$2 jar j_epoch p_epoch
   case "$name" in
     ui-main) cee_of; return ;;
     ui-*) echo '-'; return ;;
   esac
   jar=$(jar_of "$name")
   [ -n "$pid" ] && [ -f "$jar" ] || { echo '-'; return; }
-  started=$(ps -o lstart= -p "$pid" 2>/dev/null) || { echo '-'; return; }
-  [ -n "$started" ] || { echo '-'; return; }
-  p_epoch=$(date -j -f '%a %b %e %T %Y' "$started" +%s 2>/dev/null) || { echo '-'; return; }
-  j_epoch=$(stat -f %m "$jar" 2>/dev/null) || { echo '-'; return; }
-  [ -n "$p_epoch" ] && [ -n "$j_epoch" ] || { echo '-'; return; }
+  p_epoch=$(process_start_epoch "$pid") || { echo '-'; return; }
+  j_epoch=$(file_mtime "$jar") || { echo '-'; return; }
   if [ "$j_epoch" -gt "$p_epoch" ]; then echo STALE; else echo current; fi
 }
 
