@@ -398,15 +398,19 @@ run_one_foreground() {
       export CEDAR_TEMPLATE_DESIGNER_FRONTEND_URL="${CEDAR_TEMPLATE_DESIGNER_FRONTEND_URL:-https://designer.${CEDAR_HOST}}"
       exec gulp ;;
     ui-openview|ui-content|ui-monitoring|ui-bridging)
-      local dir; dir=$(fe_dir "$name")
+      local dir ng; dir=$(fe_dir "$name")
       cd "$dir" || return 1
       # npm ci replaces node_modules in place. If a build runs while this development server is
       # live, Angular can persist a module graph assembled during that replacement; a restart then
       # reuses it and fails compilation even though the completed lock install is sound. The cache
       # is generated and ignored, so every managed start rebuilds it from the stable dependency
-      # tree. Use the CLI locked by this application for both operations.
-      ./node_modules/.bin/ng cache clean || return 1
-      exec ./node_modules/.bin/ng serve --port "$app" --host "$CEDAR_FRONTEND_BIND_HOST" ;;
+      # tree. Prefer the CLI locked by the application; cedar-content-distribution predates that
+      # convention and retains the established host CLI fallback.
+      ng="./node_modules/.bin/ng"
+      [ -x "$ng" ] || ng=$(command -v ng)
+      [ -n "$ng" ] || { echo "$name: Angular CLI is not installed" >&2; return 1; }
+      "$ng" cache clean || return 1
+      exec "$ng" serve --port "$app" --host "$CEDAR_FRONTEND_BIND_HOST" ;;
     *)
       local jar="$CEDAR_HOME/cedar-$name-server/cedar-$name-server-application/target/cedar-$name-server-application-${CEDAR_VERSION}.jar"
       local cfg="$CEDAR_HOME/cedar-$name-server/cedar-$name-server-application/src/main/resources/config.yml"

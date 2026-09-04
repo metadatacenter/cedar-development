@@ -284,12 +284,13 @@ class NativeProcessSafetyTest(unittest.TestCase):
 
         self.assertNotEqual(0, result.returncode)
 
-    def test_angular_frontends_clear_generated_cache_and_use_their_local_cli(self):
+    def test_angular_frontends_clear_generated_cache_and_prefer_their_local_cli(self):
         script = SCRIPT.read_text()
 
-        self.assertIn('./node_modules/.bin/ng cache clean || return 1', script)
-        self.assertIn('exec ./node_modules/.bin/ng serve --port "$app"', script)
-        self.assertNotIn('exec ng serve --port "$app"', script)
+        self.assertIn('ng="./node_modules/.bin/ng"', script)
+        self.assertIn('[ -x "$ng" ] || ng=$(command -v ng)', script)
+        self.assertIn('"$ng" cache clean || return 1', script)
+        self.assertIn('exec "$ng" serve --port "$app"', script)
 
     def test_frontend_health_rejects_a_listening_failed_compiler(self):
         result = self.run_library(

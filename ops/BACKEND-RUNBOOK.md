@@ -540,7 +540,7 @@ use their Git source commit in that key; `CEDAR_VERSION_MODIFIER` remains the ex
 for two environment-specific payloads built from the same commit. It is not needed merely to make a
 new source revision visible.
 
-The remaining four are Angular applications, each run with its project-local `ng serve` from its
+The remaining four are Angular applications, each run with `ng serve` from its
 `cedar-<name>[-src]` source dir (see `fe_dir()`): `ui-openview` (4220), `ui-content` (4240),
 `ui-monitoring` (4300) and `ui-bridging` (4340). Every frontend is named `ui-*`, which keeps
 `ui-openview` apart from the
@@ -553,7 +553,8 @@ all seven through this controller, and the
 `cedarcli native`, `start frontend` and `stop frontend` subcommands name a frontend without the
 prefix — `main`, `workspace`, `openview` — which the controller receives as `ui-<name>`.
 
-Each managed Angular start clears that checkout's ignored `.angular/cache` before compiling. This
+Each managed Angular start clears that checkout's ignored `.angular/cache` before compiling and
+uses its project-local Angular CLI when installed (`ui-content` retains its host-CLI fallback). This
 matters when an ordinary frontend build ran `npm ci` while the old development server was live: the
 server may otherwise persist a module graph observed while `node_modules` was being replaced, then
 reuse the invalid graph after a restart even though the completed lock install builds correctly.
@@ -653,8 +654,8 @@ their container for the Compose health check and are not host-mapped; do not add
 other admin mapping) to the core Compose stack. Native admin connectors likewise bind `127.0.0.1`.
 
 Frontends (HTTP-root health): `ui-main` 4200, `ui-workspace` 4201 and `ui-designer` 4202 under
-gulp; `ui-openview` 4220, `ui-content` 4240, `ui-monitoring` 4300 and `ui-bridging` 4340 under their
-project-local `ng serve`.
+gulp; `ui-openview` 4220, `ui-content` 4240, `ui-monitoring` 4300 and `ui-bridging` 4340 under
+`ng serve`.
 
 ## API-key credentials and management identifiers
 
