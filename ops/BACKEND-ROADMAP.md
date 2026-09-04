@@ -646,19 +646,9 @@ Frontend work for the embeddable editor is tracked separately in
     this one is settled by differential testing against production artifacts, not by a green build.
   - **OWLAPI 4.5.9 to 5.5.1.** Ontology semantics, where a behavioural difference does not show up
     in a compile.
-  - **The JAXB reference implementation 3.0.0 to 4.0.9.** Worth taking first, because the pairing
-    already looks wrong: jaxb-core and jaxb-impl are pinned on the 3.0 line while the API they
-    implement, jakarta.xml.bind-api, is at 4.0.5. Establish which combination the impex and
-    submission upload paths actually run on before choosing a version.
-  - **The two code generators, jaxb2-maven-plugin 3.1.0 to 4.1.0 and jsonschema2pojo 1.0.0 to
-    1.3.3.** Both emit sources that are then compiled, so a major is read through its output: the
-    generated diff is the review, not the plugin version. The small jax plugin, 0.1.5 to 0.2, is
-    part of the same generation path and moves with them.
   - **Embedded Mongo 4.20.0 to 5.0.0.** Test lifecycle only, but that lifecycle was reworked twice
     in early September 2026, so this wants settled code under it.
   - **JsonPath 2.9.0 to 3.0.0.**
-  - **Spotless 2.43.0 to 3.10.1.** A formatter major reformats what it touches, so the resulting
-    diff across the estate is the work.
   - **The Maven Release plugin 2.5.3 to 3.3.1, with its SCM provider 1.11.1 to 2.2.1.** These decide
     how `cedarcli release start` cuts a release across the versioned repositories. Rehearse the
     release rather than trusting a build.
@@ -686,6 +676,15 @@ Frontend work for the embeddable editor is tracked separately in
   servlet, validation and XML binding milestones, and the Maven 4.0.0 betas of Clean, Compiler,
   Deploy, Install, Jar, Resources and Source, with Site at a milestone. The old javax
   jaxb-api's only newer version is a 2018 build that was never finalized, so it stays too.
+
+  Verifying any of this locally is unreliable, and the cause is worth knowing before an upgrade is
+  blamed for it. Several suites bind fixed ports rather than asking the operating system for a free
+  one: the artifact server's test configuration names port 9091 for every test class in the module,
+  so a class that starts before its predecessor has released the port fails to bind. Others depend
+  on timing under load, several of them in the resource server. Each shows up in one full run and
+  not the next, which makes an unrelated version look guilty, and the estate's own convention that
+  test servers sit on 19xxx ports is not in fact kept. Prefer the suites of the modules a change
+  actually touches, and treat a single red full build as a question rather than an answer.
 
   Done when each upgrade above has either landed or been recorded as refused with its reason, and
   the estate no longer carries a dependency held back only because nobody looked at it.
