@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import re
 import signal
 import socket
 import subprocess
@@ -22,6 +23,9 @@ from urllib.request import urlopen
 
 class CanaryFailure(RuntimeError):
     pass
+
+
+ANSI_ESCAPE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 
 
 def run(command: list[str], *, cwd: Path) -> str:
@@ -74,27 +78,63 @@ def tree_snapshot(root: Path) -> dict[str, object]:
     return {"sha256": digest.hexdigest(), "files": files, "bytes": size, "exists": True}
 
 
+def tree_metadata(root: Path) -> dict[str, object]:
+    """Return a cheap identity used to wait out Angular's deferred cache flush."""
+    digest = hashlib.sha256()
+    files = 0
+    size = 0
+    if not root.exists():
+        digest.update(b"absent\0")
+        return {"sha256": digest.hexdigest(), "files": files, "bytes": size, "exists": False}
+    for path in sorted(root.rglob("*"), key=lambda candidate: candidate.as_posix()):
+        if not path.is_file() or path.is_symlink():
+            continue
+        stat = path.stat()
+        digest.update(path.relative_to(root).as_posix().encode())
+        digest.update(f"\0{stat.st_size}\0{stat.st_mtime_ns}\0".encode())
+        files += 1
+        size += stat.st_size
+    return {"sha256": digest.hexdigest(), "files": files, "bytes": size, "exists": True}
+
+
 def stable_tree_snapshot(
     root: Path,
     process: subprocess.Popen,
     *,
     timeout_seconds: float,
+    settle_seconds: float = 15,
 ) -> dict[str, object]:
-    """Wait until a live server's cache has the same content twice in succession."""
+    """Wait through webpack's idle cache write, then capture stable content."""
     deadline = time.monotonic() + timeout_seconds
     previous = None
+    stable_since = None
     while time.monotonic() < deadline:
         if process.poll() is not None:
             raise CanaryFailure(f"development server exited with code {process.returncode}")
         try:
-            current = tree_snapshot(root)
+            current = tree_metadata(root)
         except OSError:
             current = None
-        if current is not None and current["files"] and current == previous:
-            return current
-        previous = current
+        now = time.monotonic()
+        if current is None or not current["files"] or current != previous:
+            previous = current
+            stable_since = now
+        elif stable_since is not None and now - stable_since >= settle_seconds:
+            try:
+                snapshot = tree_snapshot(root)
+                if tree_metadata(root) == current:
+                    return snapshot
+            except OSError:
+                pass
+            previous = None
+            stable_since = None
         time.sleep(1)
     raise CanaryFailure(f"Angular cache did not become stable within {timeout_seconds:g} seconds")
+
+
+def normalized_output(output: str) -> str:
+    """Collapse Rich/terminal wrapping so evidence checks do not depend on runner width."""
+    return " ".join(ANSI_ESCAPE.sub("", output).split())
 
 
 @contextlib.contextmanager
@@ -267,9 +307,10 @@ def execute_canary(
                 )
             evidence["buildReturnCode"] = build.returncode
             build_output = build_log.read_text(encoding="utf-8", errors="replace")
+            normalized_build_output = normalized_output(build_output)
             runtime_detected = (
-                "Active frontend runtime(s)" in build_output
-                and "isolated from their checkout and Angular cache" in build_output
+                "Active frontend runtime(s)" in normalized_build_output
+                and "isolated from their checkout and Angular cache" in normalized_build_output
             )
             evidence["liveRuntimeDetectedByCli"] = runtime_detected
             if build.returncode != 0:

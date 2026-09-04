@@ -6,7 +6,9 @@ from pathlib import Path
 
 from ops.angular_build_isolation_canary import (
     forced_persistent_angular_cache,
+    normalized_output,
     stop_process_group,
+    tree_metadata,
     tree_snapshot,
 )
 
@@ -59,6 +61,17 @@ class AngularBuildIsolationCanaryTest(unittest.TestCase):
 
             (root / "entry").write_bytes(b"two")
             self.assertNotEqual(first, tree_snapshot(root))
+            self.assertEqual(1, tree_metadata(root)["files"])
+
+    def test_terminal_wrapping_does_not_hide_runtime_detection_evidence(self):
+        rendered = (
+            "\x1b[32mActive frontend runtime(s) PID 42 detected; the build is isolated "
+            "\nfrom their checkout and Angular cache.\x1b[0m"
+        )
+
+        normalized = normalized_output(rendered)
+        self.assertIn("Active frontend runtime(s)", normalized)
+        self.assertIn("isolated from their checkout and Angular cache", normalized)
 
     def test_canary_process_group_is_stopped_and_reaped(self):
         process = subprocess.Popen(["sleep", "30"], start_new_session=True)
