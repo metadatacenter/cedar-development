@@ -1027,9 +1027,22 @@ other, and a fix reaching one of them is the recurring shape: `performItemAdd`
 was hardened and its two siblings kept the assertion it was hardened against;
 `narrowByQuery` was written for seven authority fields and the eighth kept the
 rule it replaced; seven widgets built a form group around a control they then
-replaced. `input-control-binding.spec.ts` and `emptying-a-field.spec.ts` are
-table-driven for that reason, and a new widget joins the table rather than
-copying a spec.
+replaced. Five specs under `input-types/components/` are table-driven for that
+reason, one invariant each: the group a widget binds holds the control it
+validates (`input-control-binding.spec.ts`); emptying a field records nothing,
+never an empty string (`emptying-a-field.spec.ts`); a required field emptied by
+the user reports the requirement (`required-field-emptied.spec.ts`); an event a
+read-only widget can still receive writes nothing (`read-only-events.spec.ts`);
+and a widget shown two occurrences in turn shows only the second
+(`paging-between-occurrences.spec.ts`). A new widget joins each table rather
+than copying a spec. A second audit the next day found seven more defects in the
+same layer. The three newer tables pin three of them — the authority clear
+action wiping the requirement it had just raised, the attribute-value field
+writing on a read-only blur, and the text field carrying one occurrence's ORCID
+link onto the next — and the specs of the widgets they sat in pin the rest, with
+two coordinator specs for the two that were claims about markup: the numeric
+field's verdict reaching a `mat-error`, and the text field's link giving way to
+an input.
 
 ---
 
