@@ -634,9 +634,61 @@ Frontend work for the embeddable editor is tracked separately in
   Done when `start` reports a service only once it is healthy or names why it is not, and `start
   all` completes against running infrastructure.
 
+- **14. Take the dependency upgrades that need code changes.** Three sweeps on 2026-09-04 moved
+  every version that could move without consequence: the patch-level libraries, the build plugins,
+  and the test infrastructure with its pinned transitives. What stayed behind stayed deliberately,
+  and it separates into work to do, a server lock to wait on, and versions that are not released.
+
+  **The upgrades that need code or test changes.** Each of these is a change to make rather than a
+  version to raise, which is why none of them rode along with a sweep.
+
+  - **JUnit 5.11.3 to 6.1.3, and Hamcrest 2.2 to 3.0.** A major line across every Java repository's
+    suites, and the two move together because the assertion libraries are used side by side. The
+    estate runs 7,814 tests, so the cost here is migration effort rather than risk to the product.
+  - **json-schema-validator 1.5.9 to 3.0.7.** Two major lines on the library that decides which
+    stored artifacts CEDAR accepts. A change in validation behaviour is a change to the product, so
+    this one is settled by differential testing against production artifacts, not by a green build.
+  - **OWLAPI 4.5.9 to 5.5.1.** Ontology semantics, where a behavioural difference does not show up
+    in a compile.
+  - **Embedded Mongo 4.20.0 to 5.0.0.** Test lifecycle only, but that lifecycle was reworked twice
+    in early September 2026, so this wants settled code under it.
+  - **JsonPath 2.9.0 to 3.0.0.**
+  - **Spotless 2.43.0 to 3.10.1.** A formatter major reformats what it touches, so the resulting
+    diff across the estate is the work.
+  - **The Maven Release plugin 2.5.3 to 3.3.1, with its SCM provider 1.11.1 to 2.2.1.** These decide
+    how `cedarcli release start` cuts a release across the versioned repositories. Rehearse the
+    release rather than trusting a build.
+  - **Logback 1.5.33 to 1.6.3** needs SLF4J 2.1, which has only an alpha, so it waits on the group
+    below.
+
+  **Versions that follow a locked server.** Six sit here: the Neo4j driver 5.28.14 to 6.2.1, MySQL
+  Connector/J 8.4.0 to 26.7.0, the Mongo driver 5.1.2 to 5.11.0, the OpenSearch client 2.19.2 to
+  3.8.0, the Lucene pin 9.12.1 to 10.5.1, and the Neo4j test harness 5.3.0 to 2026.07.1. Client
+  libraries are free to move in general, but a driver crossing a major has to be proven against the
+  pinned server it talks to, so these are sequenced behind item 2 rather than taken on their own.
+  RESTEasy 6.2.4 to 7.0.4 is held the same way by the Keycloak client stack, which items 2 and 9
+  own.
+
+  **Versions that are not released.** These wait on upstream to ship a final: HttpCore
+  5.5-beta2 and HttpClient 5.7-alpha1, Hibernate 8.0.0.Beta1, Jedis 8.1.0-beta1, SLF4J 2.1.0-alpha1,
+  Log4j 3.0.0-beta2, Jersey 5.0.0-M1, the Jakarta API milestones for persistence, servlet,
+  validation and XML binding, and the Maven 4.0.0 betas of Clean, Compiler, Deploy, Install, Jar,
+  Resources and Source, with Site at a milestone.
+
+  Every upgrade above is verified the same way, and that path carries a hazard worth planning
+  around. A full local `cedarcli build java` cannot currently be trusted as the gate.
+  `MonitorRoutesAndPermissionsTest` asserts a 503 from a stopped artifact server and fails
+  deterministically on any workstation whose stack is up, and the embedded Redis in
+  `QueueOutageTest` intermittently loses a race for its ephemeral port. Both make an unrelated
+  upgrade look guilty. Either fix those two before starting, or verify in CI, where neither
+  condition holds.
+
+  Done when each upgrade above has either landed or been recorded as refused with its reason, and
+  the estate no longer carries a dependency held back only because nobody looked at it.
+
 ## Production data
 
-- **14. Normalize production artifacts to one explicit model contract.** Production contains several
+- **15. Normalize production artifacts to one explicit model contract.** Production contains several
   legacy representations that the current model surfaces tolerate or normalize differently, so bring
   them to canonical shapes before tightening readers or introducing terminology routing across source
   systems. The permission-scoped audit found 76 inherently-multiple fields deployed as JSON objects in
@@ -810,7 +862,7 @@ Frontend work for the embeddable editor is tracked separately in
 
 ## Later decisions
 
-- **15. A published artifact can be deleted, contradicting the docs.** The docs say a published
+- **16. A published artifact can be deleted, contradicting the docs.** The docs say a published
   artifact is permanent, but `DELETE` on one succeeds. The guard in
   `AbstractResourceServerResource.executeArtifactDelete` was briefly re-enabled and then **reverted by
   deliberate decision**: blocking deletion strands published artifacts and the folders holding them with
@@ -821,7 +873,7 @@ Frontend work for the embeddable editor is tracked separately in
   through folder deletion). Immutability of published content is a separate guarantee and is
   unaffected either way — that one is enforced.
 
-- **16. Finish the DataCite DOI minting lifecycle.** The durable lifecycle is what makes the operation
+- **17. Finish the DataCite DOI minting lifecycle.** The durable lifecycle is what makes the operation
   recovery-safe, and none of it exists yet. Minting persists no state of its own: draft/reserved,
   published and locally attached are recorded nowhere, so the `reconciliationRequired` response names a
   condition no code resolves, and a retry after a timeout cannot tell whether the earlier attempt
