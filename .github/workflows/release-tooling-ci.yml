@@ -1,0 +1,42 @@
+name: Release tooling CI
+
+on:
+  push:
+    branches:
+      - develop
+  pull_request:
+    branches:
+      - develop
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-tooling-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: train and lifecycle controllers (Python 3.12)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out cedar-development
+        uses: actions/checkout@v7
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      # These suites mock publication and service operations. They validate the captured
+      # train/release controllers without starting services or writing external state.
+      - name: Run non-destructive controller tests
+        run: |
+          python -m unittest -v \
+            ops.tests.test_build_train \
+            ops.tests.test_docker_train \
+            ops.tests.test_frontend_train \
+            ops.tests.test_native_process_safety

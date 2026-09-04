@@ -59,7 +59,9 @@ The plan settles four groups of question:
 - **The machine can run a release.** Java 17 and Node 24.19.0 are active, `git`, `mvn`, and `npm`
   are on PATH, Git author name and email are configured, the CEDAR profile is sourced, npm's
   effective user configuration contains no obsolete authentication setting, and there is disk for
-  the train, the attempt tree, and the archives. The npmrc check reads key names only and never
+  the release's estimated clean checkouts, release/next Maven and frontend builds, publication
+  caches and logs, plus headroom. The estimate is derived from the manifest's repository and build
+  counts rather than a fixed free-space threshold. The npmrc check reads key names only and never
   prints registry tokens or values.
 - **The source is ready.** Every participating repository—including the independent repositories
   whose CEE wiring the release integrates—is clean and pushed, and the CI run for the exact commit
@@ -254,11 +256,19 @@ Nexus installation with a finite request budget.
 Only `COMPLETE` means successfully released. `ABANDONED` means the retained attempt was closed
 without releasing it; every other status remains incomplete.
 
+Local release state has a one-release retention policy. The current release keeps its ledger,
+numbered attempt, caches, and logs so `status` and `resume` remain complete. When a new release takes
+the current slot, the state layer immediately deletes every older ledger and attempt tree—including
+dependency caches and large logs—before the new attempt is prepared. There is no cleanup command
+and no archive tier: Git refs and published artifacts are the durable record after a release stops
+being current.
+
 ## If a Phase Fails
 
 Do not start again. A failure stops the release, records the reason, and retains the failed attempt
-under `~/.cedar/train-releases/attempts/<VER>/`. Nothing is rolled back and nothing is deleted,
-because the failed attempt is the evidence.
+under `~/.cedar/train-releases/attempts/<VER>/`. Nothing in the current attempt is rolled back or
+deleted, because it is the evidence needed by `resume`. It is deleted automatically only if a later
+release replaces it as current.
 
 ```bash
 cedarcli release status
@@ -284,9 +294,10 @@ cedarcli release abandon \
 ```
 
 The exact version is a guard against closing the wrong active release, and the reason is stored in
-the ledger. Abandonment marks status `ABANDONED`, retains the manifest and numbered attempt tree,
-frees the active slot, and permits another attempt at the same release version. It never deletes or
-rolls back evidence.
+the ledger. Abandonment marks status `ABANDONED`, retains the manifest and numbered attempt tree
+while it remains current, frees the active slot, and permits another attempt at the same release
+version. Starting that replacement makes it current and internally prunes the abandoned ledger and
+attempt; there is no long-term abandoned-attempt archive.
 
 `abandon` is deliberately unavailable once snapshot publication may have begun, even when no
 snapshot task reached its completed-ledger write: Maven may have changed Nexus before returning a

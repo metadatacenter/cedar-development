@@ -711,11 +711,6 @@ def _github_ci_preflight(source: dict, workspace: Path, policy=None) -> None:
                 run_record for run_record in runs
                 if run_record.get("path") != ".github/workflows/build-train.yml"
             ]
-            if not runs:
-                print(
-                    "CI advisory: cedar-development has no separate source-validation run; "
-                    "the train controller is executing its captured code now.")
-                continue
         if not runs:
             failures.append(
                 f"{repository}: no CI run for {revision[:8]} after bounded indexing grace")

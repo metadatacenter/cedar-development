@@ -85,6 +85,13 @@ Local preflight also inspects npmrc key names once without reading values: an ob
 changes authentication semantics blocks, while harmless future-version author-setting warnings are
 reported once.
 
+The two repositories that own the release machinery are hard gates, too. `cedar-cli` must have a
+green `CI` run and `cedar-development` must have a green `Release tooling CI` run at their exact
+captured commits. The in-progress `Immutable development build train` workflow is deliberately
+excluded from the latter decision: a train cannot prove the controller that is already running it,
+and it may not substitute for the independent controller test workflow. Both the local dispatch
+preflight and the hosted captured-source preflight enforce this rule.
+
 Then create the train:
 
 ```bash
