@@ -39,6 +39,9 @@ const applications = [
     base: withoutTrailingSlash(process.env.CEDAR_BRIDGING_BASE ?? `https://bridging.${host}`),
     // Bridging's landing card, which explains that the flow starts in CEDAR.
     marker: 'Create Datacite DOI',
+    // The editor is loaded by tag rather than bundled into the application, so
+    // its registration is the only thing proving the tag still resolves.
+    customElement: 'cedar-embeddable-editor',
   },
 ];
 
@@ -96,6 +99,16 @@ async function openApplication(page, app) {
     fail(`${app.name}: rendered its dashboard without its own header`);
   } else {
     ok(`${app.name} draws its header`);
+  }
+
+  if (app.customElement) {
+    const registered = await page.evaluate(
+      name => !!customElements.get(name), app.customElement);
+    if (registered) {
+      ok(`${app.name} registers <${app.customElement}>`);
+    } else {
+      fail(`${app.name}: <${app.customElement}> is not registered, so its bundle did not load`);
+    }
   }
 
   const fatal = consoleErrors.filter(text => FATAL.test(text));
