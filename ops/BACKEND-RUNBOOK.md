@@ -513,8 +513,9 @@ code. If you changed a shared library, `./mvnw clean install` in the consuming s
 Manages the 15 microservices + three AngularJS/Gulp frontends + the 4 auxiliary Angular frontends as
 background processes: non-restarting submitted `launchd` jobs on macOS and `nohup` children on other
 systems. Each logs to `$CEDAR_HOME/log/`, with its PID tracked in `$CEDAR_HOME/log/run/`. The
-controller forces `JAVA_HOME=17`, puts `/opt/homebrew/bin` on `PATH` (for `node`/`ng`), and sources
-the profile itself, so it is safe to run standalone.
+controller resolves `JAVA_HOME` to a JDK 17 and refuses to start anything on another JDK, puts
+`/opt/homebrew/bin` on `PATH` (for `node`/`ng`), and sources the profile itself, so it is safe to run
+standalone.
 
 `cedarcli native` is the interface. `ops/cedar-services.sh` is the controller behind it, and
 `NativeWorker` calls that script for every verb below. Reach for the script directly only for the
@@ -1243,7 +1244,10 @@ TypeScript, while both emit the same bytes for it.
 - **`UnitOfWorkAwareProxyFactory` or other startup code fails only in a non-interactive shell** →
   that shell did not pin `JAVA_HOME` to 17 (the zsh pin is interactive-only), so the build or run
   used the machine default JDK 23/25. Export `JAVA_HOME=$(/usr/libexec/java_home -v 17)` explicitly
-  in scripts and background commands. The helper scripts here already do this.
+  in scripts and background commands. The helper scripts here already do this. The native
+  controller refuses rather than running on the wrong JDK, reporting `CEDAR needs JDK 17, and
+  <path> reports 23`, so this symptom belongs to `mvn`, `npm` and anything else started outside
+  `cedarcli`.
 
 - **A server rebuilt against a stale `cedar-parent` misbehaves subtly** (for example an unshaded jar
   with no `Main-Class`, or an old managed dependency version) → `cedar-parent` was not installed
