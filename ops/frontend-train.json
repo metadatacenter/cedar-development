@@ -160,7 +160,7 @@
       "repository": "cedar-bridging",
       "lock": "cedar-bridging-src/package-lock.json",
       "strictInstallScripts": true,
-      "sha256": "e4a6ace610cc55c880b962dc85c4e15865628e451bf6aa03b21e4675f0283fc3",
+      "sha256": "1d9a218e0bc6f3fc115475d59360f831b0e17e3d71c40e22764aae00af524b3f",
       "vulnerabilities": {"low": 10, "moderate": 19, "high": 59, "critical": 2}
     },
     {
