@@ -1046,6 +1046,7 @@ async function verifyTwoUserSharing(browser, ownerPage, folderId, templateId, us
       throw new Error(`revoked editor changed server content: ${afterRevoke.status} ${afterRevoke.body?.['schema:description']}`);
     }
     await waitForSharedRow(recipientPage, user2.profile.homeFolderId, TEMPLATE_NAME, false);
+
     console.log('✓ visible sharing UI granted read, withheld rename and description editing from the reader, '
       + 'upgraded to write, let the recipient rename and save, then revoked access and blocked the already-open editor');
   } finally {
@@ -1197,6 +1198,31 @@ async function saveInstanceInEditor(page) {
   const m = page.url().match(/instances\/edit\/(.+?)(?:\?|$)/);
   if (!m) throw new Error('post-save redirect did not carry an instance id');
   return { id: decodeURIComponent(m[1]) };
+}
+
+// Name the metadata in the field above the editor. It starts from the generated name, so the
+// check that it did is also the check that the page loaded the template before offering it.
+async function nameInstance(page, name) {
+  const field = page.locator(S.INSTANCE_NAME_INPUT);
+  await field.waitFor({ state: 'visible', timeout: 20_000 });
+  const generated = await field.inputValue();
+  if (!generated.endsWith(' metadata')) {
+    throw new Error(`metadata name field did not start from the generated name; it held "${generated}"`);
+  }
+  await field.fill(name);
+}
+
+// The saved artifact carries the typed name, and the edit view the save redirected to shows it back.
+async function verifyInstanceName(page, auth, id, expected) {
+  const field = page.locator(S.INSTANCE_NAME_INPUT);
+  await field.waitFor({ state: 'visible', timeout: 20_000 });
+  const shown = await field.inputValue();
+  if (shown !== expected) throw new Error(`edit view shows the metadata name as "${shown}"; expected "${expected}"`);
+  const stored = await restCall(auth, 'GET', `/template-instances/${enc(id)}`);
+  if (stored.status !== 200) throw new Error(`could not read the saved instance: ${stored.status} ${stored.text}`);
+  if (stored.body['schema:name'] !== expected) {
+    throw new Error(`saved instance is named "${stored.body['schema:name']}"; expected "${expected}"`);
+  }
 }
 
 // Fill a plain (unconstrained) text field the CEE renders. The CEE labels each field, so match the
@@ -1909,6 +1935,13 @@ try {
   await fillCeeTextField(page, TEXT_FIELD_NAME, 'initial notes');
   console.log(`✓ filled the "${TEXT_FIELD_NAME}" text field`);
 
+  // Name the metadata before saving; the Workbench lists the instance under this name, and it
+  // used to be reachable only through the row menu's Rename after the fact.
+  step = 'name-instance';
+  const INSTANCE_NAME = `Asthma notes ${RUN_ID}`;
+  await nameInstance(page, INSTANCE_NAME);
+  console.log(`✓ named the metadata "${INSTANCE_NAME}"`);
+
   // 3b-ii. Save the populated instance from the Metadata Editor and confirm it is created. This
   //        exercises the V2/embeddable-editor save path end to end — the one that once threw a stack
   //        trace on a new instance's null @id and saved nothing.
@@ -1920,6 +1953,10 @@ try {
   const savedInstance = await saveInstanceInEditor(page);
   cleanupInstanceId = savedInstance.id;
   console.log(`✓ Metadata Editor saved the populated instance (create → 201, redirected to edit)`);
+
+  step = 'verify-instance-name';
+  await verifyInstanceName(page, user1.auth, savedInstance.id, INSTANCE_NAME);
+  console.log('✓ the saved instance carries the typed name, and the edit view shows it');
 
   step = 'dirty-navigation-protection';
   await verifyDirtyNavigationProtection(
