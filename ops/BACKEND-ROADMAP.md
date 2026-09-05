@@ -695,9 +695,22 @@ Frontend work for the embeddable editor is tracked separately in
   decision to make or a defect to fix. `ArtifactLifecycleMatrixTest` pins the current rules until
   then. Done when the model is published and every divergence is fixed or recorded.
 
+- **16. Give the public CEE release a CLI route.** Publishing `cedar-embeddable-editor` to npmjs is a
+  runbook of about twenty-five commands across `develop`, a pull request, `main`, the registry, a
+  tag, the development-state restore and the train baseline refresh. Release 2.0.6 took an hour of
+  operator attention for two minutes of gate time, and CEE has shipped four public versions in a
+  week. Build `cedarcli release cee` as a resumable, ledger-backed route like the platform release:
+  pin the chosen public model, write the changelog entry, run the gate, open and merge the pull
+  request, rebuild and publish from `main`, verify the registry with a retry for the seconds npm's
+  read replicas lag behind a publish, tag, restore the next development version with the chosen
+  model snapshot, refresh the CEE lock baselines, and stop at each remote step it cannot prove. The
+  provenance comparison the platform release already performs verifies the published tarball. Once
+  the command exists, rewrite the npmjs runbook into a description of what it does and where it
+  stops.
+
 ## Production data
 
-- **16. Normalize production artifacts to one explicit model contract.** Production contains several
+- **17. Normalize production artifacts to one explicit model contract.** Production contains several
   legacy representations that the current model surfaces tolerate or normalize differently, so bring
   them to canonical shapes before tightening readers or introducing terminology routing across source
   systems. The permission-scoped audit found 76 inherently-multiple fields deployed as JSON objects in
@@ -873,7 +886,7 @@ Frontend work for the embeddable editor is tracked separately in
 
 ## Later decisions
 
-- **17. A published artifact can be deleted, contradicting the docs.** The docs say a published
+- **18. A published artifact can be deleted, contradicting the docs.** The docs say a published
   artifact is permanent, but `DELETE` on one succeeds. The guard in
   `AbstractResourceServerResource.executeArtifactDelete` was briefly re-enabled and then **reverted by
   deliberate decision**: blocking deletion strands published artifacts and the folders holding them with
@@ -884,7 +897,7 @@ Frontend work for the embeddable editor is tracked separately in
   through folder deletion). Immutability of published content is a separate guarantee and is
   unaffected either way — that one is enforced.
 
-- **18. Finish the DataCite DOI minting lifecycle.** The durable lifecycle is what makes the operation
+- **19. Finish the DataCite DOI minting lifecycle.** The durable lifecycle is what makes the operation
   recovery-safe, and none of it exists yet. Minting persists no state of its own: draft/reserved,
   published and locally attached are recorded nowhere, so the `reconciliationRequired` response names a
   condition no code resolves, and a retry after a timeout cannot tell whether the earlier attempt
