@@ -56,8 +56,7 @@
       "npmVersionVariable": "CEDAR_OPENVIEW_NPM_VERSION",
       "ceeConsumer": {
         "manifest": "cedar-openview-src/package.json",
-        "lock": "cedar-openview-src/package-lock.json",
-        "legacyPeerDeps": true
+        "lock": "cedar-openview-src/package-lock.json"
       }
     },
     {
@@ -108,8 +107,7 @@
       "repository": "cedar-component-demo",
       "label": "angular-demo",
       "manifest": "cedar-cee-demo-angular-src/package.json",
-      "lock": "cedar-cee-demo-angular-src/package-lock.json",
-      "legacyPeerDeps": true
+      "lock": "cedar-cee-demo-angular-src/package-lock.json"
     },
     {
       "repository": "cedar-component-demo",
@@ -213,7 +211,7 @@
       "repository": "cedar-openview",
       "lock": "cedar-openview-src/package-lock.json",
       "strictInstallScripts": true,
-      "sha256": "ddda902fa732cadf16e5878e38391743af1b857d7ddc9ee3d71e6dcce50c6871",
+      "sha256": "bf05b3bc3f00eea8689a0484549cf2de7a365c7b86a7947a6c456cd5bd121aa5",
       "vulnerabilities": {
         "low": 0,
         "moderate": 2,
