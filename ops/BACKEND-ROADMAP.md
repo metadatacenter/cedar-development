@@ -53,14 +53,19 @@ Frontend work for the embeddable editor is tracked separately in
     recipient is unlikely to expect that. Pinned in `SharingRoundTripTest`.
   - **The Workbench cannot transfer ownership at all.** The share dialog offers it in two places and
     neither works. On the row of an existing share the option is shown on
-    `share.canBeOwner(sh.node.id)`, where that node comes from the permissions API as JSON-LD and
-    carries `@id`, so the check always receives `undefined` and the option never appears. The
-    add-user picker passes `['@id']` correctly, and choosing ownership there reports success in the
-    dialog while the owner is unchanged afterwards: `select-picker` copies options into a dropdown of
-    its own, so a click can land on an option Angular's model refuses. This one is not pinned. The
-    browser smoke covers the rename and description controls a share governs and stops at ownership,
-    because there is no working control to drive, and the Protractor spec that claimed to cover it
-    could not have run for years.
+    `share.canBeOwner(sh.node.id)` (`cedar-share-modal.directive.html:175`), where that node comes
+    from the permissions API as JSON-LD and carries `@id`, so the check always receives `undefined`
+    and the option never appears. That is the only wrong accessor in the file. The controller reads
+    `node['@id']` everywhere else, and `getNode` matches on `['@id']`, so the gate itself is a
+    one-line correction. Correcting it alone would not produce a working control. The option it
+    reveals writes through the path the add-user picker already uses, and that path passes `['@id']`
+    correctly, reports success in the dialog, and leaves the owner unchanged, because `select-picker`
+    copies options into a dropdown of its own and a click can land on an option Angular's model
+    refuses. Treat the two as one investigation, and verify against a running stack rather than by
+    reading, since the failing path is the one that reports success. Neither is pinned. The browser
+    smoke covers the rename and description controls a share governs and stops at ownership, because
+    there is no working control to drive, and the Protractor spec that claimed to cover it could not
+    have run for years.
   - **Ownership is the one thing a WRITE grantee cannot take**, which is the model working: the owner
     check in `validateOwnerSetPermission` holds across folders and all four artifact types. Noted here
     because it is the boundary the rest of the model leans on, and because it is the only place
