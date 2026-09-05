@@ -5,7 +5,9 @@ A CEDAR server declares what it needs in code. CedarConfigEnvironmentDescriptor 
 SystemComponent to a set of CedarEnvironmentVariable, and CedarEnvironmentVariableProvider builds
 the configuration sandbox from it: a variable the server needs but does not get is fatal at
 startup, while one it does not need is defaulted (0 for numerics, false for booleans) or held back.
-That asymmetry is why most absent variables are harmless and a few stop the server dead.
+That asymmetry is why most absent variables are harmless and a few stop the server dead. A
+variable the descriptor declares optional is read when present and defaulted when absent, so
+it is not required here.
 
 Nothing connected that declaration to the compose files, so four servers shipped unable to start.
 This asks the code for the answer rather than reading the descriptor by eye: it runs jshell against
@@ -53,7 +55,9 @@ import org.metadatacenter.config.environment.*;
 import org.metadatacenter.model.SystemComponent;
 for (SystemComponent c : SystemComponent.values()) {
   var names = new java.util.TreeSet<String>();
-  for (var v : CedarConfigEnvironmentDescriptor.getVariableNamesFor(c)) names.add(v.getName());
+  for (var v : CedarConfigEnvironmentDescriptor.getVariableNamesFor(c)) {
+    if (!v.isOptional()) names.add(v.getName());
+  }
   System.out.println("REQ\\t" + c.getStringValue() + "\\t" + String.join(",", names));
 }
 /exit
