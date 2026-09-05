@@ -9,7 +9,8 @@
 # macOS uses a non-restarting launchd submitted job so the services survive shells whose command
 # runner reaps its whole process group; other systems retain the nohup launcher. One `status` view
 # shows PID / port / health / error-count.
-# Frontend health is port-only (no Dropwizard /healthcheck).
+# Frontend health probes the served root (they have no Dropwizard /healthcheck). A failed
+# Angular compiler still leaves its development server listening, so a port-only check lies.
 #
 # Infra (Keycloak, Mongo, Neo4j, MySQL, Redis, OpenSearch, nginx) is NOT managed here —
 # bring that up separately (it is already running in this session).
@@ -43,6 +44,20 @@ if [ "${CEDAR_SERVICES_INSPECT_ONLY:-false}" != true ] && [ -z "${CEDAR_DEVELOP_
     exit 1
   fi
 fi
+# Reads the major version a JDK reports, from either the modern "21.0.2" or the legacy "1.8.0_202"
+# spelling. Echoes nothing when the binary will not run or says nothing a version can be read from.
+java_major_version() {
+  local first release
+  first=$("$1" -version 2>&1 | head -1) || return 1
+  case "$first" in *\"*\"*) ;; *) return 1 ;; esac
+  release=${first#*\"}; release=${release%%\"*}
+  case "$release" in
+    1.*) release=${release#1.} ;;
+  esac
+  release=${release%%.*}; release=${release%%-*}
+  case "$release" in ''|*[!0-9]*) return 1 ;; esac
+  echo "$release"
+}
 if [ "${CEDAR_SERVICES_INSPECT_ONLY:-false}" != true ]; then
   # JDK 17 comes from the caller. cedarcli resolves it per platform; a login shell exports it.
   if [ -z "${JAVA_HOME:-}" ] && [ -x /usr/libexec/java_home ]; then
@@ -50,6 +65,19 @@ if [ "${CEDAR_SERVICES_INSPECT_ONLY:-false}" != true ]; then
   fi
   if [ -z "${JAVA_HOME:-}" ]; then
     echo "JAVA_HOME is not set, and CEDAR needs JDK 17" >&2
+    exit 1
+  fi
+  # Hold the value to what the message above promises. Only $JAVA_HOME/bin joins PATH below, so a
+  # value with no JDK behind it contributes nothing, java resolves from a later entry, and the
+  # service runs on a JDK nobody chose. Keycloak and OpenSearch do not survive the newer ones, and
+  # that failure arrives later as strange behaviour rather than here as a refusal to start.
+  if [ ! -x "$JAVA_HOME/bin/java" ]; then
+    echo "JAVA_HOME has no java to run, and CEDAR needs JDK 17: $JAVA_HOME" >&2
+    exit 1
+  fi
+  CEDAR_JAVA_MAJOR=$(java_major_version "$JAVA_HOME/bin/java")
+  if [ "$CEDAR_JAVA_MAJOR" != 17 ]; then
+    echo "CEDAR needs JDK 17, and $JAVA_HOME reports ${CEDAR_JAVA_MAJOR:-no version this can read}" >&2
     exit 1
   fi
 fi
@@ -137,7 +165,11 @@ log_error_count() {
   # introduced them rather than being additional errors of their own.
   awk '/^ERROR([[:space:]]|$)/ { count++ } END { print count + 0 }' "$log"
 }
-port_open() { nc -z -G1 127.0.0.1 "$1" >/dev/null 2>&1; }
+# bash opens the socket itself, so this needs no nc. The two nc builds spell the connect timeout
+# differently and each rejects the other's flag outright, which made a single spelling of this check
+# wrong on one of the two systems CEDAR runs on. Loopback accepts or refuses at once, so the timeout
+# the flag provided is not needed here.
+port_open() { (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }
 auxiliary_ports() {
   local admin; admin=$(admin_port "$1")
   [ "$admin" != 0 ] && printf '%s\n%s\n' "$admin" "$((admin+100))"
@@ -150,6 +182,25 @@ port_owner() { lsof -ti "tcp:$1" -sTCP:LISTEN 2>/dev/null | head -1; }
 port_owners() { lsof -nP -tiTCP:"$1" -sTCP:LISTEN 2>/dev/null | sort -nu; }
 process_command() { ps -p "$1" -o command= 2>/dev/null; }
 process_alive() { kill -0 "$1" 2>/dev/null; }
+# Ask each system in its own spelling, and take the first answer that is actually a number. Exit
+# status alone is not enough to choose between them: GNU stat reads -f as "describe the filesystem"
+# and succeeds, so a chain that trusted the status would report a mount point as a modification time.
+first_epoch() {
+  local value
+  for value in "$@"; do
+    case "$value" in ''|*[!0-9]*) ;; *) echo "$value"; return 0 ;; esac
+  done
+  return 1
+}
+file_mtime() {
+  first_epoch "$(stat -c %Y "$1" 2>/dev/null)" "$(stat -f %m "$1" 2>/dev/null)"
+}
+process_start_epoch() {
+  local started; started=$(ps -o lstart= -p "$1" 2>/dev/null) || return 1
+  [ -n "$started" ] || return 1
+  first_epoch "$(date -j -f '%a %b %e %T %Y' "$started" +%s 2>/dev/null)" \
+              "$(date -d "$started" +%s 2>/dev/null)"
+}
 process_cwd() { lsof -a -p "$1" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -1; }
 
 is_docker_port_forwarder() {
@@ -367,18 +418,15 @@ cee_of() {  # echoes current|STALE|- for the Embeddable Editor the Template Desi
 # A service can be healthy and still be serving code from before the last build, which makes a green
 # gate meaningless. Compare when the process started against when its jar was written.
 binary_of() {  # echoes current|STALE|- for a service and the pid serving it
-  local name=$1 pid=$2 jar started j_epoch p_epoch
+  local name=$1 pid=$2 jar j_epoch p_epoch
   case "$name" in
     ui-main) cee_of; return ;;
     ui-*) echo '-'; return ;;
   esac
   jar=$(jar_of "$name")
   [ -n "$pid" ] && [ -f "$jar" ] || { echo '-'; return; }
-  started=$(ps -o lstart= -p "$pid" 2>/dev/null) || { echo '-'; return; }
-  [ -n "$started" ] || { echo '-'; return; }
-  p_epoch=$(date -j -f '%a %b %e %T %Y' "$started" +%s 2>/dev/null) || { echo '-'; return; }
-  j_epoch=$(stat -f %m "$jar" 2>/dev/null) || { echo '-'; return; }
-  [ -n "$p_epoch" ] && [ -n "$j_epoch" ] || { echo '-'; return; }
+  p_epoch=$(process_start_epoch "$pid") || { echo '-'; return; }
+  j_epoch=$(file_mtime "$jar") || { echo '-'; return; }
   if [ "$j_epoch" -gt "$p_epoch" ]; then echo STALE; else echo current; fi
 }
 
@@ -397,9 +445,19 @@ run_one_foreground() {
       export CEDAR_TEMPLATE_DESIGNER_FRONTEND_URL="${CEDAR_TEMPLATE_DESIGNER_FRONTEND_URL:-https://designer.${CEDAR_HOST}}"
       exec gulp ;;
     ui-openview|ui-content|ui-monitoring|ui-bridging)
-      local dir; dir=$(fe_dir "$name")
+      local dir ng; dir=$(fe_dir "$name")
       cd "$dir" || return 1
-      exec ng serve --port "$app" --host "$CEDAR_FRONTEND_BIND_HOST" ;;
+      # npm ci replaces node_modules in place. If a build runs while this development server is
+      # live, Angular can persist a module graph assembled during that replacement; a restart then
+      # reuses it and fails compilation even though the completed lock install is sound. The cache
+      # is generated and ignored, so every managed start rebuilds it from the stable dependency
+      # tree. Prefer the CLI locked by the application; cedar-content-distribution predates that
+      # convention and retains the established host CLI fallback.
+      ng="./node_modules/.bin/ng"
+      [ -x "$ng" ] || ng=$(command -v ng)
+      [ -n "$ng" ] || { echo "$name: Angular CLI is not installed" >&2; return 1; }
+      "$ng" cache clean || return 1
+      exec "$ng" serve --port "$app" --host "$CEDAR_FRONTEND_BIND_HOST" ;;
     *)
       local jar="$CEDAR_HOME/cedar-$name-server/cedar-$name-server-application/target/cedar-$name-server-application-${CEDAR_VERSION}.jar"
       local cfg="$CEDAR_HOME/cedar-$name-server/cedar-$name-server-application/src/main/resources/config.yml"
@@ -563,8 +621,13 @@ names() { if [ $# -gt 0 ]; then printf '%s\n' "$@"; else for s in "${SERVICES[@]
 
 health_of() {  # echoes healthy|UNHEALTHY|starting|down
   local name=$1 app admin; app=$(app_port "$name"); admin=$(admin_port "$name")
-  if [ "$admin" = 0 ]; then port_open "$app" && echo healthy || echo down; return; fi
-  local code; code=$(curl -s -o /dev/null -m 2 -w '%{http_code}' "http://127.0.0.1:$admin/healthcheck" 2>/dev/null)
+  local code
+  if [ "$admin" = 0 ]; then
+    code=$(curl -s -o /dev/null -m 2 -w '%{http_code}' "http://127.0.0.1:$app/" 2>/dev/null)
+    case "$code" in 2??|3??) echo healthy;; *) port_open "$app" && echo UNHEALTHY || echo down;; esac
+    return
+  fi
+  code=$(curl -s -o /dev/null -m 2 -w '%{http_code}' "http://127.0.0.1:$admin/healthcheck" 2>/dev/null)
   case "$code" in 200) echo healthy;; 500) echo UNHEALTHY;; *) port_open "$app" && echo starting || echo down;; esac
 }
 

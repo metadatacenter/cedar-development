@@ -20,6 +20,12 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+try:
+    from subprocess_diagnostics import describe_return_code
+except ModuleNotFoundError:  # Loaded directly by the unit-test harness.
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from subprocess_diagnostics import describe_return_code
+
 
 ROOT = Path(__file__).resolve().parent
 DEFAULT_CONFIG = ROOT / "frontend-train.json"
@@ -380,7 +386,17 @@ def verify_record(registry: str, expected: dict) -> dict:
 
 
 def run_command(command: list[str], cwd: Path, environment: dict | None = None) -> None:
-    subprocess.run(command, cwd=cwd, env=environment, check=True)
+    effective_environment = dict(os.environ if environment is None else environment)
+    effective_environment["CI"] = "true"
+    effective_environment["NG_CLI_ANALYTICS"] = "false"
+    result = subprocess.run(
+        command, cwd=cwd, env=effective_environment, check=False,
+    )
+    if result.returncode:
+        raise RuntimeError(
+            f"command {describe_return_code(result.returncode)}: "
+            f"{' '.join(command)}"
+        )
 
 
 def assert_clean_repository(root: Path, identity: str) -> None:

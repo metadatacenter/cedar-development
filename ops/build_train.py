@@ -21,6 +21,12 @@ import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 
+try:
+    from subprocess_diagnostics import describe_return_code
+except ModuleNotFoundError:  # Loaded directly by the unit-test harness.
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from subprocess_diagnostics import describe_return_code
+
 
 ROOT = Path(__file__).resolve().parent
 DEFAULT_CONFIG = ROOT / "build-train.json"
@@ -47,7 +53,14 @@ def run(arguments: list[str], cwd: Path | None = None, capture: bool = False) ->
     if result.returncode:
         if capture:
             sys.stderr.write(result.stderr)
-        raise RuntimeError(f"command failed with exit code {result.returncode}: {' '.join(arguments)}")
+        no_output = (
+            "; the process produced no diagnostic output of its own"
+            if capture and result.returncode < 0 and not (result.stdout or result.stderr) else ""
+        )
+        raise RuntimeError(
+            f"command {describe_return_code(result.returncode)}{no_output}: "
+            f"{' '.join(arguments)}"
+        )
     return result.stdout.strip() if capture else ""
 
 
@@ -698,11 +711,6 @@ def _github_ci_preflight(source: dict, workspace: Path, policy=None) -> None:
                 run_record for run_record in runs
                 if run_record.get("path") != ".github/workflows/build-train.yml"
             ]
-            if not runs:
-                print(
-                    "CI advisory: cedar-development has no separate source-validation run; "
-                    "the train controller is executing its captured code now.")
-                continue
         if not runs:
             failures.append(
                 f"{repository}: no CI run for {revision[:8]} after bounded indexing grace")
@@ -748,7 +756,14 @@ def publication_preflight(args: argparse.Namespace) -> None:
 
 
 def local_configuration_preflight(args: argparse.Namespace) -> None:
-    source_version = pom_version(args.workspace / "cedar-parent" / "pom.xml")
+    actual_source_version = pom_version(args.workspace / "cedar-parent" / "pom.xml")
+    expected_source_version = getattr(args, "expected_source_version", None)
+    if expected_source_version is not None and actual_source_version != expected_source_version:
+        raise RuntimeError(
+            f"cedar-parent version is {actual_source_version!r}, expected "
+            f"{expected_source_version!r}"
+        )
+    source_version = expected_source_version or actual_source_version
     summary = validate_configuration(
         load_config(args.config),
         load_config(args.frontend_config),
@@ -1043,6 +1058,7 @@ def parser() -> argparse.ArgumentParser:
     local_parser.add_argument("--workspace", type=Path, required=True)
     local_parser.add_argument("--frontend-config", type=Path, default=DEFAULT_FRONTEND_CONFIG)
     local_parser.add_argument("--docker-config", type=Path, default=DEFAULT_DOCKER_CONFIG)
+    local_parser.add_argument("--expected-source-version")
     local_parser.set_defaults(handler=local_configuration_preflight)
 
     target_parser = commands.add_parser(

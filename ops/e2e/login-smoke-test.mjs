@@ -53,6 +53,7 @@ const USER = process.env.CEDAR_FRONTEND_local_USER1_LOGIN ?? 'test1@test.com';
 const PASSWORD = process.env.CEDAR_FRONTEND_local_USER1_PASSWORD ?? 'test1';
 const USER2 = process.env.CEDAR_FRONTEND_local_USER2_LOGIN ?? 'test2@test.com';
 const PASSWORD2 = process.env.CEDAR_FRONTEND_local_USER2_PASSWORD ?? 'test2';
+const USER1_NAME = process.env.CEDAR_FRONTEND_local_USER1_NAME ?? 'Test User 1';
 const USER2_NAME = process.env.CEDAR_FRONTEND_local_USER2_NAME ?? 'Test User 2';
 const HEADED = !!process.env.HEADED;
 const EXPECTED_CEE_VERSION = process.env.CEDAR_EXPECT_CEE_VERSION;
@@ -799,6 +800,60 @@ async function verifyDeleteVsStaleSave(page, user1, folderId) {
   }
 }
 
+// The workspace's info panel. One click on a row selects it, two open the
+// artifact, and the panel itself is behind the toolbar's info toggle — it is
+// `ng-if`'d away rather than hidden, so it has to be opened before it exists.
+async function openInfoPanel(page, title) {
+  await row(page, title).click();
+  const panel = page.locator('#sidebar-right');
+  if (await panel.count() === 0) {
+    await page.locator('button:has(i.fa-info)').first().click();
+  }
+  await panel.first().waitFor({ state: 'visible', timeout: 15_000 });
+  await panel.locator('.description-block').first().waitFor({ state: 'visible', timeout: 15_000 });
+}
+
+// A reader is offered no way to edit a resource's description and a writer is.
+// The control's own ng-show is `!dc.editingDescription && dc.canWrite()`, so its
+// visibility is the permission rather than a proxy for it.
+async function expectDescriptionEditable(page, title, editable) {
+  await openInfoPanel(page, title);
+  const edit = page.locator('#sidebar-right button.description-edit');
+  const offered = await edit.count() > 0 && await edit.first().isVisible();
+  if (offered !== editable) {
+    throw new Error(`the info panel ${offered ? 'offered' : 'withheld'} description editing `
+      + `for a ${editable ? 'writer' : 'reader'}`);
+  }
+}
+
+// Who the info panel names as the owner. `.owner-name` is reused for the parent
+// folder and the DOI, so the row is found by its own label.
+async function expectInfoPanelOwner(page, title, ownerName) {
+  await openInfoPanel(page, title);
+  const owner = page
+    .locator('#sidebar-right div.flex:has(div.field-label:text-is("Owner")) div.owner-name')
+    .first();
+  await owner.waitFor({ state: 'visible', timeout: 15_000 });
+  const shown = (await owner.innerText()).trim();
+  if (shown !== ownerName) {
+    throw new Error(`the info panel named ${JSON.stringify(shown)} as owner, not ${ownerName}`);
+  }
+}
+
+// An enabled Rename is not a working one, so drive the modal through.
+async function renameViaMenu(page, from, to) {
+  await openRowMenu(page, from);
+  await page.locator('a.rename:visible').first().click();
+  const modal = page.locator('#rename-modal');
+  await modal.waitFor({ state: 'visible', timeout: 15_000 });
+  const field = modal.locator('div.modal-body form input').first();
+  await field.waitFor({ state: 'visible', timeout: 10_000 });
+  await field.fill(to);
+  await modal.locator('div.modal-footer button.btn-save').first().click();
+  await modal.waitFor({ state: 'hidden', timeout: 20_000 });
+  await row(page, to).waitFor({ state: 'visible', timeout: 20_000 });
+}
+
 async function openShareDialog(page, folderId, templateName) {
   await gotoListing(page, folderId);
   await openRowMenu(page, templateName);
@@ -947,6 +1002,8 @@ async function verifyTwoUserSharing(browser, ownerPage, folderId, templateId, us
     if (!((await readOnlyRename.getAttribute('class')) ?? '').includes('link-disabled')) {
       throw new Error('read-only recipient was offered an enabled Rename action');
     }
+    await expectDescriptionEditable(recipientPage, TEMPLATE_NAME, false);
+    await expectInfoPanelOwner(recipientPage, TEMPLATE_NAME, USER1_NAME);
 
     await changeUserShare(ownerPage, folderId, TEMPLATE_NAME, USER2_NAME, 'write');
     await waitForSharedRow(recipientPage, user2.profile.homeFolderId, TEMPLATE_NAME, true);
@@ -955,6 +1012,12 @@ async function verifyTwoUserSharing(browser, ownerPage, folderId, templateId, us
     if (((await writableRename.getAttribute('class')) ?? '').includes('link-disabled')) {
       throw new Error('write recipient still saw Rename disabled');
     }
+    await expectDescriptionEditable(recipientPage, TEMPLATE_NAME, true);
+    const renamed = `${TEMPLATE_NAME} renamed by writer`;
+    await renameViaMenu(recipientPage, TEMPLATE_NAME, renamed);
+    await renameViaMenu(recipientPage, renamed, TEMPLATE_NAME);
+    // The info panel and the rename modals closed the row menu the next step opens.
+    await openRowMenu(recipientPage, TEMPLATE_NAME);
     await menuItem(recipientPage, 'Open');
     await recipientPage.waitForURL(/\/templates\/edit\//, { timeout: 30_000 });
     await recipientPage.getByRole('textbox', { name: 'Description' }).first()
@@ -983,7 +1046,9 @@ async function verifyTwoUserSharing(browser, ownerPage, folderId, templateId, us
       throw new Error(`revoked editor changed server content: ${afterRevoke.status} ${afterRevoke.body?.['schema:description']}`);
     }
     await waitForSharedRow(recipientPage, user2.profile.homeFolderId, TEMPLATE_NAME, false);
-    console.log('✓ visible sharing UI granted read, upgraded to write, allowed the recipient save, then revoked access and blocked the already-open editor');
+
+    console.log('✓ visible sharing UI granted read, withheld rename and description editing from the reader, '
+      + 'upgraded to write, let the recipient rename and save, then revoked access and blocked the already-open editor');
   } finally {
     await secondary.context.close();
   }
@@ -1133,6 +1198,31 @@ async function saveInstanceInEditor(page) {
   const m = page.url().match(/instances\/edit\/(.+?)(?:\?|$)/);
   if (!m) throw new Error('post-save redirect did not carry an instance id');
   return { id: decodeURIComponent(m[1]) };
+}
+
+// Name the metadata in the field above the editor. It starts from the generated name, so the
+// check that it did is also the check that the page loaded the template before offering it.
+async function nameInstance(page, name) {
+  const field = page.locator(S.INSTANCE_NAME_INPUT);
+  await field.waitFor({ state: 'visible', timeout: 20_000 });
+  const generated = await field.inputValue();
+  if (!generated.endsWith(' metadata')) {
+    throw new Error(`metadata name field did not start from the generated name; it held "${generated}"`);
+  }
+  await field.fill(name);
+}
+
+// The saved artifact carries the typed name, and the edit view the save redirected to shows it back.
+async function verifyInstanceName(page, auth, id, expected) {
+  const field = page.locator(S.INSTANCE_NAME_INPUT);
+  await field.waitFor({ state: 'visible', timeout: 20_000 });
+  const shown = await field.inputValue();
+  if (shown !== expected) throw new Error(`edit view shows the metadata name as "${shown}"; expected "${expected}"`);
+  const stored = await restCall(auth, 'GET', `/template-instances/${enc(id)}`);
+  if (stored.status !== 200) throw new Error(`could not read the saved instance: ${stored.status} ${stored.text}`);
+  if (stored.body['schema:name'] !== expected) {
+    throw new Error(`saved instance is named "${stored.body['schema:name']}"; expected "${expected}"`);
+  }
 }
 
 // Fill a plain (unconstrained) text field the CEE renders. The CEE labels each field, so match the
@@ -1845,6 +1935,13 @@ try {
   await fillCeeTextField(page, TEXT_FIELD_NAME, 'initial notes');
   console.log(`✓ filled the "${TEXT_FIELD_NAME}" text field`);
 
+  // Name the metadata before saving; the Workbench lists the instance under this name, and it
+  // used to be reachable only through the row menu's Rename after the fact.
+  step = 'name-instance';
+  const INSTANCE_NAME = `Asthma notes ${RUN_ID}`;
+  await nameInstance(page, INSTANCE_NAME);
+  console.log(`✓ named the metadata "${INSTANCE_NAME}"`);
+
   // 3b-ii. Save the populated instance from the Metadata Editor and confirm it is created. This
   //        exercises the V2/embeddable-editor save path end to end — the one that once threw a stack
   //        trace on a new instance's null @id and saved nothing.
@@ -1856,6 +1953,10 @@ try {
   const savedInstance = await saveInstanceInEditor(page);
   cleanupInstanceId = savedInstance.id;
   console.log(`✓ Metadata Editor saved the populated instance (create → 201, redirected to edit)`);
+
+  step = 'verify-instance-name';
+  await verifyInstanceName(page, user1.auth, savedInstance.id, INSTANCE_NAME);
+  console.log('✓ the saved instance carries the typed name, and the edit view shows it');
 
   step = 'dirty-navigation-protection';
   await verifyDirtyNavigationProtection(

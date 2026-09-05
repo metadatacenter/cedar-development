@@ -55,6 +55,16 @@ def commit(repository: Path, timestamp: str = "2026-08-25T22:04:26Z") -> str:
 
 
 class FrontendTrainTest(unittest.TestCase):
+    def test_build_commands_disable_angular_disk_cache_and_decode_signals(self):
+        completed = subprocess.CompletedProcess([], -6)
+        with patch.object(frontend_train.subprocess, "run", return_value=completed) as run:
+            with self.assertRaisesRegex(RuntimeError, r"terminated by SIGABRT \(signal 6\)"):
+                frontend_train.run_command(["npm", "run", "build"], Path("/tmp"))
+
+        environment = run.call_args.kwargs["env"]
+        self.assertEqual("true", environment["CI"])
+        self.assertEqual("false", environment["NG_CLI_ANALYTICS"])
+
     def test_train_owned_versions_include_train_and_captured_commit(self):
         revision = "a" * 40
         self.assertEqual(

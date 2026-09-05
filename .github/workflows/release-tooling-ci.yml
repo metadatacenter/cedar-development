@@ -1,0 +1,64 @@
+name: Release tooling CI
+
+on:
+  push:
+    branches:
+      - develop
+  pull_request:
+    branches:
+      - develop
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-tooling-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: train and lifecycle controllers (${{ matrix.os }}, Python 3.12)
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+
+    steps:
+      - name: Check out cedar-development
+        uses: actions/checkout@v7
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      # The frontend train suite shells out to node and npm. Both happen to be present on the
+      # hosted runners, so the suite passed without asking for them, and would have started failing
+      # on whichever runner image dropped them first.
+      - name: Set up Node 24.19.0
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.19.0
+
+      # These suites mock publication and service operations, but exercise real platform process
+      # discovery. They validate the captured controllers without starting a CEDAR service or
+      # writing external state.
+      - name: Run non-destructive controller tests
+        run: |
+          python -m unittest -v \
+            ops.tests.test_build_train \
+            ops.tests.test_docker_train \
+            ops.tests.test_frontend_train \
+            ops.tests.test_native_process_safety \
+            ops.tests.test_angular_build_isolation_canary

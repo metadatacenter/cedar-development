@@ -513,8 +513,9 @@ code. If you changed a shared library, `./mvnw clean install` in the consuming s
 Manages the 15 microservices + three AngularJS/Gulp frontends + the 4 auxiliary Angular frontends as
 background processes: non-restarting submitted `launchd` jobs on macOS and `nohup` children on other
 systems. Each logs to `$CEDAR_HOME/log/`, with its PID tracked in `$CEDAR_HOME/log/run/`. The
-controller forces `JAVA_HOME=17`, puts `/opt/homebrew/bin` on `PATH` (for `node`/`ng`), and sources
-the profile itself, so it is safe to run standalone.
+controller resolves `JAVA_HOME` to a JDK 17 and refuses to start anything on another JDK, puts
+`/opt/homebrew/bin` on `PATH` (for `node`/`ng`), and sources the profile itself, so it is safe to run
+standalone.
 
 `cedarcli native` is the interface. `ops/cedar-services.sh` is the controller behind it, and
 `NativeWorker` calls that script for every verb below. Reach for the script directly only for the
@@ -540,15 +541,24 @@ use their Git source commit in that key; `CEDAR_VERSION_MODIFIER` remains the ex
 for two environment-specific payloads built from the same commit. It is not needed merely to make a
 new source revision visible.
 
-The remaining four are Angular applications, each run as `ng serve` from its `cedar-<name>[-src]`
-source dir (see `fe_dir()`): `ui-openview` (4220), `ui-content` (4240), `ui-monitoring` (4300) and
-`ui-bridging` (4340). Every frontend is named `ui-*`, which keeps `ui-openview` apart from the
+The remaining four are Angular applications, each run with `ng serve` from its
+`cedar-<name>[-src]` source dir (see `fe_dir()`): `ui-openview` (4220), `ui-content` (4240),
+`ui-monitoring` (4300) and `ui-bridging` (4340). Every frontend is named `ui-*`, which keeps
+`ui-openview` apart from the
 `openview` microservice and `ui-monitoring` and `ui-bridging` apart from `monitor` and `bridge`. The
 prefix marks the category, not the launcher: `ui-main`, `ui-workspace` and `ui-designer` carry it
-too, and will keep it when they stop being AngularJS. Frontend health is **port-only** (no Dropwizard
-`/healthcheck`). `cedarcli native start frontends` starts all seven through this controller, and the
+too, and will keep it when they stop being AngularJS. Frontends have no Dropwizard `/healthcheck`,
+so the controller requests their HTTP root: an Angular compiler failure leaves `ng serve` listening
+but returning 404 and is therefore `UNHEALTHY`, not green. `cedarcli native start frontends` starts
+all seven through this controller, and the
 `cedarcli native`, `start frontend` and `stop frontend` subcommands name a frontend without the
 prefix — `main`, `workspace`, `openview` — which the controller receives as `ui-<name>`.
+
+Each managed Angular start clears that checkout's ignored `.angular/cache` before compiling and
+uses its project-local Angular CLI when installed (`ui-content` retains its host-CLI fallback). This
+matters when an ordinary frontend build ran `npm ci` while the old development server was live: the
+server may otherwise persist a module graph observed while `node_modules` was being replaced, then
+reuse the invalid graph after a restart even though the completed lock install builds correctly.
 
 ```bash
 cedarcli native start all             # infra + microservices + frontends
@@ -582,8 +592,9 @@ use and gates such as the `STALE` check below.
 It recognizes a native service already listening on its port, including one started in a terminal,
 and **reports any service whose jar or configuration is not built/present**. An occupied port is not
 treated as proof of ownership: if the listener is not the expected CEDAR jar or frontend process in
-the expected source directory, start and stop both fail without signalling it. Health uses the
-Dropwizard admin `/healthcheck` endpoint (200 = healthy, 500 = unhealthy).
+the expected source directory, start and stop both fail without signalling it. Backend health uses
+the Dropwizard admin `/healthcheck` endpoint (200 = healthy, 500 = unhealthy); frontend health
+requires a successful response from the served root.
 
 Two columns exist so a green table cannot hide a stale one. **BINARY** compares when a process started
 against when its jar was written: `STALE` means the service is serving a jar older than the build, so
@@ -643,7 +654,7 @@ In Docker only the application port is published to the host. Admin connectors b
 their container for the Compose health check and are not host-mapped; do not add `9111:9111` (or any
 other admin mapping) to the core Compose stack. Native admin connectors likewise bind `127.0.0.1`.
 
-Frontends (port-only health): `ui-main` 4200, `ui-workspace` 4201 and `ui-designer` 4202 under
+Frontends (HTTP-root health): `ui-main` 4200, `ui-workspace` 4201 and `ui-designer` 4202 under
 gulp; `ui-openview` 4220, `ui-content` 4240, `ui-monitoring` 4300 and `ui-bridging` 4340 under
 `ng serve`.
 
@@ -903,6 +914,24 @@ Inside the document an orphan and a structural term look identical: a name in th
 the second kind, which is why the rule that drops whatever the body does not use deletes an author's
 work. What is already stored keeps its orphans until something rewrites it, which is a patch item on
 [BACKEND-ROADMAP.md](./BACKEND-ROADMAP.md).
+
+**The JSON Schema `title` and `description` follow the name.** A template, element or field is also
+a JSON Schema document, and the meta-schemas require both keywords. Nothing reads them but a person
+looking at the document, and they have always been generated from `schema:name`. Every ordinary
+`POST` and `PUT` rewrites the artifact's own pair before validation. The title is derived outright,
+in the canonical form the Java and TypeScript YAML readers compose:
+`<name> template schema`, with `element` or `field` for the other kinds. The description is that
+title followed by an attribution, and the attribution is the one thing a client keeps. Every
+generator signs the document in its description, `generated by the CEDAR Template Editor 2.9.5`
+say, and `ops/cedar_static_required_audit.py` reads that signature to tell which tool wrote a stored
+artifact. A description with no signature takes the artifact library's,
+`generated by the CEDAR Artifact Library`, which is also what an artifact posted as YAML receives.
+The Template Designer used to be the only thing that regenerated the pair, and only while the
+artifact was open in it, so a rename from the dashboard rewrote the name and left the pair
+describing the old one. An embedded element or field carries a pair of its own, written by whatever
+generated that piece, and it is left as sent. A verbatim write stores the pair as given, like
+everything else in the document, and what is already stored keeps a stale pair until something
+rewrites it.
 
 ## Patching stored artifacts: `ops/cedar_artifact_patch.py`
 
@@ -1233,7 +1262,10 @@ TypeScript, while both emit the same bytes for it.
 - **`UnitOfWorkAwareProxyFactory` or other startup code fails only in a non-interactive shell** →
   that shell did not pin `JAVA_HOME` to 17 (the zsh pin is interactive-only), so the build or run
   used the machine default JDK 23/25. Export `JAVA_HOME=$(/usr/libexec/java_home -v 17)` explicitly
-  in scripts and background commands. The helper scripts here already do this.
+  in scripts and background commands. The helper scripts here already do this. The native
+  controller refuses rather than running on the wrong JDK, reporting `CEDAR needs JDK 17, and
+  <path> reports 23`, so this symptom belongs to `mvn`, `npm` and anything else started outside
+  `cedarcli`.
 
 - **A server rebuilt against a stale `cedar-parent` misbehaves subtly** (for example an unshaded jar
   with no `Main-Class`, or an old managed dependency version) → `cedar-parent` was not installed
@@ -1948,6 +1980,14 @@ delete the pin and assert the right behaviour. Each corresponds to a roadmap ite
 `npm run smoke` drives the same stack through a browser and is the only thing that covers the editor —
 but it is bound to AngularJS markup, so it is the more brittle of the two and the one that will not
 survive a frontend replacement. Prefer adding to the REST smoke.
+
+Two smaller browser smokes cover the frontends that one does not reach. `npm run smoke:frontend-cache`
+checks all seven origins for a 200 and `Cache-Control: no-store` without credentials, which a
+completely broken application still passes. `npm run smoke:frontend-app` signs in through Keycloak and
+waits for Monitoring and Bridging to render content only their own components produce, failing on the
+console errors an application cannot run through. That distinction is the point: the Angular 22 upgrade
+left OpenView building clean and dying at bootstrap with an injector error, which every gate then in
+place reported as green.
 
 Two reusable helpers live in `cedar-test-support-library` and are the right starting point for new
 work. `RouteSurface` reflects over a server's JAX-RS classes and asserts every route answers a given

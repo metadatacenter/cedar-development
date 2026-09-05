@@ -15,98 +15,77 @@ Frontend work for the embeddable editor is tracked separately in
 
 ### Features
 
-- **1. Settle the sharing and permission model, then write it down.** This is the umbrella item: the
-  pieces below are each small, and separately each looks like a quirk, but together they say the model
-  was never specified in one place, so every surface decided for itself. Controlled sharing is what
-  CEDAR is for, which makes this the part most worth being deliberate about. All of it is now pinned by
-  tests, so the behaviour cannot drift further while the decisions are made — and each test named here
-  will fail and demand attention when a decision lands.
+- **1. Settle the sharing and permission model, then enforce it.** Controlled sharing is what CEDAR
+  is for, and the model was never specified in one place, so every surface decided for itself. The
+  behaviour is pinned by the tests named at the end of this item, so it cannot drift further while
+  the decisions are made, and each of those tests will fail and demand attention when a decision
+  lands.
 
-  What was found, in the order it bites a reader:
+  The [permission model](https://metadatacenter.readthedocs.io/en/latest/user-guide/advanced-topics/permission-model/)
+  is the proposed contract. It deliberately differs from the implementation where a simpler or safer
+  rule is available. A companion assessment, `PermissionModel.pdf`, measures the implementation
+  against it and carries the divergence table, the recommended authorization shape, the migration
+  mapping from the legacy vocabulary, the six-stage release sequence and the acceptance criteria.
+  That assessment is not in version control, which is the first thing to fix, because this item now
+  depends on reading it.
 
-  - **Six declared permission levels, two enforced.** `READ` and `WRITE` are checked;
-    `CHANGEPERMISSIONS`, `CHANGEOWNER`, `PUBLISH` and `CREATE_DRAFT` are consulted nowhere, yet can be
-    granted and stored. Detailed below.
-  - **`WRITE` confers re-sharing, but not versioning.** The ACL update asks only for write access, so
-    editing implies re-sharing; versioning asks for ownership, so it does not. Two different answers to
-    "what does write let me do", and neither is written down.
-  - **Reading an ACL costs a different permission per resource kind.** A folder's permissions need read
-    access; a category's need *write*. Same operation, different bar.
-  - **Categories are world-readable, folders are not.** A category is readable by any authenticated
-    user holding the role, with no per-category check, because it is a shared vocabulary. Defensible,
-    and the opposite of every other resource, and undocumented.
-  - **A user cannot classify their own artifacts.** Attaching a category needs a grant on the category
-    rather than on the artifact, and only an administrator can give it. Detailed below.
-  - **Group membership confers no read.** A member cannot fetch the group or its member list, so a user
-    can reach resources through a group they cannot see and cannot discover who else can reach them.
-  - **Denials answer 401 or 403 depending on which code path refuses.**
-  - **Authority checks live in different layers per subsystem**, so one of them is bypassable by a
-    non-HTTP caller.
-  - **Transferring ownership does not transfer control.** The owner field moves, but a resource inside
-    the donor's own tree is still reachable by the donor, because permissions inherit from the parent
-    they still own. So handing something over leaves the donor with read and write on it, and the
-    recipient is unlikely to expect that. Pinned in `SharingRoundTripTest`.
-  - **Ownership is the one thing a WRITE grantee cannot take**, which is the model working: the owner
-    check in `validateOwnerSetPermission` holds across folders and all four artifact types. Noted here
-    because it is the boundary the rest of the model leans on, and because it is the only place
-    `CHANGEOWNER` would be consulted if it were consulted at all.
+  The structural mismatch it identifies is a single overloaded predicate. The implementation asks
+  whether a user may write the resource, then reuses that answer for content changes, ACL
+  replacement, movement, deletion and OpenView, so an editor can also re-share, relocate and publish.
+  The proposal separates Editor from Manager and routes every operation through one evaluator that
+  answers a distinct question per capability.
 
-  **The unenforced levels.** `FilesystemResourcePermission` declares six: `READ`, `WRITE`,
-  `CHANGEOWNER`, `CHANGEPERMISSIONS`, `PUBLISH`, `CREATE_DRAFT`. Outside the enum declaration and
-  tests, `CHANGEPERMISSIONS` and `CHANGEOWNER` appear nowhere in the codebase — nothing ever consults
-  them. Only read and write are enforced.
+  **The decisions this item waits on.** The assessment recommends an answer to each. None is settled.
 
-  The visible consequence is that **a WRITE grant confers re-sharing**, on folders and on all four
-  artifact types alike. Updating an ACL is gated by
-  `ResourcePermissionRequestValidator.validateWritePermission`, which asks only
-  `userHasWriteAccessToResource`, so anyone granted write on a folder or artifact may rewrite who else
-  can see it — adding people, and revoking the grants of others. "Share so they can edit" is in
-  practice "share so they can re-share". `FolderPermissionLevelMatrixTest` and
-  `ArtifactPermissionLevelMatrixTest` pin this, and demonstrate it rather than inferring it from a
-  status: a user holding only WRITE rewrites the ACL and their own grant disappears.
+  1. Legacy `WRITE` migration. Preserve it as a reviewable Manager grant rather than guessing that it
+     meant Editor, and block `Everyone` combined with `WRITE` for owner review instead of silently
+     retaining broad write authority.
+  2. Folder deletion. Define ordinary deletion as an atomic trash of the contained tree, and reserve
+     permanent deletion for an explicit, separately protected command.
+  3. Administrator override. Allow platform recovery to transfer ownership only through an audited
+     recovery workflow, never through general ACL replacement.
+  4. Group visibility. Let members and administrators read their own group, and govern
+     directory-wide visibility with a separate platform permission.
+  5. OpenView paths. Expose no workspace path, and build an explicit public hierarchy if public
+     navigation is wanted.
 
-  `PUBLISH` and `CREATE_DRAFT` are inert in a sharper way, and it is now checked rather than assumed.
-  Publishing and drafting are **owner-only**: `userCanPerformVersioning` asks
-  `userIsOwnerOfFilesystemResource` and nothing else. So granting `PUBLISH` cannot let the grantee
-  publish, and granting `CREATE_DRAFT` cannot let them draft — the levels name operations they do not
-  confer. Worse, the grant is *accepted and stored*: `ArtifactLifecycleMatrixTest` grants each level
-  successfully and then gets the same `VERSIONING_ONLY_BY_OWNER` refusal that a user with no grant
-  receives.
+  **What the assessment leaves to this item.**
 
-  So the model as built has three tiers — read, write, owner — wearing a six-level enum. That may be
-  the intended design, and it is consistent and enforced. The problem is what the extra levels do to a
-  reader and to a client: a level that can be granted, is stored, and is never consulted reads as a
-  restriction while being none. Either enforce the four unused levels or remove them and document the
-  three tiers, including that write implies re-sharing and that versioning is owner-only.
+  - **Categories sit outside the target model.** Attaching a category requires `ATTACH`, or the
+    `WRITE` that implies it, on the *category* rather than on the artifact, and the category tree is
+    writable only by an administrator. Out of the box a user can read the vocabulary and attach
+    nothing to anything, including to templates they own. Reading a category's ACL costs write access
+    where a folder's costs read, and a category is readable by any authenticated user holding the
+    role. `ATTACH` is one of the few declared levels that is genuinely enforced, which is what makes
+    it the counter-example to the ones that are not. Decide whether categories join the role model or
+    remain a separate vocabulary with rules of their own, then make the requirement visible in the
+    product.
+  - **`PUBLISH` and `CREATE_DRAFT` are accepted, stored and never consulted.** Versioning is
+    owner-only through `userCanPerformVersioning`, so granting either confers nothing while reading
+    to a client as a restriction. `ArtifactLifecycleMatrixTest` grants each level successfully and
+    then receives the same `VERSIONING_ONLY_BY_OWNER` refusal a user with no grant receives. The
+    migration mapping moves both out to lifecycle policy, which needs a decision about where
+    versioning authority lives once they leave the workspace roles.
+  - **The Workbench cannot transfer ownership, and its control should be withdrawn rather than
+    repaired.** The share dialog offers the option in two places and neither works. The
+    existing-share row gates it on `sh.node.id` against a node that arrives from the permissions API
+    as JSON-LD carrying `@id` (`cedar-share-modal.directive.html:175`), the only site in that
+    controller reading `.id`, so the option never appears. The add-user picker passes `['@id']`
+    correctly, reports success, and leaves the owner unchanged, because `select-picker` copies
+    options into a dropdown of its own and a click can land on an option Angular's model refuses.
+    Correcting the accessor would expose an inline ACL edit that the proposal replaces with an
+    owner-only transfer command, so hide both paths until that command exists. Reporting success
+    while changing nothing is worse for a user than offering nothing. Neither path is pinned, and the
+    browser smoke stops at ownership because there is no working control to drive.
+  - **Denials answer 401 or 403 depending on which code path refuses.** The acceptance criteria fix
+    status codes elsewhere, so this belongs in the conformance matrix rather than outside it.
 
-  **Classifying an artifact.** Attaching a category requires a grant on the *category*, not merely on
-  the artifact: `ATTACH` (or `WRITE`, which implies it) must be held on the category being attached.
-  The category tree is writable only by someone with write on the root, which is an administrator, so
-  out of the box a normal user can read the vocabulary and attach nothing to anything — including to
-  templates they own.
-
-  This is the design working as built, and `ATTACH` is one of the few permission levels that *is*
-  enforced, which is what makes it the counter-example to the four that are not. But it means the
-  category picker is inert for ordinary users until an administrator grants `ATTACH` on each category,
-  and nothing in the product surfaces that. Either grant `ATTACH` broadly when a category is created,
-  or make the requirement visible.
-
-  One of the original findings is already fixed rather than listed: a permissions response containing a
-  group grant could not be deserialized by the shared model, because `CedarGroupExtract` had no
-  no-argument constructor while `CedarUserExtract` did. That is now a one-line constructor in
-  `cedar-core-library`, with the typed read in `SharingRoundTripTest` as its regression test.
-
-  A second original finding is also fixed rather than listed: one ACL request used to execute the
-  owner change, each user and group addition or removal, and the everybody permission as separate
-  Neo4j transactions, so a failure could leave a partially applied ACL. Resource and category
-  permission updates now collect the complete diff through `updatePermissionsAtomically` and submit
-  it as one `executeWriteBatch`. `PermissionUpdateBatchTest` pins both paths to one batch containing
-  every requested change.
-
-  The deliverable is **a permissions document** — there is none today, and its absence is the root of
-  everything above. It should state the tiers, what each confers, how inheritance interacts with
-  ownership, what `ATTACH` is for, and which of the listed behaviours are intentional. Only then is it
-  worth making the code and the enum agree with it.
+  **One measurement to carry into the work.** The revision precondition is closer to the proposal
+  than the assessment's evidence suggests. Measured against the running stack, a mutation carrying no
+  `If-Match` answers 428 and one carrying a stale revision answers 412, which is what the proposal
+  asks for. Only `If-Match: *` is wrongly accepted, and it succeeds in deleting. Rejecting the
+  wildcard in `RevisionPreconditionParser`, and updating the tests that rely on it, is the whole of
+  that change.
 
   Pinned by `FolderPermissionLevelMatrixTest`, `ArtifactPermissionLevelMatrixTest`,
   `SharingRoundTripTest`, `ArtifactsAndCategoriesAuthorizationMatrixTest`,
@@ -346,10 +325,10 @@ Frontend work for the embeddable editor is tracked separately in
   rate-limits per key, and a burnt quota surfaces to users as controlled terms silently not existing,
   because the picker latches its empty cache for the life of the page.
 
-- **7. Rate limit the edge in every environment.** Nothing in CEDAR bounds how often an anonymous
-  caller may spend the deployment's third-party quota. The `/ext-auth/*` routes are the clearest
-  case: they proxy seven registries, three of them on credentials the deployment holds, and they
-  carry none of their own. `POST /bioportal/integrated-search` and `/bioportal/integrated-retrieve`
+- **7. Rate limit the edge in every environment.** An anonymous caller can spend the deployment's
+  third-party quota, and only the development host bounds how fast. The `/ext-auth/*` routes are
+  the clearest case: they proxy seven registries, three of them on credentials the deployment
+  holds, and they carry none of their own. `POST /bioportal/integrated-search` and `/bioportal/integrated-retrieve`
   belong in the same limit: both are anonymous by the same decision and both spend the deployment's
   BioPortal key.
 
@@ -370,9 +349,10 @@ Frontend work for the embeddable editor is tracked separately in
   probe shows the limit taking effect.
 
 - **8. Bound the application-log queue, and let its consumer keep up.** Application logging can
-  consume the host it runs on. The Redis queue has no ceiling, the consumer drains far below what the
-  stack produces under load, and nothing removes old rows, so a busy period grows memory without
-  limit and degrades every service while it does.
+  consume the host it runs on. The Redis queue has no ceiling and the consumer drains far below what
+  the stack produces under load, so a busy period grows memory without limit and degrades every
+  service while it does. Old rows have a way out, in the prune job the log aggregation work brought
+  with it, but it ships disabled.
 
   Measured on 2026-08-31, after a day of local performance profiles: `CEDAR-QUEUE-app-log` held
   3.7 million messages and drained at about 1,054 a second, roughly an hour of backlog. Redis was
@@ -381,25 +361,66 @@ Frontend work for the embeddable editor is tracked separately in
   its own to make a performance run measure the save rather than the code. `cedar_log.log_request`
   had reached 10.3 million rows, 6.8 GB of data and 4.4 GB of index.
 
+  Those figures count what reached Redis, and some messages never do. The producer borrows from a
+  pool of eight connections with a 100 millisecond deadline and drops the message when none comes
+  free, which a comment in `QueueService` explains as keeping a reporting-only queue from exhausting
+  the request threads. A 30-minute soak on 2026-09-04 shed 182 messages in the resource server and
+  15 in the artifact server. Two things follow. The production rate above is a floor rather than a
+  measurement, because it counts arrivals and not attempts. The ceiling described below would also
+  be the second shedding mechanism rather than the first, so it has to say whether the existing one
+  stays. That one sheds whichever message happens to find the pool full, which is no policy at all.
+
   Three things hold the drain rate down, and they compound. Each message is its own `@UnitOfWork`,
   so one HTTP request costs several transactions rather than one. Every subtype after the first reads
   the row back by `localRequestId` before merging into it, so most of those transactions carry a
-  lookup as well as a write. The table then carries fourteen secondary indexes, each maintained on
-  every insert, on a table too large to keep them cached.
+  lookup as well as a write. The table then carries seventeen declared secondary indexes, each
+  maintained on every insert, on a table too large to keep them cached. That count rose by three when
+  aggregation landed, so the write cost is growing rather than holding.
+
+  The message count is larger than the usual request-filter START, request-handler and request-filter
+  END triplet. `AbstractNeo4JProxy` also emits a `CYPHER_QUERY` message for every graph query. The
+  comment in `AppLoggerQueueService` says this high-volume stream is disabled, but the condition that
+  would disable it is itself commented out. Establish whether raw query logging still has an active
+  operational consumer; if it does, make it explicitly configurable and consider sampling it. If it
+  does not, stop producing it before optimizing a consumer for work the estate did not intend to keep.
 
   Deliver:
 
-  - A ceiling on the queue, and a stated answer for what happens when it is reached. Logging must not
-    be able to exhaust the host, so dropping the oldest records, shedding new ones, or refusing the
-    write are all acceptable answers and silence is not.
-  - One transaction per batch rather than per message, and the start record carried forward so a
-    merge does not pay for a lookup it could avoid.
-  - An index set chosen from the queries actually run against this table, measured rather than
-    assumed. Fourteen on a write-heavy table is a cost paid on every insert.
-  - A retention policy, so the table has a size it returns to.
+  - An application-log-specific ceiling on the queue and its dead-letter queue, with a stated answer
+    for what happens when either is reached. Enforce the pending-queue limit with one atomic Redis
+    operation rather than an `LLEN`/`RPUSH` race. Prefer shedding new messages to trimming the oldest:
+    trimming removes a request's START first and leaves later messages with no row to merge into.
+    Count and expose every shed message. All five durable queues share this Redis, so do not use an
+    `allkeys-*` eviction policy that can evict security-sensitive permission work; a host-level limit,
+    if added as a final guard, needs a deliberate `noeviction`/isolation decision and enough headroom.
+  - One transaction per bounded batch rather than per message. Group messages by `localRequestId`,
+    carry a START record forward inside the batch, fetch all cross-batch request ids in one query, and
+    write each request row once. Preserve the existing claim/processing/ack protocol: acknowledge only
+    after commit, make replay after a commit-before-ack crash idempotent, and isolate a poison message
+    without ambiguously replaying an already committed batch.
+  - A retention window chosen and turned on. `LogPruneJob` deletes aggregated rows past a window in
+    bounded batches, defaulting to thirty days, and stays off behind `CEDAR_LOG_PRUNE_ENABLED`
+    because deletion is the irreversible step. What remains is trusting the rollups enough to
+    enable it, and saying which window each environment keeps.
+
+  **Production database migration — a separate, explicitly controlled workstream.** Reducing the
+  `log_request` index set is not an annotation cleanup and must not ride silently inside the consumer
+  change. First inventory the physical production indexes with `SHOW INDEX`: the entity declares
+  seventeen indexes as well as a unique constraint on `localRequestId`, and the actual structures can
+  differ from the annotations after years of `hbm2ddl.auto=update`. Use the real `LogQueryDAO`,
+  `LogExplorerDAO`, aggregation and prune queries with `EXPLAIN`; treat
+  `sys.schema_unused_indexes` only as supporting evidence because its counters reset. Then prepare
+  explicit forward and rollback DDL, establish the algorithm/lock behavior and disk headroom, and
+  rehearse both directions against a production-sized copy. Deploy the index migration separately,
+  during a named production window with a backup, observable progress, abort criteria and post-change
+  query-plan and latency verification. Removing `@Index` annotations is not a migration, and no index
+  is to be dropped merely because its name looks redundant.
 
   Done when a sustained load profile leaves the queue at a bounded depth it recovers from, Redis
-  memory flat across the run, and the worker healthy throughout.
+  memory flat across the run, shed and orphaned messages visible, and the worker healthy throughout.
+  The item is not complete until any production index changes have also passed the separately staged
+  migration and rollback procedure above; a green Java build is not evidence that a live-table DDL
+  change is safe.
 
 - **9. Separate CEDAR dependency convergence from the Keycloak provider platform lock.** The eleven
   apparent test-classpath splits are not eleven candidates for one global version. Re-measuring all
@@ -576,52 +597,13 @@ Frontend work for the embeddable editor is tracked separately in
   Done when each class of outbound call takes its timeouts from configuration, the request log carries
   durations, the compensating write is durable, and the remaining clients read the same settings.
 
-- **13. Test operational CLI code on both macOS and Linux.** `cedarcli` is the control surface for
-  developer workstations and Unix servers, but operational paths can still be exercised only on the
-  platform where a change was written. Put its Python tests and the non-destructive `ops/` controller
-  tests in a macOS/Linux CI matrix. Give OS-specific process discovery, port ownership, service-manager
-  integration, path handling, executable selection, and credential/configuration lookup explicit
-  fixtures on both systems rather than hiding one branch behind a platform skip. The full native stack
-  does not need to boot in CI: acceptance is that every portable preflight and status path runs on both
-  runners, every deliberately platform-specific command has a contract test for each supported OS, and
-  a change to shared operational code cannot merge after passing on only the author's platform.
-
-- **14. Stop an interactive dev server from killing a build train, and report a killed step as
-  killed.** `cedarcli build` compiles each frontend in the developer's own working copy, where an
-  `ng serve` may already be running against that same copy. Both open the same Angular disk cache,
-  the LMDB environment at `.angular/cache/<version>/<project>/angular-compiler.db`. The second
-  process to open it fails, and `lmdb` 3.5.6 frees an unallocated pointer on that failure path and
-  calls `abort()`, so the build dies on `SIGABRT` having compiled nothing. npm re-raises the signal,
-  and the train reports `Return code: -6` with no further output. Three repositories are exposed:
-  the Angular 22 builds in `cedar-embeddable-editor`, `cedar-embeddable-designer` and
-  `cedar-component-demo/cedar-cee-demo-angular-src`. The Angular 15 and 16 frontends use a builder
-  that keeps no such cache. Observed 2026-09-02: a dev server started at 15:09 aborted the 16:45
-  train, the cache file proved intact when opened alone, and the same build succeeded with the cache
-  disabled.
-
-  Separate the build train's cache from any interactive one. `@angular/build` skips the disk cache
-  when `CI` is set, so the frontend build steps can set it, at the cost of a cold compile of a few
-  seconds per repository. A dedicated `cli.cache.path` for the train avoids the contention instead
-  and keeps incremental compilation. Either way, whether a developer happens to be serving a
-  frontend must not decide whether the train completes.
-
-  Report signals as signals. A step killed by `SIGABRT`, `SIGKILL` or `SIGSEGV` currently reaches
-  the operator as a negative return code that names neither the signal nor the reason, and a native
-  crash writes its only evidence to the platform's crash reporter rather than to the build log. Name
-  the signal, state that the step produced no diagnostic output of its own, and point at the crash
-  report directory for the host platform. The same gap hides every other native crash a build step
-  can suffer, so fix the reporting whether or not the cache changes.
-
-  Done when a frontend train completes with a dev server running against the same working copy, and a
-  signal-killed step names its signal and the location of its evidence in the CLI's own output.
-
-- **15. Make native bring-up prove a service runs, and make one already-running layer not stop the
+- **13. Make native bring-up prove a service runs, and make one already-running layer not stop the
   rest.** `cedarcli native start` reports what the launcher accepted rather than what the stack ends
   up running, and the gap swallowed a whole-stack outage on 2026-09-02: every application exited in
   milliseconds for want of `CEDAR_PROFILE`, launchd's keepalive respawned each one, and the CLI
   printed `started <name> (pid N)` for all twenty-two because a PID existed each time it looked. The
-  launcher passes that environment through today, rejects a service that dies at once, and covers
-  both in tests. Three things remain.
+  launcher passes that environment through today, rejects a service that dies at once, refuses a
+  `JAVA_HOME` that is not a Java 17, and covers all three in tests. Two things remain.
 
   Confirm a service is serving, not merely alive. The survival check waits half a second and asks
   whether the process still exists, which catches the failures that land before a JVM starts and
@@ -637,19 +619,63 @@ Frontend work for the embeddable editor is tracked separately in
   left to run the two remaining layers by hand. Treat an already-listening infrastructure port as
   the satisfied precondition it is.
 
-  Validate a caller-supplied `JAVA_HOME` instead of trusting it. Any non-empty value passes, and the
-  launcher prepends `$JAVA_HOME/bin` to `PATH`, so a wrong path contributes nothing and `java`
-  resolves from a later entry. A service then starts on an unintended JDK and says nothing, which is
-  a poor failure mode given that Java 17 is a hard version lock. Require an executable
-  `$JAVA_HOME/bin/java`, check that it reports 17, and name both the value given and the version
-  found when it does not.
+  Done when `start` reports a service only once it is healthy or names why it is not, and `start
+  all` completes against running infrastructure.
 
-  Done when `start` reports a service only once it is healthy or names why it is not, `start all`
-  completes against running infrastructure, and a `JAVA_HOME` without a Java 17 fails at startup.
+- **14. Take the dependency upgrades that need code changes.** The versions that could move without
+  consequence have moved. What stayed behind stayed deliberately, and it separates into work to do,
+  versions that follow something else, and versions upstream has not released.
+
+  **The upgrades that need code or test changes.** Each of these is a change to make rather than a
+  version to raise, which is why none of them rode along with a sweep.
+
+  - **json-schema-validator 1.5.9 to 3.0.7.** Two major lines on the library that decides which
+    stored artifacts CEDAR accepts. A change in validation behaviour is a change to the product, so
+    this one is settled by differential testing against production artifacts, not by a green build.
+  - **OWLAPI 4.5.9 to 5.5.1.** Ontology semantics, where a behavioural difference does not show up
+    in a compile.
+  - **Embedded Mongo 4.20.0 to 5.0.0.** Test lifecycle only, but that lifecycle was reworked twice
+    in early September 2026, so this wants settled code under it.
+  - **Logback 1.5.33 to 1.6.3** needs SLF4J 2.1, which has only an alpha, so it waits on the last
+    group below.
+
+  **Versions that follow a locked server.** Six sit here: the Neo4j driver 5.28.14 to 6.2.1, MySQL
+  Connector/J 8.4.0 to 26.7.0, the Mongo driver 5.1.2 to 5.11.0, the OpenSearch client 2.19.2 to
+  3.8.0, the Lucene pin 9.12.1 to 10.5.1, and the Neo4j test harness 5.3.0 to 2026.07.1. Client
+  libraries are free to move in general, but a driver crossing a major has to be proven against the
+  pinned server it talks to, so these are sequenced behind item 2 rather than taken on their own.
+  Keycloak 22.0.4 to 25.0.3 is item 2's own, and RESTEasy 6.2.4 to 7.0.4 is held by the Keycloak
+  client stack, which items 2 and 9 own.
+
+  **Versions that follow whatever pulls them in.** The transitive block exists so that every module
+  resolves one version of an artifact nothing here depends on directly, which makes these five
+  nobody's choice to raise: HK2 locator 3.0.6 to 4.0.2, Jandex 2.4.3 to 3.3.1, Netty 4.1.115 to
+  4.2.17, protobuf-java 3.25.5 to 4.36.1 and Reactor Core 3.5.20 to 3.8.7. Each belongs to a
+  framework above it, so each moves when Jersey, Hibernate, the Neo4j driver or OpenSearch moves.
+  Raising one on its own would pin a version its owner does not expect.
+
+  **Versions that are not released.** These wait on upstream to ship a final: HttpCore 5.5-beta2 and
+  HttpClient 5.7-alpha1, Hibernate 8.0.0.Beta1, Jedis 8.1.0-beta1, SLF4J 2.1.0-alpha1, Log4j
+  3.0.0-beta2, Jersey 5.0.0-M1, Angus Activation 2.1.0-M1, the Jakarta activation, persistence,
+  servlet, validation and XML binding milestones, and the Maven 4.0.0 betas of Clean, Compiler,
+  Deploy, Install, Jar, Resources and Source, with Site at a milestone. The old javax
+  jaxb-api's only newer version is a 2018 build that was never finalized, so it stays too.
+
+  Verifying any of this locally is unreliable, and the cause is worth knowing before an upgrade is
+  blamed for it. Several suites bind fixed ports rather than asking the operating system for a free
+  one: the artifact server's test configuration names port 9091 for every test class in the module,
+  so a class that starts before its predecessor has released the port fails to bind. Others depend
+  on timing under load, several of them in the resource server. Each shows up in one full run and
+  not the next, which makes an unrelated version look guilty, and the estate's own convention that
+  test servers sit on 19xxx ports is not in fact kept. Prefer the suites of the modules a change
+  actually touches, and treat a single red full build as a question rather than an answer.
+
+  Done when each upgrade above has either landed or been recorded as refused with its reason, and
+  the estate no longer carries a dependency held back only because nobody looked at it.
 
 ## Production data
 
-- **16. Normalize production artifacts to one explicit model contract.** Production contains several
+- **15. Normalize production artifacts to one explicit model contract.** Production contains several
   legacy representations that the current model surfaces tolerate or normalize differently, so bring
   them to canonical shapes before tightening readers or introducing terminology routing across source
   systems. The permission-scoped audit found 76 inherently-multiple fields deployed as JSON objects in
@@ -691,8 +717,10 @@ Frontend work for the embeddable editor is tracked separately in
   divergent stored title without changing `schema:name`, and make both model libraries prevent an
   independently supplied title from surviving a round-trip. Capture the affected production paths in
   the reviewed manifest and require JSON → YAML → JSON and JSON → model → JSON tests to prove the
-  canonical result. This decision does not make `description` derived, and the title patch must not
-  rewrite description or provenance text.
+  canonical result. The artifact server already derives `title` on every ordinary write and makes
+  the name part of `description` follow it, keeping the `generated by …` signature, so the patch is
+  for what is stored and nothing rewrites. This decision does not make `description` derived, and
+  the title patch must not rewrite description or provenance text.
 
   **Normalize zero and unknown encodings.** Three keys currently use zero as a sentinel where the
   schema gives it a quantity, so settle and apply one model-wide convention before patching the stored
@@ -823,7 +851,7 @@ Frontend work for the embeddable editor is tracked separately in
 
 ## Later decisions
 
-- **17. A published artifact can be deleted, contradicting the docs.** The docs say a published
+- **16. A published artifact can be deleted, contradicting the docs.** The docs say a published
   artifact is permanent, but `DELETE` on one succeeds. The guard in
   `AbstractResourceServerResource.executeArtifactDelete` was briefly re-enabled and then **reverted by
   deliberate decision**: blocking deletion strands published artifacts and the folders holding them with
@@ -834,7 +862,7 @@ Frontend work for the embeddable editor is tracked separately in
   through folder deletion). Immutability of published content is a separate guarantee and is
   unaffected either way — that one is enforced.
 
-- **18. Finish the DataCite DOI minting lifecycle.** The durable lifecycle is what makes the operation
+- **17. Finish the DataCite DOI minting lifecycle.** The durable lifecycle is what makes the operation
   recovery-safe, and none of it exists yet. Minting persists no state of its own: draft/reserved,
   published and locally attached are recorded nowhere, so the `reconciliationRequired` response names a
   condition no code resolves, and a retry after a timeout cannot tell whether the earlier attempt

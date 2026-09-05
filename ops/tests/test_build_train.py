@@ -142,6 +142,32 @@ class BuildTrainTest(unittest.TestCase):
             with self.subTest(invalid=invalid), self.assertRaises(ValueError):
                 build_train.validate_train(invalid)
 
+    def test_negative_command_return_code_names_the_signal(self):
+        result = SimpleNamespace(returncode=-6, stdout="", stderr="")
+        with patch.object(build_train.subprocess, "run", return_value=result):
+            with self.assertRaisesRegex(RuntimeError, r"terminated by SIGABRT \(signal 6\)"):
+                build_train.run(["npm", "run", "build"])
+
+    def test_local_preflight_rejects_a_different_expected_development_version(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            parent = workspace / "cedar-parent"
+            parent.mkdir()
+            (parent / "pom.xml").write_text(
+                '<project xmlns="http://maven.apache.org/POM/4.0.0">'
+                '<version>2.9.4-SNAPSHOT</version></project>\n',
+                encoding="utf-8",
+            )
+            args = SimpleNamespace(
+                workspace=workspace,
+                expected_source_version="2.9.5-SNAPSHOT",
+                config=workspace / "build.json",
+                frontend_config=workspace / "frontend.json",
+                docker_config=workspace / "docker.json",
+            )
+            with self.assertRaisesRegex(RuntimeError, "cedar-parent version.*expected"):
+                build_train.local_configuration_preflight(args)
+
     def test_complete_configuration_contract_passes_before_build(self):
         with tempfile.TemporaryDirectory() as directory:
             workspace, build, frontend, docker = self._preflight_fixture(Path(directory))
@@ -218,7 +244,7 @@ class BuildTrainTest(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, "concluded cancelled"):
                     build_train._github_ci_preflight(source, workspace, policy=policy)
 
-    def test_train_workflow_does_not_block_on_itself(self):
+    def test_train_workflow_cannot_substitute_for_source_validation(self):
         with tempfile.TemporaryDirectory() as directory:
             workspace = Path(directory)
             workflows = workspace / "cedar-development" / ".github" / "workflows"
@@ -229,6 +255,28 @@ class BuildTrainTest(unittest.TestCase):
                 "name": "Build train", "status": "in_progress", "conclusion": None,
                 "path": ".github/workflows/build-train.yml",
             }])
+            with patch.dict(os.environ, {"GH_TOKEN": "token"}, clear=False):
+                with self.assertRaisesRegex(RuntimeError, "cedar-development: no CI run"):
+                    build_train._github_ci_preflight(source, workspace, policy=policy)
+
+    def test_cedar_development_source_validation_passes_while_train_is_running(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            workflows = workspace / "cedar-development" / ".github" / "workflows"
+            workflows.mkdir(parents=True)
+            (workflows / "build-train.yml").write_text("name: train\n", encoding="utf-8")
+            (workflows / "release-tooling-ci.yml").write_text("name: CI\n", encoding="utf-8")
+            source = {"repositories": {"cedar-development": "a" * 40}}
+            policy = FakeCIPolicy([
+                {
+                    "name": "Immutable development build train", "status": "in_progress",
+                    "conclusion": None, "path": ".github/workflows/build-train.yml",
+                },
+                {
+                    "name": "Release tooling CI", "status": "completed",
+                    "conclusion": "success", "path": ".github/workflows/release-tooling-ci.yml",
+                },
+            ])
             with patch.dict(os.environ, {"GH_TOKEN": "token"}, clear=False):
                 build_train._github_ci_preflight(source, workspace, policy=policy)
 

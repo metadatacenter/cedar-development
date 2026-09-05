@@ -52,6 +52,11 @@ export const MENU_ENABLE_OPENVIEW = 'a.makeopen';
 export const MENU_DISABLE_OPENVIEW = 'a.makenotopen';
 export const MENU_VISIT_OPENVIEW = 'a.openopen';
 
+// ── Metadata editor ───────────────────────────────────────────────────────────
+// The metadata's own name, on the host page above the embedded editor. Prefilled with the
+// generated "<template name> metadata"; whatever it holds at save time is the stored name.
+export const INSTANCE_NAME_INPUT = '#instance-name';
+
 // ── Template designer ─────────────────────────────────────────────────────────
 // The text-field palette entry is identified by its icon; the palette has no stable
 // text label or test id.

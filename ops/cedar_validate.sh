@@ -34,8 +34,22 @@ if [[ -z ${LIB:-} || ! -d $LIB ]]; then
 fi
 [[ -d $LIB ]] || { echo "cedar-model-validation-library not found (set CEDAR_VALIDATION_LIB)" >&2; exit 2; }
 
+# java_home resolves a JDK on macOS and does not exist elsewhere, so fall back to the location the
+# rest of the tooling searches, and give advice the host in hand can actually follow.
 JAVA_HOME=${JAVA_HOME:-$(/usr/libexec/java_home -v 17 2>/dev/null || true)}
-[[ -x ${JAVA_HOME:-}/bin/java ]] || { echo "JDK 17 not found: export JAVA_HOME=\$(/usr/libexec/java_home -v 17)" >&2; exit 2; }
+if [[ ! -x ${JAVA_HOME:-}/bin/java ]]; then
+  for candidate in /usr/lib/jvm/java-17-*; do
+    [[ -x $candidate/bin/java ]] && { JAVA_HOME=$candidate; break; }
+  done
+fi
+if [[ ! -x ${JAVA_HOME:-}/bin/java ]]; then
+  if [[ -x /usr/libexec/java_home ]]; then
+    echo "JDK 17 not found: export JAVA_HOME=\$(/usr/libexec/java_home -v 17)" >&2
+  else
+    echo "JDK 17 not found: export JAVA_HOME to a JDK 17, usually one of /usr/lib/jvm/java-17-*" >&2
+  fi
+  exit 2
+fi
 
 CP_FILE="$LIB/target/validator-classpath.txt"
 CLASSES="$LIB/target/classes"

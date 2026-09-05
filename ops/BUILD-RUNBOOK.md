@@ -10,12 +10,33 @@ disposable workspace, changes their CEDAR versions only there, and publishes a v
 `<NEXT>-dev.YYYYMMDD.HHMM` to the immutable `cedar-maven-dev` Nexus repository.
 
 Local frontend builds are compile-only. `cedarcli build frontends`, `cedarcli build all`, and
-`cedarcli build this` write generated output under the source repository and never materialize it
-into a tracked sibling such as `cedar-monitoring-dist`. Publication owns that transition: the build
-and release trains validate the source build, replace the legacy distribution exactly in their
-disposable workspaces, preserve the package metadata, and record the resulting hashes. The legacy
-`cedarcli publish frontends` path also materializes distributions, but only because an explicit
-publish requested that side effect.
+`cedarcli build this` copy each frontend into a disposable workspace, use a private npm cache, set
+`CI=true` so Angular disables its persistent disk cache, and discard the generated output. An
+interactive `ng serve` can therefore keep using the developer checkout without sharing
+`node_modules`, build output, or `.angular/cache` with the build. The one TypeScript compatibility
+project that deliberately uses an npm-linked model reuses that installed dependency tree from
+inside its disposable source copy; its source and output are still isolated.
+
+An ordinary build snapshots tracked state across every repository before it starts and compares
+the estate after it ends, including when a task fails. Pre-existing tracked edits are the baseline;
+only a difference from that baseline fails the invariant. This catches any cross-repository build
+side effect such as regenerating `cedar-monitoring-dist`. Explicit publish remains the owner of
+materializing tracked distributions. The `split-frontends --server-payload` path is also explicitly
+in-place because it creates native nginx payloads, and it refuses to run while a dev runtime owns
+the same checkout. Ordinary installs use committed lockfiles with `npm ci` and the repository's
+declared peer-dependency mode, so a manifest/lock disagreement fails rather than rewriting the lock.
+
+A negative Python subprocess status is a Unix signal, not an exit code. The CLI and standalone
+train controllers report `SIGABRT`, `SIGKILL`, or `SIGSEGV` by name and point to macOS Diagnostic
+Reports or Linux coredumps when that is the only crash evidence.
+
+`Angular build isolation canary` is the live regression proof for that boundary. On a weekly
+schedule, on manual dispatch, and whenever its implementation changes, it runs on both Linux and
+macOS. The job starts Monitoring's real development server with persistent Angular disk caching
+forced on, runs `cedarcli build this`, and requires the CLI to discover the live runtime and isolate
+the build. It then proves the server is still healthy and that its cache, source output,
+`cedar-monitoring-dist`, and repository state did not change. Development-server and build logs plus
+machine-readable evidence are retained as workflow artifacts even on failure.
 
 Keep the three identities distinct:
 
@@ -71,6 +92,13 @@ loaded by hosted preflight, so the local rehearsal and runner cannot disagree ab
 Local preflight also inspects npmrc key names once without reading values: an obsolete setting that
 changes authentication semantics blocks, while harmless future-version author-setting warnings are
 reported once.
+
+The two repositories that own the release machinery are hard gates, too. `cedar-cli` must have a
+green `CI` run and `cedar-development` must have a green `Release tooling CI` run at their exact
+captured commits. The in-progress `Immutable development build train` workflow is deliberately
+excluded from the latter decision: a train cannot prove the controller that is already running it,
+and it may not substitute for the independent controller test workflow. Both the local dispatch
+preflight and the hosted captured-source preflight enforce this rule.
 
 Then create the train:
 
