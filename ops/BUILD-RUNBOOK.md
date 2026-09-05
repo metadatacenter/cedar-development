@@ -153,8 +153,10 @@ new CLI parameter.
 
 The configuration also binds every npm install surface to the SHA-256 of the reviewed lockfile and
 records the advisory counts observed by the last successful baseline train. A changed dependency
-graph stops in preflight and names the repository and lockfile; review `npm audit`, update the
-counts and digest deliberately, and rerun. This is a no-silent-regression gate, not a claim that the
+graph stops in preflight and names the repository and lockfile. `cedarcli publish baselines` lists
+every lock whose digest has moved, and `cedarcli publish baselines --refresh` recomputes the digest
+and the `npm audit` counts of each and writes them to `frontend-train.json`; review the diff, commit
+it in `cedar-development`, and rerun. This is a no-silent-regression gate, not a claim that the
 legacy AngularJS build-time graphs contain no advisories. CEE's shipped dependency audit remains a
 separate blocking zero-vulnerability gate. npm 11 install scripts are similarly explicit: each
 required package/version is pinned in `allowScripts`, and the train enables
@@ -445,9 +447,14 @@ NPM_CONFIG_STRICT_ALLOW_SCRIPTS=true npm ci --no-audit --no-fund
 NPM_CONFIG_STRICT_ALLOW_SCRIPTS=true npm --prefix visual ci --no-audit --no-fund
 ```
 
-Review the resulting dependency graphs, then update the corresponding root and visual SHA-256
-entries—and the recorded advisory counts if they changed—in
-`cedar-development/ops/frontend-train.json`. `cedarcli publish train --dry-run` must pass the local
+Review the resulting dependency graphs, then refresh the CEE baselines and commit the result:
+
+```bash
+cedarcli publish baselines --refresh --repository cedar-embeddable-editor
+git -C $CEDAR_HOME/cedar-development commit -m "Refresh the CEE npm audit baselines" ops/frontend-train.json
+```
+
+`cedarcli publish train --dry-run` must pass the local
 lock-baseline check, and the pushed CEE commit must pass its complete CI workflow before dispatch.
 This correction changes captured source, so create a new train ID; never resume an immutable train
 to incorporate it. The new train will still replace this source-development pin in its disposable

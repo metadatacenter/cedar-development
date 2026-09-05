@@ -445,6 +445,16 @@ git commit -m "Advance CEE to the next development version"
 git push origin develop
 ```
 
+The advanced version changes the root lockfile's own version entry, so the train's baseline for
+that lock is now stale and the next dispatch would refuse it. Refresh the CEE baselines and commit
+the result in `cedar-development`:
+
+```bash
+cedarcli publish baselines --refresh --repository cedar-embeddable-editor
+git -C $CEDAR_HOME/cedar-development commit -m "Refresh the CEE npm audit baselines" ops/frontend-train.json
+git -C $CEDAR_HOME/cedar-development push origin develop
+```
+
 ## Propagate a stable CEE release
 
 Publishing CEE does not update a frontend or an environment. Pin the exact stable version in all
