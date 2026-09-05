@@ -1,0 +1,259 @@
+{
+  "additionalCeeConsumers": [
+    {
+      "ceeVersion": "2.0.7-dev.202609050436.g9503db76a96f",
+      "label": "angular-demo",
+      "legacyPeerDeps": true,
+      "lock": "cedar-cee-demo-angular-src/package-lock.json",
+      "manifest": "cedar-cee-demo-angular-src/package.json",
+      "repository": "cedar-component-demo",
+      "revision": "11f866509e0e5893acd71995d3cff47e09b7656f"
+    },
+    {
+      "ceeVersion": "2.0.7-dev.202609050436.g9503db76a96f",
+      "label": "ember-demo",
+      "legacyPeerDeps": false,
+      "lock": "cedar-cee-demo-ember-src/package-lock.json",
+      "manifest": "cedar-cee-demo-ember-src/package.json",
+      "repository": "cedar-component-demo",
+      "revision": "11f866509e0e5893acd71995d3cff47e09b7656f"
+    },
+    {
+      "ceeVersion": "2.0.7-dev.202609050436.g9503db76a96f",
+      "label": "react-demo",
+      "legacyPeerDeps": false,
+      "lock": "cedar-cee-demo-react/package-lock.json",
+      "manifest": "cedar-cee-demo-react/package.json",
+      "repository": "cedar-component-demo",
+      "revision": "11f866509e0e5893acd71995d3cff47e09b7656f"
+    }
+  ],
+  "cee": {
+    "model": {
+      "name": "@org.metadatacenter/cedar-model-typescript-library",
+      "version": "1.0.7-dev.202609050436.gfa0b322782ac"
+    },
+    "modelConsumers": [
+      {
+        "lock": "package-lock.json",
+        "manifest": "package.json"
+      },
+      {
+        "lock": "visual/package-lock.json",
+        "manifest": "visual/package.json"
+      }
+    ],
+    "name": "@org.metadatacenter/cedar-embeddable-editor",
+    "publication": "train-owned",
+    "repository": "cedar-embeddable-editor",
+    "revision": "9503db76a96f5041c4c158d310843ca66ac754d4",
+    "sourceVersion": "2.0.7-dev.20260904.ed890758",
+    "version": "2.0.7-dev.202609050436.g9503db76a96f"
+  },
+  "ceeConsumers": [
+    {
+      "label": "main",
+      "legacyPeerDeps": false,
+      "lock": "package-lock.json",
+      "manifest": "package.json",
+      "publishedFrontend": "main",
+      "repository": "cedar-template-editor",
+      "revision": "f2431e27c276bbf3e20735387a1bff8bda8eea45"
+    },
+    {
+      "label": "workspace",
+      "legacyPeerDeps": false,
+      "lock": "package-lock.json",
+      "manifest": "package.json",
+      "publishedFrontend": "workspace",
+      "repository": "cedar-workspace",
+      "revision": "f81aa253e312a0a54601b41b397e7e9cd84023ec"
+    },
+    {
+      "label": "openview",
+      "legacyPeerDeps": true,
+      "lock": "cedar-openview-src/package-lock.json",
+      "manifest": "cedar-openview-src/package.json",
+      "publishedFrontend": "openview",
+      "repository": "cedar-openview",
+      "revision": "3bf71549e09707ea5b7af7757d51847e4f542208"
+    },
+    {
+      "label": "bridging",
+      "legacyPeerDeps": false,
+      "lock": "cedar-bridging-src/package-lock.json",
+      "manifest": "cedar-bridging-src/package.json",
+      "publishedFrontend": "bridging",
+      "repository": "cedar-bridging",
+      "revision": "3772eceb7f37ffcf39b6b9c1f36528b3ddd1c119"
+    },
+    {
+      "ceeVersion": "2.0.7-dev.202609050436.g9503db76a96f",
+      "label": "angular-demo",
+      "legacyPeerDeps": true,
+      "lock": "cedar-cee-demo-angular-src/package-lock.json",
+      "manifest": "cedar-cee-demo-angular-src/package.json",
+      "repository": "cedar-component-demo",
+      "revision": "11f866509e0e5893acd71995d3cff47e09b7656f"
+    },
+    {
+      "ceeVersion": "2.0.7-dev.202609050436.g9503db76a96f",
+      "label": "ember-demo",
+      "legacyPeerDeps": false,
+      "lock": "cedar-cee-demo-ember-src/package-lock.json",
+      "manifest": "cedar-cee-demo-ember-src/package.json",
+      "repository": "cedar-component-demo",
+      "revision": "11f866509e0e5893acd71995d3cff47e09b7656f"
+    },
+    {
+      "ceeVersion": "2.0.7-dev.202609050436.g9503db76a96f",
+      "label": "react-demo",
+      "legacyPeerDeps": false,
+      "lock": "cedar-cee-demo-react/package-lock.json",
+      "manifest": "cedar-cee-demo-react/package.json",
+      "repository": "cedar-component-demo",
+      "revision": "11f866509e0e5893acd71995d3cff47e09b7656f"
+    }
+  ],
+  "createdAt": "2026-09-05T04:47:31.153847+00:00",
+  "dockerInputs": {
+    "CEDAR_BRIDGING_NPM_VERSION": "2.9.8-dev.202609050436.g3772eceb7f37.p4",
+    "CEDAR_CONTENT_NPM_VERSION": "2.9.8-dev.20260904112340.g9e48a21ad7f8.p3",
+    "CEDAR_MONITORING_NPM_VERSION": "2.9.8-dev.20260904151152.g9c5047fced85.p3",
+    "CEDAR_OPENVIEW_CEE_NPM_VERSION": "2.0.7-dev.202609050436.g9503db76a96f",
+    "CEDAR_OPENVIEW_NPM_VERSION": "2.9.8-dev.202609050436.g3bf71549e097.p4",
+    "CEDAR_OPENVIEW_WEBCOMPONENTS_NPM_VERSION": "2.8.0",
+    "CEDAR_TEMPLATE_DESIGNER_NPM_VERSION": "2.9.3-dev.20260904161051.g5b3b7a2043a5.p3",
+    "CEDAR_TEMPLATE_EDITOR_NPM_VERSION": "2.9.8-dev.202609050436.gf2431e27c276.p4",
+    "CEDAR_WORKSPACE_NPM_VERSION": "2.9.3-dev.202609050436.gf81aa253e312.p4"
+  },
+  "frontends": [
+    {
+      "ceeVersion": "2.0.7-dev.202609050436.g9503db76a96f",
+      "id": "main",
+      "image": "cedar-frontend-main",
+      "name": "cedar-template-editor",
+      "npmVersionVariable": "CEDAR_TEMPLATE_EDITOR_NPM_VERSION",
+      "packagePath": ".",
+      "repository": "cedar-template-editor",
+      "requiresShrinkwrap": true,
+      "revision": "f2431e27c276bbf3e20735387a1bff8bda8eea45",
+      "version": "2.9.8-dev.202609050436.gf2431e27c276.p4"
+    },
+    {
+      "ceeVersion": "2.0.7-dev.202609050436.g9503db76a96f",
+      "id": "workspace",
+      "image": "cedar-frontend-workspace",
+      "name": "cedar-workspace",
+      "npmVersionVariable": "CEDAR_WORKSPACE_NPM_VERSION",
+      "packagePath": ".",
+      "repository": "cedar-workspace",
+      "requiresShrinkwrap": true,
+      "revision": "f81aa253e312a0a54601b41b397e7e9cd84023ec",
+      "version": "2.9.3-dev.202609050436.gf81aa253e312.p4"
+    },
+    {
+      "ceeVersion": null,
+      "id": "designer",
+      "image": "cedar-frontend-template-designer",
+      "name": "cedar-template-designer",
+      "npmVersionVariable": "CEDAR_TEMPLATE_DESIGNER_NPM_VERSION",
+      "packagePath": ".",
+      "repository": "cedar-template-designer",
+      "requiresShrinkwrap": true,
+      "revision": "5b3b7a2043a5d887fdafcf51dcf269311c583fa8",
+      "version": "2.9.3-dev.20260904161051.g5b3b7a2043a5.p3"
+    },
+    {
+      "ceeVersion": "2.0.7-dev.202609050436.g9503db76a96f",
+      "id": "openview",
+      "image": "cedar-frontend-openview",
+      "name": "cedar-openview-dist",
+      "npmVersionVariable": "CEDAR_OPENVIEW_NPM_VERSION",
+      "packagePath": "cedar-openview-dist",
+      "repository": "cedar-openview",
+      "requiresShrinkwrap": true,
+      "revision": "3bf71549e09707ea5b7af7757d51847e4f542208",
+      "version": "2.9.8-dev.202609050436.g3bf71549e097.p4"
+    },
+    {
+      "ceeVersion": null,
+      "id": "content",
+      "image": "cedar-frontend-content",
+      "name": "cedar-content-distribution",
+      "npmVersionVariable": "CEDAR_CONTENT_NPM_VERSION",
+      "packagePath": ".",
+      "repository": "cedar-content-distribution",
+      "requiresShrinkwrap": true,
+      "revision": "9e48a21ad7f81ddf04cc1d84e5560254bb4791b6",
+      "version": "2.9.8-dev.20260904112340.g9e48a21ad7f8.p3"
+    },
+    {
+      "ceeVersion": null,
+      "id": "monitoring",
+      "image": "cedar-frontend-monitoring",
+      "name": "cedar-monitoring-dist",
+      "npmVersionVariable": "CEDAR_MONITORING_NPM_VERSION",
+      "packagePath": "cedar-monitoring-dist",
+      "repository": "cedar-monitoring",
+      "requiresShrinkwrap": true,
+      "revision": "9c5047fced850bbb92dd409cacffd5ed656988a3",
+      "version": "2.9.8-dev.20260904151152.g9c5047fced85.p3"
+    },
+    {
+      "ceeVersion": "2.0.7-dev.202609050436.g9503db76a96f",
+      "id": "bridging",
+      "image": "cedar-frontend-bridging",
+      "name": "cedar-bridging-dist",
+      "npmVersionVariable": "CEDAR_BRIDGING_NPM_VERSION",
+      "packagePath": "cedar-bridging-dist",
+      "preparedBuild": {
+        "commands": [
+          [
+            "npm",
+            "ci"
+          ],
+          [
+            "npm",
+            "run",
+            "build",
+            "--",
+            "--configuration=production"
+          ]
+        ],
+        "directory": "cedar-bridging-src",
+        "output": "cedar-bridging-src/dist/cedar-bridging"
+      },
+      "repository": "cedar-bridging",
+      "requiresShrinkwrap": true,
+      "revision": "3772eceb7f37ffcf39b6b9c1f36528b3ddd1c119",
+      "version": "2.9.8-dev.202609050436.g3772eceb7f37.p4"
+    }
+  ],
+  "model": {
+    "name": "@org.metadatacenter/cedar-model-typescript-library",
+    "publication": "train-owned",
+    "repository": "cedar-model-typescript-library",
+    "revision": "fa0b322782ac70c5ba7e7a25d1b7396ade9adb9c",
+    "sourceVersion": "1.0.7-dev.20260903.0208fe9",
+    "version": "1.0.7-dev.202609050436.gfa0b322782ac"
+  },
+  "registry": "https://nexus.bmir.stanford.edu/repository/npm-cedar/",
+  "runtimePackages": [
+    {
+      "name": "@webcomponents/webcomponentsjs",
+      "registry": "https://registry.npmjs.org/",
+      "version": "2.8.0"
+    }
+  ],
+  "schemaVersion": 2,
+  "sourceManifest": "trains/2.9.8-dev.20260905.0436.json",
+  "sourceManifestSha256": "fddd6e4ffa15c9d32e0ae7b4342356245410e446e145e7c494d1557ffdea49f2",
+  "version": "2.9.8-dev.20260905.0436",
+  "wiringPolicy": {
+    "ceeIntoFrontends": "exact Nexus alias and lock integrity",
+    "modelIntoCee": "exact Nexus alias and lock integrity",
+    "sourceRepositoriesModified": false,
+    "workspace": "isolated exact-commit checkouts"
+  }
+}
