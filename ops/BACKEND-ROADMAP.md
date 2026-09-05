@@ -79,6 +79,19 @@ Frontend work for the embeddable editor is tracked separately in
     browser smoke stops at ownership because there is no working control to drive.
   - **Denials answer 401 or 403 depending on which code path refuses.** The acceptance criteria fix
     status codes elsewhere, so this belongs in the conformance matrix rather than outside it.
+  - **There is no coherent administrator, only a list of roles stamped once.** Authority is a set of
+    named roles held on the user record, and the privileged ones are additive overrides rather than
+    supersets. `groupPrivilegedAdministrator` grants exactly `UPDATE_NOT_ADMINISTERED_GROUP`, so an
+    account can be entitled to rewrite any group in the deployment while `GET /groups` refuses it,
+    that endpoint asking for `GROUP_READ`, which only the ordinary `groupAdministrator` role carries.
+    The separation is deliberate, since `groupAdministrator` is held by every user and the override
+    inside it would let anyone re-staff anyone's group, but the consequence is that "privileged" and
+    "may read" are unrelated. Compounding it, `createUserFromBlueprint` runs on the new-user event
+    and nothing reconciles an existing user against a later blueprint, so an account created before a
+    role joined the list never gains it and no upgrade repairs that. Observed on production on
+    5 September 2026: an administrator's key enumerates resources and is refused the group listing
+    with 403. Decide what an administrator is before deciding what one may override, because the
+    assessment's administrator-override recommendation assumes a role that can be reasoned about.
 
   **One measurement to carry into the work.** The revision precondition is closer to the proposal
   than the assessment's evidence suggests. Measured against the running stack, a mutation carrying no
