@@ -173,7 +173,12 @@ The release runs these phases, each verifying its work before the next begins:
 1. Clone every train source commit into isolated workspaces, and pin the public CEE version in all
    seven frontend consumer manifests and lockfiles.
 2. Stamp `<VER>` and `<NEXT>` from the same source commits, and move the copyright year in every
-   `license.txt` to the release year. Both variants retain the stable public CEE wiring.
+   `license.txt` to the release year. Both variants retain the stable public CEE wiring. The
+   Docker build's frontend defaults in `cedar-images-base.sh` are rewritten from the train's
+   recorded inputs: the next-development tree names the train's own packages, which exist the
+   moment the release pushes, and the release tree names the released frontends at `<VER>` and
+   OpenView's Editor at the public CEE version, which Nexus and npmjs keep for good. Workspace
+   and the Designer, which publish independently, keep the train's packages in both trees.
 3. Run the release Maven test builds, the next-development Maven builds, all frontend installs, and
    the production frontend builds. Generated distribution bytes are inventoried, so an ignored
    `dist` file cannot change before publication.
@@ -218,6 +223,16 @@ before a release rather than after one.
 The stable npm surfaces are Template Editor, OpenView, Content Distribution, Monitoring, Bridging,
 and the Angular CEE demo. Workspace receives the stable CEE wiring on both `main` and `develop` but
 keeps its independent publication path. Template Designer also remains independently published.
+
+## What a Release Costs
+
+Release 2.9.8 ran 63 minutes from `start` to acceptance on the development workstation, with
+Nexus and GitHub responsive throughout: about ten minutes to clone forty repositories and pin the
+CEE in seven consumers, twenty to run the forty release and next-development builds, fifteen to
+deploy the six snapshot trees, under ten to integrate and push forty remotes, ten to upload and
+verify the eight release artifacts, and one to accept. The release before it, 2.9.7, ran 2 hours
+41 minutes through the same phases. Plan on its own takes about two and a half minutes, most of it
+the exact-commit CI probe and the remote survey.
 
 ## Watching and Finishing
 

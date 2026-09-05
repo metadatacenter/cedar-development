@@ -234,7 +234,10 @@ The workflow then records the expected Docker plan and builds the image estate i
 order. `cedar-java` and `cedar-microservice` publish to the internal repository. Seven
 infrastructure, fifteen microservice, and seven frontend images publish to the runtime repository.
 Independent images build in parallel; the Java bases remain ordered. The verified npm plan supplies
-the frontend build arguments, overriding compatibility defaults in `cedar-images-base.sh`. Every
+the frontend build arguments, overriding compatibility defaults in `cedar-images-base.sh`. Those
+defaults name development packages, and Nexus keeps only the last couple of trains' development
+packages, so left alone they stop resolving within days and the Docker build's own CI goes red. A
+release rewrites them from the train's recorded inputs, as the release runbook describes. Every
 image records the train, the exact `cedar-docker-build` commit, the source-manifest digest, and the
 npm/frontend-manifest digest as OCI labels. Each frontend image also contains the complete graph at
 `/usr/local/share/cedar-build-manifest.json`. A train build compares each downloaded application
@@ -252,6 +255,14 @@ At deployment time, `cedarcli docker start` reads that completion record again. 
 selected pull policy, requires every selected local image tag to carry the recorded repository
 digest, and then starts Compose with pulling disabled. A tag that is absent, locally rebuilt, or
 now resolves to different registry content is rejected before any service starts.
+
+## What a Train Costs
+
+Train 2.9.8-dev.20260905.0436 took 36 minutes: nine and a half for the Maven phases, two for the
+TypeScript model, eight and a half for the CEE gate on its ARM runner, two for the seven frontends,
+five for the 31 images, and eight and a half to pull every image back and verify it. Everything but
+the image matrix runs serially. The local dispatch preflight takes about a minute, most of it the
+CI probe across the 43 captured repositories, and a `--dry-run` rehearsal pays it a second time.
 
 ## Resume a failed train
 

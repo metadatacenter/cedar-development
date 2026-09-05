@@ -338,7 +338,9 @@ and CSS immutable, and makes stable fallback assets revalidate.
 
 `cedar-docker-build/bin/cedar-images-base.sh` retains exact package pins as compatibility defaults
 for a local shell build. They are not the source of truth for a published train, and neither path
-uses a moving npm snapshot or dist-tag.
+uses a moving npm snapshot or dist-tag. A release rewrites them from the train it consumes, so on
+`develop` they name that train's packages and on a release tag they name the released frontends and
+the public CEE.
 
 The full core build inventory is 31 images: seven infrastructure images, two Java bases, fifteen
 microservices, and seven frontends. `cedarcli docker build all` additionally builds the four
