@@ -103,6 +103,7 @@ def validate_audit_baselines(frontend: dict, workspace: Path,
         raise RuntimeError("frontend train must declare npm audit baselines")
     seen = set()
     severities = {"low", "moderate", "high", "critical"}
+    problems: list[str] = []
     for baseline in baselines:
         if not isinstance(baseline, dict):
             raise RuntimeError(f"invalid npm audit baseline: {baseline!r}")
@@ -127,10 +128,10 @@ def validate_audit_baselines(frontend: dict, workspace: Path,
         lock = _require_file(workspace, repository, relative, "npm audit baseline lock")
         actual = hashlib.sha256(lock.read_bytes()).hexdigest()
         if actual != expected:
-            raise RuntimeError(
+            problems.append(
                 f"npm dependency graph changed for {repository}:{relative}; expected audit "
-                f"baseline {expected}, found {actual}. Review npm audit and update the "
-                "digest and severity counts before starting a train")
+                f"baseline {expected}, found {actual}")
+            continue
         if baseline.get("strictInstallScripts", False):
             manifest = lock.with_name("package.json")
             if not manifest.is_file():
@@ -144,10 +145,33 @@ def validate_audit_baselines(frontend: dict, workspace: Path,
             except ValueError as error:
                 raise RuntimeError(str(error)) from error
             if pending:
-                raise RuntimeError(
+                problems.append(
                     f"unreviewed npm install scripts in {repository}:{relative}: "
                     + ", ".join(sorted(pending)))
+    if problems:
+        raise RuntimeError(_lock_baseline_failure(problems))
     return len(baselines)
+
+
+def _lock_baseline_failure(problems: list[str]) -> str:
+    """Name every lock that fails its review together, not the first one found.
+
+    An operator told about one stale digest fixes it, reruns the preflight, and meets the next.
+    Six baselines drifted in one afternoon of ordinary frontend commits, so a run that stops at
+    the first turns one review into six round trips.
+    """
+    audit_advice = (
+        "Review npm audit and update the digest and severity counts before starting a train")
+    if len(problems) == 1:
+        problem = problems[0]
+        if problem.startswith("npm dependency graph changed"):
+            return f"{problem}. {audit_advice}"
+        return problem
+    lines = "\n".join(f"  {problem}" for problem in problems)
+    return (
+        f"{len(problems)} npm lock baselines fail review:\n{lines}\n"
+        "For each changed graph, review npm audit and update the digest and severity counts; for "
+        "each unreviewed install script, record an allowScripts decision. Then start the train.")
 
 
 def validate_configuration(

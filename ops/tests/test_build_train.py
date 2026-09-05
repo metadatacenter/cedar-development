@@ -603,3 +603,36 @@ class BuildTrainTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LockBaselineReportTest(unittest.TestCase):
+    def test_every_stale_npm_lock_is_named_together(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workspace, build, frontend, docker = BuildTrainTest._preflight_fixture(Path(directory))
+            frontend["auditBaselines"].append({
+                "repository": "cee",
+                "lock": "package-lock.json",
+                "sha256": hashlib.sha256(b"{}\n").hexdigest(),
+                "vulnerabilities": {"low": 0, "moderate": 0, "high": 0, "critical": 0},
+            })
+            (workspace / "model" / "package-lock.json").write_text(
+                '{"changed": true}\n', encoding="utf-8")
+            (workspace / "cee" / "package-lock.json").write_text(
+                '{"changed": "too"}\n', encoding="utf-8")
+            with self.assertRaises(RuntimeError) as refused:
+                build_train.validate_configuration(build, frontend, docker, workspace)
+
+        message = str(refused.exception)
+        self.assertIn("2 npm lock baselines fail review", message)
+        self.assertIn("npm dependency graph changed for model:package-lock.json", message)
+        self.assertIn("npm dependency graph changed for cee:package-lock.json", message)
+        self.assertIn("update the digest and severity counts", message)
+
+    def test_a_single_stale_lock_keeps_its_one_line_advice(self):
+        message = build_train._lock_baseline_failure([
+            "npm dependency graph changed for model:package-lock.json; expected audit "
+            "baseline aa, found bb",
+        ])
+        self.assertTrue(message.startswith("npm dependency graph changed for model"))
+        self.assertIn("Review npm audit and update the digest", message)
+        self.assertNotIn("\n", message)

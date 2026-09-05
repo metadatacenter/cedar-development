@@ -62,7 +62,10 @@ The plan settles four groups of question:
   the release's estimated clean checkouts, release/next Maven and frontend builds, publication
   caches and logs, plus headroom. The estimate is derived from the manifest's repository and build
   counts rather than a fixed free-space threshold. The npmrc check reads key names only and never
-  prints registry tokens or values.
+  prints registry tokens or values. When the shell offers another Java or Node, the CLI looks for
+  the required ones itself, through `/usr/libexec/java_home -v 17` and Homebrew's `node@24`, puts
+  them first on PATH for the run, and prints a `Toolchain:` line for each substitution. When it
+  finds neither, the plan names the export to run.
 - **The source is ready.** Every participating repository—including the independent repositories
   whose CEE wiring the release integrates—is clean and pushed, and the CI run for the exact commit
   the train was built from is green wherever that commit defines a workflow. The immutable source

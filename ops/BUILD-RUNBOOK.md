@@ -80,9 +80,17 @@ repository's `develop` to equal the live remote `develop`. It also runs the same
 publication-target probe as hosted preflight: Nexus service and writable status, the
 `cedar-maven-dev` repository root, npm identity, and Docker Registry v2 authentication. Credentials
 come from `BMIR_NEXUS_USERNAME`/`BMIR_NEXUS_PASSWORD` when present, otherwise from the
-`bmir-nexus-releases` server in `~/.m2/settings.xml`; no extra option is needed. It then prints the
-exact dispatch command. It does not start GitHub Actions, publish an artifact, alter Docker or npm
+`bmir-nexus-releases` server in `~/.m2/settings.xml`; no extra option is needed. Every check runs
+even after one has refused, so a single rehearsal reports every finding, each stale lock baseline
+and each red repository among them, rather than the first one met. It then prints the exact
+dispatch command. It does not start GitHub Actions, publish an artifact, alter Docker or npm
 client configuration, or write a manifest.
+
+The CI question is also answered on its own by `cedarcli check ci`. It lists every captured
+`develop` head whose CI is not green, with the run to look at and, for a red run, the `gh run
+rerun --failed` command that repeats only its failed jobs. A release advances `develop` in forty
+repositories at once, so run it after a release lands and before the next train, rather than
+learning about a red repository from the dispatch preflight hours later.
 
 The exact-SHA CI probe retries only a short GitHub indexing absence and transient network or
 502/503/504 failures. It names the repository, SHA, attempt, and delay. Pending or red CI,
@@ -114,10 +122,11 @@ On a successful dispatch, the CLI prints two views. Use the compact watcher when
 detail obscures the overall state:
 
 ```bash
-cedarcli publish train-status <TRAIN_ID> --watch
+cedarcli publish train-status --watch
 ```
 
-It reports Maven, all three npm stages, the Docker plan, compact completed/running/queued/failed
+Without an ID the command reports the newest dispatched train; an explicit ID selects an older
+one. It reports Maven, all three npm stages, the Docker plan, compact completed/running/queued/failed
 counts for the 31-image matrix, and final verification. During a long unchanged stage it prints a
 quiet one-minute heartbeat with the active job/step and elapsed time. Without `--watch`, the same command is a
 one-shot status and recovery decision. For GitHub's full step log, the dispatch also prints the exact
