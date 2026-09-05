@@ -151,7 +151,10 @@ cedarcli release start \
 ```
 
 Run it in an interactive `cedar` shell inside `tmux`, so a long run survives a disconnect.
-`cedarcli` is a shell alias and will not work in a bare `bash script.sh`.
+`cedarcli` is a shell alias and will not work in a bare `bash script.sh`. Without `tmux`, run it
+under `nohup` with its output redirected to a file and follow the file with `tail -f`; the CLI
+line-buffers its output when it is not writing to a terminal, so each progress line reaches the
+file as it is printed.
 
 Transient transport retries are built in, so a network fault does not end a long release. The
 bounded policy covers direct connection failures, HTTP 502/503/504 from resumable Git, Maven, and
