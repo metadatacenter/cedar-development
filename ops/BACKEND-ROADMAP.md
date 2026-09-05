@@ -15,118 +15,77 @@ Frontend work for the embeddable editor is tracked separately in
 
 ### Features
 
-- **1. Settle the sharing and permission model, then write it down.** This is the umbrella item: the
-  pieces below are each small, and separately each looks like a quirk, but together they say the model
-  was never specified in one place, so every surface decided for itself. Controlled sharing is what
-  CEDAR is for, which makes this the part most worth being deliberate about. All of it is now pinned by
-  tests, so the behaviour cannot drift further while the decisions are made — and each test named here
-  will fail and demand attention when a decision lands.
+- **1. Settle the sharing and permission model, then enforce it.** Controlled sharing is what CEDAR
+  is for, and the model was never specified in one place, so every surface decided for itself. The
+  behaviour is pinned by the tests named at the end of this item, so it cannot drift further while
+  the decisions are made, and each of those tests will fail and demand attention when a decision
+  lands.
 
   The [permission model](https://metadatacenter.readthedocs.io/en/latest/user-guide/advanced-topics/permission-model/)
-  is a proposed contract for that decision. It deliberately differs from the current implementation
-  where a simpler or safer rule is available; this item remains open until the proposal is accepted,
-  reconciled with the product, and enforced.
+  is the proposed contract. It deliberately differs from the implementation where a simpler or safer
+  rule is available. A companion assessment, `PermissionModel.pdf`, measures the implementation
+  against it and carries the divergence table, the recommended authorization shape, the migration
+  mapping from the legacy vocabulary, the six-stage release sequence and the acceptance criteria.
+  That assessment is not in version control, which is the first thing to fix, because this item now
+  depends on reading it.
 
-  What was found, in the order it bites a reader:
+  The structural mismatch it identifies is a single overloaded predicate. The implementation asks
+  whether a user may write the resource, then reuses that answer for content changes, ACL
+  replacement, movement, deletion and OpenView, so an editor can also re-share, relocate and publish.
+  The proposal separates Editor from Manager and routes every operation through one evaluator that
+  answers a distinct question per capability.
 
-  - **Six declared permission levels, two enforced.** `READ` and `WRITE` are checked;
-    `CHANGEPERMISSIONS`, `CHANGEOWNER`, `PUBLISH` and `CREATE_DRAFT` are consulted nowhere, yet can be
-    granted and stored. Detailed below.
-  - **`WRITE` confers re-sharing, but not versioning.** The ACL update asks only for write access, so
-    editing implies re-sharing; versioning asks for ownership, so it does not. Two different answers to
-    "what does write let me do", and neither is written down.
-  - **Reading an ACL costs a different permission per resource kind.** A folder's permissions need read
-    access; a category's need *write*. Same operation, different bar.
-  - **Categories are world-readable, folders are not.** A category is readable by any authenticated
-    user holding the role, with no per-category check, because it is a shared vocabulary. Defensible,
-    and the opposite of every other resource, and undocumented.
-  - **A user cannot classify their own artifacts.** Attaching a category needs a grant on the category
-    rather than on the artifact, and only an administrator can give it. Detailed below.
-  - **Group membership confers no read.** A member cannot fetch the group or its member list, so a user
-    can reach resources through a group they cannot see and cannot discover who else can reach them.
-  - **Denials answer 401 or 403 depending on which code path refuses.**
-  - **Authority checks live in different layers per subsystem**, so one of them is bypassable by a
-    non-HTTP caller.
-  - **Transferring ownership does not transfer control.** The owner field moves, but a resource inside
-    the donor's own tree is still reachable by the donor, because permissions inherit from the parent
-    they still own. So handing something over leaves the donor with read and write on it, and the
-    recipient is unlikely to expect that. Pinned in `SharingRoundTripTest`.
-  - **The Workbench cannot transfer ownership at all.** The share dialog offers it in two places and
-    neither works. On the row of an existing share the option is shown on
-    `share.canBeOwner(sh.node.id)` (`cedar-share-modal.directive.html:175`), where that node comes
-    from the permissions API as JSON-LD and carries `@id`, so the check always receives `undefined`
-    and the option never appears. That is the only wrong accessor in the file. The controller reads
-    `node['@id']` everywhere else, and `getNode` matches on `['@id']`, so the gate itself is a
-    one-line correction. Correcting it alone would not produce a working control. The option it
-    reveals writes through the path the add-user picker already uses, and that path passes `['@id']`
-    correctly, reports success in the dialog, and leaves the owner unchanged, because `select-picker`
-    copies options into a dropdown of its own and a click can land on an option Angular's model
-    refuses. Treat the two as one investigation, and verify against a running stack rather than by
-    reading, since the failing path is the one that reports success. Neither is pinned. The browser
-    smoke covers the rename and description controls a share governs and stops at ownership, because
-    there is no working control to drive, and the Protractor spec that claimed to cover it could not
-    have run for years.
-  - **Ownership is the one thing a WRITE grantee cannot take**, which is the model working: the owner
-    check in `validateOwnerSetPermission` holds across folders and all four artifact types. Noted here
-    because it is the boundary the rest of the model leans on, and because it is the only place
-    `CHANGEOWNER` would be consulted if it were consulted at all.
+  **The decisions this item waits on.** The assessment recommends an answer to each. None is settled.
 
-  **The unenforced levels.** `FilesystemResourcePermission` declares six: `READ`, `WRITE`,
-  `CHANGEOWNER`, `CHANGEPERMISSIONS`, `PUBLISH`, `CREATE_DRAFT`. Outside the enum declaration and
-  tests, `CHANGEPERMISSIONS` and `CHANGEOWNER` appear nowhere in the codebase — nothing ever consults
-  them. Only read and write are enforced.
+  1. Legacy `WRITE` migration. Preserve it as a reviewable Manager grant rather than guessing that it
+     meant Editor, and block `Everyone` combined with `WRITE` for owner review instead of silently
+     retaining broad write authority.
+  2. Folder deletion. Define ordinary deletion as an atomic trash of the contained tree, and reserve
+     permanent deletion for an explicit, separately protected command.
+  3. Administrator override. Allow platform recovery to transfer ownership only through an audited
+     recovery workflow, never through general ACL replacement.
+  4. Group visibility. Let members and administrators read their own group, and govern
+     directory-wide visibility with a separate platform permission.
+  5. OpenView paths. Expose no workspace path, and build an explicit public hierarchy if public
+     navigation is wanted.
 
-  The visible consequence is that **a WRITE grant confers re-sharing**, on folders and on all four
-  artifact types alike. Updating an ACL is gated by
-  `ResourcePermissionRequestValidator.validateWritePermission`, which asks only
-  `userHasWriteAccessToResource`, so anyone granted write on a folder or artifact may rewrite who else
-  can see it — adding people, and revoking the grants of others. "Share so they can edit" is in
-  practice "share so they can re-share". `FolderPermissionLevelMatrixTest` and
-  `ArtifactPermissionLevelMatrixTest` pin this, and demonstrate it rather than inferring it from a
-  status: a user holding only WRITE rewrites the ACL and their own grant disappears.
+  **What the assessment leaves to this item.**
 
-  `PUBLISH` and `CREATE_DRAFT` are inert in a sharper way, and it is now checked rather than assumed.
-  Publishing and drafting are **owner-only**: `userCanPerformVersioning` asks
-  `userIsOwnerOfFilesystemResource` and nothing else. So granting `PUBLISH` cannot let the grantee
-  publish, and granting `CREATE_DRAFT` cannot let them draft — the levels name operations they do not
-  confer. Worse, the grant is *accepted and stored*: `ArtifactLifecycleMatrixTest` grants each level
-  successfully and then gets the same `VERSIONING_ONLY_BY_OWNER` refusal that a user with no grant
-  receives.
+  - **Categories sit outside the target model.** Attaching a category requires `ATTACH`, or the
+    `WRITE` that implies it, on the *category* rather than on the artifact, and the category tree is
+    writable only by an administrator. Out of the box a user can read the vocabulary and attach
+    nothing to anything, including to templates they own. Reading a category's ACL costs write access
+    where a folder's costs read, and a category is readable by any authenticated user holding the
+    role. `ATTACH` is one of the few declared levels that is genuinely enforced, which is what makes
+    it the counter-example to the ones that are not. Decide whether categories join the role model or
+    remain a separate vocabulary with rules of their own, then make the requirement visible in the
+    product.
+  - **`PUBLISH` and `CREATE_DRAFT` are accepted, stored and never consulted.** Versioning is
+    owner-only through `userCanPerformVersioning`, so granting either confers nothing while reading
+    to a client as a restriction. `ArtifactLifecycleMatrixTest` grants each level successfully and
+    then receives the same `VERSIONING_ONLY_BY_OWNER` refusal a user with no grant receives. The
+    migration mapping moves both out to lifecycle policy, which needs a decision about where
+    versioning authority lives once they leave the workspace roles.
+  - **The Workbench cannot transfer ownership, and its control should be withdrawn rather than
+    repaired.** The share dialog offers the option in two places and neither works. The
+    existing-share row gates it on `sh.node.id` against a node that arrives from the permissions API
+    as JSON-LD carrying `@id` (`cedar-share-modal.directive.html:175`), the only site in that
+    controller reading `.id`, so the option never appears. The add-user picker passes `['@id']`
+    correctly, reports success, and leaves the owner unchanged, because `select-picker` copies
+    options into a dropdown of its own and a click can land on an option Angular's model refuses.
+    Correcting the accessor would expose an inline ACL edit that the proposal replaces with an
+    owner-only transfer command, so hide both paths until that command exists. Reporting success
+    while changing nothing is worse for a user than offering nothing. Neither path is pinned, and the
+    browser smoke stops at ownership because there is no working control to drive.
+  - **Denials answer 401 or 403 depending on which code path refuses.** The acceptance criteria fix
+    status codes elsewhere, so this belongs in the conformance matrix rather than outside it.
 
-  So the model as built has three tiers — read, write, owner — wearing a six-level enum. That may be
-  the intended design, and it is consistent and enforced. The problem is what the extra levels do to a
-  reader and to a client: a level that can be granted, is stored, and is never consulted reads as a
-  restriction while being none. Either enforce the four unused levels or remove them and document the
-  three tiers, including that write implies re-sharing and that versioning is owner-only.
-
-  **Classifying an artifact.** Attaching a category requires a grant on the *category*, not merely on
-  the artifact: `ATTACH` (or `WRITE`, which implies it) must be held on the category being attached.
-  The category tree is writable only by someone with write on the root, which is an administrator, so
-  out of the box a normal user can read the vocabulary and attach nothing to anything — including to
-  templates they own.
-
-  This is the design working as built, and `ATTACH` is one of the few permission levels that *is*
-  enforced, which is what makes it the counter-example to the four that are not. But it means the
-  category picker is inert for ordinary users until an administrator grants `ATTACH` on each category,
-  and nothing in the product surfaces that. Either grant `ATTACH` broadly when a category is created,
-  or make the requirement visible.
-
-  One of the original findings is already fixed rather than listed: a permissions response containing a
-  group grant could not be deserialized by the shared model, because `CedarGroupExtract` had no
-  no-argument constructor while `CedarUserExtract` did. That is now a one-line constructor in
-  `cedar-core-library`, with the typed read in `SharingRoundTripTest` as its regression test.
-
-  A second original finding is also fixed rather than listed: one ACL request used to execute the
-  owner change, each user and group addition or removal, and the everybody permission as separate
-  Neo4j transactions, so a failure could leave a partially applied ACL. Resource and category
-  permission updates now collect the complete diff through `updatePermissionsAtomically` and submit
-  it as one `executeWriteBatch`. `PermissionUpdateBatchTest` pins both paths to one batch containing
-  every requested change.
-
-  The deliverable is **a permissions document** — there is none today, and its absence is the root of
-  everything above. It should state the tiers, what each confers, how inheritance interacts with
-  ownership, what `ATTACH` is for, and which of the listed behaviours are intentional. Only then is it
-  worth making the code and the enum agree with it.
+  **One measurement to carry into the work.** The revision precondition is closer to the proposal
+  than the assessment's evidence suggests. Measured against the running stack, a mutation carrying no
+  `If-Match` answers 428 and one carrying a stale revision answers 412, which is what the proposal
+  asks for. Only `If-Match: *` is wrongly accepted, and it succeeds in deleting. Rejecting the
+  wildcard in `RevisionPreconditionParser`, and updating the tests that rely on it, is the whole of
+  that change.
 
   Pinned by `FolderPermissionLevelMatrixTest`, `ArtifactPermissionLevelMatrixTest`,
   `SharingRoundTripTest`, `ArtifactsAndCategoriesAuthorizationMatrixTest`,
