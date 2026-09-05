@@ -22,6 +22,11 @@ Frontend work for the embeddable editor is tracked separately in
   tests, so the behaviour cannot drift further while the decisions are made — and each test named here
   will fail and demand attention when a decision lands.
 
+  The [permission model](https://metadatacenter.readthedocs.io/en/latest/user-guide/advanced-topics/permission-model/)
+  is a proposed contract for that decision. It deliberately differs from the current implementation
+  where a simpler or safer rule is available; this item remains open until the proposal is accepted,
+  reconciled with the product, and enforced.
+
   What was found, in the order it bites a reader:
 
   - **Six declared permission levels, two enforced.** `READ` and `WRITE` are checked;
