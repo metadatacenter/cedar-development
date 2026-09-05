@@ -686,9 +686,18 @@ Frontend work for the embeddable editor is tracked separately in
   Done when each upgrade above has either landed or been recorded as refused with its reason, and
   the estate no longer carries a dependency held back only because nobody looked at it.
 
+- **15. Document the versioning model, then audit the implementation against it.** The user guide
+  says what an author sees and the YAML specification defines the keys, but no document states the
+  model: which artifact kinds are versioned, what publishing freezes, how a draft succeeds a published
+  version, how version numbers must order, what the three latest-version flags mean, and what deleting
+  a version does to the chain. Write that model in one place, beside the permission model. Then audit
+  the resource server, the graph and the search index against it, and record each divergence as a
+  decision to make or a defect to fix. `ArtifactLifecycleMatrixTest` pins the current rules until
+  then. Done when the model is published and every divergence is fixed or recorded.
+
 ## Production data
 
-- **15. Normalize production artifacts to one explicit model contract.** Production contains several
+- **16. Normalize production artifacts to one explicit model contract.** Production contains several
   legacy representations that the current model surfaces tolerate or normalize differently, so bring
   them to canonical shapes before tightening readers or introducing terminology routing across source
   systems. The permission-scoped audit found 76 inherently-multiple fields deployed as JSON objects in
@@ -864,7 +873,7 @@ Frontend work for the embeddable editor is tracked separately in
 
 ## Later decisions
 
-- **16. A published artifact can be deleted, contradicting the docs.** The docs say a published
+- **17. A published artifact can be deleted, contradicting the docs.** The docs say a published
   artifact is permanent, but `DELETE` on one succeeds. The guard in
   `AbstractResourceServerResource.executeArtifactDelete` was briefly re-enabled and then **reverted by
   deliberate decision**: blocking deletion strands published artifacts and the folders holding them with
@@ -875,7 +884,7 @@ Frontend work for the embeddable editor is tracked separately in
   through folder deletion). Immutability of published content is a separate guarantee and is
   unaffected either way — that one is enforced.
 
-- **17. Finish the DataCite DOI minting lifecycle.** The durable lifecycle is what makes the operation
+- **18. Finish the DataCite DOI minting lifecycle.** The durable lifecycle is what makes the operation
   recovery-safe, and none of it exists yet. Minting persists no state of its own: draft/reserved,
   published and locally attached are recorded nowhere, so the `reconciliationRequired` response names a
   condition no code resolves, and a retry after a timeout cannot tell whether the earlier attempt
