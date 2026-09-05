@@ -1,3 +1,4 @@
+import json
 import os
 import socket
 import subprocess
@@ -168,6 +169,56 @@ class NativeProcessSafetyTest(unittest.TestCase):
                 f'jar_of() {{ echo "{jar}"; }}; binary_of group $$')
 
             self.assertEqual("STALE", result.stdout.strip(), result.stderr)
+
+    @staticmethod
+    def _cee_frontend(root, repository, wanted, installed, served=None):
+        """A frontend checkout whose lock names one Editor and whose node_modules holds another."""
+        checkout = Path(root) / repository
+        module = checkout / "node_modules" / "cedar-embeddable-editor"
+        served_dir = checkout / "app" / "third_party_components" / "cedar-embeddable-editor"
+        module.mkdir(parents=True)
+        served_dir.mkdir(parents=True)
+        (checkout / "package-lock.json").write_text(json.dumps({
+            "packages": {"node_modules/cedar-embeddable-editor": {"version": wanted}},
+        }), encoding="utf-8")
+        (module / "package.json").write_text(json.dumps({"version": installed}), encoding="utf-8")
+        (module / "cedar-embeddable-editor.js").write_text(f"// editor {installed}\n", encoding="utf-8")
+        (served_dir / "cedar-embeddable-editor.js").write_text(
+            f"// editor {served or installed}\n", encoding="utf-8")
+
+    def test_a_moved_editor_pin_without_a_reinstall_marks_both_frontends_stale(self):
+        """The lock moved to a new Editor and npm ci never ran, in the monolith and in Workspace."""
+        with tempfile.TemporaryDirectory() as directory:
+            self._cee_frontend(directory, "cedar-template-editor", "2.0.6", "2.0.5")
+            self._cee_frontend(directory, "cedar-workspace", "2.0.6", "2.0.5")
+            result = self.run_library(
+                'printf "%s %s %s\n" "$(binary_of ui-main 1)" "$(binary_of ui-workspace 1)" '
+                '"$(binary_of ui-designer 1)"',
+                CEDAR_HOME=directory,
+            )
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual("STALE STALE -", result.stdout.strip())
+
+    def test_a_reinstalled_editor_that_was_never_copied_is_stale_in_its_own_frontend(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self._cee_frontend(directory, "cedar-template-editor", "2.0.6", "2.0.6")
+            self._cee_frontend(directory, "cedar-workspace", "2.0.6", "2.0.6", served="2.0.5")
+            result = self.run_library(
+                'printf "%s %s\n" "$(binary_of ui-main 1)" "$(binary_of ui-workspace 1)"',
+                CEDAR_HOME=directory,
+            )
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual("current STALE", result.stdout.strip())
+
+    def test_only_the_frontends_that_embed_the_editor_are_asked_about_it(self):
+        result = self.run_library(
+            'for name in ui-main ui-workspace ui-designer ui-openview group; do '
+            'if serves_cee "$name"; then printf "%s " "$name"; fi; done; echo')
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual("ui-main ui-workspace", result.stdout.strip())
 
     def test_docker_port_proxy_is_not_a_native_microservice(self):
         result = self.run_library(

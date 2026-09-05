@@ -598,16 +598,18 @@ requires a successful response from the served root.
 
 Two columns exist so a green table cannot hide a stale one. **BINARY** compares when a process started
 against when its jar was written: `STALE` means the service is serving a jar older than the build, so
-its health says nothing about your latest code. For the `ui-main` row the column asks the equivalent
-question of the Embeddable Editor, which the Template Designer takes from npm and a gulp task copies
-out of `node_modules` into the tree gulp serves. Those two hops are invisible to git, because the
-served copy is ignored, so moving the pin without `npm ci`, or running `npm ci` without `copy:cee`,
-keeps the previous editor on screen while `package.json`, the lock and the release ledger all name
-the new one. `STALE` there means the served bundle is not the one `package-lock.json` names, and the
-remedy the footer prints is a reinstall and a recopy rather than a restart:
+its health says nothing about your latest code. For the `ui-main` and `ui-workspace` rows the column
+asks the equivalent question of the Embeddable Editor, which each of those frontends takes from npm
+and a gulp task copies out of `node_modules` into the tree gulp serves. Those two hops are invisible
+to git, because the served copy is ignored, so moving the pin without `npm ci`, or running `npm ci`
+without `copy:cee`, keeps the previous editor on screen while `package.json`, the lock and the
+release ledger all name the new one. `STALE` there means the served bundle is not the one
+`package-lock.json` names, and the remedy the footer prints for each stale frontend is a reinstall
+and a recopy in its own checkout rather than a restart:
 
 ```bash
 (cd $CEDAR_HOME/cedar-template-editor && npm ci && npx gulp copy:cee)
+(cd $CEDAR_HOME/cedar-workspace && npm ci && npx gulp copy:cee)
 ```
 
 The other frontends read `-`: none of them depends on the Embeddable Editor. **PID** shows `~pid` (a leading tilde) only for a
