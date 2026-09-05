@@ -397,6 +397,15 @@ Frontend work for the embeddable editor is tracked separately in
   its own to make a performance run measure the save rather than the code. `cedar_log.log_request`
   had reached 10.3 million rows, 6.8 GB of data and 4.4 GB of index.
 
+  Those figures count what reached Redis, and some messages never do. The producer borrows from a
+  pool of eight connections with a 100 millisecond deadline and drops the message when none comes
+  free, which a comment in `QueueService` explains as keeping a reporting-only queue from exhausting
+  the request threads. A 30-minute soak on 2026-09-04 shed 182 messages in the resource server and
+  15 in the artifact server. Two things follow. The production rate above is a floor rather than a
+  measurement, because it counts arrivals and not attempts. The ceiling described below would also
+  be the second shedding mechanism rather than the first, so it has to say whether the existing one
+  stays. That one sheds whichever message happens to find the pool full, which is no policy at all.
+
   Three things hold the drain rate down, and they compound. Each message is its own `@UnitOfWork`,
   so one HTTP request costs several transactions rather than one. Every subtype after the first reads
   the row back by `localRequestId` before merging into it, so most of those transactions carry a
