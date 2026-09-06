@@ -7,8 +7,8 @@ shared library rather than to one server.
 For how to run and build the system see [BACKEND-RUNBOOK.md](./BACKEND-RUNBOOK.md), whose "Dependency and Framework
 State" section records what the stack currently sits on. Library-internal items belong in that
 library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact-library/ROADMAP.md).
-Frontend work for the embeddable editor is tracked separately in
-[CEE-ROADMAP.md](./CEE-ROADMAP.md), and the MCP servers in
+Work on the main browser applications is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md), work on
+the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the MCP servers is in
 [MCP-ROADMAP.md](./MCP-ROADMAP.md).
 
 ## Next
@@ -416,34 +416,7 @@ Frontend work for the embeddable editor is tracked separately in
   prove that Keycloak loads the packaged provider or that a deployed admin operation reaches the
   configured realm.
 
-- **10. Retire routine `CEDAR_VERSION_MODIFIER` cache busting.** Frontend code identity now comes
-  from the source commit in the three AngularJS RequireJS keys and from content-hashed production
-  bundles in the modern Angular applications. A deployment should not need a hand-edited modifier
-  merely to make a new code revision visible. Keep the variable temporarily as a compatibility
-  escape hatch for two materially different cached payloads built from the same source commit, not
-  as a release counter.
-
-  Audit every producer and consumer before deleting or clearing it: profile and environment files,
-  cedar-cli build/version reporting, the three Gulp applications, native split-payload tooling,
-  Docker entrypoints, release/deployment scripts, and operational documentation. Classify each use
-  as source identity, genuine same-commit payload identity, display-only version metadata, or dead
-  compatibility behavior. Remove routine deploy-time bumps and any check that treats a changed
-  modifier as evidence that new code is live. If no cached asset can legitimately differ while its
-  source commit stays fixed, remove the variable completely; otherwise retain the narrowly named
-  override and add a test proving the exact same-commit case it serves.
-
-  Make the production transition once, deliberately. Rehearse it in staging, clear or freeze the
-  old modifier, rebuild every frontend from recorded commits, deploy the canonical nginx policy,
-  and purge entry/config objects that may still carry the former headers. Verify that entry and
-  runtime configuration are `no-store`, stable fallback assets revalidate, hashed assets are
-  immutable, and every served build identity matches the accepted commit. Then use a browser that
-  previously loaded the old payload to open, modify, save, reload, and save an existing instance;
-  this must exercise the GET ETag and subsequent `If-Match` update rather than merely prove that the
-  dashboard renders. The item is complete after two consecutive code deployments require no manual
-  cache token, the cache-delivery smoke passes in staging and production, and rollback works by
-  restoring payloads and routing without inventing a new modifier.
-
-- **11. Converge on one pagination encoding.** Three servers paginate three ways, and all three build
+- **10. Converge on one pagination encoding.** Three servers paginate three ways, and all three build
   on the same `PagedResults` and `LinkHeaderUtil`, so nothing forces the split. The artifact server
   sends `Link` and `Total-Count` as headers and keeps the body to the collection. The resource server
   computes the same link set and puts it in the body under `paging`
@@ -475,7 +448,7 @@ Frontend work for the embeddable editor is tracked separately in
   REST smoke asserts it on a route from each of the three servers, and the superseded encodings are
   either withdrawn or carry a recorded date for withdrawal.
 
-- **12. Bound every outbound call by what the call actually is, and measure before choosing the
+- **11. Bound every outbound call by what the call actually is, and measure before choosing the
   numbers.** Two classes of outbound call are distinguished today, interactive and batch, each with a
   fixed connect, lease and response timeout and its own connection pool. That covers the difference
   between a call a user waits on and a job nobody waits on. It does not cover the difference between
@@ -544,7 +517,7 @@ Frontend work for the embeddable editor is tracked separately in
   Done when each class of outbound call takes its timeouts from configuration, the request log carries
   durations, the compensating write is durable, and the remaining clients read the same settings.
 
-- **13. Make native bring-up prove a service runs, and make one already-running layer not stop the
+- **12. Make native bring-up prove a service runs, and make one already-running layer not stop the
   rest.** `cedarcli native start` reports what the launcher accepted rather than what the stack ends
   up running, and the gap swallowed a whole-stack outage on 2026-09-02: every application exited in
   milliseconds for want of `CEDAR_PROFILE`, launchd's keepalive respawned each one, and the CLI
@@ -569,7 +542,7 @@ Frontend work for the embeddable editor is tracked separately in
   Done when `start` reports a service only once it is healthy or names why it is not, and `start
   all` completes against running infrastructure.
 
-- **14. Take the dependency upgrades that need code changes.** The versions that could move without
+- **13. Take the dependency upgrades that need code changes.** The versions that could move without
   consequence have moved. What stayed behind stayed deliberately, and it separates into work to do,
   versions that follow something else, and versions upstream has not released.
 
@@ -620,7 +593,7 @@ Frontend work for the embeddable editor is tracked separately in
   Done when each upgrade above has either landed or been recorded as refused with its reason, and
   the estate no longer carries a dependency held back only because nobody looked at it.
 
-- **15. Document the versioning model, then audit the implementation against it.** The user guide
+- **14. Document the versioning model, then audit the implementation against it.** The user guide
   says what an author sees and the YAML specification defines the keys, but no document states the
   model: which artifact kinds are versioned, what publishing freezes, how a draft succeeds a published
   version, how version numbers must order, what the three latest-version flags mean, and what deleting
@@ -629,7 +602,7 @@ Frontend work for the embeddable editor is tracked separately in
   decision to make or a defect to fix. `ArtifactLifecycleMatrixTest` pins the current rules until
   then. Done when the model is published and every divergence is fixed or recorded.
 
-- **16. Give the public CEE release a CLI route.** Publishing `cedar-embeddable-editor` to npmjs is a
+- **15. Give the public CEE release a CLI route.** Publishing `cedar-embeddable-editor` to npmjs is a
   runbook of about twenty-five commands across `develop`, a pull request, `main`, the registry, a
   tag, the development-state restore and the train baseline refresh. Release 2.0.6 took an hour of
   operator attention for two minutes of gate time, and CEE has shipped four public versions in a
@@ -644,7 +617,7 @@ Frontend work for the embeddable editor is tracked separately in
 
 ## Production data
 
-- **17. Normalize production artifacts to one explicit model contract.** Production contains several
+- **16. Normalize production artifacts to one explicit model contract.** Production contains several
   legacy representations that the current model surfaces tolerate or normalize differently, so bring
   them to canonical shapes before tightening readers or introducing terminology routing across source
   systems. The permission-scoped audit found 76 inherently-multiple fields deployed as JSON objects in
@@ -820,7 +793,7 @@ Frontend work for the embeddable editor is tracked separately in
 
 ## Later decisions
 
-- **18. A published artifact can be deleted, contradicting the docs.** The docs say a published
+- **17. A published artifact can be deleted, contradicting the docs.** The docs say a published
   artifact is permanent, but `DELETE` on one succeeds. The guard in
   `AbstractResourceServerResource.executeArtifactDelete` was briefly re-enabled and then **reverted by
   deliberate decision**: blocking deletion strands published artifacts and the folders holding them with
@@ -830,16 +803,3 @@ Frontend work for the embeddable editor is tracked separately in
   re-enabling the guard together with a supported cleanup path (e.g. an admin-only delete, or cascading
   through folder deletion). Immutability of published content is a separate guarantee and is
   unaffected either way — that one is enforced.
-
-- **19. Finish the DataCite DOI minting lifecycle.** The durable lifecycle is what makes the operation
-  recovery-safe, and none of it exists yet. Minting persists no state of its own: draft/reserved,
-  published and locally attached are recorded nowhere, so the `reconciliationRequired` response names a
-  condition no code resolves, and a retry after a timeout cannot tell whether the earlier attempt
-  already minted a DOI. Define those states, retain the DataCite identifier before the fallible
-  write-back, and make a retry resume or reconcile the same DOI rather than orphan or duplicate one.
-  Tighten how an existing draft is associated with its source artifact: the lookup still matches
-  DataCite records on the OpenView URL. Orchestration also still sits in `DataCiteResource`, so
-  configuration and error mapping are not yet centralized. The offline suite still lacks
-  create-versus-update, retry after timeout, and repeated publish, each of which needs the durable
-  states before it can be written. Keep normal tests offline; add only an opt-in DataCite sandbox
-  smoke test for the final wire contract and credential/configuration check.

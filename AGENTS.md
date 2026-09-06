@@ -43,6 +43,7 @@ failure; do not make them the interface. The full command reference is the
 Choose the guide by task:
 
 - **Native backend and native stack:** `cedar-development/ops/BACKEND-RUNBOOK.md`
+- **Open work for the main browser applications:** `cedar-development/ops/FRONTEND-ROADMAP.md`
 - **Maven and Docker build trains:** `cedar-development/ops/BUILD-RUNBOOK.md`
 - **Full-Docker and hybrid stacks:** `cedar-development/ops/DOCKER-RUNBOOK.md`
 - **Open Docker delivery work:** `cedar-development/ops/DOCKER-ROADMAP.md`
@@ -111,6 +112,11 @@ The backend — the microservices, the shared Java libraries, the stack itself:
   native-frontend hybrid container stacks.
 - [DOCKER-ROADMAP.md](ops/DOCKER-ROADMAP.md) — remaining registry-backed delivery, promotion,
   rollback, image-verification and persistence work.
+
+The main browser applications — `cedar-workspace`, `cedar-template-editor`,
+`cedar-metadata-editor` and `cedar-profile-editor`:
+- [FRONTEND-ROADMAP.md](ops/FRONTEND-ROADMAP.md) — cross-cutting frontend delivery and the
+  end-to-end user workflows initiated by these applications.
 
 The embeddable editor (CEE) and the TypeScript model library it consumes:
 - [CEE-RUNBOOK.md](ops/CEE-RUNBOOK.md) — the Node version (one now, 24.19.0, read that first),
