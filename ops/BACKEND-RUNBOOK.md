@@ -1313,10 +1313,12 @@ TypeScript, while both emit the same bytes for it.
   magnitude, verify the underlying artifact — do not keep waiting.
 
 - **A test fails with `Failed to bind to 0.0.0.0:90xx` while the dev stack is up** → that test boots
-  its server on a real dev port instead of the alternate `19xxx` test range. Every booted test must
-  redirect its ports through `CedarEnvironmentSource.setOverride(...)` to the `19xxx` range (test
-  port = dev port + 10000), so a running dev stack and a test run never collide. Give the offending
-  test the same static-block redirect the other servers' tests use.
+  its server on a real dev port instead of asking the OS for an isolated listener. Every booted test
+  must redirect its application, admin and stop ports through
+  `CedarEnvironmentSource.setOverride(...)` to `0`; obtain the allocated application port from
+  `DropwizardTestSupport.getLocalPort()`. In-process HTTP stubs likewise bind to `127.0.0.1:0`, start,
+  and then inject their allocated port. Port `1` is reserved for a dependency that must be
+  unavailable and is never a listener.
 
 - **`UnitOfWorkAwareProxyFactory` or other startup code fails only in a non-interactive shell** →
   that shell did not pin `JAVA_HOME` to 17 (the zsh pin is interactive-only), so the build or run
@@ -1634,8 +1636,9 @@ grant/revoke materialization changes and a point-in-time continuation walk again
 resource server integration test sends real `/search` and `/search-deep` requests through
 Dropwizard to the same engine. For a local reproduction, start the native infrastructure and run
 the matching module with the profile; the usual `CEDAR_OPENSEARCH_HOST` and
-`CEDAR_OPENSEARCH_REST_PORT` select the engine and default to `127.0.0.1:9200`. The tests use
-disposable or run-unique documents and clean them afterward.
+`CEDAR_OPENSEARCH_REST_PORT` select the engine and default to `127.0.0.1:9200`. Both tests use a
+run-unique index and delete only that index afterward, so concurrent runs share the engine but not
+index lifecycle or documents.
 
 Backend-free Maven tests suppress the application-log queue through the
 `cedar.test.suppressAppLogQueue` system property inherited from `cedar-parent`. This is deliberate
@@ -1668,12 +1671,19 @@ shortens the clock without skipping the queue state transitions or the retry/dea
 the tests exist to cover. Blocking Redis consumers retain their one-second idle wait even in tests,
 which is what a consumer spends between claims when its queue is empty.
 
-Test servers boot on the alternate `19xxx` port range (test port = dev port + 10000), so a running
-dev stack and a test run coexist. Redirection goes through `CedarEnvironmentSource.setOverride(map)`,
-a process-global test override read by the whole config layer. This replaced an earlier reflection
-hack (`TestUtil.setEnv`, now deleted) that rewrote the real process environment and failed silently
-without `--add-opens` flags. Because `CedarConfig` is injectable and rebuilds when the override
-changes, surefire runs `reuseForks=true` (test classes share a JVM) with no `--add-opens` argLine.
+Test servers and in-process HTTP stubs bind to port `0`, letting the OS allocate a listener that does
+not collide with the native stack or a concurrent Maven process. Redirection goes through
+`CedarEnvironmentSource.setOverride(map)`, a process-global test override read by the whole config
+layer. `cedar-test-support-library` contributes an auto-detected JUnit extension that clears that
+override after every test class; abstract harnesses reapply their embedded-backend redirect in each
+inherited `@BeforeAll`. This prevents one class's allocated dependency port from becoming the next
+class's configuration when surefire's `reuseForks=true` shares a JVM. `CedarConfig` rebuilds whenever
+the active environment changes, and no reflective `--add-opens` environment mutation is involved.
+
+`ops/tests/test_backend_test_port_policy.py` is the static regression guard. It rejects fixed server
+environment ports, fixed `InetSocketAddress` listeners and nonzero test connector ports across the
+backend repositories. Run it from `cedar-development` with
+`python -m unittest ops.tests.test_backend_test_port_policy`.
 
 The suites are JUnit 5. Booted-application tests use `io.dropwizard.testing.DropwizardTestSupport`
 started in a static `@BeforeAll` and stopped in `@AfterAll`. Do not use the JUnit 5
@@ -2146,10 +2156,12 @@ quietly omit it: a row with gaps is visible here, where otherwise it takes a han
 repositories to notice.
 
 A suite must run without shared developer infrastructure or a live external API. Use
-`cedar-test-support-library` for in-process stores and authentication, bind isolated `19xxx` ports
-distinct from every other booting test class, and tag the few tests that genuinely need an external
-sandbox. Suites must be runnable per repository and together through `cedarcli build`, with failures
-attributed to the responsible service rather than disappearing inside the aggregate reactor output.
+`cedar-test-support-library` for in-process stores and authentication, bind application and stub
+listeners to port `0`, and tag the few tests that genuinely need an external sandbox. Any downstream
+service a test can contact must be an allocated in-process stub or the deliberately unavailable port
+`1`, never the `9001`–`9015` native service range. Suites must be runnable per repository and together
+through `cedarcli build`, with failures attributed to the responsible service rather than disappearing
+inside the aggregate reactor output.
 
 ### The Matrix
 
