@@ -15,7 +15,7 @@ assertSafeTargets();
 const HERE = dirname(fileURLToPath(import.meta.url));
 const profile = arg('profile', 'quick');
 const defaultUsers = {
-  permissions: 4, quick: 10, contention: 20, hotset: 20, resilience: 10, churn: 10, burst: 50, soak: 50,
+  permissions: 5, quick: 10, contention: 20, hotset: 20, resilience: 10, churn: 10, burst: 50, soak: 50,
 };
 if (!defaultUsers[profile]) {
   throw new Error(`--profile must be permissions, quick, contention, hotset, resilience, churn, burst or soak; got ${profile}`);

@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
-  artifactCapabilities, fieldActions, filesystemAcl, folderActions, folderCapabilities, sameMembers,
-  samePermissionActions,
+  artifactCapabilities, categoryAcl, categoryCapabilities, fieldActions, filesystemAcl, folderActions,
+  folderCapabilities, sameMembers, samePermissionActions,
 } from '../permission-model.js';
 
 test('artifact roles expose the documented cumulative capability sets', () => {
@@ -22,6 +22,17 @@ test('folder Editor can receive resources but cannot manage grants or OpenView',
   assert.ok(!folderCapabilities.editor.includes('moveResource'));
   assert.ok(!folderCapabilities.editor.includes('manageGrants'));
   assert.ok(!folderCapabilities.editor.includes('manageOpenView'));
+});
+
+test('category roles expose the documented cumulative capability sets', () => {
+  assert.deepEqual(categoryCapabilities.viewer, ['readCategory']);
+  assert.deepEqual(categoryCapabilities.classifier,
+      ['readCategory', 'attachCategory', 'detachCategory']);
+  assert.ok(categoryCapabilities.editor.includes('updateCategory'));
+  assert.ok(!categoryCapabilities.editor.includes('manageGrants'));
+  assert.ok(categoryCapabilities.manager.includes('manageGrants'));
+  assert.ok(!categoryCapabilities.manager.includes('transferOwnership'));
+  assert.ok(categoryCapabilities.owner.includes('transferOwnership'));
 });
 
 test('resource state actions remain separate from capabilities', () => {
@@ -43,6 +54,17 @@ test('filesystem ACL fixtures use role and never the legacy permission property'
     groupPermissions: [{ group: { '@id': 'group' }, role: 'viewer' }],
   });
   assert.equal(JSON.stringify(acl).includes('permission'), false);
+});
+
+test('category ACL fixtures use roles and leave ownership to the transfer operation', () => {
+  const acl = categoryAcl(
+      [{ id: 'user', role: 'classifier' }], [{ id: 'group', role: 'editor' }]);
+  assert.deepEqual(acl, {
+    userPermissions: [{ user: { '@id': 'user' }, role: 'classifier' }],
+    groupPermissions: [{ group: { '@id': 'group' }, role: 'editor' }],
+  });
+  assert.equal(JSON.stringify(acl).includes('permission'), false);
+  assert.equal(Object.hasOwn(acl, 'owner'), false);
 });
 
 test('sameMembers compares sets while rejecting duplicates and missing members', () => {

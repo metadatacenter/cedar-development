@@ -1860,7 +1860,7 @@ The eight load profiles are:
 
 | Command | Default shape | What it exercises |
 |---|---:|---|
-| `npm run perf:rest:permissions` | Four identities, three complete model rounds | Exact role, ownership, capability and permission-governed action reports for fields and folders; direct, group and inherited access; Viewer, Editor and Manager enforcement; role changes concurrent with use; move-target authority; and OpenView |
+| `npm run perf:rest:permissions` | Five identities, three complete model rounds | Exact role, ownership and capability reports for fields, folders and categories; direct, group and inherited access; category classification, record, ACL and ownership-transfer boundaries; filesystem moves; and OpenView |
 | `npm run perf:rest:quick` | 10 identities, ramp 1 → 5 → 10 → 0 in 4.5 minutes | Artifact reads, folder listings, search, conditional artifact updates, conditional moves, and OpenView toggles |
 | `npm run perf:rest:contention` | 20 identities, three complete matrix rounds | Twenty-way compare-and-swap races across artifact content, workspace graph state, ACLs, group records and membership, and categories; update/delete, repeated-delete and wildcard/delete cases use sacrificial fixtures |
 | `npm run perf:rest:hotset` | 20 identities and 20 VUs for 10 minutes | Sustained independent GET/conditional-mutation loops over a small shared set of templates, elements, fields, instances, folders, groups and categories; both conflicts and successful forward progress are required |
@@ -1870,8 +1870,8 @@ The eight load profiles are:
 | `npm run perf:rest:soak` | 50 identities and 50 VUs for 30 minutes | A steady, non-destructive mix across template, element, field and instance reads and conditional updates; folder listing, search, moves and OpenView; artifact and folder ACLs; group records and membership; and category records and ACLs |
 
 `--users=N`, `--vus=N` and `--duration=10s` override those defaults. The permissions profile needs at
-least four identities and accepts `--rounds=N`; each round starts from a known Viewer grant and ends
-with its revocation, so rounds are independent. `--seed=NAME` makes the soak's
+least five identities and accepts `--rounds=N`; each round starts from known Viewer grants and ends
+with their revocation, so rounds are independent. `--seed=NAME` makes the soak's
 per-user schedule reproducible; without it, the run ID is the seed. The contention profile also
 accepts `--rounds=N`; its `--duration` is a maximum rather than a steady-state duration.
 The resilience profile accepts `--fault-delay=N`, `--fault-downtime=N` and
@@ -1946,8 +1946,9 @@ and iteration, and the JSON summary records the seed. ACL operations alternate r
 grant and revocation transitions for a paired identity, then verify both the stored role set and
 that identity's resulting access. Group membership likewise alternates join and leave against a folder
 with a stable group grant, proving that the membership transition changes effective access rather than
-merely accepting an unchanged roster. Category ACLs alternate a peer's write grant and revocation and
-verify that the peer gains and loses access to the ACL. Any semantic mismatch fails the run through a
+merely accepting an unchanged roster. Category ACLs alternate a peer's Manager role and revocation.
+The peer retains inherited Viewer access in both states. The check verifies that the peer can change
+direct grants only while the Manager role is present. Any semantic mismatch fails the run through a
 zero-tolerance invariant metric. The soak deliberately excludes
 create/delete churn, update-versus-delete, repeated DELETE and wildcard deletion: those operations
 belong to the bounded contention matrix, where exact winner/loser outcomes and cleanup can be asserted
@@ -1994,8 +1995,11 @@ has its own `cedar_route_*_duration` trend so a fast read cannot hide a slow mut
 
 The permissions profile adds fields and folders with direct Viewer, Editor and Manager roles, an
 inherited role that is stronger than a direct role, a Viewer role obtained through group membership,
-and independent source and destination fixtures for move authorization. Filesystem ACL fixtures use
-the `role` property throughout. Categories retain their separate `permission` vocabulary.
+and independent source and destination fixtures for move authorization. It also adds categories with
+direct Viewer, Classifier, Editor and Manager roles, an inherited role that is stronger than a direct
+role, and a Classifier role obtained through group membership. Category role transitions verify
+classification, category-record and ACL boundaries. A separate fixture verifies transfer to a new
+owner and transfer back to the original owner. All ACL fixtures use the `role` property.
 
 The wrapper checks that k6 exists before setup, then always performs teardown after the load process,
 including a failed threshold or first `SIGINT`/`SIGTERM`. Teardown reads the current ETag, deletes in

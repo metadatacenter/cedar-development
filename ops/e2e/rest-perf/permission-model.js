@@ -27,6 +27,23 @@ export const folderCapabilities = {
   ],
 };
 
+export const categoryCapabilities = {
+  viewer: ['readCategory'],
+  classifier: ['readCategory', 'attachCategory', 'detachCategory'],
+  editor: [
+    'readCategory', 'attachCategory', 'detachCategory', 'updateCategory', 'createChildCategory',
+    'deleteCategory',
+  ],
+  manager: [
+    'readCategory', 'attachCategory', 'detachCategory', 'updateCategory', 'createChildCategory',
+    'deleteCategory', 'manageGrants', 'moveCategory',
+  ],
+  owner: [
+    'readCategory', 'attachCategory', 'detachCategory', 'updateCategory', 'createChildCategory',
+    'deleteCategory', 'manageGrants', 'moveCategory', 'transferOwnership',
+  ],
+};
+
 export const fieldActions = {
   viewer: ['copyFromResource'],
   editor: ['copyFromResource'],
@@ -48,6 +65,13 @@ export const permissionActionNames = [
 export function filesystemAcl(ownerId, userRoles = [], groupRoles = []) {
   return {
     owner: { '@id': ownerId },
+    userPermissions: userRoles.map(({ id, role }) => ({ user: { '@id': id }, role })),
+    groupPermissions: groupRoles.map(({ id, role }) => ({ group: { '@id': id }, role })),
+  };
+}
+
+export function categoryAcl(userRoles = [], groupRoles = []) {
+  return {
     userPermissions: userRoles.map(({ id, role }) => ({ user: { '@id': id }, role })),
     groupPermissions: groupRoles.map(({ id, role }) => ({ group: { '@id': id }, role })),
   };

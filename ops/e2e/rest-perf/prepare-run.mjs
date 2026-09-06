@@ -9,7 +9,7 @@ import {
   PERF_PREFIX, RESOURCE, GROUP_SERVER, absolute, arg, assertSafeTargets, currentMutation, enc,
   intArg, parallelLimit, readJson, request, runId, userProfile, userToken, writeJson,
 } from './lib.mjs';
-import { filesystemAcl } from './permission-model.js';
+import { categoryAcl, filesystemAcl } from './permission-model.js';
 
 assertSafeTargets();
 
@@ -26,7 +26,8 @@ const scheduleSeed = arg('seed', id);
 const password = env.CEDAR_PERF_USER_PASSWORD;
 if (!password) throw new Error('CEDAR_PERF_USER_PASSWORD is required');
 const adminKey = env.CEDAR_ADMIN_USER_API_KEY;
-if ((profile === 'contention' || profile === 'hotset' || profile === 'soak') && !adminKey) {
+if ((profile === 'contention' || profile === 'hotset' || profile === 'soak'
+    || profile === 'permissions') && !adminKey) {
   throw new Error(`CEDAR_ADMIN_USER_API_KEY is required for category ${profile} fixtures`);
 }
 
@@ -38,12 +39,12 @@ if (selected.length !== userCount) {
 if (profile === 'soak' && selected.length < 2) {
   throw new Error('the soak profile needs at least two users for grant/revoke and membership transitions');
 }
-if (profile === 'permissions' && selected.length < 4) {
-  throw new Error('the permissions profile needs four users for owner, Viewer, Editor and Manager coverage');
+if (profile === 'permissions' && selected.length < 5) {
+  throw new Error('the permissions profile needs five users for owner, Viewer, Classifier, Editor and Manager coverage');
 }
 
 const manifest = {
-  schemaVersion: 4,
+  schemaVersion: 5,
   runId: id,
   scheduleSeed,
   prefix: PERF_PREFIX,
@@ -155,13 +156,13 @@ async function categoryRootId() {
   return categoryRootPromise;
 }
 
-async function createCategory(label) {
-  const rootId = await categoryRootId();
+async function createCategory(label, parentCategoryId) {
+  const parentId = parentCategoryId || await categoryRootId();
   const name = `${PERF_PREFIX} ${label} ${id}`;
   const response = await request(adminKey, 'POST', '/categories', {
     'schema:name': name,
     'schema:description': `${PERF_PREFIX} fixture for ${id}`,
-    parentCategoryId: rootId,
+    parentCategoryId: parentId,
     'schema:identifier': `cedar-rest-perf-${id}-${label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
   });
   if (response.status !== 201) throw new Error(`create category ${label}: ${response.status} ${response.text}`);
@@ -172,19 +173,20 @@ async function createCategory(label) {
 }
 
 async function shareCategory(category, actorsToShare) {
-  const current = await request(adminKey, 'GET', `${category.path}/permissions`);
-  if (current.status !== 200 || !current.body?.owner?.['@id']) {
-    throw new Error(`read category permissions: ${current.status} ${current.text}`);
-  }
-  const permissions = {
-    userPermissions: actorsToShare.map(actor => ({
-      user: { '@id': actor.cedarUserId }, role: 'manager',
-    })),
-    groupPermissions: [],
-  };
+  const permissions = categoryAcl(
+      actorsToShare.map(actor => ({ id: actor.cedarUserId, role: 'manager' })));
   const shared = await currentMutation(adminKey, 'PUT', `${category.path}/permissions`, permissions);
   if (shared.status !== 200) {
     throw new Error(`share category: ${shared.status} ${shared.text}`);
+  }
+  return permissions;
+}
+
+async function shareCategoryRoles(category, userRoles = [], groupRoles = []) {
+  const permissions = categoryAcl(userRoles, groupRoles);
+  const shared = await currentMutation(adminKey, 'PUT', `${category.path}/permissions`, permissions);
+  if (shared.status !== 200) {
+    throw new Error(`share category roles: ${shared.status} ${shared.text}`);
   }
   return permissions;
 }
@@ -300,6 +302,7 @@ if (profile === 'soak') {
 
 if (profile === 'permissions') {
   const viewer = actors[1];
+  const classifier = actors[4];
   const editor = actors[2];
   const manager = actors[3];
   const directField = await createArtifact(owner, owner.rootFolderId, 'Permission roles field', 'field');
@@ -354,17 +357,50 @@ if (profile === 'permissions') {
   await shareFilesystemRoles(owner, moveBlocked.path, [{ id: manager.cedarUserId, role: 'viewer' }]);
   await shareFilesystemRoles(owner, moveAllowed.path, [{ id: manager.cedarUserId, role: 'editor' }]);
 
+  const directCategory = await createCategory('Permission direct roles category');
+  await shareCategoryRoles(directCategory, [
+    { id: viewer.cedarUserId, role: 'viewer' },
+    { id: classifier.cedarUserId, role: 'classifier' },
+    { id: editor.cedarUserId, role: 'editor' },
+    { id: manager.cedarUserId, role: 'manager' },
+  ]);
+
+  const inheritedCategoryParent = await createCategory('Permission inherited category parent');
+  const inheritedCategory = await createCategory(
+      'Permission inherited category child', inheritedCategoryParent.id);
+  await shareCategoryRoles(inheritedCategoryParent,
+      [{ id: editor.cedarUserId, role: 'editor' }]);
+  await shareCategoryRoles(inheritedCategory,
+      [{ id: editor.cedarUserId, role: 'viewer' }]);
+
+  const groupCategory = await createCategory('Permission group category');
+  await shareCategoryRoles(groupCategory, [], [{ id: group.id, role: 'classifier' }]);
+
+  const transitionCategory = await createCategory('Permission transition category');
+  const transitionCategoryArtifact = await createArtifact(
+      classifier, classifier.rootFolderId, 'Permission category classification template');
+  const transferCategory = await createCategory('Permission ownership transfer category');
+
   manifest.permissions = {
     ownerIndex: owner.index,
     viewerIndex: viewer.index,
     editorIndex: editor.index,
     managerIndex: manager.index,
+    classifierIndex: classifier.index,
     directField,
     directFolder,
     inheritedField,
     groupField,
     transitionField,
     move: { field: moveField, source: moveSource, blocked: moveBlocked, allowed: moveAllowed },
+    category: {
+      direct: directCategory,
+      inherited: inheritedCategory,
+      group: groupCategory,
+      transition: transitionCategory,
+      transitionArtifact: transitionCategoryArtifact,
+      transfer: transferCategory,
+    },
   };
   writeJson(output, manifest);
 }
