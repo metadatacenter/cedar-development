@@ -697,11 +697,12 @@ keys until that migration is complete. Newly written grants to the built-in **Ev
 restricted to Viewer; legacy Everyone-write data remains readable so an upgrade cannot silently
 remove existing access.
 
-Permission request and response objects use `role` with the values `viewer`, `editor` and `manager`.
-During the compatibility period the server also accepts the old `permission` property and maps its
-`read` and `write` values to Viewer and Manager. Resource summaries expose `role`, `owner` and a
-`capabilities` array. `role` is the strongest Viewer, Editor or Manager grant that applies; it does
-not report Manager merely because the user owns the resource. `owner` records ownership separately,
+Permission request and response objects use only `role`, with the values `viewer`, `editor` and
+`manager`. The REST API does not accept the old `permission` property or its `read` and `write`
+values; compatibility with those concepts ends at the Neo4j relationship boundary. Resource
+summaries expose `role`, `owner` and a `capabilities` array. `role` is the strongest Viewer, Editor
+or Manager grant that applies; it does not report Manager merely because the user owns the resource.
+`owner` records ownership separately,
 and `capabilities` combines the authority supplied by both. The array is specific to the resource
 type: for example, an artifact never reports `listFolderContents`, `createInFolder` or
 `copyIntoFolder`. A separate `availableActions` array reports operations that are currently possible
@@ -709,10 +710,9 @@ after resource type and state are considered, including `copyResource`, `publish
 `submit`, `populate`, `enableOpenView` and `disableOpenView`. Current CEDAR frontends consume these
 two arrays.
 
-`currentUserRole` and the flat `can...` fields remain response-only compatibility aliases. In
-particular, `canWrite` retains the meaning of the old WRITE grant and is true for Manager or the
-owner, not for Editor. New code must use `updateResource` when it means content editing and
-`manageGrants` when it means re-sharing.
+The former `currentUserRole` and flat `can...` response fields are not part of the REST contract.
+Clients use `role`, `owner`, `capabilities` and `availableActions`; in particular, use
+`updateResource` for content editing and `manageGrants` for re-sharing.
 
 ACL replacement never changes ownership. Transfer it with:
 
