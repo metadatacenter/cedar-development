@@ -4,7 +4,8 @@
 // create a template with a Disease field
 // constrained to the DOID "disease" branch via the live BioPortal picker; save it
 // twice without reloading; prove stale-editor rejection and reload recovery; run a
-// real two-user read/write/revoke sharing lifecycle; recover Workspace and Designer
+// real two-user Viewer/Editor/Manager/revoke sharing lifecycle; transfer ownership in both
+// directions; recover Workspace and Designer
 // mutations after an expired access token; publish an independent template, prove it
 // immutable, and create an editable draft; populate the main template and confirm a
 // live DOID suggestion; exercise CEE's dirty-navigation contract; publish it to
@@ -350,6 +351,20 @@ async function moveThroughWorkspace(page, user, sourceFolderId, destinationFolde
 
   const confirm = page.locator(S.MOVE_CONFIRM).filter({ visible: true }).first();
   await confirm.waitFor({ state: 'visible', timeout: 8000 });
+  await page.waitForFunction(() => {
+    const button = document.querySelector('#move-modal .modal-footer button.confirm');
+    return button && !button.disabled;
+  }, null, { timeout: 8000 });
+  if (!await confirm.isEnabled()) {
+    const state = await confirm.evaluate(button => {
+      const move = window.angular.element(button).scope().move;
+      return {
+        currentFolderId: move.currentFolderId,
+        selectedDestination: move.selectedDestination,
+      };
+    });
+    throw new Error(`${resourceTitle}: Move remained disabled for destination ${JSON.stringify(state)}`);
+  }
   const pending = page.waitForResponse(response => response.request().method() === 'POST'
       && response.url().includes('/command/move-resource-to-folder'),
   { timeout: 20_000 }).catch(() => null);
@@ -882,8 +897,8 @@ async function closeShareDialog(modal) {
   await modal.waitFor({ state: 'hidden', timeout: 10_000 });
 }
 
-async function chooseVisiblePermission(scope, permission) {
-  const label = permission === 'write' ? /can write/i : /can read/i;
+async function chooseVisibleRole(scope, role) {
+  const label = new RegExp(`^${role}$`, 'i');
   const picker = scope.locator('.bootstrap-select').first();
   const button = picker.locator('button.dropdown-toggle');
   if (label.test((await button.innerText()).trim())) return;
@@ -893,7 +908,7 @@ async function chooseVisiblePermission(scope, permission) {
   await option.click();
 }
 
-async function shareWithUser(page, folderId, templateName, userName, permission, recoverExpiredSession = false) {
+async function shareWithUser(page, folderId, templateName, userName, role, recoverExpiredSession = false) {
   const modal = await openShareDialog(page, folderId, templateName);
   const input = modal.locator('#share-people input.user-name');
   await input.fill(userName);
@@ -902,9 +917,10 @@ async function shareWithUser(page, folderId, templateName, userName, permission,
   // dropdown first and some go straight to the confirmation row, so click the option only when it
   // actually appeared; the visible OK button is the authoritative selected-model signal.
   await option.waitFor({ state: 'visible', timeout: 1_000 }).then(() => option.click()).catch(() => {});
-  const confirm = modal.locator('#share-people .confirmation.first button.btn-save');
+  const confirm = modal.locator('#share-people .confirmation.first')
+    .getByRole('button', { name: 'OK', exact: true });
   await confirm.waitFor({ state: 'visible', timeout: 10_000 });
-  await chooseVisiblePermission(modal.locator('#share-people'), permission);
+  await chooseVisibleRole(modal.locator('#share-people'), role);
   const grant = () => expectPermissionUpdate(page, () => confirm.click());
   if (recoverExpiredSession) {
     await withExpiredAccessToken(
@@ -919,16 +935,17 @@ async function shareWithUser(page, folderId, templateName, userName, permission,
   await closeShareDialog(modal);
 }
 
-async function changeUserShare(page, folderId, templateName, userName, permission) {
+async function changeUserShare(page, folderId, templateName, userName, role) {
   const modal = await openShareDialog(page, folderId, templateName);
   const shareRow = modal.locator('#shared-users .row').filter({ hasText: userName }).first();
   await shareRow.waitFor({ state: 'visible', timeout: 10_000 });
   await expectPermissionUpdate(page, async () => {
-    await shareRow.locator('select').selectOption(permission, { force: true });
+    await shareRow.locator('select').selectOption(role, { force: true });
   });
-  const expectedLabel = permission === 'write' ? /can write/i : /can read/i;
-  if (!expectedLabel.test(await shareRow.locator('.bootstrap-select button.dropdown-toggle').innerText())) {
-    throw new Error(`sharing dialog did not visibly change ${userName} to ${permission}`);
+  const expectedLabel = new RegExp(`^${role}$`, 'i');
+  const shownRole = (await shareRow.locator('.bootstrap-select button.dropdown-toggle').innerText()).trim();
+  if (!expectedLabel.test(shownRole)) {
+    throw new Error(`sharing dialog visibly showed ${JSON.stringify(shownRole)} for ${userName}, not ${role}`);
   }
   await closeShareDialog(modal);
 }
@@ -939,6 +956,27 @@ async function revokeUserShare(page, folderId, templateName, userName) {
   await shareRow.waitFor({ state: 'visible', timeout: 10_000 });
   await expectPermissionUpdate(page, () => shareRow.locator('button.btn-delete').click());
   await closeShareDialog(modal);
+}
+
+async function transferTemplateOwnership(from, to, templateId) {
+  const newOwnerId = to.profile?.['@id'] ?? to.profile?.id;
+  if (!newOwnerId) throw new Error('the ownership-transfer recipient has no user identifier');
+  const response = await restMutate(from.auth, 'POST', '/command/transfer-resource-ownership', {
+    '@id': templateId,
+    newOwnerId,
+  }, { etagPath: `/templates/${enc(templateId)}/permissions` });
+  if (response.status !== 200) {
+    throw new Error(`ownership transfer answered ${response.status}: ${response.text}`);
+  }
+  const ownerId = response.body?.owner?.['@id'] ?? response.body?.owner?.id;
+  if (ownerId !== newOwnerId) {
+    throw new Error(`ownership transfer named ${ownerId ?? 'no user'} as owner, not ${newOwnerId}`);
+  }
+  const retainedDirectGrant = (response.body?.userPermissions ?? [])
+    .some(grant => (grant.user?.['@id'] ?? grant.user?.id) === newOwnerId);
+  if (retainedDirectGrant) {
+    throw new Error('the new owner also retained a direct role on the same resource');
+  }
 }
 
 async function newAuthenticatedContext(browser, user, password, statePath) {
@@ -992,28 +1030,32 @@ async function waitForSharedRow(page, homeFolderId, templateName, present) {
 // render the right controls after each transition, carry the recipient into Designer through SSO,
 // and stop an already-open editor after revocation.
 async function verifyTwoUserSharing(browser, ownerPage, folderId, templateId, user1, user2) {
-  await shareWithUser(ownerPage, folderId, TEMPLATE_NAME, USER2_NAME, 'read', true);
+  await shareWithUser(ownerPage, folderId, TEMPLATE_NAME, USER2_NAME, 'viewer', true);
   const secondary = await newAuthenticatedContext(browser, USER2, PASSWORD2, AUTH_STATE_USER2);
   try {
     const recipientPage = secondary.page;
     await waitForSharedRow(recipientPage, user2.profile.homeFolderId, TEMPLATE_NAME, true);
     await openRowMenu(recipientPage, TEMPLATE_NAME);
-    const readOnlyRename = recipientPage.locator('a.rename:visible').first();
-    if (!((await readOnlyRename.getAttribute('class')) ?? '').includes('link-disabled')) {
-      throw new Error('read-only recipient was offered an enabled Rename action');
+    const viewerRename = recipientPage.locator('a.rename:visible').first();
+    if (!((await viewerRename.getAttribute('class')) ?? '').includes('link-disabled')) {
+      throw new Error('Viewer was offered an enabled Rename action');
     }
     await expectDescriptionEditable(recipientPage, TEMPLATE_NAME, false);
     await expectInfoPanelOwner(recipientPage, TEMPLATE_NAME, USER1_NAME);
 
-    await changeUserShare(ownerPage, folderId, TEMPLATE_NAME, USER2_NAME, 'write');
+    await changeUserShare(ownerPage, folderId, TEMPLATE_NAME, USER2_NAME, 'editor');
     await waitForSharedRow(recipientPage, user2.profile.homeFolderId, TEMPLATE_NAME, true);
     await openRowMenu(recipientPage, TEMPLATE_NAME);
-    const writableRename = recipientPage.locator('a.rename:visible').first();
-    if (((await writableRename.getAttribute('class')) ?? '').includes('link-disabled')) {
-      throw new Error('write recipient still saw Rename disabled');
+    const editorRename = recipientPage.locator('a.rename:visible').first();
+    if (((await editorRename.getAttribute('class')) ?? '').includes('link-disabled')) {
+      throw new Error('Editor still saw Rename disabled');
+    }
+    const editorShare = recipientPage.locator('ul.dropdown-menu:visible a.share').first();
+    if (!((await editorShare.getAttribute('class')) ?? '').includes('link-disabled')) {
+      throw new Error('Editor was offered an enabled Share action');
     }
     await expectDescriptionEditable(recipientPage, TEMPLATE_NAME, true);
-    const renamed = `${TEMPLATE_NAME} renamed by writer`;
+    const renamed = `${TEMPLATE_NAME} renamed by Editor`;
     await renameViaMenu(recipientPage, TEMPLATE_NAME, renamed);
     await renameViaMenu(recipientPage, renamed, TEMPLATE_NAME);
     // The info panel and the rename modals closed the row menu the next step opens.
@@ -1023,14 +1065,26 @@ async function verifyTwoUserSharing(browser, ownerPage, folderId, templateId, us
     await recipientPage.getByRole('textbox', { name: 'Description' }).first()
       .waitFor({ state: 'visible', timeout: 30_000 });
 
-    const writerValue = 'Two-user smoke: recipient write succeeded';
-    const writerResponse = await saveTemplateDescription(recipientPage, writerValue);
-    if (!await writerResponse.request().headerValue('if-match')) {
-      throw new Error('recipient write reached the server without If-Match');
+    const editorValue = 'Two-user smoke: Editor update succeeded';
+    const editorResponse = await saveTemplateDescription(recipientPage, editorValue);
+    if (!await editorResponse.request().headerValue('if-match')) {
+      throw new Error('Editor update reached the server without If-Match');
     }
 
+    await changeUserShare(ownerPage, folderId, TEMPLATE_NAME, USER2_NAME, 'manager');
+    await waitForSharedRow(recipientPage, user2.profile.homeFolderId, TEMPLATE_NAME, true);
+    await openRowMenu(recipientPage, TEMPLATE_NAME);
+    const managerShare = recipientPage.locator('ul.dropdown-menu:visible a.share').first();
+    if (((await managerShare.getAttribute('class')) ?? '').includes('link-disabled')) {
+      throw new Error('Manager still saw Share disabled');
+    }
+    await menuItem(recipientPage, 'Open');
+    await recipientPage.waitForURL(/\/templates\/edit\//, { timeout: 30_000 });
+    await recipientPage.getByRole('textbox', { name: 'Description' }).first()
+      .waitFor({ state: 'visible', timeout: 30_000 });
+
     await revokeUserShare(ownerPage, folderId, TEMPLATE_NAME, USER2_NAME);
-    const deniedValue = 'Two-user smoke: revoked writer must not win';
+    const deniedValue = 'Two-user smoke: revoked Manager must not win';
     await setText(recipientPage.getByRole('textbox', { name: 'Description' }).first(), deniedValue);
     const deniedPending = recipientPage.waitForResponse(response => response.status() === 403
         && ((response.request().method() === 'PUT' && /\/templates\//.test(response.url()))
@@ -1042,13 +1096,16 @@ async function verifyTwoUserSharing(browser, ownerPage, folderId, templateId, us
       .first().waitFor({ state: 'visible', timeout: 5_000 });
 
     const afterRevoke = await restCall(user1.auth, 'GET', `/templates/${enc(templateId)}`);
-    if (afterRevoke.status !== 200 || afterRevoke.body?.['schema:description'] !== writerValue) {
-      throw new Error(`revoked editor changed server content: ${afterRevoke.status} ${afterRevoke.body?.['schema:description']}`);
+    if (afterRevoke.status !== 200 || afterRevoke.body?.['schema:description'] !== editorValue) {
+      throw new Error(`revoked Manager changed server content: ${afterRevoke.status} ${afterRevoke.body?.['schema:description']}`);
     }
     await waitForSharedRow(recipientPage, user2.profile.homeFolderId, TEMPLATE_NAME, false);
 
-    console.log('✓ visible sharing UI granted read, withheld rename and description editing from the reader, '
-      + 'upgraded to write, let the recipient rename and save, then revoked access and blocked the already-open editor');
+    await transferTemplateOwnership(user1, user2, templateId);
+    await transferTemplateOwnership(user2, user1, templateId);
+
+    console.log('✓ visible sharing UI enforced Viewer, Editor and Manager boundaries, revoked access from an open editor, '
+      + 'and transferred ownership to the other user and back');
   } finally {
     await secondary.context.close();
   }
@@ -1947,7 +2004,7 @@ try {
   //        trace on a new instance's null @id and saved nothing.
   step = 'save-instance';
   await page.waitForTimeout(500);
-  // The save redirects to the edit route, which is the load that reads the write permission —
+  // The save redirects to the edit route, which is the load that reads updateResource —
   // the one where a second configuration used to be the flag's only carrier.
   resetCeeConfigCounts();
   const savedInstance = await saveInstanceInEditor(page);
@@ -2048,7 +2105,7 @@ try {
   await assertWorkingFolderCleared(user1, folderId, [savedInstance.id, templateId, standaloneFieldId]);
   console.log(`✓ "${FOLDER_NAME}" holds none of this run's artifacts`);
 
-  console.log(`\nPASS [CEE ${deployedCeeVersion}]: login (reusable sessions) → conditional Workspace mutations → folder open/close + artifact/folder moves → "${FOLDER_NAME}" folder + seeded field → template w/ DOID + text field → repeated saves + stale-editor and delete-conflict protection → two-user read/write/revoke lifecycle → expired-session refresh in Workspace + Designer → publish/immutable/OpenView/new-draft lifecycle → populate + fill → save instance → dirty-navigation protection → re-edit (update) + advanced clean baseline → both serializations (JSON/YAML) → artifact OpenView open/close → conditional delete → folder cleared`);
+  console.log(`\nPASS [CEE ${deployedCeeVersion}]: login (reusable sessions) → conditional Workspace mutations → folder open/close + artifact/folder moves → "${FOLDER_NAME}" folder + seeded field → template w/ DOID + text field → repeated saves + stale-editor and delete-conflict protection → two-user Viewer/Editor/Manager/revoke lifecycle → expired-session refresh in Workspace + Designer → publish/immutable/OpenView/new-draft lifecycle → populate + fill → save instance → dirty-navigation protection → re-edit (update) + advanced clean baseline → both serializations (JSON/YAML) → artifact OpenView open/close → conditional delete → folder cleared`);
   await browser.close();
   process.exit(0);
 } catch (e) {

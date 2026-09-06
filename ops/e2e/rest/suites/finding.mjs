@@ -27,8 +27,8 @@ export async function run({ user1, user2, folderId }) {
 
   const permissions = (ownerId, { users = [], groups = [] } = {}) => ({
     owner: { '@id': ownerId },
-    userPermissions: users.map(([id, permission]) => ({ user: { '@id': id }, permission })),
-    groupPermissions: groups.map(([id, permission]) => ({ group: { '@id': id }, permission })),
+    userPermissions: users.map(([id, role]) => ({ user: { '@id': id }, role })),
+    groupPermissions: groups.map(([id, role]) => ({ group: { '@id': id }, role })),
   });
 
   /** Does a term search as this user turn up this identifier? */
@@ -87,7 +87,7 @@ export async function run({ user1, user2, folderId }) {
   // — the ordinary search box — is answered from the index, which the grant reaches once the resource
   // is re-materialized with the grantee in its user list.
   if (checkStatus(await mutate(user1.auth, 'PUT', `${direct.at}/permissions`,
-      permissions(u1, { users: [[u2, 'read']] })), 200, 'the template is shared with the second user')) {
+      permissions(u1, { users: [[u2, 'viewer']] })), 200, 'the template is shared with the second user')) {
     checkStatus(await call(user2.auth, 'GET', direct.at), 200, 'who can open it at once');
 
     const inView = await until(() => inSharingView(user2.auth, 'shared-with-me', direct.id));
@@ -139,7 +139,7 @@ export async function run({ user1, user2, folderId }) {
         'with the second user as a member');
 
     if (checkStatus(await mutate(user1.auth, 'PUT', `${viaGroup.at}/permissions`,
-        permissions(u1, { groups: [[gid, 'read']] })), 200, 'and the template is shared with the group')) {
+        permissions(u1, { groups: [[gid, 'viewer']] })), 200, 'and the template is shared with the group')) {
       checkStatus(await call(user2.auth, 'GET', viaGroup.at), 200,
           'the member can open it through the group alone');
       // The grantee here is the group; the materialization reaches its members through MEMBEROF, so a
@@ -158,7 +158,7 @@ export async function run({ user1, user2, folderId }) {
       ?.find(g => g.specialGroup === 'EVERYBODY'))();
   if (toAll && check(!!everybody, 'the everybody group is present', 'it could not be found')) {
     if (checkStatus(await mutate(user1.auth, 'PUT', `${toAll.at}/permissions`,
-        permissions(u1, { groups: [[everybody['@id'], 'read']] })), 200,
+        permissions(u1, { groups: [[everybody['@id'], 'viewer']] })), 200,
         'the template is shared with everybody')) {
       const appeared = await until(() => findsByTerm(user2.auth, toAll.tag, toAll.id));
       check(appeared.done, 'another account finds it without being named anywhere',
@@ -194,7 +194,7 @@ export async function run({ user1, user2, folderId }) {
           'and the second user cannot', 'it was visible before the folder was shared');
 
       if (checkStatus(await mutate(user1.auth, 'PUT', `/folders/${enc(boxId)}/permissions`,
-          permissions(u1, { users: [[u2, 'read']] })), 200, 'the folder is shared with the second user')) {
+          permissions(u1, { users: [[u2, 'viewer']] })), 200, 'the folder is shared with the second user')) {
         checkStatus(await call(user2.auth, 'GET', `/templates/${enc(insideId)}`), 200,
             'who can read the template inside it straight away');
         // The folder grant propagates to the contained template's materialization (the CONTAINS*0..
@@ -244,7 +244,7 @@ export async function run({ user1, user2, folderId }) {
   const everybody2 = await everybodyGroup(user1.auth).catch(() => null);
   if (shared && check(!!everybody2, 'the everybody group is present', 'it could not be found')) {
     if (checkStatus(await mutate(user1.auth, 'PUT', `${shared.at}/permissions`,
-        permissions(u1, { groups: [[everybody2['@id'], 'read']] })), 200, 'the template is shared with everybody')) {
+        permissions(u1, { groups: [[everybody2['@id'], 'viewer']] })), 200, 'the template is shared with everybody')) {
       const seen = await until(() => findsByTerm(user2.auth, shared.tag, shared.id));
       if (check(seen.done, 'a second user finds it by term while it is shared',
           `it never became findable after ${seen.attempts} attempts — nothing to revoke`)) {

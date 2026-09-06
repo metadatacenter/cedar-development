@@ -9,6 +9,7 @@ import {
   PERF_PREFIX, RESOURCE, GROUP_SERVER, absolute, arg, assertSafeTargets, currentMutation, enc,
   intArg, parallelLimit, readJson, request, runId, userProfile, userToken, writeJson,
 } from './lib.mjs';
+import { filesystemAcl } from './permission-model.js';
 
 assertSafeTargets();
 
@@ -36,6 +37,9 @@ if (selected.length !== userCount) {
 }
 if (profile === 'soak' && selected.length < 2) {
   throw new Error('the soak profile needs at least two users for grant/revoke and membership transitions');
+}
+if (profile === 'permissions' && selected.length < 4) {
+  throw new Error('the permissions profile needs four users for owner, Viewer, Editor and Manager coverage');
 }
 
 const manifest = {
@@ -107,32 +111,21 @@ async function createArtifact(actor, folderId, label, kind = 'template', extra =
   return { kind, id: artifactId, path, name };
 }
 
-async function shareFilesystem(owner, path, actors, permission = 'write') {
-  const response = await currentMutation(owner.token, 'PUT', `${path}/permissions`, {
-    owner: { '@id': owner.cedarUserId },
-    userPermissions: actors.slice(1).map(actor => ({
-      user: { '@id': actor.cedarUserId },
-      permission,
-    })),
-    groupPermissions: [],
-  });
+async function shareFilesystemRoles(owner, path, userRoles = [], groupRoles = []) {
+  const response = await currentMutation(owner.token, 'PUT', `${path}/permissions`,
+      filesystemAcl(owner.cedarUserId, userRoles, groupRoles));
   if (response.status !== 200) {
     throw new Error(`could not share ${path}: ${response.status} ${response.text}`);
   }
 }
 
-async function shareFilesystemWithGroup(owner, path, groupId, permission = 'read') {
-  const response = await currentMutation(owner.token, 'PUT', `${path}/permissions`, {
-    owner: { '@id': owner.cedarUserId },
-    userPermissions: [],
-    groupPermissions: [{
-      group: { '@id': groupId },
-      permission,
-    }],
-  });
-  if (response.status !== 200) {
-    throw new Error(`could not share ${path} with group ${groupId}: ${response.status} ${response.text}`);
-  }
+async function shareFilesystem(owner, path, actors, role = 'manager') {
+  await shareFilesystemRoles(owner, path,
+      actors.slice(1).map(actor => ({ id: actor.cedarUserId, role })));
+}
+
+async function shareFilesystemWithGroup(owner, path, groupId, role = 'viewer') {
+  await shareFilesystemRoles(owner, path, [], [{ id: groupId, role }]);
 }
 
 async function createGroup(owner, label) {
@@ -304,6 +297,77 @@ if (profile === 'soak') {
     manifest.actors[actor.index].soak.category = category;
     writeJson(output, manifest);
   });
+}
+
+if (profile === 'permissions') {
+  const viewer = actors[1];
+  const editor = actors[2];
+  const manager = actors[3];
+  const directField = await createArtifact(owner, owner.rootFolderId, 'Permission roles field', 'field');
+  const directFolderId = await createFolder(owner, owner.rootFolderId, 'Permission roles folder');
+  const directFolder = { kind: 'folder', id: directFolderId, path: `/folders/${enc(directFolderId)}` };
+  const directRoles = [
+    { id: viewer.cedarUserId, role: 'viewer' },
+    { id: editor.cedarUserId, role: 'editor' },
+    { id: manager.cedarUserId, role: 'manager' },
+  ];
+  await shareFilesystemRoles(owner, directField.path, directRoles);
+  await shareFilesystemRoles(owner, directFolder.path, directRoles);
+
+  const inheritedFolderId = await createFolder(owner, owner.rootFolderId, 'Permission inherited folder');
+  const inheritedFolder = {
+    kind: 'folder', id: inheritedFolderId, path: `/folders/${enc(inheritedFolderId)}`,
+  };
+  const inheritedField = await createArtifact(owner, inheritedFolderId, 'Permission inherited field', 'field');
+  await shareFilesystemRoles(owner, inheritedFolder.path,
+      [{ id: editor.cedarUserId, role: 'editor' }]);
+  await shareFilesystemRoles(owner, inheritedField.path,
+      [{ id: editor.cedarUserId, role: 'viewer' }]);
+
+  const group = await createGroup(owner, 'Permission Viewer group');
+  const groupUsers = {
+    users: [
+      { user: { '@id': owner.cedarUserId }, administrator: true, member: true },
+      { user: { '@id': viewer.cedarUserId }, administrator: false, member: true },
+    ],
+  };
+  const groupMembers = await currentMutation(owner.token, 'PUT', `${group.path}/users`, groupUsers,
+      { base: GROUP_SERVER });
+  if (groupMembers.status !== 200) {
+    throw new Error(`initialize permission group: ${groupMembers.status} ${groupMembers.text}`);
+  }
+  const groupField = await createArtifact(owner, owner.rootFolderId, 'Permission group field', 'field');
+  await shareFilesystemRoles(owner, groupField.path, [], [{ id: group.id, role: 'viewer' }]);
+
+  const transitionField = await createArtifact(owner, owner.rootFolderId, 'Permission transition field', 'field');
+  await shareFilesystemRoles(owner, transitionField.path,
+      [{ id: viewer.cedarUserId, role: 'viewer' }]);
+
+  const moveSourceId = await createFolder(owner, owner.rootFolderId, 'Permission move source');
+  const moveBlockedId = await createFolder(owner, owner.rootFolderId, 'Permission move Viewer target');
+  const moveAllowedId = await createFolder(owner, owner.rootFolderId, 'Permission move Editor target');
+  const moveSource = { kind: 'folder', id: moveSourceId, path: `/folders/${enc(moveSourceId)}` };
+  const moveBlocked = { kind: 'folder', id: moveBlockedId, path: `/folders/${enc(moveBlockedId)}` };
+  const moveAllowed = { kind: 'folder', id: moveAllowedId, path: `/folders/${enc(moveAllowedId)}` };
+  const moveField = await createArtifact(owner, moveSourceId, 'Permission movable field', 'field');
+  await shareFilesystemRoles(owner, moveField.path, [{ id: manager.cedarUserId, role: 'manager' }]);
+  await shareFilesystemRoles(owner, moveSource.path, [{ id: manager.cedarUserId, role: 'editor' }]);
+  await shareFilesystemRoles(owner, moveBlocked.path, [{ id: manager.cedarUserId, role: 'viewer' }]);
+  await shareFilesystemRoles(owner, moveAllowed.path, [{ id: manager.cedarUserId, role: 'editor' }]);
+
+  manifest.permissions = {
+    ownerIndex: owner.index,
+    viewerIndex: viewer.index,
+    editorIndex: editor.index,
+    managerIndex: manager.index,
+    directField,
+    directFolder,
+    inheritedField,
+    groupField,
+    transitionField,
+    move: { field: moveField, source: moveSource, blocked: moveBlocked, allowed: moveAllowed },
+  };
+  writeJson(output, manifest);
 }
 
 if (profile === 'contention' || profile === 'hotset') {

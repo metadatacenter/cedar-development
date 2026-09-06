@@ -15,95 +15,29 @@ Frontend work for the embeddable editor is tracked separately in
 
 ### Features
 
-- **1. Settle the sharing and permission model, then enforce it.** Controlled sharing is what CEDAR
-  is for, and the model was never specified in one place, so every surface decided for itself. The
-  behaviour is pinned by the tests named at the end of this item, so it cannot drift further while
-  the decisions are made, and each of those tests will fail and demand attention when a decision
-  lands.
+- **1. Finish the permission-model data migration and the policy decisions outside it.** The
+  application now presents and enforces Viewer, Editor and Manager as distinct artifact-and-folder
+  roles, while retaining the existing Neo4j data unchanged. During this compatibility period,
+  `CANREAD` is interpreted as Viewer, `CANWRITE` as Manager, and a newly assigned Editor is stored as
+  `EDITOR_ROLE`. Complete the transition only after the compatibility release has run in production.
 
-  The [permission model](https://metadatacenter.readthedocs.io/en/latest/user-guide/advanced-topics/permission-model/)
-  is the proposed contract. It deliberately differs from the implementation where a simpler or safer
-  rule is available. A companion assessment, `PermissionModel.pdf`, measures the implementation
-  against it and carries the divergence table, the recommended authorization shape, the migration
-  mapping from the legacy vocabulary, the six-stage release sequence and the acceptance criteria.
-  That assessment is not in version control, which is the first thing to fix, because this item now
-  depends on reading it.
+  First review the sixteen production resources whose legacy `everybodyPermission` is `write`. The
+  target model permits the **Everyone** group to hold Viewer only, so there is no mechanical mapping.
+  Twelve of the sixteen are folders and may expose whole subtrees. Record an owner-approved outcome
+  for every resource before changing any of them.
 
-  The structural mismatch it identifies is a single overloaded predicate. The implementation asks
-  whether a user may write the resource, then reuses that answer for content changes, ACL
-  replacement, movement, deletion and OpenView, so an editor can also re-share, relocate and publish.
-  The proposal separates Editor from Manager and routes every operation through one evaluator that
-  answers a distinct question per capability.
+  Then migrate Neo4j relationships from `CANREAD` to `VIEWER_ROLE` and from `CANWRITE` to
+  `MANAGER_ROLE`, regenerate the search index from the graph, and verify role counts and representative
+  access paths before and after the migration. Once every deployed client has consumed the role and
+  capability response fields, remove the `read`/`write` request aliases, legacy search keys and legacy
+  `canRead`, `canWrite`, `canShare` and `canChangeOwner` response fields.
 
-  **The decisions this item waits on.** The assessment recommends an answer to each. None is settled.
-
-  1. Legacy `WRITE` migration. Preserve it as a reviewable Manager grant rather than guessing that it
-     meant Editor, and block `Everyone` combined with `WRITE` for owner review instead of silently
-     retaining broad write authority.
-  2. Folder deletion. Define ordinary deletion as an atomic trash of the contained tree, and reserve
-     permanent deletion for an explicit, separately protected command.
-  3. Administrator override. Allow platform recovery to transfer ownership only through an audited
-     recovery workflow, never through general ACL replacement.
-  4. Group visibility. Let members and administrators read their own group, and govern
-     directory-wide visibility with a separate platform permission.
-  5. OpenView paths. Expose no workspace path, and build an explicit public hierarchy if public
-     navigation is wanted.
-
-  **What the assessment leaves to this item.**
-
-  - **Categories sit outside the target model.** Attaching a category requires `ATTACH`, or the
-    `WRITE` that implies it, on the *category* rather than on the artifact, and the category tree is
-    writable only by an administrator. Out of the box a user can read the vocabulary and attach
-    nothing to anything, including to templates they own. Reading a category's ACL costs write access
-    where a folder's costs read, and a category is readable by any authenticated user holding the
-    role. `ATTACH` is one of the few declared levels that is genuinely enforced, which is what makes
-    it the counter-example to the ones that are not. Decide whether categories join the role model or
-    remain a separate vocabulary with rules of their own, then make the requirement visible in the
-    product.
-  - **`PUBLISH` and `CREATE_DRAFT` are accepted, stored and never consulted.** Versioning is
-    owner-only through `userCanPerformVersioning`, so granting either confers nothing while reading
-    to a client as a restriction. `ArtifactLifecycleMatrixTest` grants each level successfully and
-    then receives the same `VERSIONING_ONLY_BY_OWNER` refusal a user with no grant receives. The
-    migration mapping moves both out to lifecycle policy, which needs a decision about where
-    versioning authority lives once they leave the workspace roles.
-  - **The Workbench cannot transfer ownership, and its control should be withdrawn rather than
-    repaired.** The share dialog offers the option in two places and neither works. The
-    existing-share row gates it on `sh.node.id` against a node that arrives from the permissions API
-    as JSON-LD carrying `@id` (`cedar-share-modal.directive.html:175`), the only site in that
-    controller reading `.id`, so the option never appears. The add-user picker passes `['@id']`
-    correctly, reports success, and leaves the owner unchanged, because `select-picker` copies
-    options into a dropdown of its own and a click can land on an option Angular's model refuses.
-    Correcting the accessor would expose an inline ACL edit that the proposal replaces with an
-    owner-only transfer command, so hide both paths until that command exists. Reporting success
-    while changing nothing is worse for a user than offering nothing. Neither path is pinned, and the
-    browser smoke stops at ownership because there is no working control to drive.
-  - **Denials answer 401 or 403 depending on which code path refuses.** The acceptance criteria fix
-    status codes elsewhere, so this belongs in the conformance matrix rather than outside it.
-  - **There is no coherent administrator, only a list of roles stamped once.** Authority is a set of
-    named roles held on the user record, and the privileged ones are additive overrides rather than
-    supersets. `groupPrivilegedAdministrator` grants exactly `UPDATE_NOT_ADMINISTERED_GROUP`, so an
-    account can be entitled to rewrite any group in the deployment while `GET /groups` refuses it,
-    that endpoint asking for `GROUP_READ`, which only the ordinary `groupAdministrator` role carries.
-    The separation is deliberate, since `groupAdministrator` is held by every user and the override
-    inside it would let anyone re-staff anyone's group, but the consequence is that "privileged" and
-    "may read" are unrelated. Compounding it, `createUserFromBlueprint` runs on the new-user event
-    and nothing reconciles an existing user against a later blueprint, so an account created before a
-    role joined the list never gains it and no upgrade repairs that. Observed on production on
-    5 September 2026: an administrator's key enumerates resources and is refused the group listing
-    with 403. Decide what an administrator is before deciding what one may override, because the
-    assessment's administrator-override recommendation assumes a role that can be reasoned about.
-
-  **One measurement to carry into the work.** The revision precondition is closer to the proposal
-  than the assessment's evidence suggests. Measured against the running stack, a mutation carrying no
-  `If-Match` answers 428 and one carrying a stale revision answers 412, which is what the proposal
-  asks for. Only `If-Match: *` is wrongly accepted, and it succeeds in deleting. Rejecting the
-  wildcard in `RevisionPreconditionParser`, and updating the tests that rely on it, is the whole of
-  that change.
-
-  Pinned by `FolderPermissionLevelMatrixTest`, `ArtifactPermissionLevelMatrixTest`,
-  `SharingRoundTripTest`, `ArtifactsAndCategoriesAuthorizationMatrixTest`,
-  `GroupMembershipAuthorizationMatrixTest`, `GroupSharingRevocationIntegrationTest`,
-  `ArtifactLifecycleMatrixTest` and `ops/e2e/rest/suites/categories.mjs`.
+  Several decisions remain deliberately outside the artifact-and-folder model: whether ordinary
+  folder deletion should trash a whole subtree; whether an audited platform-recovery workflow may
+  transfer ownership; who may discover groups beyond those they belong to or administer; whether
+  OpenView needs a public hierarchy; and whether categories retain their separate `ATTACH`/`WRITE`
+  vocabulary. Resolve and test each independently rather than extending the resource-role hierarchy
+  to cover it implicitly.
 
 ### Infrastructure
 

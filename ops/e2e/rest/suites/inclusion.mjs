@@ -96,7 +96,7 @@ export async function run({ user1, user2, folderId }) {
 
     const shareRead = at => mutate(auth, 'PUT', `${at}/permissions`, {
       owner: { '@id': user1.profile['@id'] },
-      userPermissions: [{ user: { '@id': user2.profile['@id'] }, permission: 'read' }],
+      userPermissions: [{ user: { '@id': user2.profile['@id'] }, role: 'viewer' }],
       groupPermissions: [],
     });
     // Read on the element, because previewing it requires it; read on one template and nothing on the

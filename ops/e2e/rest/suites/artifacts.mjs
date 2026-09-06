@@ -41,6 +41,29 @@ export async function run({ user1, user2, folderId }) {
     check(details.body?.['schema:name'] === label,
         `${kind}: the graph and the artifact server agree on the name`,
         `details said "${details.body?.['schema:name']}"`);
+    const current = details.body?.currentUserPermissions;
+    const capabilities = new Set(current?.capabilities ?? []);
+    const expectedCapabilities = new Set([
+      'readResource', 'updateResource', 'deleteResource', 'manageGrants',
+      'moveResource', 'manageOpenView', 'transferOwnership',
+    ]);
+    check(current?.role == null && current?.owner === true,
+        `${kind}: ownership is represented separately from the role`,
+        `authority was ${JSON.stringify({ role: current?.role, owner: current?.owner })}`);
+    check(capabilities.size === expectedCapabilities.size
+          && [...expectedCapabilities].every(value => capabilities.has(value)),
+        `${kind}: artifact authority exposes exactly the artifact capability set`,
+        `capabilities were ${JSON.stringify([...capabilities])}`);
+    check(!capabilities.has('listFolderContents') && !capabilities.has('createInFolder')
+          && !capabilities.has('copyIntoFolder'),
+        `${kind}: artifact authority excludes folder-only capabilities`,
+        `capabilities were ${JSON.stringify([...capabilities])}`);
+    const actions = new Set(current?.availableActions ?? []);
+    check(actions.has('copyFromResource'), `${kind}: a readable artifact is available as a copy source`,
+        `available actions were ${JSON.stringify([...actions])}`);
+    check(!actions.has('populate') || kind === 'template',
+        `${kind}: populate is available only for templates`,
+        `available actions were ${JSON.stringify([...actions])}`);
 
     const report = await call(auth, 'GET', `${at}/report`);
     checkStatus(report, 200, `${kind}: report`);

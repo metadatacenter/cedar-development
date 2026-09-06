@@ -679,6 +679,63 @@ stored before IDs were introduced is exposed with a deterministic `legacy-<sha25
 this keeps it addressable without revealing the credential, and the ID is persisted on the next
 profile write. Authentication itself is unchanged and still looks up the secret `key` value.
 
+## Artifact and folder permissions
+
+Authorization for artifacts and folders uses three cumulative roles. Viewer permits reading a
+resource and listing a folder. Editor adds content and metadata updates, creation and copying within
+a folder, and deletion. Manager adds grant management, movement and OpenView management. Ownership
+is recorded separately; an owner has every Manager capability and alone may transfer ownership.
+Every endpoint checks the capability required for its operation rather than treating a generic
+write test as authority to perform every mutation.
+
+The transition does not require an initial Neo4j migration. Existing `CANREAD` relationships are
+Viewer grants and existing `CANWRITE` relationships are Manager grants. New Editor grants use
+`EDITOR_ROLE`. Readers also accept the future `VIEWER_ROLE` and `MANAGER_ROLE` relationship names,
+which permits a later data migration without changing authorization behavior. The search index uses
+cumulative `viewer`, `editor` and `manager` keys while continuing to read legacy `read` and `write`
+keys until that migration is complete. Newly written grants to the built-in **Everyone** group are
+restricted to Viewer; legacy Everyone-write data remains readable so an upgrade cannot silently
+remove existing access.
+
+Permission request and response objects use `role` with the values `viewer`, `editor` and `manager`.
+During the compatibility period the server also accepts the old `permission` property and maps its
+`read` and `write` values to Viewer and Manager. Resource summaries expose `role`, `owner` and a
+`capabilities` array. `role` is the strongest Viewer, Editor or Manager grant that applies; it does
+not report Manager merely because the user owns the resource. `owner` records ownership separately,
+and `capabilities` combines the authority supplied by both. The array is specific to the resource
+type: for example, an artifact never reports `listFolderContents`, `createInFolder` or
+`copyIntoFolder`. A separate `availableActions` array reports operations that are currently possible
+after resource type and state are considered, including `copyResource`, `publish`, `createDraft`,
+`submit`, `populate`, `enableOpenView` and `disableOpenView`. Current CEDAR frontends consume these
+two arrays.
+
+`currentUserRole` and the flat `can...` fields remain response-only compatibility aliases. In
+particular, `canWrite` retains the meaning of the old WRITE grant and is true for Manager or the
+owner, not for Editor. New code must use `updateResource` when it means content editing and
+`manageGrants` when it means re-sharing.
+
+ACL replacement never changes ownership. Transfer it with:
+
+```text
+POST /command/transfer-resource-ownership
+If-Match: "<ACL revision>"
+
+{"@id":"<artifact-or-folder-id>","newOwnerId":"<user-id>"}
+```
+
+Only the current owner may call this command, and the new owner must be a different existing user.
+The operation atomically replaces the `OWNS` relationship, removes any direct role grant held by the
+new owner on that resource, and advances the ACL revision. It does not change grants inherited by
+either user from groups, **Everyone**, or containing folders. A missing `If-Match` answers 428 and a
+stale ACL revision answers 412.
+
+The main conformance gates are `ResourcePermissionModelTest`,
+`WorkspacePermissionIntegrationTest`, `WorkspacePermissionInheritanceIntegrationTest`,
+`ArtifactPermissionLevelMatrixTest`, `FolderPermissionLevelMatrixTest`, and
+`SharingRoundTripTest`. Together they exercise the resource/role/capability/action matrix, direct
+user and group grants, folder inheritance and precedence, the **Everyone** restriction, REST
+authorization for all artifact types and folders, and ownership-transfer authority and concurrency.
+
 ## The Redis queues, and where failed permission events go
 
 Five persistent queues carry work between services. Their names are set in
@@ -1789,10 +1846,11 @@ command:
 npm run perf:rest:provision -- --count=50
 ```
 
-The seven load profiles are:
+The eight load profiles are:
 
 | Command | Default shape | What it exercises |
 |---|---:|---|
+| `npm run perf:rest:permissions` | Four identities, three complete model rounds | Exact role, ownership, capability and permission-governed action reports for fields and folders; direct, group and inherited access; Viewer, Editor and Manager enforcement; role changes concurrent with use; move-target authority; and OpenView |
 | `npm run perf:rest:quick` | 10 identities, ramp 1 → 5 → 10 → 0 in 4.5 minutes | Artifact reads, folder listings, search, conditional artifact updates, conditional moves, and OpenView toggles |
 | `npm run perf:rest:contention` | 20 identities, three complete matrix rounds | Twenty-way compare-and-swap races across artifact content, workspace graph state, ACLs, group records and membership, and categories; update/delete, repeated-delete and wildcard/delete cases use sacrificial fixtures |
 | `npm run perf:rest:hotset` | 20 identities and 20 VUs for 10 minutes | Sustained independent GET/conditional-mutation loops over a small shared set of templates, elements, fields, instances, folders, groups and categories; both conflicts and successful forward progress are required |
@@ -1801,7 +1859,9 @@ The seven load profiles are:
 | `npm run perf:rest:burst` | 50 identities; 5/s baseline, 40/s burst, then 5/s recovery, 30 seconds each | Reproducible artifact reads and conditional updates across all four artifact kinds; requires no dropped arrivals and post-burst p95 to return near the measured pre-burst baseline; the full pool prevents a brief server stall from exhausting the load generator first |
 | `npm run perf:rest:soak` | 50 identities and 50 VUs for 30 minutes | A steady, non-destructive mix across template, element, field and instance reads and conditional updates; folder listing, search, moves and OpenView; artifact and folder ACLs; group records and membership; and category records and ACLs |
 
-`--users=N`, `--vus=N` and `--duration=10s` override those defaults. `--seed=NAME` makes the soak's
+`--users=N`, `--vus=N` and `--duration=10s` override those defaults. The permissions profile needs at
+least four identities and accepts `--rounds=N`; each round starts from a known Viewer grant and ends
+with its revocation, so rounds are independent. `--seed=NAME` makes the soak's
 per-user schedule reproducible; without it, the run ID is the seed. The contention profile also
 accepts `--rounds=N`; its `--duration` is a maximum rather than a steady-state duration.
 The resilience profile accepts `--fault-delay=N`, `--fault-downtime=N` and
@@ -1872,8 +1932,8 @@ The soak gives every VU its own artifacts, folders, group and category, and exec
 mix that is half pure reads/list/search and half conditional mutations. Each complete cycle preserves
 that exact mix but shuffles it deterministically by seed, identity and cycle, with a per-identity phase
 offset. This avoids synchronized VUs while keeping failures replayable: error lines name the seed, VU
-and iteration, and the JSON summary records the seed. ACL operations alternate real
-grant and revocation transitions for a paired identity, then verify both the stored permission set and
+and iteration, and the JSON summary records the seed. ACL operations alternate real Viewer-role
+grant and revocation transitions for a paired identity, then verify both the stored role set and
 that identity's resulting access. Group membership likewise alternates join and leave against a folder
 with a stable group grant, proving that the membership transition changes effective access rather than
 merely accepting an unchanged roster. Category ACLs alternate a peer's write grant and revocation and
@@ -1921,6 +1981,11 @@ elements, fields, instances, folders, groups and categories. Setup writes every 
 `reports/rest-perf/runs/<run-id>/run.json` immediately, before creating the next resource. k6 writes
 its complete summary beside that manifest. In addition to the aggregate trend, each measured route
 has its own `cedar_route_*_duration` trend so a fast read cannot hide a slow mutation.
+
+The permissions profile adds fields and folders with direct Viewer, Editor and Manager roles, an
+inherited role that is stronger than a direct role, a Viewer role obtained through group membership,
+and independent source and destination fixtures for move authorization. Filesystem ACL fixtures use
+the `role` property throughout. Categories retain their separate `permission` vocabulary.
 
 The wrapper checks that k6 exists before setup, then always performs teardown after the load process,
 including a failed threshold or first `SIGINT`/`SIGTERM`. Teardown reads the current ETag, deletes in

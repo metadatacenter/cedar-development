@@ -20,6 +20,7 @@
     "smoke:split:hostnames:authenticated:headed": "npm run smoke:split:hostnames:keycloak && CEDAR_BASE=https://workspace.metadatacenter.orgx CEDAR_DESIGNER_BASE=https://designer.metadatacenter.orgx HEADED=1 node login-smoke-test.mjs",
     "smoke:rest": "node rest-smoke.mjs",
     "perf:rest:provision": "node rest-perf/provision-users.mjs",
+    "perf:rest:permissions": "node rest-perf/run-rest.mjs --profile=permissions",
     "perf:rest:quick": "node rest-perf/run-rest.mjs --profile=quick",
     "perf:rest:contention": "node rest-perf/run-rest.mjs --profile=contention",
     "perf:rest:hotset": "node rest-perf/run-rest.mjs --profile=hotset",

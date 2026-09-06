@@ -131,12 +131,11 @@ export async function run({ user1, user2, folderId }) {
   if (checkStatus(transfer, 201, 'a template is created to transfer')) {
     const tid = transfer.body['@id'];
     const tat = `/templates/${enc(tid)}`;
-    cleanup('template', tat, transferName, user2.auth);
-    const ownership = await mutate(auth, 'PUT', `${tat}/permissions`, {
-      owner: { '@id': user2.profile['@id'] },
-      userPermissions: [],
-      groupPermissions: [],
-    });
+    cleanup('template', tat, transferName);
+    const ownership = await mutate(auth, 'POST', '/command/transfer-resource-ownership', {
+      '@id': tid,
+      newOwnerId: user2.profile['@id'],
+    }, { etagPath: `${tat}/permissions` });
     if (checkStatus(ownership, 200, 'the owner transfers the artifact to the second user')) {
       const formerOwner = await call(auth, 'POST', '/command/publish-artifact',
           { '@id': tid, newVersion: '1.0.0' });
@@ -145,6 +144,11 @@ export async function run({ user1, user2, folderId }) {
       checkStatus(await call(user2.auth, 'POST', '/command/publish-artifact',
           { '@id': tid, newVersion: '1.0.0' }), [200, 201],
           'the new owner can publish it');
+      checkStatus(await mutate(user2.auth, 'POST', '/command/transfer-resource-ownership', {
+        '@id': tid,
+        newOwnerId: user1.profile['@id'],
+      }, { etagPath: `${tat}/permissions` }), 200,
+      'the new owner can transfer it back to the former owner');
     }
   }
 
