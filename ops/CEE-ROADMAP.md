@@ -32,7 +32,7 @@ commit that opened it.
 3. **Markup discoverability.** Have the CEDAR workspace's template rich-text editor declare or
    enforce what an embedder will actually render, since its `Source` button accepts markup
    CEE will strip. Three policies decide what survives, and none of them derives from
-   another. CEE sanitizes with DOMPurify against an allowlist of 36 tags and 25 attributes,
+   another. CEE sanitizes with DOMPurify against an allowlist of 37 tags and 26 attributes,
    refuses `ng-*` and `on*` outright, and admits a `data:` image only as raster. The
    workspace's `rich-text-config-service.conf.json` gives CKEditor a toolbar, a height and a
    UI colour and no content filtering at all, so what constrains authoring is CKEditor's
@@ -93,8 +93,8 @@ commit that opened it.
    descriptor grows a second, asynchronous kind and the menu learns to await it. That decision is
    the whole shape of the change and should be taken first, not discovered.
 
-   **The bundle has room, but not unlimited room.** 219,133 gzip bytes free against the 840,000
-   limit, 1,459,465 raw against 3,600,000, measured 2026-08-18. `jsonld.js` pulls `rdf-canonize`
+   **The bundle has room, but not unlimited room.** 199,171 gzip bytes free against the 840,000
+   limit, 1,395,146 raw against 3,600,000, measured 2026-09-06. `jsonld.js` pulls `rdf-canonize`
    behind it and is the largest single dependency anyone has proposed adding. Measure it against
    `check:size` before committing to it, and treat the gzip figure as the binding one.
 
@@ -112,8 +112,8 @@ commit that opened it.
    `application/n-quads` media type are written into the descriptor.
 
 6. **A quarter of what an embedder downloads is font payload, and most of those glyphs never
-   render.** The shipped bundle measures 632,289 gzip bytes at `2.0.0-dev.20260820.7202334`:
-   475,949 of code and 156,340 of inlined assets, the assets being 136,569 for two font families
+   render.** The shipped bundle measures 640,829 gzip bytes at `2.0.7-dev.20260904.ed890758`:
+   484,489 of code and 156,340 of inlined assets, the assets being 136,569 for two font families
    and about 19,800 for the authority marks. The code figure is unremarkable for what CEE is, one
    file carrying the Angular runtime, Material and the CDK, the model library and the YAML writer
    behind it, into a host that provides none of them. The asset figure is avoidable, and reducing
@@ -128,7 +128,7 @@ commit that opened it.
    Measured on the shipped file rather than estimated, so it need not be re-derived: removing the
    fifteen non-Latin Roboto faces leaves 553,053 gzip bytes and saves 79,236; subsetting the icon
    font to those thirteen glyphs as well leaves 498,325 and saves 133,964 altogether, a fifth of
-   the download. Gzip headroom against the 840,000 limit would go from 207,711 to about 341,700.
+   the download. Gzip headroom against the 840,000 limit would go from 199,171 to about 333,100.
    The same headroom bounds whether a JSON-LD processor can be afforded, so the RDF download and
    this item are worth deciding in that order.
 
@@ -194,90 +194,37 @@ commit that opened it.
    a rejected update, correction followed by a successful save, and a deliberately divergent server
    report. The item is complete when validation is useful before the request and equally useful when
    the server is the first component to detect the problem.
-8. **Move the translation boundary onto the Angular 22-supported line.** CEE deliberately remains
-   on `@ngx-translate/core` 14 and `@ngx-translate/http-loader` 7 until this migration lands. Their
-   open Angular peer ranges kept the framework march green without making either 2022-era package
-   current. As measured 2026-08-26, the stable line is 18 for both packages; core 18 supports Angular
-   18–22, TypeScript 6 and RxJS 7, which is CEE's stack, but upgrading it is an API migration rather
-   than a lockfile refresh. It removes `TranslateModule`, `USE_STORE` and `USE_DEFAULT_LANG`, and
-   replaces the default-language API CEE calls with the fallback-language API. Keep the two present
-   major pins visible in `package.json` until the whole boundary can move in one change; do not let a
-   framework bump or a broad dependency update imply that the compatibility was reviewed.
+8. **Finish the widget coverage the two read-write audits started.**
+   Both September 2026 audits covered read-write behaviour only, and drew no conclusions
+   about the read-only presentation, the download menu, or the source panel. Which stage
+   watches which layer, and the five tables that state what the widget family shares, are in
+   "Which stage sees a widget defect" in the [runbook](CEE-RUNBOOK.md). What remains is the
+   read-only path, two files beside it, and the messages two widgets state in English.
 
-   Upgrade core to 18 and remove `@ngx-translate/http-loader` rather than carrying a second package
-   for one GET. `FallbackTranslateLoader` already owns the configured prefix, tracing, error recovery
-   and built-in maps; have it request `<prefix><language>.json` through `HttpClient` as a
-   `TranslationMap`. Replace the root and child `TranslateModule` wiring with the v18 provider and
-   standalone pipe/directive APIs, move `setDefaultLang` to `setFallbackLang`, and update the real-
-   service tests without renaming CEE's public `defaultLanguage` and `fallbackLanguage` configuration
-   keys — those describe CEE's selected and recovery languages and are not ngx-translate API names.
+   The read-only path is the gap rather than any one file, and it is where the untested files
+   sit. `cedar-field-spec` and `cedar-spec-box` state a field's specification in place of an
+   empty control and have no unit spec at all, and `cedar-component-renderer`, which decides
+   between a control and its specification, is at 40% of statements and 12% of branches. The
+   paging table reaches read-only behaviour only where a widget carries a presentation of its
+   own, as the text widget does for an identifier.
 
-   The migration is complete only when the existing external-map success and unreachable-map fallback
-   browser cases pass, two editors retain isolated language stores and prefixes, the built-in English
-   and Hungarian maps still render, the source, harness and visual TypeScript programs plus the full
-   lint/unit gates pass, and the production bundle remains under both size limits. Remove the pin
-   paragraph when those checks are green on the new dependency; leaving it behind would turn this
-   item into the same stale workaround it records.
+   Two files beside it are thin for a different reason. `cedar-embeddable-metadata-editor` is
+   at 54% and mostly reads host configuration. The static image and YouTube widgets are at
+   zero, though their view logic is in pure helpers that are fully covered and the visual
+   suite renders both.
 
-9. **Reconcile the remaining CEE GitHub issue backlog with the product that now ships.**
-   The August 2026 audit closed nineteen completed or superseded reports and left twelve open.
-   Reproduce every item in the
-   [open backlog](https://github.com/metadatacenter/cedar-embeddable-editor/issues) against the current
-   stable CEE and classify it as current product work, an upstream terminology or host concern, a
-   product decision, or obsolete history. Split mixed reports into independently verifiable issues,
-   close superseded ones with the relevant implementation or test evidence, and move real work into
-   this roadmap or the owning roadmap with an explicit acceptance test.
+   Two widgets state a problem in the validator's English whatever the language. The temporal
+   widget prints `FieldValueValidator`'s own message, or `The value is required.`, where every
+   other widget maps an error key to the language files, and the numeric widget prints the
+   sentence `describeNumberType` composes for a value of the wrong type. A Hungarian reader
+   sees English under those two fields and nowhere else. The validator's messages are also the
+   data quality report's, which a host reads, so translating them means deciding whether the
+   report's text is a contract or a rendering. Each problem carries a `code`, which is what a
+   translation would key on.
 
-   Start with the cases the audit could not resolve from source alone: visually review
-   [75](https://github.com/metadatacenter/cedar-embeddable-editor/issues/75) and
-   [131](https://github.com/metadatacenter/cedar-embeddable-editor/issues/131); remeasure
-   [15](https://github.com/metadatacenter/cedar-embeddable-editor/issues/15) and
-   [125](https://github.com/metadatacenter/cedar-embeddable-editor/issues/125) against current builds
-   and services; rerun an accessibility audit for
-   [14](https://github.com/metadatacenter/cedar-embeddable-editor/issues/14); and split and reproduce
-   [12](https://github.com/metadatacenter/cedar-embeddable-editor/issues/12). Keep
-   [29](https://github.com/metadatacenter/cedar-embeddable-editor/issues/29) aligned with the
-   validation and save-experience work already described above, and confirm the still-current UI and
-   model gaps in [22](https://github.com/metadatacenter/cedar-embeddable-editor/issues/22),
-   [28](https://github.com/metadatacenter/cedar-embeddable-editor/issues/28),
-   [35](https://github.com/metadatacenter/cedar-embeddable-editor/issues/35),
-   [36](https://github.com/metadatacenter/cedar-embeddable-editor/issues/36), and
-   [99](https://github.com/metadatacenter/cedar-embeddable-editor/issues/99) before assigning
-   priority. This item is complete when every open issue names an owning surface and has either a
-   current reproduction or an explicit disposition, and GitHub and this roadmap no longer carry
-   contradictory backlogs.
-
-10. **Finish the widget coverage the two read-write audits started.**
-    Both September 2026 audits covered read-write behaviour only, and drew no conclusions
-    about the read-only presentation, the download menu, or the source panel. Which stage
-    watches which layer, and the five tables that state what the widget family shares, are in
-    "Which stage sees a widget defect" in the [runbook](CEE-RUNBOOK.md). What remains is the
-    read-only path, two files beside it, and the messages two widgets state in English.
-
-    The read-only path is the gap rather than any one file, and it is where the untested files
-    sit. `cedar-field-spec` and `cedar-spec-box` state a field's specification in place of an
-    empty control and have no unit spec at all, and `cedar-component-renderer`, which decides
-    between a control and its specification, is at 40% of statements and 12% of branches. The
-    paging table reaches read-only behaviour only where a widget carries a presentation of its
-    own, as the text widget does for an identifier.
-
-    Two files beside it are thin for a different reason. `cedar-embeddable-metadata-editor` is
-    at 54% and mostly reads host configuration. The static image and YouTube widgets are at
-    zero, though their view logic is in pure helpers that are fully covered and the visual
-    suite renders both.
-
-    Two widgets state a problem in the validator's English whatever the language. The temporal
-    widget prints `FieldValueValidator`'s own message, or `The value is required.`, where every
-    other widget maps an error key to the language files, and the numeric widget prints the
-    sentence `describeNumberType` composes for a value of the wrong type. A Hungarian reader
-    sees English under those two fields and nowhere else. The validator's messages are also the
-    data quality report's, which a host reads, so translating them means deciding whether the
-    report's text is a contract or a rendering. Each problem carries a `code`, which is what a
-    translation would key on.
-
-    One known leniency, deliberately left: `TimezonePickerComponent.zoneForOffset` accepts
-    `-13:00` and `-13:45`, which are not offsets that exist. A user cannot choose one, since
-    the offered list is correctly bounded; it takes a host-supplied instance carrying it.
-    Tightening it would blank the control over a value the instance holds, so which of those
-    is wanted is a product call. `timezone-picker.component.spec.ts` records the behaviour
-    and says why.
+   One known leniency, deliberately left: `TimezonePickerComponent.zoneForOffset` accepts
+   `-13:00` and `-13:45`, which are not offsets that exist. A user cannot choose one, since
+   the offered list is correctly bounded; it takes a host-supplied instance carrying it.
+   Tightening it would blank the control over a value the instance holds, so which of those
+   is wanted is a product call. `timezone-picker.component.spec.ts` records the behaviour
+   and says why.
