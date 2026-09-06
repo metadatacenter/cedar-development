@@ -32,7 +32,7 @@ one server — a tool to add, a description to sharpen — belongs in that repos
   - Decide whether they join the train-backed release or stay outside it, as CEE and the
     TypeScript model library do. Dependency resolution no longer decides that question:
     `cedar-artifact-rest-mcp` resolves from Maven Central alone, while `cedar-artifact-mcp` and
-    `cedar-cee-mcp` resolve released `cedar-artifact-library` 2.9.3 from the BMIR Nexus.
+    `cedar-cee-mcp` resolve released `cedar-artifact-library` 2.9.8 from the BMIR Nexus.
   - Make a running server state which CEDAR it talks to. `ping` reports the build and deliberately
     contacts nothing, so the target is invisible — and it is fixed when the process spawns, so
     editing a client's configuration changes nothing until the server restarts. That combination let
@@ -41,11 +41,18 @@ one server — a tool to add, a description to sharpen — belongs in that repos
 
   Two obstacles this item used to carry are gone. The artifact and CEE MCPs once pinned a local
   `cedar-artifact-library:2.8.4-SNAPSHOT` while Maven attempted an obsolete Sonatype repository;
-  both now pin released 2.9.3 from the BMIR Nexus, and the REST MCP has no artifact-library
+  both now pin released 2.9.8 from the BMIR Nexus, and the REST MCP has no artifact-library
   dependency. Separately, a rebuild produced a jar that would not start at all, from a
   `json-schema-validator` conflict between the MCP SDK and `CedarValidator`; that is resolved per
-  server and written up in the runbook, but it is the kind of breakage that only surfaces on a
-  rebuild, which is the argument for building them continuously.
+  server and written up in the runbook.
+
+  Both are the same shape, and a third arrived the same way: moving the artifact MCP off 2.9.3
+  broke its build twice on `jackson-annotations`, because each library release brings a newer
+  databind that reaches for the annotations release of its own line, and a hand-picked version
+  satisfies that only until the next one. Neither server picks a Jackson version by hand now —
+  annotations follows databind, and a library bump is one property rather than three. What none of
+  these had was a build that would have caught them: each surfaced when somebody happened to
+  rebuild, which is the argument for building these servers continuously.
 
 - **2. Track the CEE bundle a client actually serves.** `cedar-cee-mcp` pins the CEE by version and
   hash and refuses a mismatch, so what a build produces is known. What a *client* is running is not:
