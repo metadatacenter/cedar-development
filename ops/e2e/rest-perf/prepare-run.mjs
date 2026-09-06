@@ -177,9 +177,8 @@ async function shareCategory(category, actorsToShare) {
     throw new Error(`read category permissions: ${current.status} ${current.text}`);
   }
   const permissions = {
-    owner: current.body.owner,
     userPermissions: actorsToShare.map(actor => ({
-      user: { '@id': actor.cedarUserId }, permission: 'write',
+      user: { '@id': actor.cedarUserId }, role: 'manager',
     })),
     groupPermissions: [],
   };

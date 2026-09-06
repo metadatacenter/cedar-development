@@ -875,7 +875,7 @@ async function openShareDialog(page, folderId, templateName) {
   await row(page, templateName).locator('a.share:visible').click();
   const modal = page.locator('#share-modal .modal-content');
   await modal.waitFor({ state: 'visible', timeout: 15_000 });
-  await modal.locator('#share-people input.user-name').waitFor({ state: 'visible', timeout: 15_000 });
+  await modal.locator('#share-principal').waitFor({ state: 'visible', timeout: 15_000 });
   return modal;
 }
 
@@ -897,31 +897,21 @@ async function closeShareDialog(modal) {
   await modal.waitFor({ state: 'hidden', timeout: 10_000 });
 }
 
-async function chooseVisibleRole(scope, role) {
-  const label = new RegExp(`^${role}$`, 'i');
-  const picker = scope.locator('.bootstrap-select').first();
-  const button = picker.locator('button.dropdown-toggle');
-  if (label.test((await button.innerText()).trim())) return;
-  await button.click();
-  const option = picker.locator('ul.dropdown-menu li a:visible').filter({ hasText: label }).first();
-  await option.waitFor({ state: 'visible', timeout: 10_000 });
-  await option.click();
-}
-
 async function shareWithUser(page, folderId, templateName, userName, role, recoverExpiredSession = false) {
   const modal = await openShareDialog(page, folderId, templateName);
-  const input = modal.locator('#share-people input.user-name');
+  const input = modal.locator('#share-principal');
   await input.fill(userName);
   const option = page.locator('ul.dropdown-menu:visible li').filter({ hasText: userName }).first();
-  // Exact matches select themselves in this Angular typeahead. Some builds briefly render the
-  // dropdown first and some go straight to the confirmation row, so click the option only when it
-  // actually appeared; the visible OK button is the authoritative selected-model signal.
+  // Exact matches can select themselves. Click the option when it appears, then use the enabled Add
+  // button as the authoritative selected-principal signal.
   await option.waitFor({ state: 'visible', timeout: 1_000 }).then(() => option.click()).catch(() => {});
-  const confirm = modal.locator('#share-people .confirmation.first')
-    .getByRole('button', { name: 'OK', exact: true });
-  await confirm.waitFor({ state: 'visible', timeout: 10_000 });
-  await chooseVisibleRole(modal.locator('#share-people'), role);
-  const grant = () => expectPermissionUpdate(page, () => confirm.click());
+  const add = modal.locator('button.share-add-button');
+  await add.waitFor({ state: 'visible', timeout: 10_000 });
+  await modal.locator('#share-role').selectOption(role);
+  if (await add.isDisabled()) {
+    throw new Error(`the sharing dialog did not select ${userName}`);
+  }
+  const grant = () => expectPermissionUpdate(page, () => add.click());
   if (recoverExpiredSession) {
     await withExpiredAccessToken(
       page,
@@ -937,14 +927,13 @@ async function shareWithUser(page, folderId, templateName, userName, role, recov
 
 async function changeUserShare(page, folderId, templateName, userName, role) {
   const modal = await openShareDialog(page, folderId, templateName);
-  const shareRow = modal.locator('#shared-users .row').filter({ hasText: userName }).first();
+  const shareRow = modal.locator('#shared-users .share-access-row').filter({ hasText: userName }).first();
   await shareRow.waitFor({ state: 'visible', timeout: 10_000 });
   await expectPermissionUpdate(page, async () => {
     await shareRow.locator('select').selectOption(role, { force: true });
   });
-  const expectedLabel = new RegExp(`^${role}$`, 'i');
-  const shownRole = (await shareRow.locator('.bootstrap-select button.dropdown-toggle').innerText()).trim();
-  if (!expectedLabel.test(shownRole)) {
+  const shownRole = await shareRow.locator('select').inputValue();
+  if (shownRole !== role) {
     throw new Error(`sharing dialog visibly showed ${JSON.stringify(shownRole)} for ${userName}, not ${role}`);
   }
   await closeShareDialog(modal);
@@ -952,9 +941,9 @@ async function changeUserShare(page, folderId, templateName, userName, role) {
 
 async function revokeUserShare(page, folderId, templateName, userName) {
   const modal = await openShareDialog(page, folderId, templateName);
-  const shareRow = modal.locator('#shared-users .row').filter({ hasText: userName }).first();
+  const shareRow = modal.locator('#shared-users .share-access-row').filter({ hasText: userName }).first();
   await shareRow.waitFor({ state: 'visible', timeout: 10_000 });
-  await expectPermissionUpdate(page, () => shareRow.locator('button.btn-delete').click());
+  await expectPermissionUpdate(page, () => shareRow.locator('button.share-remove-button').click());
   await closeShareDialog(modal);
 }
 
