@@ -15,29 +15,29 @@ Frontend work for the embeddable editor is tracked separately in
 
 ### Features
 
-- **1. Finish the permission-model data migration and the policy decisions outside it.** The
-  application now presents and enforces Viewer, Editor and Manager as distinct artifact-and-folder
-  roles, while retaining the existing Neo4j data unchanged. During this compatibility period,
-  `CANREAD` is interpreted as Viewer, `CANWRITE` as Manager, and a newly assigned Editor is stored as
-  `EDITOR_ROLE`. Complete the transition only after the compatibility release has run in production.
+- **1. Rename the legacy role relationships in production Neo4j.** The application currently
+  interprets `CANREAD` as Viewer and `CANWRITE` as Manager, so the new permission model can be
+  deployed without changing the stored graph. The category permission model follows the same initial
+  approach: `CANATTACHCATEGORY` stores Classifier grants and `CANWRITECATEGORY` stores Manager grants.
+  Category Viewer and Editor grants already use the canonical `VIEWER_ROLE` and `EDITOR_ROLE` names.
 
-  First review the sixteen production resources whose legacy `everybodyPermission` is `write`. The
-  target model permits the **Everyone** group to hold Viewer only, so there is no mechanical mapping.
-  Twelve of the sixteen are folders and may expose whole subtrees. Record an owner-approved outcome
-  for every resource before changing any of them.
+  Before migrating category data, add `CLASSIFIER_ROLE` as the canonical Classifier relationship.
+  Make the application read both `CANATTACHCATEGORY` and `CLASSIFIER_ROLE`, read both
+  `CANWRITECATEGORY` and `MANAGER_ROLE`, and write only the canonical names. Deploy that compatibility
+  code to every environment before changing stored relationships.
 
-  Then migrate Neo4j relationships from `CANREAD` to `VIEWER_ROLE` and from `CANWRITE` to
-  `MANAGER_ROLE`, regenerate the search index from the graph, and verify role counts and representative
-  access paths before and after the migration. Once every deployed client has consumed the role and
-  capability response fields, remove the `read`/`write` request aliases, legacy search keys and legacy
-  `canRead`, `canWrite`, `canShare` and `canChangeOwner` response fields.
+  Patch the production graph to rename artifact and folder `CANREAD` relationships to `VIEWER_ROLE`
+  and `CANWRITE` relationships to `MANAGER_ROLE`. In the same migration, rename category
+  `CANATTACHCATEGORY` relationships to `CLASSIFIER_ROLE` and `CANWRITECATEGORY` relationships to
+  `MANAGER_ROLE`. `EDITOR_ROLE` requires no migration for either resource family.
 
-  Several decisions remain deliberately outside the artifact-and-folder model: whether ordinary
-  folder deletion should trash a whole subtree; whether an audited platform-recovery workflow may
-  transfer ownership; who may discover groups beyond those they belong to or administer; whether
-  OpenView needs a public hierarchy; and whether categories retain their separate `ATTACH`/`WRITE`
-  vocabulary. Resolve and test each independently rather than extending the resource-role hierarchy
-  to cover it implicitly.
+  Rehearse the patch against a recent production copy and record the relationship counts before and
+  after it runs. Take a recoverable backup immediately before applying it in production. The patch
+  must preserve each relationship's endpoints and properties, make no access changes, and be safe to
+  run again. After applying it, regenerate the search index from Neo4j and verify the role counts and
+  representative direct, group and inherited access paths for artifacts, folders and categories.
+  Remove the compatibility interpretation of `CANREAD`, `CANWRITE`, `CANATTACHCATEGORY` and
+  `CANWRITECATEGORY` only after every deployed environment has been patched and verified.
 
 ### Infrastructure
 
