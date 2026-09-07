@@ -70,12 +70,15 @@ The plan settles four groups of question:
   are on PATH, Git author name and email are configured, the CEDAR profile is sourced, npm's
   effective user configuration contains no obsolete authentication setting, and there is disk for
   the release's estimated clean checkouts, release/next Maven and frontend builds, publication
-  caches and logs, plus headroom. The estimate is derived from the manifest's repository and build
-  counts rather than a fixed free-space threshold. The npmrc check reads key names only and never
-  prints registry tokens or values. When the shell offers another Java or Node, the CLI looks for
-  the required ones itself, through `/usr/libexec/java_home -v 17` and Homebrew's `node@24`, puts
-  them first on PATH for the run, and prints a `Toolchain:` line for each substitution. When it
-  finds neither, the plan names the export to run.
+  caches and logs, plus headroom. No test-owned `mongod` executable under `~/.embedmongo` may be
+  left from an earlier run; `cedarcli test status` inventories these processes and `cedarcli test
+  cleanup` terminates only those exact embedded executables, never the native MongoDB. The estimate
+  is derived from the manifest's repository and build counts rather than a fixed free-space
+  threshold. The npmrc check reads key names only and never prints registry tokens or values. When
+  the shell offers another Java or Node, the CLI looks for the required ones itself, through
+  `/usr/libexec/java_home -v 17` and Homebrew's `node@24`, puts them first on PATH for the run, and
+  prints a `Toolchain:` line for each substitution. When it finds neither, the plan names the export
+  to run.
 - **The source is ready.** Every participating repository—including the independent repositories
   whose CEE wiring the release integrates—is clean and pushed, and the CI run for the exact commit
   the train was built from is green wherever that commit defines a workflow. The immutable source
@@ -191,7 +194,10 @@ The release runs these phases, each verifying its work before the next begins:
    and the Designer, which publish independently, keep the train's packages in both trees.
 3. Run the release Maven test builds, the next-development Maven builds, all frontend installs, and
    the production frontend builds. Generated distribution bytes are inventoried, so an ignored
-   `dist` file cannot change before publication.
+   `dist` file cannot change before publication. Each test-bearing Maven task checks for embedded
+   MongoDB children both before it starts and after it returns; a leak stops the phase with the PID,
+   listener, and `cedarcli test cleanup` recovery command instead of allowing a later task to reuse
+   the port.
 4. Replace each tracked frontend distribution with its byte-inventoried production build, retaining
    only its package metadata and removing obsolete generated files, then create and verify local
    `release/pre-<VER>`, `release/post-<NEXT>`, and `release-<VER>` refs without touching the ordinary
@@ -353,6 +359,7 @@ a local-only attempt that must be replaced by another train.
 | `remote: fatal error in commit_refs` / GitHub HTTP 5xx | transient GitHub backend | `release resume`; bounded retry is automatic |
 | a protected-branch or immutable-ref refusal | policy or state mismatch, not transport | fix the policy/state; it is never retried automatically |
 | `Nexus is missing required … artifacts` | inventory not yet indexed after the publisher's bounded wait | use `release resume` once Nexus is healthy |
+| `embedded Mongo test process(es) remain` | an earlier or just-finished Maven test left a `.embedmongo` child that can intercept an ephemeral port | end the owning test or run `cedarcli test cleanup`, then `release resume` |
 
 ## Before the First Release on a New Host
 

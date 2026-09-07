@@ -1237,9 +1237,18 @@ TypeScript, while both emit the same bytes for it.
   is locked to 5.0, so the 5.0 formula carries a convention Homebrew no longer honours. Expect this
   to return after a Homebrew upgrade.
 
-  Two `mongod` processes from `~/.embedmongo` may also be running: those are embedded MongoDBs left
-  by a test run using `cedar-test-support-library`. They hold no ports and are harmless, but
-  `pkill -f '\.embedmongo.*mongod'` clears them.
+  A `mongod` whose executable is under `~/.embedmongo` belongs to an embedded test run, not the
+  native stack. An abnormally terminated test JVM can leave one behind with its ephemeral loopback
+  port still open. On macOS, a later wildcard listener can acquire that same numeric port, so a test
+  request aimed at loopback may reach the orphan instead of the intended server. Inspect and remove
+  only these test-owned processes with:
+  ```bash
+  cedarcli test status
+  cedarcli test cleanup
+  ```
+  The detector identifies the executable path and deliberately excludes the native MongoDB. Every
+  test-bearing Maven command run by `cedarcli`, including release Maven builds, refuses to start
+  while one remains and checks again after the command finishes.
 
 - **Keycloak won't start** → wrong JDK. Pin `JAVA_HOME` to 17 (see above). Symptom: `Failed to start
   caches … getSubject is supported only if a security manager is allowed`.
@@ -1671,8 +1680,12 @@ shortens the clock without skipping the queue state transitions or the retry/dea
 the tests exist to cover. Blocking Redis consumers retain their one-second idle wait even in tests,
 which is what a consumer spends between claims when its queue is empty.
 
-Test servers and in-process HTTP stubs bind to port `0`, letting the OS allocate a listener that does
-not collide with the native stack or a concurrent Maven process. Redirection goes through
+Test servers and in-process HTTP stubs bind to exact `127.0.0.1:0`, letting the OS allocate the
+address and port as one listener that does not collide with the native stack or a concurrent Maven
+process. Do not use a wildcard address with port `0`: macOS can allocate the same numeric port to a
+wildcard and a loopback listener, after which a loopback request may reach the wrong process.
+Outage tests keep their allocated listener bound and fail traffic through `TcpFaultProxy`; they do
+not stop a dependency and assume its former port remains unused. Redirection goes through
 `CedarEnvironmentSource.setOverride(map)`, a process-global test override read by the whole config
 layer. `cedar-test-support-library` contributes an auto-detected JUnit extension that clears that
 override after every test class; abstract harnesses reapply their embedded-backend redirect in each
@@ -1680,9 +1693,16 @@ inherited `@BeforeAll`. This prevents one class's allocated dependency port from
 class's configuration when surefire's `reuseForks=true` shares a JVM. `CedarConfig` rebuilds whenever
 the active environment changes, and no reflective `--add-opens` environment mutation is involved.
 
+The same support library registers a JUnit launcher-session listener that explicitly stops its
+shared embedded MongoDB and MariaDB once the suite closes. The JVM shutdown hook remains a fallback
+for ordinary shutdown outside a launcher session; the next CLI preflight catches a child left by a
+crashed or forcibly killed JVM.
+
 `ops/tests/test_backend_test_port_policy.py` is the static regression guard. It rejects fixed server
-environment ports, fixed `InetSocketAddress` listeners and nonzero test connector ports across the
-backend repositories. Run it from `cedar-development` with
+environment ports, nonzero test connector ports, wildcard test connectors and wildcard port-zero
+socket allocation across the backend repositories and the shared test-support helpers. Embedded
+MariaDB port-zero builders must also carry an exact loopback bind argument. Run it from
+`cedar-development` with
 `python -m unittest ops.tests.test_backend_test_port_policy`.
 
 The suites are JUnit 5. Booted-application tests use `io.dropwizard.testing.DropwizardTestSupport`
