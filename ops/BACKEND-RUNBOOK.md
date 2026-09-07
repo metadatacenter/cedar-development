@@ -1107,8 +1107,9 @@ Two things to know before relying on it:
 
 - **`?compact=true` is read-only.** It returns the lean form — on a 23-field template, 40% of the
   full YAML and under a seventh of the JSON — by dropping provenance, version, status, and model
-  version while retaining the artifact identifier. Writing it back is rejected with a `400` naming
-  the compact form. Write the full form, or omit `id` to author minimally.
+  version while retaining the document-root artifact identifier and dropping nested artifact IDs.
+  Writing it back is rejected with a `400` naming the compact form. Write the full form, or omit
+  `id` to author minimally. Semantic IDs used as controlled-term or link values are data and remain.
 - **A template instance takes `?format=` ahead of `Accept`.** That parameter already names the
   representation (`jsonld`, `json`, `rdf-nquad`), so YAML negotiation applies only when it is absent.
 
@@ -1131,7 +1132,9 @@ the nine key/value sets. In Java run `mvn test` under Java 17; in TypeScript run
 `npm run verify:java-lock:source` and `npm run parity:yaml`. The CEE integration checks are `npm test`,
 `npm run typecheck` and `npm run test:domain` against the candidate TypeScript package.
 
-A YAML round trip is expected to be lossless. The case that historically was not is the `_ui._size`
+A full-YAML round trip is expected to be lossless. Compact YAML intentionally loses repository
+metadata and nested artifact identity, but a compact render/read/render cycle is a fixpoint. The
+case that historically was not lossless in full YAML is the `_ui._size`
 box on `static-image` and `static-youtube-video` fields: the YAML serialization carries it in the
 child's `configuration:` block, and a reader that looked only at the field level dropped it on every
 nested static field. `YamlAsymmetryProbeTest` in `cedar-artifact-library` and `YamlNegotiationTest`
@@ -1161,9 +1164,10 @@ drift in either representation fails explicitly.
 Each library also holds two properties about itself as tests, so a regression fails a build rather
 than waiting for a comparison run. Every scalar returns as the string it went in as, over a few
 thousand adversarial strings generated from a fixed seed — `YamlScalarRoundTripTest` in Java,
-`YamlScalarRoundTrip.spec.ts` in TypeScript. And the compact form reads back as the artifact it was
-written from, keeping the identifier and carrying none of the model version, version, status or
-provenance — `CompactYamlRoundTripTest` and `CompactYamlRoundTrip.spec.ts`. Reading the compact form
+`YamlScalarRoundTrip.spec.ts` in TypeScript. And the compact form reads back to a stable compact
+rendering, keeping only the root identifier and carrying none of the nested artifact identity,
+model version, version, status or provenance — `CompactYamlRoundTripTest` and
+`CompactYamlRoundTrip.spec.ts`. Reading the compact form
 has to be asked for on both sides: the ordinary reader refuses it over the absent model version, and
 a reader for it is a separate constructor, `YamlArtifactReader(true)` in Java and
 `getStrictForCompact()` in TypeScript.
@@ -1792,6 +1796,16 @@ a failure even when every check that did run passed. Freeze keeps the inventory 
 terminology store is absent by recording its seven checks as skipped rather than silently omitting
 them. `download` includes JSON / YAML / compact-YAML export and read-negotiation across all four
 artifact kinds.
+
+`cedarcli test e2e` runs both tiers in one command and records the run as the evidence the train
+and release preflights require. Before anything runs it reads the controller's status and refuses
+while any managed service is unhealthy, stale, or served by a process the controller does not
+manage. It then records the `develop` head of every train repository, runs `npm run smoke:rest` and
+`npm run smoke`, and writes `reports/smoke-gate/<digest>.json`, where the digest names the set of
+heads, beside a `latest.json` copy. `cedarcli publish train` and `cedarcli release plan` look up the
+record for exactly the heads they are about to ship, so a rerun against newer heads never displaces
+the record an older train still needs. The REST tier's own report is kept beside it as
+`rest-smoke-<digest>.json`.
 
 Every run writes `reports/rest-smoke.json` by default; `--report=PATH` chooses another file. The JSON
 records the selected suites, pass/fail/skip totals, duration, inventory verdict and each individual

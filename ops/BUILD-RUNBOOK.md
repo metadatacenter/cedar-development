@@ -75,8 +75,9 @@ later real dispatch allocates again and can therefore receive the next minute's 
 Maven, TypeScript model → CEE → frontend, and 31-image Docker configuration as one contract; checks
 GitHub CLI authentication and the workflow on `develop`; checks CI for every exact remote
 `develop` SHA that defines a workflow; requires the train slot to be idle;
-rejects a colliding ID; rejects dirty or unpushed source; and requires every checked-out source
-repository's `develop` to equal the live remote `develop`. It also runs the same read-only
+rejects a colliding ID; rejects dirty or unpushed source; requires every checked-out source
+repository's `develop` to equal the live remote `develop`; and requires a passing whole-stack smoke
+run recorded against exactly those heads. It also runs the same read-only
 publication-target probe as hosted preflight: Nexus service and writable status, the
 `cedar-maven-dev` repository root, npm identity, and Docker Registry v2 authentication. Credentials
 come from `BMIR_NEXUS_USERNAME`/`BMIR_NEXUS_PASSWORD` when present, otherwise from the
@@ -91,6 +92,18 @@ The CI question is also answered on its own by `cedarcli check ci`. It lists eve
 rerun --failed` command that repeats only its failed jobs. A release advances `develop` in forty
 repositories at once, so run it after a release lands and before the next train, rather than
 learning about a red repository from the dispatch preflight hours later.
+
+The smoke question has its own command as well. `cedarcli test e2e` runs both whole-stack tiers
+under `cedar-development/ops/e2e`, the REST suite and the browser smoke, against the native stack,
+and records the run under the `develop` head of every train repository at that moment, in
+`ops/e2e/reports/smoke-gate/`. The dispatch preflight reads the record for exactly the heads the
+train would capture. It refuses when there is no such record, when either tier failed, when the REST
+run did not execute the committed check inventory, or when a repository held uncommitted changes
+while the smoke ran. A run is evidence about commits rather than about a moment, so it never
+expires, and a commit to any train repository after it, a runbook edit included, calls for a rerun
+of about three minutes. The command itself refuses to start while any managed service is unhealthy
+or stale, because a green run against a stale jar says nothing about the source. No option skips
+the gate.
 
 The exact-SHA CI probe retries only a short GitHub indexing absence and transient network or
 502/503/504 failures. It names the repository, SHA, attempt, and delay. Pending or red CI,

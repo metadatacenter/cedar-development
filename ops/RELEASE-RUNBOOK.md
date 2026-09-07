@@ -81,7 +81,9 @@ The plan settles four groups of question:
   to run.
 - **The source is ready.** Every participating repository—including the independent repositories
   whose CEE wiring the release integrates—is clean and pushed, and the CI run for the exact commit
-  the train was built from is green wherever that commit defines a workflow. The immutable source
+  the train was built from is green wherever that commit defines a workflow. A whole-stack smoke
+  run recorded by `cedarcli test e2e` against exactly the train's source commits has passed both
+  tiers. The immutable source
   also contains every declared wrapper, manifest, lock, build, preserve, version, and Docker stamp
   input before a long build is allowed to start. Every frontend lifecycle script in the captured
   lockfiles has an exact true/false `allowScripts` decision.
@@ -125,6 +127,15 @@ GitHub may briefly return no run while indexing a just-pushed SHA, and it may tr
 repository, short SHA, attempt, and delay. Authentication or authorization refusal, malformed data,
 settled red CI, and a persistently absent run fail immediately or at the end of that short grace. A
 queued or running run is not waited through; the refusal carries its workflow URL.
+
+**The smoke gate is asked about the same commits.** `cedarcli test e2e` runs the REST and browser
+smoke tiers against the native stack and records each run under the `develop` heads it tested, in
+`cedar-development/ops/e2e/reports/smoke-gate/`. The record that answers for a train therefore
+survives later runs against newer heads, and a release days after its train still finds it. The
+gate refuses when no run covers the train's source, when either tier failed, when the REST run did
+not execute the committed check inventory, or when a repository held uncommitted changes while the
+smoke ran. Unlike a red develop, nothing accepts a missing or failed run. The answer to a flaky run
+is to rerun it.
 
 **Frontend installs use the same policy in train and release.** `plan` reads `package.json` and
 `package-lock.json` from each train-captured commit, requires every `hasInstallScript` dependency to

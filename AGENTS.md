@@ -28,6 +28,7 @@ cedarcli native health         # exits non-zero unless every managed application
 cedarcli git status            # working-tree state across all repos
 cedarcli check versions        # version consistency across the estate
 cedarcli check ci              # CI at every develop head a train would capture
+cedarcli test e2e              # both whole-stack smoke tiers; records the run the train and release gates require
 ```
 
 The alias sources `cedar-cli/cli.sh`, which activates the CLI's own virtualenv. When an alias is not
@@ -219,7 +220,9 @@ suggestion, ~30 s): `cd cedar-development/ops/e2e && npm run smoke` — details 
   did not change. Details in the runbook, "Continuous integration".
 - Suites verify logic; a **redeploy + `ops/e2e` smoke run verifies reality**. Always redeploy and
   smoke after changes to inter-service HTTP, validation, or startup wiring: real runtime bugs have
-  passed green suites.
+  passed green suites. `cedarcli test e2e` runs both smoke tiers and records the run against the
+  `develop` heads it tested. `cedarcli publish train` and `cedarcli release plan|start` refuse a
+  source no passing run covers, and no option skips that gate.
 - Full operational, build, test, and dependency-state detail lives in the runbook
   (`cedar-development/ops/BACKEND-RUNBOOK.md`).
 
