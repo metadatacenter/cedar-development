@@ -7,8 +7,9 @@
 // download matrix per kind, the read-only nature of the compact form, and YAML/compact on the plain
 // GET across all four kinds.
 //
-// full YAML carries id and the system keys (status, version, modelVersion, created/modified on/by);
-// compact YAML keeps id/type/name/children but drops the system keys — the differential asserted below.
+// full YAML carries every artifact id and the system keys (status, version, modelVersion,
+// created/modified on/by); compact YAML keeps only the document-root artifact id plus the readable
+// type/name/children structure — the differential asserted below.
 import { suite, check, checkStatus, call, cleanup, artifactBody, KINDS, enc, RUN } from '../lib.mjs';
 
 export const name = 'download';
@@ -105,9 +106,9 @@ export async function run({ user1, folderId }) {
 
   suite('download: compact YAML is read-only');
 
-  // A compact download retains the stored artifact's identifier but omits its system-recorded
-  // metadata. Posting it would silently regenerate the omitted state, so the write path recognizes
-  // and refuses it.
+  // A compact download retains the stored root artifact's identifier but omits nested artifact ids
+  // and system-recorded metadata. Posting it would silently regenerate the omitted state, so the
+  // write path recognizes and refuses it.
   if (compactTemplateYaml) {
     const back = await call(auth, 'POST', `/templates?folder_id=${enc(folderId)}`,
         compactTemplateYaml, { contentType: GET_YAML });

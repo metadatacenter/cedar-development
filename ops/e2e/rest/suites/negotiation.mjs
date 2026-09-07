@@ -71,6 +71,21 @@ export async function run({ user1, folderId }) {
         'what YAML created reads back as a proper JSON template',
         `${asJson.status}: ${(asJson.text ?? '').slice(0, 150)}`);
 
+    // This fixture has a nested attribute-value field, so it also pins compact identity at the
+    // HTTP boundary: the stored template keeps its id, while the nested artifact does not expose
+    // one in the read-only representation.
+    const asCompact = await call(auth, 'GET', `/templates/${enc(id)}?compact=true`, undefined,
+        { accept: 'application/yaml' });
+    if (checkStatus(asCompact, 200, 'the stored template is served as compact YAML')) {
+      const compactYaml = asCompact.text ?? '';
+      const escapedId = id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      check(new RegExp(`^id: ["']?${escapedId}["']?$`, 'm').test(compactYaml)
+              && !/^[ \t]+id:/m.test(compactYaml),
+          'compact YAML retains only the root artifact identifier',
+          `root id present: ${new RegExp(`^id: ["']?${escapedId}["']?$`, 'm').test(compactYaml)}; `
+              + `nested id present: ${/^[ \t]+id:/m.test(compactYaml)}`);
+    }
+
     // And an update in the full form — id plus the system keys — is accepted where compact is not.
     const full = yaml('template-full.yml').replace(/^id: .*$/m, `id: ${id}`);
     const put = await updateArtifact(auth, `/templates/${enc(id)}`, full,
