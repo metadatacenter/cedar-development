@@ -49,6 +49,16 @@ bytes before comparison. An undeclared policy, a malformed entry, a second occur
 adjacent JavaScript change still fails the byte proof. This keeps npm's build/install allowlist from
 forcing a new public CEE release while preserving the rule that executable changes do.
 
+The proof also accepts one difference that is not a change at all. esbuild draws the short names it
+gives minified identifiers from an alphabet ordered by how often each character occurs in the
+output, and the provenance strings a train stamps into its bundle move those counts, so two builds
+of the same code can disagree in every name at one rank of that alphabet. The planner therefore
+compares the two bundles outside identifiers byte for byte and requires every identifier that
+differs to be a short minified name, renamed the same way at every differing position in both
+directions. A property, a reserved word, a longer name, or a name renamed two ways is still a
+refusal. Train 2.9.9-dev.20260906.2244 was the first to need this: its stamps carried enough of the
+digit 8 to swap its rank with the letter B.
+
 ## What Plan Checks
 
 `plan` and `start` run the identical complete gate, so a release cannot begin from a state `plan`
