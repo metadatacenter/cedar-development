@@ -80,9 +80,17 @@ repository's `develop` to equal the live remote `develop`. It also runs the same
 publication-target probe as hosted preflight: Nexus service and writable status, the
 `cedar-maven-dev` repository root, npm identity, and Docker Registry v2 authentication. Credentials
 come from `BMIR_NEXUS_USERNAME`/`BMIR_NEXUS_PASSWORD` when present, otherwise from the
-`bmir-nexus-releases` server in `~/.m2/settings.xml`; no extra option is needed. It then prints the
-exact dispatch command. It does not start GitHub Actions, publish an artifact, alter Docker or npm
+`bmir-nexus-releases` server in `~/.m2/settings.xml`; no extra option is needed. Every check runs
+even after one has refused, so a single rehearsal reports every finding, each stale lock baseline
+and each red repository among them, rather than the first one met. It then prints the exact
+dispatch command. It does not start GitHub Actions, publish an artifact, alter Docker or npm
 client configuration, or write a manifest.
+
+The CI question is also answered on its own by `cedarcli check ci`. It lists every captured
+`develop` head whose CI is not green, with the run to look at and, for a red run, the `gh run
+rerun --failed` command that repeats only its failed jobs. A release advances `develop` in forty
+repositories at once, so run it after a release lands and before the next train, rather than
+learning about a red repository from the dispatch preflight hours later.
 
 The exact-SHA CI probe retries only a short GitHub indexing absence and transient network or
 502/503/504 failures. It names the repository, SHA, attempt, and delay. Pending or red CI,
@@ -114,10 +122,11 @@ On a successful dispatch, the CLI prints two views. Use the compact watcher when
 detail obscures the overall state:
 
 ```bash
-cedarcli publish train-status <TRAIN_ID> --watch
+cedarcli publish train-status --watch
 ```
 
-It reports Maven, all three npm stages, the Docker plan, compact completed/running/queued/failed
+Without an ID the command reports the newest dispatched train; an explicit ID selects an older
+one. It reports Maven, all three npm stages, the Docker plan, compact completed/running/queued/failed
 counts for the 31-image matrix, and final verification. During a long unchanged stage it prints a
 quiet one-minute heartbeat with the active job/step and elapsed time. Without `--watch`, the same command is a
 one-shot status and recovery decision. For GitHub's full step log, the dispatch also prints the exact
@@ -144,8 +153,10 @@ new CLI parameter.
 
 The configuration also binds every npm install surface to the SHA-256 of the reviewed lockfile and
 records the advisory counts observed by the last successful baseline train. A changed dependency
-graph stops in preflight and names the repository and lockfile; review `npm audit`, update the
-counts and digest deliberately, and rerun. This is a no-silent-regression gate, not a claim that the
+graph stops in preflight and names the repository and lockfile. `cedarcli publish baselines` lists
+every lock whose digest has moved, and `cedarcli publish baselines --refresh` recomputes the digest
+and the `npm audit` counts of each and writes them to `frontend-train.json`; review the diff, commit
+it in `cedar-development`, and rerun. This is a no-silent-regression gate, not a claim that the
 legacy AngularJS build-time graphs contain no advisories. CEE's shipped dependency audit remains a
 separate blocking zero-vulnerability gate. npm 11 install scripts are similarly explicit: each
 required package/version is pinned in `allowScripts`, and the train enables
@@ -225,7 +236,10 @@ The workflow then records the expected Docker plan and builds the image estate i
 order. `cedar-java` and `cedar-microservice` publish to the internal repository. Seven
 infrastructure, fifteen microservice, and seven frontend images publish to the runtime repository.
 Independent images build in parallel; the Java bases remain ordered. The verified npm plan supplies
-the frontend build arguments, overriding compatibility defaults in `cedar-images-base.sh`. Every
+the frontend build arguments, overriding compatibility defaults in `cedar-images-base.sh`. Those
+defaults name development packages, and Nexus keeps only the last couple of trains' development
+packages, so left alone they stop resolving within days and the Docker build's own CI goes red. A
+release rewrites them from the train's recorded inputs, as the release runbook describes. Every
 image records the train, the exact `cedar-docker-build` commit, the source-manifest digest, and the
 npm/frontend-manifest digest as OCI labels. Each frontend image also contains the complete graph at
 `/usr/local/share/cedar-build-manifest.json`. A train build compares each downloaded application
@@ -243,6 +257,14 @@ At deployment time, `cedarcli docker start` reads that completion record again. 
 selected pull policy, requires every selected local image tag to carry the recorded repository
 digest, and then starts Compose with pulling disabled. A tag that is absent, locally rebuilt, or
 now resolves to different registry content is rejected before any service starts.
+
+## What a Train Costs
+
+Train 2.9.8-dev.20260905.0436 took 36 minutes: nine and a half for the Maven phases, two for the
+TypeScript model, eight and a half for the CEE gate on its ARM runner, two for the seven frontends,
+five for the 31 images, and eight and a half to pull every image back and verify it. Everything but
+the image matrix runs serially. The local dispatch preflight takes about a minute, most of it the
+CI probe across the 43 captured repositories, and a `--dry-run` rehearsal pays it a second time.
 
 ## Resume a failed train
 
@@ -425,9 +447,14 @@ NPM_CONFIG_STRICT_ALLOW_SCRIPTS=true npm ci --no-audit --no-fund
 NPM_CONFIG_STRICT_ALLOW_SCRIPTS=true npm --prefix visual ci --no-audit --no-fund
 ```
 
-Review the resulting dependency graphs, then update the corresponding root and visual SHA-256
-entries—and the recorded advisory counts if they changed—in
-`cedar-development/ops/frontend-train.json`. `cedarcli publish train --dry-run` must pass the local
+Review the resulting dependency graphs, then refresh the CEE baselines and commit the result:
+
+```bash
+cedarcli publish baselines --refresh --repository cedar-embeddable-editor
+git -C $CEDAR_HOME/cedar-development commit -m "Refresh the CEE npm audit baselines" ops/frontend-train.json
+```
+
+`cedarcli publish train --dry-run` must pass the local
 lock-baseline check, and the pushed CEE commit must pass its complete CI workflow before dispatch.
 This correction changes captured source, so create a new train ID; never resume an immutable train
 to incorporate it. The new train will still replace this source-development pin in its disposable

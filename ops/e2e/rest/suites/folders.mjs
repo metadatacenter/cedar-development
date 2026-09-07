@@ -22,7 +22,26 @@ export async function run({ user1, homeFolderId }) {
   cleanup('folder', parentAt, parentName);
 
   checkStatus(await call(auth, 'GET', parentAt), 200, 'folder read back');
-  checkStatus(await call(auth, 'GET', `${parentAt}/details`), 200, 'folder details');
+  const details = await call(auth, 'GET', `${parentAt}/details`);
+  if (checkStatus(details, 200, 'folder details')) {
+    const current = details.body?.currentUserPermissions;
+    const capabilities = new Set(current?.capabilities ?? []);
+    const expectedCapabilities = new Set([
+      'readResource', 'listFolderContents', 'updateResource', 'createInFolder',
+      'copyIntoFolder', 'moveIntoFolder', 'deleteResource', 'manageGrants', 'moveResource',
+      'manageOpenView', 'transferOwnership',
+    ]);
+    check(current?.role == null && current?.owner === true,
+        'folder ownership is represented separately from the role',
+        `authority was ${JSON.stringify({ role: current?.role, owner: current?.owner })}`);
+    check(capabilities.size === expectedCapabilities.size
+          && [...expectedCapabilities].every(value => capabilities.has(value)),
+        'folder authority exposes exactly the folder capability set',
+        `capabilities were ${JSON.stringify([...capabilities])}`);
+    const actions = new Set(current?.availableActions ?? []);
+    check(!actions.has('copyFromResource'), 'a folder is not presented as a copy source',
+        `available actions were ${JSON.stringify([...actions])}`);
+  }
   checkStatus(await call(auth, 'GET', `${parentAt}/permissions`), 200, 'folder permissions');
   checkStatus(await call(auth, 'GET', `${parentAt}/contents`), 200, 'folder contents');
   checkStatus(await call(auth, 'GET', `${parentAt}/contents-extract`), 200, 'folder contents-extract');

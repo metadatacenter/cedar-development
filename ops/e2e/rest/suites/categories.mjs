@@ -80,14 +80,11 @@ export async function run({ user1, user2, admin, folderId }) {
   check(got.body?.['schema:name'] === label, 'the category carries the name it was given',
       `name was "${got.body?.['schema:name']}"`);
 
-  // Reading a category's ACL needs WRITE access, which is stricter than a folder's — a folder's
-  // permissions need only read. Worth pinning: the same operation costs a different permission
-  // depending on the kind of thing it is asked about.
+  // Any Viewer may read the access report. Only a Manager or the owner may change direct grants.
   checkStatus(await call(adm, 'GET', `${at}/permissions`), 200,
       'the owner can read the category ACL');
-  const otherAcl = await call(auth, 'GET', `${at}/permissions`);
-  check(otherAcl.status === 403, 'a normal user cannot read it — the ACL needs write access',
-      `expected 403, got ${otherAcl.status}`);
+  checkStatus(await call(auth, 'GET', `${at}/permissions`), 200,
+      'a Viewer can read the category ACL');
 
   const renamed = `${label} renamed`;
   const put = await mutate(adm, 'PUT', at,
@@ -123,45 +120,24 @@ export async function run({ user1, user2, admin, folderId }) {
     cleanup('template', `/templates/${enc(artId)}`, artLabel);
 
     // Classifying your own artifact under a category needs a grant on the category, not merely on
-    // the artifact. With an administrator-owned vocabulary that means a user cannot categorise
-    // anything until someone grants them ATTACH — worth knowing, because it is the difference
-    // between a working category picker and an empty one.
+    // the artifact. With an administrator-owned vocabulary, the user needs the Classifier role on
+    // the category before the category picker can apply it.
     const before = await call(auth, 'POST', '/command/attach-category',
         { artifactId: artId, categoryId: id });
     check(before.status === 403,
         'a user cannot attach a category they have no grant on, even to their own artifact',
         `expected 403, got ${before.status}`);
 
-    // ATTACH is a real, enforced permission — unlike four of the six filesystem levels. Granting it
-    // is what makes the attach possible, and asserting the pair is what shows the grant did the work.
+    // Classifier supplies attachCategory and detachCategory without category editing authority.
     const grant = await mutate(adm, 'PUT', `${at}/permissions`, {
-      owner: { '@id': admin.profile?.['@id'] ?? undefined },
-      userPermissions: [{ user: { '@id': user1.profile['@id'] }, permission: 'attach' }],
+      userPermissions: [{ user: { '@id': user1.profile['@id'] }, role: 'classifier' }],
       groupPermissions: [],
     });
-    if (grant.status !== 200) {
-      // The owner field needs the administrator's own id, which the API-key actor does not carry a
-      // profile for. Fall back to reading it off the category's current ACL.
-      const acl = await call(adm, 'GET', `${at}/permissions`);
-      const ownerId = acl.body?.owner?.['@id'];
-      if (ownerId) {
-        const retry = await mutate(adm, 'PUT', `${at}/permissions`, {
-          owner: { '@id': ownerId },
-          userPermissions: [{ user: { '@id': user1.profile['@id'] }, permission: 'attach' }],
-          groupPermissions: [],
-        });
-        checkStatus(retry, 200, 'the administrator grants ATTACH on the category');
-      } else {
-        check(false, 'the administrator grants ATTACH on the category',
-            `${grant.status}: ${(grant.text ?? '').slice(0, 200)}`);
-      }
-    } else {
-      ok('the administrator grants ATTACH on the category');
-    }
+    checkStatus(grant, 200, 'the administrator grants Classifier on the category');
 
     const attach = await call(auth, 'POST', '/command/attach-category',
         { artifactId: artId, categoryId: id });
-    if (checkStatus(attach, [200, 201, 204], 'with ATTACH granted, the user can categorise their artifact')) {
+    if (checkStatus(attach, [200, 201, 204], 'with Classifier granted, the user can categorise their artifact')) {
       const report = await call(auth, 'GET', `/templates/${enc(artId)}/report`);
       check(JSON.stringify(report.body ?? {}).includes(id),
           'the artifact report names the attached category',

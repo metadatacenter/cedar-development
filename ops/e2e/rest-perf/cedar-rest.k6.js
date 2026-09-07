@@ -1,6 +1,10 @@
 import http from 'k6/http';
 import { check, fail, sleep } from 'k6';
 import { Counter, Rate, Trend } from 'k6/metrics';
+import {
+  artifactCapabilities, categoryCapabilities, fieldActions, folderActions, folderCapabilities,
+  sameMembers, samePermissionActions,
+} from './permission-model.js';
 import { scheduledValue } from './schedule.js';
 
 const manifestPath = __ENV.CEDAR_PERF_MANIFEST;
@@ -15,7 +19,7 @@ const groupServer = __ENV.CEDAR_GROUP_BASE || manifest.target.group || 'https://
 const keycloak = __ENV.CEDAR_KEYCLOAK_BASE || 'http://127.0.0.1:8080';
 const realm = __ENV.CEDAR_KEYCLOAK_REALM || 'CEDAR';
 const client = __ENV.CEDAR_KEYCLOAK_CLIENT || 'cedar-angular-app';
-const configuredVus = Number(__ENV.CEDAR_PERF_VUS || (profile === 'soak' ? 50 : 10));
+const configuredVus = Number(__ENV.CEDAR_PERF_VUS || (profile === 'soak' ? 50 : profile === 'permissions' ? 1 : 10));
 const configuredDuration = __ENV.CEDAR_PERF_DURATION;
 const contentionWidth = Math.min(Number(__ENV.CEDAR_PERF_CONTENTION_WIDTH || 20), manifest.actors.length);
 const matrixRounds = Number(__ENV.CEDAR_PERF_ROUNDS || manifest.matrixRounds || 3);
@@ -49,6 +53,7 @@ const churnCompleted = new Counter('cedar_churn_completed');
 const burstBaselineCompleted = new Counter('cedar_burst_baseline_completed');
 const burstPeakCompleted = new Counter('cedar_burst_peak_completed');
 const burstRecoveryCompleted = new Counter('cedar_burst_recovery_completed');
+const permissionMatrixCompleted = new Counter('cedar_permission_matrix_completed');
 const burstBaselineDuration = new Trend('cedar_burst_baseline_duration', true);
 const burstPeakDuration = new Trend('cedar_burst_peak_duration', true);
 const burstRecoveryDuration = new Trend('cedar_burst_recovery_duration', true);
@@ -118,6 +123,18 @@ const measuredOperations = [
   ...['baseline', 'peak', 'recovery'].flatMap(phase => artifactKinds.flatMap(kind => [
     `burst ${phase} ${kind} GET`, `burst ${phase} ${kind} PUT`,
   ])),
+  'permission report', 'permission denied content update', 'permission Editor content update',
+  'permission denied ACL update', 'permission Manager ACL update',
+  'permission transition ACL update', 'permission concurrent content update',
+  'permission denied move', 'permission allowed move', 'permission return move',
+  'permission OpenView preflight', 'permission OpenView enable', 'permission OpenView disable',
+  'permission category report', 'permission category denied attach',
+  'permission category Classifier attach', 'permission category Classifier detach',
+  'permission category denied record update', 'permission category Editor record update',
+  'permission category denied ACL update', 'permission category Manager ACL update',
+  'permission category transition ACL update',
+  'permission category ownership preflight', 'permission category transfer',
+  'permission category transfer return',
   'soak artifact ACL preflight', 'soak artifact ACL update',
   'soak artifact ACL verification', 'soak artifact ACL access verification',
   'soak folder ACL preflight', 'soak folder ACL update',
@@ -127,7 +144,7 @@ const measuredOperations = [
   'soak group membership verification', 'soak group membership access verification',
   'soak category record preflight', 'soak category record update',
   'soak category ACL preflight', 'soak category ACL update',
-  'soak category ACL verification', 'soak category ACL access verification',
+  'soak category ACL verification', 'soak category ACL authority update',
   ...destructiveKinds.flatMap(kind => [
     `update-delete ${kind} GET`, `update-delete ${kind} PUT`, `update-delete ${kind} DELETE`,
     `update-delete ${kind} verification`, `double-delete ${kind} GET`, `double-delete ${kind} DELETE`,
@@ -166,6 +183,8 @@ const profileRouteThresholds = {
   churn: routeThresholds(measuredOperations.filter(operation => operation.startsWith('churn ')), 750, 1500),
   burst: routeThresholds(measuredOperations.filter(operation => operation.startsWith('burst ')), 750, 1500),
   soak: routeThresholds(soakRouteOperations, 750, 1500),
+  permissions: routeThresholds(
+      measuredOperations.filter(operation => operation.startsWith('permission ')), 750, 2000),
 };
 
 function recordDuration(operation, response) {
@@ -204,6 +223,17 @@ const matrixCases = [
 http.setResponseCallback(http.expectedStatuses({ min: 200, max: 399 }, 412));
 
 const profiles = {
+  permissions: {
+    scenarios: {
+      permissions: {
+        executor: 'per-vu-iterations',
+        exec: 'permissions',
+        vus: 1,
+        iterations: matrixRounds,
+        maxDuration: configuredDuration || '10m',
+      },
+    },
+  },
   quick: {
     scenarios: {
       mixed: {
@@ -353,6 +383,9 @@ export const options = {
       cedar_burst_recovery_completed: ['count>10'],
       dropped_iterations: ['count==0'],
     } : {}),
+    ...(profile === 'permissions' ? {
+      cedar_permission_matrix_completed: [`count==${matrixRounds}`],
+    } : {}),
   },
 };
 
@@ -497,6 +530,11 @@ function hasUserEntry(body, key, userId) {
   return entriesFor(body, key).some(entry => entry?.user?.['@id'] === userId);
 }
 
+function userEntryRole(body, userId) {
+  return entriesFor(body, 'userPermissions')
+      .find(entry => entry?.user?.['@id'] === userId)?.role;
+}
+
 // k6 caches Response.json() values and does not promise that callers can mutate that cached object.
 // Parse the wire body again whenever it is going to become a mutation request. Without this copy,
 // assignments can leave the outgoing representation unchanged while the server still advances its
@@ -505,12 +543,27 @@ function mutableResponseBody(response) {
   return JSON.parse(response.body);
 }
 
-function toggledUserPermissionBody(currentBody, userId, permission) {
+function categoryAclBody(response) {
+  const current = mutableResponseBody(response);
+  return {
+    userPermissions: entriesFor(current, 'userPermissions'),
+    groupPermissions: entriesFor(current, 'groupPermissions'),
+  };
+}
+
+function categoryAclWithUserRole(response, userId, role) {
+  const body = categoryAclBody(response);
+  body.userPermissions = body.userPermissions.filter(entry => entry?.user?.['@id'] !== userId);
+  if (role) body.userPermissions.push({ user: { '@id': userId }, role });
+  return body;
+}
+
+function toggledUserRoleBody(currentBody, userId, role) {
   const entries = entriesFor(currentBody, 'userPermissions');
   const granting = !hasUserEntry(currentBody, 'userPermissions', userId);
   currentBody.userPermissions = entries.filter(entry => entry?.user?.['@id'] !== userId);
   if (granting) {
-    currentBody.userPermissions.push({ user: { '@id': userId }, permission });
+    currentBody.userPermissions.push({ user: { '@id': userId }, role });
   }
   return { body: currentBody, granting };
 }
@@ -621,6 +674,353 @@ export function mixed(data) {
       toggleOpenView(data, index, actor);
       break;
   }
+}
+
+function permissionFixture() {
+  if (!manifest.permissions) fail('permissions fixture is missing from the manifest');
+  return manifest.permissions;
+}
+
+function verifyPermissionReport(data, actorIndex, fixture, kind, authority, operation = 'permission report') {
+  const response = cedar(data, actorIndex, 'GET', `${fixture.path}/details`, undefined, operation);
+  if (!accepted(response, [200], `${kind} ${authority} permission report succeeds`)) return false;
+  const report = response.json()?.currentUserPermissions;
+  const owner = authority === 'owner';
+  const expectedCapabilities = kind === 'folder'
+    ? folderCapabilities[authority] : artifactCapabilities[authority];
+  const expectedActions = kind === 'folder' ? folderActions[authority] : fieldActions[authority];
+  let valid = true;
+  valid = invariant(report, `${kind} ${authority} reports ownership separately`, value =>
+    value?.owner === owner && (owner ? value?.role == null : value?.role === authority)) && valid;
+  valid = invariant(report, `${kind} ${authority} reports the exact capability set`, value =>
+    sameMembers(value?.capabilities, expectedCapabilities)) && valid;
+  valid = invariant(report, `${kind} ${authority} reports the exact permission action set`, value =>
+    samePermissionActions(value?.availableActions, expectedActions)) && valid;
+  return valid;
+}
+
+function aclWithUserRole(current, userId, role) {
+  const body = mutableResponseBody(current);
+  body.userPermissions = entriesFor(body, 'userPermissions')
+      .filter(entry => entry?.user?.['@id'] !== userId);
+  if (role) body.userPermissions.push({ user: { '@id': userId }, role });
+  return body;
+}
+
+function setPermissionRole(data, fixture, role, operation = 'permission transition ACL update') {
+  const current = cedar(data, fixture.ownerIndex, 'GET', `${fixture.transitionField.path}/permissions`,
+      undefined, operation);
+  const revision = requireEtag(current, `${operation} preflight`);
+  if (!revision) return false;
+  const body = aclWithUserRole(current, manifest.actors[fixture.viewerIndex].cedarUserId, role);
+  const updated = cedar(data, fixture.ownerIndex, 'PUT', `${fixture.transitionField.path}/permissions`,
+      body, operation, { 'If-Match': revision });
+  return accepted(updated, [200], `${operation} sets ${role || 'no role'}`);
+}
+
+function updateFieldAs(data, actorIndex, field, operation, expectedStatus) {
+  const current = cedar(data, actorIndex, 'GET', field.path, undefined, 'permission report');
+  if (!accepted(current, [200], `${operation} preflight succeeds`)) return false;
+  const revision = etag(current);
+  if (!revision) return invariant(current, `${operation} preflight returns an ETag`, () => false);
+  const body = mutableResponseBody(current);
+  body['schema:description'] = `${manifest.prefix} ${operation} ${__ITER}`;
+  const updated = cedar(data, actorIndex, 'PUT', field.path, body, operation,
+      { 'If-Match': revision }, resource, [expectedStatus]);
+  return accepted(updated, [expectedStatus], `${operation} returns ${expectedStatus}`);
+}
+
+function exerciseStaticPermissionMatrix(data, fixture) {
+  for (const [authority, actorIndex] of [
+    ['owner', fixture.ownerIndex],
+    ['viewer', fixture.viewerIndex],
+    ['editor', fixture.editorIndex],
+    ['manager', fixture.managerIndex],
+  ]) {
+    verifyPermissionReport(data, actorIndex, fixture.directField, 'field', authority);
+    verifyPermissionReport(data, actorIndex, fixture.directFolder, 'folder', authority);
+  }
+  // The direct Viewer grant on this field cannot lower the Editor role inherited from its folder.
+  verifyPermissionReport(data, fixture.editorIndex, fixture.inheritedField, 'field', 'editor');
+  // This Viewer role comes solely from membership in the group holding the grant.
+  verifyPermissionReport(data, fixture.viewerIndex, fixture.groupField, 'field', 'viewer');
+}
+
+function exerciseRoleTransitions(data, fixture) {
+  const viewerId = manifest.actors[fixture.viewerIndex].cedarUserId;
+  if (!setPermissionRole(data, fixture, 'viewer')) return;
+  verifyPermissionReport(data, fixture.viewerIndex, fixture.transitionField, 'field', 'viewer');
+  updateFieldAs(data, fixture.viewerIndex, fixture.transitionField,
+      'permission denied content update', 403);
+
+  if (!setPermissionRole(data, fixture, 'editor')) return;
+  verifyPermissionReport(data, fixture.viewerIndex, fixture.transitionField, 'field', 'editor');
+  updateFieldAs(data, fixture.viewerIndex, fixture.transitionField,
+      'permission Editor content update', 200);
+  const editorAcl = cedar(data, fixture.viewerIndex, 'GET', `${fixture.transitionField.path}/permissions`,
+      undefined, 'permission report');
+  const editorRevision = requireEtag(editorAcl, 'permission Editor ACL preflight');
+  if (editorRevision) {
+    const denied = cedar(data, fixture.viewerIndex, 'PUT', `${fixture.transitionField.path}/permissions`,
+        mutableResponseBody(editorAcl), 'permission denied ACL update', { 'If-Match': editorRevision },
+        resource, [403]);
+    accepted(denied, [403], 'Editor cannot change grants');
+  }
+
+  if (!setPermissionRole(data, fixture, 'manager')) return;
+  verifyPermissionReport(data, fixture.viewerIndex, fixture.transitionField, 'field', 'manager');
+  const managerAcl = cedar(data, fixture.viewerIndex, 'GET', `${fixture.transitionField.path}/permissions`,
+      undefined, 'permission report');
+  const managerRevision = requireEtag(managerAcl, 'permission Manager ACL preflight');
+  if (managerRevision) {
+    const updated = cedar(data, fixture.viewerIndex, 'PUT', `${fixture.transitionField.path}/permissions`,
+        mutableResponseBody(managerAcl), 'permission Manager ACL update', { 'If-Match': managerRevision });
+    accepted(updated, [200], 'Manager can change grants');
+  }
+
+  // Race a Viewer-to-Manager transition against a content update. The update may observe either
+  // authority, but after the ACL write completes the reported authority must be Manager.
+  if (!setPermissionRole(data, fixture, 'viewer')) return;
+  const currentAcl = cedar(data, fixture.ownerIndex, 'GET', `${fixture.transitionField.path}/permissions`,
+      undefined, 'permission report');
+  const aclRevision = requireEtag(currentAcl, 'permission concurrent ACL preflight');
+  const currentField = cedar(data, fixture.viewerIndex, 'GET', fixture.transitionField.path,
+      undefined, 'permission report');
+  const fieldRevision = requireEtag(currentField, 'permission concurrent content preflight');
+  if (aclRevision && fieldRevision) {
+    const fieldBody = mutableResponseBody(currentField);
+    fieldBody['schema:description'] = `${manifest.prefix} concurrent authority transition ${__ITER}`;
+    const operations = ['permission transition ACL update', 'permission concurrent content update'];
+    const responses = executeBatch([
+      batchRequest(data, fixture.ownerIndex, 'PUT', resource, `${fixture.transitionField.path}/permissions`,
+          aclWithUserRole(currentAcl, viewerId, 'manager'), operations[0], aclRevision, { expected: [200] }),
+      batchRequest(data, fixture.viewerIndex, 'PUT', resource, fixture.transitionField.path,
+          fieldBody, operations[1], fieldRevision, { expected: [200, 403] }),
+    ], operations);
+    accepted(responses[0], [200], 'concurrent role transition succeeds');
+    accepted(responses[1], [200, 403], 'concurrent update observes old or new authority');
+    verifyPermissionReport(data, fixture.viewerIndex, fixture.transitionField, 'field', 'manager');
+  }
+
+  if (!setPermissionRole(data, fixture, null)) return;
+  const revoked = cedar(data, fixture.viewerIndex, 'GET', `${fixture.transitionField.path}/details`,
+      undefined, 'permission report', {}, resource, [403]);
+  accepted(revoked, [403], 'revoked user loses access');
+}
+
+function exerciseMoveAuthority(data, fixture) {
+  const actor = fixture.managerIndex;
+  const move = fixture.move;
+  let details = cedar(data, actor, 'GET', `${move.field.path}/details`, undefined, 'permission report');
+  let revision = requireEtag(details, 'permission denied move preflight');
+  if (!revision) return;
+  const denied = cedar(data, actor, 'POST', '/command/move-resource-to-folder', {
+    '@id': move.field.id, targetFolderId: move.blocked.id,
+  }, 'permission denied move', { 'If-Match': revision }, resource, [403]);
+  accepted(denied, [403], 'Manager cannot move into a Viewer folder');
+
+  details = cedar(data, actor, 'GET', `${move.field.path}/details`, undefined, 'permission report');
+  revision = requireEtag(details, 'permission allowed move preflight');
+  if (!revision) return;
+  const moved = cedar(data, actor, 'POST', '/command/move-resource-to-folder', {
+    '@id': move.field.id, targetFolderId: move.allowed.id,
+  }, 'permission allowed move', { 'If-Match': revision }, resource, [200, 201, 204]);
+  if (!accepted(moved, [200, 201, 204], 'Manager can move into an Editor folder')) return;
+
+  details = cedar(data, actor, 'GET', `${move.field.path}/details`, undefined, 'permission report');
+  revision = requireEtag(details, 'permission return move preflight');
+  if (!revision) return;
+  const returned = cedar(data, actor, 'POST', '/command/move-resource-to-folder', {
+    '@id': move.field.id, targetFolderId: move.source.id,
+  }, 'permission return move', { 'If-Match': revision }, resource, [200, 201, 204]);
+  accepted(returned, [200, 201, 204], 'Manager can return the resource to an Editor folder');
+}
+
+function exerciseOpenViewAuthority(data, fixture) {
+  const actor = fixture.managerIndex;
+  let details = cedar(data, actor, 'GET', `${fixture.directField.path}/details`,
+      undefined, 'permission OpenView preflight');
+  let revision = requireEtag(details, 'permission OpenView enable preflight');
+  if (!revision) return;
+  const enabled = cedar(data, actor, 'POST', '/command/make-artifact-open',
+      { '@id': fixture.directField.id }, 'permission OpenView enable', { 'If-Match': revision });
+  if (!accepted(enabled, [200], 'Manager can enable OpenView')) return;
+  details = cedar(data, actor, 'GET', `${fixture.directField.path}/details`,
+      undefined, 'permission OpenView preflight');
+  revision = requireEtag(details, 'permission OpenView disable preflight');
+  invariant(details, 'open resource offers disableOpenView instead of enableOpenView', result =>
+    samePermissionActions(result.json()?.currentUserPermissions?.availableActions,
+        ['copyFromResource', 'disableOpenView']));
+  if (!revision) return;
+  const disabled = cedar(data, actor, 'POST', '/command/make-artifact-not-open',
+      { '@id': fixture.directField.id }, 'permission OpenView disable', { 'If-Match': revision });
+  accepted(disabled, [200], 'Manager can disable OpenView');
+}
+
+function verifyCategoryPermissionReport(data, actorIndex, category, authority, expectedRole = authority) {
+  const response = cedar(data, actorIndex, 'GET', category.path, undefined,
+      'permission category report');
+  if (!accepted(response, [200], `category ${authority} permission report succeeds`)) return false;
+  const report = response.json()?.currentUserPermissions;
+  const owner = authority === 'owner';
+  let valid = true;
+  valid = invariant(report, `category ${authority} reports ownership separately`, value =>
+    value?.owner === owner && value?.role === expectedRole) && valid;
+  valid = invariant(report, `category ${authority} reports the exact capability set`, value =>
+    sameMembers(value?.capabilities, categoryCapabilities[authority])) && valid;
+  return valid;
+}
+
+function setCategoryPermissionRole(data, fixture, role) {
+  const category = fixture.category.transition;
+  const actorId = manifest.actors[fixture.classifierIndex].cedarUserId;
+  const path = `${category.path}/permissions`;
+  const current = cedar(data, 'admin', 'GET', path, undefined,
+      'permission category transition ACL update');
+  const revision = requireEtag(current, 'permission category transition ACL preflight');
+  if (!revision) return false;
+  const updated = cedar(data, 'admin', 'PUT', path,
+      categoryAclWithUserRole(current, actorId, role),
+      'permission category transition ACL update', { 'If-Match': revision });
+  return accepted(updated, [200], `category transition sets ${role || 'no direct role'}`);
+}
+
+function updateCategoryAs(data, actorIndex, category, operation, expectedStatus) {
+  const current = cedar(data, actorIndex, 'GET', category.path, undefined,
+      'permission category report');
+  if (!accepted(current, [200], `${operation} preflight succeeds`)) return false;
+  const revision = requireEtag(current, `${operation} preflight`);
+  if (!revision) return false;
+  const currentBody = current.json();
+  const body = {
+    'schema:name': currentBody['schema:name'],
+    'schema:description': `${manifest.prefix} ${operation} ${__ITER}`,
+  };
+  const updated = cedar(data, actorIndex, 'PUT', category.path, body, operation,
+      { 'If-Match': revision }, resource, [expectedStatus]);
+  return accepted(updated, [expectedStatus], `${operation} returns ${expectedStatus}`);
+}
+
+function changeCategoryAclAs(data, actorIndex, category, operation, expectedStatus) {
+  const path = `${category.path}/permissions`;
+  const current = cedar(data, actorIndex, 'GET', path, undefined,
+      'permission category report');
+  if (!accepted(current, [200], `${operation} preflight succeeds`)) return false;
+  const revision = requireEtag(current, `${operation} preflight`);
+  if (!revision) return false;
+  const updated = cedar(data, actorIndex, 'PUT', path, categoryAclBody(current), operation,
+      { 'If-Match': revision }, resource, [expectedStatus]);
+  return accepted(updated, [expectedStatus], `${operation} returns ${expectedStatus}`);
+}
+
+function classifyArtifactAs(data, actorIndex, category, artifact, attach, operation, expectedStatus) {
+  const command = attach ? 'attach-category' : 'detach-category';
+  const response = cedar(data, actorIndex, 'POST', `/command/${command}`, {
+    artifactId: artifact.id,
+    categoryId: category.id,
+  }, operation, {}, resource, [expectedStatus]);
+  return accepted(response, [expectedStatus], `${operation} returns ${expectedStatus}`);
+}
+
+function exerciseStaticCategoryPermissionMatrix(data, fixture) {
+  const category = fixture.category;
+  // The administrator directly owns this category and inherits Manager by owning the root.
+  verifyCategoryPermissionReport(data, 'admin', category.direct, 'owner', 'manager');
+  for (const [authority, actorIndex] of [
+    ['viewer', fixture.viewerIndex],
+    ['classifier', fixture.classifierIndex],
+    ['editor', fixture.editorIndex],
+    ['manager', fixture.managerIndex],
+  ]) {
+    verifyCategoryPermissionReport(data, actorIndex, category.direct, authority);
+  }
+  // The direct Viewer grant on the child cannot lower the Editor role inherited from its parent.
+  verifyCategoryPermissionReport(data, fixture.editorIndex, category.inherited, 'editor');
+  // This Classifier role comes from membership in the group holding the grant.
+  verifyCategoryPermissionReport(data, fixture.viewerIndex, category.group, 'classifier');
+}
+
+function exerciseCategoryRoleTransitions(data, fixture) {
+  const actor = fixture.classifierIndex;
+  const category = fixture.category.transition;
+  const artifact = fixture.category.transitionArtifact;
+
+  if (!setCategoryPermissionRole(data, fixture, 'viewer')) return;
+  verifyCategoryPermissionReport(data, actor, category, 'viewer');
+  classifyArtifactAs(data, actor, category, artifact, true,
+      'permission category denied attach', 403);
+  updateCategoryAs(data, actor, category, 'permission category denied record update', 403);
+  changeCategoryAclAs(data, actor, category, 'permission category denied ACL update', 403);
+
+  if (!setCategoryPermissionRole(data, fixture, 'classifier')) return;
+  verifyCategoryPermissionReport(data, actor, category, 'classifier');
+  if (classifyArtifactAs(data, actor, category, artifact, true,
+      'permission category Classifier attach', 200)) {
+    classifyArtifactAs(data, actor, category, artifact, false,
+        'permission category Classifier detach', 200);
+  }
+  updateCategoryAs(data, actor, category, 'permission category denied record update', 403);
+  changeCategoryAclAs(data, actor, category, 'permission category denied ACL update', 403);
+
+  if (!setCategoryPermissionRole(data, fixture, 'editor')) return;
+  verifyCategoryPermissionReport(data, actor, category, 'editor');
+  updateCategoryAs(data, actor, category, 'permission category Editor record update', 200);
+  changeCategoryAclAs(data, actor, category, 'permission category denied ACL update', 403);
+
+  if (!setCategoryPermissionRole(data, fixture, 'manager')) return;
+  verifyCategoryPermissionReport(data, actor, category, 'manager');
+  changeCategoryAclAs(data, actor, category, 'permission category Manager ACL update', 200);
+
+  if (!setCategoryPermissionRole(data, fixture, null)) return;
+  // Every authenticated user inherits Viewer from the category root.
+  verifyCategoryPermissionReport(data, actor, category, 'viewer');
+  classifyArtifactAs(data, actor, category, artifact, true,
+      'permission category denied attach', 403);
+}
+
+function exerciseCategoryOwnershipTransfer(data, fixture) {
+  const category = fixture.category.transfer;
+  const path = `${category.path}/permissions`;
+  const current = cedar(data, 'admin', 'GET', path, undefined,
+      'permission category ownership preflight');
+  const revision = requireEtag(current, 'permission category ownership preflight');
+  if (!revision) return;
+  const originalOwnerId = current.json()?.owner?.['@id'];
+  if (!originalOwnerId) {
+    invariant(current, 'category ownership preflight reports the owner', () => false);
+    return;
+  }
+  const newOwnerId = manifest.actors[fixture.managerIndex].cedarUserId;
+  const transferred = cedar(data, 'admin', 'POST', '/command/transfer-category-ownership', {
+    '@id': category.id, newOwnerId,
+  }, 'permission category transfer', { 'If-Match': revision });
+  if (!accepted(transferred, [200], 'category owner can transfer ownership')) return;
+  // The new owner still receives Viewer through Everyone, independently of ownership.
+  verifyCategoryPermissionReport(data, fixture.managerIndex, category, 'owner', 'viewer');
+  // Owning the root supplies Manager on this descendant, but does not preserve ownership.
+  verifyCategoryPermissionReport(data, 'admin', category, 'manager');
+  const transferredRevision = requireEtag(transferred, 'permission category transfer return preflight');
+  if (!transferredRevision) return;
+  const returned = cedar(data, fixture.managerIndex, 'POST', '/command/transfer-category-ownership', {
+    '@id': category.id, newOwnerId: originalOwnerId,
+  }, 'permission category transfer return', { 'If-Match': transferredRevision });
+  if (accepted(returned, [200], 'new category owner can return ownership')) {
+    verifyCategoryPermissionReport(data, 'admin', category, 'owner', 'manager');
+  }
+}
+
+// This finite profile follows the model in two stages: authority determines capabilities, then
+// capabilities and resource state determine the operation that the REST API accepts.
+export function permissions(data) {
+  const fixture = permissionFixture();
+  exerciseStaticPermissionMatrix(data, fixture);
+  exerciseRoleTransitions(data, fixture);
+  exerciseMoveAuthority(data, fixture);
+  exerciseOpenViewAuthority(data, fixture);
+  exerciseStaticCategoryPermissionMatrix(data, fixture);
+  exerciseCategoryRoleTransitions(data, fixture);
+  exerciseCategoryOwnershipTransfer(data, fixture);
+  permissionMatrixCompleted.add(1);
 }
 
 const resilienceFailureStatuses = [0, 502, 503, 504];
@@ -843,8 +1243,8 @@ function soakAclUpdate(data, index, actor, kind) {
   const current = cedar(data, index, 'GET', path, undefined, preflightOperation);
   const revision = requireEtag(current, preflightOperation);
   if (!revision) return;
-  const { body, granting } = toggledUserPermissionBody(
-      mutableResponseBody(current), soakFixture.peer.cedarUserId, 'read');
+  const { body, granting } = toggledUserRoleBody(
+      mutableResponseBody(current), soakFixture.peer.cedarUserId, 'viewer');
   const updated = cedar(data, index, 'PUT', path, body, updateOperation, { 'If-Match': revision });
   if (accepted(updated, [200], `${updateOperation} succeeds`)) {
     check(updated, {
@@ -922,7 +1322,11 @@ function soakCategoryUpdate(data, index, actor, permissions) {
   if (!revision) return;
   const currentBody = mutableResponseBody(current);
   const transition = permissions
-    ? toggledUserPermissionBody(currentBody, soakFixture.peer.cedarUserId, 'write')
+    ? {
+        body: categoryAclWithUserRole(current, soakFixture.peer.cedarUserId,
+            hasUserEntry(currentBody, 'userPermissions', soakFixture.peer.cedarUserId) ? null : 'manager'),
+        granting: !hasUserEntry(currentBody, 'userPermissions', soakFixture.peer.cedarUserId),
+      }
     : null;
   const body = permissions ? transition.body : {
     'schema:name': currentBody['schema:name'],
@@ -938,16 +1342,18 @@ function soakCategoryUpdate(data, index, actor, permissions) {
       const verified = cedar(data, 'admin', 'GET', path, undefined, verificationOperation);
       if (accepted(verified, [200], `${verificationOperation} succeeds`)) {
         invariant(verified, `${verificationOperation} reflects ${transition.granting ? 'grant' : 'revocation'}`,
-            result => hasUserEntry(result.json(), 'userPermissions', soakFixture.peer.cedarUserId)
-              === transition.granting);
+            result => userEntryRole(result.json(), soakFixture.peer.cedarUserId)
+              === (transition.granting ? 'manager' : undefined));
       }
-      const accessOperation = 'soak category ACL access verification';
+      const accessOperation = 'soak category ACL authority update';
       const expectedStatus = transition.granting ? 200 : 403;
-      const access = cedar(data, soakFixture.peer.index, 'GET', path, undefined, accessOperation, {}, resource,
-          [expectedStatus]);
+      const accessRevision = requireEtag(updated, `${accessOperation} preflight`);
+      if (!accessRevision) return;
+      const access = cedar(data, soakFixture.peer.index, 'PUT', path, categoryAclBody(updated),
+          accessOperation, { 'If-Match': accessRevision }, resource, [expectedStatus]);
       if (accepted(access, [expectedStatus],
-          `${accessOperation} sees ${transition.granting ? 'grant' : 'revocation'}`)) {
-        invariant(access, `${accessOperation} enforces ${transition.granting ? 'grant' : 'revocation'}`,
+          `${accessOperation} sees ${transition.granting ? 'Manager' : 'Viewer'}`)) {
+        invariant(access, `${accessOperation} enforces ${transition.granting ? 'Manager' : 'Viewer'}`,
             result => result.status === expectedStatus);
       }
     }
@@ -1255,7 +1661,7 @@ function categoryRace(data, permissions) {
   if (!revision) return;
   const operations = Array(contentionWidth).fill(updateOperation);
   const requests = operations.map((operation, index) => batchRequest(data, index, 'PUT', resource, path,
-      permissions ? current.json() : {
+      permissions ? categoryAclBody(current) : {
         'schema:name': `${manifest.prefix} contended category ${manifest.runId} ${__ITER}-${index}`,
         'schema:description': `${manifest.prefix} category update`,
       }, operation, revision));
@@ -1427,6 +1833,8 @@ function wildcardMutation(data, type) {
     body['schema:description'] = `${manifest.prefix} wildcard content ${__ITER}`;
   } else if (type === 'wildcard-folder-graph') {
     body = replacementBody('folder', current, __ITER);
+  } else if (type === 'wildcard-category-acl') {
+    body = categoryAclBody(current);
   } else if (type.endsWith('-acl') || type === 'wildcard-group-membership') {
     body = current.json();
   } else if (type === 'wildcard-group-record') {

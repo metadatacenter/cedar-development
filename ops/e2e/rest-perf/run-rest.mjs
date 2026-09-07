@@ -15,10 +15,10 @@ assertSafeTargets();
 const HERE = dirname(fileURLToPath(import.meta.url));
 const profile = arg('profile', 'quick');
 const defaultUsers = {
-  quick: 10, contention: 20, hotset: 20, resilience: 10, churn: 10, burst: 50, soak: 50,
+  permissions: 5, quick: 10, contention: 20, hotset: 20, resilience: 10, churn: 10, burst: 50, soak: 50,
 };
 if (!defaultUsers[profile]) {
-  throw new Error(`--profile must be quick, contention, hotset, resilience, churn, burst or soak; got ${profile}`);
+  throw new Error(`--profile must be permissions, quick, contention, hotset, resilience, churn, burst or soak; got ${profile}`);
 }
 const users = intArg('users', defaultUsers[profile], { max: 500 });
 const rounds = intArg('rounds', 3, { max: 20 });
@@ -42,7 +42,7 @@ const burstPhaseDuration = arg('phase-duration', '30s');
 const burstRecoveryPercent = intArg('recovery-p95-percent', 150, { min: 100, max: 300 });
 const slowRequestMs = intArg('slow-request-ms', 500, { min: 100, max: 60000 });
 const slowRequestLogLimit = intArg('slow-request-log-limit', 3, { min: 0, max: 20 });
-const vus = Number(arg('vus', String(users)));
+const vus = Number(arg('vus', String(profile === 'permissions' ? 1 : users)));
 if (!Number.isInteger(vus) || vus < 1 || vus > users) {
   throw new Error(`--vus must be an integer from 1 to the selected user count (${users}); got ${vus}`);
 }

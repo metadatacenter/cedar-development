@@ -9,7 +9,7 @@ export const CEE_CONSUMERS = Object.freeze([
   { label: 'Workspace', directory: 'cedar-workspace', legacyPeerDeps: false },
   { label: 'Production monolith', directory: 'cedar-template-editor', legacyPeerDeps: false },
   { label: 'Bridging', directory: 'cedar-bridging/cedar-bridging-src', legacyPeerDeps: false },
-  { label: 'OpenView', directory: 'cedar-openview/cedar-openview-src', legacyPeerDeps: true },
+  { label: 'OpenView', directory: 'cedar-openview/cedar-openview-src', legacyPeerDeps: false },
   { label: 'Angular demo', directory: 'cedar-component-demo/cedar-cee-demo-angular-src', legacyPeerDeps: false },
   { label: 'Ember demo', directory: 'cedar-component-demo/cedar-cee-demo-ember-src', legacyPeerDeps: false },
   { label: 'React demo', directory: 'cedar-component-demo/cedar-cee-demo-react', legacyPeerDeps: false },

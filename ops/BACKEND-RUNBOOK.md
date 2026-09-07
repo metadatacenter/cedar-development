@@ -598,16 +598,18 @@ requires a successful response from the served root.
 
 Two columns exist so a green table cannot hide a stale one. **BINARY** compares when a process started
 against when its jar was written: `STALE` means the service is serving a jar older than the build, so
-its health says nothing about your latest code. For the `ui-main` row the column asks the equivalent
-question of the Embeddable Editor, which the Template Designer takes from npm and a gulp task copies
-out of `node_modules` into the tree gulp serves. Those two hops are invisible to git, because the
-served copy is ignored, so moving the pin without `npm ci`, or running `npm ci` without `copy:cee`,
-keeps the previous editor on screen while `package.json`, the lock and the release ledger all name
-the new one. `STALE` there means the served bundle is not the one `package-lock.json` names, and the
-remedy the footer prints is a reinstall and a recopy rather than a restart:
+its health says nothing about your latest code. For the `ui-main` and `ui-workspace` rows the column
+asks the equivalent question of the Embeddable Editor, which each of those frontends takes from npm
+and a gulp task copies out of `node_modules` into the tree gulp serves. Those two hops are invisible
+to git, because the served copy is ignored, so moving the pin without `npm ci`, or running `npm ci`
+without `copy:cee`, keeps the previous editor on screen while `package.json`, the lock and the
+release ledger all name the new one. `STALE` there means the served bundle is not the one
+`package-lock.json` names, and the remedy the footer prints for each stale frontend is a reinstall
+and a recopy in its own checkout rather than a restart:
 
 ```bash
 (cd $CEDAR_HOME/cedar-template-editor && npm ci && npx gulp copy:cee)
+(cd $CEDAR_HOME/cedar-workspace && npm ci && npx gulp copy:cee)
 ```
 
 The other frontends read `-`: none of them depends on the Embeddable Editor. **PID** shows `~pid` (a leading tilde) only for a
@@ -676,6 +678,63 @@ they are created, and regeneration preserves that ID while replacing only the cr
 stored before IDs were introduced is exposed with a deterministic `legacy-<sha256>` management ID;
 this keeps it addressable without revealing the credential, and the ID is persisted on the next
 profile write. Authentication itself is unchanged and still looks up the secret `key` value.
+
+## Artifact and folder permissions
+
+Authorization for artifacts and folders uses three cumulative roles. Viewer permits reading a
+resource and listing a folder. Editor adds content and metadata updates, creation and copying within
+a folder, and deletion. Manager adds grant management, movement and OpenView management. Ownership
+is recorded separately; an owner has every Manager capability and alone may transfer ownership.
+Every endpoint checks the capability required for its operation rather than treating a generic
+write test as authority to perform every mutation.
+
+The transition does not require an initial Neo4j migration. Existing `CANREAD` relationships are
+Viewer grants and existing `CANWRITE` relationships are Manager grants. New Editor grants use
+`EDITOR_ROLE`. Readers also accept the future `VIEWER_ROLE` and `MANAGER_ROLE` relationship names,
+which permits a later data migration without changing authorization behavior. The search index uses
+cumulative `viewer`, `editor` and `manager` keys while continuing to read legacy `read` and `write`
+keys until that migration is complete. Newly written grants to the built-in **Everyone** group are
+restricted to Viewer; legacy Everyone-write data remains readable so an upgrade cannot silently
+remove existing access.
+
+Permission request and response objects use only `role`, with the values `viewer`, `editor` and
+`manager`. The REST API does not accept the old `permission` property or its `read` and `write`
+values; compatibility with those concepts ends at the Neo4j relationship boundary. Resource
+summaries expose `role`, `owner` and a `capabilities` array. `role` is the strongest Viewer, Editor
+or Manager grant that applies; it does not report Manager merely because the user owns the resource.
+`owner` records ownership separately,
+and `capabilities` combines the authority supplied by both. The array is specific to the resource
+type: for example, an artifact never reports `listFolderContents`, `createInFolder` or
+`copyIntoFolder`. A separate `availableActions` array reports operations that are currently possible
+after resource type and state are considered, including `copyResource`, `publish`, `createDraft`,
+`submit`, `populate`, `enableOpenView` and `disableOpenView`. Current CEDAR frontends consume these
+two arrays.
+
+The former `currentUserRole` and flat `can...` response fields are not part of the REST contract.
+Clients use `role`, `owner`, `capabilities` and `availableActions`; in particular, use
+`updateResource` for content editing and `manageGrants` for re-sharing.
+
+ACL replacement never changes ownership. Transfer it with:
+
+```text
+POST /command/transfer-resource-ownership
+If-Match: "<ACL revision>"
+
+{"@id":"<artifact-or-folder-id>","newOwnerId":"<user-id>"}
+```
+
+Only the current owner may call this command, and the new owner must be a different existing user.
+The operation atomically replaces the `OWNS` relationship, removes any direct role grant held by the
+new owner on that resource, and advances the ACL revision. It does not change grants inherited by
+either user from groups, **Everyone**, or containing folders. A missing `If-Match` answers 428 and a
+stale ACL revision answers 412.
+
+The main conformance gates are `ResourcePermissionModelTest`,
+`WorkspacePermissionIntegrationTest`, `WorkspacePermissionInheritanceIntegrationTest`,
+`ArtifactPermissionLevelMatrixTest`, `FolderPermissionLevelMatrixTest`, and
+`SharingRoundTripTest`. Together they exercise the resource/role/capability/action matrix, direct
+user and group grants, folder inheritance and precedence, the **Everyone** restriction, REST
+authorization for all artifact types and folders, and ownership-transfer authority and concurrency.
 
 ## The Redis queues, and where failed permission events go
 
@@ -1254,10 +1313,12 @@ TypeScript, while both emit the same bytes for it.
   magnitude, verify the underlying artifact — do not keep waiting.
 
 - **A test fails with `Failed to bind to 0.0.0.0:90xx` while the dev stack is up** → that test boots
-  its server on a real dev port instead of the alternate `19xxx` test range. Every booted test must
-  redirect its ports through `CedarEnvironmentSource.setOverride(...)` to the `19xxx` range (test
-  port = dev port + 10000), so a running dev stack and a test run never collide. Give the offending
-  test the same static-block redirect the other servers' tests use.
+  its server on a real dev port instead of asking the OS for an isolated listener. Every booted test
+  must redirect its application, admin and stop ports through
+  `CedarEnvironmentSource.setOverride(...)` to `0`; obtain the allocated application port from
+  `DropwizardTestSupport.getLocalPort()`. In-process HTTP stubs likewise bind to `127.0.0.1:0`, start,
+  and then inject their allocated port. Port `1` is reserved for a dependency that must be
+  unavailable and is never a listener.
 
 - **`UnitOfWorkAwareProxyFactory` or other startup code fails only in a non-interactive shell** →
   that shell did not pin `JAVA_HOME` to 17 (the zsh pin is interactive-only), so the build or run
@@ -1575,8 +1636,9 @@ grant/revoke materialization changes and a point-in-time continuation walk again
 resource server integration test sends real `/search` and `/search-deep` requests through
 Dropwizard to the same engine. For a local reproduction, start the native infrastructure and run
 the matching module with the profile; the usual `CEDAR_OPENSEARCH_HOST` and
-`CEDAR_OPENSEARCH_REST_PORT` select the engine and default to `127.0.0.1:9200`. The tests use
-disposable or run-unique documents and clean them afterward.
+`CEDAR_OPENSEARCH_REST_PORT` select the engine and default to `127.0.0.1:9200`. Both tests use a
+run-unique index and delete only that index afterward, so concurrent runs share the engine but not
+index lifecycle or documents.
 
 Backend-free Maven tests suppress the application-log queue through the
 `cedar.test.suppressAppLogQueue` system property inherited from `cedar-parent`. This is deliberate
@@ -1609,12 +1671,19 @@ shortens the clock without skipping the queue state transitions or the retry/dea
 the tests exist to cover. Blocking Redis consumers retain their one-second idle wait even in tests,
 which is what a consumer spends between claims when its queue is empty.
 
-Test servers boot on the alternate `19xxx` port range (test port = dev port + 10000), so a running
-dev stack and a test run coexist. Redirection goes through `CedarEnvironmentSource.setOverride(map)`,
-a process-global test override read by the whole config layer. This replaced an earlier reflection
-hack (`TestUtil.setEnv`, now deleted) that rewrote the real process environment and failed silently
-without `--add-opens` flags. Because `CedarConfig` is injectable and rebuilds when the override
-changes, surefire runs `reuseForks=true` (test classes share a JVM) with no `--add-opens` argLine.
+Test servers and in-process HTTP stubs bind to port `0`, letting the OS allocate a listener that does
+not collide with the native stack or a concurrent Maven process. Redirection goes through
+`CedarEnvironmentSource.setOverride(map)`, a process-global test override read by the whole config
+layer. `cedar-test-support-library` contributes an auto-detected JUnit extension that clears that
+override after every test class; abstract harnesses reapply their embedded-backend redirect in each
+inherited `@BeforeAll`. This prevents one class's allocated dependency port from becoming the next
+class's configuration when surefire's `reuseForks=true` shares a JVM. `CedarConfig` rebuilds whenever
+the active environment changes, and no reflective `--add-opens` environment mutation is involved.
+
+`ops/tests/test_backend_test_port_policy.py` is the static regression guard. It rejects fixed server
+environment ports, fixed `InetSocketAddress` listeners and nonzero test connector ports across the
+backend repositories. Run it from `cedar-development` with
+`python -m unittest ops.tests.test_backend_test_port_policy`.
 
 The suites are JUnit 5. Booted-application tests use `io.dropwizard.testing.DropwizardTestSupport`
 started in a static `@BeforeAll` and stopped in `@AfterAll`. Do not use the JUnit 5
@@ -1787,10 +1856,11 @@ command:
 npm run perf:rest:provision -- --count=50
 ```
 
-The seven load profiles are:
+The eight load profiles are:
 
 | Command | Default shape | What it exercises |
 |---|---:|---|
+| `npm run perf:rest:permissions` | Five identities, three complete model rounds | Exact role, ownership and capability reports for fields, folders and categories; direct, group and inherited access; category classification, record, ACL and ownership-transfer boundaries; filesystem moves; and OpenView |
 | `npm run perf:rest:quick` | 10 identities, ramp 1 → 5 → 10 → 0 in 4.5 minutes | Artifact reads, folder listings, search, conditional artifact updates, conditional moves, and OpenView toggles |
 | `npm run perf:rest:contention` | 20 identities, three complete matrix rounds | Twenty-way compare-and-swap races across artifact content, workspace graph state, ACLs, group records and membership, and categories; update/delete, repeated-delete and wildcard/delete cases use sacrificial fixtures |
 | `npm run perf:rest:hotset` | 20 identities and 20 VUs for 10 minutes | Sustained independent GET/conditional-mutation loops over a small shared set of templates, elements, fields, instances, folders, groups and categories; both conflicts and successful forward progress are required |
@@ -1799,7 +1869,9 @@ The seven load profiles are:
 | `npm run perf:rest:burst` | 50 identities; 5/s baseline, 40/s burst, then 5/s recovery, 30 seconds each | Reproducible artifact reads and conditional updates across all four artifact kinds; requires no dropped arrivals and post-burst p95 to return near the measured pre-burst baseline; the full pool prevents a brief server stall from exhausting the load generator first |
 | `npm run perf:rest:soak` | 50 identities and 50 VUs for 30 minutes | A steady, non-destructive mix across template, element, field and instance reads and conditional updates; folder listing, search, moves and OpenView; artifact and folder ACLs; group records and membership; and category records and ACLs |
 
-`--users=N`, `--vus=N` and `--duration=10s` override those defaults. `--seed=NAME` makes the soak's
+`--users=N`, `--vus=N` and `--duration=10s` override those defaults. The permissions profile needs at
+least five identities and accepts `--rounds=N`; each round starts from known Viewer grants and ends
+with their revocation, so rounds are independent. `--seed=NAME` makes the soak's
 per-user schedule reproducible; without it, the run ID is the seed. The contention profile also
 accepts `--rounds=N`; its `--duration` is a maximum rather than a steady-state duration.
 The resilience profile accepts `--fault-delay=N`, `--fault-downtime=N` and
@@ -1870,12 +1942,13 @@ The soak gives every VU its own artifacts, folders, group and category, and exec
 mix that is half pure reads/list/search and half conditional mutations. Each complete cycle preserves
 that exact mix but shuffles it deterministically by seed, identity and cycle, with a per-identity phase
 offset. This avoids synchronized VUs while keeping failures replayable: error lines name the seed, VU
-and iteration, and the JSON summary records the seed. ACL operations alternate real
-grant and revocation transitions for a paired identity, then verify both the stored permission set and
+and iteration, and the JSON summary records the seed. ACL operations alternate real Viewer-role
+grant and revocation transitions for a paired identity, then verify both the stored role set and
 that identity's resulting access. Group membership likewise alternates join and leave against a folder
 with a stable group grant, proving that the membership transition changes effective access rather than
-merely accepting an unchanged roster. Category ACLs alternate a peer's write grant and revocation and
-verify that the peer gains and loses access to the ACL. Any semantic mismatch fails the run through a
+merely accepting an unchanged roster. Category ACLs alternate a peer's Manager role and revocation.
+The peer retains inherited Viewer access in both states. The check verifies that the peer can change
+direct grants only while the Manager role is present. Any semantic mismatch fails the run through a
 zero-tolerance invariant metric. The soak deliberately excludes
 create/delete churn, update-versus-delete, repeated DELETE and wildcard deletion: those operations
 belong to the bounded contention matrix, where exact winner/loser outcomes and cleanup can be asserted
@@ -1919,6 +1992,14 @@ elements, fields, instances, folders, groups and categories. Setup writes every 
 `reports/rest-perf/runs/<run-id>/run.json` immediately, before creating the next resource. k6 writes
 its complete summary beside that manifest. In addition to the aggregate trend, each measured route
 has its own `cedar_route_*_duration` trend so a fast read cannot hide a slow mutation.
+
+The permissions profile adds fields and folders with direct Viewer, Editor and Manager roles, an
+inherited role that is stronger than a direct role, a Viewer role obtained through group membership,
+and independent source and destination fixtures for move authorization. It also adds categories with
+direct Viewer, Classifier, Editor and Manager roles, an inherited role that is stronger than a direct
+role, and a Classifier role obtained through group membership. Category role transitions verify
+classification, category-record and ACL boundaries. A separate fixture verifies transfer to a new
+owner and transfer back to the original owner. All ACL fixtures use the `role` property.
 
 The wrapper checks that k6 exists before setup, then always performs teardown after the load process,
 including a failed threshold or first `SIGINT`/`SIGTERM`. Teardown reads the current ETag, deletes in
@@ -2079,10 +2160,12 @@ quietly omit it: a row with gaps is visible here, where otherwise it takes a han
 repositories to notice.
 
 A suite must run without shared developer infrastructure or a live external API. Use
-`cedar-test-support-library` for in-process stores and authentication, bind isolated `19xxx` ports
-distinct from every other booting test class, and tag the few tests that genuinely need an external
-sandbox. Suites must be runnable per repository and together through `cedarcli build`, with failures
-attributed to the responsible service rather than disappearing inside the aggregate reactor output.
+`cedar-test-support-library` for in-process stores and authentication, bind application and stub
+listeners to port `0`, and tag the few tests that genuinely need an external sandbox. Any downstream
+service a test can contact must be an allocated in-process stub or the deliberately unavailable port
+`1`, never the `9001`–`9015` native service range. Suites must be runnable per repository and together
+through `cedarcli build`, with failures attributed to the responsible service rather than disappearing
+inside the aggregate reactor output.
 
 ### The Matrix
 

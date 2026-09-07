@@ -445,6 +445,16 @@ git commit -m "Advance CEE to the next development version"
 git push origin develop
 ```
 
+The advanced version changes the root lockfile's own version entry, so the train's baseline for
+that lock is now stale and the next dispatch would refuse it. Refresh the CEE baselines and commit
+the result in `cedar-development`:
+
+```bash
+cedarcli publish baselines --refresh --repository cedar-embeddable-editor
+git -C $CEDAR_HOME/cedar-development commit -m "Refresh the CEE npm audit baselines" ops/frontend-train.json
+git -C $CEDAR_HOME/cedar-development push origin develop
+```
+
 ## Propagate a stable CEE release
 
 Publishing CEE does not update a frontend or an environment. Pin the exact stable version in all
@@ -489,9 +499,11 @@ and normalizes only this closed release-provenance list:
   version. If the train predates that entry, removing it must reproduce the train changelog byte for
   byte; if the train already contains it, the two changelogs must already be byte-identical.
 
-After those substitutions the complete browser bundle and every remaining packaged byte must be
-identical. A second occurrence of a provenance literal, a changed older changelog entry, an extra
-file, or any other JavaScript difference is a hard failure. This normalized byte proof is also the
+After those substitutions every remaining packaged byte must be identical, and the browser bundle
+must be identical too, except for a consistent renaming of short minified identifiers, which
+esbuild's frequency-ordered name alphabet can produce from the provenance strings alone. A second
+occurrence of a provenance literal, a changed older changelog entry, an extra file, or any other
+JavaScript difference is a hard failure. This normalized byte proof is also the
 proof for the model-library code compiled into CEE. The train development base may be newer than
 the public version (for example, `2.0.4-dev…` versus `2.0.3`); version-name similarity is not release
 evidence and is deliberately not a prerequisite for running the proof.

@@ -49,6 +49,16 @@ bytes before comparison. An undeclared policy, a malformed entry, a second occur
 adjacent JavaScript change still fails the byte proof. This keeps npm's build/install allowlist from
 forcing a new public CEE release while preserving the rule that executable changes do.
 
+The proof also accepts one difference that is not a change at all. esbuild draws the short names it
+gives minified identifiers from an alphabet ordered by how often each character occurs in the
+output, and the provenance strings a train stamps into its bundle move those counts, so two builds
+of the same code can disagree in every name at one rank of that alphabet. The planner therefore
+compares the two bundles outside identifiers byte for byte and requires every identifier that
+differs to be a short minified name, renamed the same way at every differing position in both
+directions. A property, a reserved word, a longer name, or a name renamed two ways is still a
+refusal. Train 2.9.9-dev.20260906.2244 was the first to need this: its stamps carried enough of the
+digit 8 to swap its rank with the letter B.
+
 ## What Plan Checks
 
 `plan` and `start` run the identical complete gate, so a release cannot begin from a state `plan`
@@ -62,7 +72,10 @@ The plan settles four groups of question:
   the release's estimated clean checkouts, release/next Maven and frontend builds, publication
   caches and logs, plus headroom. The estimate is derived from the manifest's repository and build
   counts rather than a fixed free-space threshold. The npmrc check reads key names only and never
-  prints registry tokens or values.
+  prints registry tokens or values. When the shell offers another Java or Node, the CLI looks for
+  the required ones itself, through `/usr/libexec/java_home -v 17` and Homebrew's `node@24`, puts
+  them first on PATH for the run, and prints a `Toolchain:` line for each substitution. When it
+  finds neither, the plan names the export to run.
 - **The source is ready.** Every participating repository—including the independent repositories
   whose CEE wiring the release integrates—is clean and pushed, and the CI run for the exact commit
   the train was built from is green wherever that commit defines a workflow. The immutable source
@@ -148,7 +161,10 @@ cedarcli release start \
 ```
 
 Run it in an interactive `cedar` shell inside `tmux`, so a long run survives a disconnect.
-`cedarcli` is a shell alias and will not work in a bare `bash script.sh`.
+`cedarcli` is a shell alias and will not work in a bare `bash script.sh`. Without `tmux`, run it
+under `nohup` with its output redirected to a file and follow the file with `tail -f`; the CLI
+line-buffers its output when it is not writing to a terminal, so each progress line reaches the
+file as it is printed.
 
 Transient transport retries are built in, so a network fault does not end a long release. The
 bounded policy covers direct connection failures, HTTP 502/503/504 from resumable Git, Maven, and
@@ -167,7 +183,12 @@ The release runs these phases, each verifying its work before the next begins:
 1. Clone every train source commit into isolated workspaces, and pin the public CEE version in all
    seven frontend consumer manifests and lockfiles.
 2. Stamp `<VER>` and `<NEXT>` from the same source commits, and move the copyright year in every
-   `license.txt` to the release year. Both variants retain the stable public CEE wiring.
+   `license.txt` to the release year. Both variants retain the stable public CEE wiring. The
+   Docker build's frontend defaults in `cedar-images-base.sh` are rewritten from the train's
+   recorded inputs: the next-development tree names the train's own packages, which exist the
+   moment the release pushes, and the release tree names the released frontends at `<VER>` and
+   OpenView's Editor at the public CEE version, which Nexus and npmjs keep for good. Workspace
+   and the Designer, which publish independently, keep the train's packages in both trees.
 3. Run the release Maven test builds, the next-development Maven builds, all frontend installs, and
    the production frontend builds. Generated distribution bytes are inventoried, so an ignored
    `dist` file cannot change before publication.
@@ -212,6 +233,16 @@ before a release rather than after one.
 The stable npm surfaces are Template Editor, OpenView, Content Distribution, Monitoring, Bridging,
 and the Angular CEE demo. Workspace receives the stable CEE wiring on both `main` and `develop` but
 keeps its independent publication path. Template Designer also remains independently published.
+
+## What a Release Costs
+
+Release 2.9.8 ran 63 minutes from `start` to acceptance on the development workstation, with
+Nexus and GitHub responsive throughout: about ten minutes to clone forty repositories and pin the
+CEE in seven consumers, twenty to run the forty release and next-development builds, fifteen to
+deploy the six snapshot trees, under ten to integrate and push forty remotes, ten to upload and
+verify the eight release artifacts, and one to accept. The release before it, 2.9.7, ran 2 hours
+41 minutes through the same phases. Plan on its own takes about two and a half minutes, most of it
+the exact-commit CI probe and the remote survey.
 
 ## Watching and Finishing
 

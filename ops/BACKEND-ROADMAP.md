@@ -7,90 +7,37 @@ shared library rather than to one server.
 For how to run and build the system see [BACKEND-RUNBOOK.md](./BACKEND-RUNBOOK.md), whose "Dependency and Framework
 State" section records what the stack currently sits on. Library-internal items belong in that
 library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact-library/ROADMAP.md).
-Frontend work for the embeddable editor is tracked separately in
-[CEE-ROADMAP.md](./CEE-ROADMAP.md), and the MCP servers in
+Work on the main browser applications is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md), work on
+the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the MCP servers is in
 [MCP-ROADMAP.md](./MCP-ROADMAP.md).
 
 ## Next
 
 ### Features
 
-- **1. Settle the sharing and permission model, then enforce it.** Controlled sharing is what CEDAR
-  is for, and the model was never specified in one place, so every surface decided for itself. The
-  behaviour is pinned by the tests named at the end of this item, so it cannot drift further while
-  the decisions are made, and each of those tests will fail and demand attention when a decision
-  lands.
+- **1. Rename the legacy role relationships in production Neo4j.** The application currently
+  interprets `CANREAD` as Viewer and `CANWRITE` as Manager, so the new permission model can be
+  deployed without changing the stored graph. The category permission model follows the same initial
+  approach: `CANATTACHCATEGORY` stores Classifier grants and `CANWRITECATEGORY` stores Manager grants.
+  Category Viewer and Editor grants already use the canonical `VIEWER_ROLE` and `EDITOR_ROLE` names.
 
-  The [permission model](https://metadatacenter.readthedocs.io/en/latest/user-guide/advanced-topics/permission-model/)
-  is the proposed contract. It deliberately differs from the implementation where a simpler or safer
-  rule is available. A companion assessment, `PermissionModel.pdf`, measures the implementation
-  against it and carries the divergence table, the recommended authorization shape, the migration
-  mapping from the legacy vocabulary, the six-stage release sequence and the acceptance criteria.
-  That assessment is not in version control, which is the first thing to fix, because this item now
-  depends on reading it.
+  Before migrating category data, add `CLASSIFIER_ROLE` as the canonical Classifier relationship.
+  Make the application read both `CANATTACHCATEGORY` and `CLASSIFIER_ROLE`, read both
+  `CANWRITECATEGORY` and `MANAGER_ROLE`, and write only the canonical names. Deploy that compatibility
+  code to every environment before changing stored relationships.
 
-  The structural mismatch it identifies is a single overloaded predicate. The implementation asks
-  whether a user may write the resource, then reuses that answer for content changes, ACL
-  replacement, movement, deletion and OpenView, so an editor can also re-share, relocate and publish.
-  The proposal separates Editor from Manager and routes every operation through one evaluator that
-  answers a distinct question per capability.
+  Patch the production graph to rename artifact and folder `CANREAD` relationships to `VIEWER_ROLE`
+  and `CANWRITE` relationships to `MANAGER_ROLE`. In the same migration, rename category
+  `CANATTACHCATEGORY` relationships to `CLASSIFIER_ROLE` and `CANWRITECATEGORY` relationships to
+  `MANAGER_ROLE`. `EDITOR_ROLE` requires no migration for either resource family.
 
-  **The decisions this item waits on.** The assessment recommends an answer to each. None is settled.
-
-  1. Legacy `WRITE` migration. Preserve it as a reviewable Manager grant rather than guessing that it
-     meant Editor, and block `Everyone` combined with `WRITE` for owner review instead of silently
-     retaining broad write authority.
-  2. Folder deletion. Define ordinary deletion as an atomic trash of the contained tree, and reserve
-     permanent deletion for an explicit, separately protected command.
-  3. Administrator override. Allow platform recovery to transfer ownership only through an audited
-     recovery workflow, never through general ACL replacement.
-  4. Group visibility. Let members and administrators read their own group, and govern
-     directory-wide visibility with a separate platform permission.
-  5. OpenView paths. Expose no workspace path, and build an explicit public hierarchy if public
-     navigation is wanted.
-
-  **What the assessment leaves to this item.**
-
-  - **Categories sit outside the target model.** Attaching a category requires `ATTACH`, or the
-    `WRITE` that implies it, on the *category* rather than on the artifact, and the category tree is
-    writable only by an administrator. Out of the box a user can read the vocabulary and attach
-    nothing to anything, including to templates they own. Reading a category's ACL costs write access
-    where a folder's costs read, and a category is readable by any authenticated user holding the
-    role. `ATTACH` is one of the few declared levels that is genuinely enforced, which is what makes
-    it the counter-example to the ones that are not. Decide whether categories join the role model or
-    remain a separate vocabulary with rules of their own, then make the requirement visible in the
-    product.
-  - **`PUBLISH` and `CREATE_DRAFT` are accepted, stored and never consulted.** Versioning is
-    owner-only through `userCanPerformVersioning`, so granting either confers nothing while reading
-    to a client as a restriction. `ArtifactLifecycleMatrixTest` grants each level successfully and
-    then receives the same `VERSIONING_ONLY_BY_OWNER` refusal a user with no grant receives. The
-    migration mapping moves both out to lifecycle policy, which needs a decision about where
-    versioning authority lives once they leave the workspace roles.
-  - **The Workbench cannot transfer ownership, and its control should be withdrawn rather than
-    repaired.** The share dialog offers the option in two places and neither works. The
-    existing-share row gates it on `sh.node.id` against a node that arrives from the permissions API
-    as JSON-LD carrying `@id` (`cedar-share-modal.directive.html:175`), the only site in that
-    controller reading `.id`, so the option never appears. The add-user picker passes `['@id']`
-    correctly, reports success, and leaves the owner unchanged, because `select-picker` copies
-    options into a dropdown of its own and a click can land on an option Angular's model refuses.
-    Correcting the accessor would expose an inline ACL edit that the proposal replaces with an
-    owner-only transfer command, so hide both paths until that command exists. Reporting success
-    while changing nothing is worse for a user than offering nothing. Neither path is pinned, and the
-    browser smoke stops at ownership because there is no working control to drive.
-  - **Denials answer 401 or 403 depending on which code path refuses.** The acceptance criteria fix
-    status codes elsewhere, so this belongs in the conformance matrix rather than outside it.
-
-  **One measurement to carry into the work.** The revision precondition is closer to the proposal
-  than the assessment's evidence suggests. Measured against the running stack, a mutation carrying no
-  `If-Match` answers 428 and one carrying a stale revision answers 412, which is what the proposal
-  asks for. Only `If-Match: *` is wrongly accepted, and it succeeds in deleting. Rejecting the
-  wildcard in `RevisionPreconditionParser`, and updating the tests that rely on it, is the whole of
-  that change.
-
-  Pinned by `FolderPermissionLevelMatrixTest`, `ArtifactPermissionLevelMatrixTest`,
-  `SharingRoundTripTest`, `ArtifactsAndCategoriesAuthorizationMatrixTest`,
-  `GroupMembershipAuthorizationMatrixTest`, `GroupSharingRevocationIntegrationTest`,
-  `ArtifactLifecycleMatrixTest` and `ops/e2e/rest/suites/categories.mjs`.
+  Rehearse the patch against a recent production copy and record the relationship counts before and
+  after it runs. Take a recoverable backup immediately before applying it in production. The patch
+  must preserve each relationship's endpoints and properties, make no access changes, and be safe to
+  run again. After applying it, regenerate the search index from Neo4j and verify the role counts and
+  representative direct, group and inherited access paths for artifacts, folders and categories.
+  Remove the compatibility interpretation of `CANREAD`, `CANWRITE`, `CANATTACHCATEGORY` and
+  `CANWRITECATEGORY` only after every deployed environment has been patched and verified.
 
 ### Infrastructure
 
@@ -469,34 +416,7 @@ Frontend work for the embeddable editor is tracked separately in
   prove that Keycloak loads the packaged provider or that a deployed admin operation reaches the
   configured realm.
 
-- **10. Retire routine `CEDAR_VERSION_MODIFIER` cache busting.** Frontend code identity now comes
-  from the source commit in the three AngularJS RequireJS keys and from content-hashed production
-  bundles in the modern Angular applications. A deployment should not need a hand-edited modifier
-  merely to make a new code revision visible. Keep the variable temporarily as a compatibility
-  escape hatch for two materially different cached payloads built from the same source commit, not
-  as a release counter.
-
-  Audit every producer and consumer before deleting or clearing it: profile and environment files,
-  cedar-cli build/version reporting, the three Gulp applications, native split-payload tooling,
-  Docker entrypoints, release/deployment scripts, and operational documentation. Classify each use
-  as source identity, genuine same-commit payload identity, display-only version metadata, or dead
-  compatibility behavior. Remove routine deploy-time bumps and any check that treats a changed
-  modifier as evidence that new code is live. If no cached asset can legitimately differ while its
-  source commit stays fixed, remove the variable completely; otherwise retain the narrowly named
-  override and add a test proving the exact same-commit case it serves.
-
-  Make the production transition once, deliberately. Rehearse it in staging, clear or freeze the
-  old modifier, rebuild every frontend from recorded commits, deploy the canonical nginx policy,
-  and purge entry/config objects that may still carry the former headers. Verify that entry and
-  runtime configuration are `no-store`, stable fallback assets revalidate, hashed assets are
-  immutable, and every served build identity matches the accepted commit. Then use a browser that
-  previously loaded the old payload to open, modify, save, reload, and save an existing instance;
-  this must exercise the GET ETag and subsequent `If-Match` update rather than merely prove that the
-  dashboard renders. The item is complete after two consecutive code deployments require no manual
-  cache token, the cache-delivery smoke passes in staging and production, and rollback works by
-  restoring payloads and routing without inventing a new modifier.
-
-- **11. Converge on one pagination encoding.** Three servers paginate three ways, and all three build
+- **10. Converge on one pagination encoding.** Three servers paginate three ways, and all three build
   on the same `PagedResults` and `LinkHeaderUtil`, so nothing forces the split. The artifact server
   sends `Link` and `Total-Count` as headers and keeps the body to the collection. The resource server
   computes the same link set and puts it in the body under `paging`
@@ -528,7 +448,7 @@ Frontend work for the embeddable editor is tracked separately in
   REST smoke asserts it on a route from each of the three servers, and the superseded encodings are
   either withdrawn or carry a recorded date for withdrawal.
 
-- **12. Bound every outbound call by what the call actually is, and measure before choosing the
+- **11. Bound every outbound call by what the call actually is, and measure before choosing the
   numbers.** Two classes of outbound call are distinguished today, interactive and batch, each with a
   fixed connect, lease and response timeout and its own connection pool. That covers the difference
   between a call a user waits on and a job nobody waits on. It does not cover the difference between
@@ -597,7 +517,7 @@ Frontend work for the embeddable editor is tracked separately in
   Done when each class of outbound call takes its timeouts from configuration, the request log carries
   durations, the compensating write is durable, and the remaining clients read the same settings.
 
-- **13. Make native bring-up prove a service runs, and make one already-running layer not stop the
+- **12. Make native bring-up prove a service runs, and make one already-running layer not stop the
   rest.** `cedarcli native start` reports what the launcher accepted rather than what the stack ends
   up running, and the gap swallowed a whole-stack outage on 2026-09-02: every application exited in
   milliseconds for want of `CEDAR_PROFILE`, launchd's keepalive respawned each one, and the CLI
@@ -622,7 +542,7 @@ Frontend work for the embeddable editor is tracked separately in
   Done when `start` reports a service only once it is healthy or names why it is not, and `start
   all` completes against running infrastructure.
 
-- **14. Take the dependency upgrades that need code changes.** The versions that could move without
+- **13. Take the dependency upgrades that need code changes.** The versions that could move without
   consequence have moved. What stayed behind stayed deliberately, and it separates into work to do,
   versions that follow something else, and versions upstream has not released.
 
@@ -673,9 +593,31 @@ Frontend work for the embeddable editor is tracked separately in
   Done when each upgrade above has either landed or been recorded as refused with its reason, and
   the estate no longer carries a dependency held back only because nobody looked at it.
 
+- **14. Document the versioning model, then audit the implementation against it.** The user guide
+  says what an author sees and the YAML specification defines the keys, but no document states the
+  model: which artifact kinds are versioned, what publishing freezes, how a draft succeeds a published
+  version, how version numbers must order, what the three latest-version flags mean, and what deleting
+  a version does to the chain. Write that model in one place, beside the permission model. Then audit
+  the resource server, the graph and the search index against it, and record each divergence as a
+  decision to make or a defect to fix. `ArtifactLifecycleMatrixTest` pins the current rules until
+  then. Done when the model is published and every divergence is fixed or recorded.
+
+- **15. Give the public CEE release a CLI route.** Publishing `cedar-embeddable-editor` to npmjs is a
+  runbook of about twenty-five commands across `develop`, a pull request, `main`, the registry, a
+  tag, the development-state restore and the train baseline refresh. Release 2.0.6 took an hour of
+  operator attention for two minutes of gate time, and CEE has shipped four public versions in a
+  week. Build `cedarcli release cee` as a resumable, ledger-backed route like the platform release:
+  pin the chosen public model, write the changelog entry, run the gate, open and merge the pull
+  request, rebuild and publish from `main`, verify the registry with a retry for the seconds npm's
+  read replicas lag behind a publish, tag, restore the next development version with the chosen
+  model snapshot, refresh the CEE lock baselines, and stop at each remote step it cannot prove. The
+  provenance comparison the platform release already performs verifies the published tarball. Once
+  the command exists, rewrite the npmjs runbook into a description of what it does and where it
+  stops.
+
 ## Production data
 
-- **15. Normalize production artifacts to one explicit model contract.** Production contains several
+- **16. Normalize production artifacts to one explicit model contract.** Production contains several
   legacy representations that the current model surfaces tolerate or normalize differently, so bring
   them to canonical shapes before tightening readers or introducing terminology routing across source
   systems. The permission-scoped audit found 76 inherently-multiple fields deployed as JSON objects in
@@ -851,7 +793,7 @@ Frontend work for the embeddable editor is tracked separately in
 
 ## Later decisions
 
-- **16. A published artifact can be deleted, contradicting the docs.** The docs say a published
+- **17. A published artifact can be deleted, contradicting the docs.** The docs say a published
   artifact is permanent, but `DELETE` on one succeeds. The guard in
   `AbstractResourceServerResource.executeArtifactDelete` was briefly re-enabled and then **reverted by
   deliberate decision**: blocking deletion strands published artifacts and the folders holding them with
@@ -861,16 +803,3 @@ Frontend work for the embeddable editor is tracked separately in
   re-enabling the guard together with a supported cleanup path (e.g. an admin-only delete, or cascading
   through folder deletion). Immutability of published content is a separate guarantee and is
   unaffected either way — that one is enforced.
-
-- **17. Finish the DataCite DOI minting lifecycle.** The durable lifecycle is what makes the operation
-  recovery-safe, and none of it exists yet. Minting persists no state of its own: draft/reserved,
-  published and locally attached are recorded nowhere, so the `reconciliationRequired` response names a
-  condition no code resolves, and a retry after a timeout cannot tell whether the earlier attempt
-  already minted a DOI. Define those states, retain the DataCite identifier before the fallible
-  write-back, and make a retry resume or reconcile the same DOI rather than orphan or duplicate one.
-  Tighten how an existing draft is associated with its source artifact: the lookup still matches
-  DataCite records on the OpenView URL. Orchestration also still sits in `DataCiteResource`, so
-  configuration and error mapping are not yet centralized. The offline suite still lacks
-  create-versus-update, retry after timeout, and repeated publish, each of which needs the durable
-  states before it can be written. Keep normal tests offline; add only an opt-in DataCite sandbox
-  smoke test for the final wire contract and credential/configuration check.

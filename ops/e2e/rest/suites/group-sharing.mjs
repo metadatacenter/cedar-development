@@ -14,8 +14,8 @@ export const name = 'group-sharing';
 function permissions(ownerId, { users = [], groups = [] } = {}) {
   return {
     owner: { '@id': ownerId },
-    userPermissions: users.map(([id, permission]) => ({ user: { '@id': id }, permission })),
-    groupPermissions: groups.map(([id, permission]) => ({ group: { '@id': id }, permission })),
+    userPermissions: users.map(([id, role]) => ({ user: { '@id': id }, role })),
+    groupPermissions: groups.map(([id, role]) => ({ group: { '@id': id }, role })),
   };
 }
 
@@ -60,17 +60,17 @@ export async function run({ user1, user2, homeFolderId }) {
 
     // Read through the group.
     if (checkStatus(await mutate(user1.auth, 'PUT', `${shared.at}/permissions`,
-        permissions(u1, { groups: [[gid, 'read']] })), 200, 'the folder is shared with the group as read')) {
+        permissions(u1, { groups: [[gid, 'viewer']] })), 200, 'the folder is shared with the group as Viewer')) {
       checkStatus(await call(user2.auth, 'GET', shared.at), 200, 'the member can now read it');
       check((await rename(user2.auth, shared.at, `${shared.name} renamed by a group reader`)).status >= 400,
-          'and cannot write it', 'a group read grant allowed a write');
+          'and cannot edit it', 'a group Viewer grant allowed an edit');
     }
 
-    // Raised to write through the same group.
+    // Raised to Manager through the same group.
     if (checkStatus(await mutate(user1.auth, 'PUT', `${shared.at}/permissions`,
-        permissions(u1, { groups: [[gid, 'write']] })), 200, 'the grant is raised to write')) {
+        permissions(u1, { groups: [[gid, 'manager']] })), 200, 'the grant is raised to Manager')) {
       checkStatus(await rename(user2.auth, shared.at, `${shared.name} renamed by a group writer`), 200,
-          'and the member can now write it');
+          'and the member can now edit it');
     }
 
     // Access follows membership: dropping the member must drop the access, with the grant untouched.
@@ -108,12 +108,12 @@ export async function run({ user1, user2, homeFolderId }) {
         'it was readable before being shared');
 
     if (checkStatus(await mutate(user1.auth, 'PUT', `${open.at}/permissions`,
-        permissions(u1, { groups: [[eid, 'read']] })), 200, 'the folder is shared with everybody as read')) {
+        permissions(u1, { groups: [[eid, 'viewer']] })), 200, 'the folder is shared with Everyone as Viewer')) {
       // The second user was never named, and belongs to no group created here.
       checkStatus(await call(user2.auth, 'GET', open.at), 200,
           'another user can read it without ever being named');
       check((await rename(user2.auth, open.at, `${open.name} renamed by everybody`)).status >= 400,
-          'and cannot write it', 'sharing with everybody as read allowed a write');
+          'and cannot edit it', 'sharing with Everyone as Viewer allowed an edit');
 
       // The distinction that matters: everybody means every account, not the public. Without a
       // credential this must still be refused — openness is a different mechanism entirely.
@@ -123,11 +123,12 @@ export async function run({ user1, user2, homeFolderId }) {
           `expected 401 without a credential, got ${anonymous.status}`);
     }
 
-    if (checkStatus(await mutate(user1.auth, 'PUT', `${open.at}/permissions`,
-        permissions(u1, { groups: [[eid, 'write']] })), 200, 'the grant to everybody is raised to write')) {
-      checkStatus(await rename(user2.auth, open.at, `${open.name} renamed by an everybody writer`), 200,
-          'and any account can now write it');
-    }
+    checkStatus(await mutate(user1.auth, 'PUT', `${open.at}/permissions`,
+        permissions(u1, { groups: [[eid, 'manager']] })), 400,
+        'the Everyone group cannot be granted Manager');
+    check((await rename(user2.auth, open.at, `${open.name} renamed after a refused Manager grant`)).status >= 400,
+        'the refused Manager grant leaves every account as Viewer',
+        'an account could edit after the Manager grant was refused');
 
     if (checkStatus(await mutate(user1.auth, 'PUT', `${open.at}/permissions`, permissions(u1)), 200,
         'the grant to everybody is withdrawn')) {

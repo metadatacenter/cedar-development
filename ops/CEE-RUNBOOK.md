@@ -288,7 +288,7 @@ needs. Install, then get the bundle into what each host serves:
 | `cedar-workspace` | plain | `npx gulp copy:cee` (needs the profile sourced) |
 | `cedar-template-editor` | plain | `npx gulp copy:cee` (needs the profile sourced) |
 | `cedar-bridging` | plain | `cedarcli build this --wd "$PWD"` |
-| `cedar-openview` | `--legacy-peer-deps` | `cedarcli build this --wd "$PWD"` — it compiles the source output; publication alone materializes `cedar-openview-dist` |
+| `cedar-openview` | plain | `cedarcli build this --wd "$PWD"` — it compiles the source output; publication alone materializes `cedar-openview-dist` |
 | `cedar-component-demo` (Angular) | plain | `cedarcli build this --wd "$PWD"` |
 | `cedar-component-demo` (Ember, React) | plain | nothing — they run from source |
 
@@ -1519,15 +1519,21 @@ while a development snapshot is pinned and harmless for a stable npmjs release.
 | `cedar-workspace` | `package.json` | plain |
 | `cedar-template-editor` | `package.json` | plain |
 | `cedar-bridging` | `cedar-bridging-src/package.json` | plain |
-| `cedar-openview` | `cedar-openview-src/package.json` | `--legacy-peer-deps` |
+| `cedar-openview` | `cedar-openview-src/package.json` | plain |
 | `cedar-component-demo` | `cedar-cee-demo-angular-src` | plain |
 | `cedar-component-demo` | `cedar-cee-demo-ember-src`, `cedar-cee-demo-react` | plain |
 
-One repo fails a plain `npm install` on a peer conflict that has nothing to do with CEE:
-`cedar-openview` carries `ngx-youtube-player-14`, which demands `@angular/common@^14.1.3` from a
-project on Angular 16, so it needs `--legacy-peer-deps`. The Angular demo needed the same flag until
-it moved to Angular 22, for a different reason — it declared `@angular/material`, which wants
-`@angular/forms`, and used neither.
+Every consumer installs in plain mode. OpenView needed `--legacy-peer-deps` while it carried
+`ngx-youtube-player-14`, which demanded `@angular/common@^14.1.3` from a project on Angular 16; that
+package left with the unreachable dependencies, and a plain install now resolves. The Angular demo
+needed the flag until it moved to Angular 22, for a different reason: it declared
+`@angular/material`, which wants `@angular/forms`, and used neither.
+
+The mode reaches further than the install. The train and the release regenerate each consumer's
+lock when they pin a CEE version, and a lock written under `--legacy-peer-deps` omits the peer
+packages a plain install records, which that repository's plain `npm ci` then refuses as out of
+sync with its manifest. The mode a consumer's own CI uses is therefore the mode
+`frontend-train.json` and `propagate-cee-release.mjs` must name for it.
 
 Propagate all seven pins with the checked cross-repository helper. It updates each manifest and
 lockfile using the appropriate npm peer-dependency mode, then fails unless Workspace and every

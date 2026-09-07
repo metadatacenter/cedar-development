@@ -33,7 +33,7 @@ Java 17, as everywhere in CEDAR. `mvn package` writes a shaded, executable jar a
 version-less copy beside it — `target/<artifactId>.jar` — so a client's configuration can name a
 fixed path that survives a version bump.
 
-Two of the three Maven servers depend on released `cedar-artifact-library` 2.9.3. Their POMs name
+Two of the three Maven servers depend on released `cedar-artifact-library` 2.9.8. Their POMs name
 the anonymous-read BMIR Nexus releases repository, so no sibling checkout or local install is
 needed. `cedar-artifact-rest-mcp` does not use the library and resolves from Maven Central alone.
 
@@ -142,6 +142,17 @@ validator built on the 1.x release already present, so the SDK never asks for on
 
 The symptom to recognize: a jar that built cleanly and exits immediately on startup. Read the
 server's stderr — the client hides it.
+
+Jackson breaks a rebuild the same way, and does not announce itself either. Every
+`cedar-artifact-library` release brings a newer `jackson-databind`, and databind reaches for the
+`jackson-annotations` release of its own line — 2.22 wants `JsonSerializeAs`, which no 3.0 release
+candidate declares. A hand-picked annotations version therefore survives exactly until the next
+library bump, and the failure arrives masked: `JacksonAnnotationIntrospector` fails to initialize,
+and every test then reports `NoClassDefFoundError: Could not initialize class ObjectMapper` with the
+real cause only in the first stack trace. Neither `cedar-artifact-mcp` nor `cedar-cee-mcp` names an
+annotations version now; both let it follow databind, which satisfies the SDK's Jackson 3 as well,
+since `JsonFormat.Shape.POJO` has been present since 2.20. Do not reintroduce a pin to fix a
+version conflict — match databind to the library instead.
 
 ## What the Servers Write
 
