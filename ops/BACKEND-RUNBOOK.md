@@ -1529,7 +1529,9 @@ no release to be coordinated around it.
 
 The committed `swagger.json` and `swagger.yaml` in each server are the machine-readable side of the
 same contract. Maven regenerates them from the resource annotations and `src/main/swagger/openapi-base.yaml`
-during `prepare-package`; a source change and its generated documents belong in one commit. Adding an
+during `process-classes`, writing the same document into `src/main/resources` and onto the classpath,
+so the tests and the jar of a build always carry the document that build produced. A source change
+and its generated documents belong in one commit. Adding an
 OpenAPI-only `@RequestBody`, response `content`, or documentation schema does not change JAX-RS body
 binding, content negotiation, Jackson serialization, or an HTTP status. It does change regenerated
 client source: an untyped `Object` or `void` result can become a concrete return type, and a formerly
