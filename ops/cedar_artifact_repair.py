@@ -8,19 +8,28 @@ invariant, validated by ``cedar-model-validation-library``, and only then writte
 identifier, provenance timestamps, version, publication status and every child identifier, and the
 unrelated normalization an ordinary update performs never runs.
 
-The one repair implemented is ``empty-derived-from``: delete every ``pav:derivedFrom`` whose value is
-the empty string, at the artifact root and at every depth. The key is optional, so absence is how an
-artifact that was derived from nothing says so; the empty string is the same claim in a form the
-model cannot read, and the validator rejects it. Nothing outside the artifact references provenance,
-so no instance can be affected.
+Two repairs are implemented. ``empty-derived-from`` deletes every ``pav:derivedFrom`` whose value is
+the empty string, at the root and at every depth: the key is optional, so absence is how an artifact
+that was derived from nothing says so, while the empty string is the same claim in a form the model
+cannot read. ``mint-child-ids`` gives every child whose own ``@id`` is missing or not an absolute IRI
+a fresh one under the prefix its type requires, which is what the server does on an ordinary write
+and cannot do on a verbatim one. Neither touches anything an instance refers to.
+
+Repairs compose, and for some artifacts they must. A child identifier the server would have to mint
+makes it refuse the verbatim write outright, so an artifact carrying that defect alongside another
+cannot be fixed by either repair alone: one leaves the artifact invalid, the other cannot be written.
+Naming both applies them in one write, each stage answering to its own invariant.
 
 Targets come from an earlier ``cedar_artifact_validation_audit.py`` run rather than a fresh walk:
-the audit already knows which artifacts carry the condition.
+the audit already knows which artifacts carry the condition. ``--condition`` narrows the target set
+when a chain's conditions between them name more artifacts than the job needs.
 
     export CEDAR_API_KEY=...
     python3 ops/cedar_artifact_repair.py --from-records production-validation.jsonl   # dry run
     python3 ops/cedar_artifact_repair.py --from-records production-validation.jsonl --limit 5 --apply
     python3 ops/cedar_artifact_repair.py --from-records production-validation.jsonl --apply
+    python3 ops/cedar_artifact_repair.py --from-records production-validation.jsonl \
+      --repair mint-child-ids,empty-derived-from --condition child-id-unusable --apply
 
 Dry run is the default and issues no writes. ``--apply`` needs the WRITE_ARTIFACT_VERBATIM
 permission, which the ``artifactPrivilegedAdministrator`` role carries. Every artifact's stored body
@@ -36,11 +45,13 @@ import collections
 import copy
 import json
 import os
+import re
 import sys
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Iterator, Optional
@@ -50,8 +61,20 @@ import cedar_artifact_rest_audit as rest  # noqa: E402
 import cedar_artifact_validation_audit as audit  # noqa: E402
 
 DERIVED_FROM = "pav:derivedFrom"
+AT_ID = "@id"
+AT_TYPE = "@type"
+ELEMENT_AT_TYPE = "https://schema.metadatacenter.org/core/TemplateElement"
+# The path segment an identifier carries for each kind of child. A static field is a field here: only
+# the element case picks a different prefix, which mirrors ModelUtil.childResourceType.
+ELEMENT_SEGMENT = "template-elements/"
+FIELD_SEGMENT = "template-fields/"
+ROOT_SEGMENTS = ("templates/", "template-elements/", "template-fields/", "template-instances/")
+# Where a child's property IRI is minted from. Unlike an artifact identifier this is a CEDAR-wide
+# namespace rather than a per-deployment one, so it is the same constant the server holds.
+PROPERTY_IRI_PREFIX = "https://schema.metadatacenter.org/properties/"
+UUID_PATTERN = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 OUTCOMES = ("repaired", "would-repair", "already-clean", "still-invalid", "invariant-failed",
-            "fetch-failed", "write-failed")
+            "transform-refused", "fetch-failed", "write-failed")
 DEFAULT_PROGRESS_EVERY = 100
 DEFAULT_PROGRESS_SECONDS = 30
 
@@ -61,20 +84,21 @@ DEFAULT_PROGRESS_SECONDS = 30
 # --------------------------------------------------------------------------------------------------
 
 
-def strip_empty_derived_from(artifact: Any) -> tuple[Any, list[str]]:
+def strip_empty_derived_from(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
     """Delete every empty-string ``pav:derivedFrom``, and say where each one was.
 
     A value that is present and non-empty is left exactly as stored, even when it is unusable: this
     repair speaks only for the empty case, and a second run over a repaired artifact finds nothing.
     """
-    removed: list[str] = []
+    removed: list[dict[str, Any]] = []
 
     def walk(node: Any, path: str) -> Any:
         if isinstance(node, dict):
             result = {}
             for name, value in node.items():
                 if name == DERIVED_FROM and value == "":
-                    removed.append(f"{path}/{rest.json_pointer_component(name)}")
+                    removed.append({"path": f"{path}/{rest.json_pointer_component(name)}",
+                                    "replaced": value, "wrote": None})
                     continue
                 result[name] = walk(value, f"{path}/{rest.json_pointer_component(name)}")
             return result
@@ -120,6 +144,227 @@ def only_removed_empty_derived_from(before: Any, after: Any, path: str = "") -> 
     return None if type(before) is type(after) and before == after else (path or "/")
 
 
+class TransformRefused(Exception):
+    """The artifact is not one this repair can speak for, so it is reported rather than written."""
+
+
+def identifier_base(artifact: Any) -> str:
+    """The deployment's identifier prefix, read from the artifact's own root identifier.
+
+    Deriving it rather than configuring it keeps a repair correct on any deployment, and refuses an
+    artifact whose root identifier is not the shape every minted identifier is built from.
+    """
+    root = artifact.get(AT_ID) if isinstance(artifact, dict) else None
+    if not isinstance(root, str) or not rest.is_absolute_iri(root):
+        raise TransformRefused("the artifact root has no absolute @id to derive an identifier base from")
+    for segment in ROOT_SEGMENTS:
+        marker = "/" + segment
+        position = root.rfind(marker)
+        if position != -1:
+            return root[:position + 1]
+    raise TransformRefused(f"root @id {root!r} carries no recognised artifact path segment")
+
+
+def child_id_segment(child: Any) -> str:
+    """Element or field, by the same test the server applies before it mints.
+
+    The prefix must say what the child actually is. An element given a field's prefix is never
+    repaired afterwards, because the wrong identifier is well formed and no longer temporary.
+    """
+    at_type = child.get(AT_TYPE) if isinstance(child, dict) else None
+    return ELEMENT_SEGMENT if at_type == ELEMENT_AT_TYPE else FIELD_SEGMENT
+
+
+def is_freshly_minted(value: Any, child: Any, base: str) -> bool:
+    expected = base + child_id_segment(child)
+    if not isinstance(value, str) or not value.startswith(expected):
+        return False
+    return bool(UUID_PATTERN.match(value[len(expected):]))
+
+
+def mint_child_ids(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Give every child whose own identifier is unusable a fresh absolute one, at every depth.
+
+    This is what the server does on an ordinary write and cannot do on a verbatim one, which is why
+    an artifact carrying such a child refuses the verbatim write a repair needs. Usability is decided
+    by the server's own test, so a child it would leave alone is left alone here.
+
+    The replaced value is recorded because minting destroys it and nothing else in the stack keeps
+    it. A child that already holds an absolute identifier keeps it, so a second run changes nothing.
+    """
+    base = identifier_base(artifact)
+    minted: list[dict[str, Any]] = []
+
+    def walk(container: Any, path: str) -> Any:
+        if not isinstance(container, dict):
+            return container
+        result = copy.deepcopy(container)
+        for name, child, multiple, error in rest.direct_schema_children(container):
+            if error or child is None:
+                continue
+            declared_path = rest.child_path(path, name)
+            actual_path = f"{declared_path}/items" if multiple else declared_path
+            repaired_child = walk(child, actual_path)
+            identifier = repaired_child.get(AT_ID)
+            if not rest.server_considers_child_id_usable(identifier):
+                fresh = base + child_id_segment(repaired_child) + str(uuid.uuid4())
+                minted.append({"path": f"{actual_path}/{rest.json_pointer_component(AT_ID)}",
+                               "replaced": identifier, "wrote": fresh,
+                               "kind": "element" if child_id_segment(repaired_child) == ELEMENT_SEGMENT
+                                       else "field"})
+                repaired_child[AT_ID] = fresh
+            if multiple:
+                result["properties"][name]["items"] = repaired_child
+            else:
+                result["properties"][name] = repaired_child
+        return result
+
+    return walk(copy.deepcopy(artifact), ""), minted
+
+
+def only_minted_child_ids(before: Any, after: Any) -> Optional[str]:
+    """The invariant: the only differences are child identifiers that were unusable and are now correct.
+
+    An identifier the server would have accepted must not move, a minted one must carry the prefix its
+    child's type requires, and nothing else in the document may differ.
+    """
+    base = identifier_base(before)
+
+    def walk(old: Any, new: Any, path: str) -> Optional[str]:
+        if isinstance(old, dict):
+            if not isinstance(new, dict):
+                return path or "/"
+            for name in set(old) | set(new):
+                here = f"{path}/{rest.json_pointer_component(name)}"
+                present_before, present_after = name in old, name in new
+                if name == AT_ID and (not present_before or old.get(name) != new.get(name)):
+                    if not present_after:
+                        return here
+                    if rest.server_considers_child_id_usable(old.get(name)):
+                        return here
+                    if not is_freshly_minted(new[name], new, base):
+                        return here
+                    continue
+                if present_before != present_after:
+                    return here
+                difference = walk(old[name], new[name], here)
+                if difference is not None:
+                    return difference
+            return None
+        if isinstance(old, list):
+            if not isinstance(new, list) or len(old) != len(new):
+                return path or "/"
+            for index, value in enumerate(old):
+                difference = walk(value, new[index], f"{path}/{index}")
+                if difference is not None:
+                    return difference
+            return None
+        return None if type(old) is type(new) and old == new else (path or "/")
+
+    return walk(before, after, "")
+
+
+def context_properties(container: Any) -> Optional[dict]:
+    properties = container.get("properties") if isinstance(container, dict) else None
+    context = properties.get("@context") if isinstance(properties, dict) else None
+    mapping = context.get("properties") if isinstance(context, dict) else None
+    return mapping if isinstance(mapping, dict) else None
+
+
+def mapped_property_iri(mapping: Any) -> tuple[bool, Any]:
+    """(present, value) for one child's mapping, where an unusable value is what this repair replaces."""
+    if not isinstance(mapping, dict):
+        return False, mapping
+    values = mapping.get("enum")
+    if not isinstance(values, list) or len(values) != 1:
+        return False, values
+    return True, values[0]
+
+
+def mint_property_iris(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Replace a child's property IRI where the stored one is present but not an absolute IRI.
+
+    This is the only property-IRI defect the validator rejects, and in production the stored value is
+    always the empty string. A mapping that is absent altogether is deliberately out of scope: the
+    validator accepts it, and adding one is not the same decision, because the server pairs a new
+    mapping with an entry in ``@context.required`` that an existing instance may not satisfy.
+
+    A property IRI is what an instance's own ``@context`` must match, so unlike a child identifier this
+    cannot be minted freely. Exclude any artifact whose instances rely on the stored value; the
+    ``--exclude-ids`` list exists for that.
+    """
+    minted: list[dict[str, Any]] = []
+
+    def walk(container: Any, path: str) -> Any:
+        if not isinstance(container, dict):
+            return container
+        result = copy.deepcopy(container)
+        mapping = context_properties(result)
+        for name, child, multiple, error in rest.direct_schema_children(container):
+            if error or child is None:
+                continue
+            declared_path = rest.child_path(path, name)
+            actual_path = f"{declared_path}/items" if multiple else declared_path
+            repaired_child = walk(child, actual_path)
+            if multiple:
+                result["properties"][name]["items"] = repaired_child
+            else:
+                result["properties"][name] = repaired_child
+            if mapping is None:
+                continue
+            present, value = mapped_property_iri(mapping.get(name))
+            if not present or rest.is_absolute_iri(value):
+                continue
+            fresh = PROPERTY_IRI_PREFIX + str(uuid.uuid4())
+            minted.append({
+                "path": f"{path}/properties/@context/properties/"
+                        f"{rest.json_pointer_component(name)}/enum/0",
+                "replaced": value, "wrote": fresh, "child": name})
+            mapping[name] = {**mapping[name], "enum": [fresh]}
+        return result
+
+    return walk(copy.deepcopy(artifact), ""), minted
+
+
+def only_minted_property_iris(before: Any, after: Any) -> Optional[str]:
+    """The invariant: every difference is one mapping's single enum value, unusable before and minted now."""
+
+    def walk(old: Any, new: Any, path: str, in_enum_of: Optional[str]) -> Optional[str]:
+        if isinstance(old, dict):
+            if not isinstance(new, dict):
+                return path or "/"
+            for name in set(old) | set(new):
+                here = f"{path}/{rest.json_pointer_component(name)}"
+                if (name in old) != (name in new):
+                    return here
+                nested = name if name == "enum" else in_enum_of
+                difference = walk(old[name], new[name], here, nested)
+                if difference is not None:
+                    return difference
+            return None
+        if isinstance(old, list):
+            if not isinstance(new, list) or len(old) != len(new):
+                return path or "/"
+            for index, value in enumerate(old):
+                difference = walk(value, new[index], f"{path}/{index}", in_enum_of)
+                if difference is not None:
+                    return difference
+            return None
+        if type(old) is type(new) and old == new:
+            return None
+        # The single value of a child's enum may move, and only from unusable to a minted IRI.
+        if in_enum_of != "enum" or "/properties/@context/properties/" not in path:
+            return path or "/"
+        if rest.is_absolute_iri(old):
+            return path or "/"
+        if not isinstance(new, str) or not new.startswith(PROPERTY_IRI_PREFIX) \
+                or not UUID_PATTERN.match(new[len(PROPERTY_IRI_PREFIX):]):
+            return path or "/"
+        return None
+
+    return walk(before, after, "", None)
+
+
 @dataclass(frozen=True)
 class Repair:
     name: str
@@ -136,6 +381,20 @@ REPAIRS = {
         summary="delete every pav:derivedFrom whose value is the empty string",
         transform=strip_empty_derived_from,
         invariant=only_removed_empty_derived_from,
+    ),
+    "mint-property-iris": Repair(
+        name="mint-property-iris",
+        condition="child-property-iri-unusable",
+        summary="replace a child's property IRI where the stored one is not an absolute IRI",
+        transform=mint_property_iris,
+        invariant=only_minted_property_iris,
+    ),
+    "mint-child-ids": Repair(
+        name="mint-child-ids",
+        condition="child-id-unusable",
+        summary="give every child whose own @id is missing or not an absolute IRI a fresh one",
+        transform=mint_child_ids,
+        invariant=only_minted_child_ids,
     ),
 }
 
@@ -206,17 +465,19 @@ class RepairClient(rest.GetOnlyClient):
 # --------------------------------------------------------------------------------------------------
 
 
-def targets_from_records(path: Path, condition: str, parser: argparse.ArgumentParser
+def targets_from_records(path: Path, conditions: list[str], parser: argparse.ArgumentParser
                          ) -> list[rest.ArtifactRef]:
+    """Every artifact the audit found carrying any of these conditions, in the order it saw them."""
     refs: list[rest.ArtifactRef] = []
     seen: set[tuple[str, str]] = set()
+    wanted = set(conditions)
     try:
         with path.open(encoding="utf-8") as stream:
             for line in stream:
-                if condition not in line:
+                if not any(condition in line for condition in wanted):
                     continue
                 record = json.loads(line)
-                if condition not in (record.get("conditionRules") or {}):
+                if not wanted & set(record.get("conditionRules") or {}):
                     continue
                 key = (record["artifactType"], record["artifactId"])
                 if key in seen:
@@ -227,7 +488,7 @@ def targets_from_records(path: Path, condition: str, parser: argparse.ArgumentPa
     except (OSError, ValueError) as error:
         parser.error(f"cannot read --from-records {path}: {error}")
     if not refs:
-        parser.error(f"no artifact in {path} carries the condition {condition!r}")
+        parser.error(f"no artifact in {path} carries any of {sorted(wanted)}")
     return refs
 
 
@@ -304,11 +565,37 @@ def validate(bridge: audit.ValidationBridge, resolver: audit.TemplateResolver,
     return False, f"{answer.get('exception') or 'bridge'}: {answer.get('message') or status}"
 
 
-def repair_one(arguments: argparse.Namespace, repair: Repair, client: RepairClient,
+def apply_repairs(repairs: list[Repair], stored: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Run each repair over the output of the one before, verifying every stage as it goes.
+
+    An artifact carrying two defects cannot be fixed by either repair alone: the first leaves the
+    artifact invalid, and the second cannot be written while the first defect still blocks it. Applied
+    together they make one write that is still provably narrow, because each stage answers to its own
+    invariant against its own input.
+    """
+    current = stored
+    changes: list[dict[str, Any]] = []
+    for repair in repairs:
+        result, staged = repair.transform(current)
+        difference = repair.invariant(current, result)
+        if difference is not None:
+            raise InvariantFailed(f"{repair.name} made an unexpected difference at {difference}")
+        for change in staged:
+            changes.append({**change, "repair": repair.name})
+        current = result
+    return current, changes
+
+
+class InvariantFailed(Exception):
+    """A transform changed something it does not speak for."""
+
+
+def repair_one(arguments: argparse.Namespace, repairs: list[Repair], client: RepairClient,
                bridge: audit.ValidationBridge, resolver: audit.TemplateResolver,
                ref: rest.ArtifactRef) -> dict[str, Any]:
     record: dict[str, Any] = {"artifactType": ref.artifact_type, "artifactId": ref.artifact_id,
-                              "artifactName": ref.name, "repair": repair.name, "at": audit.utc_now()}
+                              "artifactName": ref.name,
+                              "repair": ",".join(r.name for r in repairs), "at": audit.utc_now()}
     path = rest.typed_artifact_path(ref)
     try:
         stored, etag = client.get_with_etag(path)
@@ -319,15 +606,18 @@ def repair_one(arguments: argparse.Namespace, repair: Repair, client: RepairClie
         return record
     record["etag"] = etag
 
-    repaired, removed = repair.transform(stored)
-    record["pathsRemoved"] = removed
-    if not removed:
-        record.update(outcome="already-clean")
+    try:
+        repaired, changes = apply_repairs(repairs, stored)
+    except TransformRefused as refusal:
+        record.update(outcome="transform-refused", detail=str(refusal))
         return record
-
-    difference = repair.invariant(stored, repaired)
-    if difference is not None:
-        record.update(outcome="invariant-failed", detail=f"unexpected difference at {difference}")
+    except InvariantFailed as failure:
+        record.update(outcome="invariant-failed", detail=str(failure))
+        return record
+    record["changes"] = changes
+    record["pathsRemoved"] = [change["path"] for change in changes]
+    if not changes:
+        record.update(outcome="already-clean")
         return record
 
     valid, explanation = validate(bridge, resolver, ref, repaired)
@@ -350,7 +640,7 @@ def repair_one(arguments: argparse.Namespace, repair: Repair, client: RepairClie
     if arguments.verify:
         try:
             back, _ = client.get_with_etag(path)
-            still = repair.transform(back)[1]
+            still = apply_repairs(repairs, back)[1]  # a repaired artifact offers the transforms nothing
             record["verified"] = not still
             if still:
                 record["detail"] = f"{len(still)} path(s) still present after the write"
@@ -383,8 +673,11 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="Dry run by default. --apply writes, saving every artifact's stored body first.",
     )
-    parser.add_argument("--repair", default="empty-derived-from", choices=sorted(REPAIRS),
-                        help="the repair to perform (default: empty-derived-from)")
+    parser.add_argument("--repair", default="empty-derived-from",
+                        help="repair to perform, or several comma separated to apply in one write; "
+                             f"choose from {', '.join(sorted(REPAIRS))} (default: empty-derived-from)")
+    parser.add_argument("--condition",
+                        help="audit condition naming the targets (default: any condition the repairs name)")
     parser.add_argument("--from-records", required=True,
                         help="records JSONL from cedar_artifact_validation_audit.py, the target list")
     parser.add_argument("--server", default=rest.DEFAULT_SERVER,
@@ -393,6 +686,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--apply", action="store_true", help="write; otherwise report what would change")
     parser.add_argument("--limit", type=int, help="stop after this many artifacts")
     parser.add_argument("--types", help="restrict to these artifact types, comma separated")
+    parser.add_argument("--exclude-ids",
+                        help="JSON list of artifact IDs to leave alone, for artifacts whose instances "
+                             "rely on a value a repair would change")
     parser.add_argument("--out", default="cedar-artifact-repair.jsonl",
                         help="one record per artifact (default: cedar-artifact-repair.jsonl)")
     parser.add_argument("--summary", help="summary JSON path (default: <out without suffix>-summary.json)")
@@ -419,7 +715,14 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Optional[list[str]] = None) -> int:
     parser = build_parser()
     arguments = parser.parse_args(argv)
-    repair = REPAIRS[arguments.repair]
+    names = [name.strip() for name in arguments.repair.split(",") if name.strip()]
+    unknown = [name for name in names if name not in REPAIRS]
+    if unknown or not names:
+        parser.error(f"unknown repair {unknown or ['(none given)']}; choose from {sorted(REPAIRS)}")
+    if len(set(names)) != len(names):
+        parser.error("each repair may appear only once in a chain")
+    repairs = [REPAIRS[name] for name in names]
+    conditions = [arguments.condition] if arguments.condition else [r.condition for r in repairs]
     if arguments.limit is not None and arguments.limit <= 0:
         parser.error("--limit must be positive")
     api_key = rest.resolve_api_key(arguments, parser)
@@ -436,20 +739,30 @@ def main(argv: Optional[list[str]] = None) -> int:
     arguments.server = arguments.server.rstrip("/")
     records_path.parent.mkdir(parents=True, exist_ok=True)
 
-    refs = targets_from_records(Path(arguments.from_records).expanduser(), repair.condition, parser)
+    refs = targets_from_records(Path(arguments.from_records).expanduser(), conditions, parser)
     if arguments.types:
         wanted = {kind.strip() for kind in arguments.types.split(",") if kind.strip()}
         unknown = wanted - set(rest.ARTIFACT_PATHS)
         if unknown:
             parser.error(f"unknown artifact types {sorted(unknown)}")
         refs = [ref for ref in refs if ref.artifact_type in wanted]
+    if arguments.exclude_ids:
+        try:
+            excluded = set(json.loads(Path(arguments.exclude_ids).expanduser().read_text(encoding="utf-8")))
+        except (OSError, ValueError) as error:
+            parser.error(f"cannot read --exclude-ids: {error}")
+        before = len(refs)
+        refs = [ref for ref in refs if ref.artifact_id not in excluded]
+        print(f"Excluded {before - len(refs)} artifact(s) named by {arguments.exclude_ids}")
     done = already_done(records_path, parser) if arguments.resume else set()
     pending = [ref for ref in refs if (ref.artifact_type, ref.artifact_id) not in done]
     if arguments.limit is not None:
         pending = pending[:arguments.limit]
     by_type = collections.Counter(ref.artifact_type for ref in pending)
 
-    print(f"Repair: {repair.name} ({repair.summary})")
+    for repair in repairs:
+        print(f"Repair: {repair.name} ({repair.summary})")
+    print(f"Targets named by: {', '.join(conditions)}")
     print(f"Server: {arguments.server}")
     print(f"Targets: {len(pending)} artifacts ({audit.counts_text(by_type)}) "
           f"from {arguments.from_records}" + (f", {len(done)} already done" if done else ""))
@@ -483,7 +796,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     try:
         with rest.open_private_text_file(records_path, append=arguments.resume) as stream:
             for ref in pending:
-                record = repair_one(arguments, repair, client, bridge, resolver, ref)
+                record = repair_one(arguments, repairs, client, bridge, resolver, ref)
                 stream.write(json.dumps(record, ensure_ascii=False) + "\n")
                 stream.flush()
                 progress.note(record["outcome"], len(record.get("pathsRemoved") or []))
@@ -491,7 +804,8 @@ def main(argv: Optional[list[str]] = None) -> int:
                     details["unverified"].append({"artifactId": ref.artifact_id,
                                                   "artifactType": ref.artifact_type,
                                                   "detail": record.get("detail", "")})
-                if record["outcome"] in {"still-invalid", "invariant-failed", "fetch-failed", "write-failed"}:
+                if record["outcome"] in {"still-invalid", "invariant-failed", "transform-refused",
+                                         "fetch-failed", "write-failed"}:
                     details[record["outcome"]].append(
                         {"artifactId": ref.artifact_id, "artifactType": ref.artifact_type,
                          "detail": record.get("detail", "")})
@@ -513,7 +827,8 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     summary = {
         "tool": {"script": Path(__file__).name, "scriptSha256": audit.file_sha256(Path(__file__)),
-                 "repair": repair.name, "condition": repair.condition, "summary": repair.summary},
+                 "repairs": [r.name for r in repairs], "conditions": conditions,
+                 "summaries": [r.summary for r in repairs]},
         "status": status,
         "mode": "apply" if arguments.apply else "dry-run",
         "server": arguments.server,

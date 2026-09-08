@@ -2738,12 +2738,49 @@ python3 ops/cedar_artifact_repair.py --from-records production-validation.jsonl 
 python3 ops/cedar_artifact_repair.py --from-records production-validation.jsonl --apply
 ```
 
-The repair implemented is `empty-derived-from`: delete every `pav:derivedFrom` whose value is the
+Two repairs are implemented. `empty-derived-from` deletes every `pav:derivedFrom` whose value is the
 empty string, at the root and at every depth. The key is optional, so absence is how an artifact
 that was derived from nothing says so, while the empty string is the same claim in a form the model
 cannot read. The meta-schema accepted it for years because JSON Schema's `uri` format admits a
-relative reference, and the validator's own walk rejects it now. Nothing outside an artifact
-references provenance, so no instance is affected.
+relative reference, and the validator's own walk rejects it now. `mint-child-ids` gives every child
+whose own `@id` is missing or not an absolute IRI a fresh one, under the prefix its type requires,
+since an element given a field's prefix is never repaired afterwards. Neither touches anything an
+instance refers to: an instance reaches a field through the property IRI in its `@context`, which is
+a different namespace from a child's own identifier, and provenance it never reads at all.
+
+`mint-property-iris` is the exception, and the reason the two identifiers must not be confused. A
+child's property IRI is exactly what an instance's `@context` has to match, so minting a fresh one
+invalidates every instance that carries the stored value. Use `--exclude-ids` with a JSON list of the
+artifacts whose instances rely on it. In production the whole population is 527 artifacts, of which
+516 are safe on their own terms: 393 are standalone elements, against which no instance ever
+validates, and 123 are templates with no instances at all. The remaining 11 templates hold 894
+instances between them and want an instance-aware check first. The repair replaces only a mapping
+that is present and unusable, which in production is always the empty string. A mapping that is
+absent is deliberately out of scope, because the validator accepts it and because the server pairs a
+new mapping with an entry in `@context.required` that an existing instance may not satisfy.
+
+**Repairs compose, and for some artifacts they must.** A child identifier the server would otherwise
+mint makes it refuse a verbatim write outright, so an artifact carrying that defect alongside another
+cannot be fixed by either repair on its own: one leaves the artifact invalid and is skipped, the other
+is refused by the server. Naming both applies them in a single write, and the result is still provably
+narrow because each stage is checked by its own invariant against its own input. In production 376
+artifacts are in exactly that position, which is why the empty-provenance sweep refuses them, and a
+further group needs all three repairs at once.
+
+```bash
+python3 ops/cedar_artifact_repair.py --from-records production-validation.jsonl \
+  --repair mint-child-ids,empty-derived-from --condition child-id-unusable --apply
+```
+
+`--condition` names the target set explicitly, which a chain needs whenever its repairs between them
+name more artifacts than the job does.
+
+Two repair runs may overlap without coordinating. Updating an existing artifact requires the ETag the
+GET returned, and the server refuses a write carrying a stale one, so the second run to reach a shared
+artifact is refused rather than silently overwriting the first. The cost of an overlap is only in the
+accounting: the loser records a write failure for an artifact that was in fact repaired, and a later
+`--resume` reads it back as already clean. Give each run its own `--out`, since the records and
+pre-images are named from it.
 
 Each artifact ends in one outcome, and the summary counts them: `repaired`, `would-repair` on a dry
 run, `already-clean` when the defect is gone, `still-invalid` when the artifact has other errors and
@@ -2758,7 +2795,9 @@ artifact as `already-clean` and clears nothing.
 
 Adding a repair means adding a transform, an invariant and the audit condition that names its
 targets, as one entry in the tool's `REPAIRS` table. Keep both halves narrow. The invariant is what
-makes a verbatim write over thousands of artifacts safe, so it compares types as well as values.
+makes a verbatim write over thousands of artifacts safe, so it compares types as well as values, and
+a repair that creates a value rather than deleting one must also prove the value it wrote is the one
+the server itself would have written.
 
 ## `ops/cedar_ontology_usage.py`
 
