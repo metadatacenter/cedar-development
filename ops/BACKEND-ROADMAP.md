@@ -697,8 +697,9 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   A request path has been able to persist a top-level annotation such as
   `_annotations: {"https://datacite.com/doi": {"@id": null}}`, and the current meta-schemas define
   the intended annotation content without applying that definition to the artifact's top-level
-  `_annotations` member. Add an audit rule that reports every annotation object carrying an explicit
-  null `@id`, with the artifact ID and JSON Pointer, before changing validation. The patch may remove
+  `_annotations` member. `cedar_artifact_validation_audit.py` reports every annotation object carrying
+  an explicit null `@id`, with the artifact ID and JSON Pointer, and says whether the null identifier
+  is the entry's whole payload; run it before changing validation. The patch may remove
   an annotation entry only when null `@id` is its sole payload, removing the `_annotations` container
   as well when that leaves it empty; an entry with any additional payload stays report-only for human
   review. Do not include `@value: null`, which is a separately supported value annotation, and never
@@ -709,8 +710,9 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
 
   Child definitions present in `properties` but absent from `_ui.order` are another such repair, and
   production contains enough of them that the model libraries cannot simply start refusing the shape.
-  Add a raw-store audit rule that distinguishes this case from the inverse drift (an order entry with no
-  property), then offer an idempotent, field-preserving rewrite that appends each omitted child key after
+  `cedar_artifact_validation_audit.py` distinguishes this case from the inverse drift (an order entry
+  with no property) over REST; add the same distinction as a raw-store rule in the patch tool, then
+  offer an idempotent, field-preserving rewrite that appends each omitted child key after
   the existing order without changing or deleting the child definition. Capture the production count and
   paths as a reviewed manifest, cover direct and nested containers, and prove a second run makes no
   changes. Only after that repair has run and a repeated audit reports zero omitted children should the
@@ -727,11 +729,12 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   stale one, so re-enabling it refuses both the artifact written against an earlier model and the
   artifact that never carried a version. Production is expected to hold some of each.
 
-  Measure the population before writing a rule for it. Neither `cedar_artifact_rest_audit.py` nor
-  `cedar_artifact_patch.py` reads the field today, so the counts do not exist: how many stored
-  artifacts declare a version older than the current one, which versions appear, and how many declare
-  none. Add the audit rule first and capture its findings as a reviewed manifest, the way the
-  object-shaped repair is checked against 31 artifacts and 76 paths.
+  Measure the population before writing a rule for it: how many stored artifacts declare a version
+  older than the current one, which versions appear, and how many declare none.
+  `cedar_artifact_validation_audit.py` reports all three, per artifact and in its summary, while
+  `cedar_artifact_patch.py` still reads nothing of the field. Run the audit against production and
+  capture its findings as a reviewed manifest, the way the object-shaped repair is checked against 31
+  artifacts and 76 paths.
 
   A version cannot be stamped on faith. `schema:schemaVersion` asserts that the artifact conforms to
   the model it names, so writing the current version into an artifact that does not conform replaces a
@@ -770,7 +773,9 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   system: a constraint authored before the field existed and one that deliberately names BioPortal are
   then indistinguishable, while routing has to honour the rule that a non-BioPortal source is never
   proxied to BioPortal. Writing the default explicitly while it still holds turns silence into evidence.
-  After the sweep, a constraint carrying no `sourceSystem` marks an artifact the patch never reached.
+  After the sweep, a constraint carrying no `sourceSystem` marks an artifact the patch never reached,
+  and `cedar_artifact_validation_audit.py` counts those constraints, so the sweep has a before and an
+  after.
 
   The serving system cannot be derived from the term IRI, which is the tempting shortcut and a wrong one.
   The 51 HuBMAP assay templates carry 504 branch constraints whose targets sit under

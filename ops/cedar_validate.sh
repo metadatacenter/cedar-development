@@ -5,6 +5,11 @@
 #   template <template.json>                     Validate a template
 #   element  <element.json>                      Validate a template element
 #   field    <field.json>                        Validate a template field
+#   java                                         Print the JDK 17 java binary this uses
+#   classpath                                    Print the library classpath, building it if needed
+#
+# The last two exist for callers that keep one JVM alive across many documents,
+# such as `cedar_validation_bridge.java`, and want the same resolution as the gate.
 #
 # This is `cedar-model-validation-library` — the arbiter. Nothing enters production
 # that this rejects, so it is the check that matters and every other conformance
@@ -55,7 +60,7 @@ CP_FILE="$LIB/target/validator-classpath.txt"
 CLASSES="$LIB/target/classes"
 
 usage() {
-  sed -n '2,10p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
+  sed -n '2,9p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
   exit 2
 }
 
@@ -96,5 +101,7 @@ case $CMD in
   template) [[ $# -eq 2 ]] || usage; run ValidateTemplate "$2" ;;
   element)  [[ $# -eq 2 ]] || usage; run ValidateTemplateElement "$2" ;;
   field)    [[ $# -eq 2 ]] || usage; run ValidateTemplateField "$2" ;;
+  java)      [[ $# -eq 1 ]] || usage; echo "$JAVA_HOME/bin/java" ;;
+  classpath) [[ $# -eq 1 ]] || usage; ensure_classpath; echo "$CLASSES:$(cat "$CP_FILE")" ;;
   *) usage ;;
 esac

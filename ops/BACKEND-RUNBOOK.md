@@ -2638,6 +2638,82 @@ one snapshot, so artifacts created or deleted while it runs no longer move a lat
 earlier one already returned; a changed total is then a fact about the deployment rather than about
 the walk.
 
+## Validating every stored artifact with the library
+
+`ops/cedar_artifact_validation_audit.py` answers two questions about a deployment in one read-only
+pass. The first is whether each stored template, element, field and instance passes
+`cedar-model-validation-library`, the gate nothing enters production without; an instance is
+validated against the exact template its `schema:isBasedOn` names. The second is how many artifacts
+carry one of the legacy shapes the [backend roadmap's production-data item](./BACKEND-ROADMAP.md#production-data)
+lists. Those are shapes a valid artifact may still have, so every count is split by verdict. The
+walk is the REST audit's: the script imports `cedar_artifact_rest_audit.py` for the GET-only client,
+the `/search-deep` enumeration and its minting rules, so the two audits see the same artifact set.
+
+Validation runs in one JVM. `ops/cedar_validation_bridge.java` is launched in Java's source-file
+mode on the classpath `cedar_validate.sh classpath` resolves, keeps a bounded cache of templates so
+an instance can be checked against the template it names without the template being sent each time,
+and answers one JSON line per request. It holds no validation logic of its own; every verdict is the
+library's, and a JVM start per artifact would cost more than the network does. A verdict the library
+cannot give, because it threw, is recorded as an `error` with the exception, and a bridge that stops
+answering is killed and restarted, up to `--bridge-max-restarts` times. JDK 17 and a built library
+are required; `cedar_validate.sh` finds both.
+
+```bash
+export CEDAR_API_KEY=…
+python3 ops/cedar_artifact_validation_audit.py \
+  --server https://resource.metadatacenter.org \
+  --out production-validation.jsonl
+```
+
+All four artifact types are the default; `--types template,element` narrows the pass and `--limit`
+makes a labelled sample. `--fetch-workers` GETs run ahead of validation, four by default. The key
+comes from `CEDAR_API_KEY`, a one-line `--api-key-file`, or a hidden prompt, and is never written.
+
+The run reports progress every 200 artifacts or every minute, whichever comes first: processed
+against the unique audit set, percentage, the verdict counts for the batch and cumulatively, how
+many artifacts in the batch carry a condition, fetch errors, elapsed time and ETA. Each report also
+rewrites `production-validation-summary.json` atomically, so the summary is current whenever the
+run is looked at. Four files sit together, named from `--out`:
+
+- `production-validation.jsonl`, one record per artifact: type, identifier, name, the verdict with
+  every error message and location the library reported, the conditions found with their JSON
+  Pointer paths, and the root `schema:schemaVersion`. Full artifacts are never written.
+- `production-validation-summary.json`, the aggregate: verdicts by type, the validator's messages
+  folded so like errors count together, the templates whose instances fail most, each condition's
+  artifact count, occurrence count and split by verdict, the conditions grouped by roadmap topic,
+  the model versions in use, and the inventory boundary.
+- `production-validation-refs.jsonl`, the enumerated audit set, and `production-validation-java.log`,
+  the JVM's stderr.
+
+Ctrl-C and request failures keep what was written. Repeating the original arguments with `--resume`
+reads the refs and the records, treats every fetched artifact as done, retries the ones whose fetch
+failed, and rebuilds the summary from the records, so the counts after a resume are those of one
+uninterrupted run. The refs header pins the server, the types, the limit, the model version and the
+exact script and bridge that started the run; a change to any of them needs a new run. A complete
+run exits zero even when artifacts are invalid, `--fail-on-invalid` makes them exit 1, and an
+incomplete run exits 2.
+
+The conditions, by the roadmap paragraph each measures:
+
+| Rule | What it counts |
+| --- | --- |
+| `inherently-multiple-child-object` | A checkbox, attribute-value or multiple-choice list deployed as an object rather than an array. |
+| `title-not-canonical`, `title-not-canonical-nested` | A `title` that is not `"<schema:name> <kind> schema"`, at the root or in an embedded child. The value says whether the two differ only in letter case, which is what the legacy Template Designer produced. |
+| `max-items-zero` | `maxItems: 0` on an array deployment, the Designer's spelling of unbounded. |
+| `num-terms-zero` | `numTerms: 0` on an ontology or value-set constraint, an unmeasured count written as a quantity. |
+| `stray-cardinality-keys` | `minItems` or `maxItems` on an object deployment, where nothing reads them. |
+| `annotation-id-null`, `annotation-id-null-with-payload` | An annotation entry whose `@id` is an explicit null, alone or beside other payload. |
+| `ui-order-missing-child`, `ui-order-orphan-entry`, `ui-order-duplicate-entry`, `ui-order-absent` | A child under `properties` missing from `_ui.order`, an order entry with no child, a repeated entry, and a container with children but no order list. |
+| `schema-version-absent`, `schema-version-stale`, `schema-version-unparsable`, and their `-nested` forms | The root's `schema:schemaVersion` against the version the libraries write, and the same for embedded children. The summary also lists every version in use, by type. |
+| `source-system-absent` | A controlled-term constraint entry with no `sourceSystem`; every entry counts, so the occurrence count is the size of the sweep. |
+| the REST audit's rules | Reported under their own names and risks, so the repair-on-save population is counted in the same run. |
+
+An instance whose template the key cannot read is `skipped` as `template-unresolved`, and the
+summary lists those templates with how many instances each strands. The inventory boundary is
+reported rather than repaired: typed GETs that return 404 for a search row, duplicate search rows,
+a search total that changed during the walk. As with the REST audit, `COMPLETE_FOR_KEY` means
+complete for what this key can enumerate and read.
+
 ## `ops/cedar_ontology_usage.py`
 
 Inventories which ontologies CEDAR templates + elements reference, by walking their

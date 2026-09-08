@@ -73,6 +73,12 @@ below have no CLI front end yet, so call them directly:
   enumerate all four artifact kinds through `/search-deep` with `--types all`; it streams JSONL
   findings and checkpoints `processed/total` every 300 artifacts. It never writes an artifact and
   never stores or prints the API key.
+- `cedar_artifact_validation_audit.py` — the same GET-only walk, with the verdict of
+  `cedar-model-validation-library` on every template, element, field and instance, each instance
+  validated against the template it names. One JVM, `cedar_validation_bridge.java`, stays up for the
+  whole pass. It also counts the legacy shapes the backend roadmap's production-data item lists and
+  splits each count by verdict, since a valid artifact may still carry one. Streams one record per
+  artifact, reports progress every 200 artifacts, resumes.
 
 - `cedar_term_bench.py` — times the terminology server's lookup paths against whatever it is
   serving, drawing query strings from the served index so every lookup matches something. Reports
