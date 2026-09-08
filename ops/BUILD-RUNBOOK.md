@@ -276,7 +276,7 @@ Train 2.9.8-dev.20260905.0436 took 36 minutes: nine and a half for the Maven pha
 TypeScript model, eight and a half for the CEE gate on its ARM runner, two for the seven frontends,
 five for the 31 images, and eight and a half to pull every image back and verify it. Everything but
 the image matrix runs serially. The local dispatch preflight takes about a minute, most of it the
-CI probe across the 43 captured repositories, and a `--dry-run` rehearsal pays it a second time.
+CI probe across the 44 captured repositories, and a `--dry-run` rehearsal pays it a second time.
 
 ## Resume a failed train
 

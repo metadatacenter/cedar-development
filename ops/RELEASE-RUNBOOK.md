@@ -201,8 +201,7 @@ The release runs these phases, each verifying its work before the next begins:
    Docker build's frontend defaults in `cedar-images-base.sh` are rewritten from the train's
    recorded inputs: the next-development tree names the train's own packages, which exist the
    moment the release pushes, and the release tree names the released frontends at `<VER>` and
-   OpenView's Editor at the public CEE version, which Nexus and npmjs keep for good. Workspace
-   and the Designer, which publish independently, keep the train's packages in both trees.
+   OpenView's Editor at the public CEE version, which Nexus and npmjs keep for good.
 3. Run the release Maven test builds, the next-development Maven builds, all frontend installs, and
    the production frontend builds. Generated distribution bytes are inventoried, so an ignored
    `dist` file cannot change before publication. Each test-bearing Maven task checks for embedded
@@ -222,11 +221,12 @@ The release runs these phases, each verifying its work before the next begins:
    `develop`.
 7. Upload the exact locally validated Maven release bytes to Nexus, accepting an existing immutable
    path only when its bytes match, and verify the required artifact inventory.
-8. Pack the six stable npm frontend surfaces from the exact integrated commits, record `gitHead`,
+8. Pack the nine stable npm surfaces from the exact integrated commits, record `gitHead`,
    and retain explicitly declared runtime assets that npm normally excludes. OpenView's packaged
    `node_modules` assets therefore include the exact CEE and Web Components files committed in its
-   release distribution. Publish to CEDAR Nexus, then download each registry tarball and verify its
-   integrity, content hash, provenance, and runtime-asset hashes.
+   release distribution. The model-library demo's ignored `dist` is copied only from its
+   byte-inventoried release build. Publish to CEDAR Nexus, then download each registry tarball and
+   verify its integrity, content hash, provenance, and runtime-asset hashes.
 9. Accept the release, proving from outside the ledger that it holds. Acceptance also runs the
    captured build-train configuration validator against the complete `<NEXT>` workspace and its
    exact expected snapshot version, so `develop` is not considered ready merely because version
@@ -247,9 +247,8 @@ stays reachable through the integration commit's first parent, but restoring it 
 commit on `develop`. Plan reports such content, and reconciling a divergent `main` belongs
 before a release rather than after one.
 
-The stable npm surfaces are Template Editor, OpenView, Content Distribution, Monitoring, Bridging,
-and the Angular CEE demo. Workspace receives the stable CEE wiring on both `main` and `develop` but
-keeps its independent publication path. Template Designer also remains independently published.
+The stable npm surfaces are Template Editor, Workspace, Template Designer, the TypeScript model
+library demo, OpenView, Content Distribution, Monitoring, Bridging, and the Angular CEE demo.
 
 ## What a Release Costs
 
@@ -405,38 +404,26 @@ payload:
 node $CEDAR_HOME/cedar-development/ops/propagate-cee-release.mjs --check <CEE_VERSION>
 ```
 
-Workspace and Template Designer are also independent while migration is in progress. Their exact
-current versions publish as npm packages to CEDAR Nexus through one deliberately named selector:
+Workspace, Template Designer, and the TypeScript model library demo are ordinary platform release
+repositories. They carry `<VER>` on `main`, `<NEXT>` on `develop`, and publish their stable packages
+to CEDAR Nexus as part of `cedarcli release start|resume`. Their build-train development packages
+remain immutable commit-derived prereleases; Docker builds pin the exact versions and never consume
+the moving `dev` tag.
 
-```bash
-cedarcli publish split-frontends --dry-run
-cedarcli publish split-frontends
-```
-
-The generic `cedarcli publish frontends` and `cedarcli publish all` selectors exclude them. The
-explicit plan runs `npm ci`, then stages and publishes an immutable prerelease from each clean
-commit without changing either working tree. npm cannot overwrite `<NEXT>-SNAPSHOT` the way Maven
-can, so versions have the form `<NEXT>-dev.<UTC-commit-time>.g<12-char-commit>.p3`, where `p3`
-identifies the committed-source, shrinkwrapped package format. The publisher packs from
-`git archive HEAD` rather than the working tree, so ignored local build output cannot enter the
-tarball. Packages carry the full commit as `gitHead` and use the `dev` dist-tag only as a
-convenience pointer; Docker builds pin the exact version and never consume that moving tag.
-
-Publication is an artifact operation rather than an environment deployment. Native staging and
-production check out the approved Git commits and run
+Publication is still an artifact operation rather than an environment deployment. Native staging
+and production check out the approved Git commits and run
 `cedarcli build split-frontends --server-payload`, and nginx then serves the generated `app` trees
-directly. No Docker host is required. Keep these repositories excluded from the global
-version, tag, and merge release until staging acceptance authorizes their normal release membership.
-The other five frontend Docker inputs use the same staging helper directly, and the complete
-seven-target procedure is in [DOCKER-RUNBOOK.md](./DOCKER-RUNBOOK.md).
+directly. No Docker host is required. All seven frontend Docker inputs use the same staging helper
+directly, and the complete seven-target procedure is in
+[DOCKER-RUNBOOK.md](./DOCKER-RUNBOOK.md).
 
 ## Branch Layout for Publication
 
-The release repositories publish from `main`, and the five `skip_from_release` frontend repositories
-build from `develop`. The release arranges this itself. If you ever do a manual publication after a
-blanket checkout, put the `skip_from_release` repositories back on `develop` first, or their older
-`main` may not even build.
+The release repositories publish from `main`. The two independent public npmjs repositories—CEE and
+the TypeScript model library—build from `develop` for train work and follow their own npmjs runbook.
+The release arranges its own isolated checkouts; ordinary working trees do not need a blanket branch
+change.
 
-`cedarcli git checkout main` is a blanket checkout of every repository. It ignores
-`skip_from_release` and sweeps the frontend template repositories onto their stale `main`, so do not
-use it to prepare a deployment.
+`cedarcli git checkout main` is a blanket checkout of every repository, including the two independent
+npmjs repositories. Do not use it to prepare a release; the release controller owns isolated,
+manifest-bound workspaces for that purpose.

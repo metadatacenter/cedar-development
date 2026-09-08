@@ -2447,23 +2447,12 @@ cd $CEDAR_HOME/cedar-<name> && ./mvnw --batch-mode deploy --settings .m2/nexus-s
 # needs BMIR_NEXUS_USERNAME and BMIR_NEXUS_PASSWORD in the environment
 ```
 
-The extracted AngularJS frontends publish to the npm repository on Nexus, not through Maven. They
-remain outside the release during migration and are excluded from the generic frontend/all
-publish selectors. Publishing them therefore requires the explicit command and never changes a
-running environment:
-
-```bash
-cedarcli publish split-frontends --dry-run
-cedarcli publish split-frontends
-```
-
-That plan runs `npm ci` in exactly `cedar-workspace` and `cedar-template-designer`, then calls the
-staging helper that publishes immutable commit-derived prereleases without changing either working
-tree. npm cannot overwrite a `<NEXT>-SNAPSHOT` version like Maven; the published version is instead
-`<NEXT>-dev.<UTC-commit-time>.g<12-char-commit>` and carries the full source commit as `gitHead`.
-Each manifest's `publishConfig` selects the CEDAR Nexus npm repository. The command does not build a
-Docker image, edit nginx, or start a frontend. The same helper accepts all seven Docker frontend
-targets when their pinned image inputs need advancing.
+The extracted AngularJS frontends publish to the npm repository on Nexus, not through Maven.
+Workspace and Template Designer are normal platform release repositories: the release stamps their
+versions, builds them, publishes their stable packages, and verifies the downloaded Nexus tarballs.
+Build trains continue to publish immutable commit-derived development packages without changing a
+working tree. Neither artifact path deploys a running environment. The staging helper accepts all
+seven Docker frontend targets when their pinned image inputs need advancing.
 
 To see whether a repository's published snapshot is behind its source, compare the Nexus timestamp
 against the commits that touched the build:
