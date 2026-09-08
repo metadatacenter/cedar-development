@@ -1626,7 +1626,10 @@ Inclusion-subgraph regeneration is a tracked single-flight worker job. An author
 `Location` header for `GET /command/regenerate-inclusion-subgraph/{jobId}`. While that job is queued
 or running, another POST returns `409 Conflict` with the active job and the same status location.
 Status records expose queued, running, succeeded and failed states, including timestamps and an
-error for failures. The latest 100 records are retained in worker memory, so a worker restart loses
+error for failures. A succeeded record also lists `unreadableArtifacts`: the templates and elements
+the artifact server answered with anything but 200 for, whose arcs the run left as they were rather
+than rewriting them from an error body. Check that list before treating a succeeded run as a
+complete rebuild. The latest 100 records are retained in worker memory, so a worker restart loses
 history and interrupts a running regeneration; resubmit after confirming the old process stopped.
 
 ## Testing CEDAR
