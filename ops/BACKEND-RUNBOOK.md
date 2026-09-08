@@ -2674,6 +2674,17 @@ All four artifact types are the default; `--types template,element` narrows the 
 makes a labelled sample. `--fetch-workers` GETs run ahead of validation, four by default. The key
 comes from `CEDAR_API_KEY`, a one-line `--api-key-file`, or a hidden prompt, and is never written.
 
+After a template has been repaired, `--template <id> --from-records <earlier records>` re-validates
+that template and every instance the earlier run attributed to it, against the template as it is
+stored now, without walking the search index again. `--limit` samples the instances. This is how
+the verbatim repair of the NCBI BioSample template was checked: its 120,012 instances had failed
+because a 2022 edit replaced the text field `age` with a numeric field `Age` under a new property
+IRI, and a `PUT ?verbatim=true` of the template with that field restored made them valid again
+while keeping the template's identifier, provenance and version. A verbatim write needs the
+`artifactPrivilegedAdministrator` role; a user record created before that role existed does not
+carry it until `cedarat userProfile-updateAll-updatePermissions` regenerates every user's roles and
+permissions from the blueprint, so run that task after a release that adds a role.
+
 The run reports progress every 200 artifacts or every minute, whichever comes first: processed
 against the unique audit set, percentage, the verdict counts for the batch and cumulatively, how
 many artifacts in the batch carry a condition, fetch errors, elapsed time and ETA. Each report also
@@ -2718,6 +2729,47 @@ summary lists those templates with how many instances each strands. The inventor
 reported rather than repaired: typed GETs that return 404 for a search row, duplicate search rows,
 a search total that changed during the walk. As with the REST audit, `COMPLETE_FOR_KEY` means
 complete for what this key can enumerate and read.
+
+## Repairing a defect across the stored population
+
+`ops/cedar_artifact_repair.py` carries out a repair the audit has already measured. A repair
+qualifies only when it can be stated as an invariant, meaning it changes the thing it names and
+provably nothing else. Each artifact is fetched, transformed, checked against that invariant,
+validated by the library, and written back with `PUT ?verbatim=true`, so it keeps its identifier,
+provenance timestamps, version, publication status and every child identifier. One JVM validates the
+whole run, the same bridge the audit uses.
+
+Targets come from an earlier audit's records rather than a fresh walk, since the audit already knows
+which artifacts carry the condition. Dry run is the default.
+
+```bash
+export CEDAR_API_KEY=…
+python3 ops/cedar_artifact_repair.py --from-records production-validation.jsonl
+python3 ops/cedar_artifact_repair.py --from-records production-validation.jsonl --limit 5 --apply
+python3 ops/cedar_artifact_repair.py --from-records production-validation.jsonl --apply
+```
+
+The repair implemented is `empty-derived-from`: delete every `pav:derivedFrom` whose value is the
+empty string, at the root and at every depth. The key is optional, so absence is how an artifact
+that was derived from nothing says so, while the empty string is the same claim in a form the model
+cannot read. The meta-schema accepted it for years because JSON Schema's `uri` format admits a
+relative reference, and the validator's own walk rejects it now. Nothing outside an artifact
+references provenance, so no instance is affected.
+
+Each artifact ends in one outcome, and the summary counts them: `repaired`, `would-repair` on a dry
+run, `already-clean` when the defect is gone, `still-invalid` when the artifact has other errors and
+is therefore skipped rather than written, `invariant-failed` when the transform touched anything it
+should not, and `fetch-failed` or `write-failed`. Before every write the stored body is saved under
+`<out>-preimages/<type>/<id>.json` with its ETag, so any write can be undone from the pre-image.
+After every write the artifact is read back and re-checked unless `--no-verify` says otherwise.
+Writes are conditional on the ETag that was read, so a concurrent edit is refused rather than
+overwritten. `--limit` sizes a trial, `--resume` continues an interrupted run from its own records,
+and `--types` narrows to one artifact kind. A repair run is idempotent: a second pass reports every
+artifact as `already-clean` and clears nothing.
+
+Adding a repair means adding a transform, an invariant and the audit condition that names its
+targets, as one entry in the tool's `REPAIRS` table. Keep both halves narrow. The invariant is what
+makes a verbatim write over thousands of artifacts safe, so it compares types as well as values.
 
 ## `ops/cedar_ontology_usage.py`
 

@@ -79,6 +79,11 @@ below have no CLI front end yet, so call them directly:
   whole pass. It also counts the legacy shapes the backend roadmap's production-data item lists and
   splits each count by verdict, since a valid artifact may still carry one. Streams one record per
   artifact, reports progress every 200 artifacts, resumes.
+- `cedar_artifact_repair.py` — carry out a repair the audit has measured, one `PUT ?verbatim=true` at
+  a time, so each artifact keeps its identifier, provenance, version and child identifiers. A repair
+  is a transform plus an invariant proving nothing else changed; the library validates every body
+  before it is written, the stored body is saved first, and the artifact is read back after. Reports
+  by default, writes only under `--apply`. Targets come from the audit's records.
 
 - `cedar_term_bench.py` — times the terminology server's lookup paths against whatever it is
   serving, drawing query strings from the served index so every lookup matches something. Reports

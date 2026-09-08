@@ -813,7 +813,7 @@ def summary_document(aggregate: Aggregate, enumeration: rest.AuditState, status:
             "artifacts": sum(by_type.values()),
             "artifactsByType": dict(sorted(by_type.items())),
             "occurrences": aggregate.condition_occurrences[rule],
-            "artifactsByValidation": {
+            "verdictsOfArtifactsCarryingIt": {
                 name: aggregate.condition_by_validation[rule][name] for name in VALIDATION_STATUSES
             },
         }
@@ -986,12 +986,39 @@ def artifact_key(ref: rest.ArtifactRef) -> tuple[str, str]:
     return ref.artifact_type, ref.artifact_id
 
 
+def refs_from_records(path: Path, template_id: str, limit: Optional[int],
+                      parser: argparse.ArgumentParser) -> list[rest.ArtifactRef]:
+    """One template and its instances, taken from an earlier run's records instead of the search index.
+
+    This is how a repair is checked: the earlier run says which instances the template has, and the
+    re-run asks the library about exactly those, against the template as it is stored now.
+    """
+    refs = [rest.ArtifactRef("template", template_id)]
+    try:
+        with path.open(encoding="utf-8") as stream:
+            for line in stream:
+                if template_id not in line:
+                    continue
+                record = json.loads(line)
+                validation = record.get("validation") or {}
+                if record.get("artifactType") == "instance" and validation.get("templateId") == template_id:
+                    refs.append(rest.ArtifactRef("instance", record["artifactId"], record.get("artifactName", "")))
+                    if limit is not None and len(refs) > limit:
+                        break
+    except (OSError, ValueError) as error:
+        parser.error(f"cannot read --from-records {path}: {error}")
+    if len(refs) == 1:
+        parser.error(f"no instances of {template_id} in {path}")
+    return refs
+
+
 def manifest_expectations(arguments: argparse.Namespace) -> dict[str, Any]:
     return {
         "formatVersion": REFS_FORMAT_VERSION,
         "server": arguments.server,
         "artifactTypes": arguments.selected_types,
         "limit": arguments.limit,
+        "template": arguments.template,
         "modelVersion": MODEL_VERSION,
         "restAuditRuleset": rest.AUDIT_RULESET_VERSION,
         "scriptSha256": file_sha256(Path(__file__)),
@@ -1175,7 +1202,17 @@ def run_audit(arguments: argparse.Namespace, client: rest.GetOnlyClient, bridge:
             checkpoint()
 
     try:
-        if not arguments.resume:
+        if not arguments.resume and arguments.template:
+            refs = arguments.template_refs
+            for ref in refs:
+                enumeration.expected_by_type[ref.artifact_type] = enumeration.expected_by_type.get(ref.artifact_type, 0) + 1
+                enumeration.enumerated_by_type[ref.artifact_type] = enumeration.expected_by_type[ref.artifact_type]
+            enumeration.pagination_by_type = {kind: "records" for kind in enumeration.expected_by_type}
+            enumeration.enumeration_complete = True
+            print(f"Scope: template {arguments.template} and its {len(refs) - 1} instances from {arguments.from_records}",
+                  flush=True)
+            write_refs_manifest(refs_path, arguments, enumeration, refs, started_at)
+        elif not arguments.resume:
             rest.preflight_expected_counts(client, arguments.selected_types, enumeration)
             reported = ", ".join(f"{kind}={enumeration.expected_by_type[kind]}" for kind in arguments.selected_types)
             print(f"Search reports: {enumeration.expected_total} rows ({reported}); enumerating unique IDs",
@@ -1290,6 +1327,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--page-size", type=int, default=DEFAULT_PAGE_SIZE,
                         help=f"search-deep page size; the server caps it at its maxPageSize (default: {DEFAULT_PAGE_SIZE})")
     parser.add_argument("--limit", type=int, help="quick sample: stop after this many artifacts total")
+    parser.add_argument("--template",
+                        help="audit one template and its instances only, taking the instance IDs from --from-records")
+    parser.add_argument("--from-records",
+                        help="records JSONL of an earlier run, the source of instance IDs for --template")
     parser.add_argument("--progress-every", type=int, default=DEFAULT_PROGRESS_EVERY,
                         help=f"report and checkpoint every N artifacts (default: {DEFAULT_PROGRESS_EVERY})")
     parser.add_argument("--progress-seconds", type=float, default=DEFAULT_PROGRESS_SECONDS,
@@ -1339,14 +1380,17 @@ def print_final_summary(aggregate: Aggregate, status: str, total: int, paths: di
     print(f"artifacts with conditions: {sum(aggregate.with_conditions_by_type.values())} "
           f"(valid among them: {sum(aggregate.with_conditions_but_valid_by_type.values())})")
     if aggregate.condition_occurrences:
+        print("  A condition is a stored shape, not a validation error. The last two columns say how the "
+              "artifacts carrying it fared;\n  an invalid one may be invalid for reasons the condition has "
+              "nothing to do with.")
         width = max(len(rule) for rule in aggregate.condition_occurrences)
-        print(f"  {'condition':<{width}}  artifacts  occurrences  valid  invalid")
+        print(f"  {'condition':<{width}}  artifacts  occurrences  of which valid  of which invalid")
         for rule, occurrences in sorted(aggregate.condition_occurrences.items(),
                                         key=lambda item: -sum(aggregate.condition_artifacts_by_type[item[0]].values())):
             artifacts = sum(aggregate.condition_artifacts_by_type[rule].values())
             by_validation = aggregate.condition_by_validation[rule]
-            print(f"  {rule:<{width}}  {artifacts:>9}  {occurrences:>11}  {by_validation['valid']:>5}  "
-                  f"{by_validation['invalid']:>7}")
+            print(f"  {rule:<{width}}  {artifacts:>9}  {occurrences:>11}  {by_validation['valid']:>14}  "
+                  f"{by_validation['invalid']:>16}")
     if aggregate.title_case_only:
         print(f"title divergences differing only in letter case: {counts_text(aggregate.title_case_only)}")
     for kind, versions in sorted(aggregate.schema_versions_by_type.items()):
@@ -1370,6 +1414,13 @@ def main(argv: Optional[list[str]] = None) -> int:
     if arguments.limit is not None and arguments.limit <= 0:
         parser.error("--limit must be positive")
     arguments.selected_types = rest.parse_types(arguments.types, parser)
+    if arguments.template and not arguments.from_records:
+        parser.error("--template needs --from-records")
+    if arguments.template:
+        arguments.selected_types = ["template", "instance"]
+        if not arguments.resume:
+            arguments.template_refs = refs_from_records(Path(arguments.from_records).expanduser(), arguments.template,
+                                                        arguments.limit, parser)
     api_key = rest.resolve_api_key(arguments, parser)
 
     records_path = Path(arguments.out).expanduser()
