@@ -13,9 +13,8 @@ Local frontend builds are compile-only. `cedarcli build frontends`, `cedarcli bu
 `cedarcli build this` copy each frontend into a disposable workspace, use a private npm cache, set
 `CI=true` so Angular disables its persistent disk cache, and discard the generated output. An
 interactive `ng serve` can therefore keep using the developer checkout without sharing
-`node_modules`, build output, or `.angular/cache` with the build. The one TypeScript compatibility
-project that deliberately uses an npm-linked model reuses that installed dependency tree from
-inside its disposable source copy; its source and output are still isolated.
+`node_modules`, build output, or `.angular/cache` with the build. Every TypeScript project installs
+its committed dependency graph with `npm ci` inside the disposable source copy.
 
 An ordinary build snapshots tracked state across every repository before it starts and compares
 the estate after it ends, including when a task fails. Pre-existing tracked edits are the baseline;

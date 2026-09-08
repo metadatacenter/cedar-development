@@ -432,7 +432,7 @@ seven-target procedure is in [DOCKER-RUNBOOK.md](./DOCKER-RUNBOOK.md).
 
 ## Branch Layout for Publication
 
-The release repositories publish from `main`, and the six `skip_from_release` frontend repositories
+The release repositories publish from `main`, and the five `skip_from_release` frontend repositories
 build from `develop`. The release arranges this itself. If you ever do a manual publication after a
 blanket checkout, put the `skip_from_release` repositories back on `develop` first, or their older
 `main` may not even build.
