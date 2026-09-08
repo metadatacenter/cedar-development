@@ -98,6 +98,22 @@ export async function run({ user1, user2 }) {
       'the everybody group cannot be deleted');
   checkStatus(await group(user1.auth, 'GET', everybodyAt), 200, 'and it is still there afterwards');
 
+  // The everybody group holds every account in the deployment, so its roster is the user directory.
+  // Any account can read it, and each entry carries a name and an email address. These two checks
+  // record an open finding rather than a settled contract: the group server is proxied publicly,
+  // unlike the artifact server, so two requests return the directory to anyone with a login. They
+  // are expected to change when that is closed — GroupsAuthorizationMatrixTest carries the intended
+  // answer as a disabled test, and reads are gated on administering a group rather than belonging to
+  // one precisely because belonging to this group says nothing.
+  const everybodyRoster = await group(user2.auth, 'GET', `${everybodyAt}/users`);
+  if (checkStatus(everybodyRoster, 200,
+      'any account can read the everybody roster, which lists the whole deployment (open finding)')) {
+    const roster = everybodyRoster.body?.users ?? [];
+    check(roster.some(u => u.user?.email && u.user?.['@id']),
+        'and every entry carries that account\'s identifier and email address (open finding)',
+        `the first entry was ${JSON.stringify(roster[0])}`);
+  }
+
   // Renaming it is refused for the same structural reason as deletion: the update path rejects any
   // special group before it ever reaches an administrator check, so no one — administrator or not —
   // can rename it. The rename is still undone at once should it ever succeed, since the everybody
@@ -186,6 +202,20 @@ export async function run({ user1, user2 }) {
         'and cannot delete it');
     checkStatus(await group(user1.auth, 'GET', targetAt), 200,
         'and it is untouched afterwards');
+
+    // Reads are not restricted the way writes are. The same outsider refused every write above is
+    // served this group and its full roster, and the group need not be one they belong to. An open
+    // finding, recorded so the gate carries it; the intended answer is the disabled test in
+    // GroupsAuthorizationMatrixTest, and these checks change when it is enabled.
+    checkStatus(await group(user2.auth, 'GET', targetAt), 200,
+        'but an outsider can still read a group they have no part in (open finding)');
+    const outsiderRoster = await group(user2.auth, 'GET', `${targetAt}/users`);
+    if (checkStatus(outsiderRoster, 200,
+        'and can read its full membership too (open finding)')) {
+      check((outsiderRoster.body?.users ?? []).some(u => u.user?.email),
+          'including the email address of every member (open finding)',
+          `the roster was ${JSON.stringify(outsiderRoster.body?.users)}`);
+    }
   }
 
   return { groupId: id, groupName: renamed, everybodyId: everybody['@id'] };
