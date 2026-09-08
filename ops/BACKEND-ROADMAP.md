@@ -105,22 +105,37 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   disagree, the Docker roadmap governs, since it sequences the remaining work.
 
 - **3. Make database schema evolution an explicit, privileged release operation.** Application
-  startup can change CEDAR's relational schemas today: monitor, worker and messaging all ship
-  `hibernate.hbm2ddl.auto=update`, and monitor and worker both register the logging entities against
-  the same log database. A mapping change can therefore become unreviewed DDL before either service
-  binds its connector, with two processes attempting it concurrently. The tests do not exercise that
-  risk: they create a fresh empty MySQL or embedded MariaDB schema, while the production runbook says
-  to run a release's migration set without providing a versioned mechanism or a gate that requires
-  one.
+  startup can change CEDAR's relational schemas today. Monitor, worker and messaging each carry a
+  byte-identical `hibernate.properties` under `src/main/resources` that sets
+  `hibernate.hbm2ddl.auto=update`, nothing in `cedar-main.yml` overrides it, and monitor and worker
+  both register the logging entities against the same log database. A mapping change can therefore
+  become unreviewed DDL before either service binds its connector, with two processes attempting it
+  concurrently. `update` only ever adds. A removed or retyped field leaves its column behind, a rename
+  creates a second column, and a local log database already holds `hibernate_sequence` beside
+  `log_request_SEQ` and `log_cypher_SEQ`, the generator tables of two Hibernate generations. The
+  tests do not exercise that risk: they create a fresh empty MySQL or embedded MariaDB schema and
+  rely on `update` to build it. Schema changes reach production as SQL run by hand. The production
+  runbook says to run a release's migration set, and the one such set that exists,
+  `cedar-logging-operations-library/db-migrations/2026-07-29-log-capture-phase1.sql`, was written
+  because `update` adds columns but not reliably their indexes. There is no versioned mechanism and
+  no gate that requires one.
 
   Remove schema-mutation authority from the applications at both layers. Every non-test runtime must
   use Hibernate `validate` (or no schema action where validation is unsuitable), while disposable
-  test databases opt into `create-drop` explicitly. Production application accounts must have no
+  test databases opt into `create-drop` explicitly. The setting is already reachable without a code
+  change. Dropwizard copies every entry of a database's `properties` map in `cedar-main.yml` into the
+  Hibernate configuration, and an explicit property beats the classpath default, so one
+  `hibernate.hbm2ddl.auto` entry per database block, driven by a profile variable, can pin `validate`
+  on a server profile while the development profile and the test-support library's environment
+  override keep the value the suites depend on. Changing the shipped file itself would break every
+  messaging, monitor and worker suite. Production application accounts must have no
   `ALTER`, `CREATE`, `DROP` or `INDEX` grants; a separate migration identity holds DDL authority, so a
   configuration regression fails at startup rather than rebuilding a live table.
 
-  Introduce one versioned, forward-only migration mechanism for each CEDAR-owned relational schema,
-  baseline existing installations, and make its immutable migrations part of the release. Run them
+  Introduce one versioned, forward-only migration mechanism for each CEDAR-owned relational schema.
+  `dropwizard-migrations` sits on the Dropwizard line `cedar-parent` already manages. Baseline
+  existing installations, the hand-run log-capture SQL included, and make its immutable migrations
+  part of the release. Run them
   once, under the migration identity and a migration lock, before applications start. Prefer
   expand/contract changes that remain compatible with the old and new binaries. Any large-table DDL
   must state the MySQL algorithm and lock behavior and must use an evaluated online-schema method or
