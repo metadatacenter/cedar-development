@@ -879,3 +879,29 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   re-enabling the guard together with a supported cleanup path (e.g. an admin-only delete, or cascading
   through folder deletion). Immutability of published content is a separate guarantee and is
   unaffected either way — that one is enforced.
+
+- **20. Retire the legacy aliases retained by the common error envelope.** **Production
+  consequence:** removing an alias can break a frontend or integration that still reads it. This is
+  a response-contract cleanup only: it requires no data migration, schema change or reindex.
+
+  The shared runtime envelope now gives resource-built, exception-mapped and framework-generated
+  failures one representation. It deliberately retains compatibility fields while clients move:
+  `errorMessage` aliases the canonical `message`, and the monitor log-query routes still expose
+  their former top-level `error` beside both message fields. Integrated terminology search also
+  preserves the historical `errorType: PinnedVersionUnavailable` value for its 422 response even
+  though that value predates the common `errorType` vocabulary. The symbolic `status` and numeric
+  `statusCode` are both supported fields rather than candidates for removal.
+
+  Inventory the browser applications, CLI, MCP servers and external integrations for reads of
+  `errorMessage`, top-level `error`, and `PinnedVersionUnavailable`. Move owned clients to
+  `message` and to the 422 status plus a stable common error key for the pinned-version case. Add
+  that common key before deprecating the legacy type value. Publish the deprecation and earliest
+  removal release in OpenAPI and release notes; because a server cannot observe which JSON field a
+  client reads, elapsed time alone is not evidence that removal is safe.
+
+  Keep the compatibility surface explicit and finite: contract tests should name every extension
+  emitted through `CedarResponse.extension` or `legacyErrorType`, reject new unregistered aliases,
+  and prove the canonical fields carry the same information. Remove each alias only after all owned
+  clients have moved and the compatibility window has elapsed. Done when the generic extension
+  hooks have no production call sites and the public envelope contains only its documented common
+  fields.
