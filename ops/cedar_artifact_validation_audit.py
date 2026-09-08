@@ -559,6 +559,16 @@ class TemplateResolver:
         while len(self.shapes) > self.capacity:
             self.shapes.popitem(last=False)
 
+    def fetch_body(self, template_id: str) -> Optional[dict]:
+        """The template body, and the bridge told about it, so a later validation needs no second fetch."""
+        template = self.fetch(template_id)
+        if template is not None:
+            try:
+                self.remember(template_id, template)
+            except Exception:  # noqa: BLE001 - a cold bridge cache costs one more round trip, nothing else
+                pass
+        return template
+
     def fetch(self, template_id: str) -> Optional[dict]:
         """The template body, fetched now; None when it cannot be read."""
         if template_id in self.unresolved:

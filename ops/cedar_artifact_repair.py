@@ -365,13 +365,137 @@ def only_minted_property_iris(before: Any, after: Any) -> Optional[str]:
     return walk(before, after, "", None)
 
 
+CONTEXT_ENUM_ERROR = r"^/@context/.+: does not have a value in the enumeration"
+
+
+def instance_context_expectations(container: Any) -> dict[str, str]:
+    """What a schema container says each of its children's property IRIs must be."""
+    expected: dict[str, str] = {}
+    mapping = context_properties(container)
+    if not isinstance(mapping, dict):
+        return expected
+    for name, entry in mapping.items():
+        present, value = mapped_property_iri(entry)
+        if present and rest.is_absolute_iri(value):
+            expected[name] = value
+    return expected
+
+
+def align_instance_context_iris(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Rewrite an instance's ``@context`` property IRIs to the ones its template names.
+
+    An instance's ``@context`` maps its field names to property IRIs, and the template is the authority
+    for what those are: the mapping is derived from the template rather than authored on the instance,
+    and the instance's own content is its field values. Where the two disagree the instance carries a
+    value from before some template edit, and its siblings usually already carry the current one.
+
+    Only a name the template maps is touched, so JSON-LD prefixes and system keys are left alone, and
+    only where the template's own value is usable. Element occurrences are walked against the element
+    definition they belong to, at every depth.
+    """
+    if not isinstance(template, dict):
+        raise TransformRefused("the template this instance names could not be read")
+    changes: list[dict[str, Any]] = []
+
+    def walk(node: Any, container: Any, path: str) -> Any:
+        if not isinstance(node, dict):
+            return node
+        result = copy.deepcopy(node)
+        context = result.get("@context")
+        if isinstance(context, dict):
+            for name, wanted in instance_context_expectations(container).items():
+                if name in context and context[name] != wanted:
+                    changes.append({
+                        "path": f"{path}/@context/{rest.json_pointer_component(name)}",
+                        "replaced": context[name], "wrote": wanted, "child": name})
+                    context[name] = wanted
+        for name, child, multiple, error in rest.direct_schema_children(container):
+            if error or child is None or child.get("@type") != ELEMENT_AT_TYPE:
+                continue
+            value = result.get(name)
+            here = f"{path}/{rest.json_pointer_component(name)}"
+            if isinstance(value, list):
+                result[name] = [walk(item, child, f"{here}/{index}") for index, item in enumerate(value)]
+            elif isinstance(value, dict):
+                result[name] = walk(value, child, here)
+        return result
+
+    return walk(copy.deepcopy(instance), template, ""), changes
+
+
+def only_aligned_context_iris(before: Any, after: Any, template: Any) -> Optional[str]:
+    """The invariant: every difference is a mapped ``@context`` value now equal to the template's own.
+
+    Anything the template does not map, and any value that already agreed with it, must be untouched.
+    """
+    if not isinstance(template, dict):
+        return "/"
+
+    def walk(old: Any, new: Any, container: Any, path: str) -> Optional[str]:
+        if not isinstance(old, dict):
+            return None if type(old) is type(new) and old == new else (path or "/")
+        if not isinstance(new, dict):
+            return path or "/"
+        expected = instance_context_expectations(container) if isinstance(container, dict) else {}
+        elements = {}
+        if isinstance(container, dict):
+            for name, child, _multiple, error in rest.direct_schema_children(container):
+                if not error and child is not None and child.get("@type") == ELEMENT_AT_TYPE:
+                    elements[name] = child
+        for name in set(old) | set(new):
+            here = f"{path}/{rest.json_pointer_component(name)}"
+            if (name in old) != (name in new):
+                return here
+            if name == "@context":
+                difference = context_difference(old[name], new[name], expected, here)
+                if difference is not None:
+                    return difference
+                continue
+            if name in elements:
+                difference = walk_children(old[name], new[name], elements[name], here)
+                if difference is not None:
+                    return difference
+                continue
+            if type(old[name]) is not type(new[name]) or old[name] != new[name]:
+                return here
+        return None
+
+    def walk_children(old: Any, new: Any, child: Any, path: str) -> Optional[str]:
+        if isinstance(old, list):
+            if not isinstance(new, list) or len(old) != len(new):
+                return path
+            for index, item in enumerate(old):
+                difference = walk(item, new[index], child, f"{path}/{index}")
+                if difference is not None:
+                    return difference
+            return None
+        return walk(old, new, child, path)
+
+    def context_difference(old: Any, new: Any, expected: dict[str, str], path: str) -> Optional[str]:
+        if not isinstance(old, dict) or not isinstance(new, dict) or set(old) != set(new):
+            return path
+        for name, value in old.items():
+            if value == new[name] and type(value) is type(new[name]):
+                continue
+            here = f"{path}/{rest.json_pointer_component(name)}"
+            if name not in expected or new[name] != expected[name]:
+                return here
+        return None
+
+    return walk(before, after, template, "")
+
+
 @dataclass(frozen=True)
 class Repair:
     name: str
     condition: str
     summary: str
-    transform: Callable[[Any], tuple[Any, list[str]]]
-    invariant: Callable[[Any, Any], Optional[str]]
+    transform: Callable[..., tuple[Any, list[dict[str, Any]]]]
+    invariant: Callable[..., Optional[str]]
+    # A repair of an instance may need the template it names, for both halves.
+    needs_template: bool = False
+    # Some defects are a validator complaint rather than an inventory condition, and are selected by it.
+    error_pattern: Optional[str] = None
 
 
 REPAIRS = {
@@ -381,6 +505,15 @@ REPAIRS = {
         summary="delete every pav:derivedFrom whose value is the empty string",
         transform=strip_empty_derived_from,
         invariant=only_removed_empty_derived_from,
+    ),
+    "align-instance-context-iris": Repair(
+        name="align-instance-context-iris",
+        condition="",
+        summary="rewrite an instance's @context property IRIs to the ones its template names",
+        transform=align_instance_context_iris,
+        invariant=only_aligned_context_iris,
+        needs_template=True,
+        error_pattern=CONTEXT_ENUM_ERROR,
     ),
     "mint-property-iris": Repair(
         name="mint-property-iris",
@@ -465,19 +598,29 @@ class RepairClient(rest.GetOnlyClient):
 # --------------------------------------------------------------------------------------------------
 
 
-def targets_from_records(path: Path, conditions: list[str], parser: argparse.ArgumentParser
-                         ) -> list[rest.ArtifactRef]:
-    """Every artifact the audit found carrying any of these conditions, in the order it saw them."""
+def targets_from_records(path: Path, conditions: list[str], patterns: list[str],
+                         parser: argparse.ArgumentParser) -> list[rest.ArtifactRef]:
+    """Every artifact the audit found carrying one of these conditions, or failing in one of these ways.
+
+    Most defects are inventory conditions the audit names. Some are only a verdict: the validator
+    rejects the artifact and no condition describes why, so the repair says which complaint is its own.
+    """
     refs: list[rest.ArtifactRef] = []
     seen: set[tuple[str, str]] = set()
-    wanted = set(conditions)
+    wanted = {condition for condition in conditions if condition}
+    expressions = [re.compile(pattern) for pattern in patterns]
     try:
         with path.open(encoding="utf-8") as stream:
             for line in stream:
-                if not any(condition in line for condition in wanted):
+                if wanted and not any(condition in line for condition in wanted) and not expressions:
                     continue
                 record = json.loads(line)
-                if not wanted & set(record.get("conditionRules") or {}):
+                matched = bool(wanted & set(record.get("conditionRules") or {}))
+                if not matched and expressions:
+                    errors = ((record.get("validation") or {}).get("errors") or [])
+                    matched = any(expression.match(str(error.get("message", "")))
+                                  for error in errors for expression in expressions)
+                if not matched:
                     continue
                 key = (record["artifactType"], record["artifactId"])
                 if key in seen:
@@ -488,8 +631,13 @@ def targets_from_records(path: Path, conditions: list[str], parser: argparse.Arg
     except (OSError, ValueError) as error:
         parser.error(f"cannot read --from-records {path}: {error}")
     if not refs:
-        parser.error(f"no artifact in {path} carries any of {sorted(wanted)}")
+        parser.error(f"no artifact in {path} carries any of {sorted(wanted)}"
+                     + (f" or fails in the way {arguments_repair_names(patterns)} repairs" if patterns else ""))
     return refs
+
+
+def arguments_repair_names(patterns: list[str]) -> str:
+    return ", ".join(name for name, repair in sorted(REPAIRS.items()) if repair.error_pattern in patterns)
 
 
 def preimage_path(folder: Path, ref: rest.ArtifactRef) -> Path:
@@ -565,7 +713,8 @@ def validate(bridge: audit.ValidationBridge, resolver: audit.TemplateResolver,
     return False, f"{answer.get('exception') or 'bridge'}: {answer.get('message') or status}"
 
 
-def apply_repairs(repairs: list[Repair], stored: Any) -> tuple[Any, list[dict[str, Any]]]:
+def apply_repairs(repairs: list[Repair], stored: Any,
+                  template: Any = None) -> tuple[Any, list[dict[str, Any]]]:
     """Run each repair over the output of the one before, verifying every stage as it goes.
 
     An artifact carrying two defects cannot be fixed by either repair alone: the first leaves the
@@ -576,8 +725,12 @@ def apply_repairs(repairs: list[Repair], stored: Any) -> tuple[Any, list[dict[st
     current = stored
     changes: list[dict[str, Any]] = []
     for repair in repairs:
-        result, staged = repair.transform(current)
-        difference = repair.invariant(current, result)
+        if repair.needs_template:
+            result, staged = repair.transform(current, template)
+            difference = repair.invariant(current, result, template)
+        else:
+            result, staged = repair.transform(current)
+            difference = repair.invariant(current, result)
         if difference is not None:
             raise InvariantFailed(f"{repair.name} made an unexpected difference at {difference}")
         for change in staged:
@@ -597,6 +750,7 @@ def repair_one(arguments: argparse.Namespace, repairs: list[Repair], client: Rep
                               "artifactName": ref.name,
                               "repair": ",".join(r.name for r in repairs), "at": audit.utc_now()}
     path = rest.typed_artifact_path(ref)
+    template: Any = None
     try:
         stored, etag = client.get_with_etag(path)
     except rest.AuthenticationError:
@@ -606,8 +760,21 @@ def repair_one(arguments: argparse.Namespace, repairs: list[Repair], client: Rep
         return record
     record["etag"] = etag
 
+    if any(repair.needs_template for repair in repairs):
+        based_on = stored.get("schema:isBasedOn") if isinstance(stored, dict) else None
+        if not rest.is_absolute_iri(based_on):
+            record.update(outcome="transform-refused", detail="artifact names no absolute template IRI")
+            return record
+        record["templateId"] = based_on
+        template = resolver.fetch_body(based_on)
+        if template is None:
+            record.update(outcome="transform-refused",
+                          detail=f"template could not be read: "
+                                 f"{resolver.unresolved.get(based_on, {}).get('error', '')}")
+            return record
+
     try:
-        repaired, changes = apply_repairs(repairs, stored)
+        repaired, changes = apply_repairs(repairs, stored, template)
     except TransformRefused as refusal:
         record.update(outcome="transform-refused", detail=str(refusal))
         return record
@@ -640,7 +807,7 @@ def repair_one(arguments: argparse.Namespace, repairs: list[Repair], client: Rep
     if arguments.verify:
         try:
             back, _ = client.get_with_etag(path)
-            still = apply_repairs(repairs, back)[1]  # a repaired artifact offers the transforms nothing
+            still = apply_repairs(repairs, back, template)[1]  # a repaired artifact offers nothing
             record["verified"] = not still
             if still:
                 record["detail"] = f"{len(still)} path(s) still present after the write"
@@ -723,6 +890,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         parser.error("each repair may appear only once in a chain")
     repairs = [REPAIRS[name] for name in names]
     conditions = [arguments.condition] if arguments.condition else [r.condition for r in repairs]
+    patterns = [] if arguments.condition else [r.error_pattern for r in repairs if r.error_pattern]
     if arguments.limit is not None and arguments.limit <= 0:
         parser.error("--limit must be positive")
     api_key = rest.resolve_api_key(arguments, parser)
@@ -739,7 +907,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     arguments.server = arguments.server.rstrip("/")
     records_path.parent.mkdir(parents=True, exist_ok=True)
 
-    refs = targets_from_records(Path(arguments.from_records).expanduser(), conditions, parser)
+    refs = targets_from_records(Path(arguments.from_records).expanduser(), conditions, patterns, parser)
     if arguments.types:
         wanted = {kind.strip() for kind in arguments.types.split(",") if kind.strip()}
         unknown = wanted - set(rest.ARTIFACT_PATHS)
@@ -762,7 +930,7 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     for repair in repairs:
         print(f"Repair: {repair.name} ({repair.summary})")
-    print(f"Targets named by: {', '.join(conditions)}")
+    print(f"Targets named by: {', '.join([c for c in conditions if c] + patterns) or 'nothing'}")
     print(f"Server: {arguments.server}")
     print(f"Targets: {len(pending)} artifacts ({audit.counts_text(by_type)}) "
           f"from {arguments.from_records}" + (f", {len(done)} already done" if done else ""))

@@ -145,7 +145,7 @@ class TargetSelectionTest(unittest.TestCase):
             {"artifactType": "element", "artifactId": "e1", "artifactName": "E",
              "conditionRules": {"derived-from-empty": 1, "title-not-canonical": 1}},
         ])
-        refs = REPAIR.targets_from_records(path, ["derived-from-empty"], parser=None)
+        refs = REPAIR.targets_from_records(path, ["derived-from-empty"], [], parser=None)
         self.assertEqual([(r.artifact_type, r.artifact_id) for r in refs],
                          [("template", "t1"), ("element", "e1")])
         path.unlink()
@@ -162,7 +162,7 @@ class TargetSelectionTest(unittest.TestCase):
                 errors.append(message)
                 raise SystemExit(2)
         with self.assertRaises(SystemExit):
-            REPAIR.targets_from_records(path, ["derived-from-empty"], parser=Parser())
+            REPAIR.targets_from_records(path, ["derived-from-empty"], [], parser=Parser())
         self.assertIn("no artifact", errors[0])
         path.unlink()
 
@@ -365,7 +365,7 @@ class TargetUnionTest(unittest.TestCase):
             handle.write(json.dumps(row) + "\n")
         handle.close()
         path = pathlib.Path(handle.name)
-        refs = REPAIR.targets_from_records(path, ["derived-from-empty", "child-id-unusable"], parser=None)
+        refs = REPAIR.targets_from_records(path, ["derived-from-empty", "child-id-unusable"], [], parser=None)
         self.assertEqual([r.artifact_id for r in refs], ["t1", "e1", "e2"])
         path.unlink()
 
@@ -594,3 +594,163 @@ class ForeignIdentifierTest(unittest.TestCase):
             with self.subTest(bad=bad):
                 _after, changes = mint(template({"Name": child(identifier=bad)}))
                 self.assertEqual(len(changes), 1, bad)
+
+
+align = REPAIR.align_instance_context_iris
+align_invariant = REPAIR.only_aligned_context_iris
+WANTED = "https://drugtargetontology.org/property/Sex"
+STALE = "https://schema.metadatacenter.org/properties/00000000-1111-2222-3333-444444444444"
+
+
+def instance(context, **fields):
+    doc = {"@id": "https://repo.metadatacenter.org/template-instances/i1",
+           "schema:isBasedOn": "https://repo.metadatacenter.org/templates/t1",
+           "schema:name": "An instance", "@context": dict(context)}
+    doc.update(fields)
+    return doc
+
+
+def element_definition(name, children, mappings):
+    node = child(ELEMENT_TYPE, identifier=BASE + "template-elements/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
+    node["_ui"] = {"order": list(children)}
+    node["properties"] = {"@context": {"properties": dict(mappings), "required": list(mappings)}, **children}
+    return node
+
+
+class AlignContextTransformTest(unittest.TestCase):
+
+    def test_a_stale_mapping_is_rewritten_to_the_one_the_template_names(self):
+        tmpl = mapped({"Sex": child()}, {"Sex": {"enum": [WANTED]}})
+        after, changes = align(instance({"Sex": STALE}), tmpl)
+        self.assertEqual(len(changes), 1)
+        self.assertEqual(changes[0]["path"], "/@context/Sex")
+        self.assertEqual(changes[0]["replaced"], STALE)
+        self.assertEqual(changes[0]["wrote"], WANTED)
+        self.assertEqual(after["@context"]["Sex"], WANTED)
+
+    def test_a_mapping_that_already_agrees_is_untouched(self):
+        tmpl = mapped({"Sex": child()}, {"Sex": {"enum": [WANTED]}})
+        _after, changes = align(instance({"Sex": WANTED}), tmpl)
+        self.assertEqual(changes, [])
+
+    def test_prefixes_and_system_keys_are_never_touched(self):
+        tmpl = mapped({"Sex": child()}, {"Sex": {"enum": [WANTED]}})
+        context = {"Sex": STALE, "schema": "http://schema.org/", "pav": "http://purl.org/pav/",
+                   "schema:isBasedOn": {"@type": "@id"}, "rdfs:label": {"@type": "xsd:string"}}
+        after, changes = align(instance(context), tmpl)
+        self.assertEqual([c["child"] for c in changes], ["Sex"])
+        self.assertEqual(after["@context"]["schema"], "http://schema.org/")
+        self.assertEqual(after["@context"]["schema:isBasedOn"], {"@type": "@id"})
+
+    def test_a_name_the_template_does_not_map_is_left_alone(self):
+        tmpl = mapped({"Sex": child()}, {"Sex": {"enum": [WANTED]}})
+        after, changes = align(instance({"Sex": WANTED, "Ghost": STALE}), tmpl)
+        self.assertEqual(changes, [])
+        self.assertEqual(after["@context"]["Ghost"], STALE)
+
+    def test_a_template_mapping_that_is_itself_unusable_is_not_propagated(self):
+        tmpl = mapped({"Sex": child()}, {"Sex": {"enum": [""]}})
+        _after, changes = align(instance({"Sex": STALE}), tmpl)
+        self.assertEqual(changes, [])
+
+    def test_a_key_the_instance_lacks_is_not_added(self):
+        tmpl = mapped({"Sex": child(), "Age": child()},
+                      {"Sex": {"enum": [WANTED]}, "Age": {"enum": [WANTED + "2"]}})
+        after, changes = align(instance({"Sex": STALE}), tmpl)
+        self.assertEqual([c["child"] for c in changes], ["Sex"])
+        self.assertNotIn("Age", after["@context"])
+
+    def test_it_reaches_an_element_occurrence_and_a_repeated_one(self):
+        element = element_definition("Address", {"Street": child()}, {"Street": {"enum": [WANTED]}})
+        tmpl = mapped({"Address": element}, {"Address": {"enum": [WANTED + "addr"]}})
+        doc = instance({"Address": WANTED + "addr"},
+                       Address=[{"@context": {"Street": STALE}}, {"@context": {"Street": WANTED}}])
+        after, changes = align(doc, tmpl)
+        self.assertEqual([c["path"] for c in changes], ["/Address/0/@context/Street"])
+        self.assertEqual(after["Address"][0]["@context"]["Street"], WANTED)
+        self.assertEqual(after["Address"][1]["@context"]["Street"], WANTED)
+
+    def test_a_single_element_occurrence_is_reached_too(self):
+        element = element_definition("Address", {"Street": child()}, {"Street": {"enum": [WANTED]}})
+        tmpl = mapped({"Address": element}, {"Address": {"enum": [WANTED + "addr"]}})
+        doc = instance({"Address": WANTED + "addr"}, Address={"@context": {"Street": STALE}})
+        after, changes = align(doc, tmpl)
+        self.assertEqual([c["path"] for c in changes], ["/Address/@context/Street"])
+        self.assertEqual(after["Address"]["@context"]["Street"], WANTED)
+
+    def test_field_values_are_never_touched(self):
+        tmpl = mapped({"Sex": child()}, {"Sex": {"enum": [WANTED]}})
+        doc = instance({"Sex": STALE}, Sex={"@value": "female"})
+        after, _changes = align(doc, tmpl)
+        self.assertEqual(after["Sex"], {"@value": "female"})
+
+    def test_a_second_pass_changes_nothing(self):
+        tmpl = mapped({"Sex": child()}, {"Sex": {"enum": [WANTED]}})
+        once, first = align(instance({"Sex": STALE}), tmpl)
+        _twice, second = align(once, tmpl)
+        self.assertEqual(len(first), 1)
+        self.assertEqual(second, [])
+
+    def test_it_declines_when_the_template_could_not_be_read(self):
+        with self.assertRaises(REPAIR.TransformRefused):
+            align(instance({"Sex": STALE}), None)
+
+
+class AlignContextInvariantTest(unittest.TestCase):
+
+    def template(self):
+        return mapped({"Sex": child()}, {"Sex": {"enum": [WANTED]}})
+
+    def test_accepts_what_the_transform_produces(self):
+        tmpl = self.template()
+        before = instance({"Sex": STALE, "schema": "http://schema.org/"})
+        after, _changes = align(before, tmpl)
+        self.assertIsNone(align_invariant(before, after, tmpl))
+
+    def test_rejects_a_mapping_moved_to_anything_but_the_template_value(self):
+        tmpl = self.template()
+        before = instance({"Sex": STALE})
+        after = copy.deepcopy(before)
+        after["@context"]["Sex"] = "https://example.org/invented"
+        self.assertEqual(align_invariant(before, after, tmpl), "/@context/Sex")
+
+    def test_rejects_a_change_to_a_name_the_template_does_not_map(self):
+        tmpl = self.template()
+        before = instance({"Sex": WANTED, "schema": "http://schema.org/"})
+        after = copy.deepcopy(before)
+        after["@context"]["schema"] = "https://schema.org/"
+        self.assertEqual(align_invariant(before, after, tmpl), "/@context/schema")
+
+    def test_rejects_an_added_or_removed_context_key(self):
+        tmpl = self.template()
+        before = instance({"Sex": STALE})
+        added = copy.deepcopy(before); added["@context"]["Ghost"] = WANTED
+        removed = instance({"Sex": STALE, "Ghost": WANTED})
+        self.assertEqual(align_invariant(before, added, tmpl), "/@context")
+        self.assertEqual(align_invariant(removed, before, tmpl), "/@context")
+
+    def test_rejects_a_changed_field_value(self):
+        tmpl = self.template()
+        before = instance({"Sex": STALE}, Sex={"@value": "female"})
+        after, _changes = align(before, tmpl)
+        after["Sex"] = {"@value": "male"}
+        self.assertEqual(align_invariant(before, after, tmpl), "/Sex")
+
+    def test_rejects_a_changed_identifier_or_provenance(self):
+        tmpl = self.template()
+        before = instance({"Sex": STALE})
+        after, _changes = align(before, tmpl)
+        after["schema:isBasedOn"] = "https://repo.metadatacenter.org/templates/other"
+        self.assertEqual(align_invariant(before, after, tmpl), "/schema:isBasedOn")
+
+    def test_rejects_a_change_inside_an_element_occurrence_that_is_not_a_mapping(self):
+        element = element_definition("Address", {"Street": child()}, {"Street": {"enum": [WANTED]}})
+        tmpl = mapped({"Address": element}, {"Address": {"enum": [WANTED + "addr"]}})
+        before = instance({"Address": WANTED + "addr"},
+                          Address={"@context": {"Street": STALE}, "@id": "https://repo.example/e/1"})
+        after, _changes = align(before, tmpl)
+        after["Address"]["@id"] = "https://repo.example/e/2"
+        self.assertEqual(align_invariant(before, after, tmpl), "/Address/@id")
+
+    def test_refuses_outright_without_a_template(self):
+        self.assertEqual(align_invariant(instance({}), instance({}), None), "/")

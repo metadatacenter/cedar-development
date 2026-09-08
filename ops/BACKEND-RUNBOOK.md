@@ -2776,6 +2776,17 @@ that is present and unusable, which in production is always the empty string. A 
 absent is deliberately out of scope, because the validator accepts it and because the server pairs a
 new mapping with an entry in `@context.required` that an existing instance may not satisfy.
 
+`align-instance-context-iris` repairs the other side. An instance's `@context` maps its field names
+to property IRIs, and where it disagrees with its template the validator rejects the instance. The
+template is the authority: the mapping is derived from it rather than authored on the instance, whose
+own content is its field values. So the instance moves, not the template. Reconciling the template to
+its instances works only where every one of them disagrees with it, which in production is 9 templates
+out of 105; the other 96 have instances that already agree, 2,497 of them under one template, and
+moving the template would invalidate those. Targets are selected by the validator's complaint rather
+than by an inventory condition, since no condition describes this. Only a name the template maps is
+touched, only where the template's own value is usable, and element occurrences are walked against the
+element definition they belong to at every depth.
+
 **Repairs compose, and for some artifacts they must.** A child identifier the server would otherwise
 mint makes it refuse a verbatim write outright, so an artifact carrying that defect alongside another
 cannot be fixed by either repair on its own: one leaves the artifact invalid and is skipped, the other
