@@ -10,8 +10,10 @@ set of records produces.
 
 import copy
 import importlib.util
+import json
 import pathlib
 import sys
+import tempfile
 import unittest
 
 MODULE_PATH = pathlib.Path(__file__).with_name("cedar_artifact_validation_audit.py")
@@ -339,3 +341,92 @@ class FetchOrderTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RecheckSelectionTest(unittest.TestCase):
+    """Both an audit's records and a repair's records name artifacts the same way, so one reader serves
+    both: proving a repair means re-validating exactly the artifacts it says it wrote."""
+
+    def write(self, rows):
+        handle = tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False, encoding="utf-8")
+        for row in rows:
+            handle.write(json.dumps(row) + "\n")
+        handle.close()
+        return pathlib.Path(handle.name)
+
+    def repair_records(self):
+        return self.write([
+            {"artifactType": "template", "artifactId": "t1", "artifactName": "T1", "outcome": "repaired"},
+            {"artifactType": "element", "artifactId": "e1", "artifactName": "E1", "outcome": "repaired"},
+            {"artifactType": "field", "artifactId": "f1", "artifactName": "F1", "outcome": "write-failed"},
+            {"artifactType": "element", "artifactId": "e2", "artifactName": "E2", "outcome": "already-clean"},
+            {"artifactType": "template", "artifactId": "t1", "artifactName": "T1", "outcome": "repaired"},
+        ])
+
+    def test_every_named_artifact_is_taken_once_in_file_order(self):
+        path = self.repair_records()
+        refs = AUDIT.refs_from_named_artifacts([path], None, None, parser=None)
+        self.assertEqual([r.artifact_id for r in refs], ["t1", "e1", "f1", "e2"])
+        self.assertEqual(refs[0].name, "T1")
+        path.unlink()
+
+    def test_an_outcome_filter_keeps_only_what_a_repair_changed(self):
+        path = self.repair_records()
+        refs = AUDIT.refs_from_named_artifacts([path], {"repaired"}, None, parser=None)
+        self.assertEqual([r.artifact_id for r in refs], ["t1", "e1"])
+        path.unlink()
+
+    def test_several_outcomes_may_be_kept_together(self):
+        path = self.repair_records()
+        refs = AUDIT.refs_from_named_artifacts([path], {"repaired", "already-clean"}, None, parser=None)
+        self.assertEqual([r.artifact_id for r in refs], ["t1", "e1", "e2"])
+        path.unlink()
+
+    def test_a_limit_stops_the_selection_early(self):
+        path = self.repair_records()
+        refs = AUDIT.refs_from_named_artifacts([path], None, 2, parser=None)
+        self.assertEqual([r.artifact_id for r in refs], ["t1", "e1"])
+        path.unlink()
+
+    def test_an_audit_records_file_is_read_by_the_same_selector(self):
+        path = self.write([
+            {"artifactType": "instance", "artifactId": "i1", "artifactName": "I",
+             "fetched": True, "validation": {"status": "invalid"}, "conditions": []},
+        ])
+        refs = AUDIT.refs_from_named_artifacts([path], None, None, parser=None)
+        self.assertEqual([(r.artifact_type, r.artifact_id) for r in refs], [("instance", "i1")])
+        path.unlink()
+
+    def test_a_file_naming_nothing_usable_is_refused_rather_than_run_empty(self):
+        path = self.write([{"artifactType": "template", "artifactId": "t1", "outcome": "write-failed"}])
+        errors = []
+
+        class Parser:
+            def error(self, message):
+                errors.append(message)
+                raise SystemExit(2)
+
+        with self.assertRaises(SystemExit):
+            AUDIT.refs_from_named_artifacts([path], {"repaired"}, None, Parser())
+        self.assertIn("names no artifact", errors[0])
+        path.unlink()
+
+    def test_several_files_are_read_as_one_set_without_repeating_an_artifact(self):
+        first = self.write([
+            {"artifactType": "template", "artifactId": "t1", "outcome": "repaired"},
+            {"artifactType": "element", "artifactId": "e1", "outcome": "repaired"},
+        ])
+        second = self.write([
+            {"artifactType": "element", "artifactId": "e1", "outcome": "repaired"},
+            {"artifactType": "field", "artifactId": "f9", "outcome": "repaired"},
+        ])
+        refs = AUDIT.refs_from_named_artifacts([first, second], {"repaired"}, None, parser=None)
+        self.assertEqual([r.artifact_id for r in refs], ["t1", "e1", "f9"])
+        first.unlink(); second.unlink()
+
+    def test_a_limit_applies_across_the_files_together(self):
+        first = self.write([{"artifactType": "template", "artifactId": "t1", "outcome": "repaired"}])
+        second = self.write([{"artifactType": "field", "artifactId": "f9", "outcome": "repaired"}])
+        refs = AUDIT.refs_from_named_artifacts([first, second], None, 1, parser=None)
+        self.assertEqual([r.artifact_id for r in refs], ["t1"])
+        first.unlink(); second.unlink()

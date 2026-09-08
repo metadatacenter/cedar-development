@@ -986,6 +986,56 @@ def artifact_key(ref: rest.ArtifactRef) -> tuple[str, str]:
     return ref.artifact_type, ref.artifact_id
 
 
+def refs_from_named_artifacts(paths: list[Path], outcomes: Optional[set[str]], limit: Optional[int],
+                              parser: argparse.ArgumentParser) -> list[rest.ArtifactRef]:
+    """The artifacts these JSONL files name, whether they came from an audit or from a repair run.
+
+    Both write one object per artifact carrying its type and identifier, so proving a repair is a
+    matter of re-validating the artifacts it reports having written. ``outcomes`` narrows a repair
+    file to the artifacts it actually changed, and several files are read as one set, since a defect
+    is often cleared by more than one run.
+    """
+    refs: list[rest.ArtifactRef] = []
+    seen: set[tuple[str, str]] = set()
+    for path in paths:
+        read_named_artifacts(path, outcomes, limit, parser, refs, seen)
+        if limit is not None and len(refs) >= limit:
+            break
+    if not refs:
+        named = ", ".join(str(path) for path in paths)
+        parser.error(f"{named} names no artifact to re-check"
+                     + (f" with outcome in {sorted(outcomes)}" if outcomes else ""))
+    return refs
+
+
+def read_named_artifacts(path: Path, outcomes: Optional[set[str]], limit: Optional[int],
+                         parser: argparse.ArgumentParser, refs: list[rest.ArtifactRef],
+                         seen: set[tuple[str, str]]) -> None:
+    try:
+        with path.open(encoding="utf-8") as stream:
+            for number, line in enumerate(stream, 1):
+                if not line.strip():
+                    continue
+                try:
+                    record = json.loads(line)
+                except json.JSONDecodeError as error:
+                    parser.error(f"{path}:{number} is not valid JSON: {error.msg}")
+                if not isinstance(record, dict) or "artifactType" not in record or "artifactId" not in record:
+                    parser.error(f"{path}:{number} names no artifact")
+                if outcomes is not None and record.get("outcome") not in outcomes:
+                    continue
+                key = (record["artifactType"], record["artifactId"])
+                if key in seen:
+                    continue
+                seen.add(key)
+                refs.append(rest.ArtifactRef(record["artifactType"], record["artifactId"],
+                                             str(record.get("artifactName", ""))))
+                if limit is not None and len(refs) >= limit:
+                    return
+    except OSError as error:
+        parser.error(f"cannot read --recheck {path}: {error}")
+
+
 def refs_from_records(path: Path, template_id: str, limit: Optional[int],
                       parser: argparse.ArgumentParser) -> list[rest.ArtifactRef]:
     """One template and its instances, taken from an earlier run's records instead of the search index.
@@ -1019,6 +1069,8 @@ def manifest_expectations(arguments: argparse.Namespace) -> dict[str, Any]:
         "artifactTypes": arguments.selected_types,
         "limit": arguments.limit,
         "template": arguments.template,
+        "recheck": arguments.recheck,
+        "recheckOutcomes": sorted(arguments.recheck_outcomes) if arguments.recheck_outcomes else None,
         "modelVersion": MODEL_VERSION,
         "restAuditRuleset": rest.AUDIT_RULESET_VERSION,
         "scriptSha256": file_sha256(Path(__file__)),
@@ -1202,15 +1254,20 @@ def run_audit(arguments: argparse.Namespace, client: rest.GetOnlyClient, bridge:
             checkpoint()
 
     try:
-        if not arguments.resume and arguments.template:
-            refs = arguments.template_refs
+        if not arguments.resume and (arguments.template or arguments.recheck):
+            refs = arguments.scoped_refs
             for ref in refs:
                 enumeration.expected_by_type[ref.artifact_type] = enumeration.expected_by_type.get(ref.artifact_type, 0) + 1
                 enumeration.enumerated_by_type[ref.artifact_type] = enumeration.expected_by_type[ref.artifact_type]
             enumeration.pagination_by_type = {kind: "records" for kind in enumeration.expected_by_type}
             enumeration.enumeration_complete = True
-            print(f"Scope: template {arguments.template} and its {len(refs) - 1} instances from {arguments.from_records}",
-                  flush=True)
+            if arguments.template:
+                print(f"Scope: template {arguments.template} and its {len(refs) - 1} instances "
+                      f"from {arguments.from_records}", flush=True)
+            else:
+                print(f"Scope: {len(refs)} artifacts named by {', '.join(arguments.recheck)}"
+                      + (f" with outcome in {sorted(arguments.recheck_outcomes)}"
+                         if arguments.recheck_outcomes else ""), flush=True)
             write_refs_manifest(refs_path, arguments, enumeration, refs, started_at)
         elif not arguments.resume:
             rest.preflight_expected_counts(client, arguments.selected_types, enumeration)
@@ -1327,6 +1384,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--page-size", type=int, default=DEFAULT_PAGE_SIZE,
                         help=f"search-deep page size; the server caps it at its maxPageSize (default: {DEFAULT_PAGE_SIZE})")
     parser.add_argument("--limit", type=int, help="quick sample: stop after this many artifacts total")
+    parser.add_argument("--recheck", action="append",
+                        help="re-validate exactly the artifacts this JSONL names, from an earlier audit "
+                             "or repair run; the way a repair is proved. Repeatable, and several files "
+                             "are read as one set")
+    parser.add_argument("--recheck-outcome", action="append", dest="recheck_outcomes",
+                        help="with --recheck, keep only records carrying this outcome; repeatable")
     parser.add_argument("--template",
                         help="audit one template and its instances only, taking the instance IDs from --from-records")
     parser.add_argument("--from-records",
@@ -1416,11 +1479,23 @@ def main(argv: Optional[list[str]] = None) -> int:
     arguments.selected_types = rest.parse_types(arguments.types, parser)
     if arguments.template and not arguments.from_records:
         parser.error("--template needs --from-records")
+    if arguments.template and arguments.recheck:
+        parser.error("--template and --recheck each choose the scope; use one")
+    if arguments.recheck_outcomes and not arguments.recheck:
+        parser.error("--recheck-outcome only means anything with --recheck")
+    arguments.recheck_outcomes = set(arguments.recheck_outcomes) if arguments.recheck_outcomes else None
     if arguments.template:
         arguments.selected_types = ["template", "instance"]
         if not arguments.resume:
-            arguments.template_refs = refs_from_records(Path(arguments.from_records).expanduser(), arguments.template,
-                                                        arguments.limit, parser)
+            arguments.scoped_refs = refs_from_records(Path(arguments.from_records).expanduser(), arguments.template,
+                                                      arguments.limit, parser)
+    elif arguments.recheck:
+        if not arguments.resume:
+            arguments.scoped_refs = refs_from_named_artifacts(
+                [Path(name).expanduser() for name in arguments.recheck],
+                arguments.recheck_outcomes, arguments.limit, parser)
+            arguments.selected_types = [kind for kind in rest.TYPE_ORDER
+                                        if any(ref.artifact_type == kind for ref in arguments.scoped_refs)]
     api_key = rest.resolve_api_key(arguments, parser)
 
     records_path = Path(arguments.out).expanduser()

@@ -2663,6 +2663,23 @@ All four artifact types are the default; `--types template,element` narrows the 
 makes a labelled sample. `--fetch-workers` GETs run ahead of validation, four by default. The key
 comes from `CEDAR_API_KEY`, a one-line `--api-key-file`, or a hidden prompt, and is never written.
 
+`--recheck <file>` re-validates exactly the artifacts a JSONL names, and is how a repair is proved.
+Both this audit and `cedar_artifact_repair.py` write one object per artifact carrying its type and
+identifier, so a repair's own records are a valid target list. `--recheck-outcome repaired` narrows it
+to the artifacts a run actually wrote, and the option is repeatable, since a defect is often cleared
+across more than one run:
+
+```bash
+python3 ops/cedar_artifact_validation_audit.py \
+  --server https://resource.metadatacenter.org \
+  --recheck cedar-artifact-repair.jsonl --recheck mint-chain.jsonl \
+  --recheck-outcome repaired --out repair-verify.jsonl
+```
+
+The roadmap's bar for a data repair is that a repeated audit reports none of the condition it cleared.
+That is what this answers, over the artifacts that were touched rather than the whole deployment, so
+it takes minutes rather than the hours a full pass costs.
+
 After a template has been repaired, `--template <id> --from-records <earlier records>` re-validates
 that template and every instance the earlier run attributed to it, against the template as it is
 stored now, without walking the search index again. `--limit` samples the instances. This is how

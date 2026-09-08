@@ -78,7 +78,8 @@ below have no CLI front end yet, so call them directly:
   validated against the template it names. One JVM, `cedar_validation_bridge.java`, stays up for the
   whole pass. It also counts the legacy shapes the backend roadmap's production-data item lists and
   splits each count by verdict, since a valid artifact may still carry one. Streams one record per
-  artifact, reports progress every 200 artifacts, resumes.
+  artifact, reports progress every 200 artifacts, resumes. `--recheck` re-validates exactly the
+  artifacts a repair run reports having written, which is how a repair is proved.
 - `cedar_artifact_repair.py` — carry out a repair the audit has measured, one `PUT ?verbatim=true` at
   a time, so each artifact keeps its identifier, provenance, version and child identifiers. A repair
   is a transform plus an invariant proving nothing else changed; the library validates every body
