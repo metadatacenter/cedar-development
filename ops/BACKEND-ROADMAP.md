@@ -849,7 +849,27 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
 
 ## Later decisions
 
-- **18. A published artifact can be deleted, contradicting the docs.** The docs say a published
+- **18. Decide which request JSON objects are closed contracts, then enforce that boundary.** A
+  strict shared mapper does not by itself make CEDAR's request contract consistent: Jersey binds
+  some request DTOs, other resources convert selected subtrees by hand, and artifact endpoints
+  deliberately accept extensible JSON-LD. Applying unknown-property rejection to every inbound
+  object would therefore turn valid extension data into `400` responses.
+
+  Inventory the request body of every endpoint and classify each object boundary as either closed
+  or open. A closed command or options DTO should reject misspelled and unsupported fields. An
+  artifact document, merge-patch body, JSON-LD object, or explicitly documented extension map
+  should remain open. Record the same decision in OpenAPI: use `additionalProperties: false` only
+  for closed objects, and leave open shapes explicit rather than relying on a mapper default.
+
+  Route every closed DTO binding and manual tree conversion through the named strict mapper, remove
+  `ignoreUnknown` annotations that contradict that contract, and test unknown properties at both
+  the root and nested closed-object boundaries as `400` responses. For every open boundary, add a
+  preservation or acceptance test so later cleanup cannot tighten it accidentally. Treat any
+  endpoint that becomes stricter than its current behavior as a public API compatibility change:
+  identify its callers, document the rejected shape, and stage the change through the normal
+  release process rather than coupling it to response-reader compatibility work.
+
+- **19. A published artifact can be deleted, contradicting the docs.** The docs say a published
   artifact is permanent, but `DELETE` on one succeeds. The guard in
   `AbstractResourceServerResource.executeArtifactDelete` was briefly re-enabled and then **reverted by
   deliberate decision**: blocking deletion strands published artifacts and the folders holding them with
