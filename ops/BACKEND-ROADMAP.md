@@ -877,8 +877,11 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   disabled the guard on purpose. So deletability stays for now; the discrepancy with the documentation
   is the open question. Deciding it means choosing between amending the docs (published is deletable) or
   re-enabling the guard together with a supported cleanup path (e.g. an admin-only delete, or cascading
-  through folder deletion). Immutability of published content is a separate guarantee and is
-  unaffected either way — that one is enforced.
+  through folder deletion). Immutability of published content is a separate guarantee with its own
+  boundary: ordinary editing is refused, and a verbatim write is not, because that write states the
+  whole document rather than editing it and is how a defect in a published artifact's stored
+  representation is corrected. Whichever way deletability is settled, the docs have both exceptions
+  to describe.
 
 - **20. Retire the legacy aliases retained by the common error envelope.** **Production
   consequence:** removing an alias can break a frontend or integration that still reads it. This is

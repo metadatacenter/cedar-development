@@ -1548,6 +1548,15 @@ Artifact creation and replacement use different authorization checks even though
 requires `UPDATE`. Do not collapse this back to a route-level update check; custom roles need the
 distinction even though the default roles normally grant both permissions.
 
+Publication makes an artifact immutable to ordinary editing, and a verbatim write goes through that
+guard. The two are different operations: editing changes part of a stored document, while a verbatim
+write states the whole of it, stamping no provenance and minting no identifier, and it is how a defect
+that lives in the stored representation is corrected. A published artifact would otherwise keep such a
+defect permanently, because the only other route mints a new version to record a change nobody
+authored. The `WRITE_ARTIFACT_VERBATIM` permission is the whole gate, and the DOI guard is unchanged:
+it refuses a *changed* DOI, so a verbatim write under an unchanged one proceeds. Ordinary editing of a
+published artifact is still refused, and `TemplatesResourceWriteRejectionTest` pins all three cases.
+
 Every successful artifact create, single-artifact read and update returns a strong revision `ETag`.
 The read service derives the public content and revision from the same Mongo document, so the ETag
 can never describe a newer replacement than the body it accompanies.
