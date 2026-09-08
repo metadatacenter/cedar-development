@@ -557,7 +557,28 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   Done when `start` reports a service only once it is healthy or names why it is not, and `start
   all` completes against running infrastructure.
 
-- **13. Take the dependency upgrades that need code changes.** The versions that could move without
+- **13. Let the artifact server own the uniqueness of `@id`.** No two documents in an artifact
+  collection may share an `@id`. The server relies on a unique index on that field to enforce it. A
+  create is a read that finds the identifier absent followed by an insert, and
+  `GenericLDDaoMongoDB.create` answers a duplicate-key rejection with the same 412 the update path
+  gives a stale writer. Nothing in the application creates that index. The Docker image's Mongo init
+  script does, and natively the admin tool's `artifactServer-initDB` task does, which `SystemReset`
+  runs as its second step, so a store that has been reset carries it and the development workstation's
+  does. Neither `cedarcli native start` nor the backend runbook names the task, so a native store
+  that never saw it has no index. There two concurrent creates of one identifier both succeed,
+  `findWithRevision` reads only the first, and a conditional delete removes one document and leaves
+  the other unreachable through the API. The embedded Mongo the server suites run against creates
+  no index either, so no suite exercises the rejection the DAO translates. The DAO test mocks it.
+
+  Ensure the four indexes at artifact-server startup, so the invariant stops depending on a step an
+  operator remembers. Creating an index that already exists with the same options is a no-op, so a
+  deployment whose collections were provisioned pays nothing, and only a store that was never
+  provisioned builds one on first boot. Give `EmbeddedCedarMongo` the same indexes, so the suites
+  run against the constraint the store actually has, and add a resource test that inserts the same
+  identifier twice through the real store rather than through a proxied service. Done when a fresh,
+  unprovisioned Mongo refuses the second insert and the suites prove it.
+
+- **14. Take the dependency upgrades that need code changes.** The versions that could move without
   consequence have moved. What stayed behind stayed deliberately, and it separates into work to do,
   versions that follow something else, and versions upstream has not released.
 
@@ -608,7 +629,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   Done when each upgrade above has either landed or been recorded as refused with its reason, and
   the estate no longer carries a dependency held back only because nobody looked at it.
 
-- **14. Document the versioning model, then audit the implementation against it.** The user guide
+- **15. Document the versioning model, then audit the implementation against it.** The user guide
   says what an author sees and the YAML specification defines the keys, but no document states the
   model: which artifact kinds are versioned, what publishing freezes, how a draft succeeds a published
   version, how version numbers must order, what the three latest-version flags mean, and what deleting
@@ -617,7 +638,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   decision to make or a defect to fix. `ArtifactLifecycleMatrixTest` pins the current rules until
   then. Done when the model is published and every divergence is fixed or recorded.
 
-- **15. Give the public CEE release a CLI route.** Publishing `cedar-embeddable-editor` to npmjs is a
+- **16. Give the public CEE release a CLI route.** Publishing `cedar-embeddable-editor` to npmjs is a
   runbook of about twenty-five commands across `develop`, a pull request, `main`, the registry, a
   tag, the development-state restore and the train baseline refresh. Release 2.0.6 took an hour of
   operator attention for two minutes of gate time, and CEE has shipped four public versions in a
@@ -632,7 +653,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
 
 ## Production data
 
-- **16. Normalize production artifacts to one explicit model contract.** Production contains several
+- **17. Normalize production artifacts to one explicit model contract.** Production contains several
   legacy representations that the current model surfaces tolerate or normalize differently, so bring
   them to canonical shapes before tightening readers or introducing terminology routing across source
   systems. The permission-scoped audit found 76 inherently-multiple fields deployed as JSON objects in
@@ -813,7 +834,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
 
 ## Later decisions
 
-- **17. A published artifact can be deleted, contradicting the docs.** The docs say a published
+- **18. A published artifact can be deleted, contradicting the docs.** The docs say a published
   artifact is permanent, but `DELETE` on one succeeds. The guard in
   `AbstractResourceServerResource.executeArtifactDelete` was briefly re-enabled and then **reverted by
   deliberate decision**: blocking deletion strands published artifacts and the folders holding them with
