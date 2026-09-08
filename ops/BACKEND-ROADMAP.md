@@ -573,10 +573,25 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   Ensure the four indexes at artifact-server startup, so the invariant stops depending on a step an
   operator remembers. Creating an index that already exists with the same options is a no-op, so a
   deployment whose collections were provisioned pays nothing, and only a store that was never
-  provisioned builds one on first boot. Give `EmbeddedCedarMongo` the same indexes, so the suites
-  run against the constraint the store actually has, and add a resource test that inserts the same
-  identifier twice through the real store rather than through a proxied service. Done when a fresh,
-  unprovisioned Mongo refuses the second insert and the suites prove it.
+  provisioned builds one on first boot. On the pinned Mongo 5.0 that build keeps the collection
+  readable and writable and takes seconds to a few minutes over 400,000 documents, once. Give
+  `EmbeddedCedarMongo` the same indexes, so the suites run against the constraint the store actually
+  has, and add a resource test that inserts the same identifier twice through the real store rather
+  than through a proxied service.
+
+  **This can take production down if it is done carelessly.** A unique index cannot be built over a
+  collection that already holds two documents with the same `@id`, and a store that ever ran without
+  the index may hold exactly that. If the startup ensure treats a failed build as fatal, the first
+  release carrying it turns a latent data defect into an artifact server that refuses to boot, and
+  every retry fails the same way. Two rules follow. The ensure never stops the server: a failed build
+  is logged at error and reported through the health check, and the server keeps serving as it does
+  today. And the production deploy runbook gains a preflight, run before the release that carries the
+  ensure, which lists the indexes each of the four collections holds and counts identifiers that occur
+  more than once. Production is expected to pass both, because `artifactServer-initDB` has provisioned
+  every CEDAR store since before 2019, but the expectation is verified, not assumed. Duplicates found
+  are repaired first, with `cedar_artifact_patch.py` or by hand, and only then can a build succeed.
+  Done when a fresh, unprovisioned Mongo refuses the second insert, the suites prove it, a store with
+  duplicates still boots and reports why its index is missing, and the runbook carries the preflight.
 
 - **14. Take the dependency upgrades that need code changes.** The versions that could move without
   consequence have moved. What stayed behind stayed deliberately, and it separates into work to do,
