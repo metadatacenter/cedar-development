@@ -856,6 +856,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--exclude-ids",
                         help="JSON list of artifact IDs to leave alone, for artifacts whose instances "
                              "rely on a value a repair would change")
+    parser.add_argument("--only-ids",
+                        help="JSON list of artifact IDs to restrict the run to, for trialling a repair "
+                             "on artifacts chosen deliberately rather than on whichever come first")
     parser.add_argument("--out", default="cedar-artifact-repair.jsonl",
                         help="one record per artifact (default: cedar-artifact-repair.jsonl)")
     parser.add_argument("--summary", help="summary JSON path (default: <out without suffix>-summary.json)")
@@ -914,6 +917,15 @@ def main(argv: Optional[list[str]] = None) -> int:
         if unknown:
             parser.error(f"unknown artifact types {sorted(unknown)}")
         refs = [ref for ref in refs if ref.artifact_type in wanted]
+    if arguments.only_ids:
+        try:
+            wanted_ids = set(json.loads(Path(arguments.only_ids).expanduser().read_text(encoding="utf-8")))
+        except (OSError, ValueError) as error:
+            parser.error(f"cannot read --only-ids: {error}")
+        refs = [ref for ref in refs if ref.artifact_id in wanted_ids]
+        if not refs:
+            parser.error(f"no target is named by {arguments.only_ids}")
+        print(f"Restricted to {len(refs)} artifact(s) named by {arguments.only_ids}")
     if arguments.exclude_ids:
         try:
             excluded = set(json.loads(Path(arguments.exclude_ids).expanduser().read_text(encoding="utf-8")))

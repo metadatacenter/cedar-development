@@ -754,3 +754,13 @@ class AlignContextInvariantTest(unittest.TestCase):
 
     def test_refuses_outright_without_a_template(self):
         self.assertEqual(align_invariant(instance({}), instance({}), None), "/")
+
+
+class InclusionListTest(unittest.TestCase):
+    """--only-ids exists because a trial that takes whichever targets come first can sample a group
+    the repair skips, and prove nothing about the write path."""
+
+    def test_the_two_lists_are_read_the_same_way(self):
+        # Both are a JSON array of artifact identifiers; the parser code paths mirror each other.
+        self.assertIn("--only-ids", REPAIR.build_parser().format_help())
+        self.assertIn("--exclude-ids", REPAIR.build_parser().format_help())
