@@ -59,31 +59,6 @@ handles — an item that is finished leaves the document, and the rest are
 renumbered. What was built is recorded in the commits that built it. Name an item
 rather than its number.
 
-## Stop Losing What the Author Enters
-
-The controlled-term constraint panel still collects values its serializer does
-not read. Resolve that before expanding its parameter surface.
-
-### 1. The controlled-term panel on its own writes no constraint
-
-Filled in by hand, the panel collects fields the serializer does not read. Its
-ontology mode sets `ontologyName` and never `ontologyId`; its branch mode sets
-`ontologyName` and `branchRootName` and never `branchRootId` or `sourceId`. Both
-produce a controlled-term field with four empty constraint lists, which is the
-decay described under the per-type capability rules. Value Set is worse: it
-collects nothing the value-set constraint accepts as a collection, so the
-constraint builder throws and the template cannot be written at all. Only
-`<cedar-term-picker>` fills what the serializer reads, and the picker is a
-sibling component the embedding page may not have loaded.
-
-The four Advanced Options checkboxes have no binding and no handler. `restrictedOntologies` and
-`allowMultipleOntologies` are collected and never serialized.
-
-Either the panel collects what the serializer reads, or the panel goes and the
-picker becomes the only way to constrain a field. The second is the smaller
-surface and the honest one, and it makes the picker a dependency rather than an
-enhancement.
-
 ## Full Parameter Coverage, One Field Type at a Time
 
 The two shared items come first, because they apply to every type and because
@@ -91,7 +66,7 @@ thirteen of those types have no parameters of their own — finishing the shared
 surface finishes them outright. The types with the most missing follow, in the
 order a template author is most likely to miss them.
 
-### 2. The parameters every field type shares
+### 1. The parameters every field type shares
 
 `skos:prefLabel` and `skos:altLabel` are on every field builder and CED sets
 neither. The preferred label is not an advanced control: it sits in the Basic
@@ -106,7 +81,7 @@ with publishing rather than here.
 Annotations are the model library's gap before they are CED's: the model holds
 them on every artifact and no builder sets them.
 
-### 3. The deployment parameters every child carries
+### 2. The deployment parameters every child carries
 
 These are what the template decides about a field, as against what the field
 itself is. Five are missing: the recommended flag, the two cardinality bounds,
@@ -128,7 +103,7 @@ cardinality is set at all.
 `continuePreviousLine`. Both are settings the current designer offers and the
 model library already writes.
 
-### 4. Text and Paragraph
+### 3. Text and Paragraph
 
 A text field constrains its values by `minLength`, `maxLength` and a regular
 expression, and CED offers none of the three as authoring controls. Paragraph
@@ -140,7 +115,7 @@ same set of constraints attached to a custom type rather than to a field, and re
 by nothing. CEDAR states them on the field, so that is where the control belongs,
 and the panel should either drive it or go.
 
-### 5. Number
+### 4. Number
 
 Five authoring parameters remain: the datatype, where seven `xsd` types are
 available and CED always writes `xsd:decimal`; `minValue` and `maxValue`;
@@ -156,7 +131,7 @@ Datatype and bound controls must account for the existing default: changing
 a decimal field with a default of 2.5 to `xsd:int` needs an explanation and a
 resolution before the field can be updated.
 
-### 6. Date and Time
+### 5. Date and Time
 
 Date and time are the whole of what CED offers. `xsd:dateTime` has no entry in
 the palette, granularity is fixed at day for a date and minute for a time where
@@ -172,24 +147,7 @@ Granularity and type constrain each other — a time cannot be granular to the
 year — so this type, like Number, needs coordinated authoring controls. Their
 changes must account for existing defaults.
 
-### 7. Controlled Terms
-
-The largest surface of the 25. One field may carry any number of ontology, branch,
-class and value-set entries plus the actions that reorder or drop them, and each
-entry carries its own parameters: a URI and an acronym or collection, a name, a
-term count, a maximum depth for a branch, a source system, a canonical `iri`, and
-the version that pins it to a snapshot. CED writes one entry of one kind, with
-whatever the picker filled in.
-
-Two further items track the constraint surface itself: what the panel does with a second
-constraint, and saying what a constraint resolves to.
-
-This type is the one place where full parameter coverage is not obviously the
-goal — `numTerms` is a cache of something the terminology server knows, and
-`sourceSystem` is null for BioPortal. Coverage here means an author can express
-any constraint CEDAR supports, not that every field of every entry gets a box.
-
-### 8. Image, YouTube and Rich Text
+### 6. Image, YouTube and Rich Text
 
 An image carries a URL and a display width and height; an embedded video carries
 a video id and the same pair. CED writes the first of each and neither size. The
@@ -199,7 +157,7 @@ template, which is where CED always puts it.
 Rich text carries only its markup, and CED collects that in a single-line text
 input. The parameter is covered; the control is not usable for what it holds.
 
-### 9. The thirteen types with no parameters of their own
+### 7. The thirteen types with no parameters of their own
 
 Email, Link and Phone, the seven external authorities — ORCID, ROR, PFAS, RRID,
 PubMed, NIH Grant ID and DOI — and Attribute Value, Section Break and Page Break.
@@ -210,7 +168,7 @@ They are named so the coverage claim can be made about the whole palette rather
 than about the types with parameters. The shared field parameters still need to
 land, and an attribute-value field's cardinality bounds need authoring controls.
 
-### 10. Prove the coverage, per type
+### 8. Prove the coverage, per type
 
 The gate on the first goal, and the thing that keeps it from decaying. A spec that
 walks every type, sets every parameter that type's builder and value constraints
@@ -224,7 +182,7 @@ fail when the library grows a parameter CED has not adopted.
 
 ## The Surface Around the Fields
 
-### 11. The three profiles, and what each one holds
+### 9. The three profiles, and what each one holds
 
 Basic, Semantic and Modular are the product structure, and CED has their names
 already: three presets in the preferences modal, each a bundle of visibility
@@ -250,7 +208,7 @@ does not show.
 Every control the coverage work adds is a decision this item has to absorb, which
 is the argument for not leaving it to the end of that work.
 
-### 12. Per-type capability rules
+### 10. Per-type capability rules
 
 CED has a table now, and it answers what a type will accept: whether it can be
 required, whether its author chooses the cardinality, whether it carries options,
@@ -284,13 +242,13 @@ open-and-save. It is written as a text field today to stop the decay, which trad
 one surprise for a smaller one. Refusing to save an unfinished field, and saying
 which field is unfinished, is the better answer and belongs with validation.
 
-### 13. Header, footer, and property labels
+### 11. Header, footer, and property labels
 
 A template carries a header and a footer, and each child carries a label and a
 description that a form shows in place of its raw key. CED writes the key and the
 field name and nothing else.
 
-### 14. Guidance in the interface
+### 12. Guidance in the interface
 
 Tooltips, help messages and worked examples are part of what makes the Basic
 profile usable by someone who has never met a metadata standard, and the Semantic
@@ -298,10 +256,8 @@ profile needs more than that: short explanations of what naming an ontology term
 buys, and of what a particular constraint will do to the form an author's
 colleagues eventually fill in.
 
-CED has two explanatory tooltips, both in the controlled-term panel, and one of
-them describes a control that does nothing. Everything else is a `title` attribute
-naming a button. There is no mechanism behind any of it — no place a control
-declares its own help, no way for a host to reword it, and nothing translated.
+Controls need a common way to declare help, let a host reword it, and translate
+it. A `title` attribute naming a button does not explain the choice behind it.
 
 The parameter work makes this larger rather than smaller. A datatype menu, a
 granularity menu and a regular-expression box are each a place an author needs to
@@ -309,20 +265,13 @@ be told what the choice does.
 
 ## Version Awareness
 
-### 15. Several constraints on one field, and the actions between them
-
-CEDAR allows any number of ontologies, branches, classes and value sets on one
-field, plus actions that move or delete entries. CED's panel collects exactly
-one, because that is all its free-text form ever collected. The picker returns
-one at a time, so this is a question of what the panel does with the second.
-
-### 16. Say what a constraint resolves to
+### 13. Say what a constraint resolves to
 
 An author who has pinned DOID 2026-06-30 to a branch of 4,000 terms cannot see
 that from the panel. The terminology server can answer it and the picker already
 shows counts while choosing; the constraint, once chosen, shows a label.
 
-### 17. Freeze on publish
+### 14. Freeze on publish
 
 A draft template names a release or names latest; a published one must name a
 release, resolved at publish time. CED does not publish anything yet, so this
@@ -330,7 +279,7 @@ follows publishing, but the constraint shape has to be right before then.
 
 ## Persistence and Lifecycle
 
-### 18. Open from and save to the artifact server
+### 15. Open from and save to the artifact server
 
 CED reads a file and writes a download. The production designer opens from a
 folder, saves back to it, and knows about permissions. For an embeddable
@@ -338,7 +287,7 @@ component the host may own that, which makes this a contract question before it
 is an implementation one: an event carrying the template a host is expected to
 store, or a REST client of CED's own.
 
-### 19. Publish, and make a new version
+### 16. Publish, and make a new version
 
 `bibo:status`, `pav:version`, `pav:derivedFrom` and `pav:previousVersion` are the
 lifecycle the artifact server enforces. CED writes a fixed `0.0.1` draft, and
@@ -346,7 +295,7 @@ writes the same fixed draft status on every field. Provenance — who created an
 artifact and when, who last modified it — is part of the same item and is written
 nowhere today.
 
-### 20. Validate before saving
+### 17. Validate before saving
 
 The schema server validates a template and returns what is wrong with it. Nothing
 in CED asks. The model library refuses to build some invalid artifacts, which
@@ -354,7 +303,7 @@ covers less ground than the validator and is not the same answer.
 
 ## The Embedding Contract
 
-### 21. Settle and declare the rest of the contract
+### 18. Settle and declare the rest of the contract
 
 `CedConfig` currently names terminology and bridge endpoints. A host embedding a designer will want at least a
 read-only mode, a language, and somewhere to say which field types to offer.
@@ -367,7 +316,7 @@ which one wins where they disagree. What each profile contains is settled with
 the profiles, not here. Every key added needs the conformance test that already
 asserts the contract and the implementation cannot drift apart.
 
-### 22. Publish the package
+### 19. Publish the package
 
 Nothing is on either channel. The staging and the channel rule are in place, so
 this is a decision rather than work: a dev snapshot to Nexus lets the Workbench
@@ -375,7 +324,7 @@ consume CED before it is finished.
 
 ## Structure Beyond a Flat Template
 
-### 23. Give the field library somewhere to keep things
+### 20. Give the field library somewhere to keep things
 
 An author can define a field type of their own — a name, an icon, one of the
 built-in types underneath, a placeholder and a list of validation rules — keep it
@@ -391,7 +340,7 @@ permissions, which is what lets reuse outlive the tab it was created in. Whether
 a saved field becomes one of those, or stays local to the browser and is stored
 there, is the decision to make first.
 
-### 24. Template elements
+### 21. Template elements
 
 Elements are the Modular profile, and they are deferred by decision until fields
 work properly.
@@ -416,11 +365,11 @@ template that contains elements renders them rather than dropping them.
 
 ## Quality
 
-### 25. Keyboard and screen-reader access
+### 22. Keyboard and screen-reader access
 
 Untested and unclaimed. The picker has thought about this and CED has not.
 
-### 26. A corpus test
+### 23. A corpus test
 
 CEE checks itself against 37 real templates in both serializations. CED has no
 equivalent — nothing proves it can open the templates production already holds,

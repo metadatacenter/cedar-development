@@ -148,7 +148,7 @@ address compiled into it.
 ## Running It With Its Siblings
 
 The designer uses sibling web components the host loads, and none is bundled.
-A field's constraint is chosen with
+A field's constraint set is assembled with
 [`<cedar-term-picker>`](VERSIONING-RUNBOOK.md), and Preview renders the template
 with [`<cedar-embeddable-editor>`](CEE-RUNBOOK.md), the same renderer that will
 show the form to whoever fills it in.
@@ -168,7 +168,7 @@ only a package build refreshes.
 
 Serve `dist-bundle/` and load a page that pulls in all three scripts. Each
 absence is reported where it would have been used: without the picker the
-constraint panel says so and its fields are filled by hand, and without CEE the
+constraint panel reports editing unavailable and retains the saved set, and without CEE the
 preview panel says so.
 
 `npm start` stages both siblings into `public/` and the development host loads
@@ -180,7 +180,7 @@ this one's, so they are not committed. The host names a terminology server on
 
 All default-capable fields use `<cedar-embeddable-field>` from the same CEE bundle.
 Choose **semantic** in Preferences to expose Default Value. CED uses the current
-model snapshot, `1.0.8-dev.20260909.b0f6853`, for typed defaults and JSON/YAML
+model snapshot, `1.0.8-dev.20260909.b9dae41`, for typed defaults and JSON/YAML
 serialization. Imported numeric constraints and temporal settings are retained;
 temporal values are converted between the default's declared precision and CEF's
 complete instance literal without shifting timezones. Choices are stored with
@@ -188,8 +188,20 @@ complete instance literal without shifting timezones. Choices are stored with
 
 Controlled defaults use the current `<cedar-term-picker>` bundle's term-only mode,
 then verify membership through the configured terminology server's
-`bioportal/integrated-search`. A vocabulary constraint is required first. The host
-supplies `bridgeBaseUrl` for the seven external authority lookups; the development
+`bioportal/integrated-search`. A vocabulary constraint is required first. Several sources or version pins appear
+in a vocabulary/release selector; membership checks still receive the entire field
+constraint set and its actions. Constraint edits retain a permitted default and
+require explicit clearing before an invalid default's replacement set is applied.
+
+CED uses the picker's `selectionMode = 'constraints'`, `constraintSet` input and
+`constraintsSelected` event. The picker owns draft assembly, individual entry
+replacement/removal, branch depth, and separate term exclusion/result-position
+actions. Apply returns the entire set; cancellation leaves the original intact.
+Constraint arrays and actions retain their order within each model array. A
+constraint's service URI, canonical IRI, source system and version pin remain
+separate identities.
+
+The host supplies `bridgeBaseUrl` for the seven external authority lookups; the development
 host names the local bridge. Missing sibling controls are reported as unavailable,
 and saved defaults remain intact.
 

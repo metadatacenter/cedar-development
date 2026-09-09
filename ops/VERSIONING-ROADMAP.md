@@ -1508,15 +1508,13 @@ The host being the AngularJS Template Designer has a consequence worth stating: 
 integration is DOM-level, setting properties and listening for events on the element, with
 no framework interop between AngularJS and Angular 22 in either direction.
 
-**The picker emits one selection and closes.** A field can carry several constraints of
-mixed kinds, and they accumulate outside the picker: an author adding a second constraint
-opens it again. This keeps the component to one job — turn a query into a choice — and it
-matches what the old picker already does. That picker shows a confirmation row for the one
-selection in flight and never displays the field's constraint set; the set is rendered by
-the field's configuration panel
-(`cedar-template-editor/app/scripts/form/partials/configuration-options.partial.html`, four
-repeats over `_valueConstraints`), and the picker touches it only to merge its addition back
-on save.
+**The picker assembles the field's constraint set.** In `constraints` mode the host
+supplies `constraintSet`, and `constraintsSelected` returns the complete draft on
+Apply. Individual selections add to the draft; replacement and removal target one
+entry. The picker displays the set and separate term exclusion/result-position
+actions in compact tables. Cancelling leaves the host's original unchanged. The
+single-selection `constraint` mode remains available to existing hosts, while
+`term` mode selects a default for the host to validate against the full set.
 
 **Latest is the default, and choosing it writes nothing.** Freeze-on-publish resolves an
 unpinned constraint at publish time, so latest keeps meaning latest until the template is
