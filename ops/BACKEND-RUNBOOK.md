@@ -715,13 +715,21 @@ it independent of that infrastructure.
 remains 403. ETag and Vary are now forwarded. The external routes remain JSON-only and keep their
 bare-identifier convention. Resource host and HTTP port must be present in repo's environment.
 
-**Deployment boundary:** the intended artifact trust model accepts authenticated internal services
-with credentials distinct from end-user keys; resource owns the user authorization decision. This
-boundary is not implemented by the repo migration. Artifact still checks login and global permissions,
-so direct reachability remains a security issue; do not treat this ownership change as closing it.
-Openview still reads Mongo and evaluates explicit/inherited openness locally. Its future resource
-path must explicitly request anonymous access regardless of credentials present on the incoming
-request, without treating workspace grants as anonymous publication.
+**Deployment boundary:** artifact business routes require `X-CEDAR-Artifact-Service-Key` in addition
+to the existing end-user Authorization header. A user API key alone cannot read, list, create,
+update or delete a document, even at the direct application port. Resource owns user authorization;
+worker's trusted jobs use the same internal credential and retain their existing user/admin request
+contexts. The shared client sends the configured key only to the configured artifact origin, refuses
+redirects, preserves request identity and conditional-write headers, and never takes the key from an
+incoming HTTP request. Index/readiness, operational reports and static API documentation retain
+their existing access rules. Every other registered Jersey resource requires the service key.
+
+The credential is shared by the trusted resource and worker services; it does not distinguish them,
+grant either one a new user role, or encrypt HTTP. Keep artifact on the private backend network and
+use a protected transport across untrusted networks. Openview still reads Mongo and evaluates
+explicit/inherited openness locally; an HTTP credential does not close that separate storage path.
+Its future resource path must explicitly request anonymous access regardless of incoming user
+credentials, without treating workspace grants as anonymous publication.
 
 Bridge's DOI workflow reads both the source artifact and the DataCite template through resource,
 and sends instance validation through resource's existing validation endpoint. These calls preserve
@@ -729,17 +737,60 @@ the incoming Authorization and request identity headers; validation does not sel
 API key. Resource denials and missing documents stop the workflow before DOI minting, and a failed
 HTTP response is never interpreted as an artifact or validation verdict. Bridge still checks DOI
 eligibility (edit capability, openness and template publication). It needs resource host/port but no
-artifact host/port, and must not receive artifact's future internal caller credential. Build config
+artifact host/port, and must not receive artifact's internal caller credential. Build config
 before bridge, redeploy bridge, and run both smoke tiers; the backend-free bridge suite also checks
 these routes against a resource HTTP stub without contacting DataCite. Before rollout, verify that
 the configured DataCite template is present in the workspace graph and readable by DOI users: a
 Mongo-only template or one they cannot read now produces a 404 or 403 instead of bypassing the ACL.
 
-The remaining direct HTTP callers are resource's CRUD, validation, annotation, copy and deletion
+The internal HTTP callers are resource's CRUD, validation, annotation, copy and durable deletion
 completion paths, plus the shared inclusion-subgraph, extraction and instance-clone code used by
-resource/worker jobs. Before enabling artifact's service credential, cover each of these paths and
-its end-user provenance, including durable deletion and batch clones. Openview's current direct
-Mongo reads are a separate storage-access path and will not be closed by an HTTP filter.
+resource/worker jobs. Bridge and repo call resource and receive no artifact service key. Configuration
+startup fails when artifact, resource or worker lacks a valid key; an invalid previous key also stops
+artifact startup. No permissive fallback is available.
+
+### Deploying and rotating the artifact service key
+
+Use `cedarcli env artifact-key init` once per environment. It generates a random 256-bit key in
+`$CEDAR_HOME/.cedar/secrets/artifact-service.sh`, with file mode 0600, and never displays its value.
+Running init again leaves it unchanged. On the native production application host, use
+`cedarcli prod provision-artifact-key`: it performs the same initialization with server-profile checks
+and prints the local deployment steps. For the single application-host layout, no copying is needed:
+all three services read this installation's file through the launcher on their next start. See the
+[production provisioning steps](PROD-DEPLOY-RUNBOOK.md#provision-the-artifact-service-key-before-the-backend-deployment).
+Both native and Docker profiles source this installation-local
+file. For a deployment spanning hosts, securely distribute the same file to each backend host, or
+inject the variables through the deployment's secret manager; do not independently generate a key
+on every host. Keep production and development keys separate. The variables are
+`CEDAR_ARTIFACT_SERVICE_API_KEY` (artifact, resource and worker only) and
+`CEDAR_ARTIFACT_SERVICE_PREVIOUS_API_KEY` (artifact only, optional). Compose passes them only to those
+containers; the native launcher removes them before starting unrelated services and frontends.
+Configuration/environment reports mask their values. Never bake them into an image,
+commit them, or expose them through frontend configuration.
+
+**First deployment order matters:** provision the key everywhere, deploy the bridge migration so it
+uses resource, then deploy the upgraded resource and worker callers with the key, and only then
+upgrade artifact to enforce it. The prior artifact accepts the extra header, so callers can be
+upgraded first. Turning on enforcement before upgrading every caller causes 401s for ordinary reads,
+writes, validation and jobs. External scripts which directly call artifact must move through resource;
+only deliberately trusted internal tooling may receive this key. No database migration or reindex is
+needed. Verify user provenance, resource/repo reads, validation, copy/versioning and jobs, and run
+`cedarcli test e2e`; its internal contract probes use the service key, while explicit direct-port
+checks omit it and prove ordinary users cannot access any of the four document families.
+
+**Rotation:** run `cedarcli env artifact-key rotate`, securely distribute the resulting current and
+previous values, and restart artifact first so it accepts both. Then restart resource and worker so
+they send the new key. Verify the callers and smoke suite before `cedarcli env artifact-key retire`,
+distribute that state and restart artifact again to stop accepting the old key. A second rotation is
+refused while a previous key is retained, so an unfinished rollout cannot silently lose its overlap.
+Use `cedarcli native restart <service>` for native deployments; containers must be recreated with the
+updated environment. Rotation does not change end-user API keys or login tokens. The previous key
+must be retained until every caller has switched, including workers processing queued jobs.
+
+**Rollback:** leave the credentials provisioned. If callers must revert to versions that omit the
+header, roll artifact back first or those callers will fail. Returning to an unenforced artifact
+restores the earlier trust gap and requires the existing private-network containment. A rollback
+requires no database restoration.
 
 For the repo rollout, build the config library before the repo server, redeploy repo, and run both
 whole-stack smoke tiers. Also compare repo and resource reads for all four artifact types using an
