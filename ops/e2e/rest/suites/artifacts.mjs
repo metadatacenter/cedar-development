@@ -4,7 +4,7 @@
 // a create proxies its content to the artifact server, so the per-service tests cannot follow it,
 // and they only assert the rejections that fire before the proxy.
 import {
-  suite, check, checkStatus, call, updateArtifact, cleanup, artifactBody, KINDS, enc, RUN,
+  suite, check, checkStatus, call, updateArtifact, cleanup, artifactBody, KINDS, enc, RUN, HOST,
 } from '../lib.mjs';
 
 export const name = 'artifacts';
@@ -34,6 +34,22 @@ export async function run({ user1, user2, folderId }) {
     checkStatus(get, 200, `${kind}: read back`);
     check(get.body?.['schema:name'] === label, `${kind}: served content matches what was stored`,
         `expected "${label}", got "${get.body?.['schema:name']}"`);
+
+    // Repo dereferences the permanent identifier through the same authorized resource read.
+    const repo = { base: process.env.CEDAR_REPO_BASE ?? `https://repo.${HOST}` };
+    const repoPath = `${path}/${enc(id.slice(id.lastIndexOf('/') + 1))}`;
+    const resolved = await call(auth, 'GET', repoPath, undefined, repo);
+    checkStatus(resolved, 200, `${kind}: repo dereferences the identifier`);
+    check(JSON.stringify(resolved.body) === JSON.stringify(get.body),
+        `${kind}: repo and resource return the same artifact`, 'dereferenced content differs');
+    check(!!get.headers.get('etag') && resolved.headers.get('etag') === get.headers.get('etag'),
+        `${kind}: repo preserves the resource ETag`, 'dereferenced ETag differs');
+    checkStatus(await call(user2.auth, 'GET', repoPath, undefined, repo), 403,
+        `${kind}: repo denies another user a private artifact`);
+    checkStatus(await call(null, 'GET', repoPath, undefined, repo), 401,
+        `${kind}: repo requires authentication`);
+    checkStatus(await call(auth, 'GET', `${path}/00000000-0000-0000-0000-000000000000`, undefined, repo), 404,
+        `${kind}: repo reports an unknown identifier as missing`);
 
     // The graph's view must agree with the artifact server's.
     const details = await call(auth, 'GET', `${at}/details`);

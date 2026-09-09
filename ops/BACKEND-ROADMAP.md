@@ -249,13 +249,20 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   server: measured on 2026-08-13, a second user received `403` for another user's template through the
   resource server and `200` through the artifact server.
 
-  Decide which security boundary CEDAR supports. If topology is the boundary, block the artifact vhost
-  in every environment and bind internal-only services accordingly; production and the container stack
-  already do this, while native development currently exposes the vhost and port. Alternatively, make
-  the artifact server authorize against the workspace graph or a signed resource-server assertion, or
-  accept only a service credential unavailable to ordinary users. Record and test the chosen trust
-  boundary alongside the permission model rather than leaving the two service doors with different
-  effective authorization.
+  Implement the internal-caller trust model recorded in the runbook's "Artifact route ownership"
+  section: artifact accepts authenticated internal services using credentials distinct from end-user
+  API keys, and resource owns user authorization. Inventory every caller (including bridge and
+  background jobs), define credential distribution and rotation, preserve end-user provenance, and
+  test direct-port read/list/write/delete denials for ordinary users. Retain network containment.
+  Production rollout of the ownership migration depends on closing this boundary.
+
+  Move openview's four artifact read routes through an explicit anonymous resource read path, using
+  one implementation of explicit and inherited openness. Preserve its public URLs and JSON contract,
+  measure the extra hop, and remove its artifact Mongo access. Verify all four artifact types under
+  explicit openness, inherited openness, private access, unknown identifiers and dependency failures.
+  Do not allow a supplied user credential to broaden an anonymous route's access. Inventory other
+  artifact collection consumers before claiming artifact is the sole storage owner. Retire redundant
+  adapters only after routing compatibility is proved; identifier hosts must keep resolving.
 
   **Two terminology routes answer an anonymous caller, and that stays.** `POST
   /bioportal/integrated-retrieve` and `POST /bioportal/integrated-search` resolve no user. Measured

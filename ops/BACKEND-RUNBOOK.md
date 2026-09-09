@@ -692,6 +692,44 @@ stored before IDs were introduced is exposed with a deterministic `legacy-<sha25
 this keeps it addressable without revealing the credential, and the ID is persisted on the next
 profile write. Authentication itself is unchanged and still looks up the secret `key` value.
 
+## Artifact route ownership
+
+The target architecture assigns artifact document storage, validation, serialization and revisions to
+**artifact**, and public artifact operations and access decisions to **resource**, using the existing
+Neo4j permission model. **Repo** preserves identifier dereferencing URLs; **openview** preserves
+anonymous presentation and open-artifact URLs. Neither adapter should own artifact storage or an
+independent read policy. This is a compatibility migration: preserve public hosts and stored IRIs;
+no artifact rewrite or search reindex is required.
+
+Repo's four artifact GET routes now delegate to resource, which checks global read permission and
+workspace access before asking artifact for the body. Repo authenticates the request, resolves the
+existing bare path identifier to its IRI, and forwards the caller's credentials and request identity.
+It requests JSON explicitly and preserves the response bytes, status, Content-Type, ETag and Vary.
+It does not retry downstream error responses or fall back to Mongo. Resource failures therefore fail closed; an unavailable
+resource service yields a sanitized 503. Repo no longer initializes artifact Mongo services. Its
+shared authentication infrastructure still uses Neo4j; removing artifact Mongo access does not make
+it independent of that infrastructure.
+
+**Compatibility changes for repo:** an identifier absent from the workspace now receives resource's
+404 instead of repo's former 500; error bodies follow resource's contract. An authenticated denial
+remains 403. ETag and Vary are now forwarded. The external routes remain JSON-only and keep their
+bare-identifier convention. Resource host and HTTP port must be present in repo's environment.
+
+**Deployment boundary:** the intended artifact trust model accepts authenticated internal services
+with credentials distinct from end-user keys; resource owns the user authorization decision. This
+boundary is not implemented by the repo migration. Artifact still checks login and global permissions,
+so direct reachability remains a security issue; do not treat this ownership change as closing it.
+Openview still reads Mongo and evaluates explicit/inherited openness locally. Its future resource
+path must explicitly request anonymous access regardless of credentials present on the incoming
+request, without treating workspace grants as anonymous publication.
+
+For the repo rollout, build the config library before the repo server, redeploy repo, and run both
+whole-stack smoke tiers. Also compare repo and resource reads for all four artifact types using an
+owner and another user: permitted bodies and ETags must match, private reads must remain denied,
+and missing identifiers and downstream outages must not produce successful reads. Keep the previous
+repo jar available for rollback; no database rollback accompanies this routing change. Existing
+identifier hosts must remain resolvable even if their service processes are eventually retired.
+
 ## Artifact and folder permissions
 
 Authorization for artifacts and folders uses three cumulative roles. Viewer permits reading a
