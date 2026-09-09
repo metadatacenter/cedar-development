@@ -251,8 +251,8 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
 
   Implement the internal-caller trust model recorded in the runbook's "Artifact route ownership"
   section: artifact accepts authenticated internal services using credentials distinct from end-user
-  API keys, and resource owns user authorization. Inventory every caller (including bridge and
-  background jobs), define credential distribution and rotation, preserve end-user provenance, and
+  API keys, and resource owns user authorization. Finish the caller inventory for resource and
+  background jobs, define credential distribution and rotation, preserve end-user provenance, and
   test direct-port read/list/write/delete denials for ordinary users. Retain network containment.
   Production rollout of the ownership migration depends on closing this boundary.
 
