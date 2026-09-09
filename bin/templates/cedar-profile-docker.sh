@@ -11,6 +11,11 @@ export CEDAR_DEVELOP_HOME=${CEDAR_HOME}/cedar-development
 source ${CEDAR_HOME}/set-env-external.sh
 source ${CEDAR_HOME}/set-env-internal.sh
 
+# Managed by cedarcli env artifact-key; never stored in source control.
+if [ -f "${CEDAR_HOME}/.cedar/secrets/artifact-service.sh" ]; then
+  source "${CEDAR_HOME}/.cedar/secrets/artifact-service.sh"
+fi
+
 #------------------------------------------------------
 # CEDAR network settings
 export CEDAR_NET_GATEWAY=192.168.17.1

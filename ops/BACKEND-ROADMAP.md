@@ -242,19 +242,15 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
 
 - **7. Complete the remaining backend trust-boundary, transport and credential security work.**
 
-  **Artifact-server trust boundary.** The workspace authorization model lives in Neo4j and is enforced
-  by the resource server, while the Mongo-backed artifact server checks only authentication and a
-  global permission granted to ordinary template creators. An ordinary account that can reach it
-  directly can therefore read, list, change or delete artifacts it cannot access through the resource
-  server: measured on 2026-08-13, a second user received `403` for another user's template through the
-  resource server and `200` through the artifact server.
+  **Artifact-server deployment boundary.** Complete the production rollout and verification of
+  the internal-caller authentication described in the runbook before treating direct reachability as
+  controlled. Inventory remaining deployment-specific callers rather than assuming the repository
+  inventory covers production scripts and probes.
 
-  Implement the internal-caller trust model recorded in the runbook's "Artifact route ownership"
-  section: artifact accepts authenticated internal services using credentials distinct from end-user
-  API keys, and resource owns user authorization. Finish the caller inventory for resource and
-  background jobs, define credential distribution and rotation, preserve end-user provenance, and
-  test direct-port read/list/write/delete denials for ordinary users. Retain network containment.
-  Production rollout of the ownership migration depends on closing this boundary.
+  Roll out the artifact service credential using the runbook's caller-first deployment order,
+  inventory deployment-specific direct-port scripts and health probes, and verify production
+  credential distribution and rotation. Keep the application connector private; service
+  authentication does not replace network containment or protected transport across hosts.
 
   Move openview's four artifact read routes through an explicit anonymous resource read path, using
   one implementation of explicit and inherited openness. Preserve its public URLs and JSON contract,

@@ -16,10 +16,10 @@ export const USER_SERVER = env.CEDAR_USER_BASE ?? `https://user.${HOST}`;
 export const GROUP_SERVER = env.CEDAR_GROUP_BASE ?? `https://group.${HOST}`;
 // The artifact server, addressed directly on its port rather than through `artifact.${HOST}`. The
 // resource server proxies every artifact write and read to it, so the contract suite compares the two
-// sides of that hop — but the vhost is closed. The artifact server holds no resource-level ACL and
-// authorizes on global roles alone, so anything that reaches it can read or change any artifact in
-// the installation; production and this host both answer 404 there, and only the internal address
-// remains. Reaching it at all is a property of running the suite beside the stack.
+// sides of that hop — but the vhost is closed. Artifact requires internal service authentication
+// as well as user authentication. Production and this host answer 404 on the public vhost.
+// Internal contract probes carry the installation service key; explicit
+// boundary probes omit it to prove a user credential alone cannot access storage.
 export const ARTIFACT_SERVER = env.CEDAR_ARTIFACT_BASE
   ?? `http://${env.CEDAR_ARTIFACT_SERVER_HOST ?? 'localhost'}:${env.CEDAR_ARTIFACT_HTTP_PORT ?? '9001'}`;
 export const TERMINOLOGY = env.CEDAR_TERMINOLOGY_BASE ?? `https://terminology.${HOST}`;
@@ -169,12 +169,19 @@ export function authHeader(auth) {
  */
 export async function call(auth, method, path, body, opts = {}) {
   const headers = auth ? { Authorization: authHeader(auth) } : {};
+  const internalArtifact = opts.base === ARTIFACT_SERVER && opts.artifactService !== false;
+  if (internalArtifact) {
+    const key = env.CEDAR_ARTIFACT_SERVICE_API_KEY;
+    if (!key) throw new Error('Artifact contract probes require CEDAR_ARTIFACT_SERVICE_API_KEY');
+    headers['X-CEDAR-Artifact-Service-Key'] = key;
+  }
   if (body !== undefined) headers['Content-Type'] = opts.contentType ?? 'application/json';
   if (opts.accept) headers['Accept'] = opts.accept;
   Object.assign(headers, opts.headers ?? {});
   for (const [k, v] of Object.entries(headers)) if (v === undefined) delete headers[k];
   const res = await fetch(`${opts.base ?? RESOURCE}${path}`, {
     method,
+    redirect: opts.base === ARTIFACT_SERVER ? 'manual' : 'follow',
     headers,
     body: body === undefined ? undefined
         : (typeof body === 'string' ? body : JSON.stringify(body)),

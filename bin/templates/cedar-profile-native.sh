@@ -38,6 +38,11 @@ export CEDAR_NET_SUBNET=127.0.0.0
 source ${CEDAR_HOME}/set-env-external.sh
 source ${CEDAR_HOME}/set-env-internal.sh
 
+# Managed by cedarcli env artifact-key; never stored in source control.
+if [ -f "${CEDAR_HOME}/.cedar/secrets/artifact-service.sh" ]; then
+  source "${CEDAR_HOME}/.cedar/secrets/artifact-service.sh"
+fi
+
 #------------------------------------------------------
 # CEDAR generic environment variables
 source ${CEDAR_DEVELOP_HOME}/bin/util/set-env-generic.sh

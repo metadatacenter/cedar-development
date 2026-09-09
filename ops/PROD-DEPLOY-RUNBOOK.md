@@ -103,6 +103,50 @@ gocedar
 test "${CEDAR_KEYCLOAK_ALLOW_INSECURE_TLS:-false}" = false
 ```
 
+### Provision the artifact service key before the backend deployment
+
+On the production application host, in the same `cedar` shell used above, run:
+
+```bash
+cedarcli prod provision-artifact-key
+```
+
+This command creates `$CEDAR_HOME/.cedar/secrets/artifact-service.sh` with a random service key,
+readable and writable only by its owner (0600). Run it as the `cedar` account that runs the services,
+not as root. Running it again on the next release keeps the existing key. It prints the file path
+and deployment instructions, never the key. It requires native mode with the server profile and
+refuses to create a competing file when an external provider already supplies the key.
+
+For the application-host layout in this runbook, **there is no distribution step to perform**:
+artifact, resource and worker run under the same CEDAR installation. On their next start, the native
+profile reads this one file and the launcher passes the key to those three Java processes. Other
+services and frontends do not receive it. Do not paste a key into `set-env-internal.sh`, copy the
+development machine's file onto production, or enter it in a browser. The production command only
+prepares the file; it does not restart services or change running requests.
+
+Continue the full stopped-stack deployment below with all upgraded binaries. For a first **rolling**
+deployment instead, build the changed libraries and services, then restart upgraded callers before
+the enforcing artifact server:
+
+```bash
+cedarcli native restart bridge
+cedarcli native restart resource
+cedarcli native restart worker
+cedarcli native restart artifact
+cedarcli native status
+```
+
+Complete the deployment acceptance checks below. Inventory scripts that call artifact directly
+before enabling enforcement: ordinary clients must use resource; direct artifact calls without the
+service key now receive 401. This credential introduces no database migration or user API-key change.
+
+If artifact, resource and worker are actually split across application hosts, this local command
+does **not** copy secrets over SSH. Supply the same key to each host through the deployment's secret
+provider; do not run independent initialization on every host. The separate log database host needs
+no artifact key. Later rotation uses `cedarcli env artifact-key rotate`, artifact first, then resource
+and worker, followed by verification and `cedarcli env artifact-key retire` plus a final artifact
+restart; see [the rotation and rollback procedure](BACKEND-RUNBOOK.md#deploying-and-rotating-the-artifact-service-key).
+
 ### 4 · Build (Java still running — keep the downtime window short)
 ```bash
 cedarcli check versions        # every repo reports the expected version and any intended modifier
@@ -221,6 +265,7 @@ service nginx start
 |---------|--------------|
 | `gocedar` / `goeditor` | cd to `$CEDAR_HOME` / to the template-editor frontend (profile aliases). |
 | `cedarcli check versions` | Verifies every repo reports the expected version (incl. the modifier). |
+| `cedarcli prod provision-artifact-key` | Creates or reuses the private service-key file on the native production application host; the launcher supplies it to artifact, resource and worker on their next start. Does not restart services. |
 | `cedarcli dev copy-keycloak-listener` | Copies `cedar-keycloak-event-listener.jar` into Keycloak's `providers/`, then runs `kc.sh build` so Keycloak picks up the provider. |
 | `cedarcli prod configure-frontends` | `sed`-rewrites `window.cedarDomain` and the content host in the active OpenView, Bridging, and Monitoring static `index.html` files to the production `CEDAR_HOST`. |
 | `propagate-cee-release.mjs --check` | Proves all seven CEE manifests and lockfiles—including Workspace—pin the exact release from the correct registry. |
