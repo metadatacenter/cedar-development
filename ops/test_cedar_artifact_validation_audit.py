@@ -524,3 +524,44 @@ class ConstraintShapeRuleTest(unittest.TestCase):
         found = rules(self.constrained("ontologies", {"sourceUri": "https://old/DOID", "acronym": "DOID"}))
         self.assertIn("constraint-source-uri-legacy", found)
         self.assertIn("constraint-iri-absent", found)
+
+
+class ApiKeyGuardTest(unittest.TestCase):
+    """An API key travels in an Authorization header, which HTTP encodes as Latin-1.
+
+    A key carrying anything outside that fails on the first request as a UnicodeEncodeError naming
+    neither the key nor the header, which is how a run can end having done nothing at all.
+    """
+
+    class Parser:
+        def error(self, message):
+            raise SystemExit(message)
+
+    def resolve(self, key):
+        import os
+        previous = os.environ.get("CEDAR_API_KEY")
+        os.environ["CEDAR_API_KEY"] = key
+        try:
+            return AUDIT.rest.resolve_api_key(
+                AUDIT.argparse.Namespace(api_key_file=None), self.Parser())
+        finally:
+            if previous is None:
+                os.environ.pop("CEDAR_API_KEY", None)
+            else:
+                os.environ["CEDAR_API_KEY"] = previous
+
+    def test_an_ordinary_key_passes(self):
+        self.assertEqual(self.resolve("apiKey-0123456789abcdef"), "apiKey-0123456789abcdef")
+
+    def test_a_key_carrying_a_character_the_header_cannot_hold_is_refused_up_front(self):
+        for key, label in (("abc’def", "curly quote"), ("abc—def", "em dash"),
+                           ("abc…def", "ellipsis")):
+            with self.subTest(label=label):
+                with self.assertRaises(SystemExit) as caught:
+                    self.resolve(key)
+                self.assertIn("cannot go in an HTTP header", str(caught.exception))
+                self.assertIn("position 3", str(caught.exception))
+
+    def test_a_latin1_character_is_left_alone_because_the_header_can_hold_it(self):
+        # It is very likely still a wrong key, but the server says so with a 401, which is legible.
+        self.assertEqual(self.resolve("abc def"), "abc def")

@@ -610,6 +610,15 @@ def resolve_api_key(arguments: argparse.Namespace, parser: argparse.ArgumentPars
         parser.error("set CEDAR_API_KEY, use --api-key-file, or run interactively to be prompted")
     if "\n" in key or "\r" in key:
         parser.error("API key must be one line")
+    # The key travels in an Authorization header, which HTTP encodes as Latin-1. A key pasted with a
+    # curly quote or a non-breaking space fails there instead, on the first request, as an opaque
+    # UnicodeEncodeError naming neither the key nor the header.
+    try:
+        key.encode("latin-1")
+    except UnicodeEncodeError as error:
+        parser.error("API key holds a character that cannot go in an HTTP header "
+                     f"(position {error.start}); a key copied out of a document can pick up a curly "
+                     "quote or a dash the keyboard never typed")
     return key
 
 
