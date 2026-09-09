@@ -289,13 +289,24 @@ store, or a REST client of CED's own.
 
 ### 16. Publish, and make a new version
 
-`bibo:status`, `pav:version`, `pav:derivedFrom` and `pav:previousVersion` are the
-lifecycle the artifact server enforces. CED writes a fixed `0.0.1` draft, and
-writes the same fixed draft status on every field. Provenance — who created an
-artifact and when, who last modified it — is part of the same item and is written
-nowhere today.
+Implement the artifact server's lifecycle for `bibo:status`, `pav:version`,
+`pav:derivedFrom` and `pav:previousVersion`. Define creation and update provenance
+for editable drafts: who created an artifact and when, and who last modified it.
+Coordinate version allocation and publish operations with the embedding host.
 
-### 17. Validate before saving
+### 17. Edit published fields through an explicit draft workflow
+
+Define an explicit “Edit as draft” action for a published field, coordinated with
+its embedding host and the artifact server. Decide whether that action creates a
+new field identity or a new version of the existing field, and how the template
+replaces its reference. Carry forward provenance and source/version links; assign
+draft status and a version according to the server's lifecycle rules.
+
+Keep the published definition immutable. Cover permission failures, cancellation,
+saving the draft and publishing it, with tests proving that none of those paths
+silently rewrites the source published field.
+
+### 18. Validate before saving
 
 The schema server validates a template and returns what is wrong with it. Nothing
 in CED asks. The model library refuses to build some invalid artifacts, which
@@ -303,7 +314,7 @@ covers less ground than the validator and is not the same answer.
 
 ## The Embedding Contract
 
-### 18. Settle and declare the rest of the contract
+### 19. Settle and declare the rest of the contract
 
 `CedConfig` currently names terminology and bridge endpoints. A host embedding a designer will want at least a
 read-only mode, a language, and somewhere to say which field types to offer.
@@ -316,7 +327,7 @@ which one wins where they disagree. What each profile contains is settled with
 the profiles, not here. Every key added needs the conformance test that already
 asserts the contract and the implementation cannot drift apart.
 
-### 19. Publish the package
+### 20. Publish the package
 
 Nothing is on either channel. The staging and the channel rule are in place, so
 this is a decision rather than work: a dev snapshot to Nexus lets the Workbench
@@ -324,7 +335,7 @@ consume CED before it is finished.
 
 ## Structure Beyond a Flat Template
 
-### 20. Give the field library somewhere to keep things
+### 21. Give the field library somewhere to keep things
 
 An author can define a field type of their own — a name, an icon, one of the
 built-in types underneath, a placeholder and a list of validation rules — keep it
@@ -340,7 +351,7 @@ permissions, which is what lets reuse outlive the tab it was created in. Whether
 a saved field becomes one of those, or stays local to the browser and is stored
 there, is the decision to make first.
 
-### 21. Template elements
+### 22. Template elements
 
 Elements are the Modular profile, and they are deferred by decision until fields
 work properly.
@@ -365,11 +376,11 @@ template that contains elements renders them rather than dropping them.
 
 ## Quality
 
-### 22. Keyboard and screen-reader access
+### 23. Keyboard and screen-reader access
 
 Untested and unclaimed. The picker has thought about this and CED has not.
 
-### 23. A corpus test
+### 24. A corpus test
 
 CEE checks itself against 37 real templates in both serializations. CED has no
 equivalent — nothing proves it can open the templates production already holds,
