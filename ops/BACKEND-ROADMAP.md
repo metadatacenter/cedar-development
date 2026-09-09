@@ -13,7 +13,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
 
 ## Next
 
-### Features
+### Infrastructure
 
 - **1. Rename the legacy role relationships in production Neo4j.** The application currently
   interprets `CANREAD` as Viewer and `CANWRITE` as Manager, so the new permission model can be
@@ -38,8 +38,6 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   representative direct, group and inherited access paths for artifacts, folders and categories.
   Remove the compatibility interpretation of `CANREAD`, `CANWRITE`, `CANATTACHCATEGORY` and
   `CANWRITECATEGORY` only after every deployed environment has been patched and verified.
-
-### Infrastructure
 
 - **2. Protect `main` in every repository, and give the release an identity of its own.** `main` is
   unprotected in all forty-four repositories, so a commit can land there without ever reaching a
@@ -551,30 +549,23 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   Done when each class of outbound call takes its timeouts from configuration, the request log carries
   durations, the compensating write is durable, and the remaining clients read the same settings.
 
-- **13. Make native bring-up prove a service runs, and make one already-running layer not stop the
-  rest.** `cedarcli native start` reports what the launcher accepted rather than what the stack ends
-  up running, and the gap swallowed a whole-stack outage on 2026-09-02: every application exited in
-  milliseconds for want of `CEDAR_PROFILE`, launchd's keepalive respawned each one, and the CLI
-  printed `started <name> (pid N)` for all twenty-two because a PID existed each time it looked. The
-  launcher passes that environment through today, rejects a service that dies at once, refuses a
-  `JAVA_HOME` that is not a Java 17, and covers all three in tests. Two things remain.
+- **13. Make native bring-up prove a service runs.** `cedarcli native start` reports what the
+  launcher accepted rather than what the stack ends up running, and the gap swallowed a whole-stack
+  outage on 2026-09-02: every application exited in milliseconds for want of `CEDAR_PROFILE`,
+  launchd's keepalive respawned each one, and the CLI printed `started <name> (pid N)` for all
+  twenty-two because a PID existed each time it looked. The launcher passes that environment through
+  today, rejects a service that dies at once, refuses a `JAVA_HOME` that is not a Java 17, and covers
+  all three in tests.
 
-  Confirm a service is serving, not merely alive. The survival check waits half a second and asks
-  whether the process still exists, which catches the failures that land before a JVM starts and
-  none after that. A microservice that boots, fails to reach Neo4j or Mongo, and exits after ten
-  seconds is still reported as started. `cedarcli native health` already knows how to judge this and
-  exits non-zero unless every managed application is healthy, so let `start` end by waiting for the
-  services it just launched to pass that same gate, bounded by a timeout, and report the ones that
-  never arrive along with the last lines of their logs.
+  What remains is to confirm a service is serving, not merely alive. The survival check waits half a
+  second and asks whether the process still exists, which catches the failures that land before a JVM
+  starts and none after that. A microservice that boots, fails to reach Neo4j or Mongo, and exits
+  after ten seconds is still reported as started. `cedarcli native health` already knows how to judge
+  this and exits non-zero unless every managed application is healthy, so let `start` end by waiting
+  for the services it just launched to pass that same gate, bounded by a timeout, and report the ones
+  that never arrive along with the last lines of their logs.
 
-  Let `start all` reach the applications when infrastructure is already up. It runs infrastructure,
-  microservices and frontends in order, and a layer that is already running fails its ports with
-  `Address already in use` and halts the run, so the applications never start and the operator is
-  left to run the two remaining layers by hand. Treat an already-listening infrastructure port as
-  the satisfied precondition it is.
-
-  Done when `start` reports a service only once it is healthy or names why it is not, and `start
-  all` completes against running infrastructure.
+  Done when `start` reports a service only once it is healthy or names why it is not.
 
 - **14. Let the artifact server own the uniqueness of `@id`.** No two documents in an artifact
   collection may share an `@id`. The server relies on a unique index on that field to enforce it. A
