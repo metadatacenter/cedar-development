@@ -430,3 +430,97 @@ class RecheckSelectionTest(unittest.TestCase):
         refs = AUDIT.refs_from_named_artifacts([first, second], None, 1, parser=None)
         self.assertEqual([r.artifact_id for r in refs], ["t1"])
         first.unlink(); second.unlink()
+
+
+def temporal_field(granularity=None, temporal_type=None, name="When"):
+    node = field_definition(name, "temporal")
+    if granularity is not None:
+        node["_ui"]["temporalGranularity"] = granularity
+    if temporal_type is not None:
+        node["_valueConstraints"]["temporalType"] = temporal_type
+    return node
+
+
+class TemporalTypeRuleTest(unittest.TestCase):
+    """A temporal field with no temporalType is a slot nobody can fill, and nothing refuses it."""
+
+    def test_a_day_or_coarser_granularity_settles_the_type(self):
+        for granularity in ("year", "month", "day"):
+            with self.subTest(granularity=granularity):
+                found = rules(template({"When": temporal_field(granularity)}))
+                self.assertIn("temporal-type-absent", found)
+                self.assertEqual(found["temporal-type-absent"][0].value,
+                                 {"granularity": granularity, "settledBy": "xsd:date"})
+
+    def test_a_sub_day_granularity_leaves_it_to_the_stored_values(self):
+        for granularity in ("hour", "minute", "second", "decimalSecond"):
+            with self.subTest(granularity=granularity):
+                found = rules(template({"When": temporal_field(granularity)}))
+                self.assertIn("temporal-type-unsettled", found)
+                self.assertIsNone(found["temporal-type-unsettled"][0].value["settledBy"])
+
+    def test_an_absent_granularity_is_unsettled_too(self):
+        found = rules(template({"When": temporal_field()}))
+        self.assertIn("temporal-type-unsettled", found)
+
+    def test_a_field_that_declares_its_type_is_not_reported(self):
+        found = rules(template({"When": temporal_field("day", "xsd:date")}))
+        self.assertNotIn("temporal-type-absent", found)
+        self.assertNotIn("temporal-type-unsettled", found)
+
+    def test_only_a_temporal_field_is_examined(self):
+        found = rules(template({"Name": field_definition("Name", "textfield")}))
+        self.assertNotIn("temporal-type-absent", found)
+        self.assertNotIn("temporal-type-unsettled", found)
+
+    def test_the_path_names_the_missing_key(self):
+        found = rules(template({"When": temporal_field("day")}))
+        self.assertEqual(found["temporal-type-absent"][0].path,
+                         "/properties/When/_valueConstraints/temporalType")
+
+
+class ConstraintShapeRuleTest(unittest.TestCase):
+    """Coverage of the versioned constraint shape, which is self-description rather than breakage."""
+
+    def constrained(self, key, entry):
+        child = field_definition("Disease", "controlled-term")
+        child["_valueConstraints"][key] = [entry]
+        return template({"Disease": child})
+
+    def test_a_legacy_source_uri_is_reported(self):
+        found = rules(self.constrained("ontologies", {"sourceUri": "https://old/DOID", "acronym": "DOID"}))
+        self.assertEqual([c.path for c in found["constraint-source-uri-legacy"]],
+                         ["/properties/Disease/_valueConstraints/ontologies/0/sourceUri"])
+
+    def test_a_missing_canonical_iri_is_reported_against_its_acronym(self):
+        found = rules(self.constrained("ontologies", {"acronym": "DOID", "name": "Disease"}))
+        self.assertEqual(found["constraint-iri-absent"][0].value, "DOID")
+
+    def test_an_entry_carrying_a_canonical_iri_is_not_reported(self):
+        found = rules(self.constrained("ontologies",
+                                       {"acronym": "DOID", "iri": "http://purl.obolibrary.org/obo/doid.owl"}))
+        self.assertNotIn("constraint-iri-absent", found)
+        self.assertNotIn("constraint-acronym-underivable", found)
+
+    def test_an_acronym_is_taken_from_the_legacy_display_string(self):
+        for source, acronym in (("Human Disease Ontology (DOID)", "DOID"), ("DOID", "DOID")):
+            with self.subTest(source=source):
+                found = rules(self.constrained("classes", {"source": source}))
+                self.assertEqual(found["constraint-iri-absent"][0].value, acronym)
+
+    def test_a_class_naming_no_acronym_cannot_be_looked_up(self):
+        found = rules(self.constrained("classes", {"source": "undefined"}))
+        self.assertEqual(found["constraint-acronym-underivable"][0].value,
+                         {"kind": "classes", "source": "undefined"})
+
+    def test_every_constraint_kind_is_examined(self):
+        for key in ("ontologies", "valueSets", "classes", "branches"):
+            with self.subTest(key=key):
+                found = rules(self.constrained(key, {"acronym": "DOID"}))
+                self.assertTrue(found["constraint-iri-absent"][0].path.startswith(
+                    f"/properties/Disease/_valueConstraints/{key}/0"))
+
+    def test_both_shapes_can_be_reported_on_one_entry(self):
+        found = rules(self.constrained("ontologies", {"sourceUri": "https://old/DOID", "acronym": "DOID"}))
+        self.assertIn("constraint-source-uri-legacy", found)
+        self.assertIn("constraint-iri-absent", found)
