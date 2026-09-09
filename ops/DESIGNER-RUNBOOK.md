@@ -147,8 +147,8 @@ address compiled into it.
 
 ## Running It With Its Siblings
 
-Two of the designer's surfaces are other web components the host loads, and
-neither is bundled: a field's constraint is chosen with
+The designer uses sibling web components the host loads, and none is bundled.
+A field's constraint is chosen with
 [`<cedar-term-picker>`](VERSIONING-RUNBOOK.md), and Preview renders the template
 with [`<cedar-embeddable-editor>`](CEE-RUNBOOK.md), the same renderer that will
 show the form to whoever fills it in.
@@ -177,6 +177,21 @@ sibling that has not been built is named and skipped rather than failing the
 start, and the copies are the neighbouring repositories' build output rather than
 this one's, so they are not committed. The host names a terminology server on
 `localhost:9004` for the reason below.
+
+Text fields use `<cedar-embeddable-field>` from that same CEE bundle to edit their
+default value. Choose **semantic** in Preferences to expose Default Value. Editing
+text defaults requires a CEE bundle that registers CEF. Until CEF loads,
+the default editor is unavailable and existing defaults are preserved.
+Defaults are written through the model library and restored when a template opens;
+clearing the control removes the default. The control stays mounted while typing.
+Other field types retain their existing default controls.
+
+The browser suite tests the CEF contract with a stub by default. To exercise the same
+text-default tests against a freshly built sibling bundle, after `npm run dist`:
+
+```shell
+CEF_BUNDLE="$PWD/../cedar-embeddable-editor/visual/public/cedar-embeddable-editor.js" npm --prefix browser test -- tests/text-default.spec.ts
+```
 
 The preview asks CEE for a read-only form with no instance behind it, which CEE
 renders as a statement of what each field will accept rather than as an empty

@@ -109,20 +109,14 @@ takes, so the card can offer the control that acquires it and no box at all on
 Attribute Value or the static types. This is the precondition for the default
 value in every per-type item.
 
-The control to offer is `<cedar-embeddable-field>`, which CEE registers beside the
-editor. It takes a field artifact — which `buildField` already produces — renders the
+Extend `<cedar-embeddable-field>` integration to the remaining field types. CEE
+registers it beside the editor. It takes a field artifact, written by `fieldToJson`, and renders the
 widget the editor would render for it, and reports the value in the same shapes the
 model library's setters take. So a Number field gets a bounded number box, a date
 gets the date picker at its own granularity, and a controlled term gets the term
 lookup, and none of the five values has to be parsed back out of a string. It is
 guarded the way `<cedar-term-picker>` is: `customElements.get` decides whether the
 box is offered.
-
-That guard is the thing to settle with it. Preview is an enhancement a host may
-decline, and a default value is not — a designer whose page has not loaded CEE would
-have no way to collect one. Either CED's embedding contract requires CEE's script, or
-the card falls back to a plain text box on the types whose default is a literal and
-offers none on the rest.
 
 Reading is lossy in the same place. `toDesignerTemplate` keeps a default only
 when it is already a string, so opening a template drops a numeric default and a
