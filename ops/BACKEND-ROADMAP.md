@@ -254,10 +254,10 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
 
   Roll out resource's anonymous artifact reads before the OpenView proxy, then verify the public
   URLs, explicit and inherited openness, revocation, ignored user credentials and dependency failures.
-  Measure the extra hop on the deployed topology. Move monitor's document reports and
-  value-recommender's association-rule input off direct artifact collection access before claiming
-  artifact is the sole storage owner. Retire redundant adapters only after routing compatibility is
-  proved; identifier hosts must keep resolving.
+  Measure the extra hop on the deployed topology. Move monitor's document reports off direct
+  artifact collection access. Value-recommender is excluded from this migration because it is
+  scheduled for retirement. Retire redundant adapters only after routing compatibility is proved;
+  identifier hosts must keep resolving.
 
   **Two terminology routes answer an anonymous caller, and that stays.** `POST
   /bioportal/integrated-retrieve` and `POST /bioportal/integrated-search` resolve no user. Measured

@@ -749,8 +749,10 @@ redeploy OpenView. Existing public OpenView URLs and successful JSON bodies rema
 Errors use resource's common error response; identifiers in those errors are resolved IRIs, and
 an unavailable resource hop returns a sanitized 503. Rolling OpenView
 back requires its old configuration and document-store connectivity; no stored artifacts need
-restoring. Monitor's document reports and value-recommender's association-rule input still access
-artifact collections directly and must be addressed before claiming sole storage ownership.
+restoring. Monitor's document reports still access artifact collections directly and remain in
+scope for this migration. Value-recommender's association-rule input also reads those collections,
+but is an accepted temporary exception pending its planned retirement; it will not be migrated.
+Artifact is therefore not yet the sole collection reader.
 
 A local warm-loopback measurement on 2026-09-09 alternated 25 reads through each path after five
 warmup pairs. Resource's anonymous endpoint measured median 25.18 ms / p95 34.88 ms; OpenView measured
