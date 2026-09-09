@@ -723,6 +723,24 @@ Openview still reads Mongo and evaluates explicit/inherited openness locally. It
 path must explicitly request anonymous access regardless of credentials present on the incoming
 request, without treating workspace grants as anonymous publication.
 
+Bridge's DOI workflow reads both the source artifact and the DataCite template through resource,
+and sends instance validation through resource's existing validation endpoint. These calls preserve
+the incoming Authorization and request identity headers; validation does not select a stored user
+API key. Resource denials and missing documents stop the workflow before DOI minting, and a failed
+HTTP response is never interpreted as an artifact or validation verdict. Bridge still checks DOI
+eligibility (edit capability, openness and template publication). It needs resource host/port but no
+artifact host/port, and must not receive artifact's future internal caller credential. Build config
+before bridge, redeploy bridge, and run both smoke tiers; the backend-free bridge suite also checks
+these routes against a resource HTTP stub without contacting DataCite. Before rollout, verify that
+the configured DataCite template is present in the workspace graph and readable by DOI users: a
+Mongo-only template or one they cannot read now produces a 404 or 403 instead of bypassing the ACL.
+
+The remaining direct HTTP callers are resource's CRUD, validation, annotation, copy and deletion
+completion paths, plus the shared inclusion-subgraph, extraction and instance-clone code used by
+resource/worker jobs. Before enabling artifact's service credential, cover each of these paths and
+its end-user provenance, including durable deletion and batch clones. Openview's current direct
+Mongo reads are a separate storage-access path and will not be closed by an HTTP filter.
+
 For the repo rollout, build the config library before the repo server, redeploy repo, and run both
 whole-stack smoke tiers. Also compare repo and resource reads for all four artifact types using an
 owner and another user: permitted bodies and ETags must match, private reads must remain denied,
