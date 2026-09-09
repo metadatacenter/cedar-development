@@ -178,6 +178,17 @@ start, and the copies are the neighbouring repositories' build output rather tha
 this one's, so they are not committed. The host names a terminology server on
 `localhost:9004` for the reason below.
 
+Reuse `<cedar-embeddable-field>` (CEF) for field rendering and value acquisition
+whenever its public API supports the workflow. This applies to editable values,
+defaults, and read-only field specifications. Prefer extending a missing CEF
+capability in CEE over duplicating its rendering or input controls in CED. Keep
+authoring commands such as Edit alongside the component, and keep serialization
+in the TypeScript model library.
+
+CEF's `readOnlyMode: true` renders a supplied value, or the field's accepted-value
+specification when `value` is `{ kind: 'none' }`. CED uses this for the compact
+controlled-term summary; the term picker remains the constraint authoring surface.
+
 All default-capable fields use `<cedar-embeddable-field>` from the same CEE bundle.
 Choose **semantic** in Preferences to expose Default Value. CED uses the current
 model snapshot, `1.0.8-dev.20260909.b9dae41`, for typed defaults and JSON/YAML
