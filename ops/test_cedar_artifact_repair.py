@@ -1014,3 +1014,57 @@ class DeriveTitleTest(unittest.TestCase):
         self.assertIsNone(REPAIR.only_derived_title(doc, after))
         after["title"] = "something else"
         self.assertEqual(REPAIR.only_derived_title(doc, after), "/title")
+
+
+class EmptyTargetExplanationTest(unittest.TestCase):
+    """A records file older than a rule names nothing it measures, which looks exactly like a clean
+    deployment. The two are worth telling apart, so the refusal says which rules the file knows."""
+
+    def records(self, rows):
+        handle = tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False, encoding="utf-8")
+        for row in rows:
+            handle.write(json.dumps(row) + "\n")
+        handle.close()
+        return pathlib.Path(handle.name)
+
+    def test_it_names_the_conditions_the_file_does_measure(self):
+        path = self.records([
+            {"artifactType": "template", "artifactId": "t1", "conditionRules": {"title-not-canonical": 1}},
+            {"artifactType": "element", "artifactId": "e1", "conditionRules": {"ui-order-missing-child": 2}},
+        ])
+        errors = []
+
+        class Parser:
+            def error(self, message):
+                errors.append(message)
+                raise SystemExit(message)
+
+        with self.assertRaises(SystemExit):
+            REPAIR.targets_from_records(path, ["static-field-required"], [], Parser())
+        self.assertIn("title-not-canonical", errors[0])
+        self.assertIn("ui-order-missing-child", errors[0])
+        self.assertIn("predate the rule", errors[0])
+        path.unlink()
+
+    def test_a_file_recording_no_conditions_says_so_instead(self):
+        path = self.records([{"artifactType": "template", "artifactId": "t1"}])
+        errors = []
+
+        class Parser:
+            def error(self, message):
+                errors.append(message)
+                raise SystemExit(message)
+
+        with self.assertRaises(SystemExit):
+            REPAIR.targets_from_records(path, ["static-field-required"], [], Parser())
+        self.assertIn("records no conditions at all", errors[0])
+        path.unlink()
+
+    def test_the_sample_reads_only_the_opening_lines(self):
+        rows = [{"artifactType": "template", "artifactId": f"t{i}", "conditionRules": {"early": 1}}
+                for i in range(3)]
+        rows.append({"artifactType": "template", "artifactId": "late", "conditionRules": {"late": 1}})
+        path = self.records(rows)
+        self.assertEqual(REPAIR.conditions_named_by(path, sample=3), ["early"])
+        self.assertEqual(REPAIR.conditions_named_by(path), ["early", "late"])
+        path.unlink()

@@ -1088,6 +1088,27 @@ class RepairClient(rest.GetOnlyClient):
 # --------------------------------------------------------------------------------------------------
 
 
+def conditions_named_by(path: Path, sample: int = 5000) -> list[str]:
+    """The conditions a records file measures, from its opening lines.
+
+    Only the error path asks, so the cost is paid where the run is ending anyway, and a sample is
+    enough to say which rules the file knows about.
+    """
+    found: set[str] = set()
+    try:
+        with path.open(encoding="utf-8") as stream:
+            for number, line in enumerate(stream):
+                if number >= sample:
+                    break
+                try:
+                    found.update(json.loads(line).get("conditionRules") or {})
+                except (ValueError, AttributeError):
+                    continue
+    except OSError:
+        return []
+    return sorted(found)
+
+
 def targets_from_records(path: Path, conditions: list[str], patterns: list[str],
                          parser: argparse.ArgumentParser) -> list[rest.ArtifactRef]:
     """Every artifact the audit found carrying one of these conditions, or failing in one of these ways.
@@ -1121,8 +1142,15 @@ def targets_from_records(path: Path, conditions: list[str], patterns: list[str],
     except (OSError, ValueError) as error:
         parser.error(f"cannot read --from-records {path}: {error}")
     if not refs:
-        parser.error(f"no artifact in {path} carries any of {sorted(wanted)}"
-                     + (f" or fails in the way {arguments_repair_names(patterns)} repairs" if patterns else ""))
+        # A records file written before a rule existed names nothing it measures, which looks exactly
+        # like a clean deployment. Say so, since the two are worth telling apart.
+        seen = conditions_named_by(path)
+        parser.error(
+            f"no artifact in {path} carries any of {sorted(wanted)}"
+            + (f" or fails in the way {arguments_repair_names(patterns)} repairs" if patterns else "")
+            + (f"; that file measures {seen}, so it may predate the rule this repair selects on, in "
+               "which case a fresh audit run is what is missing rather than the defect"
+               if seen else "; that file records no conditions at all"))
     return refs
 
 
