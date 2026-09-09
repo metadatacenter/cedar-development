@@ -105,22 +105,37 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   disagree, the Docker roadmap governs, since it sequences the remaining work.
 
 - **3. Make database schema evolution an explicit, privileged release operation.** Application
-  startup can change CEDAR's relational schemas today: monitor, worker and messaging all ship
-  `hibernate.hbm2ddl.auto=update`, and monitor and worker both register the logging entities against
-  the same log database. A mapping change can therefore become unreviewed DDL before either service
-  binds its connector, with two processes attempting it concurrently. The tests do not exercise that
-  risk: they create a fresh empty MySQL or embedded MariaDB schema, while the production runbook says
-  to run a release's migration set without providing a versioned mechanism or a gate that requires
-  one.
+  startup can change CEDAR's relational schemas today. Monitor, worker and messaging each carry a
+  byte-identical `hibernate.properties` under `src/main/resources` that sets
+  `hibernate.hbm2ddl.auto=update`, nothing in `cedar-main.yml` overrides it, and monitor and worker
+  both register the logging entities against the same log database. A mapping change can therefore
+  become unreviewed DDL before either service binds its connector, with two processes attempting it
+  concurrently. `update` only ever adds. A removed or retyped field leaves its column behind, a rename
+  creates a second column, and a local log database already holds `hibernate_sequence` beside
+  `log_request_SEQ` and `log_cypher_SEQ`, the generator tables of two Hibernate generations. The
+  tests do not exercise that risk: they create a fresh empty MySQL or embedded MariaDB schema and
+  rely on `update` to build it. Schema changes reach production as SQL run by hand. The production
+  runbook says to run a release's migration set, and the one such set that exists,
+  `cedar-logging-operations-library/db-migrations/2026-07-29-log-capture-phase1.sql`, was written
+  because `update` adds columns but not reliably their indexes. There is no versioned mechanism and
+  no gate that requires one.
 
   Remove schema-mutation authority from the applications at both layers. Every non-test runtime must
   use Hibernate `validate` (or no schema action where validation is unsuitable), while disposable
-  test databases opt into `create-drop` explicitly. Production application accounts must have no
+  test databases opt into `create-drop` explicitly. The setting is already reachable without a code
+  change. Dropwizard copies every entry of a database's `properties` map in `cedar-main.yml` into the
+  Hibernate configuration, and an explicit property beats the classpath default, so one
+  `hibernate.hbm2ddl.auto` entry per database block, driven by a profile variable, can pin `validate`
+  on a server profile while the development profile and the test-support library's environment
+  override keep the value the suites depend on. Changing the shipped file itself would break every
+  messaging, monitor and worker suite. Production application accounts must have no
   `ALTER`, `CREATE`, `DROP` or `INDEX` grants; a separate migration identity holds DDL authority, so a
   configuration regression fails at startup rather than rebuilding a live table.
 
-  Introduce one versioned, forward-only migration mechanism for each CEDAR-owned relational schema,
-  baseline existing installations, and make its immutable migrations part of the release. Run them
+  Introduce one versioned, forward-only migration mechanism for each CEDAR-owned relational schema.
+  `dropwizard-migrations` sits on the Dropwizard line `cedar-parent` already manages. Baseline
+  existing installations, the hand-run log-capture SQL included, and make its immutable migrations
+  part of the release. Run them
   once, under the migration identity and a migration lock, before applications start. Prefer
   expand/contract changes that remain compatible with the old and new binaries. Any large-table DDL
   must state the MySQL algorithm and lock behavior and must use an evaluated online-schema method or
@@ -542,7 +557,43 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   Done when `start` reports a service only once it is healthy or names why it is not, and `start
   all` completes against running infrastructure.
 
-- **13. Take the dependency upgrades that need code changes.** The versions that could move without
+- **13. Let the artifact server own the uniqueness of `@id`.** No two documents in an artifact
+  collection may share an `@id`. The server relies on a unique index on that field to enforce it. A
+  create is a read that finds the identifier absent followed by an insert, and
+  `GenericLDDaoMongoDB.create` answers a duplicate-key rejection with the same 412 the update path
+  gives a stale writer. Nothing in the application creates that index. The Docker image's Mongo init
+  script does, and natively the admin tool's `artifactServer-initDB` task does, which `SystemReset`
+  runs as its second step, so a store that has been reset carries it and the development workstation's
+  does. Neither `cedarcli native start` nor the backend runbook names the task, so a native store
+  that never saw it has no index. There two concurrent creates of one identifier both succeed,
+  `findWithRevision` reads only the first, and a conditional delete removes one document and leaves
+  the other unreachable through the API. The embedded Mongo the server suites run against creates
+  no index either, so no suite exercises the rejection the DAO translates. The DAO test mocks it.
+
+  Ensure the four indexes at artifact-server startup, so the invariant stops depending on a step an
+  operator remembers. Creating an index that already exists with the same options is a no-op, so a
+  deployment whose collections were provisioned pays nothing, and only a store that was never
+  provisioned builds one on first boot. On the pinned Mongo 5.0 that build keeps the collection
+  readable and writable and takes seconds to a few minutes over 400,000 documents, once. Give
+  `EmbeddedCedarMongo` the same indexes, so the suites run against the constraint the store actually
+  has, and add a resource test that inserts the same identifier twice through the real store rather
+  than through a proxied service.
+
+  **This can take production down if it is done carelessly.** A unique index cannot be built over a
+  collection that already holds two documents with the same `@id`, and a store that ever ran without
+  the index may hold exactly that. If the startup ensure treats a failed build as fatal, the first
+  release carrying it turns a latent data defect into an artifact server that refuses to boot, and
+  every retry fails the same way. Two rules follow. The ensure never stops the server: a failed build
+  is logged at error and reported through the health check, and the server keeps serving as it does
+  today. And the production deploy runbook gains a preflight, run before the release that carries the
+  ensure, which lists the indexes each of the four collections holds and counts identifiers that occur
+  more than once. Production is expected to pass both, because `artifactServer-initDB` has provisioned
+  every CEDAR store since before 2019, but the expectation is verified, not assumed. Duplicates found
+  are repaired first, with `cedar_artifact_patch.py` or by hand, and only then can a build succeed.
+  Done when a fresh, unprovisioned Mongo refuses the second insert, the suites prove it, a store with
+  duplicates still boots and reports why its index is missing, and the runbook carries the preflight.
+
+- **14. Take the dependency upgrades that need code changes.** The versions that could move without
   consequence have moved. What stayed behind stayed deliberately, and it separates into work to do,
   versions that follow something else, and versions upstream has not released.
 
@@ -593,7 +644,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   Done when each upgrade above has either landed or been recorded as refused with its reason, and
   the estate no longer carries a dependency held back only because nobody looked at it.
 
-- **14. Document the versioning model, then audit the implementation against it.** The user guide
+- **15. Document the versioning model, then audit the implementation against it.** The user guide
   says what an author sees and the YAML specification defines the keys, but no document states the
   model: which artifact kinds are versioned, what publishing freezes, how a draft succeeds a published
   version, how version numbers must order, what the three latest-version flags mean, and what deleting
@@ -602,7 +653,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   decision to make or a defect to fix. `ArtifactLifecycleMatrixTest` pins the current rules until
   then. Done when the model is published and every divergence is fixed or recorded.
 
-- **15. Give the public CEE release a CLI route.** Publishing `cedar-embeddable-editor` to npmjs is a
+- **16. Give the public CEE release a CLI route.** Publishing `cedar-embeddable-editor` to npmjs is a
   runbook of about twenty-five commands across `develop`, a pull request, `main`, the registry, a
   tag, the development-state restore and the train baseline refresh. Release 2.0.6 took an hour of
   operator attention for two minutes of gate time, and CEE has shipped four public versions in a
@@ -617,7 +668,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
 
 ## Production data
 
-- **16. Normalize production artifacts to one explicit model contract.** Production contains several
+- **17. Normalize production artifacts to one explicit model contract.** Production contains several
   legacy representations that the current model surfaces tolerate or normalize differently, so bring
   them to canonical shapes before tightening readers or introducing terminology routing across source
   systems. The permission-scoped audit found 76 inherently-multiple fields deployed as JSON objects in
@@ -697,8 +748,9 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   A request path has been able to persist a top-level annotation such as
   `_annotations: {"https://datacite.com/doi": {"@id": null}}`, and the current meta-schemas define
   the intended annotation content without applying that definition to the artifact's top-level
-  `_annotations` member. Add an audit rule that reports every annotation object carrying an explicit
-  null `@id`, with the artifact ID and JSON Pointer, before changing validation. The patch may remove
+  `_annotations` member. `cedar_artifact_validation_audit.py` reports every annotation object carrying
+  an explicit null `@id`, with the artifact ID and JSON Pointer, and says whether the null identifier
+  is the entry's whole payload; run it before changing validation. The patch may remove
   an annotation entry only when null `@id` is its sole payload, removing the `_annotations` container
   as well when that leaves it empty; an entry with any additional payload stays report-only for human
   review. Do not include `@value: null`, which is a separately supported value annotation, and never
@@ -709,8 +761,9 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
 
   Child definitions present in `properties` but absent from `_ui.order` are another such repair, and
   production contains enough of them that the model libraries cannot simply start refusing the shape.
-  Add a raw-store audit rule that distinguishes this case from the inverse drift (an order entry with no
-  property), then offer an idempotent, field-preserving rewrite that appends each omitted child key after
+  `cedar_artifact_validation_audit.py` distinguishes this case from the inverse drift (an order entry
+  with no property) over REST; add the same distinction as a raw-store rule in the patch tool, then
+  offer an idempotent, field-preserving rewrite that appends each omitted child key after
   the existing order without changing or deleting the child definition. Capture the production count and
   paths as a reviewed manifest, cover direct and nested containers, and prove a second run makes no
   changes. Only after that repair has run and a repeated audit reports zero omitted children should the
@@ -727,11 +780,12 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   stale one, so re-enabling it refuses both the artifact written against an earlier model and the
   artifact that never carried a version. Production is expected to hold some of each.
 
-  Measure the population before writing a rule for it. Neither `cedar_artifact_rest_audit.py` nor
-  `cedar_artifact_patch.py` reads the field today, so the counts do not exist: how many stored
-  artifacts declare a version older than the current one, which versions appear, and how many declare
-  none. Add the audit rule first and capture its findings as a reviewed manifest, the way the
-  object-shaped repair is checked against 31 artifacts and 76 paths.
+  Measure the population before writing a rule for it: how many stored artifacts declare a version
+  older than the current one, which versions appear, and how many declare none.
+  `cedar_artifact_validation_audit.py` reports all three, per artifact and in its summary, while
+  `cedar_artifact_patch.py` still reads nothing of the field. Run the audit against production and
+  capture its findings as a reviewed manifest, the way the object-shaped repair is checked against 31
+  artifacts and 76 paths.
 
   A version cannot be stamped on faith. `schema:schemaVersion` asserts that the artifact conforms to
   the model it names, so writing the current version into an artifact that does not conform replaces a
@@ -770,7 +824,9 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   system: a constraint authored before the field existed and one that deliberately names BioPortal are
   then indistinguishable, while routing has to honour the rule that a non-BioPortal source is never
   proxied to BioPortal. Writing the default explicitly while it still holds turns silence into evidence.
-  After the sweep, a constraint carrying no `sourceSystem` marks an artifact the patch never reached.
+  After the sweep, a constraint carrying no `sourceSystem` marks an artifact the patch never reached,
+  and `cedar_artifact_validation_audit.py` counts those constraints, so the sweep has a before and an
+  after.
 
   The serving system cannot be derived from the term IRI, which is the tempting shortcut and a wrong one.
   The 51 HuBMAP assay templates carry 504 branch constraints whose targets sit under
@@ -793,7 +849,27 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
 
 ## Later decisions
 
-- **17. A published artifact can be deleted, contradicting the docs.** The docs say a published
+- **18. Decide which request JSON objects are closed contracts, then enforce that boundary.** A
+  strict shared mapper does not by itself make CEDAR's request contract consistent: Jersey binds
+  some request DTOs, other resources convert selected subtrees by hand, and artifact endpoints
+  deliberately accept extensible JSON-LD. Applying unknown-property rejection to every inbound
+  object would therefore turn valid extension data into `400` responses.
+
+  Inventory the request body of every endpoint and classify each object boundary as either closed
+  or open. A closed command or options DTO should reject misspelled and unsupported fields. An
+  artifact document, merge-patch body, JSON-LD object, or explicitly documented extension map
+  should remain open. Record the same decision in OpenAPI: use `additionalProperties: false` only
+  for closed objects, and leave open shapes explicit rather than relying on a mapper default.
+
+  Route every closed DTO binding and manual tree conversion through the named strict mapper, remove
+  `ignoreUnknown` annotations that contradict that contract, and test unknown properties at both
+  the root and nested closed-object boundaries as `400` responses. For every open boundary, add a
+  preservation or acceptance test so later cleanup cannot tighten it accidentally. Treat any
+  endpoint that becomes stricter than its current behavior as a public API compatibility change:
+  identify its callers, document the rejected shape, and stage the change through the normal
+  release process rather than coupling it to response-reader compatibility work.
+
+- **19. A published artifact can be deleted, contradicting the docs.** The docs say a published
   artifact is permanent, but `DELETE` on one succeeds. The guard in
   `AbstractResourceServerResource.executeArtifactDelete` was briefly re-enabled and then **reverted by
   deliberate decision**: blocking deletion strands published artifacts and the folders holding them with
@@ -801,5 +877,34 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   disabled the guard on purpose. So deletability stays for now; the discrepancy with the documentation
   is the open question. Deciding it means choosing between amending the docs (published is deletable) or
   re-enabling the guard together with a supported cleanup path (e.g. an admin-only delete, or cascading
-  through folder deletion). Immutability of published content is a separate guarantee and is
-  unaffected either way — that one is enforced.
+  through folder deletion). Immutability of published content is a separate guarantee with its own
+  boundary: ordinary editing is refused, and a verbatim write is not, because that write states the
+  whole document rather than editing it and is how a defect in a published artifact's stored
+  representation is corrected. Whichever way deletability is settled, the docs have both exceptions
+  to describe.
+
+- **20. Retire the legacy aliases retained by the common error envelope.** **Production
+  consequence:** removing an alias can break a frontend or integration that still reads it. This is
+  a response-contract cleanup only: it requires no data migration, schema change or reindex.
+
+  The shared runtime envelope now gives resource-built, exception-mapped and framework-generated
+  failures one representation. It deliberately retains compatibility fields while clients move:
+  `errorMessage` aliases the canonical `message`, and the monitor log-query routes still expose
+  their former top-level `error` beside both message fields. Integrated terminology search also
+  preserves the historical `errorType: PinnedVersionUnavailable` value for its 422 response even
+  though that value predates the common `errorType` vocabulary. The symbolic `status` and numeric
+  `statusCode` are both supported fields rather than candidates for removal.
+
+  Inventory the browser applications, CLI, MCP servers and external integrations for reads of
+  `errorMessage`, top-level `error`, and `PinnedVersionUnavailable`. Move owned clients to
+  `message` and to the 422 status plus a stable common error key for the pinned-version case. Add
+  that common key before deprecating the legacy type value. Publish the deprecation and earliest
+  removal release in OpenAPI and release notes; because a server cannot observe which JSON field a
+  client reads, elapsed time alone is not evidence that removal is safe.
+
+  Keep the compatibility surface explicit and finite: contract tests should name every extension
+  emitted through `CedarResponse.extension` or `legacyErrorType`, reject new unregistered aliases,
+  and prove the canonical fields carry the same information. Remove each alias only after all owned
+  clients have moved and the compatibility window has elapsed. Done when the generic extension
+  hooks have no production call sites and the public envelope contains only its documented common
+  fields.

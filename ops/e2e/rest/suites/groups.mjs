@@ -98,6 +98,14 @@ export async function run({ user1, user2 }) {
       'the everybody group cannot be deleted');
   checkStatus(await group(user1.auth, 'GET', everybodyAt), 200, 'and it is still there afterwards');
 
+  // The everybody group holds every account in the deployment, so its roster is the user directory,
+  // each entry naming a person and their email address. Belonging to it is therefore not what
+  // authorizes reading it: an ordinary account is a member here and is still refused. This is the
+  // case that decides the whole rule, because a roster gate keyed on membership rather than
+  // administration would answer 200 here and close nothing.
+  checkStatus(await group(user2.auth, 'GET', `${everybodyAt}/users`), 403,
+      'a member of the everybody group cannot read its roster, so the user directory stays closed');
+
   // Renaming it is refused for the same structural reason as deletion: the update path rejects any
   // special group before it ever reaches an administrator check, so no one — administrator or not —
   // can rename it. The rename is still undone at once should it ever succeed, since the everybody
@@ -186,6 +194,16 @@ export async function run({ user1, user2 }) {
         'and cannot delete it');
     checkStatus(await group(user1.auth, 'GET', targetAt), 200,
         'and it is untouched afterwards');
+
+    // Reads split where writes do not. The group's own record stays readable by the outsider, since
+    // a group must be visible to be chosen as the target of a share. Its roster does not, because
+    // that names people and their email addresses.
+    checkStatus(await group(user2.auth, 'GET', targetAt), 200,
+        'an outsider can still see that the group exists, which sharing depends on');
+    checkStatus(await group(user2.auth, 'GET', `${targetAt}/users`), 403,
+        'but cannot read who is in it');
+    checkStatus(await group(user1.auth, 'GET', `${targetAt}/users`), 200,
+        'while its administrator still can');
   }
 
   return { groupId: id, groupName: renamed, everybodyId: everybody['@id'] };

@@ -28,6 +28,7 @@ cedarcli native health         # exits non-zero unless every managed application
 cedarcli git status            # working-tree state across all repos
 cedarcli check versions        # version consistency across the estate
 cedarcli check ci              # CI at every develop head a train would capture
+cedarcli test e2e              # both whole-stack smoke tiers; records the run the train and release gates require
 ```
 
 The alias sources `cedar-cli/cli.sh`, which activates the CLI's own virtualenv. When an alias is not
@@ -72,6 +73,18 @@ below have no CLI front end yet, so call them directly:
   enumerate all four artifact kinds through `/search-deep` with `--types all`; it streams JSONL
   findings and checkpoints `processed/total` every 300 artifacts. It never writes an artifact and
   never stores or prints the API key.
+- `cedar_artifact_validation_audit.py` — the same GET-only walk, with the verdict of
+  `cedar-model-validation-library` on every template, element, field and instance, each instance
+  validated against the template it names. One JVM, `cedar_validation_bridge.java`, stays up for the
+  whole pass. It also counts the legacy shapes the backend roadmap's production-data item lists and
+  splits each count by verdict, since a valid artifact may still carry one. Streams one record per
+  artifact, reports progress every 200 artifacts, resumes. `--recheck` re-validates exactly the
+  artifacts a repair run reports having written, which is how a repair is proved.
+- `cedar_artifact_repair.py` — carry out a repair the audit has measured, one `PUT ?verbatim=true` at
+  a time, so each artifact keeps its identifier, provenance, version and child identifiers. A repair
+  is a transform plus an invariant proving nothing else changed; the library validates every body
+  before it is written, the stored body is saved first, and the artifact is read back after. Reports
+  by default, writes only under `--apply`. Targets come from the audit's records.
 
 - `cedar_term_bench.py` — times the terminology server's lookup paths against whatever it is
   serving, drawing query strings from the served index so every lookup matches something. Reports
@@ -219,7 +232,9 @@ suggestion, ~30 s): `cd cedar-development/ops/e2e && npm run smoke` — details 
   did not change. Details in the runbook, "Continuous integration".
 - Suites verify logic; a **redeploy + `ops/e2e` smoke run verifies reality**. Always redeploy and
   smoke after changes to inter-service HTTP, validation, or startup wiring: real runtime bugs have
-  passed green suites.
+  passed green suites. `cedarcli test e2e` runs both smoke tiers and records the run against the
+  `develop` heads it tested. `cedarcli publish train` and `cedarcli release plan|start` refuse a
+  source no passing run covers, and no option skips that gate.
 - Full operational, build, test, and dependency-state detail lives in the runbook
   (`cedar-development/ops/BACKEND-RUNBOOK.md`).
 

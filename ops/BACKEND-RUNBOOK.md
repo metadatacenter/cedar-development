@@ -1107,8 +1107,9 @@ Two things to know before relying on it:
 
 - **`?compact=true` is read-only.** It returns the lean form — on a 23-field template, 40% of the
   full YAML and under a seventh of the JSON — by dropping provenance, version, status, and model
-  version while retaining the artifact identifier. Writing it back is rejected with a `400` naming
-  the compact form. Write the full form, or omit `id` to author minimally.
+  version while retaining the document-root artifact identifier and dropping nested artifact IDs.
+  Writing it back is rejected with a `400` naming the compact form. Write the full form, or omit
+  `id` to author minimally. Semantic IDs used as controlled-term or link values are data and remain.
 - **A template instance takes `?format=` ahead of `Accept`.** That parameter already names the
   representation (`jsonld`, `json`, `rdf-nquad`), so YAML negotiation applies only when it is absent.
 
@@ -1131,7 +1132,9 @@ the nine key/value sets. In Java run `mvn test` under Java 17; in TypeScript run
 `npm run verify:java-lock:source` and `npm run parity:yaml`. The CEE integration checks are `npm test`,
 `npm run typecheck` and `npm run test:domain` against the candidate TypeScript package.
 
-A YAML round trip is expected to be lossless. The case that historically was not is the `_ui._size`
+A full-YAML round trip is expected to be lossless. Compact YAML intentionally loses repository
+metadata and nested artifact identity, but a compact render/read/render cycle is a fixpoint. The
+case that historically was not lossless in full YAML is the `_ui._size`
 box on `static-image` and `static-youtube-video` fields: the YAML serialization carries it in the
 child's `configuration:` block, and a reader that looked only at the field level dropped it on every
 nested static field. `YamlAsymmetryProbeTest` in `cedar-artifact-library` and `YamlNegotiationTest`
@@ -1161,9 +1164,10 @@ drift in either representation fails explicitly.
 Each library also holds two properties about itself as tests, so a regression fails a build rather
 than waiting for a comparison run. Every scalar returns as the string it went in as, over a few
 thousand adversarial strings generated from a fixed seed — `YamlScalarRoundTripTest` in Java,
-`YamlScalarRoundTrip.spec.ts` in TypeScript. And the compact form reads back as the artifact it was
-written from, keeping the identifier and carrying none of the model version, version, status or
-provenance — `CompactYamlRoundTripTest` and `CompactYamlRoundTrip.spec.ts`. Reading the compact form
+`YamlScalarRoundTrip.spec.ts` in TypeScript. And the compact form reads back to a stable compact
+rendering, keeping only the root identifier and carrying none of the nested artifact identity,
+model version, version, status or provenance — `CompactYamlRoundTripTest` and
+`CompactYamlRoundTrip.spec.ts`. Reading the compact form
 has to be asked for on both sides: the ordinary reader refuses it over the absent model version, and
 a reader for it is a separate constructor, `YamlArtifactReader(true)` in Java and
 `getStrictForCompact()` in TypeScript.
@@ -1237,9 +1241,18 @@ TypeScript, while both emit the same bytes for it.
   is locked to 5.0, so the 5.0 formula carries a convention Homebrew no longer honours. Expect this
   to return after a Homebrew upgrade.
 
-  Two `mongod` processes from `~/.embedmongo` may also be running: those are embedded MongoDBs left
-  by a test run using `cedar-test-support-library`. They hold no ports and are harmless, but
-  `pkill -f '\.embedmongo.*mongod'` clears them.
+  A `mongod` whose executable is under `~/.embedmongo` belongs to an embedded test run, not the
+  native stack. An abnormally terminated test JVM can leave one behind with its ephemeral loopback
+  port still open. On macOS, a later wildcard listener can acquire that same numeric port, so a test
+  request aimed at loopback may reach the orphan instead of the intended server. Inspect and remove
+  only these test-owned processes with:
+  ```bash
+  cedarcli test status
+  cedarcli test cleanup
+  ```
+  The detector identifies the executable path and deliberately excludes the native MongoDB. Every
+  test-bearing Maven command run by `cedarcli`, including release Maven builds, refuses to start
+  while one remains and checks again after the command finishes.
 
 - **Keycloak won't start** → wrong JDK. Pin `JAVA_HOME` to 17 (see above). Symptom: `Failed to start
   caches … getSubject is supported only if a security manager is allowed`.
@@ -1516,7 +1529,9 @@ no release to be coordinated around it.
 
 The committed `swagger.json` and `swagger.yaml` in each server are the machine-readable side of the
 same contract. Maven regenerates them from the resource annotations and `src/main/swagger/openapi-base.yaml`
-during `prepare-package`; a source change and its generated documents belong in one commit. Adding an
+during `process-classes`, writing the same document into `src/main/resources` and onto the classpath,
+so the tests and the jar of a build always carry the document that build produced. A source change
+and its generated documents belong in one commit. Adding an
 OpenAPI-only `@RequestBody`, response `content`, or documentation schema does not change JAX-RS body
 binding, content negotiation, Jackson serialization, or an HTTP status. It does change regenerated
 client source: an untyped `Object` or `void` result can become a concrete return type, and a formerly
@@ -1532,6 +1547,15 @@ Artifact creation and replacement use different authorization checks even though
 `PUT /.../{id}`: an absent id requires that artifact type's `CREATE` permission, while an existing id
 requires `UPDATE`. Do not collapse this back to a route-level update check; custom roles need the
 distinction even though the default roles normally grant both permissions.
+
+Publication makes an artifact immutable to ordinary editing, and a verbatim write goes through that
+guard. The two are different operations: editing changes part of a stored document, while a verbatim
+write states the whole of it, stamping no provenance and minting no identifier, and it is how a defect
+that lives in the stored representation is corrected. A published artifact would otherwise keep such a
+defect permanently, because the only other route mints a new version to record a change nobody
+authored. The `WRITE_ARTIFACT_VERBATIM` permission is the whole gate, and the DOI guard is unchanged:
+it refuses a *changed* DOI, so a verbatim write under an unchanged one proceeds. Ordinary editing of a
+published artifact is still refused, and `TemplatesResourceWriteRejectionTest` pins all three cases.
 
 Every successful artifact create, single-artifact read and update returns a strong revision `ETag`.
 The read service derives the public content and revision from the same Mongo document, so the ETag
@@ -1613,7 +1637,10 @@ Inclusion-subgraph regeneration is a tracked single-flight worker job. An author
 `Location` header for `GET /command/regenerate-inclusion-subgraph/{jobId}`. While that job is queued
 or running, another POST returns `409 Conflict` with the active job and the same status location.
 Status records expose queued, running, succeeded and failed states, including timestamps and an
-error for failures. The latest 100 records are retained in worker memory, so a worker restart loses
+error for failures. A succeeded record also lists `unreadableArtifacts`: the templates and elements
+the artifact server answered with anything but 200 for, whose arcs the run left as they were rather
+than rewriting them from an error body. Check that list before treating a succeeded run as a
+complete rebuild. The latest 100 records are retained in worker memory, so a worker restart loses
 history and interrupts a running regeneration; resubmit after confirming the old process stopped.
 
 ## Testing CEDAR
@@ -1671,8 +1698,12 @@ shortens the clock without skipping the queue state transitions or the retry/dea
 the tests exist to cover. Blocking Redis consumers retain their one-second idle wait even in tests,
 which is what a consumer spends between claims when its queue is empty.
 
-Test servers and in-process HTTP stubs bind to port `0`, letting the OS allocate a listener that does
-not collide with the native stack or a concurrent Maven process. Redirection goes through
+Test servers and in-process HTTP stubs bind to exact `127.0.0.1:0`, letting the OS allocate the
+address and port as one listener that does not collide with the native stack or a concurrent Maven
+process. Do not use a wildcard address with port `0`: macOS can allocate the same numeric port to a
+wildcard and a loopback listener, after which a loopback request may reach the wrong process.
+Outage tests keep their allocated listener bound and fail traffic through `TcpFaultProxy`; they do
+not stop a dependency and assume its former port remains unused. Redirection goes through
 `CedarEnvironmentSource.setOverride(map)`, a process-global test override read by the whole config
 layer. `cedar-test-support-library` contributes an auto-detected JUnit extension that clears that
 override after every test class; abstract harnesses reapply their embedded-backend redirect in each
@@ -1680,9 +1711,16 @@ inherited `@BeforeAll`. This prevents one class's allocated dependency port from
 class's configuration when surefire's `reuseForks=true` shares a JVM. `CedarConfig` rebuilds whenever
 the active environment changes, and no reflective `--add-opens` environment mutation is involved.
 
+The same support library registers a JUnit launcher-session listener that explicitly stops its
+shared embedded MongoDB and MariaDB once the suite closes. The JVM shutdown hook remains a fallback
+for ordinary shutdown outside a launcher session; the next CLI preflight catches a child left by a
+crashed or forcibly killed JVM.
+
 `ops/tests/test_backend_test_port_policy.py` is the static regression guard. It rejects fixed server
-environment ports, fixed `InetSocketAddress` listeners and nonzero test connector ports across the
-backend repositories. Run it from `cedar-development` with
+environment ports, nonzero test connector ports, wildcard test connectors and wildcard port-zero
+socket allocation across the backend repositories and the shared test-support helpers. Embedded
+MariaDB port-zero builders must also carry an exact loopback bind argument. Run it from
+`cedar-development` with
 `python -m unittest ops.tests.test_backend_test_port_policy`.
 
 The suites are JUnit 5. Booted-application tests use `io.dropwizard.testing.DropwizardTestSupport`
@@ -1772,6 +1810,16 @@ a failure even when every check that did run passed. Freeze keeps the inventory 
 terminology store is absent by recording its seven checks as skipped rather than silently omitting
 them. `download` includes JSON / YAML / compact-YAML export and read-negotiation across all four
 artifact kinds.
+
+`cedarcli test e2e` runs both tiers in one command and records the run as the evidence the train
+and release preflights require. Before anything runs it reads the controller's status and refuses
+while any managed service is unhealthy, stale, or served by a process the controller does not
+manage. It then records the `develop` head of every train repository, runs `npm run smoke:rest` and
+`npm run smoke`, and writes `reports/smoke-gate/<digest>.json`, where the digest names the set of
+heads, beside a `latest.json` copy. `cedarcli publish train` and `cedarcli release plan` look up the
+record for exactly the heads they are about to ship, so a rerun against newer heads never displaces
+the record an older train still needs. The REST tier's own report is kept beside it as
+`rest-smoke-<digest>.json`.
 
 Every run writes `reports/rest-smoke.json` by default; `--report=PATH` chooses another file. The JSON
 records the selected suites, pass/fail/skip totals, duration, inventory verdict and each individual
@@ -2408,23 +2456,12 @@ cd $CEDAR_HOME/cedar-<name> && ./mvnw --batch-mode deploy --settings .m2/nexus-s
 # needs BMIR_NEXUS_USERNAME and BMIR_NEXUS_PASSWORD in the environment
 ```
 
-The extracted AngularJS frontends publish to the npm repository on Nexus, not through Maven. They
-remain outside the release during migration and are excluded from the generic frontend/all
-publish selectors. Publishing them therefore requires the explicit command and never changes a
-running environment:
-
-```bash
-cedarcli publish split-frontends --dry-run
-cedarcli publish split-frontends
-```
-
-That plan runs `npm ci` in exactly `cedar-workspace` and `cedar-template-designer`, then calls the
-staging helper that publishes immutable commit-derived prereleases without changing either working
-tree. npm cannot overwrite a `<NEXT>-SNAPSHOT` version like Maven; the published version is instead
-`<NEXT>-dev.<UTC-commit-time>.g<12-char-commit>` and carries the full source commit as `gitHead`.
-Each manifest's `publishConfig` selects the CEDAR Nexus npm repository. The command does not build a
-Docker image, edit nginx, or start a frontend. The same helper accepts all seven Docker frontend
-targets when their pinned image inputs need advancing.
+The extracted AngularJS frontends publish to the npm repository on Nexus, not through Maven.
+Workspace and Template Designer are normal platform release repositories: the release stamps their
+versions, builds them, publishes their stable packages, and verifies the downloaded Nexus tarballs.
+Build trains continue to publish immutable commit-derived development packages without changing a
+working tree. Neither artifact path deploys a running environment. The staging helper accepts all
+seven Docker frontend targets when their pinned image inputs need advancing.
 
 To see whether a repository's published snapshot is behind its source, compare the Nexus timestamp
 against the commits that touched the build:
@@ -2603,6 +2640,201 @@ claiming a stable snapshot. Against a server that serves continuations the enume
 one snapshot, so artifacts created or deleted while it runs no longer move a later page onto rows an
 earlier one already returned; a changed total is then a fact about the deployment rather than about
 the walk.
+
+## Validating every stored artifact with the library
+
+`ops/cedar_artifact_validation_audit.py` answers two questions about a deployment in one read-only
+pass. The first is whether each stored template, element, field and instance passes
+`cedar-model-validation-library`, the gate nothing enters production without; an instance is
+validated against the exact template its `schema:isBasedOn` names. The second is how many artifacts
+carry one of the legacy shapes the [backend roadmap's production-data item](./BACKEND-ROADMAP.md#production-data)
+lists. Those are shapes a valid artifact may still have, so every count is split by verdict. The
+walk is the REST audit's: the script imports `cedar_artifact_rest_audit.py` for the GET-only client,
+the `/search-deep` enumeration and its minting rules, so the two audits see the same artifact set.
+
+Validation runs in one JVM. `ops/cedar_validation_bridge.java` is launched in Java's source-file
+mode on the classpath `cedar_validate.sh classpath` resolves, keeps a bounded cache of templates so
+an instance can be checked against the template it names without the template being sent each time,
+and answers one JSON line per request. It holds no validation logic of its own; every verdict is the
+library's, and a JVM start per artifact would cost more than the network does. A verdict the library
+cannot give, because it threw, is recorded as an `error` with the exception, and a bridge that stops
+answering is killed and restarted, up to `--bridge-max-restarts` times. JDK 17 and a built library
+are required; `cedar_validate.sh` finds both.
+
+```bash
+export CEDAR_API_KEY=…
+python3 ops/cedar_artifact_validation_audit.py \
+  --server https://resource.metadatacenter.org \
+  --out production-validation.jsonl
+```
+
+All four artifact types are the default; `--types template,element` narrows the pass and `--limit`
+makes a labelled sample. `--fetch-workers` GETs run ahead of validation, four by default. The key
+comes from `CEDAR_API_KEY`, a one-line `--api-key-file`, or a hidden prompt, and is never written.
+
+`--recheck <file>` re-validates exactly the artifacts a JSONL names, and is how a repair is proved.
+Both this audit and `cedar_artifact_repair.py` write one object per artifact carrying its type and
+identifier, so a repair's own records are a valid target list. `--recheck-outcome repaired` narrows it
+to the artifacts a run actually wrote, and the option is repeatable, since a defect is often cleared
+across more than one run:
+
+```bash
+python3 ops/cedar_artifact_validation_audit.py \
+  --server https://resource.metadatacenter.org \
+  --recheck cedar-artifact-repair.jsonl --recheck mint-chain.jsonl \
+  --recheck-outcome repaired --out repair-verify.jsonl
+```
+
+The roadmap's bar for a data repair is that a repeated audit reports none of the condition it cleared.
+That is what this answers, over the artifacts that were touched rather than the whole deployment, so
+it takes minutes rather than the hours a full pass costs.
+
+After a template has been repaired, `--template <id> --from-records <earlier records>` re-validates
+that template and every instance the earlier run attributed to it, against the template as it is
+stored now, without walking the search index again. `--limit` samples the instances. This is how
+the verbatim repair of the NCBI BioSample template was checked: its 120,012 instances had failed
+because a 2022 edit replaced the text field `age` with a numeric field `Age` under a new property
+IRI, and a `PUT ?verbatim=true` of the template with that field restored made them valid again
+while keeping the template's identifier, provenance and version. A verbatim write needs the
+`artifactPrivilegedAdministrator` role; a user record created before that role existed does not
+carry it until `cedarat userProfile-updateAll-updatePermissions` regenerates every user's roles and
+permissions from the blueprint, so run that task after a release that adds a role.
+
+The run reports progress every 200 artifacts or every minute, whichever comes first: processed
+against the unique audit set, percentage, the verdict counts for the batch and cumulatively, how
+many artifacts in the batch carry a condition, fetch errors, elapsed time and ETA. Each report also
+rewrites `production-validation-summary.json` atomically, so the summary is current whenever the
+run is looked at. Four files sit together, named from `--out`:
+
+- `production-validation.jsonl`, one record per artifact: type, identifier, name, the verdict with
+  every error message and location the library reported, the conditions found with their JSON
+  Pointer paths, and the root `schema:schemaVersion`. Full artifacts are never written.
+- `production-validation-summary.json`, the aggregate: verdicts by type, the validator's messages
+  folded so like errors count together, the templates whose instances fail most, each condition's
+  artifact count, occurrence count and split by verdict, the conditions grouped by roadmap topic,
+  the model versions in use, and the inventory boundary.
+- `production-validation-refs.jsonl`, the enumerated audit set, and `production-validation-java.log`,
+  the JVM's stderr.
+
+Ctrl-C and request failures keep what was written. Repeating the original arguments with `--resume`
+reads the refs and the records, treats every fetched artifact as done, retries the ones whose fetch
+failed, and rebuilds the summary from the records, so the counts after a resume are those of one
+uninterrupted run. The refs header pins the server, the types, the limit, the model version and the
+exact script and bridge that started the run; a change to any of them needs a new run. A complete
+run exits zero even when artifacts are invalid, `--fail-on-invalid` makes them exit 1, and an
+incomplete run exits 2.
+
+The conditions, by the roadmap paragraph each measures:
+
+| Rule | What it counts |
+| --- | --- |
+| `inherently-multiple-child-object` | A checkbox, attribute-value or multiple-choice list deployed as an object rather than an array. |
+| `title-not-canonical`, `title-not-canonical-nested` | A `title` that is not `"<schema:name> <kind> schema"`, at the root or in an embedded child. The value says whether the two differ only in letter case, which is what the legacy Template Designer produced. |
+| `max-items-zero` | `maxItems: 0` on an array deployment, the Designer's spelling of unbounded. |
+| `num-terms-zero` | `numTerms: 0` on an ontology or value-set constraint, an unmeasured count written as a quantity. |
+| `stray-cardinality-keys` | `minItems` or `maxItems` on an object deployment, where nothing reads them. |
+| `annotation-id-null`, `annotation-id-null-with-payload` | An annotation entry whose `@id` is an explicit null, alone or beside other payload. |
+| `ui-order-missing-child`, `ui-order-orphan-entry`, `ui-order-duplicate-entry`, `ui-order-absent` | A child under `properties` missing from `_ui.order`, an order entry with no child, a repeated entry, and a container with children but no order list. |
+| `schema-version-absent`, `schema-version-stale`, `schema-version-unparsable`, and their `-nested` forms | The root's `schema:schemaVersion` against the version the libraries write, and the same for embedded children. The summary also lists every version in use, by type. |
+| `source-system-absent` | A controlled-term constraint entry with no `sourceSystem`; every entry counts, so the occurrence count is the size of the sweep. |
+| the REST audit's rules | Reported under their own names and risks, so the repair-on-save population is counted in the same run. |
+
+An instance whose template the key cannot read is `skipped` as `template-unresolved`, and the
+summary lists those templates with how many instances each strands. The inventory boundary is
+reported rather than repaired: typed GETs that return 404 for a search row, duplicate search rows,
+a search total that changed during the walk. As with the REST audit, `COMPLETE_FOR_KEY` means
+complete for what this key can enumerate and read.
+
+## Repairing a defect across the stored population
+
+`ops/cedar_artifact_repair.py` carries out a repair the audit has already measured. A repair
+qualifies only when it can be stated as an invariant, meaning it changes the thing it names and
+provably nothing else. Each artifact is fetched, transformed, checked against that invariant,
+validated by the library, and written back with `PUT ?verbatim=true`, so it keeps its identifier,
+provenance timestamps, version, publication status and every child identifier. One JVM validates the
+whole run, the same bridge the audit uses.
+
+Targets come from an earlier audit's records rather than a fresh walk, since the audit already knows
+which artifacts carry the condition. Dry run is the default.
+
+```bash
+export CEDAR_API_KEY=…
+python3 ops/cedar_artifact_repair.py --from-records production-validation.jsonl
+python3 ops/cedar_artifact_repair.py --from-records production-validation.jsonl --limit 5 --apply
+python3 ops/cedar_artifact_repair.py --from-records production-validation.jsonl --apply
+```
+
+Two repairs are implemented. `empty-derived-from` deletes every `pav:derivedFrom` whose value is the
+empty string, at the root and at every depth. The key is optional, so absence is how an artifact
+that was derived from nothing says so, while the empty string is the same claim in a form the model
+cannot read. The meta-schema accepted it for years because JSON Schema's `uri` format admits a
+relative reference, and the validator's own walk rejects it now. `mint-child-ids` gives every child
+whose own `@id` is missing or not an absolute IRI a fresh one, under the prefix its type requires,
+since an element given a field's prefix is never repaired afterwards. Neither touches anything an
+instance refers to: an instance reaches a field through the property IRI in its `@context`, which is
+a different namespace from a child's own identifier, and provenance it never reads at all.
+
+`mint-property-iris` is the exception, and the reason the two identifiers must not be confused. A
+child's property IRI is exactly what an instance's `@context` has to match, so minting a fresh one
+invalidates every instance that carries the stored value. Use `--exclude-ids` with a JSON list of the
+artifacts whose instances rely on it. In production the whole population is 527 artifacts, of which
+516 are safe on their own terms: 393 are standalone elements, against which no instance ever
+validates, and 123 are templates with no instances at all. The remaining 11 templates hold 894
+instances between them and want an instance-aware check first. The repair replaces only a mapping
+that is present and unusable, which in production is always the empty string. A mapping that is
+absent is deliberately out of scope, because the validator accepts it and because the server pairs a
+new mapping with an entry in `@context.required` that an existing instance may not satisfy.
+
+`align-instance-context-iris` repairs the other side. An instance's `@context` maps its field names
+to property IRIs, and where it disagrees with its template the validator rejects the instance. The
+template is the authority: the mapping is derived from it rather than authored on the instance, whose
+own content is its field values. So the instance moves, not the template. Reconciling the template to
+its instances works only where every one of them disagrees with it, which in production is 9 templates
+out of 105; the other 96 have instances that already agree, 2,497 of them under one template, and
+moving the template would invalidate those. Targets are selected by the validator's complaint rather
+than by an inventory condition, since no condition describes this. Only a name the template maps is
+touched, only where the template's own value is usable, and element occurrences are walked against the
+element definition they belong to at every depth.
+
+**Repairs compose, and for some artifacts they must.** A child identifier the server would otherwise
+mint makes it refuse a verbatim write outright, so an artifact carrying that defect alongside another
+cannot be fixed by either repair on its own: one leaves the artifact invalid and is skipped, the other
+is refused by the server. Naming both applies them in a single write, and the result is still provably
+narrow because each stage is checked by its own invariant against its own input. In production 376
+artifacts are in exactly that position, which is why the empty-provenance sweep refuses them, and a
+further group needs all three repairs at once.
+
+```bash
+python3 ops/cedar_artifact_repair.py --from-records production-validation.jsonl \
+  --repair mint-child-ids,empty-derived-from --condition child-id-unusable --apply
+```
+
+`--condition` names the target set explicitly, which a chain needs whenever its repairs between them
+name more artifacts than the job does.
+
+Two repair runs may overlap without coordinating. Updating an existing artifact requires the ETag the
+GET returned, and the server refuses a write carrying a stale one, so the second run to reach a shared
+artifact is refused rather than silently overwriting the first. The cost of an overlap is only in the
+accounting: the loser records a write failure for an artifact that was in fact repaired, and a later
+`--resume` reads it back as already clean. Give each run its own `--out`, since the records and
+pre-images are named from it.
+
+Each artifact ends in one outcome, and the summary counts them: `repaired`, `would-repair` on a dry
+run, `already-clean` when the defect is gone, `still-invalid` when the artifact has other errors and
+is therefore skipped rather than written, `invariant-failed` when the transform touched anything it
+should not, and `fetch-failed` or `write-failed`. Before every write the stored body is saved under
+`<out>-preimages/<type>/<id>.json` with its ETag, so any write can be undone from the pre-image.
+After every write the artifact is read back and re-checked unless `--no-verify` says otherwise.
+Writes are conditional on the ETag that was read, so a concurrent edit is refused rather than
+overwritten. `--limit` sizes a trial, `--resume` continues an interrupted run from its own records,
+and `--types` narrows to one artifact kind. A repair run is idempotent: a second pass reports every
+artifact as `already-clean` and clears nothing.
+
+Adding a repair means adding a transform, an invariant and the audit condition that names its
+targets, as one entry in the tool's `REPAIRS` table. Keep both halves narrow. The invariant is what
+makes a verbatim write over thousands of artifacts safe, so it compares types as well as values, and
+a repair that creates a value rather than deleting one must also prove the value it wrote is the one
+the server itself would have written.
 
 ## `ops/cedar_ontology_usage.py`
 

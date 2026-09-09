@@ -37,6 +37,7 @@
     "cedar-development",
     "cedar-cli",
     "cedar-model-typescript-library",
+    "cedar-model-typescript-library-demo",
     "cedar-embeddable-editor",
     "cedar-template-editor",
     "cedar-workspace",

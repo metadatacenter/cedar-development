@@ -70,15 +70,20 @@ The plan settles four groups of question:
   are on PATH, Git author name and email are configured, the CEDAR profile is sourced, npm's
   effective user configuration contains no obsolete authentication setting, and there is disk for
   the release's estimated clean checkouts, release/next Maven and frontend builds, publication
-  caches and logs, plus headroom. The estimate is derived from the manifest's repository and build
-  counts rather than a fixed free-space threshold. The npmrc check reads key names only and never
-  prints registry tokens or values. When the shell offers another Java or Node, the CLI looks for
-  the required ones itself, through `/usr/libexec/java_home -v 17` and Homebrew's `node@24`, puts
-  them first on PATH for the run, and prints a `Toolchain:` line for each substitution. When it
-  finds neither, the plan names the export to run.
+  caches and logs, plus headroom. No test-owned `mongod` executable under `~/.embedmongo` may be
+  left from an earlier run; `cedarcli test status` inventories these processes and `cedarcli test
+  cleanup` terminates only those exact embedded executables, never the native MongoDB. The estimate
+  is derived from the manifest's repository and build counts rather than a fixed free-space
+  threshold. The npmrc check reads key names only and never prints registry tokens or values. When
+  the shell offers another Java or Node, the CLI looks for the required ones itself, through
+  `/usr/libexec/java_home -v 17` and Homebrew's `node@24`, puts them first on PATH for the run, and
+  prints a `Toolchain:` line for each substitution. When it finds neither, the plan names the export
+  to run.
 - **The source is ready.** Every participating repository—including the independent repositories
   whose CEE wiring the release integrates—is clean and pushed, and the CI run for the exact commit
-  the train was built from is green wherever that commit defines a workflow. The immutable source
+  the train was built from is green wherever that commit defines a workflow. A whole-stack smoke
+  run recorded by `cedarcli test e2e` against exactly the train's source commits has passed both
+  tiers. The immutable source
   also contains every declared wrapper, manifest, lock, build, preserve, version, and Docker stamp
   input before a long build is allowed to start. Every frontend lifecycle script in the captured
   lockfiles has an exact true/false `allowScripts` decision.
@@ -122,6 +127,15 @@ GitHub may briefly return no run while indexing a just-pushed SHA, and it may tr
 repository, short SHA, attempt, and delay. Authentication or authorization refusal, malformed data,
 settled red CI, and a persistently absent run fail immediately or at the end of that short grace. A
 queued or running run is not waited through; the refusal carries its workflow URL.
+
+**The smoke gate is asked about the same commits.** `cedarcli test e2e` runs the REST and browser
+smoke tiers against the native stack and records each run under the `develop` heads it tested, in
+`cedar-development/ops/e2e/reports/smoke-gate/`. The record that answers for a train therefore
+survives later runs against newer heads, and a release days after its train still finds it. The
+gate refuses when no run covers the train's source, when either tier failed, when the REST run did
+not execute the committed check inventory, or when a repository held uncommitted changes while the
+smoke ran. Unlike a red develop, nothing accepts a missing or failed run. The answer to a flaky run
+is to rerun it.
 
 **Frontend installs use the same policy in train and release.** `plan` reads `package.json` and
 `package-lock.json` from each train-captured commit, requires every `hasInstallScript` dependency to
@@ -187,11 +201,13 @@ The release runs these phases, each verifying its work before the next begins:
    Docker build's frontend defaults in `cedar-images-base.sh` are rewritten from the train's
    recorded inputs: the next-development tree names the train's own packages, which exist the
    moment the release pushes, and the release tree names the released frontends at `<VER>` and
-   OpenView's Editor at the public CEE version, which Nexus and npmjs keep for good. Workspace
-   and the Designer, which publish independently, keep the train's packages in both trees.
+   OpenView's Editor at the public CEE version, which Nexus and npmjs keep for good.
 3. Run the release Maven test builds, the next-development Maven builds, all frontend installs, and
    the production frontend builds. Generated distribution bytes are inventoried, so an ignored
-   `dist` file cannot change before publication.
+   `dist` file cannot change before publication. Each test-bearing Maven task checks for embedded
+   MongoDB children both before it starts and after it returns; a leak stops the phase with the PID,
+   listener, and `cedarcli test cleanup` recovery command instead of allowing a later task to reuse
+   the port.
 4. Replace each tracked frontend distribution with its byte-inventoried production build, retaining
    only its package metadata and removing obsolete generated files, then create and verify local
    `release/pre-<VER>`, `release/post-<NEXT>`, and `release-<VER>` refs without touching the ordinary
@@ -205,11 +221,12 @@ The release runs these phases, each verifying its work before the next begins:
    `develop`.
 7. Upload the exact locally validated Maven release bytes to Nexus, accepting an existing immutable
    path only when its bytes match, and verify the required artifact inventory.
-8. Pack the six stable npm frontend surfaces from the exact integrated commits, record `gitHead`,
+8. Pack the nine stable npm surfaces from the exact integrated commits, record `gitHead`,
    and retain explicitly declared runtime assets that npm normally excludes. OpenView's packaged
    `node_modules` assets therefore include the exact CEE and Web Components files committed in its
-   release distribution. Publish to CEDAR Nexus, then download each registry tarball and verify its
-   integrity, content hash, provenance, and runtime-asset hashes.
+   release distribution. The model-library demo's ignored `dist` is copied only from its
+   byte-inventoried release build. Publish to CEDAR Nexus, then download each registry tarball and
+   verify its integrity, content hash, provenance, and runtime-asset hashes.
 9. Accept the release, proving from outside the ledger that it holds. Acceptance also runs the
    captured build-train configuration validator against the complete `<NEXT>` workspace and its
    exact expected snapshot version, so `develop` is not considered ready merely because version
@@ -230,9 +247,8 @@ stays reachable through the integration commit's first parent, but restoring it 
 commit on `develop`. Plan reports such content, and reconciling a divergent `main` belongs
 before a release rather than after one.
 
-The stable npm surfaces are Template Editor, OpenView, Content Distribution, Monitoring, Bridging,
-and the Angular CEE demo. Workspace receives the stable CEE wiring on both `main` and `develop` but
-keeps its independent publication path. Template Designer also remains independently published.
+The stable npm surfaces are Template Editor, Workspace, Template Designer, the TypeScript model
+library demo, OpenView, Content Distribution, Monitoring, Bridging, and the Angular CEE demo.
 
 ## What a Release Costs
 
@@ -353,6 +369,7 @@ a local-only attempt that must be replaced by another train.
 | `remote: fatal error in commit_refs` / GitHub HTTP 5xx | transient GitHub backend | `release resume`; bounded retry is automatic |
 | a protected-branch or immutable-ref refusal | policy or state mismatch, not transport | fix the policy/state; it is never retried automatically |
 | `Nexus is missing required … artifacts` | inventory not yet indexed after the publisher's bounded wait | use `release resume` once Nexus is healthy |
+| `embedded Mongo test process(es) remain` | an earlier or just-finished Maven test left a `.embedmongo` child that can intercept an ephemeral port | end the owning test or run `cedarcli test cleanup`, then `release resume` |
 
 ## Before the First Release on a New Host
 
@@ -387,38 +404,26 @@ payload:
 node $CEDAR_HOME/cedar-development/ops/propagate-cee-release.mjs --check <CEE_VERSION>
 ```
 
-Workspace and Template Designer are also independent while migration is in progress. Their exact
-current versions publish as npm packages to CEDAR Nexus through one deliberately named selector:
+Workspace, Template Designer, and the TypeScript model library demo are ordinary platform release
+repositories. They carry `<VER>` on `main`, `<NEXT>` on `develop`, and publish their stable packages
+to CEDAR Nexus as part of `cedarcli release start|resume`. Their build-train development packages
+remain immutable commit-derived prereleases; Docker builds pin the exact versions and never consume
+the moving `dev` tag.
 
-```bash
-cedarcli publish split-frontends --dry-run
-cedarcli publish split-frontends
-```
-
-The generic `cedarcli publish frontends` and `cedarcli publish all` selectors exclude them. The
-explicit plan runs `npm ci`, then stages and publishes an immutable prerelease from each clean
-commit without changing either working tree. npm cannot overwrite `<NEXT>-SNAPSHOT` the way Maven
-can, so versions have the form `<NEXT>-dev.<UTC-commit-time>.g<12-char-commit>.p3`, where `p3`
-identifies the committed-source, shrinkwrapped package format. The publisher packs from
-`git archive HEAD` rather than the working tree, so ignored local build output cannot enter the
-tarball. Packages carry the full commit as `gitHead` and use the `dev` dist-tag only as a
-convenience pointer; Docker builds pin the exact version and never consume that moving tag.
-
-Publication is an artifact operation rather than an environment deployment. Native staging and
-production check out the approved Git commits and run
+Publication is still an artifact operation rather than an environment deployment. Native staging
+and production check out the approved Git commits and run
 `cedarcli build split-frontends --server-payload`, and nginx then serves the generated `app` trees
-directly. No Docker host is required. Keep these repositories excluded from the global
-version, tag, and merge release until staging acceptance authorizes their normal release membership.
-The other five frontend Docker inputs use the same staging helper directly, and the complete
-seven-target procedure is in [DOCKER-RUNBOOK.md](./DOCKER-RUNBOOK.md).
+directly. No Docker host is required. All seven frontend Docker inputs use the same staging helper
+directly, and the complete seven-target procedure is in
+[DOCKER-RUNBOOK.md](./DOCKER-RUNBOOK.md).
 
 ## Branch Layout for Publication
 
-The release repositories publish from `main`, and the six `skip_from_release` frontend repositories
-build from `develop`. The release arranges this itself. If you ever do a manual publication after a
-blanket checkout, put the `skip_from_release` repositories back on `develop` first, or their older
-`main` may not even build.
+The release repositories publish from `main`. The two independent public npmjs repositories—CEE and
+the TypeScript model library—build from `develop` for train work and follow their own npmjs runbook.
+The release arranges its own isolated checkouts; ordinary working trees do not need a blanket branch
+change.
 
-`cedarcli git checkout main` is a blanket checkout of every repository. It ignores
-`skip_from_release` and sweeps the frontend template repositories onto their stale `main`, so do not
-use it to prepare a deployment.
+`cedarcli git checkout main` is a blanket checkout of every repository, including the two independent
+npmjs repositories. Do not use it to prepare a release; the release controller owns isolated,
+manifest-bound workspaces for that purpose.
