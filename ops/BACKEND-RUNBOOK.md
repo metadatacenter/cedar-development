@@ -2787,6 +2787,7 @@ The conditions, by the roadmap paragraph each measures:
 | `annotation-id-null`, `annotation-id-null-with-payload` | An annotation entry whose `@id` is an explicit null, alone or beside other payload. |
 | `ui-order-missing-child`, `ui-order-orphan-entry`, `ui-order-duplicate-entry`, `ui-order-absent` | A child under `properties` missing from `_ui.order`, an order entry with no child, a repeated entry, and a container with children but no order list. |
 | `schema-version-absent`, `schema-version-stale`, `schema-version-unparsable`, and their `-nested` forms | The root's `schema:schemaVersion` against the version the libraries write, and the same for embedded children. The summary also lists every version in use, by type. |
+| `static-field-required` | A static field named in `required`, `@context.required` or `@context.properties`, which describes an instance no editor will build, so no instance of that container can validate. |
 | `source-system-absent` | A controlled-term constraint entry with no `sourceSystem`; every entry counts, so the occurrence count is the size of the sweep. |
 | `constraint-source-uri-legacy`, `constraint-iri-absent`, `constraint-acronym-underivable` | How far a stored value constraint has come towards the versioned shape: the legacy `sourceUri` it still carries, the canonical `iri` it lacks, and the entry that names its ontology only as free text, so no acronym can be derived and nothing can be looked up for it. Deriving the canonical IRI needs the terminology catalog, which the audit does not open, so absence is what is reported. |
 | `temporal-type-absent`, `temporal-type-unsettled` | A temporal field that does not say what kind of temporal value it holds, which leaves a slot nobody can fill and which nothing refuses. The two are split by whether the field's own `_ui.temporalGranularity` settles the type: a day or coarser can only be a date, while below that only the stored values decide. |
@@ -2848,6 +2849,21 @@ moving the template would invalidate those. Targets are selected by the validato
 than by an inventory condition, since no condition describes this. Only a name the template maps is
 touched, only where the template's own value is usable, and element occurrences are walked against the
 element definition they belong to at every depth.
+
+Five further repairs address defects the roadmap names, and all five are container rewrites that no
+instance references. `drop-static-field-demands` stops a container naming a static field in
+`required`, `@context.required` or `@context.properties`: a static field renders and holds nothing,
+so every editor omits it and a container demanding one describes an instance nothing will build.
+`wrap-inherently-multiple` deploys a checkbox, attribute-value or multiple-choice list child as the
+array it always serializes to, lifting cardinality onto the envelope and leaving the field's own
+metadata on the inner definition; contradictory bounds are refused rather than guessed.
+`stamp-model-version` writes the current model version, and only over one that parses, since the key
+asserts conformance and stamping it onto an artifact that does not conform replaces a detectable
+defect with an undetectable one. `complete-ui-order` appends declared children the order omits, after
+what it already holds, and leaves the inverse drift alone because the store cannot synthesize a child
+an order entry names. `derive-title` composes the artifact's own title from its name, as every
+ordinary write does, touching neither the description that carries the generator's signature nor an
+embedded child's pair, which the server also leaves as sent.
 
 **Repairs compose, and for some artifacts they must.** A child identifier the server would otherwise
 mint makes it refuse a verbatim write outright, so an artifact carrying that defect alongside another

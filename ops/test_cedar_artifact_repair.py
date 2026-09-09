@@ -218,6 +218,7 @@ def child(at_type=FIELD_TYPE, identifier=None, **extra):
 
 def template(children, root=BASE + "templates/9d1f0b8e-1f3c-4a2b-9f77-2b1a7c3d4e5f"):
     return {"@id": root, "@type": "https://schema.metadatacenter.org/core/Template",
+            "schema:name": "Study", "title": "Study template schema",
             "type": "object", "_ui": {"order": list(children)},
             "properties": {"@context": {"properties": {}, "required": []}, **children}}
 
@@ -422,6 +423,7 @@ class ChainTest(unittest.TestCase):
         self.assertEqual(changes, [])
 
 
+AUDIT_MODEL_VERSION = REPAIR.audit.MODEL_VERSION
 mint_iris = REPAIR.mint_property_iris
 iri_invariant = REPAIR.only_minted_property_iris
 IRI_PREFIX = REPAIR.PROPERTY_IRI_PREFIX
@@ -764,3 +766,251 @@ class InclusionListTest(unittest.TestCase):
         # Both are a JSON array of artifact identifiers; the parser code paths mirror each other.
         self.assertIn("--only-ids", REPAIR.build_parser().format_help())
         self.assertIn("--exclude-ids", REPAIR.build_parser().format_help())
+
+
+STATIC_TYPE = REPAIR.STATIC_AT_TYPE
+
+
+def static_child(name="Section"):
+    node = child(STATIC_TYPE, identifier=BASE + "template-fields/cccccccc-dddd-eeee-ffff-000000000000")
+    node["_ui"] = {"inputType": "section-break"}
+    node["schema:name"] = name
+    return node
+
+
+class StaticFieldDemandRepairTest(unittest.TestCase):
+
+    def demanding(self):
+        doc = template({"Section": static_child(), "Name": child()})
+        doc["required"] = ["@context", "Name", "Section"]
+        doc["properties"]["@context"]["required"] = ["Name", "Section"]
+        doc["properties"]["@context"]["properties"] = {
+            "Name": {"enum": [GOOD_IRI]}, "Section": {"enum": [GOOD_IRI + "s"]}}
+        return doc
+
+    def test_the_static_name_is_removed_from_all_three_places(self):
+        after, changes = REPAIR.drop_static_field_demands(self.demanding())
+        self.assertEqual(sorted(c["where"] for c in changes),
+                         ["@context.properties", "@context.required", "required"])
+        self.assertEqual(after["required"], ["@context", "Name"])
+        self.assertEqual(after["properties"]["@context"]["required"], ["Name"])
+        self.assertNotIn("Section", after["properties"]["@context"]["properties"])
+
+    def test_the_ordinary_child_keeps_its_place_everywhere(self):
+        after, _changes = REPAIR.drop_static_field_demands(self.demanding())
+        self.assertIn("Name", after["required"])
+        self.assertIn("Name", after["properties"]["@context"]["properties"])
+
+    def test_the_static_child_itself_is_left_in_the_container(self):
+        after, _changes = REPAIR.drop_static_field_demands(self.demanding())
+        self.assertIn("Section", after["properties"])
+        self.assertEqual(after["properties"]["Section"]["@type"], STATIC_TYPE)
+
+    def test_ui_order_naming_the_static_field_is_untouched(self):
+        doc = self.demanding()
+        doc["_ui"]["order"] = ["Section", "Name"]
+        after, _changes = REPAIR.drop_static_field_demands(doc)
+        self.assertEqual(after["_ui"]["order"], ["Section", "Name"])
+
+    def test_a_container_demanding_nothing_static_is_unchanged(self):
+        doc = template({"Name": child()})
+        doc["required"] = ["Name"]
+        after, changes = REPAIR.drop_static_field_demands(doc)
+        self.assertEqual(changes, [])
+        self.assertEqual(after, doc)
+
+    def test_a_second_pass_changes_nothing(self):
+        once, first = REPAIR.drop_static_field_demands(self.demanding())
+        _twice, second = REPAIR.drop_static_field_demands(once)
+        self.assertEqual(len(first), 3)
+        self.assertEqual(second, [])
+
+    def test_the_invariant_accepts_the_transform_and_rejects_a_stray_removal(self):
+        before = self.demanding()
+        after, _changes = REPAIR.drop_static_field_demands(before)
+        self.assertIsNone(REPAIR.only_dropped_static_demands(before, after))
+        after["required"].remove("Name")
+        self.assertIsNotNone(REPAIR.only_dropped_static_demands(before, after))
+
+
+class WrapInherentlyMultipleTest(unittest.TestCase):
+
+    def multi(self, input_type="checkbox", **extra):
+        node = child()
+        node["_ui"] = {"inputType": input_type}
+        if input_type == "list":
+            node["_valueConstraints"] = {"multipleChoice": True}
+        node.update(extra)
+        return node
+
+    def test_an_object_shaped_checkbox_becomes_an_array_around_itself(self):
+        before = template({"Colours": self.multi()})
+        after, changes = REPAIR.wrap_inherently_multiple(before)
+        envelope = after["properties"]["Colours"]
+        self.assertEqual(envelope["type"], "array")
+        self.assertEqual(envelope["minItems"], 0)
+        self.assertNotIn("maxItems", envelope)
+        self.assertEqual(envelope["items"], before["properties"]["Colours"])
+        self.assertEqual(changes[0]["inputType"], "checkbox")
+
+    def test_a_required_value_gives_the_envelope_a_lower_bound_of_one(self):
+        node = self.multi()
+        node["_valueConstraints"] = {"requiredValue": True}
+        after, _changes = REPAIR.wrap_inherently_multiple(template({"Colours": node}))
+        self.assertEqual(after["properties"]["Colours"]["minItems"], 1)
+
+    def test_existing_bounds_move_to_the_envelope_and_leave_the_inner_definition(self):
+        node = self.multi()
+        declared = dict(node, minItems=2, maxItems=5)
+        after, _changes = REPAIR.wrap_inherently_multiple(template({"Colours": declared}))
+        envelope = after["properties"]["Colours"]
+        self.assertEqual((envelope["minItems"], envelope["maxItems"]), (2, 5))
+        self.assertNotIn("minItems", envelope["items"])
+        self.assertNotIn("maxItems", envelope["items"])
+
+    def test_contradictory_bounds_are_refused_rather_than_guessed(self):
+        declared = dict(self.multi(), minItems=3, maxItems=1)
+        with self.assertRaises(REPAIR.TransformRefused):
+            REPAIR.wrap_inherently_multiple(template({"Colours": declared}))
+
+    def test_a_multiple_choice_list_counts_and_a_single_choice_one_does_not(self):
+        after, changes = REPAIR.wrap_inherently_multiple(template({"Pick": self.multi("list")}))
+        self.assertEqual(len(changes), 1)
+        single = child()
+        single["_ui"] = {"inputType": "list"}
+        single["_valueConstraints"] = {"multipleChoice": False}
+        _after, none = REPAIR.wrap_inherently_multiple(template({"Pick": single}))
+        self.assertEqual(none, [])
+
+    def test_a_child_already_deployed_as_an_array_is_left_alone(self):
+        doc = template({"Colours": {"type": "array", "minItems": 1, "items": self.multi()}})
+        after, changes = REPAIR.wrap_inherently_multiple(doc)
+        self.assertEqual(changes, [])
+        self.assertEqual(after, doc)
+
+    def test_the_invariant_accepts_the_transform_and_rejects_a_changed_inner_definition(self):
+        before = template({"Colours": self.multi()})
+        after, _changes = REPAIR.wrap_inherently_multiple(before)
+        self.assertIsNone(REPAIR.only_wrapped_inherently_multiple(before, after))
+        after["properties"]["Colours"]["items"]["_ui"]["inputType"] = "list"
+        self.assertIsNotNone(REPAIR.only_wrapped_inherently_multiple(before, after))
+
+
+class StampModelVersionTest(unittest.TestCase):
+
+    def test_a_stale_version_is_written_forward(self):
+        doc = template({"Name": child()})
+        doc["schema:schemaVersion"] = "1.5.0"
+        after, changes = REPAIR.stamp_model_version(doc)
+        self.assertEqual(after["schema:schemaVersion"], AUDIT_MODEL_VERSION)
+        self.assertEqual(changes[0]["replaced"], "1.5.0")
+
+    def test_a_current_version_is_left_alone(self):
+        doc = template({"Name": child()})
+        doc["schema:schemaVersion"] = AUDIT_MODEL_VERSION
+        _after, changes = REPAIR.stamp_model_version(doc)
+        self.assertEqual(changes, [])
+
+    def test_an_absent_or_malformed_version_is_refused_as_a_different_decision(self):
+        for value in (None, "", "latest", 16):
+            with self.subTest(value=value):
+                doc = template({"Name": child()})
+                if value is None:
+                    doc.pop("schema:schemaVersion", None)
+                else:
+                    doc["schema:schemaVersion"] = value
+                with self.assertRaises(REPAIR.TransformRefused):
+                    REPAIR.stamp_model_version(doc)
+
+    def test_the_invariant_rejects_any_other_change(self):
+        doc = template({"Name": child()})
+        doc["schema:schemaVersion"] = "1.5.0"
+        after, _changes = REPAIR.stamp_model_version(doc)
+        self.assertIsNone(REPAIR.only_stamped_model_version(doc, after))
+        after["schema:name"] = "Renamed"
+        self.assertEqual(REPAIR.only_stamped_model_version(doc, after), "/schema:name")
+
+
+class CompleteUiOrderTest(unittest.TestCase):
+
+    def test_an_omitted_child_is_appended_after_the_existing_order(self):
+        doc = template({"Name": child(), "Age": child()})
+        doc["_ui"]["order"] = ["Age"]
+        after, changes = REPAIR.complete_ui_order(doc)
+        self.assertEqual(after["_ui"]["order"], ["Age", "Name"])
+        self.assertEqual([c["wrote"] for c in changes], ["Name"])
+
+    def test_an_order_entry_naming_no_child_is_deliberately_left(self):
+        doc = template({"Name": child()})
+        doc["_ui"]["order"] = ["Name", "Ghost"]
+        after, changes = REPAIR.complete_ui_order(doc)
+        self.assertEqual(changes, [])
+        self.assertEqual(after["_ui"]["order"], ["Name", "Ghost"])
+
+    def test_a_complete_order_is_unchanged_and_a_second_pass_adds_nothing(self):
+        doc = template({"Name": child(), "Age": child()})
+        doc["_ui"]["order"] = ["Age"]
+        once, first = REPAIR.complete_ui_order(doc)
+        _twice, second = REPAIR.complete_ui_order(once)
+        self.assertEqual(len(first), 1)
+        self.assertEqual(second, [])
+
+    def test_the_invariant_rejects_a_reordering_or_an_undeclared_addition(self):
+        doc = template({"Name": child(), "Age": child()})
+        doc["_ui"]["order"] = ["Age"]
+        after, _changes = REPAIR.complete_ui_order(doc)
+        self.assertIsNone(REPAIR.only_appended_ui_order(doc, after))
+        reordered = copy.deepcopy(after); reordered["_ui"]["order"] = ["Name", "Age"]
+        self.assertIsNotNone(REPAIR.only_appended_ui_order(doc, reordered))
+        invented = copy.deepcopy(after); invented["_ui"]["order"] = ["Age", "Name", "Ghost"]
+        self.assertIsNotNone(REPAIR.only_appended_ui_order(doc, invented))
+
+
+class DeriveTitleTest(unittest.TestCase):
+
+    def test_a_stale_title_is_composed_again_from_the_name(self):
+        doc = template({"Name": child()})
+        doc["title"] = "An older name template schema"
+        after, changes = REPAIR.derive_title(doc)
+        self.assertEqual(after["title"], "Study template schema")
+        self.assertEqual(changes[0]["replaced"], "An older name template schema")
+
+    def test_an_element_and_a_static_field_take_their_own_kind_word(self):
+        element = child(ELEMENT_TYPE, identifier=BASE + "template-elements/x")
+        element["schema:name"] = "Address"
+        element["title"] = "wrong"
+        after, _changes = REPAIR.derive_title(element)
+        self.assertEqual(after["title"], "Address element schema")
+        static = static_child("Note"); static["title"] = "wrong"
+        after, _changes = REPAIR.derive_title(static)
+        self.assertEqual(after["title"], "Note field schema")
+
+    def test_the_description_is_never_touched(self):
+        doc = template({"Name": child()})
+        doc["title"] = "wrong"
+        doc["schema:description"] = "Study template schema generated by the CEDAR Template Editor 2.8.0"
+        after, _changes = REPAIR.derive_title(doc)
+        self.assertEqual(after["schema:description"],
+                         "Study template schema generated by the CEDAR Template Editor 2.8.0")
+
+    def test_an_artifact_with_no_usable_name_is_refused(self):
+        doc = template({"Name": child()})
+        doc["schema:name"] = "   "
+        with self.assertRaises(REPAIR.TransformRefused):
+            REPAIR.derive_title(doc)
+
+    def test_a_second_pass_changes_nothing(self):
+        doc = template({"Name": child()})
+        doc["title"] = "wrong"
+        once, first = REPAIR.derive_title(doc)
+        _twice, second = REPAIR.derive_title(once)
+        self.assertEqual(len(first), 1)
+        self.assertEqual(second, [])
+
+    def test_the_invariant_rejects_a_title_that_is_not_the_composed_one(self):
+        doc = template({"Name": child()})
+        doc["title"] = "wrong"
+        after, _changes = REPAIR.derive_title(doc)
+        self.assertIsNone(REPAIR.only_derived_title(doc, after))
+        after["title"] = "something else"
+        self.assertEqual(REPAIR.only_derived_title(doc, after), "/title")

@@ -110,6 +110,7 @@ TOPICS = {
     "constraint-acronym-underivable": "constraint shape",
     "temporal-type-absent": "temporal type",
     "temporal-type-unsettled": "temporal type",
+    "static-field-required": "static field demanded",
 }
 # The REST audit's diagnostics say the audit could not finish, not that the artifact is defective.
 REST_DIAGNOSTIC_RULES = {"template-analysis-unavailable"}
@@ -326,6 +327,43 @@ def check_constraint_shape(nodes: list[SchemaNode]) -> Iterator[Condition]:
                                     {"kind": key, "source": entry.get("source")})
 
 
+def check_static_fields_demanded(nodes: list[SchemaNode]) -> Iterator[Condition]:
+    """A static field named where an instance is expected to carry it.
+
+    A static field renders and holds nothing, so it is not a property of an instance, and every CEDAR
+    editor omits it when building one. A container naming such a child in ``required``, in
+    ``@context.required`` or in ``@context.properties`` therefore describes an instance nothing will
+    produce, and no instance of it can validate. ``_ui.order`` and ``_ui.propertyLabels`` are where a
+    static field legitimately appears and say nothing about this.
+    """
+    for node in nodes:
+        container = node.definition
+        statics = {name for name, child, _multiple, error in rest.direct_schema_children(container)
+                   if not error and child is not None
+                   and child.get("@type") == rest.STATIC_TEMPLATE_FIELD}
+        if not statics:
+            continue
+        properties = container.get("properties")
+        context = properties.get("@context") if isinstance(properties, dict) else None
+        places = {
+            "required": container.get("required"),
+            "@context.required": context.get("required") if isinstance(context, dict) else None,
+        }
+        for where, names in places.items():
+            if not isinstance(names, list):
+                continue
+            for name in statics & {n for n in names if isinstance(n, str)}:
+                yield Condition("static-field-required", f"{node.path}/{where.replace('.', '/')}",
+                                {"field": name, "where": where})
+        mapping = context.get("properties") if isinstance(context, dict) else None
+        if isinstance(mapping, dict):
+            for name in statics & set(mapping):
+                yield Condition("static-field-required",
+                                f"{node.path}/properties/@context/properties/"
+                                f"{rest.json_pointer_component(name)}",
+                                {"field": name, "where": "@context.properties"})
+
+
 def check_annotations(artifact: Any) -> Iterator[Condition]:
     """An annotation whose identifier is an explicit null, anywhere in the document.
 
@@ -433,6 +471,7 @@ def inventory_conditions(ref: rest.ArtifactRef, artifact: Any,
             conditions.extend(check_value_constraints(nodes))
             conditions.extend(check_constraint_shape(nodes))
             conditions.extend(check_temporal_types(nodes))
+            conditions.extend(check_static_fields_demanded(nodes))
             conditions.extend(check_ui_order(nodes))
             conditions.extend(check_model_version(nodes))
     conditions.extend(rest_conditions(ref, artifact, shape))

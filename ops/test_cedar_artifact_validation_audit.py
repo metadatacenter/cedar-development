@@ -565,3 +565,58 @@ class ApiKeyGuardTest(unittest.TestCase):
     def test_a_latin1_character_is_left_alone_because_the_header_can_hold_it(self):
         # It is very likely still a wrong key, but the server says so with a 401, which is legible.
         self.assertEqual(self.resolve("abc def"), "abc def")
+
+
+STATIC = "https://schema.metadatacenter.org/core/StaticTemplateField"
+
+
+def static_field(name="Section"):
+    node = field_definition(name, "section-break")
+    node["@type"] = STATIC
+    return node
+
+
+class StaticFieldDemandedTest(unittest.TestCase):
+    """A static field renders and holds nothing, so an instance never carries it."""
+
+    def demanding(self, required=None, context_required=None, context_mapped=False):
+        doc = template({"Section": static_field(), "Name": field_definition("Name")})
+        context = doc["properties"]["@context"]
+        context["required"] = context_required if context_required is not None else ["Name"]
+        context["properties"] = {"Name": {"enum": ["https://schema.metadatacenter.org/properties/1"]}}
+        if context_mapped:
+            context["properties"]["Section"] = {"enum": ["https://schema.metadatacenter.org/properties/2"]}
+        if required is not None:
+            doc["required"] = required
+        return doc
+
+    def test_a_static_field_named_in_required(self):
+        found = rules(self.demanding(required=["Name", "Section"]))["static-field-required"]
+        self.assertEqual([c.value for c in found], [{"field": "Section", "where": "required"}])
+
+    def test_a_static_field_named_in_context_required(self):
+        found = rules(self.demanding(context_required=["Name", "Section"]))["static-field-required"]
+        self.assertEqual([c.value for c in found], [{"field": "Section", "where": "@context.required"}])
+
+    def test_a_static_field_carrying_a_property_iri(self):
+        found = rules(self.demanding(context_mapped=True))["static-field-required"]
+        self.assertEqual([c.value for c in found], [{"field": "Section", "where": "@context.properties"}])
+
+    def test_all_three_places_are_reported_together(self):
+        doc = self.demanding(required=["Section"], context_required=["Section"], context_mapped=True)
+        found = rules(doc)["static-field-required"]
+        self.assertEqual(sorted(c.value["where"] for c in found),
+                         ["@context.properties", "@context.required", "required"])
+
+    def test_a_container_naming_no_static_field_is_silent(self):
+        self.assertNotIn("static-field-required", rules(self.demanding()))
+
+    def test_an_ordinary_field_named_in_required_is_not_this_defect(self):
+        found = rules(self.demanding(required=["Name"]))
+        self.assertNotIn("static-field-required", found)
+
+    def test_ui_order_is_where_a_static_field_legitimately_appears(self):
+        doc = self.demanding()
+        doc["_ui"]["order"] = ["Section", "Name"]
+        doc["_ui"]["propertyLabels"] = {"Section": "A section"}
+        self.assertNotIn("static-field-required", rules(doc))
