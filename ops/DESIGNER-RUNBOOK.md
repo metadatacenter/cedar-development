@@ -178,19 +178,28 @@ start, and the copies are the neighbouring repositories' build output rather tha
 this one's, so they are not committed. The host names a terminology server on
 `localhost:9004` for the reason below.
 
-Text fields use `<cedar-embeddable-field>` from that same CEE bundle to edit their
-default value. Choose **semantic** in Preferences to expose Default Value. Editing
-text defaults requires a CEE bundle that registers CEF. Until CEF loads,
-the default editor is unavailable and existing defaults are preserved.
-Defaults are written through the model library and restored when a template opens;
-clearing the control removes the default. The control stays mounted while typing.
-Other field types retain their existing default controls.
+All default-capable fields use `<cedar-embeddable-field>` from the same CEE bundle.
+Choose **semantic** in Preferences to expose Default Value. CED uses the current
+model snapshot, `1.0.8-dev.20260909.b0f6853`, for typed defaults and JSON/YAML
+serialization. Imported numeric constraints and temporal settings are retained;
+temporal values are converted between the default's declared precision and CEF's
+complete instance literal without shifting timezones. Choices are stored with
+`selectedByDefault` on options, including multiple checkbox/list selections.
 
-The browser suite tests the CEF contract with a stub by default. To exercise the same
-text-default tests against a freshly built sibling bundle, after `npm run dist`:
+Controlled defaults use the current `<cedar-term-picker>` bundle's term-only mode,
+then verify membership through the configured terminology server's
+`bioportal/integrated-search`. A vocabulary constraint is required first. The host
+supplies `bridgeBaseUrl` for the seven external authority lookups; the development
+host names the local bridge. Missing sibling controls are reported as unavailable,
+and saved defaults remain intact.
+
+The default browser suite uses a CEF contract stub. To include the real widgets
+and the combined controlled-term picker test, after building all siblings:
 
 ```shell
-CEF_BUNDLE="$PWD/../cedar-embeddable-editor/visual/public/cedar-embeddable-editor.js" npm --prefix browser test -- tests/text-default.spec.ts
+CEF_BUNDLE="$PWD/../cedar-embeddable-editor/visual/public/cedar-embeddable-editor.js" \
+PICKER_BUNDLE="$PWD/../cedar-term-picker/dist-bundle/cedar-term-picker.js" \
+npm --prefix browser test
 ```
 
 The preview asks CEE for a read-only form with no instance behind it, which CEE
