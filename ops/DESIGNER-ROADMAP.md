@@ -25,8 +25,8 @@ wrong answer to it.
 
 ## The First Goal, and the Order
 
-Every field type CEDAR defines is already in CED's palette — 25 types, two more
-than the 23 the current designer's own configuration declares in
+Every field type CEDAR defines is already in CED's palette — 26 entries, three
+more than the 23 the current designer's own configuration declares in
 `app/config/field-type-service.conf.json`. Completing the palette is not the work.
 The support behind it is: a text field and a radio field carry what an author
 gives them, and the rest either lack the parameters that make the type worth
@@ -83,22 +83,35 @@ differences.
 
 ### 2. Every default value is typed as a string
 
-Editor state holds one `defaultValue: string` for all 25 types and hands it to
-whichever `withDefaultValue` the builder happens to have. A numeric field's takes
-a number and validates it, so a Number field with a default fails with `Numeric
-default must be finite.` The throw surfaces from the memoized `template` signal,
-which means the JSON panel, the YAML panel, the file menu and the CEE preview all
-fail together. A date or time field fails the same way for any default that is not
-already in the exact ISO shape its granularity demands. A paragraph has the slot
-in the model and no setter for it; an email, a link, a phone number, an
-attribute-value field and the seven authority types have neither, so for eleven of
-the 25 types the box discards what is typed in silence.
+Designer state holds one `defaultValue: string` for every type in the palette and
+hands it to whichever `withDefaultValue` the builder happens to have. A numeric
+field's takes a number and validates it, so a Number field with a default fails
+with `Numeric default must be finite.` The throw surfaces from the memoized
+`template` signal, which means the download menu, the CEE preview and the
+template the host is handed all fail together. A date or time field fails the
+same way for any default that is not already in the exact ISO shape its
+granularity demands. A controlled-term field's takes a term URI with a label and
+is given a bare string, so it goes out as `"defaultValue": {"termUri": null}`,
+which CEDAR's own meta-schema rejects twice over — the URI is not a string and
+the required `rdfs:label` is absent.
 
-The model carries a number for a numeric field, an ISO literal for a temporal
-one, an option label for a list, a term URI with a label for a controlled term,
-and nothing for the types that take no default. The editor should carry the same
-distinctions, and the card should show the box only where one exists. This is the
-precondition for the default value in every per-type item.
+The model library takes a default on every type but Attribute Value, in five
+shapes: a literal for text, paragraph, e-mail, phone, radio, checkbox and both
+lists; an IRI for a link and the seven external authorities; a number; an ISO
+literal for a temporal field; and a term URI with a label for a controlled term.
+A radio, a checkbox and the two lists also carry one on each option, which is the
+form an author reaches for, because it is the only one of the two that names a
+value the field permits.
+
+Designer state should carry the same distinctions — a discriminated shape rather
+than one string — and the descriptor table should say which shape each type
+takes, so the card can offer the control that acquires it and no box at all on
+Attribute Value or the static types. This is the precondition for the default
+value in every per-type item.
+
+Reading is lossy in the same place. `toDesignerTemplate` keeps a default only
+when it is already a string, so opening a template drops a numeric default and a
+controlled-term default before an author has touched anything.
 
 The box is closed in the default preferences and open in both the semantic and
 the modular preset, so choosing a preset is enough to reach the crash.
@@ -128,7 +141,7 @@ enhancement.
 
 ## Full Parameter Coverage, One Field Type at a Time
 
-The two shared items come first, because they apply to all 25 types and because
+The two shared items come first, because they apply to every type and because
 thirteen of those types have no parameters of their own — finishing the shared
 surface finishes them outright. The types with the most missing follow, in the
 order a template author is most likely to miss them.
@@ -155,7 +168,7 @@ itself is. Five are missing: the recommended flag, the two cardinality bounds,
 `hidden` and `continuePreviousLine`.
 
 `recommendedValue`: CEDAR marks a field required, recommended or neither, and
-both editor state and the serializer carry all three, but the card has a single
+both designer state and the serializer carry all three, but the card has a single
 Required checkbox that toggles required against optional. Recommended can only
 reach a template by being read from one, and it is lost the first time anyone
 touches the checkbox. The current designer offers all three.
@@ -176,11 +189,10 @@ A text field constrains its values by `minLength`, `maxLength` and a regular
 expression, and CED offers none of the three. Its default value works, and is the
 only per-type parameter that does.
 
-A paragraph holds a default value in the model with no builder method that sets
-it, so this one starts in `cedar-model-typescript-library` — its item belongs with
-the library's own in [CEE-ROADMAP.md](CEE-ROADMAP.md). Nothing else distinguishes
-a paragraph from a text field in the model, so the type is done once that setter
-exists and the shared parameters land.
+A paragraph now takes a default in the model library, in both serializations, so
+nothing distinguishes it from a text field there. The type is done once the
+default box carries a literal rather than a string for every type and the shared
+parameters land.
 
 The custom-field designer already offers a Validation Rules panel — a regular
 expression, a minimum length, a maximum length and a numeric range — which is this
@@ -233,9 +245,11 @@ options but not which one a form starts on. Radio and single-select list allow o
 selection and the library enforces it by keeping the last one marked; checkbox and
 multi-select list allow several.
 
-Both list types also hold a `defaultValue` on their value constraints with no
-builder setter, which is the same library gap as the paragraph's and belongs in
-the same place.
+Both list types also hold a `defaultValue` of their own beside those options, and
+the model library now sets it. Which of the two a card should offer is the
+question: the option flag names a value the field permits and the literal does
+not have to, so the flag is the one an author wants and the literal is the one a
+template read from elsewhere may carry.
 
 ### 10. Controlled Terms
 
@@ -270,14 +284,15 @@ input. The parameter is covered; the control is not usable for what it holds.
 
 Email, Link and Phone, the seven external authorities — ORCID, ROR, PFAS, RRID,
 PubMed, NIH Grant ID and DOI — and Attribute Value, Section Break and Page Break.
-Each uses the base value constraints and adds nothing to them, so none has a
+None of them constrains its values beyond what every field does, so none has a
 per-type parameter to cover.
 
-They are named so the coverage claim can be made about all 25 types rather than
-about the ones with parameters. Three things still have to be true of them: the
-shared field parameters land, an attribute-value field's cardinality bounds become
-settable, and the default-value box stops appearing on the eleven types that take
-no default and today discard one in silence.
+They are named so the coverage claim can be made about the whole palette rather
+than about the types with parameters. Three things still have to be true of them:
+the shared field parameters land, an attribute-value field's cardinality bounds
+become settable, and each of them acquires a default in the shape it takes — a
+literal for e-mail and phone, an IRI for the link and the seven authorities, and
+no box at all for Attribute Value, the one dynamic type CEDAR gives no default.
 
 ### 13. Prove the coverage, per type
 

@@ -1294,7 +1294,7 @@ rather than documenting the loss.
 
 `cedar-artifact-library` (Java) and `cedar-model-typescript-library` (TypeScript) implement the same
 model and are meant to write the same document for the same artifact. They do: byte-identical YAML
-over all 82 corpus artifacts in the full form and the compact one, matching JSON over the same set,
+over all 83 corpus artifacts in the full form and the compact one, matching JSON over the same set,
 and each reads every document the other writes. Anything a run reports from here is a regression.
 
 Both comparisons live in the TypeScript library, which carries the corpus in-repo, so a plain clone
@@ -1307,8 +1307,24 @@ npm run parity:yaml:compact
 
 Each reads as a summary — a case with output on only one side is counted and skipped rather than
 thrown — and a green run names the four artifact kinds with `0 differing` against 18 fields, 6
-elements, 37 templates and 21 instances. Full and compact output have independent parity gates, so
+elements, 38 templates and 21 instances. Full and compact output have independent parity gates, so
 drift in either representation fails explicitly.
+
+The two libraries also have to agree about which field types accept a declared default value and
+what shape each one is. Java settles it and states it in five sealed interfaces, whose `permits`
+clauses the compiler keeps closed, and `npm run verify:java-defaults` reads those clauses out of the
+sibling Java repository rather than restating them:
+
+```bash
+npm run verify:java-defaults
+```
+
+A green run names each interface with the number of field types it permits — seven take a literal,
+eight an IRI, and one each a number, a temporal literal and a term with its label — and checks that
+every corresponding builder here accepts one and writes it in the shape Java writes. Attribute value
+and the five static types take none, and a `withDefaultValue` appearing on any of them fails the run
+too. Corpus template 038 carries one field of every shape, so the parity gates above compare the two
+libraries on all nineteen at once.
 
 Each library also holds two properties about itself as tests, so a regression fails a build rather
 than waiting for a comparison run. Every scalar returns as the string it went in as, over a few
