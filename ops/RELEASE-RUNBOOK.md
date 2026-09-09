@@ -96,6 +96,16 @@ The plan settles four groups of question:
   declared, every `license.txt` carries a recognisable copyright line, and each remote's `main`
   holds nothing that `develop` does not.
 
+A `main` that holds content `develop` does not stops the release. What it holds is a commit someone
+made straight to `main`, or a hotfix nobody back-merged, and the release replaces it with a push:
+the work leaves the branch that held it and nothing says so afterwards. Port it to `develop` and
+build a train from that source. Where `develop` dropped the file deliberately and `main` is simply
+behind, `--accept-main-only <repository>` takes the replacement and records that it was asked for.
+The version files a release stamps onto each branch separately do not count as divergence.
+
+`cedarcli check main` asks the same question of all forty-four repositories at any time, which is
+where it is cheap to answer. Asked during a release, it is already expensive.
+
 Two of those deserve their own note.
 
 **Nexus reads fall back to anonymous** and succeed whether or not credentials are available, so the

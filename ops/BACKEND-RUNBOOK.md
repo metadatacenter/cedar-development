@@ -105,6 +105,12 @@ open https://cedar.metadatacenter.orgx    # test1@test.com / test1   (also test2
 `cedarcli native start all` runs both steps above, including native infrastructure. It does not open or
 control a terminal application. Each application has its own PID file and log instead.
 
+Infrastructure already listening is left alone: starting Keycloak over a bound 8080 fails and used
+to end the whole command before it reached the applications. When every managed port has a listener
+the command says so and starts the applications only. To put fresh binaries behind a running stack,
+`cedarcli native restart` with no arguments is the command; `start` adopts what is already up rather
+than replacing it.
+
 ## The containerized stack
 
 An alternative to the native bring-up: the same fifteen microservices and the same infrastructure,
@@ -598,7 +604,14 @@ requires a successful response from the served root.
 
 Two columns exist so a green table cannot hide a stale one. **BINARY** compares when a process started
 against when its jar was written: `STALE` means the service is serving a jar older than the build, so
-its health says nothing about your latest code. For the `ui-main` and `ui-workspace` rows the column
+its health says nothing about your latest code.
+
+`current` therefore means the process is not older than its jar, which is narrower than it reads. A
+jar can itself have been built before its repository's `develop` head, and every row says `current`
+while it is, which is how a stack came to be smoke-tested against commits it did not contain. The
+summary under the table names any microservice in that position, and `cedarcli test e2e` refuses to
+record a run while one exists. The remedy is `cedarcli build java` followed by `cedarcli native
+restart`. For the `ui-main` and `ui-workspace` rows the column
 asks the equivalent question of the Embeddable Editor, which each of those frontends takes from npm
 and a gulp task copies out of `node_modules` into the tree gulp serves. Those two hops are invisible
 to git, because the served copy is ignored, so moving the pin without `npm ci`, or running `npm ci`
