@@ -124,75 +124,99 @@ services and frontends do not receive it. Do not paste a key into `set-env-inter
 development machine's file onto production, or enter it in a browser. The production command only
 prepares the file; it does not restart services or change running requests.
 
-Continue the full stopped-stack deployment below with all upgraded binaries. For a first **rolling**
-deployment instead, build the changed libraries and services, then restart upgraded callers before
-the enforcing artifact server:
+Use a separate key for staging and production. If these services are split across application hosts,
+supply the same environment's key to artifact, resource and worker through the deployment's secret
+provider; this command does not copy files over SSH. Do not initialize a different key on each host.
+The separate log database host needs no artifact key. Later rotation follows
+[the rotation and rollback procedure](BACKEND-RUNBOOK.md#deploying-and-rotating-the-artifact-service-key).
+
+### Next staging/production rollout: artifact authentication, compatibility reads and monitor counts
+
+Rehearse on staging, then deploy the same tested release to production. These instructions assume
+native mode with the **server** profile and the `cedar` service account. Check `cedarcli env status`
+first. Pull an already-cut release using the sequence above; these changes must reach released
+`main` before production deploys them. Include the updated CLI, config/shared libraries, artifact,
+resource, worker, bridge, repo, OpenView and monitor. Keep artifact's application port private and
+inventory deployment-specific scripts that call it directly: ordinary artifact clients must call
+resource. Internal service authentication does not configure a firewall or bind address.
+
+There is **no stored-artifact migration, reindex, or end-user API-key rotation for these changes**.
+Value-recommender is excluded pending retirement. Other migrations belonging to the release still
+follow the rest of this runbook.
+
+**Prepare before restarting anything:**
 
 ```bash
-cedarcli native restart bridge
-cedarcli native restart resource
-cedarcli native restart worker
-cedarcli native restart artifact
-cedarcli native status
-```
-
-Complete the deployment acceptance checks below. Inventory scripts that call artifact directly
-before enabling enforcement: ordinary clients must use resource; direct artifact calls without the
-service key now receive 401. This credential introduces no database migration or user API-key change.
-
-If artifact, resource and worker are actually split across application hosts, this local command
-does **not** copy secrets over SSH. Supply the same key to each host through the deployment's secret
-provider; do not run independent initialization on every host. The separate log database host needs
-no artifact key. Later rotation uses `cedarcli env artifact-key rotate`, artifact first, then resource
-and worker, followed by verification and `cedarcli env artifact-key retire` plus a final artifact
-restart; see [the rotation and rollback procedure](BACKEND-RUNBOOK.md#deploying-and-rotating-the-artifact-service-key).
-
-### Rolling deployment of artifact authentication and the OpenView proxy
-
-Use this sequence after pulling a release that contains both changes, on the native production
-application host as `cedar`. It makes the backend restart order explicit; it does not replace any
-other migration that the release requires. Stop at the first failed command. These are the standard
-native ports; use the configured ports if this installation overrides them.
-
-Choose one template already publicly readable through production OpenView. Set `OPEN_TEMPLATE_ID`
-to the UUID at the end of that template's stored identifier, not to a development template's UUID.
-Using a known public document makes a 200 response prove the complete graph, credential and storage
-path; a 404 for a made-up identifier would not prove that.
-
-```bash
-OPEN_TEMPLATE_ID='replace-with-the-existing-public-template-UUID'
-OPENVIEW_CHECK_DIR=$(mktemp -d)
-
+cedarcli env status
 cedarcli prod provision-artifact-key
+cedarcli check versions
 cedarcli build java
+```
 
-# Upgrade the callers before enforcing the new credential at artifact.
-cedarcli native restart bridge
+The key command creates or reuses the environment's local secret file. Building embeds the changed
+libraries in the service jars. Neither command restarts a running service. Stop if any command fails.
+
+**Choose one deployment path.** For the normal maintenance-window deployment below, provision the
+key first, build the complete release, then stop/start all microservices using that procedure; do
+not also perform the rolling sequence. For a rolling backend deployment, restart in this order,
+stopping at the first failure:
+
+```bash
+# Move all affected authenticated callers onto the new resource/storage boundary first.
 cedarcli native restart resource
+cedarcli native restart bridge
+cedarcli native restart repo
 cedarcli native restart worker
+
+# Artifact can now enforce the service key and expose its monitor count endpoint.
 cedarcli native restart artifact
-
-# No Authorization header: this must return the known public template as JSON.
-# Do not restart OpenView unless this succeeds.
-curl --fail --silent --show-error \
-  "http://127.0.0.1:9007/open/templates/$OPEN_TEMPLATE_ID" \
-  -o "$OPENVIEW_CHECK_DIR/resource.json"
-
-cedarcli native restart openview
-curl --fail --silent --show-error \
-  "http://127.0.0.1:9013/templates/$OPEN_TEMPLATE_ID" \
-  -o "$OPENVIEW_CHECK_DIR/openview.json"
-cmp "$OPENVIEW_CHECK_DIR/resource.json" "$OPENVIEW_CHECK_DIR/openview.json"
 cedarcli native status
 ```
 
-Both reads must succeed, `cmp` must exit zero, and the restarted services must be healthy with current
-binaries. Then verify the same template through its normal public OpenView browser URL. Repeat with
-a private template identifier and expect 401 from both anonymous endpoints, even when sending the
-owner's credential. Test explicit and folder-inherited openness and revocation during deployment
-acceptance. The production key command creates the credential file only; it does not execute any of
-these build, restart or HTTP verification steps. The files in `OPENVIEW_CHECK_DIR` contain only the
-chosen public template and can be removed after verification.
+Before continuing, open a known public template through resource's new anonymous endpoint in a
+browser: `https://resource.<environment-domain>/open/templates/<template-UUID>`. Substitute this
+installation's domain and the UUID from an existing public template; for the standard production
+domain the prefix is `https://resource.metadatacenter.org/open/templates/`. The browser should show
+that template's JSON without a login or API key. This checks the new graph → resource → artifact
+path before OpenView depends on it. A fabricated identifier returning 404 does not prove that path.
+
+```bash
+# These adapters now depend on the upgraded resource and artifact endpoints.
+cedarcli native restart openview
+cedarcli native restart monitor
+cedarcli native status
+cedarcli native health
+```
+
+**Acceptance checks:**
+
+- Every restarted service must be healthy and show a current binary, with no source-age warning.
+- Open the same template through its existing OpenView URL. Its document must match the resource
+  response. Check both explicitly public and folder-inherited public artifacts, then revoke openness
+  on a disposable staging fixture and verify it is no longer readable. A private artifact returns
+  401 on the anonymous endpoints even when its owner's credential is supplied; an unknown ID is 404.
+- Verify an authenticated workspace read/save and a repo identifier URL. On staging, exercise the
+  bridge DOI workflow against its test destination and a worker indexing job. These callers must
+  continue to work after artifact starts enforcing its key.
+- Open the monitoring application's **Counts** page as a monitor-authorized user. All four Mongo
+  totals must appear alongside Neo4j, OpenSearch and Keycloak. The totals are actual document-store
+  counts; differences from graph/search counts are diagnostic information, not automatically errors.
+- On staging, verify direct artifact business requests with only a user API key return 401, and that
+  an ordinary user cannot call resource's `/monitor/artifact-counts` (403). Confirm a stopped count
+  dependency produces 503 rather than a successful report containing zeros, then restore it.
+- Run `cedarcli test e2e` on staging with its configured smoke accounts and fixtures. Production
+  acceptance uses its approved test accounts and disposable fixtures; do not assume development
+  test credentials exist there. Repeat the public-read and Counts-page checks on production.
+
+Monitor receives no artifact service key and no longer opens artifact Mongo collections. Repo and
+OpenView remain compatibility URLs; stored identifiers and successful artifact JSON are unchanged.
+
+**Rollback:** retain the previous binaries/configuration and the environment's secret file. An old
+resource or worker cannot call an enforcing artifact server without the new key, so roll artifact
+back to its previous compatible binary before rolling those callers back. Old repo, OpenView and
+monitor binaries need their previous document-store configuration/connectivity. Restore a coherent
+previous set, then repeat health and read checks. No artifact data needs restoring for this rollout.
+Do not rotate or delete the new key merely because a binary rollout is being rolled back.
 
 ### 4 · Build (Java still running — keep the downtime window short)
 ```bash

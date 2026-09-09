@@ -12,12 +12,12 @@
 // status, and a graphless artifact — were both found by chance rather than by a test like this.
 import {
   suite, check, checkStatus, call, mutate, updateArtifact, artifact, cleanup, artifactBody, enc, RUN,
-  ARTIFACT_SERVER,
+  ARTIFACT_SERVER, HOST,
 } from '../lib.mjs';
 
 export const name = 'contract';
 
-export async function run({ user1, folderId }) {
+export async function run({ user1, admin, folderId }) {
   const auth = user1.auth;
 
   suite('contract: a create through the resource server reaches both stores, faithfully');
@@ -222,6 +222,28 @@ export async function run({ user1, folderId }) {
   const missing = `/templates/${enc('https://repo.metadatacenter.orgx/templates/00000000-0000-0000-0000-000000000000')}`;
   checkStatus(await call(auth, 'GET', missing), 404, 'an unknown id is 404 on the resource server');
   checkStatus(await artifact(auth, 'GET', missing), 404, 'and 404 on the artifact server');
+
+  suite('contract: monitor reads document counts through resource');
+  const monitorBase = process.env.CEDAR_MONITOR_BASE ?? `https://monitor.${HOST}`;
+  const countPath = '/monitor/artifact-counts';
+  checkStatus(await call(null, 'GET', countPath), 401, 'resource counts require authentication');
+  checkStatus(await call(auth, 'GET', countPath), 403, 'resource counts require monitor permission');
+  checkStatus(await call(auth, 'GET', '/resources/counts', undefined, { base: monitorBase }), 403,
+      'monitor counts require monitor permission');
+  const resourceCounts = await call(admin?.auth, 'GET', countPath);
+  const artifactCounts = await artifact(admin?.auth, 'GET', countPath);
+  const monitorCounts = await call(admin?.auth, 'GET', '/resources/counts', undefined, { base: monitorBase });
+  checkStatus(resourceCounts, 200, 'resource serves document counts');
+  checkStatus(artifactCounts, 200, 'artifact serves document counts to the trusted monitor-authorized caller');
+  checkStatus(monitorCounts, 200, 'monitor serves the combined counts report');
+  for (const kind of ['field', 'element', 'template', 'instance']) {
+    const count = artifactCounts.body?.[kind];
+    check(Number.isSafeInteger(count) && count >= 0
+        && resourceCounts.body?.[kind] === count && monitorCounts.body?.mongo?.[kind] === count,
+        `${kind} document count agrees across all three services`);
+  }
+  check(['neo4j', 'opensearch', 'keycloak'].every(store => typeof monitorCounts.body?.[store] === 'object'),
+      'monitor preserves the other store reports');
 
   return {};
 }
