@@ -252,13 +252,12 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   credential distribution and rotation. Keep the application connector private; service
   authentication does not replace network containment or protected transport across hosts.
 
-  Move openview's four artifact read routes through an explicit anonymous resource read path, using
-  one implementation of explicit and inherited openness. Preserve its public URLs and JSON contract,
-  measure the extra hop, and remove its artifact Mongo access. Verify all four artifact types under
-  explicit openness, inherited openness, private access, unknown identifiers and dependency failures.
-  Do not allow a supplied user credential to broaden an anonymous route's access. Inventory other
-  artifact collection consumers before claiming artifact is the sole storage owner. Retire redundant
-  adapters only after routing compatibility is proved; identifier hosts must keep resolving.
+  Roll out resource's anonymous artifact reads before the OpenView proxy, then verify the public
+  URLs, explicit and inherited openness, revocation, ignored user credentials and dependency failures.
+  Measure the extra hop on the deployed topology. Move monitor's document reports and
+  value-recommender's association-rule input off direct artifact collection access before claiming
+  artifact is the sole storage owner. Retire redundant adapters only after routing compatibility is
+  proved; identifier hosts must keep resolving.
 
   **Two terminology routes answer an anonymous caller, and that stays.** `POST
   /bioportal/integrated-retrieve` and `POST /bioportal/integrated-search` resolve no user. Measured

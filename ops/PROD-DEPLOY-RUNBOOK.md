@@ -147,6 +147,53 @@ no artifact key. Later rotation uses `cedarcli env artifact-key rotate`, artifac
 and worker, followed by verification and `cedarcli env artifact-key retire` plus a final artifact
 restart; see [the rotation and rollback procedure](BACKEND-RUNBOOK.md#deploying-and-rotating-the-artifact-service-key).
 
+### Rolling deployment of artifact authentication and the OpenView proxy
+
+Use this sequence after pulling a release that contains both changes, on the native production
+application host as `cedar`. It makes the backend restart order explicit; it does not replace any
+other migration that the release requires. Stop at the first failed command. These are the standard
+native ports; use the configured ports if this installation overrides them.
+
+Choose one template already publicly readable through production OpenView. Set `OPEN_TEMPLATE_ID`
+to the UUID at the end of that template's stored identifier, not to a development template's UUID.
+Using a known public document makes a 200 response prove the complete graph, credential and storage
+path; a 404 for a made-up identifier would not prove that.
+
+```bash
+OPEN_TEMPLATE_ID='replace-with-the-existing-public-template-UUID'
+OPENVIEW_CHECK_DIR=$(mktemp -d)
+
+cedarcli prod provision-artifact-key
+cedarcli build java
+
+# Upgrade the callers before enforcing the new credential at artifact.
+cedarcli native restart bridge
+cedarcli native restart resource
+cedarcli native restart worker
+cedarcli native restart artifact
+
+# No Authorization header: this must return the known public template as JSON.
+# Do not restart OpenView unless this succeeds.
+curl --fail --silent --show-error \
+  "http://127.0.0.1:9007/open/templates/$OPEN_TEMPLATE_ID" \
+  -o "$OPENVIEW_CHECK_DIR/resource.json"
+
+cedarcli native restart openview
+curl --fail --silent --show-error \
+  "http://127.0.0.1:9013/templates/$OPEN_TEMPLATE_ID" \
+  -o "$OPENVIEW_CHECK_DIR/openview.json"
+cmp "$OPENVIEW_CHECK_DIR/resource.json" "$OPENVIEW_CHECK_DIR/openview.json"
+cedarcli native status
+```
+
+Both reads must succeed, `cmp` must exit zero, and the restarted services must be healthy with current
+binaries. Then verify the same template through its normal public OpenView browser URL. Repeat with
+a private template identifier and expect 401 from both anonymous endpoints, even when sending the
+owner's credential. Test explicit and folder-inherited openness and revocation during deployment
+acceptance. The production key command creates the credential file only; it does not execute any of
+these build, restart or HTTP verification steps. The files in `OPENVIEW_CHECK_DIR` contain only the
+chosen public template and can be removed after verification.
+
 ### 4 · Build (Java still running — keep the downtime window short)
 ```bash
 cedarcli check versions        # every repo reports the expected version and any intended modifier

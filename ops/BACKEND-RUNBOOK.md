@@ -726,10 +726,37 @@ their existing access rules. Every other registered Jersey resource requires the
 
 The credential is shared by the trusted resource and worker services; it does not distinguish them,
 grant either one a new user role, or encrypt HTTP. Keep artifact on the private backend network and
-use a protected transport across untrusted networks. Openview still reads Mongo and evaluates
-explicit/inherited openness locally; an HTTP credential does not close that separate storage path.
-Its future resource path must explicitly request anonymous access regardless of incoming user
-credentials, without treating workspace grants as anonymous publication.
+use a protected transport across untrusted networks.
+
+OpenView's four artifact reads proxy to resource's JSON-only anonymous endpoints:
+GET /open/templates/{id}, /open/template-elements/{id}, /open/template-fields/{id}, and
+/open/template-instances/{id}. Both bare identifiers and encoded full IRIs resolve to the same
+document. Resource alone checks explicit or inherited openness; owner credentials and workspace
+grants cannot broaden these anonymous reads. The shared anonymous context never resolves supplied
+credentials. OpenView sends no Authorization, cookies or service key downstream, follows no
+redirects, and returns resource's status and JSON without a Mongo fallback. Both hops use no-store
+because openness can change without changing the document revision. The ordinary resource routes
+still require authentication.
+
+After proving openness, resource reads artifact using the configured internal service key and its
+existing backend administrator identity; it never uses the anonymous HTTP caller's credentials.
+OpenView receives only resource host/port and no artifact service credential. Its artifact Mongo
+initialization and document-operation dependency are removed. Its folder listings still use the
+workspace graph, and the shared bootstrap retains the estate's user-details Mongo configuration.
+
+Deploy the changed config/shared libraries and resource first, verify the new /open reads, then
+redeploy OpenView. Existing public OpenView URLs and successful JSON bodies remain unchanged.
+Errors use resource's common error response; identifiers in those errors are resolved IRIs, and
+an unavailable resource hop returns a sanitized 503. Rolling OpenView
+back requires its old configuration and document-store connectivity; no stored artifacts need
+restoring. Monitor's document reports and value-recommender's association-rule input still access
+artifact collections directly and must be addressed before claiming sole storage ownership.
+
+A local warm-loopback measurement on 2026-09-09 alternated 25 reads through each path after five
+warmup pairs. Resource's anonymous endpoint measured median 25.18 ms / p95 34.88 ms; OpenView measured
+median 33.92 ms / p95 47.47 ms, adding about 8.7 ms at the median on this workstation. All response
+bodies matched and the temporary open field was deleted. This is a local hop measurement, not a
+production latency bound; repeat on the deployed topology.
 
 Bridge's DOI workflow reads both the source artifact and the DataCite template through resource,
 and sends instance validation through resource's existing validation endpoint. These calls preserve
@@ -745,7 +772,7 @@ Mongo-only template or one they cannot read now produces a 404 or 403 instead of
 
 The internal HTTP callers are resource's CRUD, validation, annotation, copy and durable deletion
 completion paths, plus the shared inclusion-subgraph, extraction and instance-clone code used by
-resource/worker jobs. Bridge and repo call resource and receive no artifact service key. Configuration
+resource/worker jobs. Bridge, repo and OpenView call resource and receive no artifact service key. Configuration
 startup fails when artifact, resource or worker lacks a valid key; an invalid previous key also stops
 artifact startup. No permissive fallback is available.
 
@@ -1723,7 +1750,7 @@ than failing the request that produced them. Every server therefore carries `neo
 `app-log-queue` in addition to Dropwizard's own `deadlocks`.
 
 Servers add what they own on top of that. `initMongoServices` builds the document-store probe and
-the shared bootstrap registers it, so artifact, repo, openview and monitor each carry `mongo`.
+the shared bootstrap registers it, so artifact and monitor carry `mongo`; repo and OpenView proxy document reads and no longer register that store probe.
 Dropwizard's Hibernate bundle registers `hibernate` wherever a server opens MySQL, which is
 messaging, monitor and worker. Resource and valuerecommender gate on `opensearch`, both being
 unable to answer without their index. Submission gates on `ncbi-submission-queue`, whose contents,
@@ -2258,7 +2285,7 @@ Where the coverage is thin, stated plainly so nobody reads the class count as re
   dead-port tests for artifact/MongoDB, resource-to-artifact, monitor-to-artifact, user and group
   Neo4j reads, value-recommender and resource OpenSearch reads, the messaging SQL store and the
   Keycloak admin lookup, monitor Redis reads, bridge external-authority HTTP, the resource graph and
-  OpenView's store boundary. There is no HTTP application-log read: log persistence is an app-log
+  OpenView's resource HTTP boundary. There is no HTTP application-log read: log persistence is an app-log
   worker concern and its retry/dead-letter path is covered. Resource index rebuilds are accepted
   asynchronous jobs whose failed status is covered rather than synchronous requests that can answer
   503.
@@ -2349,7 +2376,7 @@ and what it needs to run.
 | impex | `ImpexRoutesRespondTest` | `RouteSurface` 401 | none |
 | messaging | `MessagingRoutesRespondTest` | `RouteSurface` 401 | embedded MariaDB |
 | monitor | `MonitorRoutesAndPermissionsTest` | `RouteSurface` 401 + 403 | none |
-| openview | `OpenViewUnknownArtifactTest` | anonymous, 404 for an absent artifact | embedded Neo4j |
+| openview | `OpenViewProxyTest`, `OpenViewResourceOutageTest` | anonymous JSON/status parity, credential stripping, no fallback | resource HTTP stub + embedded Neo4j for bootstrap |
 | repo | `RepoRoutesRespondTest` | `RouteSurface` 401 | none |
 | resource | `FoldersAuthorizationMatrixTest` and four peers | `PermissionMatrix` | embedded Neo4j |
 | schema | `SchemaServerApplicationSmokeTest` | anonymous, 404 for an unrouted path | none |
