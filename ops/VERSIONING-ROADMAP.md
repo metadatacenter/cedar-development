@@ -567,6 +567,14 @@ shape for both.
 happens at fill time in the editor/CEE, reading the version from the terminology server's resolve-current
 response.
 
+### 6. Compact term exclusions and ordering in the picker
+
+Design a compact way to author term exclusions and result-position actions without
+adding a permanent toolbar or pushing search results down. Keep term-result ordering
+distinct from rearranging constraint entries. Restore constraint-list reordering only
+with a clear, space-efficient interaction. Preserve imported actions unchanged while
+these authoring controls are deferred; deleting a selection removes only that constraint.
+
 ### Other deferred backend work
 
 - **4. Finish the ontology constraint's identity: retire `sourceUri`, and backfill `iri` and

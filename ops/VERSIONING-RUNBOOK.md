@@ -346,8 +346,8 @@ For CED integration, assign `constraintSet = { constraints, actions }` and use
 `selectionMode = 'constraints'`. The picker edits a draft and emits the entire set
 on Apply; `constraintsChanged` invalidates a host's pending validation, and Cancel
 leaves the original intact. Branch depth is editable in each branch's details.
-Constraint arrows reorder entries within their kind; term exclusions and result
-positions are separate actions. `selectionMode = 'term'` retains single-term output
+A bin icon removes an individual constraint. Exclusion and reordering controls are
+deferred to the roadmap; saved actions remain inspectable and are preserved unchanged. `selectionMode = 'term'` retains single-term output
 for defaults. Multiple fixed `sources` appear in a vocabulary/release selector so
 two pins of the same acronym are searched and browsed separately.
 

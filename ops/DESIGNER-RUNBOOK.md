@@ -206,8 +206,8 @@ require explicit clearing before an invalid default's replacement set is applied
 
 CED uses the picker's `selectionMode = 'constraints'`, `constraintSet` input and
 `constraintsSelected` event. The picker owns draft assembly, individual entry
-replacement/removal, branch depth, and separate term exclusion/result-position
-actions. Apply returns the entire set; cancellation leaves the original intact.
+replacement/removal and branch depth. Exclusion and reordering authoring controls
+are deferred; imported term actions remain intact. Apply returns the entire set; cancellation leaves the original intact.
 Constraint arrays and actions retain their order within each model array. A
 constraint's service URI, canonical IRI, source system and version pin remain
 separate identities.
