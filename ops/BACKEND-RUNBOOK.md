@@ -1303,25 +1303,29 @@ nested static field. `YamlAsymmetryProbeTest` in `cedar-artifact-library` and `Y
 in `cedar-artifact-server` both pin it. If a round trip ever loses a setting again, add a probe there
 rather than documenting the loss.
 
-### The two model libraries agree, and how to confirm it
+### Comparing the two model libraries
 
 `cedar-artifact-library` (Java) and `cedar-model-typescript-library` (TypeScript) implement the same
-model and are meant to write the same document for the same artifact. They do: byte-identical YAML
-over all 83 corpus artifacts in the full form and the compact one, matching JSON over the same set,
-and each reads every document the other writes. Anything a run reports from here is a regression.
+model. JSON matches over all 83 corpus artifacts. YAML is byte-identical for 82 of 83 artifacts,
+in full and compact form. Template 029 is the one recorded difference: TypeScript preserves
+`https://bioportal.bioontology.org/ontologies/MESH` as an explicit ontology `sourceUri`; the locked
+Java writer omits it and reconstructs the different `https://data.bioontology.org/ontologies/MESH`
+address on read. TypeScript omits only a service URI its reader can reconstruct exactly. The parity
+allowance names template 029, and committed TypeScript fixtures pin its additional property; other
+differences, stale fixtures, or this difference disappearing fail the gate.
 
 Both comparisons live in the TypeScript library, which carries the corpus in-repo, so a plain clone
 runs them with nothing cloned or symlinked first:
 
 ```bash
-npx ts-node ./itest/scripts/compare-verbatim-ts-java-yaml-files.ts
-npm run parity:yaml:compact
+npm run parity:yaml
+npm run parity:json
 ```
 
 Each reads as a summary — a case with output on only one side is counted and skipped rather than
-thrown — and a green run names the four artifact kinds with `0 differing` against 18 fields, 6
-elements, 38 templates and 21 instances. Full and compact output have independent parity gates, so
-drift in either representation fails explicitly.
+thrown — and a green YAML run reports `0 differing` for 18 fields, 6 elements and 21 instances, and the one
+recorded difference among 38 templates. Full and compact output have independent parity gates, so
+unrecorded drift in either representation fails explicitly.
 
 The two libraries also have to agree about which field types accept a declared default value and
 what shape each one is. Java settles it and states it in five sealed interfaces, whose `permits`
