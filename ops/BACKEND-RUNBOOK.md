@@ -1327,6 +1327,36 @@ thrown — and a green YAML run reports `0 differing` for 18 fields, 6 elements 
 recorded difference among 38 templates. Full and compact output have independent parity gates, so
 unrecorded drift in either representation fails explicitly.
 
+The field concordance matrix complements the corpus with 327 generated cases: all 25 field types
+(including both list modes), each metadata feature separately and in combination, supported defaults,
+and independent image/YouTube dimensions. Each case exercises standalone and template-child JSON,
+full YAML and compact YAML, including each reader's reconstructed JSON. Java asserts the declared
+feature values independently before recording output, and verifies the checked-in fixture against
+its live implementation during ordinary Maven tests. The TypeScript suite adds 1,963 checks to the
+ordinary Jest/coverage gate and verifies a vendored fixture's SHA-256 and Java commit provenance.
+Both suites assert the complete field-type roster so new types require matrix coverage.
+
+```bash
+# In cedar-artifact-library, using the runbook's Java 17 environment:
+./mvnw -Dtest=FieldConcordanceMatrixTest -DupdateFieldConcordance=true test
+# Review and commit the Java implementation, generator and generated fixture first.
+# In cedar-model-typescript-library, alongside that committed Java checkout:
+npm run sync:concordance
+npm run test:concordance
+```
+
+Review the generated fixture diff when updating it. TypeScript CI needs no sibling checkout or JVM;
+`sync:concordance` rejects uncommitted Java source/test changes so its revision identifies the actual
+fixture producer. Ordinary Java tests fail when their generated fixture is stale.
+
+The matrix compares parsed YAML structure (independent of formatting). For standalone attribute-value
+fields it compares the field definition inside Java's array wrapper. It pins one precise reader
+policy difference: compact YAML omits root lifecycle metadata; Java supplies version `0.0.1` and draft
+status while TypeScript preserves their absence. Every other reconstructed JSON property, including
+child lifecycle metadata, must agree. Custom JSON Schema titles/descriptions are asserted in JSON;
+YAML derives those values from the field name and description, so the matrix checks reader agreement
+there rather than claiming preservation of the custom schema text.
+
 The two libraries also have to agree about which field types accept a declared default value and
 what shape each one is. Java settles it and states it in five sealed interfaces, whose `permits`
 clauses the compiler keeps closed, and `npm run verify:java-defaults` reads those clauses out of the
