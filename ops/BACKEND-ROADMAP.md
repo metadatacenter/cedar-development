@@ -254,8 +254,8 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
 
   Roll out resource's anonymous artifact reads before the OpenView proxy, then verify the public
   URLs, explicit and inherited openness, revocation, ignored user credentials and dependency failures.
-  Measure the extra hop on the deployed topology. Move monitor's document reports off direct
-  artifact collection access. Value-recommender is excluded from this migration because it is
+  Measure the extra hop on the deployed topology. Deploy artifact and resource's count endpoints
+  before monitor, then verify its Counts page and dependency-outage behavior. Value-recommender is excluded from this migration because it is
   scheduled for retirement. Retire redundant adapters only after routing compatibility is proved;
   identifier hosts must keep resolving.
 

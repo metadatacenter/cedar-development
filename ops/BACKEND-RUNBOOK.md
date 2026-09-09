@@ -749,10 +749,23 @@ redeploy OpenView. Existing public OpenView URLs and successful JSON bodies rema
 Errors use resource's common error response; identifiers in those errors are resolved IRIs, and
 an unavailable resource hop returns a sanitized 503. Rolling OpenView
 back requires its old configuration and document-store connectivity; no stored artifacts need
-restoring. Monitor's document reports still access artifact collections directly and remain in
-scope for this migration. Value-recommender's association-rule input also reads those collections,
-but is an accepted temporary exception pending its planned retirement; it will not be migrated.
-Artifact is therefore not yet the sole collection reader.
+restoring.
+
+Monitor's `GET /resources/counts` obtains its four `mongo` totals through resource's
+`GET /monitor/artifact-counts`, which calls the same path on artifact. Both downstream endpoints
+require the caller's `MONITOR_READ` permission; resource preserves that identity and adds the
+internal service key. Artifact counts the actual collections, including graphless records. Monitor
+never receives the service key and no longer initializes an artifact Mongo client or document
+services. Its graph, search, Keycloak and logging reports retain their existing responsibilities;
+operational health probes still contact artifact directly. Failed, redirected or malformed count
+responses produce a sanitized 503, never zeros or a partial successful report. The existing report
+JSON shape is unchanged. The four collection counts are sequential, not an atomic snapshot.
+
+Build the changed shared libraries and artifact, resource and monitor. Restart artifact and resource
+before monitor so both count endpoints exist, then verify the Counts page as a monitor-authorized
+user. No data migration is needed. Rolling monitor back requires its former document-store
+connectivity. Value-recommender's association-rule input is the accepted temporary direct-collection
+exception pending its planned retirement; it will not be migrated.
 
 A local warm-loopback measurement on 2026-09-09 alternated 25 reads through each path after five
 warmup pairs. Resource's anonymous endpoint measured median 25.18 ms / p95 34.88 ms; OpenView measured
@@ -1752,7 +1765,7 @@ than failing the request that produced them. Every server therefore carries `neo
 `app-log-queue` in addition to Dropwizard's own `deadlocks`.
 
 Servers add what they own on top of that. `initMongoServices` builds the document-store probe and
-the shared bootstrap registers it, so artifact and monitor carry `mongo`; repo and OpenView proxy document reads and no longer register that store probe.
+the shared bootstrap registers it, so artifact carries `mongo`; repo, OpenView and monitor proxy document access and no longer register that store probe.
 Dropwizard's Hibernate bundle registers `hibernate` wherever a server opens MySQL, which is
 messaging, monitor and worker. Resource and valuerecommender gate on `opensearch`, both being
 unable to answer without their index. Submission gates on `ncbi-submission-queue`, whose contents,
@@ -2377,7 +2390,7 @@ and what it needs to run.
 | group | `GroupsAuthorizationMatrixTest`, `GroupMembershipAuthorizationMatrixTest` | `PermissionMatrix` | embedded Neo4j |
 | impex | `ImpexRoutesRespondTest` | `RouteSurface` 401 | none |
 | messaging | `MessagingRoutesRespondTest` | `RouteSurface` 401 | embedded MariaDB |
-| monitor | `MonitorRoutesAndPermissionsTest` | `RouteSurface` 401 + 403 | none |
+| monitor | `MonitorRoutesAndPermissionsTest` | `RouteSurface` 401 + 403, count-hop outage 503 | none |
 | openview | `OpenViewProxyTest`, `OpenViewResourceOutageTest` | anonymous JSON/status parity, credential stripping, no fallback | resource HTTP stub + embedded Neo4j for bootstrap |
 | repo | `RepoRoutesRespondTest` | `RouteSurface` 401 | none |
 | resource | `FoldersAuthorizationMatrixTest` and four peers | `PermissionMatrix` | embedded Neo4j |
@@ -2387,6 +2400,12 @@ and what it needs to run.
 | user | `UserServerApplicationSmokeTest` | explicit | embedded Neo4j |
 | valuerecommender | `ValueRecommenderRoutesRespondTest` | `RouteSurface` 401 | none |
 | worker | `WorkerRoutesRespondTest`, `AdminCommandAuthorizationMatrixTest` | `RouteSurface` 401 + `PermissionMatrix` | embedded Neo4j, MariaDB |
+
+Artifact's count test inserts graphless documents in embedded Mongo and verifies each total rises;
+resource's HTTP stub checks caller identity, the configured service key, redirects and failed or
+malformed responses. Monitor's bootstrap test asserts it registers no artifact Mongo health probe.
+The live REST smoke compares all four document counts across artifact, resource and monitor, and
+checks the monitor permission gates while preserving the existing report shape.
 
 Every backend listed is in-process, from `cedar-test-support-library`. No row needs a running CEDAR
 stack or a live external API.
