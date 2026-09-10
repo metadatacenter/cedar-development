@@ -1162,3 +1162,48 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   the two nginx blocks only after a compatibility period and evidence that no caller depends on it.
   Done when every resource-specific route takes the bare identifier, one parser owns the
   reconstruction, and staging's per-artifact blocks are gone.
+
+- **30. Decide what each compatibility adapter is for, now that neither reads artifacts itself.**
+  Repo and OpenView exist to preserve URLs rather than to do work: the runbook's account of artifact
+  route ownership gives repo the identifier dereferencing URLs and OpenView the anonymous
+  presentation and open-artifact URLs, and says neither adapter should own artifact storage or an
+  independent read policy. Both used to open artifact's Mongo collections and read documents
+  themselves. Neither does now — repo's four artifact routes and OpenView's four anonymous reads
+  delegate to resource, and both services' artifact Mongo initialization is gone — so each one's
+  artifact surface differs from resource's only by a hostname and a path convention.
+
+  That makes the question live rather than answered. It is not the retirement question item 6 asks
+  of four narrowly used servers: these two are neither narrowly used nor removable on the same terms,
+  because what they preserve is addressing that other people's data depends on.
+
+  What cannot change is the reason they exist. An artifact stores its own address — `"@id":
+  "https://repo.metadatacenter.org/templates/<uuid>"` — and an instance names the template it was
+  filled from the same way. Those strings sit in MongoDB, in Neo4j, in every instance anyone has
+  downloaded, in published DOIs and in citations outside CEDAR, and the designer mints new ones in
+  that form. `repo.metadatacenter.org` therefore has to keep answering whatever happens to the
+  process behind it, which is why the compatibility migration's rule is to preserve public hosts and
+  stored IRIs.
+
+  Neither service is a pure pass-through either, and the difference matters to the answer. Repo
+  resolves a bare path identifier to its full IRI, which nothing else does, and authenticates before
+  delegating. OpenView's folder listings still read the workspace graph, and it keeps the estate's
+  user-details configuration; only its artifact reads became redundant.
+
+  So the decision is per host, and there are three honest answers for each: retain the service with a
+  stated role, reduce it to the part that is not duplicated, or serve the URL contract some other way
+  — nginx routing plus something that still resolves a bare identifier — and retire the process. A
+  retirement takes the whole checklist item 6 states, and a reduction takes the part of it that
+  applies.
+
+  The prerequisite is already written down. The runbook's repo rollout asks for repo and resource
+  reads to be compared across all four artifact types, as an owner and as another user, with matching
+  bodies and ETags, private reads still denied, and neither a missing identifier nor a downstream
+  outage producing a successful read. That comparison is what proving routing compatibility means,
+  and no adapter should be reduced before it passes on the deployed topology.
+
+  Item 29 settles a different question about the same two services — which path shape a route takes —
+  and the two interact: retiring repo's routes would retire the bare-identifier convention that item
+  29 proposes to generalize, so whichever is decided first constrains the other.
+
+  Done when each of the two hosts has a stated role, an owner, and either a current caller that needs
+  the process or a routing arrangement that keeps its URLs resolving without one.
