@@ -52,7 +52,9 @@ cause. And never pipe a Maven run through `head` or `grep -m`: SIGPIPE can kill 
 while it still reports a clean exit. Redirect to a file and search that.
 
 `cedarcli check versions` and `cedarcli check repos` report version and repository consistency across the
-estate, which is worth running when a build fails in a repository you did not touch.
+estate, which is worth running when a build fails in a repository you did not touch. A repository behind
+its remote is reported as that, with `cedarcli git pull` as the fix, rather than as a version defect;
+`--strict` fails on it as well, for a host that builds from its own checkout.
 
 ## Testing
 

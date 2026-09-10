@@ -149,7 +149,7 @@ follow the rest of this runbook.
 ```bash
 cedarcli env status
 cedarcli prod provision-artifact-key
-cedarcli check versions
+cedarcli check versions --strict
 cedarcli build java
 ```
 
@@ -220,7 +220,7 @@ Do not rotate or delete the new key merely because a binary rollout is being rol
 
 ### 4 · Build (Java still running — keep the downtime window short)
 ```bash
-cedarcli check versions        # every repo reports the expected version and any intended modifier
+cedarcli check versions --strict   # expected version and modifier, and no checkout behind its remote
 cedarcli build maven clean all
 cedarcli build all             # this deploy: ~0:11:24
 ```
@@ -290,7 +290,10 @@ service nginx start
 ## Verify
 
 - `cedarcli native status` — all Java services up on the new build.
-- `cedarcli check versions` — every repo at the expected version + modifier.
+- `cedarcli check versions --strict` — every repo at the expected version + modifier, and no
+  checkout behind its remote. This host builds from its own checkouts, so a clone nobody pulled
+  produces binaries from older source while every version string still reads correctly. `--strict`
+  is what makes that a failure rather than a note.
 - Confirm `CEDAR_KEYCLOAK_ALLOW_INSECURE_TLS` is absent or `false`. Never use the native-development
   bypass to make a staging or production certificate failure disappear; install the Keycloak issuer
   CA in the JVM truststore and correct the hostname instead.
@@ -335,7 +338,7 @@ service nginx start
 | Command | What it does |
 |---------|--------------|
 | `gocedar` / `goeditor` | cd to `$CEDAR_HOME` / to the template-editor frontend (profile aliases). |
-| `cedarcli check versions` | Verifies every repo reports the expected version (incl. the modifier). |
+| `cedarcli check versions --strict` | Verifies every repo reports the expected version (incl. the modifier) and that no checkout is behind its remote. |
 | `cedarcli prod provision-artifact-key` | Creates or reuses the private service-key file on the native production application host; the launcher supplies it to artifact, resource and worker on their next start. Does not restart services. |
 | `cedarcli dev copy-keycloak-listener` | Copies `cedar-keycloak-event-listener.jar` into Keycloak's `providers/`, then runs `kc.sh build` so Keycloak picks up the provider. |
 | `cedarcli prod configure-frontends` | `sed`-rewrites `window.cedarDomain` and the content host in the active OpenView, Bridging, and Monitoring static `index.html` files to the production `CEDAR_HOST`. |

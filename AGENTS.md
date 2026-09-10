@@ -26,7 +26,7 @@ cedarcli native restart <svc>  # redeploy one service
 cedarcli native logs <svc>     # follow one log
 cedarcli native health         # exits non-zero unless every managed application is healthy
 cedarcli git status            # working-tree state across all repos
-cedarcli check versions        # version consistency across the estate
+cedarcli check versions        # version consistency; --strict also fails a checkout behind its remote
 cedarcli check ci              # CI at every develop head a train would capture
 cedarcli test e2e              # both whole-stack smoke tiers; records the run the train and release gates require
 ```
