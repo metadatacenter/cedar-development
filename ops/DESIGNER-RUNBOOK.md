@@ -285,19 +285,24 @@ nodes with separate reusable definitions and parent placements. Editor IDs are
 session identities, independent of artifact IRIs. Navigation changes no artifact and
 does not mark it dirty. The root document drives serialization and host events.
 
-`ContainerEditorComponent` edits the selected root or nested container;
-`ContainerOutlineComponent` provides recursive navigation. `TemplateService` keeps
-the existing field-control bindings as views of the selected container. All CEDAR
-model reads, builds and writes remain in `core/model/cedar-template.ts`.
+`ContainerEditorComponent` renders the root and recursively renders each nested
+container inline, using the same header and field layout. Field mutations resolve
+the owning container from the node ID, so simultaneous root and nested editors do
+not depend on the last selected container. The selected container still determines
+the target of the shared field sidebar. `ContainerOutlineComponent` scrolls to a
+field or element and expands its ancestors. All CEDAR model reads, builds and writes
+remain in `core/model/cedar-template.ts`.
 
 Choose **File → New Element** for a standalone element. The **Modular** profile
 (or **Enable Elements** preference) offers **Add Element** and **Import Element**.
-Existing nested content remains visible under every profile. Use **Edit Element**,
-the outline or breadcrumbs to navigate. The element's **Placement** panel edits
-its property name, display labels, property IRI, requirement, cardinality and layout.
-Move selectors transfer fields or whole element subtrees; cycles, duplicate property
-names and page breaks inside elements are refused. On narrow screens the outline
-is hidden and the editor uses the full width; cards and breadcrumbs provide navigation.
+Existing nested content remains visible under every profile. Elements start expanded;
+the chevron in their template-style header collapses or expands their children without
+discarding input or changing the artifact. **Element settings** edits the placement's
+property name, display labels, property IRI, requirement, cardinality and layout, and
+contains duplicate, remove and move actions. Add/import controls within each element
+target that container. Move selectors transfer fields or whole element subtrees;
+cycles, duplicate property names and page breaks inside elements are refused. On
+narrow screens the outline is hidden; nested sections remain editable inline.
 
 **Import Element** creates an independent local copy retaining source artifact
 identity. Its destination is captured when the file chooser opens, so later navigation
