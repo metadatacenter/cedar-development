@@ -117,8 +117,7 @@ CED's descriptor is the one place that answers what a type will accept, and the
 cards and the writer ask it rather than testing for a type's name.
 
 What the current designer's own table answers and the descriptor does not is
-`allowedInElement`, which waits on elements, and `primaryField`, which decides
-what a search result shows for a template. Its `allowsValueRecommendation` is not
+`primaryField`, which decides what a search result shows for a template. Its `allowsValueRecommendation` is not
 a gap: value recommendation is being retired, so CED should not grow it.
 
 Its `hasControlledTerms` is not a gap, and will not become one. Production marks
@@ -246,32 +245,9 @@ permissions, which is what lets reuse outlive the tab it was created in. Whether
 a saved field becomes one of those, or stays local to the browser and is stored
 there, is the decision to make first.
 
-### 16. Template elements
-
-Elements are the Modular profile, and they are deferred by decision until fields
-work properly.
-
-CED has no notion of an element. The production designer nests them, reuses them
-across templates, allows multiple cardinality on them, and treats "may this type
-appear inside an element" as a property of each field type. A template of any
-real size is mostly elements, so a designer without them is not finished.
-
-A preferences toggle called Show elements exists and controls nothing, which is
-worse than the capability being absent: it tells an author the designer has
-elements.
-
-Elements are last on purpose. They are the largest single item on this list and
-they touch every other one — the palette, the capability rules, cardinality, the
-save shape — so building them onto a core that is still moving would mean
-building them twice. The flat-template core comes first.
-
-Done when an author can add an element to a template, nest one inside another,
-give it a cardinality, and have the model library write it — and when opening a
-template that contains elements renders them rather than refusing the import.
-
 ## Quality
 
-### 17. Keyboard and screen-reader access
+### 16. Keyboard and screen-reader access
 
 The names are right now. Seven controls announced nothing useful — a visible
 `label` that labelled no control, a box named only by a placeholder that vanishes

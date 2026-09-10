@@ -1,7 +1,7 @@
 # CEDAR Embeddable Designer — Runbook
 
 Running, building, testing and packaging `cedar-embeddable-designer` (CED), the
-Web Component for authoring CEDAR templates.
+Web Component for authoring CEDAR templates and elements.
 
 CED is the authoring half of a pair. The [CEDAR Embeddable Editor](CEE-RUNBOOK.md)
 renders a template as a form and produces instances; CED produces the templates
@@ -256,11 +256,45 @@ registration. The CEE checkout is pinned to a full commit in CED's
 The job prints both source revisions and bundle hashes and retains failure traces.
 The combined real term-picker test still needs `PICKER_BUNDLE` separately.
 
-Each designer element owns its document, preferences and endpoint configuration;
-the field library remains shared. Opening a template preserves its root lifecycle,
-provenance, annotations and container metadata. Until element authoring is supported,
-a template containing elements is refused visibly and the current document remains
-open, preventing a save from silently deleting nested content.
+Each designer element owns one `EditorSession`, preferences and endpoint
+configuration; the field library remains shared. The session contains one immutable
+`ContainerDraft` tree and a selected container ID. Fields and elements are child
+nodes with separate reusable definitions and parent placements. Editor IDs are
+session identities, independent of artifact IRIs. Navigation changes no artifact and
+does not mark it dirty. The root document drives serialization and host events.
+
+`ContainerEditorComponent` edits the selected root or nested container;
+`ContainerOutlineComponent` provides recursive navigation. `TemplateService` keeps
+the existing field-control bindings as views of the selected container. All CEDAR
+model reads, builds and writes remain in `core/model/cedar-template.ts`.
+
+Choose **File → New Element** for a standalone element. The **Modular** profile
+(or **Enable Elements** preference) offers **Add Element** and **Import Element**.
+Existing nested content remains visible under every profile. Use **Edit Element**,
+the outline or breadcrumbs to navigate. The element's **Placement** panel edits
+its property name, display labels, property IRI, requirement, cardinality and layout.
+Move selectors transfer fields or whole element subtrees; cycles, duplicate property
+names and page breaks inside elements are refused. On narrow screens the outline
+is hidden and the editor uses the full width; cards and breadcrumbs provide navigation.
+
+**Import Element** creates an independent local copy retaining source artifact
+identity. Its destination is captured when the file chooser opens, so later navigation
+cannot redirect it. **Duplicate Element** creates new draft identities throughout
+the subtree, records each source with `pav:derivedFrom`, and clears publication and
+creation/update provenance. Neither operation creates a live server reference.
+
+The `artifact` input accepts JSON objects, JSON strings and full YAML for templates
+or elements. `currentArtifact` and `artifactChange` expose the complete root artifact.
+`template`, `currentTemplate` and `templateChange` remain compatible aliases.
+Imports preserve lifecycle, annotations, container metadata, ordering and descendants;
+failed imports leave the current document intact. JSON and YAML share the model
+codec. YAML export is refused when the model's round trip cannot retain every property.
+
+CEE preview receives the root template, or a temporary template wrapping a root
+element. The wrapper never reaches exports or host events. Leaf default controls
+continue to use CEF. Field views retain identity while their nodes are unchanged,
+so asynchronous terminology checks survive unrelated rendering and reject replies
+for fields that were actually replaced.
 
 The default browser suite uses a CEF contract stub. To include the real widgets
 and the combined controlled-term picker test, after building all siblings:
