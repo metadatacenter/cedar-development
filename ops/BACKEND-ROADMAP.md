@@ -1101,25 +1101,37 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
 
 ## Later decisions
 
-- **26. Decide which request JSON objects are closed contracts, then enforce that boundary.** A
-  strict shared mapper does not by itself make CEDAR's request contract consistent: Jersey binds
-  some request DTOs, other resources convert selected subtrees by hand, and artifact endpoints
-  deliberately accept extensible JSON-LD. Applying unknown-property rejection to every inbound
-  object would therefore turn valid extension data into `400` responses.
+- **26. Classify every request body boundary as closed or open, and record the classification.**
+  Unknown-property rejection is a global mapper setting, so which objects it is right for can only
+  be inferred from how each handler binds its body. An artifact endpoint stays open because it
+  takes a tree rather than a type, not because anything says it should, and a closed DTO can be
+  loosened by a single annotation with no test to catch it.
 
-  Inventory the request body of every endpoint and classify each object boundary as either closed
-  or open. A closed command or options DTO should reject misspelled and unsupported fields. An
-  artifact document, merge-patch body, JSON-LD object, or explicitly documented extension map
-  should remain open. Record the same decision in OpenAPI: use `additionalProperties: false` only
-  for closed objects, and leave open shapes explicit rather than relying on a mapper default.
+  Inventory the body of every `POST`, `PUT` and `PATCH` handler — about ninety, fifty-three of them
+  in the resource server — and classify each object boundary. A command or options DTO is closed:
+  it rejects misspelled and unsupported fields. An artifact document, a merge-patch body, a JSON-LD
+  object or a documented extension map is open: it carries properties the server does not name,
+  and it comes back unchanged.
 
-  Route every closed DTO binding and manual tree conversion through the named strict mapper, remove
-  `ignoreUnknown` annotations that contradict that contract, and test unknown properties at both
-  the root and nested closed-object boundaries as `400` responses. For every open boundary, add a
-  preservation or acceptance test so later cleanup cannot tighten it accidentally. Treat any
-  endpoint that becomes stricter than its current behavior as a public API compatibility change:
-  identify its callers, document the rejected shape, and stage the change through the normal
-  release process rather than coupling it to response-reader compatibility work.
+  The artifact server owns validation of a CEDAR artifact, and no other service performs it. An
+  artifact body is open in every service that carries one: the resource server proxies a template,
+  element or instance without inspecting it, and a rejection comes from the artifact server or not
+  at all.
+
+  Record each decision in the service's OpenAPI document: `additionalProperties: false` on a closed
+  object, an explicit open shape elsewhere. Add a rule to `cedarcli check openapi` so a request
+  schema that states neither is a finding. `OpenApiContract.py` reads `additionalProperties` today
+  only when deciding whether a schema counts as a stub.
+
+  Route the conversions that still bypass the named mappers through them. Eighteen call sites
+  across the servers and the shared libraries construct an `ObjectMapper` of their own, two of them
+  reading a request subtree in `cedar-submission-server`. Then test both kinds of boundary. A
+  closed object rejects an unknown property at the root and at each nested object. An open object
+  keeps what it was sent, held by a preservation test, so later cleanup cannot tighten it silently.
+
+  Where the classification makes an endpoint stricter than it behaves today, treat it as a public
+  API compatibility change: identify the callers, document the rejected shape, and stage it through
+  a normal release.
 
 - **27. A published artifact can be deleted, contradicting the docs.** The docs say a published
   artifact is permanent, but `DELETE` on one succeeds. The guard in
