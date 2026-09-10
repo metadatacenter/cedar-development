@@ -23,166 +23,70 @@ the Semantic profile everything modular. Once a control has to exist, which
 profile shows it is the design question, and "put it on the card" is usually the
 wrong answer to it.
 
-## The First Goal, and the Order
+## The Goal, and the Order
 
-Every field type CEDAR defines is already in CED's palette — 26 entries, three
-more than the 23 the current designer's own configuration declares in
-`app/config/field-type-service.conf.json`. Completing the palette is not the work.
-The support behind it is: a text field and a radio field carry what an author
-gives them, and the rest either lack the parameters that make the type worth
-choosing over a text box, or drop what the author enters.
+Every parameter the model library exposes is reachable from a card, and that is
+what makes the cards the problem to solve next. A Basic-profile author meets the
+whole surface at once — a datatype menu, a granularity menu, a regular-expression
+box, an occurrence range, a property IRI — where that profile's own mockup shows a
+name, a requirement and a help line. Adding controls to one card is how the
+designer CED replaces became cluttered, and CED has now arrived at the same place
+by the same route.
 
-**The first goal is complete coverage of the model library's field parameters,
-reached one field type at a time.** A type is done when every setter on its
-builder in `cedar-model-typescript-library`, and every field on its
-value-constraints class, is reachable from the card, survives a write, a read and
-a second write unchanged, and has a spec that says so. A type nobody has finished
-is worse than a type nobody has added: the palette promises it works.
+**The goal is the three profiles: Basic, Semantic and Modular, each an interface
+its audience can work in rather than one interface with parts hidden.** Capability
+equivalence is the bar for the three together; legibility is the bar for each.
 
-Everything else waits on that, and the order is a decision rather than a
-grouping. What CED writes wrongly is settled before it is given more to write,
-because malformed constraints can stop a template being written at all.
-Parameter coverage comes next, type by type.
-Then the surface around the fields, then the rest, in roughly profile order:
-version awareness is the Semantic profile's, and structure beyond a flat template
-the Modular profile's.
+The order after that is a decision rather than a grouping. What CED writes wrongly
+is settled before it is given more to write, because a malformed constraint can
+stop a template being written at all. Then version awareness, which is the
+Semantic profile's; then opening and saving, which is what makes the component
+usable by anyone outside a demo; then structure beyond a flat template, which is
+the Modular profile's and which touches everything else.
 
-One risk is worth naming rather than discovering. Parameter coverage adds a great
-many controls, and adding them to one card is how the designer CED replaces
-became cluttered. The profiles are the answer to that, and they are sequenced
-after the coverage work, so each control added before then needs a decision about
-where it eventually belongs — recorded with the control, not deferred to a
-redesign.
+Two field-level questions remain, and they are first because they are small and
+because both are decisions rather than implementations.
 
 Item numbers are for referring to items in conversation, and they are not stable
 handles — an item that is finished leaves the document, and the rest are
 renumbered. What was built is recorded in the commits that built it. Name an item
 rather than its number.
 
-## Full Parameter Coverage, One Field Type at a Time
+## The Fields
 
-The two shared items come first, because they apply to every type and because
-thirteen of those types have no parameters of their own — finishing the shared
-surface finishes them outright. The types with the most missing follow, in the
-order a template author is most likely to miss them.
+### 1. A palette entry for a date that carries a time
 
-### 1. The parameters every field type shares
+The palette offers Date and Time, and `xsd:dateTime` has no entry of its own. An
+author reaches it by adding a Date and changing its datatype, which works and is
+not discoverable: the Basic profile's worked example is a Release Date that
+carries both, and nothing in the palette says CED can express one.
 
-`skos:prefLabel` and `skos:altLabel` are on every field builder and CED sets
-neither. The preferred label is not an advanced control: it sits in the Basic
-profile's mockup directly beneath the field name, and a set of synonyms is
-exactly what the author of a controlled-term field has to hand.
-`schema:identifier` and `language` are never written. The JSON Schema `title` and
-`description` are composed from the field name and cannot be set apart from it,
-which is right for a default and wrong as the only option. Each field's
-`bibo:status` is a fixed draft and its `pav:version` is never set, which belongs
-with publishing rather than here.
+Either a third entry, or the datatype control has to be plain enough on a Date card
+that nobody needs the palette to find it. The palette already has twenty-six
+entries, which is the argument against a third.
 
-Annotations are the model library's gap before they are CED's: the model holds
-them on every artifact and no builder sets them.
-
-### 2. The deployment parameters every child carries
-
-These are what the template decides about a field, as against what the field
-itself is. Five are missing: the recommended flag, the two cardinality bounds,
-`hidden` and `continuePreviousLine`.
-
-`recommendedValue`: CEDAR marks a field required, recommended or neither, and
-both designer state and the serializer carry all three, but the card has a single
-Required checkbox that toggles required against optional. Recommended can only
-reach a template by being read from one, and it is lost the first time anyone
-touches the checkbox. The current designer offers all three.
-
-`minItems` and `maxItems` on a multi-valued child, so that a field which should
-take between one and five values does not take any number. The always-multiple
-builder has its own pair, which a checkbox, a multi-select list and an
-attribute-value field need, and which is where an attribute-value field's
-cardinality is set at all.
-
-`hidden`, which every child can carry — static fields and elements included — and
-`continuePreviousLine`. Both are settings the current designer offers and the
-model library already writes.
-
-### 3. Text and Paragraph
+### 2. Length and pattern on a paragraph
 
 A text field constrains its values by `minLength`, `maxLength` and a regular
-expression, and CED offers none of the three as authoring controls. Paragraph
-needs the shared field parameters.
+expression. A paragraph carries none of the three in CED, and the reason is that
+the two model libraries disagree about whether it should. `TextAreaField` in
+`cedar-artifact-library` has `withMinLength` and `withMaxLength` and no
+`withRegex`; `TextAreaBuilder` in `cedar-model-typescript-library` has none of the
+three. `TextField` has all three in both.
 
-The custom-field designer already offers a Validation Rules panel — a regular
-expression, a minimum length, a maximum length and a numeric range — which is this
-same set of constraints attached to a custom type rather than to a field, and read
-by nothing. CEDAR states them on the field, so that is where the control belongs,
-and the panel should either drive it or go.
+So the libraries' disagreement is the thing to settle, and it is theirs to settle
+rather than CED's: whether a paragraph is a text field that renders differently, in
+which case it takes the same constraints, or a block whose length nobody bounds. A
+template written by the Java library today can carry a paragraph length that the
+TypeScript library cannot express, which is the sharper reason to decide.
 
-### 4. Number
-
-Five authoring parameters remain: the datatype, where seven `xsd` types are
-available and CED always writes `xsd:decimal`; `minValue` and `maxValue`;
-`decimalPlaces`; and `unitOfMeasure`.
-
-These are the Basic profile's defining feature rather than an addition to it.
-That profile promises predefined, configurable fields whose permissible values an
-author bounds from dropdown menus and checkboxes, without having to learn a schema
-or an ontology. A number that must be a positive integer of milligrams is the
-plainest case of it, and CED cannot express any part of that.
-
-Datatype and bound controls must account for the existing default: changing
-a decimal field with a default of 2.5 to `xsd:int` needs an explanation and a
-resolution before the field can be updated.
-
-### 5. Date and Time
-
-Date and time are the whole of what CED offers. `xsd:dateTime` has no entry in
-the palette, granularity is fixed at day for a date and minute for a time where
-the model offers seven values, and neither `timezoneEnabled` nor the
-12-hour/24-hour input format can be set.
-
-The Basic profile's worked example is precisely this field: a Release Date whose
-author picks the date format, picks the time format, and says whether a timezone
-is offered. All three are unreachable, and the type CED writes for it is not the
-one that example uses.
-
-Granularity and type constrain each other — a time cannot be granular to the
-year — so this type, like Number, needs coordinated authoring controls. Their
-changes must account for existing defaults.
-
-### 6. Image, YouTube and Rich Text
-
-An image carries a URL and a display width and height; an embedded video carries
-a video id and the same pair. CED writes the first of each and neither size. The
-sizes are written into the child's `configuration` when the field is a child of a
-template, which is where CED always puts it.
-
-Rich text carries only its markup, and CED collects that in a single-line text
-input. The parameter is covered; the control is not usable for what it holds.
-
-### 7. The thirteen types with no parameters of their own
-
-Email, Link and Phone, the seven external authorities — ORCID, ROR, PFAS, RRID,
-PubMed, NIH Grant ID and DOI — and Attribute Value, Section Break and Page Break.
-None of them constrains its values beyond what every field does, so none has a
-per-type parameter to cover.
-
-They are named so the coverage claim can be made about the whole palette rather
-than about the types with parameters. The shared field parameters still need to
-land, and an attribute-value field's cardinality bounds need authoring controls.
-
-### 8. Prove the coverage, per type
-
-The gate on the first goal, and the thing that keeps it from decaying. A spec that
-walks every type, sets every parameter that type's builder and value constraints
-expose, writes the template as JSON and as YAML, reads each back, writes again,
-and asserts the second write matches the first. The checks must cover the entire
-parameter surface as authoring controls grow.
-
-It needs a source of truth for what each type's parameters are. Deriving that list
-from the model library rather than restating it in the test is what makes the spec
-fail when the library grows a parameter CED has not adopted.
+CED needs no change either way. The descriptor reads the setters a builder
+actually has, so a paragraph gains the controls when the library it reads gains
+them.
 
 ## The Surface Around the Fields
 
-### 9. The three profiles, and what each one holds
+### 3. The three profiles, and what each one holds
 
 Basic, Semantic and Modular are the product structure, and CED has their names
 already: three presets in the preferences modal, each a bundle of visibility
@@ -195,8 +99,7 @@ Basic hides one field type, Controlled Terms, and shows all twenty-five others.
 It offers Attribute Value, which asks an author to describe fields whose names a
 form-filler will supply later, and all seven external authority types. It hides
 Field Help Text and Default Value, both of which the Basic profile's own mockup
-shows. That mockup also shows a preferred label and a full set of temporal
-constraints, none of which CED can set in any profile.
+shows, and shows the whole parameter surface of every type it does offer.
 
 Two questions, then. What belongs in each profile, decided per field type and per
 control rather than by one boolean apiece. And what a profile may change —
@@ -205,26 +108,18 @@ has to leave the template intact, which is what makes the second question hard: 
 template authored in Modular and opened in Basic still contains everything Basic
 does not show.
 
-Every control the coverage work adds is a decision this item has to absorb, which
-is the argument for not leaving it to the end of that work.
+Every control on a card today is a decision this item has to absorb, and there are
+now a great many of them.
 
-### 10. Per-type capability rules
+### 4. Per-type capability rules
 
-CED has a table now, and it answers what a type will accept: whether it can be
-required, whether its author chooses the cardinality, whether it carries options,
-and what its static content is. The card asks that table rather than testing for
-type names, so Required, Allow multiple, Default Value and the options list are
-each offered only where the artifact can carry them.
+CED's descriptor is the one place that answers what a type will accept, and the
+cards and the writer ask it rather than testing for a type's name.
 
-The table is also where the per-type parameter work should land. Each type's
-setters differ, and the coverage items are a list of differences that
-belong in one descriptor rather than in a chain of type-name tests — which is how
-the option setters came to be probed for by name.
-
-What the current designer's table has and CED's does not is `allowedInElement`,
-which waits on elements, and `primaryField`, which decides what a search result
-shows for a template. Its `allowsValueRecommendation` is not a gap: value
-recommendation is being retired, so CED should not grow it.
+What the current designer's own table answers and the descriptor does not is
+`allowedInElement`, which waits on elements, and `primaryField`, which decides
+what a search result shows for a template. Its `allowsValueRecommendation` is not
+a gap: value recommendation is being retired, so CED should not grow it.
 
 Its `hasControlledTerms` is not a gap, and will not become one. Production marks
 it on one type, `textfield`, and treats controlled terms as something an author
@@ -242,13 +137,13 @@ open-and-save. It is written as a text field today to stop the decay, which trad
 one surprise for a smaller one. Refusing to save an unfinished field, and saying
 which field is unfinished, is the better answer and belongs with validation.
 
-### 11. Header, footer, and property labels
+### 5. Header, footer, and property labels
 
 A template carries a header and a footer, and each child carries a label and a
 description that a form shows in place of its raw key. CED writes the key and the
 field name and nothing else.
 
-### 12. Guidance in the interface
+### 6. Guidance in the interface
 
 Tooltips, help messages and worked examples are part of what makes the Basic
 profile usable by someone who has never met a metadata standard, and the Semantic
@@ -265,13 +160,13 @@ be told what the choice does.
 
 ## Version Awareness
 
-### 13. Say what a constraint resolves to
+### 7. Say what a constraint resolves to
 
 An author who has pinned DOID 2026-06-30 to a branch of 4,000 terms cannot see
 that from the panel. The terminology server can answer it and the picker already
 shows counts while choosing; the constraint, once chosen, shows a label.
 
-### 14. Freeze on publish
+### 8. Freeze on publish
 
 A draft template names a release or names latest; a published one must name a
 release, resolved at publish time. CED does not publish anything yet, so this
@@ -279,7 +174,7 @@ follows publishing, but the constraint shape has to be right before then.
 
 ## Persistence and Lifecycle
 
-### 15. Open from and save to the artifact server
+### 9. Open from and save to the artifact server
 
 CED reads a file and writes a download. The production designer opens from a
 folder, saves back to it, and knows about permissions. For an embeddable
@@ -287,14 +182,14 @@ component the host may own that, which makes this a contract question before it
 is an implementation one: an event carrying the template a host is expected to
 store, or a REST client of CED's own.
 
-### 16. Publish, and make a new version
+### 10. Publish, and make a new version
 
 Implement the artifact server's lifecycle for `bibo:status`, `pav:version`,
 `pav:derivedFrom` and `pav:previousVersion`. Define creation and update provenance
 for editable drafts: who created an artifact and when, and who last modified it.
 Coordinate version allocation and publish operations with the embedding host.
 
-### 17. Edit published fields through an explicit draft workflow
+### 11. Edit published fields through an explicit draft workflow
 
 Define an explicit “Edit as draft” action for a published field, coordinated with
 its embedding host and the artifact server. Decide whether that action creates a
@@ -306,7 +201,7 @@ Keep the published definition immutable. Cover permission failures, cancellation
 saving the draft and publishing it, with tests proving that none of those paths
 silently rewrites the source published field.
 
-### 18. Validate before saving
+### 12. Validate before saving
 
 The schema server validates a template and returns what is wrong with it. Nothing
 in CED asks. The model library refuses to build some invalid artifacts, which
@@ -314,7 +209,7 @@ covers less ground than the validator and is not the same answer.
 
 ## The Embedding Contract
 
-### 19. Settle and declare the rest of the contract
+### 13. Settle and declare the rest of the contract
 
 `CedConfig` currently names terminology and bridge endpoints. A host embedding a designer will want at least a
 read-only mode, a language, and somewhere to say which field types to offer.
@@ -327,7 +222,7 @@ which one wins where they disagree. What each profile contains is settled with
 the profiles, not here. Every key added needs the conformance test that already
 asserts the contract and the implementation cannot drift apart.
 
-### 20. Publish the package
+### 14. Publish the package
 
 Nothing is on either channel. The staging and the channel rule are in place, so
 this is a decision rather than work: a dev snapshot to Nexus lets the Workbench
@@ -335,13 +230,12 @@ consume CED before it is finished.
 
 ## Structure Beyond a Flat Template
 
-### 21. Give the field library somewhere to keep things
+### 15. Give the field library somewhere to keep things
 
-An author can define a field type of their own — a name, an icon, one of the
-built-in types underneath, a placeholder and a list of validation rules — keep it
-in a named library, and drop it into any template from the sidebar. The
-capability is worth having: most of what an author puts in a template is
-something they or a colleague has described once already.
+An author can save any field they have built — its type, its parameters, its
+constraints, the whole definition — into a named library, and drop it into another
+template from the sidebar. The capability is worth having: most of what an author
+puts in a template is something they or a colleague has described once already.
 
 What it lacks is anywhere to put them. A custom field, a library and every
 preference are signals in memory, so all three are gone on reload, and nothing an
@@ -351,7 +245,7 @@ permissions, which is what lets reuse outlive the tab it was created in. Whether
 a saved field becomes one of those, or stays local to the browser and is stored
 there, is the decision to make first.
 
-### 22. Template elements
+### 16. Template elements
 
 Elements are the Modular profile, and they are deferred by decision until fields
 work properly.
@@ -376,12 +270,16 @@ template that contains elements renders them rather than dropping them.
 
 ## Quality
 
-### 23. Keyboard and screen-reader access
+### 17. Keyboard and screen-reader access
 
-Untested and unclaimed. The picker has thought about this and CED has not.
+The names are right now. Seven controls announced nothing useful — a visible
+`label` that labelled no control, a box named only by a placeholder that vanishes
+once it holds a value, a select whose accessible name was its own list of options
+— and the attribute matrix asserts every control it drives can be found by the
+name it shows.
 
-### 24. A corpus test
-
-CEE checks itself against 37 real templates in both serializations. CED has no
-equivalent — nothing proves it can open the templates production already holds,
-which is the first thing anyone will try.
+A name is the smallest part of this. Nothing has been driven from the keyboard
+alone, no focus order has been checked, no live region announces that a constraint
+was added or that an Apply was refused, and the modal the picker opens has not been
+tested for focus capture or for what Escape does to an author midway through a
+choice. The picker has thought about this and CED has not.

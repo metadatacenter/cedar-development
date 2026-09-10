@@ -70,6 +70,7 @@ would suddenly be sharing one.
 | `npm run test:browser` | builds the distribution, then drives it in a real browser |
 | `npm run test:browser:prebuilt` | the browser suite, refusing a bundle that is not the code |
 | `npm run test:browser:flake-hunt` | that suite twenty times over, or `RUNS=n` |
+| `npm run test:visual` | the screenshot baselines, in the container they are taken in |
 | `npm run check:readme` | the README's examples, against the package that ships |
 | `npm run test:ci` | the gate, cheapest check first |
 | `npm run audit:prod` | advisories against what an embedder downloads |
@@ -102,6 +103,26 @@ components. Neither breaks a build when it goes.
 declaration, and checks that every `npm run` a reader is told to type is a script
 this project has. The second half exists because documentation here has named a
 command that did not exist.
+
+### What the Machine Decides
+
+Two kinds of check measure the rendered page rather than the model, and both
+depend on the machine that rendered it. `browser/run-in-container.sh` runs them
+inside the Playwright image matching the version this repository resolves —
+`visual` for the baselines, `behaviour` for everything else — and CI runs the same
+image on an arm64 Linux runner so that neither side emulates the other.
+
+The screenshot baselines are the obvious case: a baseline records a machine's
+glyph rasterisation as much as the application's rendering, and CEE measured 7 of
+its 106 differing by antialiasing alone across the laptop-to-CI boundary. Because
+the container removes that boundary, the budget for a difference here is zero
+pixels rather than a tolerance wide enough to hide a real change.
+
+The layout invariants are the case that is easy to miss. They measure real boxes,
+and a box's width depends on the fonts available — so a row with no slack fits on
+a developer's Mac and overflows on the runner. An option row's delete button sat
+31 pixels outside its card on CI and nowhere else, and the suite was red for three
+commits before anyone ran it where CI runs it.
 
 ## Packaging and Release
 
