@@ -15,7 +15,35 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
 
 ### Infrastructure
 
-- **1. Rename the legacy role relationships in production Neo4j.** The application currently
+- **1. Document the versioning model, then audit the implementation against it.** The user guide
+  says what an author sees and the YAML specification defines the keys, but no document states the
+  model: which artifact kinds are versioned, what publishing freezes, how a draft succeeds a published
+  version, how version numbers must order, what the three latest-version flags mean, and what deleting
+  a version does to the chain. Write that model in one place, beside the permission model. Then audit
+  the resource server, the graph and the search index against it, and record each divergence as a
+  decision to make or a defect to fix. `ArtifactLifecycleMatrixTest` pins the current rules until
+  then. Done when the model is published and every divergence is fixed or recorded.
+
+- **2. Protect `main` in every repository, and give the release an identity of its own.** `main` is
+  unprotected in all forty-four repositories, so a commit can land there without ever reaching a
+  train, which captures `develop`. The next release then replaces it: the work leaves the branch
+  that held it and nothing says so afterwards. A hotfix and the unit test guarding it came within
+  one reading of an advisory line of going that way. The release gate refuses such a source now, and
+  `cedarcli check main` answers the same question between releases, but neither prevents the push.
+
+  Requiring a pull request on `main` does not settle it by itself. `cedarcli release start` pushes
+  straight to `main` in forty-two repositories, as whoever runs it, so a bypass naming that person
+  protects nothing against the case that prompted this. Give the release a machine identity, a
+  GitHub App or a dedicated account, grant the bypass to that rather than to a human, and
+  authenticate the release as it. The bypass has to cover every ref a release creates — `develop`,
+  the tags, and `release/pre-*` among them — or a release fails after its Maven and frontend builds
+  are already spent. Prove the ruleset against one repository before it reaches all forty-four.
+
+  The npm releases already go through pull requests and need nothing. Until the machine identity
+  exists, run `cedarcli check main` on a schedule, so divergence is found the next morning rather
+  than mid-release.
+
+- **3. Rename the legacy role relationships in production Neo4j.** The application currently
   interprets `CANREAD` as Viewer and `CANWRITE` as Manager, so the new permission model can be
   deployed without changing the stored graph. The category permission model follows the same initial
   approach: `CANATTACHCATEGORY` stores Classifier grants and `CANWRITECATEGORY` stores Manager grants.
@@ -39,26 +67,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   Remove the compatibility interpretation of `CANREAD`, `CANWRITE`, `CANATTACHCATEGORY` and
   `CANWRITECATEGORY` only after every deployed environment has been patched and verified.
 
-- **2. Protect `main` in every repository, and give the release an identity of its own.** `main` is
-  unprotected in all forty-four repositories, so a commit can land there without ever reaching a
-  train, which captures `develop`. The next release then replaces it: the work leaves the branch
-  that held it and nothing says so afterwards. A hotfix and the unit test guarding it came within
-  one reading of an advisory line of going that way. The release gate refuses such a source now, and
-  `cedarcli check main` answers the same question between releases, but neither prevents the push.
-
-  Requiring a pull request on `main` does not settle it by itself. `cedarcli release start` pushes
-  straight to `main` in forty-two repositories, as whoever runs it, so a bypass naming that person
-  protects nothing against the case that prompted this. Give the release a machine identity, a
-  GitHub App or a dedicated account, grant the bypass to that rather than to a human, and
-  authenticate the release as it. The bypass has to cover every ref a release creates — `develop`,
-  the tags, and `release/pre-*` among them — or a release fails after its Maven and frontend builds
-  are already spent. Prove the ruleset against one repository before it reaches all forty-four.
-
-  The npm releases already go through pull requests and need nothing. Until the machine identity
-  exists, run `cedarcli check main` on a schedule, so divergence is found the next morning rather
-  than mid-release.
-
-- **3. Upgrade the persistence and infrastructure servers.** These versions are pinned in the Docker
+- **4. Upgrade the persistence and infrastructure servers.** These versions are pinned in the Docker
   build manifest, while the client libraries have moved on. The
   [Docker roadmap](./DOCKER-ROADMAP.md) owns the shared build and deployment lock; this item owns the
   remaining server upgrades. Order them by risk, lowest first. **Keycloak is still at 22**, held
@@ -121,7 +130,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   production data and gated on the end-to-end smoke. Where the order above and the Docker roadmap
   disagree, the Docker roadmap governs, since it sequences the remaining work.
 
-- **4. Make database schema evolution an explicit, privileged release operation.** Application
+- **5. Make database schema evolution an explicit, privileged release operation.** Application
   startup can change CEDAR's relational schemas today. Monitor, worker and messaging each carry a
   byte-identical `hibernate.properties` under `src/main/resources` that sets
   `hibernate.hbm2ddl.auto=update`, nothing in `cedar-main.yml` overrides it, and monitor and worker
@@ -174,7 +183,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   DDL, no application startup can request it, each owned schema has an auditable migration history,
   and both CI and the release controller enforce the migration contract.
 
-- **5. Decide whether four narrowly used servers should be retired.** Treat each as an explicit
+- **6. Decide whether four narrowly used servers should be retired.** Treat each as an explicit
   product and operations decision: confirm its real callers and production state, preserve or move any
   capability that remains required, then either retain it with a stated role or remove it completely.
 
@@ -211,7 +220,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   code somewhere other than `cedar-microservice-libraries/cedar-server-rest-library`, which is where
   that code is.
 
-- **6. Move the build and runtime to Java 21.** The stack is locked to Java 17 — the zsh profile pins it
+- **7. Move the build and runtime to Java 21.** The stack is locked to Java 17 — the zsh profile pins it
   and the build enforces it. 21 is the next LTS and the natural target, but the lock exists for a
   reason: newer JDKs (23/25) crash Keycloak (`getSubject … security manager`) and OpenSearch will not
   start under them. So this is not a blind bump — verify Keycloak and OpenSearch run on 21 first, then
@@ -240,7 +249,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   repository builds use the wrapper, while container jar-fetch stages use a separately pinned Maven
   builder image that never enters the runtime.
 
-- **7. Complete the remaining backend trust-boundary, transport and credential security work.**
+- **8. Complete the remaining backend trust-boundary, transport and credential security work.**
 
   **Artifact-server deployment boundary.** Complete the production rollout and verification of
   the internal-caller authentication described in the runbook before treating direct reachability as
@@ -264,11 +273,11 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   2026-08-31: a request with no `Authorization` header returns `200`. Both reach BioPortal on the
   server's own `apiKey`, so an anonymous caller spends the deployment's BioPortal quota.
 
-  Requiring a credential is not the remedy, for the reason item 8 gives: third-party deployments of
+  Requiring a credential is not the remedy, for the reason item 9 gives: third-party deployments of
   the embeddable editor call these routes from a browser with nothing to send, so a gate would break
   every host that embeds it. Both methods now carry that reasoning where the check is disabled, and
   the OpenAPI no longer promises a `401` neither route sends. What bounds the cost is the edge rate
-  limit in item 8, which covers `/ext-auth/*` and should cover these two on the same terms.
+  limit in item 9, which covers `/ext-auth/*` and should cover these two on the same terms.
 
   `TerminologyServerApplicationSmokeTest.theIntegratedRetrieveRouteIsReachable` asserts reachability
   rather than a status, which matches the decision; it should keep doing so.
@@ -306,7 +315,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   rate-limits per key, and a burnt quota surfaces to users as controlled terms silently not existing,
   because the picker latches its empty cache for the life of the page.
 
-- **8. Rate limit the edge in every environment.** An anonymous caller can spend the deployment's
+- **9. Rate limit the edge in every environment.** An anonymous caller can spend the deployment's
   third-party quota, and only the development host bounds how fast. The `/ext-auth/*` routes are
   the clearest case: they proxy seven registries, three of them on credentials the deployment
   holds, and they carry none of their own. `POST /bioportal/integrated-search` and `/bioportal/integrated-retrieve`
@@ -329,7 +338,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   chosen rates are recorded where the deployment is documented rather than only in the config, and a
   probe shows the limit taking effect.
 
-- **9. Put the MySQL connections on TLS, and make the timezone a setting rather than a constant.**
+- **10. Put the MySQL connections on TLS, and make the timezone a setting rather than a constant.**
   **Production consequence:** server certificates and client trust have to exist before rollout, and
   messaging, monitor and worker restart into the change. No schema migration.
 
@@ -349,7 +358,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   no deployment reads the hardcoded values, a non-development stack refuses an untrusted server
   certificate, and the timezone is set by the profile that owns the data it was chosen for.
 
-- **10. Decide the CORS contract per deployment instead of defaulting to `*`.** **Production
+- **11. Decide the CORS contract per deployment instead of defaulting to `*`.** **Production
   consequence:** a browser application fails cross-origin unless its exact origins are configured
   first, so every environment needs its list before the default changes.
 
@@ -361,7 +370,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
 
   **The decision is which origins each deployment serves, and whether a wildcard pattern may ever
   carry credentials.** It has one complication worth settling with it. The embeddable editor is
-  hosted by third parties, and item 7 keeps `POST /bioportal/integrated-search` and
+  hosted by third parties, and item 8 keeps `POST /bioportal/integrated-search` and
   `/bioportal/integrated-retrieve` anonymous for exactly that reason, so those two are called from
   origins CEDAR does not know. A deny-by-default list closes them unless the policy names them.
 
@@ -371,7 +380,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   fallback, each environment's origins are recorded where it is documented, and tests cover blank,
   exact, multiple and wildcard configurations.
 
-- **11. Take stored API keys out of cleartext, and retire the keys minted before random minting.**
+- **12. Take stored API keys out of cleartext, and retire the keys minted before random minting.**
   **Production consequence:** this is a production credential migration. It rewrites stored Neo4j
   data and invalidates keys people and integrations hold, so it needs a rotation plan,
   rollback and operator communication. A backup taken before it still contains usable keys and has
@@ -398,7 +407,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   a key that can be read, authentication verifies without reversing one, and the rotation is
   recorded against the deployments it covered.
 
-- **12. Validate and encode the DOI the DataCite metadata route resolves.** **Production
+- **13. Validate and encode the DOI the DataCite metadata route resolves.** **Production
   consequence:** some path values accepted today answer 400. No data migration.
 
   `getDOIMetadata` takes the path segment as a URL, keeps `new URI(doiIdUrl).getPath()`,
@@ -417,7 +426,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   concatenation, and tests cover traversal, an injected query delimiter and both accepted input
   forms.
 
-- **13. Bound the application-log queue, and let its consumer keep up.** Application logging can
+- **14. Bound the application-log queue, and let its consumer keep up.** Application logging can
   consume the host it runs on. The Redis queue has no ceiling and the consumer drains far below what
   the stack produces under load, so a busy period grows memory without limit and degrades every
   service while it does. Old rows have a way out, in the prune job the log aggregation work brought
@@ -491,7 +500,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   migration and rollback procedure above; a green Java build is not evidence that a live-table DDL
   change is safe.
 
-- **14. Ship INFO as the default log level, and bound what a log file can grow to.** **Production
+- **15. Ship INFO as the default log level, and bound what a log file can grow to.** **Production
   consequence:** diagnostic detail drops after rollout, so choose the size limits against production
   capacity before deploying. Nothing migrates.
 
@@ -501,7 +510,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   `totalSizeCap` appear in no configuration in the estate. A busy day therefore writes one file that
   nothing bounds, and request-path DEBUG buys I/O that nobody reads.
 
-  This is the file log rather than the Redis queue of item 13, and the two want different answers: a
+  This is the file log rather than the Redis queue of item 14, and the two want different answers: a
   queue is bounded by what its consumer can keep up with, a file by what the disk can hold.
 
   Ship INFO with an environment-controlled override for a service under investigation, put
@@ -510,7 +519,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   a whole package, every file appender carries both limits, and the retention policy is recorded
   where the deployment is documented.
 
-- **15. Separate CEDAR dependency convergence from the Keycloak provider platform lock.** The eleven
+- **16. Separate CEDAR dependency convergence from the Keycloak provider platform lock.** The eleven
   apparent test-classpath splits are not eleven candidates for one global version. Re-measuring all
   thirty Maven roots divides them into three different problems, and blindly managing the newer side
   in `cedar-parent` would make the Keycloak event listener compile against libraries its server does
@@ -557,7 +566,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   prove that Keycloak loads the packaged provider or that a deployed admin operation reaches the
   configured realm.
 
-- **16. Converge on one pagination encoding.** Ten paging shapes are in service across seven
+- **17. Converge on one pagination encoding.** Ten paging shapes are in service across seven
   applications. The artifact, resource and OpenView listings all build on the same `PagedQuery` and
   `LinkHeaderUtil`, so nothing in the code forces even the split between those three. The shapes
   differ on three independent axes: the request parameters, the page base, and where the response
@@ -654,7 +663,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   covers the two `limit`/`offset` shapes today (`rest/suites/pagination.mjs`). Every superseded shape
   is then either withdrawn or carries a recorded date for withdrawal.
 
-- **17. Bound every outbound call by what the call actually is, and measure before choosing the
+- **18. Bound every outbound call by what the call actually is, and measure before choosing the
   numbers.** Two classes of outbound call are distinguished today, interactive and batch, each with a
   fixed connect, lease and response timeout and its own connection pool. That covers the difference
   between a call a user waits on and a job nobody waits on. It does not cover the difference between
@@ -723,7 +732,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   Done when each class of outbound call takes its timeouts from configuration, the request log carries
   durations, the compensating write is durable, and the remaining clients read the same settings.
 
-- **18. Make native bring-up prove a service runs.** `cedarcli native start` reports what the
+- **19. Make native bring-up prove a service runs.** `cedarcli native start` reports what the
   launcher accepted rather than what the stack ends up running, and the gap swallowed a whole-stack
   outage on 2026-09-02: every application exited in milliseconds for want of `CEDAR_PROFILE`,
   launchd's keepalive respawned each one, and the CLI printed `started <name> (pid N)` for all
@@ -741,7 +750,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
 
   Done when `start` reports a service only once it is healthy or names why it is not.
 
-- **19. Run the whole-stack tiers in CI, and gate the workflow train the way the CLI is gated.**
+- **20. Run the whole-stack tiers in CI, and gate the workflow train the way the CLI is gated.**
   **Production consequence:** none at runtime. CI needs a deployable environment, credentials, time
   and somewhere to keep the reports.
 
@@ -763,7 +772,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   when both tiers run unattended on a cadence, their reports are retained, and a train dispatched
   through Actions is refused on the same evidence that refuses one dispatched from `cedarcli`.
 
-- **20. Let the artifact server own the uniqueness of `@id`.** No two documents in an artifact
+- **21. Let the artifact server own the uniqueness of `@id`.** No two documents in an artifact
   collection may share an `@id`. The server relies on a unique index on that field to enforce it. A
   create is a read that finds the identifier absent followed by an insert, and
   `GenericLDDaoMongoDB.create` answers a duplicate-key rejection with the same 412 the update path
@@ -799,7 +808,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   Done when a fresh, unprovisioned Mongo refuses the second insert, the suites prove it, a store with
   duplicates still boots and reports why its index is missing, and the runbook carries the preflight.
 
-- **21. Take the dependency upgrades that need code changes.** The versions that could move without
+- **22. Take the dependency upgrades that need code changes.** The versions that could move without
   consequence have moved. What stayed behind stayed deliberately, and it separates into work to do,
   versions that follow something else, and versions upstream has not released.
 
@@ -820,8 +829,8 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   Connector/J 8.4.0 to 26.7.0, the Mongo driver 5.1.2 to 5.11.0, the OpenSearch client 2.19.2 to
   3.8.0, the Lucene pin 9.12.1 to 10.5.1, and the Neo4j test harness 5.3.0 to 2026.07.1. Client
   libraries are free to move in general, but a driver crossing a major has to be proven against the
-  pinned server it talks to, so these are sequenced behind item 3 rather than taken on their own.
-  Keycloak 22.0.4 to 25.0.3 is item 3's own, and RESTEasy 6.2.4 to 7.0.4 is held by the Keycloak
+  pinned server it talks to, so these are sequenced behind item 4 rather than taken on their own.
+  Keycloak 22.0.4 to 25.0.3 is item 4's own, and RESTEasy 6.2.4 to 7.0.4 is held by the Keycloak
   client stack, which items 3 and 15 own.
 
   **Versions that follow whatever pulls them in.** The transitive block exists so that every module
@@ -849,15 +858,6 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
 
   Done when each upgrade above has either landed or been recorded as refused with its reason, and
   the estate no longer carries a dependency held back only because nobody looked at it.
-
-- **22. Document the versioning model, then audit the implementation against it.** The user guide
-  says what an author sees and the YAML specification defines the keys, but no document states the
-  model: which artifact kinds are versioned, what publishing freezes, how a draft succeeds a published
-  version, how version numbers must order, what the three latest-version flags mean, and what deleting
-  a version does to the chain. Write that model in one place, beside the permission model. Then audit
-  the resource server, the graph and the search index against it, and record each divergence as a
-  decision to make or a defect to fix. `ArtifactLifecycleMatrixTest` pins the current rules until
-  then. Done when the model is published and every divergence is fixed or recorded.
 
 - **23. Give the public CEE release a CLI route.** Publishing `cedar-embeddable-editor` to npmjs is a
   runbook of about twenty-five commands across `develop`, a pull request, `main`, the registry, a
