@@ -279,8 +279,10 @@ once it holds a value, a select whose accessible name was its own list of option
 — and the attribute matrix asserts every control it drives can be found by the
 name it shows.
 
-A name is the smallest part of this. Nothing has been driven from the keyboard
-alone, no focus order has been checked, no live region announces that a constraint
-was added or that an Apply was refused, and the modal the picker opens has not been
-tested for focus capture or for what Escape does to an author midway through a
-choice. The picker has thought about this and CED has not.
+A name is the smallest part of this. The one modal in the designer holds the
+keyboard — focus moves in, Tab cannot leave, Escape gives it back — and that is the
+only path anyone has driven from a keyboard. Nothing else has: no focus order has
+been checked across a card, and no live region announces that a constraint was
+added or that an Apply was refused, so an author working by ear is told nothing
+when a save is accepted or declined. The picker has thought about this and CED has
+begun to.

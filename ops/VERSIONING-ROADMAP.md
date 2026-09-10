@@ -942,16 +942,12 @@ question about the picker into a question about the Workbench as well, and none 
 here can be finished without the component being finished first. The component itself has nothing
 left that does not need a host.
 
-- **18. Make the overlay behave.** There is one to behave now: the designer opens the picker in a
-   fixed, full-viewport layer of its own, so the question is no longer whether a host presents it as
-   a modal but whether this one behaves like one. It stacks and nothing else. Measured 2026-09-10 by
-   opening it and pressing Tab: focus is never moved into the panel, and the first seven stops are
-   controls on the card the overlay is covering — a button, a text box, a select — with the eighth the
-   first to land inside the picker. So a keyboard author tabs blind through a card they cannot see
-   before reaching the thing they opened, and nothing holds them there once they arrive. Escape leaves
-   the picker; what it should do to an author midway through a choice is a separate question. A modal
-   inside a shadow root has to move focus in, keep it, and give it back without reaching into the
-   host's own layers.
+- **18. Make the overlay behave in a host's own layers.** The designer's overlay is a modal now —
+   focus moves in when it opens, Tab and Shift+Tab cannot leave it, and Escape closes it and gives
+   focus back to the button that opened it, all asserted against the real picker. What that leaves is
+   the part only a host can answer: `z-index: 50` inside a shadow root is a bet about a page nobody
+   has seen, and an embedder whose own layers sit above it gets a dialog behind its chrome. Escape
+   also closes without asking, which is wrong for an author midway through choosing constraints.
 
 - **19. Show the pinned version in the field's configuration panel.** The panel already lists
    everything constraining a field, one repeat per kind over `_valueConstraints`, and it keeps
