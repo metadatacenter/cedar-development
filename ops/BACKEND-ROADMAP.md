@@ -872,9 +872,42 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   the command exists, rewrite the npmjs runbook into a description of what it does and where it
   stops.
 
+- **24. Decide whether an attribute-value child keeps its declared property IRI.** Both model
+  libraries read such a child's property IRI out of a template's `@context` and then decline to write
+  it back as JSON, so a read-and-write cycle over `template-022.json` loses
+  `https://schema.metadatacenter.org/properties/d01cb533-265c-474a-95f3-9afb4616a6e1` from the
+  `ATTR-Value` mapping the source document carried. Both YAML writers keep it, so one model yields a
+  document in one format that names the child's property and a document in the other that does not.
+  Three attribute-value children carry one, across templates 022 and 029, and all three are minted
+  identifiers rather than terms an author chose.
+
+  The loss is recorded rather than repaired. `JSON_TEMPLATE_ROUND_TRIP_DIVERGENCES` grants template
+  022 one round-trip error under the reason `legacy attribute-value context mapping is absent`, and
+  the cross-library parity gates stay green because both libraries drop it in the same place:
+  `ParentSchemaArtifact.getChildPropertyUris` excludes static and attribute-value children by name,
+  and the TypeScript writer matches it.
+
+  The exclusion's stated reason is sound as far as it goes: an IRI is identity, the repository assigns
+  it on upload, and deriving one from a child's key would assert an identity nothing granted. That is
+  an argument against minting an IRI, not against preserving one a document already carries.
+
+  Two things settle it. What the artifact server does with such a mapping when a template is uploaded,
+  and whether the entries in those two production templates mean anything or are debris from an
+  earlier writer. If they are meaningful, both JSON writers should keep them and the expectation entry
+  goes. If they are debris, `cedar_artifact_patch.py` should remove them and both YAML writers should
+  stop carrying them.
+
+  This is not the question a requirement on the same type answers, and the difference is the whole of
+  it: a requirement has nowhere to go in the JSON form, because an attribute-value field carries no
+  `_valueConstraints` node at all, so the YAML writers record nothing. A property IRI has somewhere to
+  go, is there in production, and is being dropped on the way out.
+
+  Whichever way it goes, the three children and their generated fixtures move with it, and the Java
+  library's corpus verifier reports them stale until they are regenerated.
+
 ## Production data
 
-- **24. Normalize production artifacts to one explicit model contract.** Production contains several
+- **25. Normalize production artifacts to one explicit model contract.** Production contains several
   legacy representations that the current model surfaces tolerate or normalize differently, so bring
   them to canonical shapes before tightening readers or introducing terminology routing across source
   systems. The permission-scoped audit found 76 inherently-multiple fields deployed as JSON objects in
@@ -1055,7 +1088,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
 
 ## Later decisions
 
-- **25. Decide which request JSON objects are closed contracts, then enforce that boundary.** A
+- **26. Decide which request JSON objects are closed contracts, then enforce that boundary.** A
   strict shared mapper does not by itself make CEDAR's request contract consistent: Jersey binds
   some request DTOs, other resources convert selected subtrees by hand, and artifact endpoints
   deliberately accept extensible JSON-LD. Applying unknown-property rejection to every inbound
@@ -1075,7 +1108,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   identify its callers, document the rejected shape, and stage the change through the normal
   release process rather than coupling it to response-reader compatibility work.
 
-- **26. A published artifact can be deleted, contradicting the docs.** The docs say a published
+- **27. A published artifact can be deleted, contradicting the docs.** The docs say a published
   artifact is permanent, but `DELETE` on one succeeds. The guard in
   `AbstractResourceServerResource.executeArtifactDelete` was briefly re-enabled and then **reverted by
   deliberate decision**: blocking deletion strands published artifacts and the folders holding them with
@@ -1089,7 +1122,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   representation is corrected. Whichever way deletability is settled, the docs have both exceptions
   to describe.
 
-- **27. Retire the legacy aliases retained by the common error envelope.** **Production
+- **28. Retire the legacy aliases retained by the common error envelope.** **Production
   consequence:** removing an alias can break a frontend or integration that still reads it. This is
   a response-contract cleanup only: it requires no data migration, schema change or reindex.
 
@@ -1115,7 +1148,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   hooks have no production call sites and the public envelope contains only its documented common
   fields.
 
-- **28. Address artifacts by bare identifier in REST paths, keeping the full IRI as stored
+- **29. Address artifacts by bare identifier in REST paths, keeping the full IRI as stored
   identity.** **Production consequence:** an addressing migration rather than a data one. Stored
   identifiers in MongoDB, Neo4j and OpenSearch do not change, and no reindex is required, but
   clients that build URLs in the current form need the legacy shape kept as an alias until traffic
