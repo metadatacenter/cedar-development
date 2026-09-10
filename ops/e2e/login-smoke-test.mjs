@@ -1353,6 +1353,7 @@ async function editorState(page) {
     const alert = document.querySelector('.sweet-alert');
     return {
       url: window.location.href,
+      angularUrl: injector ? injector.get('$location').url() : null,
       dirty: injector ? injector.get('UIUtilService').isDirty() : null,
       instanceName: nameField ? nameField.value : null,
       ceeName: cee && cee.currentMetadata ? cee.currentMetadata['schema:name'] : null,
@@ -1434,12 +1435,13 @@ async function verifyDirtyNavigationProtection(page, cleanValue, returnUrl) {
   await fillCeeTextField(page, TEXT_FIELD_NAME, cleanValue);
   await waitForEditorDirty(page, false);
   await settleCleanEditor(page, cleanValue);
+  const beforeBack = await editorState(page);
   await page.locator('.back-arrow-click:visible').click();
   try {
     await page.waitForURL(url => sameNavigationTarget(url.href, returnUrl), { timeout: 20_000 });
   } catch (navigationTimeout) {
-    throw new Error('the back arrow did not return to the listing after the value was reverted: '
-      + await editorState(page));
+    throw new Error('the back arrow did not return to the listing after the value was reverted.'
+      + `\n  before: ${beforeBack}\n  after:  ${await editorState(page)}`);
   }
   if (await page.locator('.sweet-alert:visible').count()) {
     throw new Error('exactly reverting to the saved value still produced a dirty-navigation warning');
