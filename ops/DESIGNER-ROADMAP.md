@@ -134,14 +134,15 @@ One consequence is open. A controlled-term field with no vocabulary chosen
 describes nothing, and cannot be written as itself: it goes out IRI-shaped with
 empty constraint lists and comes back a text field, so the field decays on an
 open-and-save. It is written as a text field today to stop the decay, which trades
-one surprise for a smaller one. Refusing to save an unfinished field, and saying
-which field is unfinished, is the better answer and belongs with validation.
+one surprise for a smaller one. Refusing to save it, and saying so, is the better
+answer and belongs with validation.
 
-### 5. Header, footer, and property labels
+### 5. A template's header and footer
 
-A template carries a header and a footer, and each child carries a label and a
-description that a form shows in place of its raw key. CED writes the key and the
-field name and nothing else.
+A template carries a header and a footer that a form shows around the fields, and
+neither is reachable. Both are the template's own text rather than any field's, so
+they belong with the template's name and description rather than on a card — which
+is the only part of this that needs deciding.
 
 ### 6. Guidance in the interface
 

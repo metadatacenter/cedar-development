@@ -942,12 +942,16 @@ question about the picker into a question about the Workbench as well, and none 
 here can be finished without the component being finished first. The component itself has nothing
 left that does not need a host.
 
-- **18. Make the overlay behave, once there is one to behave.** The picker is an inline panel today
-   and the Workbench presents its picker as a modal, so this is the half of the theming item that
-   could not be finished without a host: a modal inside a shadow root has to stack above the host's
-   own layers and trap focus without reaching into them. Escape already leaves. Sequenced with the
-   embedding rather than before it, because what the overlay has to sit above is a property of the
-   page it sits in.
+- **18. Make the overlay behave.** There is one to behave now: the designer opens the picker in a
+   fixed, full-viewport layer of its own, so the question is no longer whether a host presents it as
+   a modal but whether this one behaves like one. It stacks and nothing else. Measured 2026-09-10 by
+   opening it and pressing Tab: focus is never moved into the panel, and the first seven stops are
+   controls on the card the overlay is covering — a button, a text box, a select — with the eighth the
+   first to land inside the picker. So a keyboard author tabs blind through a card they cannot see
+   before reaching the thing they opened, and nothing holds them there once they arrive. Escape leaves
+   the picker; what it should do to an author midway through a choice is a separate question. A modal
+   inside a shadow root has to move focus in, keep it, and give it back without reaching into the
+   host's own layers.
 
 - **19. Show the pinned version in the field's configuration panel.** The panel already lists
    everything constraining a field, one repeat per kind over `_valueConstraints`, and it keeps
