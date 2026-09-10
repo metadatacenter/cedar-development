@@ -221,10 +221,16 @@ controlled-term summary; the term picker remains the constraint authoring surfac
 Field settings start collapsed behind the grey chevron centered at the bottom
 of each card. Expanding it reveals underline tabs for the applicable values,
 display, placement, constraints, metadata and identity controls. Switching tabs
-or collapsing the panel retains unapplied edits. Published fields allow tab
+or collapsing the panel retains incomplete input; valid settings update immediately
+without Apply buttons. Identity and provenance appear under Field metadata, while
+labels, identifiers and annotations appear under Field details. Published fields allow tab
 navigation and inspection while their editing controls remain disabled.
 The card-level Save field to library action has been removed; import and reuse
 remain available through Field Designer.
+
+The Overview shows each field's type icon and a right-aligned reorder handle.
+Dragging reorders siblings within the Overview; the document and main editor update
+only when the field is dropped. Focused handles also support Arrow Up/Down.
 
 All default-capable fields use `<cedar-embeddable-field>` from the same CEE bundle.
 Choose **semantic** in Preferences to expose Default Value. CED and CEE use the
