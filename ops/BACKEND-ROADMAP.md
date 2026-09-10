@@ -728,10 +728,35 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   starts and none after that. A microservice that boots, fails to reach Neo4j or Mongo, and exits
   after ten seconds is still reported as started. `cedarcli native health` already knows how to judge
   this and exits non-zero unless every managed application is healthy, so let `start` end by waiting
-  for the services it just launched to pass that same gate, bounded by a timeout, and report the ones
-  that never arrive along with the last lines of their logs.
+  for the services it just launched to pass that same gate and report the ones that never arrive
+  along with the last lines of their logs.
 
-  Done when `start` reports a service only once it is healthy or names why it is not.
+  **Wait once, after launching, rather than per service.** Waiting for each service before starting
+  the next makes the cost the sum of twenty-two JVM boots and their dependency connections, which is
+  minutes; polling the whole set after launching them all makes it the slowest service alone. Bound
+  the total rather than each service, and report each one as it arrives, so a developer sees progress
+  rather than a silent block.
+
+  Most of what it adds is already being paid. The survival check sleeps half a second per service,
+  serially, which is about eleven seconds of every `start all` spent waiting on nothing in
+  particular. A health gate subsumes it — a service that died at once will never pass — so those
+  sleeps can go, and the early per-service error they print is what the report of services that never
+  arrived already covers.
+
+  `start infra` is the layer where waiting earns the most. Microservices connect to Neo4j, Mongo and
+  Keycloak while they boot, so returning before those are serving is what produces the failure the
+  survival check cannot see; waiting there prevents a cascade rather than reporting one.
+
+  A flag that skips the wait restores exactly the behaviour this item exists to remove, so if one
+  exists it should be asked for explicitly and never be the default.
+
+  One constraint on the implementation. `ServerWorker` probes each service in turn with no per-probe
+  timeout, which is fast only because a stopped service refuses the connection; a service that
+  accepts one and then hangs would stall the loop and make the gate its own source of delay. A poll
+  needs a bounded probe, and reads better concurrent.
+
+  Done when `start` reports a service only once it is healthy or names why it is not, and `start all`
+  costs the readiness of its slowest service rather than the sum of all of them.
 
 - **20. Run the whole-stack tiers in CI, and gate the workflow train the way the CLI is gated.**
   **Production consequence:** none at runtime. CI needs a deployable environment, credentials, time
