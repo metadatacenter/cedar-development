@@ -1005,6 +1005,28 @@ async function gotoSharedWithMe(page, homeFolderId) {
   await page.waitForTimeout(500);
 }
 
+// A regrade reaches the "Shared with Me" listing through the search index, which the resource
+// server updates asynchronously after the ACL write. The row is already present when a role
+// changes, so waiting for the row says nothing about the capabilities it carries: poll the menu
+// entry itself, and leave the menu open for the caller that reads the rest of it.
+async function waitForRowCapability(page, homeFolderId, templateName, selector, enabled, complaint) {
+  let seen = null;
+  for (let attempt = 1; attempt <= 10; attempt++) {
+    await gotoSharedWithMe(page, homeFolderId);
+    if (await row(page, templateName).count() === 0) {
+      await page.waitForTimeout(1000);
+      continue;
+    }
+    await openRowMenu(page, templateName);
+    const item = page.locator(selector).first();
+    seen = (await item.getAttribute('class')) ?? '';
+    if (seen.includes('link-disabled') !== enabled) return item;
+    await page.waitForTimeout(1000);
+  }
+  throw new Error(`${complaint} after 10 attempts (the menu entry read class ${JSON.stringify(seen)}; `
+    + 'a regraded permission reaches this listing only once the search index has it)');
+}
+
 async function waitForSharedRow(page, homeFolderId, templateName, present) {
   for (let attempt = 1; attempt <= 8; attempt++) {
     await gotoSharedWithMe(page, homeFolderId);
@@ -1033,12 +1055,8 @@ async function verifyTwoUserSharing(browser, ownerPage, folderId, templateId, us
     await expectInfoPanelOwner(recipientPage, TEMPLATE_NAME, USER1_NAME);
 
     await changeUserShare(ownerPage, folderId, TEMPLATE_NAME, USER2_NAME, 'editor');
-    await waitForSharedRow(recipientPage, user2.profile.homeFolderId, TEMPLATE_NAME, true);
-    await openRowMenu(recipientPage, TEMPLATE_NAME);
-    const editorRename = recipientPage.locator('a.rename:visible').first();
-    if (((await editorRename.getAttribute('class')) ?? '').includes('link-disabled')) {
-      throw new Error('Editor still saw Rename disabled');
-    }
+    await waitForRowCapability(recipientPage, user2.profile.homeFolderId, TEMPLATE_NAME,
+        'a.rename:visible', true, 'Editor still saw Rename disabled');
     const editorShare = recipientPage.locator('ul.dropdown-menu:visible a.share').first();
     if (!((await editorShare.getAttribute('class')) ?? '').includes('link-disabled')) {
       throw new Error('Editor was offered an enabled Share action');
@@ -1061,12 +1079,8 @@ async function verifyTwoUserSharing(browser, ownerPage, folderId, templateId, us
     }
 
     await changeUserShare(ownerPage, folderId, TEMPLATE_NAME, USER2_NAME, 'manager');
-    await waitForSharedRow(recipientPage, user2.profile.homeFolderId, TEMPLATE_NAME, true);
-    await openRowMenu(recipientPage, TEMPLATE_NAME);
-    const managerShare = recipientPage.locator('ul.dropdown-menu:visible a.share').first();
-    if (((await managerShare.getAttribute('class')) ?? '').includes('link-disabled')) {
-      throw new Error('Manager still saw Share disabled');
-    }
+    await waitForRowCapability(recipientPage, user2.profile.homeFolderId, TEMPLATE_NAME,
+        'ul.dropdown-menu:visible a.share', true, 'Manager still saw Share disabled');
     await menuItem(recipientPage, 'Open');
     await recipientPage.waitForURL(/\/templates\/edit\//, { timeout: 30_000 });
     await recipientPage.getByRole('textbox', { name: 'Description' }).first()
@@ -1324,6 +1338,45 @@ async function reEditInstance(page, newValue) {
   if (resp.status() !== 200) throw new Error(`instance update answered ${resp.status()}`);
 }
 
+async function editorIsDirty(page) {
+  return page.evaluate(
+    () => window.angular.element(document).injector().get('UIUtilService').isDirty());
+}
+
+// What the page held when it would not move: both inputs, what the host compares them against,
+// and whether the dirty-navigation warning is on screen. A bare navigation timeout says none of it.
+async function editorState(page) {
+  const state = await page.evaluate(() => {
+    const injector = window.angular ? window.angular.element(document).injector() : null;
+    const cee = document.querySelector('cedar-embeddable-editor');
+    const nameField = document.querySelector('#instance-name');
+    const alert = document.querySelector('.sweet-alert');
+    return {
+      url: window.location.href,
+      dirty: injector ? injector.get('UIUtilService').isDirty() : null,
+      instanceName: nameField ? nameField.value : null,
+      ceeName: cee && cee.currentMetadata ? cee.currentMetadata['schema:name'] : null,
+      warningVisible: !!(alert && window.getComputedStyle(alert).display !== 'none'),
+    };
+  });
+  return JSON.stringify(state);
+}
+
+// The host is dirty when the CEE metadata differs from the saved baseline or the instance name
+// does, and the back arrow navigates only when it is clean. A typed value reaches the CEE model
+// asynchronously, so a flag read once can say clean while the change is still landing. Require the
+// field and the flag to agree, and to still agree a moment later.
+async function settleCleanEditor(page, expectedValue) {
+  for (let attempt = 1; attempt <= 10; attempt++) {
+    if (await notesValue(page) === expectedValue && !(await editorIsDirty(page))) {
+      await page.waitForTimeout(500);
+      if (await notesValue(page) === expectedValue && !(await editorIsDirty(page))) return;
+    }
+    await page.waitForTimeout(500);
+  }
+  throw new Error(`the editor never settled clean on the saved value: ${await editorState(page)}`);
+}
+
 async function waitForEditorDirty(page, dirty) {
   await page.waitForFunction(expected => {
     const injector = window.angular.element(document).injector();
@@ -1380,8 +1433,14 @@ async function verifyDirtyNavigationProtection(page, cleanValue, returnUrl) {
 
   await fillCeeTextField(page, TEXT_FIELD_NAME, cleanValue);
   await waitForEditorDirty(page, false);
+  await settleCleanEditor(page, cleanValue);
   await page.locator('.back-arrow-click:visible').click();
-  await page.waitForURL(url => sameNavigationTarget(url.href, returnUrl), { timeout: 20_000 });
+  try {
+    await page.waitForURL(url => sameNavigationTarget(url.href, returnUrl), { timeout: 20_000 });
+  } catch (navigationTimeout) {
+    throw new Error('the back arrow did not return to the listing after the value was reverted: '
+      + await editorState(page));
+  }
   if (await page.locator('.sweet-alert:visible').count()) {
     throw new Error('exactly reverting to the saved value still produced a dirty-navigation warning');
   }
