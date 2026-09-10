@@ -221,7 +221,7 @@ async function verifyWorkspaceConditionalMutations(page, folderId, mutableFolder
     const folder = id => ({'@id': id, resourceType: 'folder'});
     const call = register => new Promise((resolve, reject) => register(resolve, error => {
       const status = error?.status ?? 'unknown';
-      const detail = error?.data?.errorMessage ?? error?.data?.message ?? error?.statusText ?? 'request failed';
+      const detail = error?.data?.message ?? error?.statusText ?? 'request failed';
       reject(new Error(`${status}: ${detail}`));
     }));
     const currentResource = resource => call((ok, fail) => resources.getCurrentResource(resource, ok, fail));

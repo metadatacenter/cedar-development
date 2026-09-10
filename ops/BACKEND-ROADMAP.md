@@ -487,14 +487,19 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   consequence:** diagnostic detail drops after rollout, so choose the size limits against production
   capacity before deploying. Nothing migrates.
 
-  Fifteen shipped `config.yml` files set `org.metadatacenter: DEBUG`, and most set
-  `org.metadatacenter.config: DEBUG` beside it. The console appender takes `threshold: ALL`, and the
-  file appender archives by day with `archivedFileCount: 30` and no size limit: `maxFileSize` and
-  `totalSizeCap` appear in no configuration in the estate. A busy day therefore writes one file that
-  nothing bounds, and request-path DEBUG buys I/O that nobody reads.
+  Fifteen shipped `config.yml` files set `org.metadatacenter: DEBUG`, and the artifact server sets
+  `org.metadatacenter.config: DEBUG` beside it. Every console appender takes `threshold: ALL`, and
+  every file appender archives by day with no size limit: `maxFileSize` and `totalSizeCap` appear in
+  no configuration in the estate. A busy day therefore writes one file that nothing bounds, and
+  request-path DEBUG buys I/O that nobody reads. Archive depth already disagrees, measured
+  2026-09-10: twelve services keep `archivedFileCount: 30`, and messaging, monitor and worker keep
+  5.
 
-  This is the file log rather than the Redis queue of item 14, and the two want different answers: a
-  queue is bounded by what its consumer can keep up with, a file by what the disk can hold.
+  Nothing connects these files to the Redis queue of item 14. `AppLogger` hands every message to
+  `AppLoggerQueueService.enqueueEvent`, which pushes it to Redis without consulting a log level, so
+  shipping INFO takes nothing off that queue and a ceiling on the queue takes nothing off these
+  files. What bounds each differs as well: a queue is bounded by what its consumer can keep up with,
+  a file by what the disk can hold.
 
   Ship INFO with an environment-controlled override for a service under investigation, put
   `maxFileSize` and `totalSizeCap` on every file appender, and use one retention policy across
@@ -1130,33 +1135,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   representation is corrected. Whichever way deletability is settled, the docs have both exceptions
   to describe.
 
-- **28. Retire the legacy aliases retained by the common error envelope.** **Production
-  consequence:** removing an alias can break a frontend or integration that still reads it. This is
-  a response-contract cleanup only: it requires no data migration, schema change or reindex.
-
-  The shared runtime envelope now gives resource-built, exception-mapped and framework-generated
-  failures one representation. It deliberately retains compatibility fields while clients move:
-  `errorMessage` aliases the canonical `message`, and the monitor log-query routes still expose
-  their former top-level `error` beside both message fields. Integrated terminology search also
-  preserves the historical `errorType: PinnedVersionUnavailable` value for its 422 response even
-  though that value predates the common `errorType` vocabulary. The symbolic `status` and numeric
-  `statusCode` are both supported fields rather than candidates for removal.
-
-  Inventory the browser applications, CLI, MCP servers and external integrations for reads of
-  `errorMessage`, top-level `error`, and `PinnedVersionUnavailable`. Move owned clients to
-  `message` and to the 422 status plus a stable common error key for the pinned-version case. Add
-  that common key before deprecating the legacy type value. Publish the deprecation and earliest
-  removal release in OpenAPI and release notes; because a server cannot observe which JSON field a
-  client reads, elapsed time alone is not evidence that removal is safe.
-
-  Keep the compatibility surface explicit and finite: contract tests should name every extension
-  emitted through `CedarResponse.extension` or `legacyErrorType`, reject new unregistered aliases,
-  and prove the canonical fields carry the same information. Remove each alias only after all owned
-  clients have moved and the compatibility window has elapsed. Done when the generic extension
-  hooks have no production call sites and the public envelope contains only its documented common
-  fields.
-
-- **29. Address artifacts by bare identifier in REST paths, keeping the full IRI as stored
+- **28. Address artifacts by bare identifier in REST paths, keeping the full IRI as stored
   identity.** **Production consequence:** an addressing migration rather than a data one. Stored
   identifiers in MongoDB, Neo4j and OpenSearch do not change, and no reindex is required, but
   clients that build URLs in the current form need the legacy shape kept as an alias until traffic
@@ -1188,7 +1167,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   Done when every resource-specific route takes the bare identifier, one parser owns the
   reconstruction, and staging's per-artifact blocks are gone.
 
-- **30. Decide what each compatibility adapter is for, now that neither reads artifacts itself.**
+- **29. Decide what each compatibility adapter is for, now that neither reads artifacts itself.**
   Repo and OpenView exist to preserve URLs rather than to do work: the runbook's account of artifact
   route ownership gives repo the identifier dereferencing URLs and OpenView the anonymous
   presentation and open-artifact URLs, and says neither adapter should own artifact storage or an
@@ -1226,9 +1205,9 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   outage producing a successful read. That comparison is what proving routing compatibility means,
   and no adapter should be reduced before it passes on the deployed topology.
 
-  Item 29 settles a different question about the same two services — which path shape a route takes —
+  Item 28 settles a different question about the same two services — which path shape a route takes —
   and the two interact: retiring repo's routes would retire the bare-identifier convention that item
-  29 proposes to generalize, so whichever is decided first constrains the other.
+  28 proposes to generalize, so whichever is decided first constrains the other.
 
   Done when each of the two hosts has a stated role, an owner, and either a current caller that needs
   the process or a routing arrangement that keeps its URLs resolving without one.
