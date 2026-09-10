@@ -32,6 +32,14 @@ step unaffected.
 npm start
 ```
 
+For the full debugging fixture, open `http://localhost:4200/?example=all-fields`
+(or the port selected with `npm start -- --port <port>`). The development host
+loads `public/examples/all-fields-nested.json`, a snapshot of the local template
+`https://repo.metadatacenter.orgx/templates/5e68d921-fd5d-4d05-9a6d-a81714cbd2c5`.
+It includes every palette type, numeric and temporal variants, and NIH Grant ID
+and DOI in the single and repeated nested collections. The host does not save
+edits back to that server template. Its status bar links to the fixture.
+
 Serves a development host on port 4200. That page is a host page: it embeds
 `<cedar-embeddable-designer>` and configures it, rather than rendering the editor
 directly, so `ng serve` exercises the same contract an embedder uses. A
@@ -209,6 +217,14 @@ in the TypeScript model library.
 CEF's `readOnlyMode: true` renders a supplied value, or the field's accepted-value
 specification when `value` is `{ kind: 'none' }`. CED uses this for the compact
 controlled-term summary; the term picker remains the constraint authoring surface.
+
+Field settings start collapsed behind the grey chevron centered at the bottom
+of each card. Expanding it reveals underline tabs for the applicable values,
+display, placement, constraints, metadata and identity controls. Switching tabs
+or collapsing the panel retains unapplied edits. Published fields allow tab
+navigation and inspection while their editing controls remain disabled.
+The card-level Save field to library action has been removed; import and reuse
+remain available through Field Designer.
 
 All default-capable fields use `<cedar-embeddable-field>` from the same CEE bundle.
 Choose **semantic** in Preferences to expose Default Value. CED and CEE use the
