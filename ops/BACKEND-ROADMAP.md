@@ -329,7 +329,95 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   chosen rates are recorded where the deployment is documented rather than only in the config, and a
   probe shows the limit taking effect.
 
-- **9. Bound the application-log queue, and let its consumer keep up.** Application logging can
+- **9. Put the MySQL connections on TLS, and make the timezone a setting rather than a constant.**
+  **Production consequence:** server certificates and client trust have to exist before rollout, and
+  messaging, monitor and worker restart into the change. No schema migration.
+
+  Both shipped connection blocks hardcode the same three properties: `useSSL: "false"`,
+  `allowPublicKeyRetrieval: "true"` and `serverTimezone: "America/Los_Angeles"`
+  (`cedar-main.yml:82` for messaging, `:104` for the log store). The first two together permit
+  public-key substitution on an unencrypted authentication channel, which is the part to fix.
+
+  The timezone is a different matter and the comment beside it says why: the aggregator is
+  self-consistent under the connection timezone, and forcing UTC would make the connection misread
+  the years of existing rows in `log_request`, `log_cypher` and their `_pre284` predecessors.
+  Converting those rows is its own piece of work with its own evidence, so this item only moves the
+  value out of the constant and into the profile.
+
+  Make all three profile-controlled, ship TLS on and public-key retrieval off everywhere but a
+  developer machine, and record the developer exception where the profile is documented. Done when
+  no deployment reads the hardcoded values, a non-development stack refuses an untrusted server
+  certificate, and the timezone is set by the profile that owns the data it was chosen for.
+
+- **10. Decide the CORS contract per deployment instead of defaulting to `*`.** **Production
+  consequence:** a browser application fails cross-origin unless its exact origins are configured
+  first, so every environment needs its list before the default changes.
+
+  `resolveCorsAllowedOrigins` falls back to `DEFAULT_CORS_ALLOWED_ORIGINS`, which is `"*"`, whenever
+  `CEDAR_CORS_ALLOWED_ORIGINS` is unset or blank
+  (`CedarMicroserviceApplication.java:56`, `:316`). Credentials are then allowed unless an entry
+  equals exactly `*` (`:339`), so a pattern Jetty's `CrossOriginFilter` accepts —
+  `https://*.example.org` — receives credentialed access while the bare wildcard does not.
+
+  **The decision is which origins each deployment serves, and whether a wildcard pattern may ever
+  carry credentials.** It has one complication worth settling with it. The embeddable editor is
+  hosted by third parties, and item 7 keeps `POST /bioportal/integrated-search` and
+  `/bioportal/integrated-retrieve` anonymous for exactly that reason, so those two are called from
+  origins CEDAR does not know. A deny-by-default list closes them unless the policy names them.
+
+  Default to no CORS headers rather than to `*`, require the allow-list in each deployment profile,
+  refuse credentials for any origin expression containing a wildcard rather than only for the bare
+  one, and state what the third-party-embedded routes get. Done when no deployment relies on the
+  fallback, each environment's origins are recorded where it is documented, and tests cover blank,
+  exact, multiple and wildcard configurations.
+
+- **11. Take stored API keys out of cleartext, and retire the keys minted before random minting.**
+  **Production consequence:** this is a production credential migration. It rewrites stored Neo4j
+  data and invalidates keys people and integrations hold, so it needs a rotation plan,
+  rollback and operator communication. A backup taken before it still contains usable keys and has
+  to be protected or expired accordingly.
+
+  A presented key is matched against the cleartext list property: `getUserByApiKey` is
+  `WHERE {api_key} IN user.apiKeys` (`CypherQueryBuilderUser.java:128`), and `updateUserApiKeys`
+  writes that list plus an `apiKeyMap` object keyed by the key value itself
+  (`CypherParamBuilderUser.java:137`). Minting is random now, 32 bytes from a `SecureRandom`
+  (`CedarUserUtil.java:19`), but keys created by deployments that predate that change were derived
+  and are still valid. The salt that derived them is dead configuration rather than a live secret:
+  `cedar-main.yml:297` fills `BlueprintDefaultAPIKey.getSalt()`, which nothing reads — only the
+  service name and description of that blueprint are used (`CedarUserUtil.java:50`).
+
+  **The decision is the verifier and the lookup, because they are one choice.** A hashed list cannot
+  be matched with `IN`, so authentication needs either a deterministic keyed digest that can be
+  looked up directly or an index from a key identifier to its record. Decide that, the hash or KDF,
+  the migration window and the rollback, and whether every key rotates or only those that can be
+  identified as derived.
+
+  Then inventory the existing key records, store a versioned non-reversible verifier, provide an
+  administrative migration and rotation command, revoke the legacy keys, delete the salt setting and
+  its environment variable, and confirm no backup or log carries a key. Done when no user node holds
+  a key that can be read, authentication verifies without reversing one, and the rotation is
+  recorded against the deployments it covered.
+
+- **12. Validate and encode the DOI the DataCite metadata route resolves.** **Production
+  consequence:** some path values accepted today answer 400. No data migration.
+
+  `getDOIMetadata` takes the path segment as a URL, keeps `new URI(doiIdUrl).getPath()`,
+  concatenates it into the configured endpoint with a query string, and sends the result with the
+  deployment's DataCite basic credentials (`DataCiteResource.java:151`). Nothing validates the value
+  between the two steps, so traversal and query delimiters surviving a double decode influence an
+  authenticated upstream request. The draft-DOI path concatenates the same way after stripping
+  quote characters (`:651`). Authorization on the route is `LoggedIn` alone.
+
+  **Decide what the public contract accepts** — a DOI name (`10.x/suffix`), a `doi.org` URL, or
+  both — and whether `LoggedIn` is the right gate for a route that spends repository credentials.
+
+  Parse the accepted form into a DOI value, validate registrant and suffix, reject traversal, query
+  and fragment syntax, and build every upstream URI with a builder that encodes each path component
+  rather than by string concatenation. Done when no DataCite URI in the bridge is assembled by
+  concatenation, and tests cover traversal, an injected query delimiter and both accepted input
+  forms.
+
+- **13. Bound the application-log queue, and let its consumer keep up.** Application logging can
   consume the host it runs on. The Redis queue has no ceiling and the consumer drains far below what
   the stack produces under load, so a busy period grows memory without limit and degrades every
   service while it does. Old rows have a way out, in the prune job the log aggregation work brought
@@ -403,7 +491,26 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   migration and rollback procedure above; a green Java build is not evidence that a live-table DDL
   change is safe.
 
-- **10. Separate CEDAR dependency convergence from the Keycloak provider platform lock.** The eleven
+- **14. Ship INFO as the default log level, and bound what a log file can grow to.** **Production
+  consequence:** diagnostic detail drops after rollout, so choose the size limits against production
+  capacity before deploying. Nothing migrates.
+
+  Fifteen shipped `config.yml` files set `org.metadatacenter: DEBUG`, and most set
+  `org.metadatacenter.config: DEBUG` beside it. The console appender takes `threshold: ALL`, and the
+  file appender archives by day with `archivedFileCount: 30` and no size limit: `maxFileSize` and
+  `totalSizeCap` appear in no configuration in the estate. A busy day therefore writes one file that
+  nothing bounds, and request-path DEBUG buys I/O that nobody reads.
+
+  This is the file log rather than the Redis queue of item 13, and the two want different answers: a
+  queue is bounded by what its consumer can keep up with, a file by what the disk can hold.
+
+  Ship INFO with an environment-controlled override for a service under investigation, put
+  `maxFileSize` and `totalSizeCap` on every file appender, and use one retention policy across
+  services rather than one per configuration file. Done when no shipped configuration sets DEBUG for
+  a whole package, every file appender carries both limits, and the retention policy is recorded
+  where the deployment is documented.
+
+- **15. Separate CEDAR dependency convergence from the Keycloak provider platform lock.** The eleven
   apparent test-classpath splits are not eleven candidates for one global version. Re-measuring all
   thirty Maven roots divides them into three different problems, and blindly managing the newer side
   in `cedar-parent` would make the Keycloak event listener compile against libraries its server does
@@ -450,7 +557,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   prove that Keycloak loads the packaged provider or that a deployed admin operation reaches the
   configured realm.
 
-- **11. Converge on one pagination encoding.** Ten paging shapes are in service across seven
+- **16. Converge on one pagination encoding.** Ten paging shapes are in service across seven
   applications. The artifact, resource and OpenView listings all build on the same `PagedQuery` and
   `LinkHeaderUtil`, so nothing in the code forces even the split between those three. The shapes
   differ on three independent axes: the request parameters, the page base, and where the response
@@ -547,7 +654,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   covers the two `limit`/`offset` shapes today (`rest/suites/pagination.mjs`). Every superseded shape
   is then either withdrawn or carries a recorded date for withdrawal.
 
-- **12. Bound every outbound call by what the call actually is, and measure before choosing the
+- **17. Bound every outbound call by what the call actually is, and measure before choosing the
   numbers.** Two classes of outbound call are distinguished today, interactive and batch, each with a
   fixed connect, lease and response timeout and its own connection pool. That covers the difference
   between a call a user waits on and a job nobody waits on. It does not cover the difference between
@@ -616,7 +723,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   Done when each class of outbound call takes its timeouts from configuration, the request log carries
   durations, the compensating write is durable, and the remaining clients read the same settings.
 
-- **13. Make native bring-up prove a service runs.** `cedarcli native start` reports what the
+- **18. Make native bring-up prove a service runs.** `cedarcli native start` reports what the
   launcher accepted rather than what the stack ends up running, and the gap swallowed a whole-stack
   outage on 2026-09-02: every application exited in milliseconds for want of `CEDAR_PROFILE`,
   launchd's keepalive respawned each one, and the CLI printed `started <name> (pid N)` for all
@@ -634,7 +741,29 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
 
   Done when `start` reports a service only once it is healthy or names why it is not.
 
-- **14. Let the artifact server own the uniqueness of `@id`.** No two documents in an artifact
+- **19. Run the whole-stack tiers in CI, and gate the workflow train the way the CLI is gated.**
+  **Production consequence:** none at runtime. CI needs a deployable environment, credentials, time
+  and somewhere to keep the reports.
+
+  Neither smoke tier runs in GitHub Actions. `cedar-development` carries six workflows —
+  `angular-build-isolation-canary`, `build-train`, `publication-preflight-canary`,
+  `realm-seed-hardening`, `release-tooling-ci` and `snapshot-freshness` — and none of them invokes
+  `cedarcli test e2e`, the REST tier or the browser tier. No workflow in any other repository does
+  either, and per-repository CI proves a different thing: that each Java repository compiles and its
+  unit and embedded integration suites pass.
+
+  The gate is also entered two ways with two answers. `cedarcli publish train` and `release
+  plan|start` refuse a source no passing run covers, but `build-train.yml:94` calls
+  `python3 controller/ops/build_train.py preflight`, which names no smoke gate, so a train
+  dispatched through Actions is ungated while the same train dispatched from the CLI is not.
+
+  Add a scheduled and manually dispatchable whole-stack workflow that brings up a known source, runs
+  both tiers through `cedarcli test e2e`, and retains its report as an artifact. Make the workflow
+  train call the same gate implementation the CLI calls rather than a second preflight path. Done
+  when both tiers run unattended on a cadence, their reports are retained, and a train dispatched
+  through Actions is refused on the same evidence that refuses one dispatched from `cedarcli`.
+
+- **20. Let the artifact server own the uniqueness of `@id`.** No two documents in an artifact
   collection may share an `@id`. The server relies on a unique index on that field to enforce it. A
   create is a read that finds the identifier absent followed by an insert, and
   `GenericLDDaoMongoDB.create` answers a duplicate-key rejection with the same 412 the update path
@@ -670,7 +799,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   Done when a fresh, unprovisioned Mongo refuses the second insert, the suites prove it, a store with
   duplicates still boots and reports why its index is missing, and the runbook carries the preflight.
 
-- **15. Take the dependency upgrades that need code changes.** The versions that could move without
+- **21. Take the dependency upgrades that need code changes.** The versions that could move without
   consequence have moved. What stayed behind stayed deliberately, and it separates into work to do,
   versions that follow something else, and versions upstream has not released.
 
@@ -693,7 +822,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   libraries are free to move in general, but a driver crossing a major has to be proven against the
   pinned server it talks to, so these are sequenced behind item 3 rather than taken on their own.
   Keycloak 22.0.4 to 25.0.3 is item 3's own, and RESTEasy 6.2.4 to 7.0.4 is held by the Keycloak
-  client stack, which items 3 and 10 own.
+  client stack, which items 3 and 15 own.
 
   **Versions that follow whatever pulls them in.** The transitive block exists so that every module
   resolves one version of an artifact nothing here depends on directly, which makes these five
@@ -721,7 +850,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   Done when each upgrade above has either landed or been recorded as refused with its reason, and
   the estate no longer carries a dependency held back only because nobody looked at it.
 
-- **16. Document the versioning model, then audit the implementation against it.** The user guide
+- **22. Document the versioning model, then audit the implementation against it.** The user guide
   says what an author sees and the YAML specification defines the keys, but no document states the
   model: which artifact kinds are versioned, what publishing freezes, how a draft succeeds a published
   version, how version numbers must order, what the three latest-version flags mean, and what deleting
@@ -730,7 +859,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   decision to make or a defect to fix. `ArtifactLifecycleMatrixTest` pins the current rules until
   then. Done when the model is published and every divergence is fixed or recorded.
 
-- **17. Give the public CEE release a CLI route.** Publishing `cedar-embeddable-editor` to npmjs is a
+- **23. Give the public CEE release a CLI route.** Publishing `cedar-embeddable-editor` to npmjs is a
   runbook of about twenty-five commands across `develop`, a pull request, `main`, the registry, a
   tag, the development-state restore and the train baseline refresh. Release 2.0.6 took an hour of
   operator attention for two minutes of gate time, and CEE has shipped four public versions in a
@@ -745,7 +874,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
 
 ## Production data
 
-- **18. Normalize production artifacts to one explicit model contract.** Production contains several
+- **24. Normalize production artifacts to one explicit model contract.** Production contains several
   legacy representations that the current model surfaces tolerate or normalize differently, so bring
   them to canonical shapes before tightening readers or introducing terminology routing across source
   systems. The permission-scoped audit found 76 inherently-multiple fields deployed as JSON objects in
@@ -926,7 +1055,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
 
 ## Later decisions
 
-- **19. Decide which request JSON objects are closed contracts, then enforce that boundary.** A
+- **25. Decide which request JSON objects are closed contracts, then enforce that boundary.** A
   strict shared mapper does not by itself make CEDAR's request contract consistent: Jersey binds
   some request DTOs, other resources convert selected subtrees by hand, and artifact endpoints
   deliberately accept extensible JSON-LD. Applying unknown-property rejection to every inbound
@@ -946,7 +1075,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   identify its callers, document the rejected shape, and stage the change through the normal
   release process rather than coupling it to response-reader compatibility work.
 
-- **20. A published artifact can be deleted, contradicting the docs.** The docs say a published
+- **26. A published artifact can be deleted, contradicting the docs.** The docs say a published
   artifact is permanent, but `DELETE` on one succeeds. The guard in
   `AbstractResourceServerResource.executeArtifactDelete` was briefly re-enabled and then **reverted by
   deliberate decision**: blocking deletion strands published artifacts and the folders holding them with
@@ -960,7 +1089,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   representation is corrected. Whichever way deletability is settled, the docs have both exceptions
   to describe.
 
-- **21. Retire the legacy aliases retained by the common error envelope.** **Production
+- **27. Retire the legacy aliases retained by the common error envelope.** **Production
   consequence:** removing an alias can break a frontend or integration that still reads it. This is
   a response-contract cleanup only: it requires no data migration, schema change or reindex.
 
@@ -985,3 +1114,35 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   clients have moved and the compatibility window has elapsed. Done when the generic extension
   hooks have no production call sites and the public envelope contains only its documented common
   fields.
+
+- **28. Address artifacts by bare identifier in REST paths, keeping the full IRI as stored
+  identity.** **Production consequence:** an addressing migration rather than a data one. Stored
+  identifiers in MongoDB, Neo4j and OpenSearch do not change, and no reindex is required, but
+  clients that build URLs in the current form need the legacy shape kept as an alias until traffic
+  shows it unused. Deferred by decision; recorded so the addressing is not settled by accident.
+
+  CEDAR stores an artifact's identity as a full JSON-LD IRI, and three conventions ask for it. The
+  artifact and resource services take the whole percent-encoded IRI in one path segment. The repo
+  service takes the bare final identifier and rebuilds the IRI from the route's type
+  (`AbstractRepoResource.java:37`). OpenView accepts either and resolves a bare one before lookup
+  (`TemplatesResource.java:51`). Monitor carries identifiers in query parameters instead, and the
+  user service is addressed by a bare UUID although a user's stored identity is an IRI too.
+
+  A full IRI inside a path parameter is fragile because proxies and frameworks do not treat an
+  encoded slash alike. Where an intermediary decodes `%2F`, the value stops being one segment and
+  `/templates/{id}` no longer matches. Staging carries the cost in its configuration: two exact
+  `location =` blocks in `server-resource.inc.conf` name individual artifact identifiers and
+  re-encode the collapsed form into a `proxy_pass`, one block per artifact that arrived broken.
+
+  **The proposed contract:** keep the full IRI as the stored identity and in JSON-LD fields such as
+  `@id`, and use the bare final identifier in resource-specific paths and query parameters, with the
+  route supplying the type and a shared parser rebuilding and validating the IRI before any store is
+  read. An endpoint that is genuinely untyped may keep a full IRI, as a stated exception rather than
+  an accident.
+
+  Deliver it the way the other contract changes go. One shared parser accepts both forms first —
+  OpenView's resolver is the working example — while server-generated links and shared clients
+  emit the bare form. Measure the legacy form, mark it deprecated, and remove legacy parsing and
+  the two nginx blocks only after a compatibility period and evidence that no caller depends on it.
+  Done when every resource-specific route takes the bare identifier, one parser owns the
+  reconstruction, and staging's per-artifact blocks are gone.
