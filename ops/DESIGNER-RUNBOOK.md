@@ -211,12 +211,23 @@ specification when `value` is `{ kind: 'none' }`. CED uses this for the compact
 controlled-term summary; the term picker remains the constraint authoring surface.
 
 All default-capable fields use `<cedar-embeddable-field>` from the same CEE bundle.
-Choose **semantic** in Preferences to expose Default Value. CED uses the current
-model snapshot, `1.0.8-dev.20260909.b9dae41`, for typed defaults and JSON/YAML
+Choose **semantic** in Preferences to expose Default Value. CED and CEE use the
+model snapshot `1.0.8-dev.20260909.f1fbbbc` for typed defaults and JSON/YAML
 serialization. Imported numeric constraints and temporal settings are retained;
 temporal values are converted between the default's declared precision and CEF's
 complete instance literal without shifting timezones. Choices are stored with
 `selectedByDefault` on options, including multiple checkbox/list selections.
+
+Rebuild CEE and refresh the sibling copy when testing defaults: an older CEE
+bundle may omit email, phone, link and authority defaults from its preview even
+when CED's output contains them. `npm start` refreshes the development host's
+copies; a manually served `dist-bundle/` needs the copy commands above again.
+
+Display label and Display description apply to the field's deployment in this
+template. CEE gives those overrides precedence over the field's own labels and
+description, and falls back to the artifact when an override is absent. Preferred
+label remains part of the reusable field's metadata. Property IRI is available
+only for dynamic fields, because static content has no instance property to name.
 
 Controlled defaults use the current `<cedar-term-picker>` bundle's term-only mode,
 then verify membership through the configured terminology server's
