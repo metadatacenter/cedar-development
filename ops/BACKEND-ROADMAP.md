@@ -251,23 +251,6 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
 
 - **8. Complete the remaining backend trust-boundary, transport and credential security work.**
 
-  **Artifact-server deployment boundary.** Complete the production rollout and verification of
-  the internal-caller authentication described in the runbook before treating direct reachability as
-  controlled. Inventory remaining deployment-specific callers rather than assuming the repository
-  inventory covers production scripts and probes.
-
-  Roll out the artifact service credential using the runbook's caller-first deployment order,
-  inventory deployment-specific direct-port scripts and health probes, and verify production
-  credential distribution and rotation. Keep the application connector private; service
-  authentication does not replace network containment or protected transport across hosts.
-
-  Roll out resource's anonymous artifact reads before the OpenView proxy, then verify the public
-  URLs, explicit and inherited openness, revocation, ignored user credentials and dependency failures.
-  Measure the extra hop on the deployed topology. Deploy artifact and resource's count endpoints
-  before monitor, then verify its Counts page and dependency-outage behavior. Value-recommender is excluded from this migration because it is
-  scheduled for retirement. Retire redundant adapters only after routing compatibility is proved;
-  identifier hosts must keep resolving.
-
   **Two terminology routes answer an anonymous caller, and that stays.** `POST
   /bioportal/integrated-retrieve` and `POST /bioportal/integrated-search` resolve no user. Measured
   2026-08-31: a request with no `Authorization` header returns `200`. Both reach BioPortal on the
