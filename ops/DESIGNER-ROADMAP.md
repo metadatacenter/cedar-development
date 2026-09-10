@@ -267,7 +267,7 @@ building them twice. The flat-template core comes first.
 
 Done when an author can add an element to a template, nest one inside another,
 give it a cardinality, and have the model library write it — and when opening a
-template that contains elements renders them rather than dropping them.
+template that contains elements renders them rather than refusing the import.
 
 ## Quality
 

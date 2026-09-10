@@ -248,6 +248,20 @@ The host supplies `bridgeBaseUrl` for the seven external authority lookups; the 
 host names the local bridge. Missing sibling controls are reported as unavailable,
 and saved defaults remain intact.
 
+CI also runs the `CED with real CEE and CEF` job on every push and pull request.
+It builds both distributions and supplies `CEF_BUNDLE` to the complete browser
+suite, including default editing, CEE preview, style parity and delayed CEF
+registration. The CEE checkout is pinned to a full commit in CED's
+`.github/workflows/test.yml`; update that pin when adopting a new CEE/CEF revision.
+The job prints both source revisions and bundle hashes and retains failure traces.
+The combined real term-picker test still needs `PICKER_BUNDLE` separately.
+
+Each designer element owns its document, preferences and endpoint configuration;
+the field library remains shared. Opening a template preserves its root lifecycle,
+provenance, annotations and container metadata. Until element authoring is supported,
+a template containing elements is refused visibly and the current document remains
+open, preventing a save from silently deleting nested content.
+
 The default browser suite uses a CEF contract stub. To include the real widgets
 and the combined controlled-term picker test, after building all siblings:
 
