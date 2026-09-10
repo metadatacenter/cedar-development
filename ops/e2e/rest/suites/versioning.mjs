@@ -26,7 +26,7 @@ export async function run({ user1, user2, folderId }) {
         `version was ${after.body?.['pav:version']}`);
 
     const draft = await call(auth, 'POST', '/command/create-draft-artifact',
-        { '@id': id, folderId, newVersion: '1.0.1', propagateVersion: false });
+        { '@id': id, folderId, newVersion: '1.0.1', propagateSharing: false });
     if (checkStatus(draft, [200, 201], 'draft created from the published version')) {
       const draftId = draft.body?.['@id'];
       if (draftId && draftId !== id) cleanup('template', `/templates/${enc(draftId)}`, `${name0} draft`);
@@ -36,7 +36,7 @@ export async function run({ user1, user2, folderId }) {
           `${versions.status}: ${(versions.text ?? '').slice(0, 200)}`);
 
       const fromDraft = await call(auth, 'POST', '/command/create-draft-artifact',
-          { '@id': draftId, folderId, newVersion: '1.0.2', propagateVersion: false });
+          { '@id': draftId, folderId, newVersion: '1.0.2', propagateSharing: false });
       if (fromDraft.status === 201 && fromDraft.body?.['@id']) {
         cleanup('template', `/templates/${enc(fromDraft.body['@id'])}`, `${name0} invalid draft`);
       }
@@ -46,7 +46,7 @@ export async function run({ user1, user2, folderId }) {
 
     // Once a published version has a successor, it cannot produce another branch.
     const draftAgain = await call(auth, 'POST', '/command/create-draft-artifact',
-        { '@id': id, folderId, newVersion: '9.9.9', propagateVersion: false });
+        { '@id': id, folderId, newVersion: '9.9.9', propagateSharing: false });
     check(draftAgain.status >= 400, 'drafting again from a published version with a successor is refused',
         `expected 4xx, got ${draftAgain.status}`);
   }
@@ -95,7 +95,7 @@ export async function run({ user1, user2, folderId }) {
         { '@id': gid, newVersion: '1.0.0' }), [200, 201], 'the next valid version publishes')) {
       for (const newVersion of ['1.0.0', '0.9.9']) {
         checkStatus(await call(auth, 'POST', '/command/create-draft-artifact',
-            { '@id': gid, folderId, newVersion, propagateVersion: false }), 400,
+            { '@id': gid, folderId, newVersion, propagateSharing: false }), 400,
             `a draft version ${newVersion === '1.0.0' ? 'equal to' : 'below'} its source is refused`);
       }
 

@@ -130,7 +130,7 @@ export async function run({ user1, admin, folderId }) {
     checkStatus(await call(auth, 'POST', '/command/publish-artifact', { '@id': bid, newVersion: '1.0.0' }),
         [200, 201], 'it is published first');
     const draft = await call(auth, 'POST', '/command/create-draft-artifact',
-        { '@id': bid, folderId, newVersion: '1.0.1', propagateVersion: false });
+        { '@id': bid, folderId, newVersion: '1.0.1', propagateSharing: false });
     if (checkStatus(draft, [200, 201], 'a draft is created from it')) {
       const did = draft.body?.['@id'];
       if (did && did !== bid) cleanup('template', `/templates/${enc(did)}`, `${drLabel} draft`);
