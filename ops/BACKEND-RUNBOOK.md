@@ -1662,6 +1662,23 @@ seven build commands that can reach Java — `this`, `parent`, `libraries`, `pro
 `java`, and `all` — accept the paired `--tests` / `--skip-tests` option; use `--skip-tests`
 explicitly for a fast compile/install loop. Frontend-only build commands do not expose an inert
 Java-test option.
+
+**Build temporary storage must permit execution.** `cedarcli` creates a private, unique
+workspace per Maven task or frontend build under `$CEDAR_HOME/.cedar/build-tmp/`, and probes
+execution permission before running it. Isolated frontend copies and their npm caches live there;
+`TMPDIR`, `TMP`, and `TEMP` point to its scratch directory. Maven builds also receive
+`java.io.tmpdir` through child-scoped `JAVA_TOOL_OPTIONS`, so Surefire/Failsafe JVMs and embedded
+Redis use the same executable storage. This works when system `/tmp` is mounted `noexec` and
+does not change the environment of running services. Normal completion, failures and handled
+interruptions remove the workspace after subprocess cleanup; a killed CLI or host crash can leave
+an orphan directory, which should be removed only after checking that no build owns it.
+
+If `$CEDAR_HOME` is also on a `noexec` filesystem, set `CEDAR_BUILD_TMPDIR` to an absolute path
+on a writable, executable filesystem in the build invocation environment. Keep unrelated JVM
+options; remove competing `-Djava.io.tmpdir` settings from `MAVEN_OPTS`, `JDK_JAVA_OPTIONS` or
+`_JAVA_OPTIONS` and use this override instead. Direct Maven invocations outside `cedarcli` do not
+receive this configuration. Test reports remain in the repositories' normal `target` directories.
+
 Release preparation, Maven publication, and immutable build-train assembly remain explicit
 `-DskipTests` paths; verify with the default CLI build or repository CI before invoking them.
 
