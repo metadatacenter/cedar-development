@@ -232,6 +232,10 @@ remain available through Field Designer.
 The Overview shows each field's type icon and a right-aligned reorder handle.
 Dragging reorders siblings within the Overview; the document and main editor update
 only when the field is dropped. Focused handles also support Arrow Up/Down.
+Element chevrons and the Overview's Expand all/Collapse all icon buttons share
+collapse state with the central designer. Selecting an element scrolls its header
+below the toolbar with clearance. Field type icons are labels only: changing an
+existing field to another type or replacing it with a library field is not offered.
 
 All default-capable fields use `<cedar-embeddable-field>` from the same CEE bundle.
 Choose **semantic** in Preferences to expose Default Value. CED and CEE use the
@@ -342,9 +346,12 @@ PICKER_BUNDLE="$PWD/../cedar-term-picker/dist-bundle/cedar-term-picker.js" \
 npm --prefix browser test
 ```
 
-The preview asks CEE for a read-only form with no instance behind it, which CEE
-renders as a statement of what each field will accept rather than as an empty
-form. It also asks CEE to drop its Expand All and Collapse All buttons, through
+The preview mode selector offers Read-only (the default) and Editable, one at a
+time. Read-only shows what each field accepts; Editable lets an author try filling
+in the form. Preview answers do not change the template and reset when the template
+or preview mode changes. CEE applies configuration once, so a mode change replaces
+the preview element; ordinary template updates reuse it. It also asks CEE to drop
+its Expand All and Collapse All buttons, through
 `showExpandCollapseAll`, because the designer has its own controls over the same
 template beside the preview; each section still opens and closes on its own
 header. That key arrived in CEE 2.0.4-dev. An older bundle reports it as one it
