@@ -34,9 +34,10 @@ from pathlib import Path
 CEDAR_HOME = Path(os.environ.get("CEDAR_HOME", Path.home() / "CEDAR"))
 CANONICAL = Path(__file__).resolve().parent / "ci-env-block.yml"
 
-# The variables the servers declare, and which of those the provider will default rather than
-# demand. A boolean it does not receive becomes "false"; anything else it does not receive is fatal,
-# so the block must carry it.
+# The variables the servers declare, and which of those something will default rather than demand.
+# A boolean the provider does not receive becomes "false", and a variable declared OPTIONAL is one
+# the reading component defaults itself; anything else it does not receive is fatal, so the block
+# must carry it.
 DUMP = """
 import org.metadatacenter.config.environment.*;
 import org.metadatacenter.model.SystemComponent;
@@ -46,7 +47,7 @@ for (SystemComponent c : SystemComponent.values()) {
   if (c.getServerName() == null) continue;
   for (var v : CedarConfigEnvironmentDescriptor.getVariableNamesFor(c)) {
     declared.add(v.getName());
-    if (v.isBoolean()) optional.add(v.getName());
+    if (v.isBoolean() || v.isOptional()) optional.add(v.getName());
   }
 }
 System.out.println("DECLARED\\t" + String.join(",", declared));
@@ -103,9 +104,18 @@ def names_in(block):
 
 
 def workflows():
+    """The repositories whose ci.yml carries a copy of the block.
+
+    A job-level `env:` indents its entries by six spaces, which is what block_region looks for.
+    The npm frontends set a few CEDAR_ variables inside a step instead, two levels deeper, and
+    those are not copies of this block. Selecting with block_region rather than with a substring
+    keeps them out, and keeps the two functions from disagreeing about which files have a block.
+    """
     for repo in sorted(CEDAR_HOME.glob("cedar-*")):
         path = repo / ".github" / "workflows" / "ci.yml"
-        if path.is_file() and "      CEDAR_" in path.read_text(encoding="utf-8"):
+        if not path.is_file():
+            continue
+        if block_region(path.read_text(encoding="utf-8")) is not None:
             yield repo.name, path
 
 
