@@ -310,6 +310,140 @@ def only_dropped_static_demands(before: Any, after: Any) -> Optional[str]:
     return container(before, after, "")
 
 
+def mapped_serializing_children(container: Any) -> set[str]:
+    """Children a container maps to a usable property IRI and whose values an instance carries.
+
+    A non-serializing child, a section break or rich text say, is never a key of an instance, so it is
+    not something the instance's ``@context`` can be made to declare.
+    """
+    mapping = context_properties(container)
+    if not isinstance(mapping, dict):
+        return set()
+    names: set[str] = set()
+    for name, child, _multiple in container_children(container):
+        ui = child.get("_ui")
+        if not isinstance(ui, dict) or ui.get("inputType") in rest.NON_SERIALIZING_INPUT_TYPES:
+            continue
+        present, value = mapped_property_iri(mapping.get(name))
+        if present and rest.is_absolute_iri(value):
+            names.add(name)
+    return names
+
+
+def complete_context_required(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """List in ``@context.required`` every child the container already maps to a property IRI.
+
+    The two lists answer different questions. ``@context.properties`` says what an instance's context
+    entry for a child must equal if it carries one; ``@context.required`` says it must carry one at
+    all. A child in the first and not the second leaves the instance free to omit the entry, and an
+    instance that omits it says nothing about what the field means, however well its value validates.
+
+    Nothing is minted here: a child with no mapping stays unmapped and unrequired, because inventing a
+    property IRI is a separate decision. Only names the container already maps are added, so the
+    change tightens the contract to what the template itself already states.
+    """
+    changes: list[dict[str, Any]] = []
+
+    def walk(container: Any, path: str) -> Any:
+        if not isinstance(container, dict):
+            return container
+        result = copy.deepcopy(container)
+        mapped = mapped_serializing_children(result)
+        properties = result.get("properties")
+        context = properties.get("@context") if isinstance(properties, dict) else None
+        if mapped and isinstance(context, dict) and isinstance(context.get("required"), list):
+            listed = [entry for entry in context["required"] if isinstance(entry, str)]
+            omitted = [name for name in
+                       (n for n, _child, _multiple in container_children(result)) if
+                       name in mapped and name not in listed]
+            if omitted:
+                context["required"] = list(context["required"]) + omitted
+                for name in omitted:
+                    changes.append({"path": f"{path}/properties/@context/required",
+                                    "replaced": None, "wrote": name})
+        for name, child, multiple in container_children(container):
+            declared = rest.child_path(path, name)
+            here = f"{declared}/items" if multiple else declared
+            repaired = walk(child, here)
+            if multiple:
+                result["properties"][name]["items"] = repaired
+            else:
+                result["properties"][name] = repaired
+        return result
+
+    return walk(copy.deepcopy(artifact), ""), changes
+
+
+def only_completed_context_required(before: Any, after: Any) -> Optional[str]:
+    """The invariant: a required list only gained names the container already maps, appended at the end."""
+
+    def walk(old: Any, new: Any, path: str) -> Optional[str]:
+        if isinstance(old, dict):
+            if not isinstance(new, dict) or set(old) != set(new):
+                return path or "/"
+            mapped = mapped_serializing_children(old)
+            for name in old:
+                here = f"{path}/{rest.json_pointer_component(name)}"
+                if name == "properties" and isinstance(old[name], dict):
+                    difference = properties_walk(old[name], new[name], mapped, here)
+                    if difference is not None:
+                        return difference
+                    continue
+                if type(old[name]) is not type(new[name]) or old[name] != new[name]:
+                    return here
+            return None
+        return None if type(old) is type(new) and old == new else (path or "/")
+
+    def properties_walk(old: dict, new: dict, mapped: set[str], path: str) -> Optional[str]:
+        if not isinstance(new, dict) or set(old) != set(new):
+            return path
+        children = {name for name, _child, _multiple in container_children({"properties": old})}
+        for name in old:
+            here = f"{path}/{rest.json_pointer_component(name)}"
+            if name == "@context" and isinstance(old[name], dict):
+                difference = context_walk(old[name], new[name], mapped, here)
+                if difference is not None:
+                    return difference
+                continue
+            if name in children:
+                declared_old, declared_new = old[name], new[name]
+                if isinstance(declared_old, dict) and declared_old.get("type") == "array":
+                    if not isinstance(declared_new, dict) or set(declared_old) != set(declared_new):
+                        return here
+                    for key in declared_old:
+                        inner = f"{here}/{rest.json_pointer_component(key)}"
+                        difference = walk(declared_old[key], declared_new[key], inner) if key == "items" \
+                            else (None if declared_old[key] == declared_new[key] else inner)
+                        if difference is not None:
+                            return difference
+                    continue
+                difference = walk(declared_old, declared_new, here)
+                if difference is not None:
+                    return difference
+                continue
+            if type(old[name]) is not type(new[name]) or old[name] != new[name]:
+                return here
+        return None
+
+    def context_walk(old: dict, new: dict, mapped: set[str], path: str) -> Optional[str]:
+        if not isinstance(new, dict) or set(old) != set(new):
+            return path
+        for name in old:
+            here = f"{path}/{rest.json_pointer_component(name)}"
+            if name == "required" and isinstance(old[name], list) and isinstance(new.get(name), list):
+                kept, appended = new[name][:len(old[name])], new[name][len(old[name]):]
+                if kept != old[name]:
+                    return here
+                if any(entry not in mapped or entry in old[name] for entry in appended):
+                    return here
+                continue
+            if type(old[name]) is not type(new[name]) or old[name] != new[name]:
+                return here
+        return None
+
+    return walk(before, after, "")
+
+
 def wrap_inherently_multiple(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
     """Deploy an inherently multiple child as the array it always serializes to.
 
@@ -976,6 +1110,13 @@ REPAIRS = {
         summary="stop a container demanding a static field its instances never carry",
         transform=drop_static_field_demands,
         invariant=only_dropped_static_demands,
+    ),
+    "complete-context-required": Repair(
+        name="complete-context-required",
+        condition="child-context-required-missing",
+        summary="list in @context.required every child the container already maps",
+        transform=complete_context_required,
+        invariant=only_completed_context_required,
     ),
     "wrap-inherently-multiple": Repair(
         name="wrap-inherently-multiple",

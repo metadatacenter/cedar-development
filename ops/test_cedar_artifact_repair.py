@@ -1068,3 +1068,95 @@ class EmptyTargetExplanationTest(unittest.TestCase):
         self.assertEqual(REPAIR.conditions_named_by(path, sample=3), ["early"])
         self.assertEqual(REPAIR.conditions_named_by(path), ["early", "late"])
         path.unlink()
+
+
+class CompleteContextRequiredTest(unittest.TestCase):
+    """@context.properties says what an instance's entry must equal; @context.required says it must
+    exist. A child in the first and not the second leaves the instance free to say nothing about what
+    the field means."""
+
+    def container(self, mapped, required, inputs=None):
+        inputs = inputs or {}
+        children = {name: child() for name in mapped}
+        for name, kind in inputs.items():
+            children[name] = child()
+            children[name]["_ui"] = {"inputType": kind}
+        doc = template(children)
+        doc["properties"]["@context"]["properties"] = {
+            name: {"enum": [GOOD_IRI + name]} for name in mapped}
+        doc["properties"]["@context"]["required"] = list(required)
+        return doc
+
+    def test_a_mapped_child_absent_from_required_is_added(self):
+        doc = self.container(["Name", "Age"], ["Name"])
+        after, changes = REPAIR.complete_context_required(doc)
+        self.assertEqual(after["properties"]["@context"]["required"], ["Name", "Age"])
+        self.assertEqual([c["wrote"] for c in changes], ["Age"])
+
+    def test_an_unmapped_child_is_neither_mapped_nor_required(self):
+        doc = self.container(["Name"], ["Name"])
+        doc["properties"]["Ghost"] = child()
+        after, changes = REPAIR.complete_context_required(doc)
+        self.assertEqual(changes, [])
+        self.assertNotIn("Ghost", after["properties"]["@context"]["required"])
+        self.assertNotIn("Ghost", after["properties"]["@context"]["properties"])
+
+    def test_a_non_serializing_child_is_never_required(self):
+        doc = self.container(["Name"], ["Name"], inputs={"Section": "section-break"})
+        doc["properties"]["@context"]["properties"]["Section"] = {"enum": [GOOD_IRI + "s"]}
+        after, changes = REPAIR.complete_context_required(doc)
+        self.assertEqual(changes, [])
+        self.assertNotIn("Section", after["properties"]["@context"]["required"])
+
+    def test_a_mapping_that_is_not_a_usable_iri_does_not_compel_anything(self):
+        doc = self.container(["Name"], [])
+        doc["properties"]["@context"]["properties"]["Name"] = {"enum": [""]}
+        _after, changes = REPAIR.complete_context_required(doc)
+        self.assertEqual(changes, [])
+
+    def test_existing_order_is_preserved_and_additions_come_after(self):
+        doc = self.container(["A", "B", "C"], ["C", "A"])
+        after, _changes = REPAIR.complete_context_required(doc)
+        self.assertEqual(after["properties"]["@context"]["required"][:2], ["C", "A"])
+        self.assertIn("B", after["properties"]["@context"]["required"][2:])
+
+    def test_a_second_pass_adds_nothing(self):
+        once, first = REPAIR.complete_context_required(self.container(["Name", "Age"], ["Name"]))
+        _twice, second = REPAIR.complete_context_required(once)
+        self.assertEqual(len(first), 1)
+        self.assertEqual(second, [])
+
+    def test_the_invariant_accepts_the_transform(self):
+        before = self.container(["Name", "Age"], ["Name"])
+        after, _changes = REPAIR.complete_context_required(before)
+        self.assertIsNone(REPAIR.only_completed_context_required(before, after))
+
+    def test_the_invariant_rejects_requiring_something_unmapped(self):
+        before = self.container(["Name"], ["Name"])
+        after = copy.deepcopy(before)
+        after["properties"]["@context"]["required"].append("Ghost")
+        self.assertIsNotNone(REPAIR.only_completed_context_required(before, after))
+
+    def test_the_invariant_rejects_a_reordering_or_any_other_change(self):
+        before = self.container(["Name", "Age"], ["Name"])
+        after, _changes = REPAIR.complete_context_required(before)
+        reordered = copy.deepcopy(after)
+        reordered["properties"]["@context"]["required"] = ["Age", "Name"]
+        self.assertIsNotNone(REPAIR.only_completed_context_required(before, reordered))
+        touched = copy.deepcopy(after)
+        touched["schema:name"] = "Renamed"
+        self.assertEqual(REPAIR.only_completed_context_required(before, touched), "/schema:name")
+
+    def test_it_reaches_a_nested_element(self):
+        inner = child()
+        element = child(ELEMENT_TYPE, identifier=BASE + "template-elements/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
+        element["_ui"] = {"order": ["Street"]}
+        element["properties"] = {"@context": {"properties": {"Street": {"enum": [GOOD_IRI + "st"]}},
+                                              "required": []}, "Street": inner}
+        doc = template({"Address": element})
+        doc["properties"]["@context"]["properties"] = {"Address": {"enum": [GOOD_IRI + "ad"]}}
+        doc["properties"]["@context"]["required"] = ["Address"]
+        after, changes = REPAIR.complete_context_required(doc)
+        self.assertEqual([c["path"] for c in changes],
+                         ["/properties/Address/properties/@context/required"])
+        self.assertEqual(after["properties"]["Address"]["properties"]["@context"]["required"], ["Street"])
