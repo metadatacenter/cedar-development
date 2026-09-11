@@ -1,14 +1,12 @@
-// Openness: the OpenView path, which is the only way CEDAR serves an artifact to someone who is not
-// logged in at all.
+// Openness: OpenView preserves public URLs and resource's /open path owns the anonymous decision.
 //
 // This is not sharing with everybody. Sharing with everybody widens a grant to every account and still
-// demands a credential; making an artifact open lets an anonymous caller confirm it, through the
-// OpenView server rather than the resource server. The two are independent, and this suite holds them
-// apart: an open artifact stays unreadable anonymously on the resource server, and a
+// demands a credential; making an artifact open lets an anonymous caller read its JSON. The normal
+// authenticated resource routes remain distinct from /open: an open artifact stays unreadable
+// anonymously on those normal routes, and a
 // shared-with-everybody artifact stays unreadable anonymously anywhere.
 //
-// The OpenView server answers with an empty body — it is an access decision, not a copy of the
-// artifact — so these checks are about status codes only.
+// Check both the access decision and the body, including compatibility through the extra HTTP hop.
 import { suite, check, checkStatus, call, cleanup, artifactBody, enc, RUN, KINDS, OPENVIEW } from '../lib.mjs';
 
 export const name = 'openness';
@@ -55,6 +53,10 @@ export async function run({ user1, user2, folderId }) {
     const before = await anonymously(at);
     check(before.status === 401, `${kind}: not open, so OpenView refuses an anonymous caller`,
         `expected 401, got ${before.status}: ${(before.text ?? '').slice(0, 160)}`);
+    checkStatus(await call(auth, 'GET', at, undefined, { base: OPENVIEW }), 401,
+        `${kind}: owner credentials cannot broaden OpenView access`);
+    checkStatus(await call(auth, 'GET', `/open${at}`), 401,
+        `${kind}: owner credentials cannot broaden resource anonymous access`);
 
     if (!checkStatus(await open('make-artifact-open', id, `${at}/details`), 200,
         `${kind}: made open by its owner`)) continue;
@@ -62,8 +64,17 @@ export async function run({ user1, user2, folderId }) {
     const after = await anonymously(at);
     check(after.status === 200, `${kind}: OpenView now serves it anonymously`,
         `expected 200, got ${after.status}: ${(after.text ?? '').slice(0, 160)}`);
+    const canonical = await call(null, 'GET', `/open${at}`);
+    check(canonical.status === 200 && canonical.body?.['@id'] === id &&
+        JSON.stringify(canonical.body) === JSON.stringify(after.body) && !('_id' in after.body),
+        `${kind}: OpenView preserves resource anonymous JSON without storage fields`);
+    const bare = await anonymously(`${path}/${enc(id.slice(id.lastIndexOf('/') + 1))}`);
+    check(bare.status === 200 && JSON.stringify(bare.body) === JSON.stringify(after.body),
+        `${kind}: bare and full OpenView identifiers return the same JSON`);
+    check(after.headers?.get('cache-control') === 'no-store',
+        `${kind}: OpenView does not cache independently revocable openness`);
 
-    // Openness is an OpenView affordance. It must not turn the resource server into a public API.
+    // The established authenticated resource route must still require a user credential.
     const direct = await call(null, 'GET', at);
     check(direct.status === 401,
         `${kind}: and the resource server still refuses the same anonymous caller`,

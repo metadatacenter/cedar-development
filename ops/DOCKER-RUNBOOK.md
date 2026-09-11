@@ -696,6 +696,7 @@ docker run --rm --network cedarnet \
   -e CEDAR_WORKER_BASE=http://server-worker:9011 \
   -e CEDAR_KEYCLOAK_BASE=http://infra-keycloak:8080 \
   -e CEDAR_ADMIN_USER_API_KEY \
+  -e CEDAR_ARTIFACT_SERVICE_API_KEY \
   -e CEDAR_FRONTEND_local_USER1_LOGIN \
   -e CEDAR_FRONTEND_local_USER1_PASSWORD \
   -e CEDAR_FRONTEND_local_USER2_LOGIN \
@@ -707,6 +708,12 @@ Resource and Terminology deliberately go through containerized nginx so this als
 published API and Swagger UI routes. Artifact stays on its internal service address, and Worker is
 addressed directly because its diagnostic-authentication checks have no nginx vhost. Expected: 19
 suites pass and the final result is `PASS`. The first invocation may pull `node:20-alpine`.
+
+The artifact service key authenticates this trusted internal test runner. Ordinary-user boundary
+probes explicitly omit it. Provision and rotate the key using the backend runbook's
+"Deploying and rotating the artifact service key" procedure; the first rollout upgrades bridge,
+resource and worker before enforcing the key in artifact. Recreate affected containers when their
+key environment changes. Never put the value into the command line or an image.
 
 A host-side run is useful for testing published ports and nginx:
 

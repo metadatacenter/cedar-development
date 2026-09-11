@@ -26,7 +26,7 @@ cedarcli native restart <svc>  # redeploy one service
 cedarcli native logs <svc>     # follow one log
 cedarcli native health         # exits non-zero unless every managed application is healthy
 cedarcli git status            # working-tree state across all repos
-cedarcli check versions        # version consistency across the estate
+cedarcli check versions        # version consistency; --strict also fails a checkout behind its remote
 cedarcli check ci              # CI at every develop head a train would capture
 cedarcli test e2e              # both whole-stack smoke tiers; records the run the train and release gates require
 ```
@@ -150,8 +150,8 @@ completes, and the replacement for the AngularJS Template Designer:
   server today.
 - [DESIGNER-ROADMAP.md](ops/DESIGNER-ROADMAP.md) — the distance to a designer anyone could switch
   to, measured against the production designer's own palette configuration, in the order to do it:
-  the capability rules the palette still lacks, several constraints on one field, the
-  save-and-publish lifecycle it has none of, and then template elements.
+  the three profiles that have to make a crowded card legible, the save-and-publish lifecycle it
+  has none of, and then template elements.
 
 Terminology versioning, the authoring surface included — `cedar-term-picker`, the Web Component
 replacing the Workbench's controlled-term picker, is tracked here rather than in a pair of its own,

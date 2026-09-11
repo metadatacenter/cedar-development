@@ -436,8 +436,17 @@ binary_of() {  # echoes current|STALE|- for a service and the pid serving it
   if [ "$j_epoch" -gt "$p_epoch" ]; then echo STALE; else echo current; fi
 }
 
+scope_artifact_service_credentials() {
+  case "$1" in
+    artifact) ;;
+    resource|worker) unset CEDAR_ARTIFACT_SERVICE_PREVIOUS_API_KEY ;;
+    *) unset CEDAR_ARTIFACT_SERVICE_API_KEY CEDAR_ARTIFACT_SERVICE_PREVIOUS_API_KEY ;;
+  esac
+}
+
 run_one_foreground() {
   local name=$1 app; app=$(app_port "$name")
+  scope_artifact_service_credentials "$name"
   case "$name" in
     ui-main)
       local dir; dir=$(fe_dir "$name")

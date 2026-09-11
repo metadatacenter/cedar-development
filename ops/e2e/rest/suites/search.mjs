@@ -99,7 +99,9 @@ export async function run({ user1, folderId }) {
 
   // is_based_on — find instances built on a given template, also graph-backed. Create one instance on
   // the first template, then search for it.
-  const instLabel = `${tag} instance`;
+  // Keep this graph-lookup fixture out of the three-template paging corpus: its asynchronous
+  // indexing must not change the total halfway through the following search-deep checks.
+  const instLabel = `BasedOnProbe${RUN.replace(/[^0-9]/g, '')} instance`;
   const inst = await call(auth, 'POST', `/template-instances?folder_id=${enc(folderId)}`,
       artifactBody('instance', instLabel, { 'schema:isBasedOn': ids[0] }));
   if (checkStatus(inst, 201, 'an instance on the first template is created')) {

@@ -16,10 +16,10 @@ export const USER_SERVER = env.CEDAR_USER_BASE ?? `https://user.${HOST}`;
 export const GROUP_SERVER = env.CEDAR_GROUP_BASE ?? `https://group.${HOST}`;
 // The artifact server, addressed directly on its port rather than through `artifact.${HOST}`. The
 // resource server proxies every artifact write and read to it, so the contract suite compares the two
-// sides of that hop — but the vhost is closed. The artifact server holds no resource-level ACL and
-// authorizes on global roles alone, so anything that reaches it can read or change any artifact in
-// the installation; production and this host both answer 404 there, and only the internal address
-// remains. Reaching it at all is a property of running the suite beside the stack.
+// sides of that hop — but the vhost is closed. Artifact requires internal service authentication
+// as well as user authentication. Production and this host answer 404 on the public vhost.
+// Internal contract probes carry the installation service key; explicit
+// boundary probes omit it to prove a user credential alone cannot access storage.
 export const ARTIFACT_SERVER = env.CEDAR_ARTIFACT_BASE
   ?? `http://${env.CEDAR_ARTIFACT_SERVER_HOST ?? 'localhost'}:${env.CEDAR_ARTIFACT_HTTP_PORT ?? '9001'}`;
 export const TERMINOLOGY = env.CEDAR_TERMINOLOGY_BASE ?? `https://terminology.${HOST}`;
@@ -33,6 +33,11 @@ export const OPENVIEW = env.CEDAR_OPENVIEW_BASE
   ?? `http://${env.CEDAR_OPENVIEW_SERVER_HOST ?? 'localhost'}:${env.CEDAR_OPENVIEW_HTTP_PORT ?? '9013'}`;
 export const WORKER = env.CEDAR_WORKER_BASE
   ?? `http://${env.CEDAR_WORKER_SERVER_HOST ?? 'localhost'}:${env.CEDAR_WORKER_HTTP_PORT ?? '9011'}`;
+// The worker's Dropwizard admin connector, which is where its health checks are served. Every
+// service in the estate puts its admin port 100 above its application port, so the default is
+// derived rather than configured twice.
+export const WORKER_ADMIN = env.CEDAR_WORKER_ADMIN_BASE
+  ?? WORKER.replace(/:(\d+)$/, (_, port) => `:${Number(port) + 100}`);
 const KEYCLOAK = env.CEDAR_KEYCLOAK_BASE
   ?? `http://${env.CEDAR_KEYCLOAK_HOST ?? '127.0.0.1'}:${env.CEDAR_KEYCLOAK_HTTP_PORT ?? '8080'}`;
 const REALM = env.CEDAR_KEYCLOAK_REALM ?? 'CEDAR';
@@ -169,12 +174,19 @@ export function authHeader(auth) {
  */
 export async function call(auth, method, path, body, opts = {}) {
   const headers = auth ? { Authorization: authHeader(auth) } : {};
+  const internalArtifact = opts.base === ARTIFACT_SERVER && opts.artifactService !== false;
+  if (internalArtifact) {
+    const key = env.CEDAR_ARTIFACT_SERVICE_API_KEY;
+    if (!key) throw new Error('Artifact contract probes require CEDAR_ARTIFACT_SERVICE_API_KEY');
+    headers['X-CEDAR-Artifact-Service-Key'] = key;
+  }
   if (body !== undefined) headers['Content-Type'] = opts.contentType ?? 'application/json';
   if (opts.accept) headers['Accept'] = opts.accept;
   Object.assign(headers, opts.headers ?? {});
   for (const [k, v] of Object.entries(headers)) if (v === undefined) delete headers[k];
   const res = await fetch(`${opts.base ?? RESOURCE}${path}`, {
     method,
+    redirect: opts.base === ARTIFACT_SERVER ? 'manual' : 'follow',
     headers,
     body: body === undefined ? undefined
         : (typeof body === 'string' ? body : JSON.stringify(body)),
@@ -273,6 +285,38 @@ export async function everybodyGroup(auth) {
  * to assert on it. Returns the last value whether or not it ever satisfied the predicate, so the
  * caller reports the real outcome rather than a timeout.
  */
+/**
+ * What the worker says about itself, as a list of the checks that are failing.
+ *
+ * The worker is where every deferred effect happens — cloning a template's instances, propagating a
+ * permission, reindexing for the value recommender, draining the application log. None of them
+ * reports to the caller: the command that queues the work has already answered by the time the work
+ * runs, so a consumer that has stopped, or an event that dead-lettered, is invisible to any test
+ * that reads a response. The worker's own health check counts the dead letters on all four queues
+ * and watches each consumer's liveness, which makes it the one place to ask whether the stack is
+ * quiet.
+ *
+ * Unreachable is not unhealthy: a run against a stack with no worker should say so plainly rather
+ * than report every queue as broken.
+ */
+export async function workerComplaints() {
+  let res;
+  try {
+    res = await fetch(`${WORKER_ADMIN}/healthcheck`, { signal: AbortSignal.timeout(15000) });
+  } catch (e) {
+    return [{ name: 'worker', message: `unreachable at ${WORKER_ADMIN}: ${e.message}` }];
+  }
+  let body;
+  try {
+    body = await res.json();
+  } catch {
+    return [{ name: 'worker', message: `${WORKER_ADMIN}/healthcheck answered ${res.status}, not JSON` }];
+  }
+  return Object.entries(body)
+      .filter(([, check]) => !check.healthy)
+      .map(([name, check]) => ({ name, message: check.message ?? check.error ?? 'no message' }));
+}
+
 export async function poll(probe, { tries = 12, delayMs = 1500 } = {}) {
   let last;
   for (let attempt = 1; attempt <= tries; attempt++) {

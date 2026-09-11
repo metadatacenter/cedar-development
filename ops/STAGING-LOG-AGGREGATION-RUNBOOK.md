@@ -216,7 +216,7 @@ cedarcli git status
 cedarcli git checkout main
 cedarcli git pull
 cedarcli git status                        # expect clean across all repos
-cedarcli check versions                    # expect 2.9.7 everywhere, no modifier
+cedarcli check versions --strict           # expect 2.9.7 everywhere, no modifier, nothing behind
 
 # 3.3 Build (Java still up — keeps the window short)
 cedarcli build maven clean all

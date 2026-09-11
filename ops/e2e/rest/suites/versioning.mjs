@@ -1,9 +1,9 @@
 // Publish and create-draft: two-service writes that no test exercised before these suites.
-import { suite, check, checkStatus, call, mutate, cleanup, artifactBody, enc, RUN } from '../lib.mjs';
+import { suite, check, checkStatus, call, mutate, cleanup, artifactBody, enc, poll, RUN } from '../lib.mjs';
 
 export const name = 'versioning';
 
-export async function run({ user1, user2, folderId }) {
+export async function run({ user1, user2, folderId, homeFolderId }) {
   const auth = user1.auth;
   suite('versioning: publish, then draft the published version');
 
@@ -26,7 +26,7 @@ export async function run({ user1, user2, folderId }) {
         `version was ${after.body?.['pav:version']}`);
 
     const draft = await call(auth, 'POST', '/command/create-draft-artifact',
-        { '@id': id, folderId, newVersion: '1.0.1', propagateVersion: false });
+        { '@id': id, folderId, newVersion: '1.0.1', propagateSharing: false });
     if (checkStatus(draft, [200, 201], 'draft created from the published version')) {
       const draftId = draft.body?.['@id'];
       if (draftId && draftId !== id) cleanup('template', `/templates/${enc(draftId)}`, `${name0} draft`);
@@ -36,7 +36,7 @@ export async function run({ user1, user2, folderId }) {
           `${versions.status}: ${(versions.text ?? '').slice(0, 200)}`);
 
       const fromDraft = await call(auth, 'POST', '/command/create-draft-artifact',
-          { '@id': draftId, folderId, newVersion: '1.0.2', propagateVersion: false });
+          { '@id': draftId, folderId, newVersion: '1.0.2', propagateSharing: false });
       if (fromDraft.status === 201 && fromDraft.body?.['@id']) {
         cleanup('template', `/templates/${enc(fromDraft.body['@id'])}`, `${name0} invalid draft`);
       }
@@ -46,7 +46,7 @@ export async function run({ user1, user2, folderId }) {
 
     // Once a published version has a successor, it cannot produce another branch.
     const draftAgain = await call(auth, 'POST', '/command/create-draft-artifact',
-        { '@id': id, folderId, newVersion: '9.9.9', propagateVersion: false });
+        { '@id': id, folderId, newVersion: '9.9.9', propagateSharing: false });
     check(draftAgain.status >= 400, 'drafting again from a published version with a successor is refused',
         `expected 4xx, got ${draftAgain.status}`);
   }
@@ -95,7 +95,7 @@ export async function run({ user1, user2, folderId }) {
         { '@id': gid, newVersion: '1.0.0' }), [200, 201], 'the next valid version publishes')) {
       for (const newVersion of ['1.0.0', '0.9.9']) {
         checkStatus(await call(auth, 'POST', '/command/create-draft-artifact',
-            { '@id': gid, folderId, newVersion, propagateVersion: false }), 400,
+            { '@id': gid, folderId, newVersion, propagateSharing: false }), 400,
             `a draft version ${newVersion === '1.0.0' ? 'equal to' : 'below'} its source is refused`);
       }
 
@@ -202,6 +202,72 @@ export async function run({ user1, user2, folderId }) {
           'the source template is now published', 'the source was not published');
       check(res.body?.['bibo:status'] === 'bibo:draft', 'and the returned artifact is a new draft',
           `the returned status was ${res.body?.['bibo:status']}`);
+    }
+  }
+
+  suite('versioning: drafting a published template copies its instances');
+
+  // `newFolderName` asks for the published template's instances to be copied alongside the draft.
+  // The command creates the folder and answers 201 straight away; the copying itself runs on the
+  // worker queue, so the folder existing proves nothing. A clone that fails leaves the folder empty
+  // and says nothing, which is what a person sees: a new folder holding none of their metadata. The
+  // count is therefore the assertion, and the folder is only the place to count.
+  const INSTANCES = 2;
+  const cloneName = `Cloned Template ${RUN}`;
+  const cloneSource = await call(auth, 'POST', `/templates?folder_id=${enc(folderId)}`,
+      artifactBody('template', cloneName));
+  if (checkStatus(cloneSource, 201, 'a template is created to clone instances from')) {
+    const cloneId = cloneSource.body['@id'];
+    cleanup('template', `/templates/${enc(cloneId)}`, cloneName);
+    const published = await call(auth, 'POST', '/command/publish-artifact',
+        { '@id': cloneId, newVersion: '1.0.0' });
+
+    if (checkStatus(published, [200, 201], 'the template to clone from is published')) {
+      for (let i = 1; i <= INSTANCES; i++) {
+        const instanceName = `Cloned Instance ${i} ${RUN}`;
+        const made = await call(auth, 'POST', `/template-instances?folder_id=${enc(folderId)}`,
+            artifactBody('instance', instanceName, { 'schema:isBasedOn': cloneId }));
+        if (made.status === 201) {
+          cleanup('instance', `/template-instances/${enc(made.body['@id'])}`, instanceName);
+        }
+      }
+
+      const copiesName = `Cloned Instances ${RUN}`;
+      const draft = await call(auth, 'POST', '/command/create-draft-artifact',
+          { '@id': cloneId, folderId, newVersion: '1.0.1', propagateSharing: true, newFolderName: copiesName });
+      if (checkStatus(draft, [200, 201], 'a draft is created asking for the instances to be copied')) {
+        const draftId = draft.body?.['@id'];
+        if (draftId && draftId !== cloneId) {
+          cleanup('template', `/templates/${enc(draftId)}`, `${cloneName} draft`);
+        }
+
+        // The copies land under the owner's home folder, one folder per owner, so home is where to
+        // look rather than the folder the draft was asked for.
+        const parent = homeFolderId ?? folderId;
+        const folder = await poll(async () => {
+          const contents = await call(auth, 'GET', `/folders/${enc(parent)}/contents?limit=500`);
+          const hit = (contents.body?.resources ?? []).find(
+              r => r.resourceType === 'folder' && r['schema:name'] === copiesName);
+          return hit ? { done: true, id: hit['@id'] } : { done: false };
+        });
+
+        if (check(folder.done, 'the folder for the copied instances appears',
+            `no folder named "${copiesName}" after ${folder.attempts} tries`)) {
+          cleanup('folder', `/folders/${enc(folder.id)}`, copiesName);
+          const counted = await poll(async () => {
+            const contents = await call(auth, 'GET', `/folders/${enc(folder.id)}/contents?limit=500`);
+            const copies = (contents.body?.resources ?? []).filter(r => r.resourceType === 'instance');
+            return { done: copies.length >= INSTANCES, copies };
+          });
+          for (const copy of counted.copies ?? []) {
+            cleanup('instance', `/template-instances/${enc(copy['@id'])}`, copy['schema:name']);
+          }
+          check((counted.copies ?? []).length === INSTANCES,
+              'and it holds every instance the published template had',
+              `${(counted.copies ?? []).length} of ${INSTANCES} after ${counted.attempts} tries`
+              + ' — a clone that fails dead-letters and leaves the folder empty');
+        }
+      }
     }
   }
 

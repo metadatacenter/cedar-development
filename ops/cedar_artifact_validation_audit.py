@@ -75,6 +75,14 @@ KIND_WORD = {
 CONTAINER_TYPES = {TEMPLATE, rest.TEMPLATE_ELEMENT}
 CONSTRAINT_KEYS = ("ontologies", "valueSets", "classes", "branches")
 COUNTED_CONSTRAINT_KEYS = {"ontologies", "valueSets"}
+# A granularity of a day or coarser can only be a date. Below that a field may hold a time of day or a
+# full timestamp, and the granularity alone does not say which, so the values it holds have to.
+GRANULARITY_TO_TEMPORAL_TYPE = {"year": "xsd:date", "month": "xsd:date", "day": "xsd:date"}
+SUB_DAY_GRANULARITIES = {"hour", "minute", "second", "decimalSecond"}
+# The acronym a legacy free-text `source` names, when it names one: "Human Disease Ontology (DOID)",
+# or the bare acronym itself.
+PARENTHESIZED_ACRONYM = re.compile(r"\(([A-Z][A-Z0-9_-]{1,20})\)\s*$")
+BARE_ACRONYM = re.compile(r"^[A-Z][A-Z0-9_-]{1,20}$")
 
 # The roadmap paragraph each rule measures. Rules the REST audit contributes are grouped by the
 # risk it assigns them, under "minting".
@@ -97,6 +105,12 @@ TOPICS = {
     "schema-version-nested-absent": "model version",
     "schema-version-nested-stale": "model version",
     "source-system-absent": "terminology source",
+    "constraint-source-uri-legacy": "constraint shape",
+    "constraint-iri-absent": "constraint shape",
+    "constraint-acronym-underivable": "constraint shape",
+    "temporal-type-absent": "temporal type",
+    "temporal-type-unsettled": "temporal type",
+    "static-field-required": "static field demanded",
 }
 # The REST audit's diagnostics say the audit could not finish, not that the artifact is defective.
 REST_DIAGNOSTIC_RULES = {"template-analysis-unavailable"}
@@ -241,6 +255,115 @@ def check_value_constraints(nodes: list[SchemaNode]) -> Iterator[Condition]:
                     yield Condition("source-system-absent", entry_path, label)
 
 
+def acronym_from_source(source: Any) -> Optional[str]:
+    """The acronym a legacy free-text ``source`` names, when it names one at all."""
+    if not isinstance(source, str):
+        return None
+    parenthesized = PARENTHESIZED_ACRONYM.search(source)
+    if parenthesized:
+        return parenthesized.group(1)
+    return source.strip() if BARE_ACRONYM.match(source.strip()) else None
+
+
+def check_temporal_types(nodes: list[SchemaNode]) -> Iterator[Condition]:
+    """A temporal field that does not say what kind of temporal value it holds.
+
+    ``_valueConstraints.temporalType`` is what makes the field fillable. Without it the field sits in
+    the template as a slot nobody can complete, and nothing refuses the artifact, so the defect
+    surfaces only when a user reaches the field. The counts are split by whether the field's own
+    ``_ui.temporalGranularity`` settles the type: a day or coarser can only be a date, while below
+    that the field may hold a time of day or a full timestamp and only the stored values decide.
+    """
+    for node in nodes:
+        definition = node.definition
+        ui = definition.get("_ui")
+        if not isinstance(ui, dict) or ui.get("inputType") != "temporal":
+            continue
+        constraints = definition.get("_valueConstraints")
+        if isinstance(constraints, dict) and constraints.get("temporalType"):
+            continue
+        granularity = ui.get("temporalGranularity")
+        rule = "temporal-type-absent" if granularity in GRANULARITY_TO_TEMPORAL_TYPE \
+            else "temporal-type-unsettled"
+        yield Condition(rule, f"{node.path}/_valueConstraints/temporalType",
+                        {"granularity": granularity,
+                         "settledBy": GRANULARITY_TO_TEMPORAL_TYPE.get(granularity)})
+
+
+def check_constraint_shape(nodes: list[SchemaNode]) -> Iterator[Condition]:
+    """How far a stored value constraint has come towards the versioned shape.
+
+    That shape names a source with ``sourceSystem`` and ``sourceAcronym`` and identifies it with a
+    canonical ``iri``; the older one carried ``sourceUri`` and none of the three. Both are readable,
+    because a tolerant reader defaults an absent source system to BioPortal and derives the IRI from
+    the acronym, so this measures self-description rather than breakage. Deriving the canonical IRI
+    needs the terminology catalog, which this audit does not open, so absence is what is reported.
+    """
+    for node in nodes:
+        constraints = node.definition.get("_valueConstraints")
+        if not isinstance(constraints, dict):
+            continue
+        base = f"{node.path}/_valueConstraints"
+        for key in CONSTRAINT_KEYS:
+            entries = constraints.get(key)
+            if not isinstance(entries, list):
+                continue
+            for index, entry in enumerate(entries):
+                if not isinstance(entry, dict):
+                    continue
+                where = f"{base}/{key}/{index}"
+                if "sourceUri" in entry:
+                    yield Condition("constraint-source-uri-legacy", f"{where}/sourceUri",
+                                    entry.get("sourceUri"))
+                if entry.get("iri"):
+                    continue
+                acronym = entry.get("acronym") or acronym_from_source(entry.get("source"))
+                if acronym:
+                    yield Condition("constraint-iri-absent", f"{where}/iri", acronym)
+                else:
+                    # A classes entry carries no acronym of its own and names its ontology only in the
+                    # legacy display string, so nothing can be looked up for it.
+                    yield Condition("constraint-acronym-underivable", f"{where}/iri",
+                                    {"kind": key, "source": entry.get("source")})
+
+
+def check_static_fields_demanded(nodes: list[SchemaNode]) -> Iterator[Condition]:
+    """A static field named where an instance is expected to carry it.
+
+    A static field renders and holds nothing, so it is not a property of an instance, and every CEDAR
+    editor omits it when building one. A container naming such a child in ``required``, in
+    ``@context.required`` or in ``@context.properties`` therefore describes an instance nothing will
+    produce, and no instance of it can validate. ``_ui.order`` and ``_ui.propertyLabels`` are where a
+    static field legitimately appears and say nothing about this.
+    """
+    for node in nodes:
+        container = node.definition
+        statics = {name for name, child, _multiple, error in rest.direct_schema_children(container)
+                   if not error and child is not None
+                   and child.get("@type") == rest.STATIC_TEMPLATE_FIELD}
+        if not statics:
+            continue
+        properties = container.get("properties")
+        context = properties.get("@context") if isinstance(properties, dict) else None
+        places = {
+            "required": container.get("required"),
+            "@context.required": context.get("required") if isinstance(context, dict) else None,
+        }
+        for where, names in places.items():
+            if not isinstance(names, list):
+                continue
+            for name in statics & {n for n in names if isinstance(n, str)}:
+                yield Condition("static-field-required", f"{node.path}/{where.replace('.', '/')}",
+                                {"field": name, "where": where})
+        mapping = context.get("properties") if isinstance(context, dict) else None
+        if isinstance(mapping, dict):
+            for name in statics & set(mapping):
+                yield Condition("static-field-required",
+                                f"{node.path}/properties/@context/properties/"
+                                f"{rest.json_pointer_component(name)}",
+                                {"field": name, "where": "@context.properties"})
+
+
 def check_annotations(artifact: Any) -> Iterator[Condition]:
     """An annotation whose identifier is an explicit null, anywhere in the document.
 
@@ -346,6 +469,9 @@ def inventory_conditions(ref: rest.ArtifactRef, artifact: Any,
             conditions.extend(check_titles(nodes))
             conditions.extend(check_cardinality(nodes))
             conditions.extend(check_value_constraints(nodes))
+            conditions.extend(check_constraint_shape(nodes))
+            conditions.extend(check_temporal_types(nodes))
+            conditions.extend(check_static_fields_demanded(nodes))
             conditions.extend(check_ui_order(nodes))
             conditions.extend(check_model_version(nodes))
     conditions.extend(rest_conditions(ref, artifact, shape))

@@ -24,7 +24,7 @@ import { argv } from 'node:process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { actors, call, teardown, summary, enc, RUN, suite, beginSuite, check, cleanup } from './rest/lib.mjs';
+import { actors, call, teardown, summary, enc, RUN, suite, beginSuite, check, cleanup, workerComplaints } from './rest/lib.mjs';
 
 import * as folders from './rest/suites/folders.mjs';
 import * as artifacts from './rest/suites/artifacts.mjs';
@@ -142,6 +142,12 @@ try {
   check(before.length === 0, 'the stack starts with no leftovers from an earlier REST run',
       before.map(item => `${item.where}: ${item.detail}`).join('; '));
 
+  // Asked at both ends for the same reason the leftovers are: a dead letter inherited from an
+  // earlier run would otherwise be read as this run's doing.
+  const complaintsBefore = await workerComplaints();
+  check(complaintsBefore.length === 0, 'the worker starts with every consumer live and no dead letters',
+      complaintsBefore.map(c => `${c.name}: ${c.message}`).join('; '));
+
   // One working folder for the suites that need somewhere to put things, so the run leaves a single
   // subtree behind if teardown ever fails.
   const workName = `REST Suites ${RUN}`;
@@ -181,6 +187,14 @@ try {
     const after = await stampedLeftovers(auth1, user1Profile.homeFolderId);
     check(after.length === 0, 'the run leaves no stamped folders, artifacts, or categories behind',
         after.map(item => `${item.where}: ${item.detail}`).join('; '));
+
+    // The net under every deferred effect. A suite asserts the effects it knows to look for; this
+    // catches the ones nobody wrote a case for, because work that failed on a queue lands in a dead
+    // letter whatever queued it. The clone-instances defect this check was written for showed up
+    // here as one dead letter and nowhere else in a passing run.
+    const complaintsAfter = await workerComplaints();
+    check(complaintsAfter.length === 0, 'and the worker drained everything the run queued',
+        complaintsAfter.map(c => `${c.name}: ${c.message}`).join('; '));
   }
 }
 

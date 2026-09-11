@@ -84,9 +84,52 @@ path on which CEE reached the network for an artifact. A host fetches its own
 artifacts, and the developer app is a host like any other, so the key, the
 second repository and the second terminal are all gone.
 
+Below the form the same page renders the `cedar-embeddable-field` element on its
+own, with a picker for the field it shows and a readout of what it reports. The
+fields are `src/assets/cee-demo/demo/fields.json`, one artifact per input type,
+extracted from the demo template beside it. It is the only place a widget can be
+looked at without a form around it, and it exercises reassigning `fieldObject`,
+which is what a designer does as an author changes a field's type.
+
 The rest of dev-mode configuration remains in `src/app/app.component.dev.ts` —
 the terminology and bridge base URLs, the offered languages, the read-only flag.
 It is TypeScript, not JSON, and is compiled in.
+
+## The two elements
+
+The bundle registers two custom elements from one bootstrap.
+`cedar-embeddable-editor` renders a template as a form, and `cedar-embeddable-field`
+renders one field's control with nothing around it — no label, no description, no
+card — for a host that holds a field artifact rather than a template. The CEDAR
+Embeddable Designer is the host that wants the second: an author giving a field a
+default value needs the control the field will actually have, and that control is
+the editor's.
+
+Both draw the same component. `CedarFieldWidgetComponent` owns the routing from an
+input type to one of the eighteen widgets, the four static blocks, and the
+read-only choice between a control and a statement of what the field will accept;
+the component renderer draws one per field of a form, and the element draws one.
+Neither has a widget switch of its own, so a widget added or rerouted reaches both.
+
+Registering them together is deliberate. `defineCustomElementOnce` takes a name and
+`bootstrap-once.ts` still claims one page-wide slot, so two copies of the bundle
+cannot both start Angular and a page cannot take the editor from one version and
+the field element from another — they describe values in the same model classes.
+
+A field artifact is not a template, so the element wraps it in a synthetic one-field
+template before CEE builds anything from it (`util/single-field-template.ts`). The
+wrapping deliberately states no requiredness and no cardinality: both belong to a
+field's deployment, so the value the element acquires is single and is allowed to be
+absent, which is what a default value has to be. The wrapper template carries the
+URN `urn:cedar:cee:single-field-template` as its `@id` — a template with none is
+reported, and no repository holds this one.
+
+The value crosses the boundary as a discriminated union rather than as text
+(`CedarEmbeddableFieldValue` in `cee-public-api.ts`): a literal, a number, an ISO
+temporal literal, an IRI with a label, a list of literals, or an attribute-value
+field's named slots. An attribute-value field is read but not written — its slots are named
+by the control that creates them — and a page break is refused outright, since it
+divides a form and this element has none.
 
 ## Building the web component
 
@@ -407,6 +450,22 @@ tooling is to walk it backwards: it proposed `@angular/cli@21.0.4` and
 `@angular-devkit/build-angular@0.1002.1`, which is the *Angular 10* numbering —
 adding 1,253 packages, removing 302, and undoing the upgrade march to silence
 warnings about build tooling an embedder never downloads.
+
+**Time a dependency bump against the release calendar, not against the advisory.**
+Angular embeds the root `package.json` in the browser bundle, so changing a
+dependency range changes the shipped bytes even when the dependency is a test-time
+one that never runs in a host page. A CEDAR platform release proves the CEE its
+train built byte-equivalent to the public npmjs package, and that proof reads a
+changed range as an undeclared difference. Patching vitest between a CEE release
+and the train that would consume it cost a second public release, 2.0.9, carrying
+no code change at all. Land such a patch after a release rather than before one, or
+expect to cut the package again.
+
+`npm audit fix` also declines a patch it could take. The advisory against vitest was
+fixed in 4.1.11, inside the declared `^4.1.10`, and `npm audit fix` reported "fix
+available" while changing nothing, because the newest candidate it saw was the 5.0.0
+major and `--force` is forbidden here. Install the patched version by name when that
+happens.
 
 That is also why a failure here is not automatically a release blocker. Read the
 advisory and ask whether CEE reaches the vulnerable path — when `lodash-es` 4.17.21

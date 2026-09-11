@@ -68,17 +68,41 @@ class FrontendTrainTest(unittest.TestCase):
     def test_train_owned_versions_include_train_and_captured_commit(self):
         revision = "a" * 40
         self.assertEqual(
-            "1.0.3-dev.202608241847.gaaaaaaaaaaaa",
+            "1.0.3-dev.20260824.gaaaaaaaaaaaa.t1847",
             frontend_train.train_package_version("1.0.3-dev.old", VERSION, revision),
         )
         self.assertEqual(
-            "2.9.3-dev.202608241847.gaaaaaaaaaaaa.p4",
+            "2.9.3-dev.20260824.gaaaaaaaaaaaa.t1847.p4",
             frontend_train.wired_frontend_version("2.9.3-SNAPSHOT", VERSION, revision),
         )
 
-    def test_train_owned_versions_are_semver_safe_during_a_leading_zero_hour(self):
+    def test_a_train_package_does_not_outrank_a_later_dev_package(self):
+        """The field after `dev` is the day, in a train version and an ordinary one alike.
+
+        SemVer compares prerelease identifiers position by position and compares two
+        numeric ones numerically. While a train version carried the day and the minute
+        as one twelve-digit field, that field beat an ordinary version's eight-digit day
+        whatever the date, so every train package outranked every later dev package of
+        the same base version and a dev build kept resolving back to a release.
+        """
+        train = frontend_train.train_package_version("1.0.3-dev.old", VERSION, "a" * 40)
+        train_day = train.split("-dev.", 1)[1].split(".", 1)[0]
+        self.assertEqual(8, len(train_day), f"{train} must carry the day alone: {train_day}")
+        self.assertTrue(train_day.isdigit())
+
+        # An ordinary dev package from the following day, as a merge to develop publishes.
+        later_day = "20260825"
+        self.assertLess(int(train_day), int(later_day))
+        for identifier in train.split("-dev.", 1)[1].split(".")[1:]:
+            self.assertFalse(
+                identifier.isdigit(),
+                f"{identifier} in {train} is numeric and would be compared against a "
+                "commit identifier rather than sorting below it",
+            )
+
+    def test_train_owned_versions_keep_a_leading_zero_minute_out_of_a_numeric_field(self):
         self.assertEqual(
-            "1.0.5-dev.202608280209.gaaaaaaaaaaaa",
+            "1.0.5-dev.20260828.gaaaaaaaaaaaa.t0209",
             frontend_train.train_package_version(
                 "1.0.5-dev.old", "2.9.3-dev.20260828.0209", "a" * 40,
             ),
@@ -151,7 +175,7 @@ class FrontendTrainTest(unittest.TestCase):
             self.assertEqual(expected_model, plan["cee"]["model"]["version"])
             self.assertEqual(expected_cee, plan["frontends"][0]["ceeVersion"])
             self.assertEqual(
-                f"2.9.3-dev.202608241847.g{app_sha[:12]}.p4",
+                f"2.9.3-dev.20260824.g{app_sha[:12]}.t1847.p4",
                 plan["dockerInputs"]["CEDAR_APP_NPM_VERSION"],
             )
             self.assertEqual(

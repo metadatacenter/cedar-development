@@ -103,9 +103,124 @@ gocedar
 test "${CEDAR_KEYCLOAK_ALLOW_INSECURE_TLS:-false}" = false
 ```
 
+### Provision the artifact service key before the backend deployment
+
+On the production application host, in the same `cedar` shell used above, run:
+
+```bash
+cedarcli prod provision-artifact-key
+```
+
+This command creates `$CEDAR_HOME/.cedar/secrets/artifact-service.sh` with a random service key,
+readable and writable only by its owner (0600). Run it as the `cedar` account that runs the services,
+not as root. Running it again on the next release keeps the existing key. It prints the file path
+and deployment instructions, never the key. It requires native mode with the server profile and
+refuses to create a competing file when an external provider already supplies the key.
+
+For the application-host layout in this runbook, **there is no distribution step to perform**:
+artifact, resource and worker run under the same CEDAR installation. On their next start, the native
+profile reads this one file and the launcher passes the key to those three Java processes. Other
+services and frontends do not receive it. Do not paste a key into `set-env-internal.sh`, copy the
+development machine's file onto production, or enter it in a browser. The production command only
+prepares the file; it does not restart services or change running requests.
+
+Use a separate key for staging and production. If these services are split across application hosts,
+supply the same environment's key to artifact, resource and worker through the deployment's secret
+provider; this command does not copy files over SSH. Do not initialize a different key on each host.
+The separate log database host needs no artifact key. Later rotation follows
+[the rotation and rollback procedure](BACKEND-RUNBOOK.md#deploying-and-rotating-the-artifact-service-key).
+
+### Next staging/production rollout: artifact authentication, compatibility reads and monitor counts
+
+Rehearse on staging, then deploy the same tested release to production. These instructions assume
+native mode with the **server** profile and the `cedar` service account. Check `cedarcli env status`
+first. Pull an already-cut release using the sequence above; these changes must reach released
+`main` before production deploys them. Include the updated CLI, config/shared libraries, artifact,
+resource, worker, bridge, repo, OpenView and monitor. Keep artifact's application port private and
+inventory deployment-specific scripts that call it directly: ordinary artifact clients must call
+resource. Internal service authentication does not configure a firewall or bind address.
+
+There is **no stored-artifact migration, reindex, or end-user API-key rotation for these changes**.
+Value-recommender is excluded pending retirement. Other migrations belonging to the release still
+follow the rest of this runbook.
+
+**Prepare before restarting anything:**
+
+```bash
+cedarcli env status
+cedarcli prod provision-artifact-key
+cedarcli check versions --strict
+cedarcli build java
+```
+
+The key command creates or reuses the environment's local secret file. Building embeds the changed
+libraries in the service jars. Neither command restarts a running service. Stop if any command fails.
+
+**Choose one deployment path.** For the normal maintenance-window deployment below, provision the
+key first, build the complete release, then stop/start all microservices using that procedure; do
+not also perform the rolling sequence. For a rolling backend deployment, restart in this order,
+stopping at the first failure:
+
+```bash
+# Move all affected authenticated callers onto the new resource/storage boundary first.
+cedarcli native restart resource
+cedarcli native restart bridge
+cedarcli native restart repo
+cedarcli native restart worker
+
+# Artifact can now enforce the service key and expose its monitor count endpoint.
+cedarcli native restart artifact
+cedarcli native status
+```
+
+Before continuing, open a known public template through resource's new anonymous endpoint in a
+browser: `https://resource.<environment-domain>/open/templates/<template-UUID>`. Substitute this
+installation's domain and the UUID from an existing public template; for the standard production
+domain the prefix is `https://resource.metadatacenter.org/open/templates/`. The browser should show
+that template's JSON without a login or API key. This checks the new graph → resource → artifact
+path before OpenView depends on it. A fabricated identifier returning 404 does not prove that path.
+
+```bash
+# These adapters now depend on the upgraded resource and artifact endpoints.
+cedarcli native restart openview
+cedarcli native restart monitor
+cedarcli native status
+cedarcli native health
+```
+
+**Acceptance checks:**
+
+- Every restarted service must be healthy and show a current binary, with no source-age warning.
+- Open the same template through its existing OpenView URL. Its document must match the resource
+  response. Check both explicitly public and folder-inherited public artifacts, then revoke openness
+  on a disposable staging fixture and verify it is no longer readable. A private artifact returns
+  401 on the anonymous endpoints even when its owner's credential is supplied; an unknown ID is 404.
+- Verify an authenticated workspace read/save and a repo identifier URL. On staging, exercise the
+  bridge DOI workflow against its test destination and a worker indexing job. These callers must
+  continue to work after artifact starts enforcing its key.
+- Open the monitoring application's **Counts** page as a monitor-authorized user. All four Mongo
+  totals must appear alongside Neo4j, OpenSearch and Keycloak. The totals are actual document-store
+  counts; differences from graph/search counts are diagnostic information, not automatically errors.
+- On staging, verify direct artifact business requests with only a user API key return 401, and that
+  an ordinary user cannot call resource's `/monitor/artifact-counts` (403). Confirm a stopped count
+  dependency produces 503 rather than a successful report containing zeros, then restore it.
+- Run `cedarcli test e2e` on staging with its configured smoke accounts and fixtures. Production
+  acceptance uses its approved test accounts and disposable fixtures; do not assume development
+  test credentials exist there. Repeat the public-read and Counts-page checks on production.
+
+Monitor receives no artifact service key and no longer opens artifact Mongo collections. Repo and
+OpenView remain compatibility URLs; stored identifiers and successful artifact JSON are unchanged.
+
+**Rollback:** retain the previous binaries/configuration and the environment's secret file. An old
+resource or worker cannot call an enforcing artifact server without the new key, so roll artifact
+back to its previous compatible binary before rolling those callers back. Old repo, OpenView and
+monitor binaries need their previous document-store configuration/connectivity. Restore a coherent
+previous set, then repeat health and read checks. No artifact data needs restoring for this rollout.
+Do not rotate or delete the new key merely because a binary rollout is being rolled back.
+
 ### 4 · Build (Java still running — keep the downtime window short)
 ```bash
-cedarcli check versions        # every repo reports the expected version and any intended modifier
+cedarcli check versions --strict   # expected version and modifier, and no checkout behind its remote
 cedarcli build maven clean all
 cedarcli build all             # this deploy: ~0:11:24
 ```
@@ -175,7 +290,10 @@ service nginx start
 ## Verify
 
 - `cedarcli native status` — all Java services up on the new build.
-- `cedarcli check versions` — every repo at the expected version + modifier.
+- `cedarcli check versions --strict` — every repo at the expected version + modifier, and no
+  checkout behind its remote. This host builds from its own checkouts, so a clone nobody pulled
+  produces binaries from older source while every version string still reads correctly. `--strict`
+  is what makes that a failure rather than a note.
 - Confirm `CEDAR_KEYCLOAK_ALLOW_INSECURE_TLS` is absent or `false`. Never use the native-development
   bypass to make a staging or production certificate failure disappear; install the Keycloak issuer
   CA in the JVM truststore and correct the hostname instead.
@@ -220,7 +338,8 @@ service nginx start
 | Command | What it does |
 |---------|--------------|
 | `gocedar` / `goeditor` | cd to `$CEDAR_HOME` / to the template-editor frontend (profile aliases). |
-| `cedarcli check versions` | Verifies every repo reports the expected version (incl. the modifier). |
+| `cedarcli check versions --strict` | Verifies every repo reports the expected version (incl. the modifier) and that no checkout is behind its remote. |
+| `cedarcli prod provision-artifact-key` | Creates or reuses the private service-key file on the native production application host; the launcher supplies it to artifact, resource and worker on their next start. Does not restart services. |
 | `cedarcli dev copy-keycloak-listener` | Copies `cedar-keycloak-event-listener.jar` into Keycloak's `providers/`, then runs `kc.sh build` so Keycloak picks up the provider. |
 | `cedarcli prod configure-frontends` | `sed`-rewrites `window.cedarDomain` and the content host in the active OpenView, Bridging, and Monitoring static `index.html` files to the production `CEDAR_HOST`. |
 | `propagate-cee-release.mjs --check` | Proves all seven CEE manifests and lockfiles—including Workspace—pin the exact release from the correct registry. |

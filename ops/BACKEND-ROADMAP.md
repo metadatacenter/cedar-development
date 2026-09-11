@@ -13,9 +13,37 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
 
 ## Next
 
-### Features
+### Infrastructure
 
-- **1. Rename the legacy role relationships in production Neo4j.** The application currently
+- **1. Document the versioning model, then audit the implementation against it.** The user guide
+  says what an author sees and the YAML specification defines the keys, but no document states the
+  model: which artifact kinds are versioned, what publishing freezes, how a draft succeeds a published
+  version, how version numbers must order, what the three latest-version flags mean, and what deleting
+  a version does to the chain. Write that model in one place, beside the permission model. Then audit
+  the resource server, the graph and the search index against it, and record each divergence as a
+  decision to make or a defect to fix. `ArtifactLifecycleMatrixTest` pins the current rules until
+  then. Done when the model is published and every divergence is fixed or recorded.
+
+- **2. Protect `main` in every repository, and give the release an identity of its own.** `main` is
+  unprotected in all forty-four repositories, so a commit can land there without ever reaching a
+  train, which captures `develop`. The next release then replaces it: the work leaves the branch
+  that held it and nothing says so afterwards. A hotfix and the unit test guarding it came within
+  one reading of an advisory line of going that way. The release gate refuses such a source now, and
+  `cedarcli check main` answers the same question between releases, but neither prevents the push.
+
+  Requiring a pull request on `main` does not settle it by itself. `cedarcli release start` pushes
+  straight to `main` in forty-two repositories, as whoever runs it, so a bypass naming that person
+  protects nothing against the case that prompted this. Give the release a machine identity, a
+  GitHub App or a dedicated account, grant the bypass to that rather than to a human, and
+  authenticate the release as it. The bypass has to cover every ref a release creates — `develop`,
+  the tags, and `release/pre-*` among them — or a release fails after its Maven and frontend builds
+  are already spent. Prove the ruleset against one repository before it reaches all forty-four.
+
+  The npm releases already go through pull requests and need nothing. Until the machine identity
+  exists, run `cedarcli check main` on a schedule, so divergence is found the next morning rather
+  than mid-release.
+
+- **3. Rename the legacy role relationships in production Neo4j.** The application currently
   interprets `CANREAD` as Viewer and `CANWRITE` as Manager, so the new permission model can be
   deployed without changing the stored graph. The category permission model follows the same initial
   approach: `CANATTACHCATEGORY` stores Classifier grants and `CANWRITECATEGORY` stores Manager grants.
@@ -39,9 +67,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   Remove the compatibility interpretation of `CANREAD`, `CANWRITE`, `CANATTACHCATEGORY` and
   `CANWRITECATEGORY` only after every deployed environment has been patched and verified.
 
-### Infrastructure
-
-- **2. Upgrade the persistence and infrastructure servers.** These versions are pinned in the Docker
+- **4. Upgrade the persistence and infrastructure servers.** These versions are pinned in the Docker
   build manifest, while the client libraries have moved on. The
   [Docker roadmap](./DOCKER-ROADMAP.md) owns the shared build and deployment lock; this item owns the
   remaining server upgrades. Order them by risk, lowest first. **Keycloak is still at 22**, held
@@ -104,7 +130,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   production data and gated on the end-to-end smoke. Where the order above and the Docker roadmap
   disagree, the Docker roadmap governs, since it sequences the remaining work.
 
-- **3. Make database schema evolution an explicit, privileged release operation.** Application
+- **5. Make database schema evolution an explicit, privileged release operation.** Application
   startup can change CEDAR's relational schemas today. Monitor, worker and messaging each carry a
   byte-identical `hibernate.properties` under `src/main/resources` that sets
   `hibernate.hbm2ddl.auto=update`, nothing in `cedar-main.yml` overrides it, and monitor and worker
@@ -157,7 +183,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   DDL, no application startup can request it, each owned schema has an auditable migration history,
   and both CI and the release controller enforce the migration contract.
 
-- **4. Decide whether four narrowly used servers should be retired.** Treat each as an explicit
+- **6. Decide whether four narrowly used servers should be retired.** Treat each as an explicit
   product and operations decision: confirm its real callers and production state, preserve or move any
   capability that remains required, then either retain it with a stated role or remove it completely.
 
@@ -194,7 +220,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   code somewhere other than `cedar-microservice-libraries/cedar-server-rest-library`, which is where
   that code is.
 
-- **5. Move the build and runtime to Java 21.** The stack is locked to Java 17 — the zsh profile pins it
+- **7. Move the build and runtime to Java 21.** The stack is locked to Java 17 — the zsh profile pins it
   and the build enforces it. 21 is the next LTS and the natural target, but the lock exists for a
   reason: newer JDKs (23/25) crash Keycloak (`getSubject … security manager`) and OpenSearch will not
   start under them. So this is not a blind bump — verify Keycloak and OpenSearch run on 21 first, then
@@ -223,33 +249,18 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   repository builds use the wrapper, while container jar-fetch stages use a separately pinned Maven
   builder image that never enters the runtime.
 
-- **6. Complete the remaining backend trust-boundary, transport and credential security work.**
-
-  **Artifact-server trust boundary.** The workspace authorization model lives in Neo4j and is enforced
-  by the resource server, while the Mongo-backed artifact server checks only authentication and a
-  global permission granted to ordinary template creators. An ordinary account that can reach it
-  directly can therefore read, list, change or delete artifacts it cannot access through the resource
-  server: measured on 2026-08-13, a second user received `403` for another user's template through the
-  resource server and `200` through the artifact server.
-
-  Decide which security boundary CEDAR supports. If topology is the boundary, block the artifact vhost
-  in every environment and bind internal-only services accordingly; production and the container stack
-  already do this, while native development currently exposes the vhost and port. Alternatively, make
-  the artifact server authorize against the workspace graph or a signed resource-server assertion, or
-  accept only a service credential unavailable to ordinary users. Record and test the chosen trust
-  boundary alongside the permission model rather than leaving the two service doors with different
-  effective authorization.
+- **8. Complete the remaining backend trust-boundary, transport and credential security work.**
 
   **Two terminology routes answer an anonymous caller, and that stays.** `POST
   /bioportal/integrated-retrieve` and `POST /bioportal/integrated-search` resolve no user. Measured
   2026-08-31: a request with no `Authorization` header returns `200`. Both reach BioPortal on the
   server's own `apiKey`, so an anonymous caller spends the deployment's BioPortal quota.
 
-  Requiring a credential is not the remedy, for the reason item 7 gives: third-party deployments of
+  Requiring a credential is not the remedy, for the reason item 9 gives: third-party deployments of
   the embeddable editor call these routes from a browser with nothing to send, so a gate would break
   every host that embeds it. Both methods now carry that reasoning where the check is disabled, and
   the OpenAPI no longer promises a `401` neither route sends. What bounds the cost is the edge rate
-  limit in item 7, which covers `/ext-auth/*` and should cover these two on the same terms.
+  limit in item 9, which covers `/ext-auth/*` and should cover these two on the same terms.
 
   `TerminologyServerApplicationSmokeTest.theIntegratedRetrieveRouteIsReachable` asserts reachability
   rather than a status, which matches the decision; it should keep doing so.
@@ -287,7 +298,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   rate-limits per key, and a burnt quota surfaces to users as controlled terms silently not existing,
   because the picker latches its empty cache for the life of the page.
 
-- **7. Rate limit the edge in every environment.** An anonymous caller can spend the deployment's
+- **9. Rate limit the edge in every environment.** An anonymous caller can spend the deployment's
   third-party quota, and only the development host bounds how fast. The `/ext-auth/*` routes are
   the clearest case: they proxy seven registries, three of them on credentials the deployment
   holds, and they carry none of their own. `POST /bioportal/integrated-search` and `/bioportal/integrated-retrieve`
@@ -310,7 +321,95 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   chosen rates are recorded where the deployment is documented rather than only in the config, and a
   probe shows the limit taking effect.
 
-- **8. Bound the application-log queue, and let its consumer keep up.** Application logging can
+- **10. Put the MySQL connections on TLS, and make the timezone a setting rather than a constant.**
+  **Production consequence:** server certificates and client trust have to exist before rollout, and
+  messaging, monitor and worker restart into the change. No schema migration.
+
+  Both shipped connection blocks hardcode the same three properties: `useSSL: "false"`,
+  `allowPublicKeyRetrieval: "true"` and `serverTimezone: "America/Los_Angeles"`
+  (`cedar-main.yml:82` for messaging, `:104` for the log store). The first two together permit
+  public-key substitution on an unencrypted authentication channel, which is the part to fix.
+
+  The timezone is a different matter and the comment beside it says why: the aggregator is
+  self-consistent under the connection timezone, and forcing UTC would make the connection misread
+  the years of existing rows in `log_request`, `log_cypher` and their `_pre284` predecessors.
+  Converting those rows is its own piece of work with its own evidence, so this item only moves the
+  value out of the constant and into the profile.
+
+  Make all three profile-controlled, ship TLS on and public-key retrieval off everywhere but a
+  developer machine, and record the developer exception where the profile is documented. Done when
+  no deployment reads the hardcoded values, a non-development stack refuses an untrusted server
+  certificate, and the timezone is set by the profile that owns the data it was chosen for.
+
+- **11. Decide the CORS contract per deployment instead of defaulting to `*`.** **Production
+  consequence:** a browser application fails cross-origin unless its exact origins are configured
+  first, so every environment needs its list before the default changes.
+
+  `resolveCorsAllowedOrigins` falls back to `DEFAULT_CORS_ALLOWED_ORIGINS`, which is `"*"`, whenever
+  `CEDAR_CORS_ALLOWED_ORIGINS` is unset or blank
+  (`CedarMicroserviceApplication.java:56`, `:316`). Credentials are then allowed unless an entry
+  equals exactly `*` (`:339`), so a pattern Jetty's `CrossOriginFilter` accepts —
+  `https://*.example.org` — receives credentialed access while the bare wildcard does not.
+
+  **The decision is which origins each deployment serves, and whether a wildcard pattern may ever
+  carry credentials.** It has one complication worth settling with it. The embeddable editor is
+  hosted by third parties, and item 8 keeps `POST /bioportal/integrated-search` and
+  `/bioportal/integrated-retrieve` anonymous for exactly that reason, so those two are called from
+  origins CEDAR does not know. A deny-by-default list closes them unless the policy names them.
+
+  Default to no CORS headers rather than to `*`, require the allow-list in each deployment profile,
+  refuse credentials for any origin expression containing a wildcard rather than only for the bare
+  one, and state what the third-party-embedded routes get. Done when no deployment relies on the
+  fallback, each environment's origins are recorded where it is documented, and tests cover blank,
+  exact, multiple and wildcard configurations.
+
+- **12. Take stored API keys out of cleartext, and retire the keys minted before random minting.**
+  **Production consequence:** this is a production credential migration. It rewrites stored Neo4j
+  data and invalidates keys people and integrations hold, so it needs a rotation plan,
+  rollback and operator communication. A backup taken before it still contains usable keys and has
+  to be protected or expired accordingly.
+
+  A presented key is matched against the cleartext list property: `getUserByApiKey` is
+  `WHERE {api_key} IN user.apiKeys` (`CypherQueryBuilderUser.java:128`), and `updateUserApiKeys`
+  writes that list plus an `apiKeyMap` object keyed by the key value itself
+  (`CypherParamBuilderUser.java:137`). Minting is random now, 32 bytes from a `SecureRandom`
+  (`CedarUserUtil.java:19`), but keys created by deployments that predate that change were derived
+  and are still valid. The salt that derived them is dead configuration rather than a live secret:
+  `cedar-main.yml:297` fills `BlueprintDefaultAPIKey.getSalt()`, which nothing reads — only the
+  service name and description of that blueprint are used (`CedarUserUtil.java:50`).
+
+  **The decision is the verifier and the lookup, because they are one choice.** A hashed list cannot
+  be matched with `IN`, so authentication needs either a deterministic keyed digest that can be
+  looked up directly or an index from a key identifier to its record. Decide that, the hash or KDF,
+  the migration window and the rollback, and whether every key rotates or only those that can be
+  identified as derived.
+
+  Then inventory the existing key records, store a versioned non-reversible verifier, provide an
+  administrative migration and rotation command, revoke the legacy keys, delete the salt setting and
+  its environment variable, and confirm no backup or log carries a key. Done when no user node holds
+  a key that can be read, authentication verifies without reversing one, and the rotation is
+  recorded against the deployments it covered.
+
+- **13. Validate and encode the DOI the DataCite metadata route resolves.** **Production
+  consequence:** some path values accepted today answer 400. No data migration.
+
+  `getDOIMetadata` takes the path segment as a URL, keeps `new URI(doiIdUrl).getPath()`,
+  concatenates it into the configured endpoint with a query string, and sends the result with the
+  deployment's DataCite basic credentials (`DataCiteResource.java:151`). Nothing validates the value
+  between the two steps, so traversal and query delimiters surviving a double decode influence an
+  authenticated upstream request. The draft-DOI path concatenates the same way after stripping
+  quote characters (`:651`). Authorization on the route is `LoggedIn` alone.
+
+  **Decide what the public contract accepts** — a DOI name (`10.x/suffix`), a `doi.org` URL, or
+  both — and whether `LoggedIn` is the right gate for a route that spends repository credentials.
+
+  Parse the accepted form into a DOI value, validate registrant and suffix, reject traversal, query
+  and fragment syntax, and build every upstream URI with a builder that encodes each path component
+  rather than by string concatenation. Done when no DataCite URI in the bridge is assembled by
+  concatenation, and tests cover traversal, an injected query delimiter and both accepted input
+  forms.
+
+- **14. Bound the application-log queue, and let its consumer keep up.** Application logging can
   consume the host it runs on. The Redis queue has no ceiling and the consumer drains far below what
   the stack produces under load, so a busy period grows memory without limit and degrades every
   service while it does. Old rows have a way out, in the prune job the log aggregation work brought
@@ -384,7 +483,31 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   migration and rollback procedure above; a green Java build is not evidence that a live-table DDL
   change is safe.
 
-- **9. Separate CEDAR dependency convergence from the Keycloak provider platform lock.** The eleven
+- **15. Ship INFO as the default log level, and bound what a log file can grow to.** **Production
+  consequence:** diagnostic detail drops after rollout, so choose the size limits against production
+  capacity before deploying. Nothing migrates.
+
+  Fifteen shipped `config.yml` files set `org.metadatacenter: DEBUG`, and the artifact server sets
+  `org.metadatacenter.config: DEBUG` beside it. Every console appender takes `threshold: ALL`, and
+  every file appender archives by day with no size limit: `maxFileSize` and `totalSizeCap` appear in
+  no configuration in the estate. A busy day therefore writes one file that nothing bounds, and
+  request-path DEBUG buys I/O that nobody reads. Archive depth already disagrees, measured
+  2026-09-10: twelve services keep `archivedFileCount: 30`, and messaging, monitor and worker keep
+  5.
+
+  Nothing connects these files to the Redis queue of item 14. `AppLogger` hands every message to
+  `AppLoggerQueueService.enqueueEvent`, which pushes it to Redis without consulting a log level, so
+  shipping INFO takes nothing off that queue and a ceiling on the queue takes nothing off these
+  files. What bounds each differs as well: a queue is bounded by what its consumer can keep up with,
+  a file by what the disk can hold.
+
+  Ship INFO with an environment-controlled override for a service under investigation, put
+  `maxFileSize` and `totalSizeCap` on every file appender, and use one retention policy across
+  services rather than one per configuration file. Done when no shipped configuration sets DEBUG for
+  a whole package, every file appender carries both limits, and the retention policy is recorded
+  where the deployment is documented.
+
+- **16. Separate CEDAR dependency convergence from the Keycloak provider platform lock.** The eleven
   apparent test-classpath splits are not eleven candidates for one global version. Re-measuring all
   thirty Maven roots divides them into three different problems, and blindly managing the newer side
   in `cedar-parent` would make the Keycloak event listener compile against libraries its server does
@@ -431,15 +554,63 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   prove that Keycloak loads the packaged provider or that a deployed admin operation reaches the
   configured realm.
 
-- **10. Converge on one pagination encoding.** Three servers paginate three ways, and all three build
-  on the same `PagedResults` and `LinkHeaderUtil`, so nothing forces the split. The artifact server
-  sends `Link` and `Total-Count` as headers and keeps the body to the collection. The resource server
-  computes the same link set and puts it in the body under `paging`
-  (`AbstractSearchResource.java:129`, `CategoriesResource.java:138`,
-  `FolderContentsResource.java:308`). Terminology returns `page`, `pageCount`, `pageSize`,
-  `totalCount`, `prevPage` and `nextPage` as flat body fields, built in
-  `SqliteTerminologyService.java:220`. A client library that can page one server cannot page the
-  other two.
+- **17. Converge on one pagination encoding.** Ten paging shapes are in service across seven
+  applications. The artifact, resource and OpenView listings all build on the same `PagedQuery` and
+  `LinkHeaderUtil`, so nothing in the code forces even the split between those three. The shapes
+  differ on three independent axes: the request parameters, the page base, and where the response
+  metadata goes. A client library that can page one of them cannot page the rest.
+
+  - **`limit`/`offset`, with `Link` and `Total-Count` as headers and the body kept to the
+    collection.** The artifact server's template, element, field and instance listings
+    (`AbstractArtifactCrudResource.java:284`). No other server sends those headers. An offset at or
+    past the total answers 400 rather than an empty page
+    (`AbstractArtifactServerResource.java:105`).
+  - **`limit`/`offset`, with the same link set in the body under `paging` beside `totalCount`.**
+    Folder contents, contents-extract, search and categories on the resource server
+    (`AbstractSearchResource.java:157`, `FolderContentsResource.java:319`,
+    `CategoriesResource.java:145`), and the OpenView server's folder listing
+    (`FoldersResource.java:123`).
+  - **An opaque forward-only continuation.** `?continuation=` on `/search-deep`, answered with
+    `continuation` in the body and first and next links alone in the `paging` block. The token binds
+    the user, a query fingerprint, an OpenSearch point-in-time and `search_after`, and a request
+    carrying both a continuation and an offset is refused (`AbstractSearchResource.java:99`,
+    `SearchContinuation.java`).
+  - **One-based `page`, with `page_size` and `pageSize` both accepted and BioPortal's flat body
+    fields.** The terminology server's proxy and local-store routes answer `page`, `pageCount`,
+    `pageSize`, `totalCount`, `prevPage` and `nextPage` (`PagedResults.java:8`,
+    `SqliteTerminologyService.java:208`). The answer's `pageSize` reports the size of the page
+    returned rather than the size asked for.
+  - **One-based `page` and `pageSize` in a POST body, with a result block per constraint type.**
+    Versioned `POST /search` gives each block its own `totalCount`, `countCapped`, `page` and
+    `pageSize` (`SearchRequest.java:22`, `VersionAwareSearchService.java:120`). `POST
+    integrated-search` also pages from the body, and answers the flat BioPortal-shaped fields.
+  - **Zero-based `page` and `pageSize`, echoed back with `found`, no links and no total.** The
+    bridge server's `/search-by-name` across the seven external authorities
+    (`ExternalAuthorityResource.java:124`). No other route in the estate bases `page` at zero.
+  - **A zero-based `offset` against a page size the server fixes.** `GET /search/hierarchy` returns
+    at most `CHILD_LIMIT` children, 50, and echoes the offset so a client can ask for the rest. It
+    takes no page size and reports no count (`VersionAwareSearchResource.java:132`,
+    `HierarchyResponse.java:29`).
+  - **A keyset cursor in a POST body.** The monitor server's log query takes `limit` and a
+    `"<iso>,<id>"` `cursor`, and answers `nextCursor`, null once the walk is exhausted
+    (`LogQuerySpec.java:29`, `LogQueryResults.java:27`). The cursor names an ordered column rather
+    than carrying an opaque token, so it is a second cursor encoding rather than the same one.
+  - **`limit` as plain truncation.** The log explorer and usage routes take a limit and no offset,
+    which leaves row N+1 unreachable (`LogExplorerResource.java:72`, `LogUsageResource.java:112`).
+  - **An unpaged collection with a count.** The messaging server returns every message and a `total`
+    (`MessagesResource.java:105`).
+
+  **Three divergences sit underneath the shapes, and the first is a defect however the decision
+  goes.** The `page_size`/`pageSize` alias resolves by argument position, and the two route families
+  pass the arguments in opposite orders: `SearchResource` binds `page_size` to the first parameter,
+  while `ClassResource`, `ValueResource` and `ValueSetResource` bind `pageSize` to it
+  (`AbstractTerminologyServerResource.java:82`). A request sending both spellings therefore gets a
+  route-dependent answer, and the OpenAPI text promises only that either spelling is accepted.
+  Defaults and maxima are set per surface and shared by none: 100/500 on the resource server, 20/500
+  on the artifact server and on categories (`cedar-main.yml:360`), 50 with a silent clamp in
+  terminology, 100 with `pageSize > 1` enforced on the bridge, and a fixed 50 for a hierarchy's
+  children. Bad input is refused three ways, since `PagedQuery` answers 400, terminology clamps, and
+  the bridge answers 400 with a message of its own.
 
   **The decision is which encoding wins, and it has to come first.** Headers are the conventional
   answer and the artifact server already implements them alongside the ETag, `If-Match` and `Vary`
@@ -448,22 +619,39 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   resource server's shape. Nothing in the code decides this; it is a product call about what a CEDAR
   client should look like.
 
+  Six of the ten shapes page by number or offset, and those converge on whichever encoding wins. The
+  two cursor walks are the exception and have to be documented as one, because a continuation and a
+  keyset cursor buy something an offset cannot: a walk of a whole result set at one request per
+  page. Truncation without an offset and the unpaged listing are gaps to fill rather than encodings
+  to choose between.
+
   Whichever wins, deliver it additively first. Emit the chosen encoding everywhere alongside what each
   server sends today, document it as the supported form, and withdraw the others in a later release.
   Only the withdrawal breaks a caller, which is what keeps this off a flag day. The alternative is one
-  coordinated release across the Template Editor, the embeddable editor, `cedar-cli`, the four MCP
-  servers and `ops/e2e`, which the lockstep policy allows and the pinned check inventory in
-  `rest/expected-checks.json` makes tractable.
+  coordinated release across the Template Editor, the embeddable editor, the term picker, the
+  designer, `cedar-cli`, the four MCP servers and `ops/e2e`, which the lockstep policy allows and the
+  pinned check inventory in `rest/expected-checks.json` makes tractable.
 
-  Two things are already in place. `Link` and `Total-Count` are on the CORS exposed-header list, so a
-  browser can read them cross-origin wherever they are sent. And terminology's page-number fields are
-  what the term picker reads, so they have to survive until it moves, whichever encoding wins.
+  Clients are split along the same lines already. The Template Editor's controlled-term autocomplete
+  and CEE's integrated search read the flat page-number fields, the Template Editor walks the
+  `paging` block for its listings, the term picker reads the versioned per-type blocks, and the
+  designer sends `page_size` on the proxy path and `pageSize` in the versioned body
+  (`autocomplete.service.js:91`, `integrated-search-response.ts:11`, `search-types.ts:168`,
+  `terminology.service.ts:107`). The flat page-number fields therefore have to survive until the
+  Template Editor and CEE move, whichever encoding wins.
 
-  Done when one encoding is documented as the supported form, every paginating route emits it, the
-  REST smoke asserts it on a route from each of the three servers, and the superseded encodings are
-  either withdrawn or carry a recorded date for withdrawal.
+  One piece of the work is already done. `Link` and `Total-Count` are on the CORS exposed-header
+  list, so a browser can read them cross-origin wherever they are sent
+  (`CustomHttpConstants.java:25`).
 
-- **11. Bound every outbound call by what the call actually is, and measure before choosing the
+  Done when the alias resolves centrally rather than by argument order, every page base and default
+  is documented, and one encoding is documented as the supported form and emitted by every route
+  that pages by number or offset, with the two cursor walks recorded as the stated exception. The
+  REST smoke has to assert the canonical form on a route from each application that serves one; it
+  covers the two `limit`/`offset` shapes today (`rest/suites/pagination.mjs`). Every superseded shape
+  is then either withdrawn or carries a recorded date for withdrawal.
+
+- **18. Bound every outbound call by what the call actually is, and measure before choosing the
   numbers.** Two classes of outbound call are distinguished today, interactive and batch, each with a
   fixed connect, lease and response timeout and its own connection pool. That covers the difference
   between a call a user waits on and a job nobody waits on. It does not cover the difference between
@@ -532,32 +720,72 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   Done when each class of outbound call takes its timeouts from configuration, the request log carries
   durations, the compensating write is durable, and the remaining clients read the same settings.
 
-- **12. Make native bring-up prove a service runs, and make one already-running layer not stop the
-  rest.** `cedarcli native start` reports what the launcher accepted rather than what the stack ends
-  up running, and the gap swallowed a whole-stack outage on 2026-09-02: every application exited in
-  milliseconds for want of `CEDAR_PROFILE`, launchd's keepalive respawned each one, and the CLI
-  printed `started <name> (pid N)` for all twenty-two because a PID existed each time it looked. The
-  launcher passes that environment through today, rejects a service that dies at once, refuses a
-  `JAVA_HOME` that is not a Java 17, and covers all three in tests. Two things remain.
+- **19. Make native bring-up prove a service runs.** `cedarcli native start` reports what the
+  launcher accepted rather than what the stack ends up running, and the gap swallowed a whole-stack
+  outage on 2026-09-02: every application exited in milliseconds for want of `CEDAR_PROFILE`,
+  launchd's keepalive respawned each one, and the CLI printed `started <name> (pid N)` for all
+  twenty-two because a PID existed each time it looked. The launcher passes that environment through
+  today, rejects a service that dies at once, refuses a `JAVA_HOME` that is not a Java 17, and covers
+  all three in tests.
 
-  Confirm a service is serving, not merely alive. The survival check waits half a second and asks
-  whether the process still exists, which catches the failures that land before a JVM starts and
-  none after that. A microservice that boots, fails to reach Neo4j or Mongo, and exits after ten
-  seconds is still reported as started. `cedarcli native health` already knows how to judge this and
-  exits non-zero unless every managed application is healthy, so let `start` end by waiting for the
-  services it just launched to pass that same gate, bounded by a timeout, and report the ones that
-  never arrive along with the last lines of their logs.
+  What remains is to confirm a service is serving, not merely alive. The survival check waits half a
+  second and asks whether the process still exists, which catches the failures that land before a JVM
+  starts and none after that. A microservice that boots, fails to reach Neo4j or Mongo, and exits
+  after ten seconds is still reported as started. `cedarcli native health` already knows how to judge
+  this and exits non-zero unless every managed application is healthy, so let `start` end by waiting
+  for the services it just launched to pass that same gate and report the ones that never arrive
+  along with the last lines of their logs.
 
-  Let `start all` reach the applications when infrastructure is already up. It runs infrastructure,
-  microservices and frontends in order, and a layer that is already running fails its ports with
-  `Address already in use` and halts the run, so the applications never start and the operator is
-  left to run the two remaining layers by hand. Treat an already-listening infrastructure port as
-  the satisfied precondition it is.
+  **Wait once, after launching, rather than per service.** Waiting for each service before starting
+  the next makes the cost the sum of twenty-two JVM boots and their dependency connections, which is
+  minutes; polling the whole set after launching them all makes it the slowest service alone. Bound
+  the total rather than each service, and report each one as it arrives, so a developer sees progress
+  rather than a silent block.
 
-  Done when `start` reports a service only once it is healthy or names why it is not, and `start
-  all` completes against running infrastructure.
+  Most of what it adds is already being paid. The survival check sleeps half a second per service,
+  serially, which is about eleven seconds of every `start all` spent waiting on nothing in
+  particular. A health gate subsumes it — a service that died at once will never pass — so those
+  sleeps can go, and the early per-service error they print is what the report of services that never
+  arrived already covers.
 
-- **13. Let the artifact server own the uniqueness of `@id`.** No two documents in an artifact
+  `start infra` is the layer where waiting earns the most. Microservices connect to Neo4j, Mongo and
+  Keycloak while they boot, so returning before those are serving is what produces the failure the
+  survival check cannot see; waiting there prevents a cascade rather than reporting one.
+
+  A flag that skips the wait restores exactly the behaviour this item exists to remove, so if one
+  exists it should be asked for explicitly and never be the default.
+
+  One constraint on the implementation. `ServerWorker` probes each service in turn with no per-probe
+  timeout, which is fast only because a stopped service refuses the connection; a service that
+  accepts one and then hangs would stall the loop and make the gate its own source of delay. A poll
+  needs a bounded probe, and reads better concurrent.
+
+  Done when `start` reports a service only once it is healthy or names why it is not, and `start all`
+  costs the readiness of its slowest service rather than the sum of all of them.
+
+- **20. Run the whole-stack tiers in CI, and gate the workflow train the way the CLI is gated.**
+  **Production consequence:** none at runtime. CI needs a deployable environment, credentials, time
+  and somewhere to keep the reports.
+
+  Neither smoke tier runs in GitHub Actions. `cedar-development` carries six workflows —
+  `angular-build-isolation-canary`, `build-train`, `publication-preflight-canary`,
+  `realm-seed-hardening`, `release-tooling-ci` and `snapshot-freshness` — and none of them invokes
+  `cedarcli test e2e`, the REST tier or the browser tier. No workflow in any other repository does
+  either, and per-repository CI proves a different thing: that each Java repository compiles and its
+  unit and embedded integration suites pass.
+
+  The gate is also entered two ways with two answers. `cedarcli publish train` and `release
+  plan|start` refuse a source no passing run covers, but `build-train.yml:94` calls
+  `python3 controller/ops/build_train.py preflight`, which names no smoke gate, so a train
+  dispatched through Actions is ungated while the same train dispatched from the CLI is not.
+
+  Add a scheduled and manually dispatchable whole-stack workflow that brings up a known source, runs
+  both tiers through `cedarcli test e2e`, and retains its report as an artifact. Make the workflow
+  train call the same gate implementation the CLI calls rather than a second preflight path. Done
+  when both tiers run unattended on a cadence, their reports are retained, and a train dispatched
+  through Actions is refused on the same evidence that refuses one dispatched from `cedarcli`.
+
+- **21. Let the artifact server own the uniqueness of `@id`.** No two documents in an artifact
   collection may share an `@id`. The server relies on a unique index on that field to enforce it. A
   create is a read that finds the identifier absent followed by an insert, and
   `GenericLDDaoMongoDB.create` answers a duplicate-key rejection with the same 412 the update path
@@ -593,7 +821,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   Done when a fresh, unprovisioned Mongo refuses the second insert, the suites prove it, a store with
   duplicates still boots and reports why its index is missing, and the runbook carries the preflight.
 
-- **14. Take the dependency upgrades that need code changes.** The versions that could move without
+- **22. Take the dependency upgrades that need code changes.** The versions that could move without
   consequence have moved. What stayed behind stayed deliberately, and it separates into work to do,
   versions that follow something else, and versions upstream has not released.
 
@@ -605,18 +833,33 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
     this one is settled by differential testing against production artifacts, not by a green build.
   - **OWLAPI 4.5.9 to 5.5.1.** Ontology semantics, where a behavioural difference does not show up
     in a compile.
-  - **Embedded Mongo 4.20.0 to 5.0.0.** Test lifecycle only, but that lifecycle was reworked twice
-    in early September 2026, so this wants settled code under it.
-  - **Logback 1.5.33 to 1.6.3** needs SLF4J 2.1, which has only an alpha, so it waits on the last
-    group below.
 
-  **Versions that follow a locked server.** Six sit here: the Neo4j driver 5.28.14 to 6.2.1, MySQL
-  Connector/J 8.4.0 to 26.7.0, the Mongo driver 5.1.2 to 5.11.0, the OpenSearch client 2.19.2 to
-  3.8.0, the Lucene pin 9.12.1 to 10.5.1, and the Neo4j test harness 5.3.0 to 2026.07.1. Client
-  libraries are free to move in general, but a driver crossing a major has to be proven against the
-  pinned server it talks to, so these are sequenced behind item 2 rather than taken on their own.
-  Keycloak 22.0.4 to 25.0.3 is item 2's own, and RESTEasy 6.2.4 to 7.0.4 is held by the Keycloak
-  client stack, which items 2 and 9 own.
+  **Versions that follow a locked server or framework.** Six sit here: the Neo4j driver 5.28.14 to
+  6.2.1, MySQL Connector/J 8.4.0 to 26.7.0, the Mongo driver 5.1.2 to 5.11.0, the OpenSearch client
+  2.19.2 to 3.8.0, the Lucene pin 9.12.1 to 10.5.1, and the Neo4j test harness 5.3.0 to 2026.07.1.
+  Client libraries are free to move in general, but a driver crossing a major has to be proven
+  against the pinned server it talks to, so these are sequenced behind item 4 rather than taken on
+  their own. Keycloak 22.0.4 to 25.0.3 is item 4's own, and RESTEasy 6.2.4 to 7.0.4 is held by the Keycloak
+  client stack, which items 3 and 15 own.
+
+  Embedded Mongo 4.20.0 to 5.0.0 belongs here too, and it is the deployed Mongo it follows rather
+  than a framework. The code cost is one import, since flapdoodle moved `de.flapdoodle.reverse` to
+  `de.flapdoodle.commons.reverse`, and `EmbeddedCedarMongo` is the estate's only consumer. The
+  obstacle is the binary: 5.0.0 offers no mongod 5.0 package for macOS on ARM, so every suite that
+  starts the embedded store dies at `could not resolve package for
+  V5_0:Platform{operatingSystem=OS_X, architecture=ARM_64}`, while 6.0, 7.0 and 8.0 all start.
+  MongoDB published no macOS ARM build before 6.0 and 4.20.0 resolves one anyway; 5.0.0 does not.
+  Taking the upgrade therefore means running the suites against a different major from the deployed
+  5.0.31, which is the one thing `EmbeddedCedarMongo` exists to avoid. It moves with item 4.
+
+  Logback 1.5.33 to 1.6.3 belongs here rather than among the upgrades to make, and SLF4J is not
+  what holds it: every 1.6 release builds against slf4j 2.0.18, which the estate already carries.
+  Dropwizard does. 1.5.33 is Dropwizard 5.0.2's own pin, which `cedar-parent` mirrors, and raising
+  it alone fails before a test runs — `LogbackAccessRequestLayout` reads `DEFAULT_CONVERTER_MAP`,
+  which logback 1.6 removed, so every Dropwizard-booting suite dies in a class initializer.
+  `mvn test -Dlogback.version=1.6.3` in a server module reproduces it. Dropwizard 5.0.2 is the
+  current release, so there is nowhere to move yet; logback, logback-access 2.0.12 and
+  logback-throttling-appender 1.5.3 travel together when Dropwizard ships a line carrying them.
 
   **Versions that follow whatever pulls them in.** The transitive block exists so that every module
   resolves one version of an artifact nothing here depends on directly, which makes these five
@@ -644,16 +887,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   Done when each upgrade above has either landed or been recorded as refused with its reason, and
   the estate no longer carries a dependency held back only because nobody looked at it.
 
-- **15. Document the versioning model, then audit the implementation against it.** The user guide
-  says what an author sees and the YAML specification defines the keys, but no document states the
-  model: which artifact kinds are versioned, what publishing freezes, how a draft succeeds a published
-  version, how version numbers must order, what the three latest-version flags mean, and what deleting
-  a version does to the chain. Write that model in one place, beside the permission model. Then audit
-  the resource server, the graph and the search index against it, and record each divergence as a
-  decision to make or a defect to fix. `ArtifactLifecycleMatrixTest` pins the current rules until
-  then. Done when the model is published and every divergence is fixed or recorded.
-
-- **16. Give the public CEE release a CLI route.** Publishing `cedar-embeddable-editor` to npmjs is a
+- **23. Give the public CEE release a CLI route.** Publishing `cedar-embeddable-editor` to npmjs is a
   runbook of about twenty-five commands across `develop`, a pull request, `main`, the registry, a
   tag, the development-state restore and the train baseline refresh. Release 2.0.6 took an hour of
   operator attention for two minutes of gate time, and CEE has shipped four public versions in a
@@ -666,9 +900,42 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   the command exists, rewrite the npmjs runbook into a description of what it does and where it
   stops.
 
+- **24. Decide whether an attribute-value child keeps its declared property IRI.** Both model
+  libraries read such a child's property IRI out of a template's `@context` and then decline to write
+  it back as JSON, so a read-and-write cycle over `template-022.json` loses
+  `https://schema.metadatacenter.org/properties/d01cb533-265c-474a-95f3-9afb4616a6e1` from the
+  `ATTR-Value` mapping the source document carried. Both YAML writers keep it, so one model yields a
+  document in one format that names the child's property and a document in the other that does not.
+  Three attribute-value children carry one, across templates 022 and 029, and all three are minted
+  identifiers rather than terms an author chose.
+
+  The loss is recorded rather than repaired. `JSON_TEMPLATE_ROUND_TRIP_DIVERGENCES` grants template
+  022 one round-trip error under the reason `legacy attribute-value context mapping is absent`, and
+  the cross-library parity gates stay green because both libraries drop it in the same place:
+  `ParentSchemaArtifact.getChildPropertyUris` excludes static and attribute-value children by name,
+  and the TypeScript writer matches it.
+
+  The exclusion's stated reason is sound as far as it goes: an IRI is identity, the repository assigns
+  it on upload, and deriving one from a child's key would assert an identity nothing granted. That is
+  an argument against minting an IRI, not against preserving one a document already carries.
+
+  Two things settle it. What the artifact server does with such a mapping when a template is uploaded,
+  and whether the entries in those two production templates mean anything or are debris from an
+  earlier writer. If they are meaningful, both JSON writers should keep them and the expectation entry
+  goes. If they are debris, `cedar_artifact_patch.py` should remove them and both YAML writers should
+  stop carrying them.
+
+  This is not the question a requirement on the same type answers, and the difference is the whole of
+  it: a requirement has nowhere to go in the JSON form, because an attribute-value field carries no
+  `_valueConstraints` node at all, so the YAML writers record nothing. A property IRI has somewhere to
+  go, is there in production, and is being dropped on the way out.
+
+  Whichever way it goes, the three children and their generated fixtures move with it, and the Java
+  library's corpus verifier reports them stale until they are regenerated.
+
 ## Production data
 
-- **17. Normalize production artifacts to one explicit model contract.** Production contains several
+- **25. Normalize production artifacts to one explicit model contract.** Production contains several
   legacy representations that the current model surfaces tolerate or normalize differently, so bring
   them to canonical shapes before tightening readers or introducing terminology routing across source
   systems. The permission-scoped audit found 76 inherently-multiple fields deployed as JSON objects in
@@ -849,27 +1116,28 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
 
 ## Later decisions
 
-- **18. Decide which request JSON objects are closed contracts, then enforce that boundary.** A
-  strict shared mapper does not by itself make CEDAR's request contract consistent: Jersey binds
-  some request DTOs, other resources convert selected subtrees by hand, and artifact endpoints
-  deliberately accept extensible JSON-LD. Applying unknown-property rejection to every inbound
-  object would therefore turn valid extension data into `400` responses.
+- **26. Enforce the request-body classification, and decide what an open body requires.**
+  `cedarcli check openapi` reads `additionalProperties` only when deciding whether a schema counts
+  as a stub, so nothing across the estate fails when a new request schema states neither that it is
+  closed nor that it is open. Only the resource server asks, in its own contract test. Add the rule,
+  with the same two answers: a command or options body is closed, and an artifact document is open
+  because its properties are the model's and the artifact server is what validates them.
 
-  Inventory the request body of every endpoint and classify each object boundary as either closed
-  or open. A closed command or options DTO should reject misspelled and unsupported fields. An
-  artifact document, merge-patch body, JSON-LD object, or explicitly documented extension map
-  should remain open. Record the same decision in OpenAPI: use `additionalProperties: false` only
-  for closed objects, and leave open shapes explicit rather than relying on a mapper default.
+  No open body has a floor. `PATCH /groups/{id}` declares `minProperties: 1` and accepts `{}`,
+  answering 200 with the group unchanged — the same answer a patch gets when its values already
+  match, so a caller cannot tell "nothing asked" from "nothing to do". Decide whether a merge patch
+  naming no property is a bad request, and whether an artifact body needs anything the artifact
+  server does not already check.
 
-  Route every closed DTO binding and manual tree conversion through the named strict mapper, remove
-  `ignoreUnknown` annotations that contradict that contract, and test unknown properties at both
-  the root and nested closed-object boundaries as `400` responses. For every open boundary, add a
-  preservation or acceptance test so later cleanup cannot tighten it accidentally. Treat any
-  endpoint that becomes stricter than its current behavior as a public API compatibility change:
-  identify its callers, document the rejected shape, and stage the change through the normal
-  release process rather than coupling it to response-reader compatibility work.
+  Then pin the open boundaries so later tightening cannot close one by accident: an artifact
+  document keeps the properties its template permits, and the user preference patch keeps its
+  dotted keys.
 
-- **19. A published artifact can be deleted, contradicting the docs.** The docs say a published
+  The two hand-rolled `ObjectMapper` instances in `cedar-submission-server` still read a request
+  subtree outside the named mappers. Sixteen more across the servers and shared libraries read
+  responses or build output, where the tolerant mapper is what they want.
+
+- **27. A published artifact can be deleted, contradicting the docs.** The docs say a published
   artifact is permanent, but `DELETE` on one succeeds. The guard in
   `AbstractResourceServerResource.executeArtifactDelete` was briefly re-enabled and then **reverted by
   deliberate decision**: blocking deletion strands published artifacts and the folders holding them with
@@ -883,28 +1151,79 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   representation is corrected. Whichever way deletability is settled, the docs have both exceptions
   to describe.
 
-- **20. Retire the legacy aliases retained by the common error envelope.** **Production
-  consequence:** removing an alias can break a frontend or integration that still reads it. This is
-  a response-contract cleanup only: it requires no data migration, schema change or reindex.
+- **28. Address artifacts by bare identifier in REST paths, keeping the full IRI as stored
+  identity.** **Production consequence:** an addressing migration rather than a data one. Stored
+  identifiers in MongoDB, Neo4j and OpenSearch do not change, and no reindex is required, but
+  clients that build URLs in the current form need the legacy shape kept as an alias until traffic
+  shows it unused. Deferred by decision; recorded so the addressing is not settled by accident.
 
-  The shared runtime envelope now gives resource-built, exception-mapped and framework-generated
-  failures one representation. It deliberately retains compatibility fields while clients move:
-  `errorMessage` aliases the canonical `message`, and the monitor log-query routes still expose
-  their former top-level `error` beside both message fields. Integrated terminology search also
-  preserves the historical `errorType: PinnedVersionUnavailable` value for its 422 response even
-  though that value predates the common `errorType` vocabulary. The symbolic `status` and numeric
-  `statusCode` are both supported fields rather than candidates for removal.
+  CEDAR stores an artifact's identity as a full JSON-LD IRI, and three conventions ask for it. The
+  artifact and resource services take the whole percent-encoded IRI in one path segment. The repo
+  service takes the bare final identifier and rebuilds the IRI from the route's type
+  (`AbstractRepoResource.java:37`). OpenView accepts either and resolves a bare one before lookup
+  (`TemplatesResource.java:51`). Monitor carries identifiers in query parameters instead, and the
+  user service is addressed by a bare UUID although a user's stored identity is an IRI too.
 
-  Inventory the browser applications, CLI, MCP servers and external integrations for reads of
-  `errorMessage`, top-level `error`, and `PinnedVersionUnavailable`. Move owned clients to
-  `message` and to the 422 status plus a stable common error key for the pinned-version case. Add
-  that common key before deprecating the legacy type value. Publish the deprecation and earliest
-  removal release in OpenAPI and release notes; because a server cannot observe which JSON field a
-  client reads, elapsed time alone is not evidence that removal is safe.
+  A full IRI inside a path parameter is fragile because proxies and frameworks do not treat an
+  encoded slash alike. Where an intermediary decodes `%2F`, the value stops being one segment and
+  `/templates/{id}` no longer matches. Staging carries the cost in its configuration: two exact
+  `location =` blocks in `server-resource.inc.conf` name individual artifact identifiers and
+  re-encode the collapsed form into a `proxy_pass`, one block per artifact that arrived broken.
 
-  Keep the compatibility surface explicit and finite: contract tests should name every extension
-  emitted through `CedarResponse.extension` or `legacyErrorType`, reject new unregistered aliases,
-  and prove the canonical fields carry the same information. Remove each alias only after all owned
-  clients have moved and the compatibility window has elapsed. Done when the generic extension
-  hooks have no production call sites and the public envelope contains only its documented common
-  fields.
+  **The proposed contract:** keep the full IRI as the stored identity and in JSON-LD fields such as
+  `@id`, and use the bare final identifier in resource-specific paths and query parameters, with the
+  route supplying the type and a shared parser rebuilding and validating the IRI before any store is
+  read. An endpoint that is genuinely untyped may keep a full IRI, as a stated exception rather than
+  an accident.
+
+  Deliver it the way the other contract changes go. One shared parser accepts both forms first —
+  OpenView's resolver is the working example — while server-generated links and shared clients
+  emit the bare form. Measure the legacy form, mark it deprecated, and remove legacy parsing and
+  the two nginx blocks only after a compatibility period and evidence that no caller depends on it.
+  Done when every resource-specific route takes the bare identifier, one parser owns the
+  reconstruction, and staging's per-artifact blocks are gone.
+
+- **29. Decide what each compatibility adapter is for, now that neither reads artifacts itself.**
+  Repo and OpenView exist to preserve URLs rather than to do work: the runbook's account of artifact
+  route ownership gives repo the identifier dereferencing URLs and OpenView the anonymous
+  presentation and open-artifact URLs, and says neither adapter should own artifact storage or an
+  independent read policy. Both used to open artifact's Mongo collections and read documents
+  themselves. Neither does now — repo's four artifact routes and OpenView's four anonymous reads
+  delegate to resource, and both services' artifact Mongo initialization is gone — so each one's
+  artifact surface differs from resource's only by a hostname and a path convention.
+
+  That makes the question live rather than answered. It is not the retirement question item 6 asks
+  of four narrowly used servers: these two are neither narrowly used nor removable on the same terms,
+  because what they preserve is addressing that other people's data depends on.
+
+  What cannot change is the reason they exist. An artifact stores its own address — `"@id":
+  "https://repo.metadatacenter.org/templates/<uuid>"` — and an instance names the template it was
+  filled from the same way. Those strings sit in MongoDB, in Neo4j, in every instance anyone has
+  downloaded, in published DOIs and in citations outside CEDAR, and the designer mints new ones in
+  that form. `repo.metadatacenter.org` therefore has to keep answering whatever happens to the
+  process behind it, which is why the compatibility migration's rule is to preserve public hosts and
+  stored IRIs.
+
+  Neither service is a pure pass-through either, and the difference matters to the answer. Repo
+  resolves a bare path identifier to its full IRI, which nothing else does, and authenticates before
+  delegating. OpenView's folder listings still read the workspace graph, and it keeps the estate's
+  user-details configuration; only its artifact reads became redundant.
+
+  So the decision is per host, and there are three honest answers for each: retain the service with a
+  stated role, reduce it to the part that is not duplicated, or serve the URL contract some other way
+  — nginx routing plus something that still resolves a bare identifier — and retire the process. A
+  retirement takes the whole checklist item 6 states, and a reduction takes the part of it that
+  applies.
+
+  The prerequisite is already written down. The runbook's repo rollout asks for repo and resource
+  reads to be compared across all four artifact types, as an owner and as another user, with matching
+  bodies and ETags, private reads still denied, and neither a missing identifier nor a downstream
+  outage producing a successful read. That comparison is what proving routing compatibility means,
+  and no adapter should be reduced before it passes on the deployed topology.
+
+  Item 28 settles a different question about the same two services — which path shape a route takes —
+  and the two interact: retiring repo's routes would retire the bare-identifier convention that item
+  28 proposes to generalize, so whichever is decided first constrains the other.
+
+  Done when each of the two hosts has a stated role, an owner, and either a current caller that needs
+  the process or a routing arrangement that keeps its URLs resolving without one.

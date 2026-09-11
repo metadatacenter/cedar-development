@@ -193,6 +193,14 @@ npm view "cedar-model-typescript-library@${MODEL_VERSION}" readme \
 `latest` must name `${MODEL_VERSION}` and the README must begin with the repository's CEDAR Model
 TypeScript Library README, not generated package metadata or unrelated YAML documentation.
 
+npmjs does not serve a new version the moment `npm publish` returns. The publish prints that the
+package is being processed, and the first verification can answer `E404` for a minute or two while
+it is: 1.0.7 took about a hundred seconds to become visible. Retry the same query rather than
+concluding the publish failed, and treat an `E404` as settled only once a later attempt agrees.
+
+The repository keeps no changelog, so its release notes are the GitHub release on the tag. Write
+them when tagging, in the shape the previous release used.
+
 Tag the exact `main` commit that produced the tarball:
 
 ```bash
@@ -406,6 +414,7 @@ npm view "cedar-embeddable-editor@${CEE_VERSION}" readme \
 ```
 
 `latest` must name `${CEE_VERSION}` and the README must begin `# CEDAR Embeddable Editor (CEE)`.
+The registry takes a minute or two to serve a freshly published version, as it does for the model.
 Record the tarball shasum/integrity and the bundle SHA-256 from `bundle-manifest.json` in the release
 evidence.
 

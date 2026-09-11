@@ -567,6 +567,14 @@ shape for both.
 happens at fill time in the editor/CEE, reading the version from the terminology server's resolve-current
 response.
 
+### 6. Compact term exclusions and ordering in the picker
+
+Design a compact way to author term exclusions and result-position actions without
+adding a permanent toolbar or pushing search results down. Keep term-result ordering
+distinct from rearranging constraint entries. Restore constraint-list reordering only
+with a clear, space-efficient interaction. Preserve imported actions unchanged while
+these authoring controls are deferred; deleting a selection removes only that constraint.
+
 ### Other deferred backend work
 
 - **4. Finish the ontology constraint's identity: retire `sourceUri`, and backfill `iri` and
@@ -934,12 +942,12 @@ question about the picker into a question about the Workbench as well, and none 
 here can be finished without the component being finished first. The component itself has nothing
 left that does not need a host.
 
-- **18. Make the overlay behave, once there is one to behave.** The picker is an inline panel today
-   and the Workbench presents its picker as a modal, so this is the half of the theming item that
-   could not be finished without a host: a modal inside a shadow root has to stack above the host's
-   own layers and trap focus without reaching into them. Escape already leaves. Sequenced with the
-   embedding rather than before it, because what the overlay has to sit above is a property of the
-   page it sits in.
+- **18. Make the overlay behave in a host's own layers.** The designer's overlay is a modal now —
+   focus moves in when it opens, Tab and Shift+Tab cannot leave it, and Escape closes it and gives
+   focus back to the button that opened it, all asserted against the real picker. What that leaves is
+   the part only a host can answer: `z-index: 50` inside a shadow root is a bet about a page nobody
+   has seen, and an embedder whose own layers sit above it gets a dialog behind its chrome. Escape
+   also closes without asking, which is wrong for an author midway through choosing constraints.
 
 - **19. Show the pinned version in the field's configuration panel.** The panel already lists
    everything constraining a field, one repeat per kind over `_valueConstraints`, and it keeps
@@ -1508,15 +1516,13 @@ The host being the AngularJS Template Designer has a consequence worth stating: 
 integration is DOM-level, setting properties and listening for events on the element, with
 no framework interop between AngularJS and Angular 22 in either direction.
 
-**The picker emits one selection and closes.** A field can carry several constraints of
-mixed kinds, and they accumulate outside the picker: an author adding a second constraint
-opens it again. This keeps the component to one job — turn a query into a choice — and it
-matches what the old picker already does. That picker shows a confirmation row for the one
-selection in flight and never displays the field's constraint set; the set is rendered by
-the field's configuration panel
-(`cedar-template-editor/app/scripts/form/partials/configuration-options.partial.html`, four
-repeats over `_valueConstraints`), and the picker touches it only to merge its addition back
-on save.
+**The picker assembles the field's constraint set.** In `constraints` mode the host
+supplies `constraintSet`, and `constraintsSelected` returns the complete draft on
+Apply. Individual selections add to the draft; replacement and removal target one
+entry. The picker displays the set and separate term exclusion/result-position
+actions in compact tables. Cancelling leaves the host's original unchanged. The
+single-selection `constraint` mode remains available to existing hosts, while
+`term` mode selects a default for the host to validate against the full set.
 
 **Latest is the default, and choosing it writes nothing.** Freeze-on-publish resolves an
 unpinned constraint at publish time, so latest keeps meaning latest until the template is

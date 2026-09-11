@@ -332,13 +332,24 @@ npm --prefix $CEDAR_HOME/cedar-term-picker start
 ```
 
 That serves the development host on port 4500 — `src/index.html`, a page standing in for the
-Template Designer, which sets the element's `query` attribute and listens for its `cancelled` event.
+Template Designer, which sets the element's `query` and `selection-mode="constraints"` attributes and listens
+for `constraintsSelected` and `cancelled`. `?mode=constraint` exercises the legacy
+single-selection contract.
 Nothing on that page ships. `proxy.conf.json` sends `/search` to the terminology server on 9004,
 which keeps the call same-origin and CORS out of the picture.
 
 **The proxy target is read once, at startup.** Changing it, or restarting the server it points at on
 a different port, needs the dev server restarted too — otherwise every search returns 502 with
 nothing wrong in the code.
+
+For CED integration, assign `constraintSet = { constraints, actions }` and use
+`selectionMode = 'constraints'`. The picker edits a draft and emits the entire set
+on Done; `constraintsChanged` invalidates a host's pending validation, and Cancel
+leaves the original intact. Branch depth is editable in each branch's details.
+A bin icon removes an individual constraint. Exclusion and reordering controls are
+deferred to the roadmap; saved actions remain inspectable and are preserved unchanged. `selectionMode = 'term'` retains single-term output
+for defaults. Multiple fixed `sources` appear in a vocabulary/release selector so
+two pins of the same acronym are searched and browsed separately.
 
 ## What the Picker Reads
 

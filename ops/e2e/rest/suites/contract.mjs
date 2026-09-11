@@ -12,12 +12,12 @@
 // status, and a graphless artifact — were both found by chance rather than by a test like this.
 import {
   suite, check, checkStatus, call, mutate, updateArtifact, artifact, cleanup, artifactBody, enc, RUN,
-  ARTIFACT_SERVER,
+  ARTIFACT_SERVER, HOST,
 } from '../lib.mjs';
 
 export const name = 'contract';
 
-export async function run({ user1, folderId }) {
+export async function run({ user1, admin, folderId }) {
   const auth = user1.auth;
 
   suite('contract: a create through the resource server reaches both stores, faithfully');
@@ -130,7 +130,7 @@ export async function run({ user1, folderId }) {
     checkStatus(await call(auth, 'POST', '/command/publish-artifact', { '@id': bid, newVersion: '1.0.0' }),
         [200, 201], 'it is published first');
     const draft = await call(auth, 'POST', '/command/create-draft-artifact',
-        { '@id': bid, folderId, newVersion: '1.0.1', propagateVersion: false });
+        { '@id': bid, folderId, newVersion: '1.0.1', propagateSharing: false });
     if (checkStatus(draft, [200, 201], 'a draft is created from it')) {
       const did = draft.body?.['@id'];
       if (did && did !== bid) cleanup('template', `/templates/${enc(did)}`, `${drLabel} draft`);
@@ -223,5 +223,124 @@ export async function run({ user1, folderId }) {
   checkStatus(await call(auth, 'GET', missing), 404, 'an unknown id is 404 on the resource server');
   checkStatus(await artifact(auth, 'GET', missing), 404, 'and 404 on the artifact server');
 
+  suite('contract: monitor reads document counts through resource');
+  const monitorBase = process.env.CEDAR_MONITOR_BASE ?? `https://monitor.${HOST}`;
+  const countPath = '/monitor/artifact-counts';
+  checkStatus(await call(null, 'GET', countPath), 401, 'resource counts require authentication');
+  checkStatus(await call(auth, 'GET', countPath), 403, 'resource counts require monitor permission');
+  checkStatus(await call(auth, 'GET', '/resources/counts', undefined, { base: monitorBase }), 403,
+      'monitor counts require monitor permission');
+  const resourceCounts = await call(admin?.auth, 'GET', countPath);
+  const artifactCounts = await artifact(admin?.auth, 'GET', countPath);
+  const monitorCounts = await call(admin?.auth, 'GET', '/resources/counts', undefined, { base: monitorBase });
+  checkStatus(resourceCounts, 200, 'resource serves document counts');
+  checkStatus(artifactCounts, 200, 'artifact serves document counts to the trusted monitor-authorized caller');
+  checkStatus(monitorCounts, 200, 'monitor serves the combined counts report');
+  for (const kind of ['field', 'element', 'template', 'instance']) {
+    const count = artifactCounts.body?.[kind];
+    check(Number.isSafeInteger(count) && count >= 0
+        && resourceCounts.body?.[kind] === count && monitorCounts.body?.mongo?.[kind] === count,
+        `${kind} document count agrees across all three services`);
+  }
+  check(['neo4j', 'opensearch', 'keycloak'].every(store => typeof monitorCounts.body?.[store] === 'object'),
+      'monitor preserves the other store reports');
+
+  await derivedWrites(auth, folderId);
+
   return {};
+}
+
+/** Where each kind is addressed and whether it can be published. */
+const COLLECTIONS = {
+  template: { path: '/templates', versioned: true },
+  element: { path: '/template-elements', versioned: true },
+  field: { path: '/template-fields', versioned: true },
+  instance: { path: '/template-instances', versioned: false },
+};
+
+/**
+ * The writes that build a body instead of forwarding one, against every kind each applies to.
+ *
+ * An ordinary create carries a body some client composed, and a client that composes it wrongly
+ * hears about it immediately. A derived write has no client: it reads the artifact it starts from,
+ * edits that document, and creates the result. Copy, publish and the draft of a published version
+ * all work this way, and they share the part the artifact server enforces — the identifier key
+ * present carrying null, and no inherited DOI.
+ *
+ * That shared part is what drifts. When the identifier rule arrived, the two callers in the
+ * resource server were corrected within the hour and the third, which lives in another repository
+ * and runs on the worker, was not; copying a published template's instances then failed on every
+ * instance for three weeks with nothing going red. The caller set outlived the sweep, so the matrix
+ * is the point: one row per derived write, one column per kind, no cell taken on trust because a
+ * sibling passes.
+ *
+ * Each cell asserts the artifact on both sides of the hop rather than the status of the command.
+ * Every command in that three-week window answered exactly as it does now.
+ */
+async function derivedWrites(auth, folderId) {
+  suite('contract: every derived write lands in both stores, for every kind it applies to');
+
+  for (const [kind, { path, versioned }] of Object.entries(COLLECTIONS)) {
+    const source = await seed(auth, kind, folderId, `Derived ${kind} ${RUN}`);
+    if (!source) continue;
+
+    const copied = await call(auth, 'POST', '/command/copy-artifact-to-folder',
+        { '@id': source, targetFolderId: folderId, nameTemplate: `{{name}} copy` });
+    await landed(auth, kind, copied, `a copied ${kind}`);
+
+    if (!versioned) continue;
+
+    // Publish rewrites the artifact in place, so the identifier it lands under is the source's.
+    const published = await call(auth, 'POST', '/command/publish-artifact',
+        { '@id': source, newVersion: '1.0.0' });
+    await landed(auth, kind, published, `a published ${kind}`, source);
+
+    const drafted = await call(auth, 'POST', '/command/create-draft-artifact',
+        { '@id': source, folderId, newVersion: '1.0.1', propagateSharing: false });
+    await landed(auth, kind, drafted, `a draft of a published ${kind}`);
+  }
+}
+
+/** An artifact of the given kind to derive from, or null when it could not be made. */
+async function seed(auth, kind, folderId, label) {
+  const { path } = COLLECTIONS[kind];
+  const extra = {};
+  if (kind === 'instance') {
+    const host = await call(auth, 'POST', `/templates?folder_id=${enc(folderId)}`,
+        artifactBody('template', `${label} host`));
+    if (!checkStatus(host, 201, 'a template is created to host the derived instance')) return null;
+    cleanup('template', `/templates/${enc(host.body['@id'])}`, `${label} host`);
+    extra['schema:isBasedOn'] = host.body['@id'];
+  }
+  const made = await call(auth, 'POST', `${path}?folder_id=${enc(folderId)}`, artifactBody(kind, label, extra));
+  const an = /^[aeiou]/.test(kind) ? 'an' : 'a';
+  if (!checkStatus(made, 201, `${an} ${kind} is created to derive from`)) return null;
+  cleanup(kind, `${path}/${enc(made.body['@id'])}`, label);
+  return made.body['@id'];
+}
+
+/**
+ * Asserts that a derived write produced an artifact both stores hold.
+ *
+ * `expectedId` is passed where the write rewrites the artifact in place rather than minting one, so
+ * that a command quietly creating a second artifact would be caught rather than counted a success.
+ */
+async function landed(auth, kind, res, what, expectedId) {
+  if (!checkStatus(res, [200, 201], `${what} is accepted`)) return;
+  const id = res.body?.['@id'];
+  if (!check(typeof id === 'string' && id.length > 0, `${what} comes back with an identifier`,
+      `the response carried ${JSON.stringify(res.body?.['@id'])}`)) return;
+  if (expectedId) {
+    check(id === expectedId, `${what} keeps the identifier it was asked to rewrite`,
+        `expected ${expectedId}, got ${id}`);
+  } else {
+    cleanup(kind, `${COLLECTIONS[kind].path}/${enc(id)}`, what);
+  }
+
+  const at = `${COLLECTIONS[kind].path}/${enc(id)}`;
+  const viaResource = await call(auth, 'GET', at);
+  const viaArtifact = await artifact(auth, 'GET', at);
+  check(viaResource.status === 200 && viaArtifact.status === 200,
+      `${what} is readable from both stores`,
+      `resource server ${viaResource.status}, artifact server ${viaArtifact.status}`);
 }

@@ -70,3 +70,16 @@ procedures are in [DOCKER-RUNBOOK.md](./DOCKER-RUNBOOK.md).
    Docker Hub prefix. A CEDAR release is not Docker-complete until its advertised image set can be
    pulled without CEDAR registry credentials, resolves to the recorded release digests, and starts
    with the matching Compose and configuration version.
+
+7. **Build every image on a schedule, not only when a train runs.** The image set is exercised only
+   by a train, so a base image that rots between trains is discovered by the release that needs it.
+   Debian bullseye's security suite expired 27 hours before a train ran and took two images with it.
+   `apt-get update` treats an expired Release file as fatal, so the two Dockerfiles that ran apt on
+   a bullseye base failed while the twenty-nine others passed. `publish train --dry-run` cannot see
+   this. It validates credentials, source alignment, CI settlement, smoke coverage and audit
+   baselines, all of which are inputs rather than build results.
+
+   Build every Dockerfile against its real bases on a fixed cadence, report a failure to whoever
+   owns the estate rather than to a train operator mid-release, and record which base each image
+   resolved so an expiry, a withdrawn tag or a moved digest is attributable. The cadence matters
+   more than the depth. A build that only proves the images still build would have caught this one.

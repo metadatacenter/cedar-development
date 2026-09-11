@@ -105,6 +105,12 @@ open https://cedar.metadatacenter.orgx    # test1@test.com / test1   (also test2
 `cedarcli native start all` runs both steps above, including native infrastructure. It does not open or
 control a terminal application. Each application has its own PID file and log instead.
 
+Infrastructure already listening is left alone: starting Keycloak over a bound 8080 fails and used
+to end the whole command before it reached the applications. When every managed port has a listener
+the command says so and starts the applications only. To put fresh binaries behind a running stack,
+`cedarcli native restart` with no arguments is the command; `start` adopts what is already up rather
+than replacing it.
+
 ## The containerized stack
 
 An alternative to the native bring-up: the same fifteen microservices and the same infrastructure,
@@ -598,7 +604,14 @@ requires a successful response from the served root.
 
 Two columns exist so a green table cannot hide a stale one. **BINARY** compares when a process started
 against when its jar was written: `STALE` means the service is serving a jar older than the build, so
-its health says nothing about your latest code. For the `ui-main` and `ui-workspace` rows the column
+its health says nothing about your latest code.
+
+`current` therefore means the process is not older than its jar, which is narrower than it reads. A
+jar can itself have been built before its repository's `develop` head, and every row says `current`
+while it is, which is how a stack came to be smoke-tested against commits it did not contain. The
+summary under the table names any microservice in that position, and `cedarcli test e2e` refuses to
+record a run while one exists. The remedy is `cedarcli build java` followed by `cedarcli native
+restart`. For the `ui-main` and `ui-workspace` rows the column
 asks the equivalent question of the Embeddable Editor, which each of those frontends takes from npm
 and a gulp task copies out of `node_modules` into the tree gulp serves. Those two hops are invisible
 to git, because the served copy is ignored, so moving the pin without `npm ci`, or running `npm ci`
@@ -678,6 +691,155 @@ they are created, and regeneration preserves that ID while replacing only the cr
 stored before IDs were introduced is exposed with a deterministic `legacy-<sha256>` management ID;
 this keeps it addressable without revealing the credential, and the ID is persisted on the next
 profile write. Authentication itself is unchanged and still looks up the secret `key` value.
+
+## Artifact route ownership
+
+The target architecture assigns artifact document storage, validation, serialization and revisions to
+**artifact**, and public artifact operations and access decisions to **resource**, using the existing
+Neo4j permission model. **Repo** preserves identifier dereferencing URLs; **openview** preserves
+anonymous presentation and open-artifact URLs. Neither adapter should own artifact storage or an
+independent read policy. This is a compatibility migration: preserve public hosts and stored IRIs;
+no artifact rewrite or search reindex is required.
+
+Repo's four artifact GET routes now delegate to resource, which checks global read permission and
+workspace access before asking artifact for the body. Repo authenticates the request, resolves the
+existing bare path identifier to its IRI, and forwards the caller's credentials and request identity.
+It requests JSON explicitly and preserves the response bytes, status, Content-Type, ETag and Vary.
+It does not retry downstream error responses or fall back to Mongo. Resource failures therefore fail closed; an unavailable
+resource service yields a sanitized 503. Repo no longer initializes artifact Mongo services. Its
+shared authentication infrastructure still uses Neo4j; removing artifact Mongo access does not make
+it independent of that infrastructure.
+
+**Compatibility changes for repo:** an identifier absent from the workspace now receives resource's
+404 instead of repo's former 500; error bodies follow resource's contract. An authenticated denial
+remains 403. ETag and Vary are now forwarded. The external routes remain JSON-only and keep their
+bare-identifier convention. Resource host and HTTP port must be present in repo's environment.
+
+**Deployment boundary:** artifact business routes require `X-CEDAR-Artifact-Service-Key` in addition
+to the existing end-user Authorization header. A user API key alone cannot read, list, create,
+update or delete a document, even at the direct application port. Resource owns user authorization;
+worker's trusted jobs use the same internal credential and retain their existing user/admin request
+contexts. The shared client sends the configured key only to the configured artifact origin, refuses
+redirects, preserves request identity and conditional-write headers, and never takes the key from an
+incoming HTTP request. Index/readiness, operational reports and static API documentation retain
+their existing access rules. Every other registered Jersey resource requires the service key.
+
+The credential is shared by the trusted resource and worker services; it does not distinguish them,
+grant either one a new user role, or encrypt HTTP. Keep artifact on the private backend network and
+use a protected transport across untrusted networks.
+
+OpenView's four artifact reads proxy to resource's JSON-only anonymous endpoints:
+GET /open/templates/{id}, /open/template-elements/{id}, /open/template-fields/{id}, and
+/open/template-instances/{id}. Both bare identifiers and encoded full IRIs resolve to the same
+document. Resource alone checks explicit or inherited openness; owner credentials and workspace
+grants cannot broaden these anonymous reads. The shared anonymous context never resolves supplied
+credentials. OpenView sends no Authorization, cookies or service key downstream, follows no
+redirects, and returns resource's status and JSON without a Mongo fallback. Both hops use no-store
+because openness can change without changing the document revision. The ordinary resource routes
+still require authentication.
+
+After proving openness, resource reads artifact using the configured internal service key and its
+existing backend administrator identity; it never uses the anonymous HTTP caller's credentials.
+OpenView receives only resource host/port and no artifact service credential. Its artifact Mongo
+initialization and document-operation dependency are removed. Its folder listings still use the
+workspace graph, and the shared bootstrap retains the estate's user-details Mongo configuration.
+
+Deploy the changed config/shared libraries and resource first, verify the new /open reads, then
+redeploy OpenView. Existing public OpenView URLs and successful JSON bodies remain unchanged.
+Errors use resource's common error response; identifiers in those errors are resolved IRIs, and
+an unavailable resource hop returns a sanitized 503. Rolling OpenView
+back requires its old configuration and document-store connectivity; no stored artifacts need
+restoring.
+
+Monitor's `GET /resources/counts` obtains its four `mongo` totals through resource's
+`GET /monitor/artifact-counts`, which calls the same path on artifact. Both downstream endpoints
+require the caller's `MONITOR_READ` permission; resource preserves that identity and adds the
+internal service key. Artifact counts the actual collections, including graphless records. Monitor
+never receives the service key and no longer initializes an artifact Mongo client or document
+services. Its graph, search, Keycloak and logging reports retain their existing responsibilities;
+operational health probes still contact artifact directly. Failed, redirected or malformed count
+responses produce a sanitized 503, never zeros or a partial successful report. The existing report
+JSON shape is unchanged. The four collection counts are sequential, not an atomic snapshot.
+
+Build the changed shared libraries and artifact, resource and monitor. Restart artifact and resource
+before monitor so both count endpoints exist, then verify the Counts page as a monitor-authorized
+user. No data migration is needed. Rolling monitor back requires its former document-store
+connectivity. Value-recommender's association-rule input is the accepted temporary direct-collection
+exception pending its planned retirement; it will not be migrated.
+
+A local warm-loopback measurement on 2026-09-09 alternated 25 reads through each path after five
+warmup pairs. Resource's anonymous endpoint measured median 25.18 ms / p95 34.88 ms; OpenView measured
+median 33.92 ms / p95 47.47 ms, adding about 8.7 ms at the median on this workstation. All response
+bodies matched and the temporary open field was deleted. This is a local hop measurement, not a
+production latency bound; repeat on the deployed topology.
+
+Bridge's DOI workflow reads both the source artifact and the DataCite template through resource,
+and sends instance validation through resource's existing validation endpoint. These calls preserve
+the incoming Authorization and request identity headers; validation does not select a stored user
+API key. Resource denials and missing documents stop the workflow before DOI minting, and a failed
+HTTP response is never interpreted as an artifact or validation verdict. Bridge still checks DOI
+eligibility (edit capability, openness and template publication). It needs resource host/port but no
+artifact host/port, and must not receive artifact's internal caller credential. Build config
+before bridge, redeploy bridge, and run both smoke tiers; the backend-free bridge suite also checks
+these routes against a resource HTTP stub without contacting DataCite. Before rollout, verify that
+the configured DataCite template is present in the workspace graph and readable by DOI users: a
+Mongo-only template or one they cannot read now produces a 404 or 403 instead of bypassing the ACL.
+
+The internal HTTP callers are resource's CRUD, validation, annotation, copy and durable deletion
+completion paths, plus the shared inclusion-subgraph, extraction and instance-clone code used by
+resource/worker jobs. Bridge, repo and OpenView call resource and receive no artifact service key. Configuration
+startup fails when artifact, resource or worker lacks a valid key; an invalid previous key also stops
+artifact startup. No permissive fallback is available.
+
+### Deploying and rotating the artifact service key
+
+Use `cedarcli env artifact-key init` once per environment. It generates a random 256-bit key in
+`$CEDAR_HOME/.cedar/secrets/artifact-service.sh`, with file mode 0600, and never displays its value.
+Running init again leaves it unchanged. On the native production application host, use
+`cedarcli prod provision-artifact-key`: it performs the same initialization with server-profile checks
+and prints the local deployment steps. For the single application-host layout, no copying is needed:
+all three services read this installation's file through the launcher on their next start. See the
+[production provisioning steps](PROD-DEPLOY-RUNBOOK.md#provision-the-artifact-service-key-before-the-backend-deployment).
+Both native and Docker profiles source this installation-local
+file. For a deployment spanning hosts, securely distribute the same file to each backend host, or
+inject the variables through the deployment's secret manager; do not independently generate a key
+on every host. Keep production and development keys separate. The variables are
+`CEDAR_ARTIFACT_SERVICE_API_KEY` (artifact, resource and worker only) and
+`CEDAR_ARTIFACT_SERVICE_PREVIOUS_API_KEY` (artifact only, optional). Compose passes them only to those
+containers; the native launcher removes them before starting unrelated services and frontends.
+Configuration/environment reports mask their values. Never bake them into an image,
+commit them, or expose them through frontend configuration.
+
+**First deployment order matters:** provision the key everywhere, deploy the bridge migration so it
+uses resource, then deploy the upgraded resource and worker callers with the key, and only then
+upgrade artifact to enforce it. The prior artifact accepts the extra header, so callers can be
+upgraded first. Turning on enforcement before upgrading every caller causes 401s for ordinary reads,
+writes, validation and jobs. External scripts which directly call artifact must move through resource;
+only deliberately trusted internal tooling may receive this key. No database migration or reindex is
+needed. Verify user provenance, resource/repo reads, validation, copy/versioning and jobs, and run
+`cedarcli test e2e`; its internal contract probes use the service key, while explicit direct-port
+checks omit it and prove ordinary users cannot access any of the four document families.
+
+**Rotation:** run `cedarcli env artifact-key rotate`, securely distribute the resulting current and
+previous values, and restart artifact first so it accepts both. Then restart resource and worker so
+they send the new key. Verify the callers and smoke suite before `cedarcli env artifact-key retire`,
+distribute that state and restart artifact again to stop accepting the old key. A second rotation is
+refused while a previous key is retained, so an unfinished rollout cannot silently lose its overlap.
+Use `cedarcli native restart <service>` for native deployments; containers must be recreated with the
+updated environment. Rotation does not change end-user API keys or login tokens. The previous key
+must be retained until every caller has switched, including workers processing queued jobs.
+
+**Rollback:** leave the credentials provisioned. If callers must revert to versions that omit the
+header, roll artifact back first or those callers will fail. Returning to an unenforced artifact
+restores the earlier trust gap and requires the existing private-network containment. A rollback
+requires no database restoration.
+
+For the repo rollout, build the config library before the repo server, redeploy repo, and run both
+whole-stack smoke tiers. Also compare repo and resource reads for all four artifact types using an
+owner and another user: permitted bodies and ETags must match, private reads must remain denied,
+and missing identifiers and downstream outages must not produce successful reads. Keep the previous
+repo jar available for rollback; no database rollback accompanies this routing change. Existing
+identifier hosts must remain resolvable even if their service processes are eventually retired.
 
 ## Artifact and folder permissions
 
@@ -1141,25 +1303,75 @@ nested static field. `YamlAsymmetryProbeTest` in `cedar-artifact-library` and `Y
 in `cedar-artifact-server` both pin it. If a round trip ever loses a setting again, add a probe there
 rather than documenting the loss.
 
-### The two model libraries agree, and how to confirm it
+### Comparing the two model libraries
 
 `cedar-artifact-library` (Java) and `cedar-model-typescript-library` (TypeScript) implement the same
-model and are meant to write the same document for the same artifact. They do: byte-identical YAML
-over all 82 corpus artifacts in the full form and the compact one, matching JSON over the same set,
-and each reads every document the other writes. Anything a run reports from here is a regression.
+model. JSON matches over all 83 corpus artifacts. YAML is byte-identical for 82 of 83 artifacts,
+in full and compact form. Template 029 is the one recorded difference: TypeScript preserves
+`https://bioportal.bioontology.org/ontologies/MESH` as an explicit ontology `sourceUri`; the locked
+Java writer omits it and reconstructs the different `https://data.bioontology.org/ontologies/MESH`
+address on read. TypeScript omits only a service URI its reader can reconstruct exactly. The parity
+allowance names template 029, and committed TypeScript fixtures pin its additional property; other
+differences, stale fixtures, or this difference disappearing fail the gate.
 
 Both comparisons live in the TypeScript library, which carries the corpus in-repo, so a plain clone
 runs them with nothing cloned or symlinked first:
 
 ```bash
-npx ts-node ./itest/scripts/compare-verbatim-ts-java-yaml-files.ts
-npm run parity:yaml:compact
+npm run parity:yaml
+npm run parity:json
 ```
 
 Each reads as a summary — a case with output on only one side is counted and skipped rather than
-thrown — and a green run names the four artifact kinds with `0 differing` against 18 fields, 6
-elements, 37 templates and 21 instances. Full and compact output have independent parity gates, so
-drift in either representation fails explicitly.
+thrown — and a green YAML run reports `0 differing` for 18 fields, 6 elements and 21 instances, and the one
+recorded difference among 38 templates. Full and compact output have independent parity gates, so
+unrecorded drift in either representation fails explicitly.
+
+The field concordance matrix complements the corpus with 327 generated cases: all 25 field types
+(including both list modes), each metadata feature separately and in combination, supported defaults,
+and independent image/YouTube dimensions. Each case exercises standalone and template-child JSON,
+full YAML and compact YAML, including each reader's reconstructed JSON. Java asserts the declared
+feature values independently before recording output, and verifies the checked-in fixture against
+its live implementation during ordinary Maven tests. The TypeScript suite adds 1,963 checks to the
+ordinary Jest/coverage gate and verifies a vendored fixture's SHA-256 and Java commit provenance.
+Both suites assert the complete field-type roster so new types require matrix coverage.
+
+```bash
+# In cedar-artifact-library, using the runbook's Java 17 environment:
+./mvnw -Dtest=FieldConcordanceMatrixTest -DupdateFieldConcordance=true test
+# Review and commit the Java implementation, generator and generated fixture first.
+# In cedar-model-typescript-library, alongside that committed Java checkout:
+npm run sync:concordance
+npm run test:concordance
+```
+
+Review the generated fixture diff when updating it. TypeScript CI needs no sibling checkout or JVM;
+`sync:concordance` rejects uncommitted Java source/test changes so its revision identifies the actual
+fixture producer. Ordinary Java tests fail when their generated fixture is stale.
+
+The matrix compares parsed YAML structure (independent of formatting). For standalone attribute-value
+fields it compares the field definition inside Java's array wrapper. It pins one precise reader
+policy difference: compact YAML omits root lifecycle metadata; Java supplies version `0.0.1` and draft
+status while TypeScript preserves their absence. Every other reconstructed JSON property, including
+child lifecycle metadata, must agree. Custom JSON Schema titles/descriptions are asserted in JSON;
+YAML derives those values from the field name and description, so the matrix checks reader agreement
+there rather than claiming preservation of the custom schema text.
+
+The two libraries also have to agree about which field types accept a declared default value and
+what shape each one is. Java settles it and states it in five sealed interfaces, whose `permits`
+clauses the compiler keeps closed, and `npm run verify:java-defaults` reads those clauses out of the
+sibling Java repository rather than restating them:
+
+```bash
+npm run verify:java-defaults
+```
+
+A green run names each interface with the number of field types it permits — seven take a literal,
+eight an IRI, and one each a number, a temporal literal and a term with its label — and checks that
+every corresponding builder here accepts one and writes it in the shape Java writes. Attribute value
+and the five static types take none, and a `withDefaultValue` appearing on any of them fails the run
+too. Corpus template 038 carries one field of every shape, so the parity gates above compare the two
+libraries on all nineteen at once.
 
 Each library also holds two properties about itself as tests, so a regression fails a build rather
 than waiting for a comparison run. Every scalar returns as the string it went in as, over a few
@@ -1573,6 +1785,22 @@ check remains atomic when two requests pass the HTTP read check at the same time
 without the internal field read as revision zero and acquire revision one on their first conditional
 update. `_cedarRevision` is storage metadata and must never appear in public artifact JSON.
 
+Strong validators must also survive the public reverse proxy. Every Jersey response carrying a
+strong ETag receives `Cache-Control: no-transform` from the shared
+`StrongEtagResponseFilter`; existing cache directives are preserved. Cloudflare can otherwise
+recompress JSON with Brotli and turn `"1"` into `W/"1"`. That weak tag cannot satisfy `If-Match`,
+so even a newly created group's first member edit fails with 412. The same failure applies to ACL,
+ownership and artifact mutations. Do not strip `W/` in clients or accept weak tags on writes.
+[Cloudflare compression rules](https://developers.cloudflare.com/rules/compression-rules/) honor
+`no-transform`; retain this header through nginx and any edge response rules. Jetty may still emit
+its own strong gzip representation tag, which the revision parser understands.
+
+After deploying this shared library, verify the **public, proxied** group membership and permission
+GET responses in a browser: `ETag` must remain strong and `Cache-Control` must include `no-transform`.
+Then add/remove members and grants repeatedly, and verify a genuinely stale revision still gets 412.
+A direct-origin or local-only check cannot prove the Cloudflare path. The browser smoke checks the
+strong validator and `no-transform` headers during its group and permission mutation lifecycle.
+
 The shared AngularJS backend service stores the ETag on each in-memory artifact representation and
 adds that representation's value to its later `PUT`. Do not replace this with a URL-global latest
 value: two in-page editors can hold different representations of the same URL, and borrowing the
@@ -1580,6 +1808,22 @@ newer editor's ETag would recreate lost updates. Internal server read-modify-wri
 likewise forward the ETag from their own preceding `GET`; fetching a fresh ETag immediately before
 writing would defeat the concurrency guarantee. CORS allows the `If-Match` request header and exposes
 the `ETag` response header to browser JavaScript.
+
+Browser mutations also need a synchronous handler guard while a request is pending. A disabled
+button alone does not protect an already-open confirmation callback, keyboard submission, or a
+second call from another binding. The monolithic frontend and split Workspace guard CEE saves,
+group mutations, permissions, rename/move/copy/create dialogs, inclusion updates, publication and
+OpenView actions, inline descriptions, and upload submission. The split Designer guards artifact
+saves and inclusion updates. Release the guard on both success and failure; do not automatically
+retry a 412 with a newly fetched validator.
+
+Workspace deletion tracks pending operations by resource identifier. Separate folder/artifact
+rows can be deleted concurrently: each deletion reads and sends its own resource validator, not a
+shared folder validator. Completion removes only the matching row and adjusts the count only if
+that row is still present, so navigation or another deletion cannot remove a different selection.
+Group metadata and group membership likewise have separate validators; permission and ownership
+commands use their own representation contracts. New-resource POSTs have no prior ETag and need
+reentrancy guards to prevent duplicate creation.
 
 Template-instance validation is unconditional. `skip_validation=true` remains accepted only for
 wire compatibility and does not bypass validation or storage checks. If a privileged bypass is ever
@@ -1603,7 +1847,7 @@ than failing the request that produced them. Every server therefore carries `neo
 `app-log-queue` in addition to Dropwizard's own `deadlocks`.
 
 Servers add what they own on top of that. `initMongoServices` builds the document-store probe and
-the shared bootstrap registers it, so artifact, repo, openview and monitor each carry `mongo`.
+the shared bootstrap registers it, so artifact carries `mongo`; repo, OpenView and monitor proxy document access and no longer register that store probe.
 Dropwizard's Hibernate bundle registers `hibernate` wherever a server opens MySQL, which is
 messaging, monitor and worker. Resource and valuerecommender gate on `opensearch`, both being
 unable to answer without their index. Submission gates on `ncbi-submission-queue`, whose contents,
@@ -2138,7 +2382,7 @@ Where the coverage is thin, stated plainly so nobody reads the class count as re
   dead-port tests for artifact/MongoDB, resource-to-artifact, monitor-to-artifact, user and group
   Neo4j reads, value-recommender and resource OpenSearch reads, the messaging SQL store and the
   Keycloak admin lookup, monitor Redis reads, bridge external-authority HTTP, the resource graph and
-  OpenView's store boundary. There is no HTTP application-log read: log persistence is an app-log
+  OpenView's resource HTTP boundary. There is no HTTP application-log read: log persistence is an app-log
   worker concern and its retry/dead-letter path is covered. Resource index rebuilds are accepted
   asynchronous jobs whose failed status is covered rather than synchronous requests that can answer
   503.
@@ -2228,8 +2472,8 @@ and what it needs to run.
 | group | `GroupsAuthorizationMatrixTest`, `GroupMembershipAuthorizationMatrixTest` | `PermissionMatrix` | embedded Neo4j |
 | impex | `ImpexRoutesRespondTest` | `RouteSurface` 401 | none |
 | messaging | `MessagingRoutesRespondTest` | `RouteSurface` 401 | embedded MariaDB |
-| monitor | `MonitorRoutesAndPermissionsTest` | `RouteSurface` 401 + 403 | none |
-| openview | `OpenViewUnknownArtifactTest` | anonymous, 404 for an absent artifact | embedded Neo4j |
+| monitor | `MonitorRoutesAndPermissionsTest` | `RouteSurface` 401 + 403, count-hop outage 503 | none |
+| openview | `OpenViewProxyTest`, `OpenViewResourceOutageTest` | anonymous JSON/status parity, credential stripping, no fallback | resource HTTP stub + embedded Neo4j for bootstrap |
 | repo | `RepoRoutesRespondTest` | `RouteSurface` 401 | none |
 | resource | `FoldersAuthorizationMatrixTest` and four peers | `PermissionMatrix` | embedded Neo4j |
 | schema | `SchemaServerApplicationSmokeTest` | anonymous, 404 for an unrouted path | none |
@@ -2238,6 +2482,12 @@ and what it needs to run.
 | user | `UserServerApplicationSmokeTest` | explicit | embedded Neo4j |
 | valuerecommender | `ValueRecommenderRoutesRespondTest` | `RouteSurface` 401 | none |
 | worker | `WorkerRoutesRespondTest`, `AdminCommandAuthorizationMatrixTest` | `RouteSurface` 401 + `PermissionMatrix` | embedded Neo4j, MariaDB |
+
+Artifact's count test inserts graphless documents in embedded Mongo and verifies each total rises;
+resource's HTTP stub checks caller identity, the configured service key, redirects and failed or
+malformed responses. Monitor's bootstrap test asserts it registers no artifact Mongo health probe.
+The live REST smoke compares all four document counts across artifact, resource and monitor, and
+checks the monitor permission gates while preserving the existing report shape.
 
 Every backend listed is in-process, from `cedar-test-support-library`. No row needs a running CEDAR
 stack or a live external API.
@@ -2736,7 +2986,10 @@ The conditions, by the roadmap paragraph each measures:
 | `annotation-id-null`, `annotation-id-null-with-payload` | An annotation entry whose `@id` is an explicit null, alone or beside other payload. |
 | `ui-order-missing-child`, `ui-order-orphan-entry`, `ui-order-duplicate-entry`, `ui-order-absent` | A child under `properties` missing from `_ui.order`, an order entry with no child, a repeated entry, and a container with children but no order list. |
 | `schema-version-absent`, `schema-version-stale`, `schema-version-unparsable`, and their `-nested` forms | The root's `schema:schemaVersion` against the version the libraries write, and the same for embedded children. The summary also lists every version in use, by type. |
+| `static-field-required` | A static field named in `required`, `@context.required` or `@context.properties`, which describes an instance no editor will build, so no instance of that container can validate. |
 | `source-system-absent` | A controlled-term constraint entry with no `sourceSystem`; every entry counts, so the occurrence count is the size of the sweep. |
+| `constraint-source-uri-legacy`, `constraint-iri-absent`, `constraint-acronym-underivable` | How far a stored value constraint has come towards the versioned shape: the legacy `sourceUri` it still carries, the canonical `iri` it lacks, and the entry that names its ontology only as free text, so no acronym can be derived and nothing can be looked up for it. Deriving the canonical IRI needs the terminology catalog, which the audit does not open, so absence is what is reported. |
+| `temporal-type-absent`, `temporal-type-unsettled` | A temporal field that does not say what kind of temporal value it holds, which leaves a slot nobody can fill and which nothing refuses. The two are split by whether the field's own `_ui.temporalGranularity` settles the type: a day or coarser can only be a date, while below that only the stored values decide. |
 | the REST audit's rules | Reported under their own names and risks, so the repair-on-save population is counted in the same run. |
 
 An instance whose template the key cannot read is `skipped` as `template-unresolved`, and the
@@ -2795,6 +3048,21 @@ moving the template would invalidate those. Targets are selected by the validato
 than by an inventory condition, since no condition describes this. Only a name the template maps is
 touched, only where the template's own value is usable, and element occurrences are walked against the
 element definition they belong to at every depth.
+
+Five further repairs address defects the roadmap names, and all five are container rewrites that no
+instance references. `drop-static-field-demands` stops a container naming a static field in
+`required`, `@context.required` or `@context.properties`: a static field renders and holds nothing,
+so every editor omits it and a container demanding one describes an instance nothing will build.
+`wrap-inherently-multiple` deploys a checkbox, attribute-value or multiple-choice list child as the
+array it always serializes to, lifting cardinality onto the envelope and leaving the field's own
+metadata on the inner definition; contradictory bounds are refused rather than guessed.
+`stamp-model-version` writes the current model version, and only over one that parses, since the key
+asserts conformance and stamping it onto an artifact that does not conform replaces a detectable
+defect with an undetectable one. `complete-ui-order` appends declared children the order omits, after
+what it already holds, and leaves the inverse drift alone because the store cannot synthesize a child
+an order entry names. `derive-title` composes the artifact's own title from its name, as every
+ordinary write does, touching neither the description that carries the generator's signature nor an
+embedded child's pair, which the server also leaves as sent.
 
 **Repairs compose, and for some artifacts they must.** A child identifier the server would otherwise
 mint makes it refuse a verbatim write outright, so an artifact carrying that defect alongside another

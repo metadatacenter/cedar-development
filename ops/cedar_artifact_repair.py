@@ -144,6 +144,595 @@ def only_removed_empty_derived_from(before: Any, after: Any, path: str = "") -> 
     return None if type(before) is type(after) and before == after else (path or "/")
 
 
+STATIC_AT_TYPE = "https://schema.metadatacenter.org/core/StaticTemplateField"
+MODEL_VERSION_KEY = "schema:schemaVersion"
+# What a container's own title is composed from, by the same rule the artifact server applies on every
+# ordinary write. A static field is a field here, as it is everywhere identifiers and titles are formed.
+KIND_WORD = {
+    "https://schema.metadatacenter.org/core/Template": "template",
+    ELEMENT_AT_TYPE: "element",
+    "https://schema.metadatacenter.org/core/TemplateField": "field",
+    STATIC_AT_TYPE: "field",
+}
+
+
+def container_children(container: Any) -> Iterator[tuple[str, dict, bool]]:
+    """The children a container declares, with their unwrapped definitions."""
+    for name, child, multiple, error in rest.direct_schema_children(container):
+        if not error and child is not None:
+            yield name, child, multiple
+
+
+def static_child_names(container: Any) -> set[str]:
+    return {name for name, child, _multiple in container_children(container)
+            if child.get(AT_TYPE) == STATIC_AT_TYPE}
+
+
+def drop_static_field_demands(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Stop a container demanding a static field of its instances.
+
+    A static field renders and holds nothing, so it is not a property of an instance and every CEDAR
+    editor omits it. A container naming one in ``required``, in ``@context.required`` or in
+    ``@context.properties`` describes an instance nothing will build, and no instance of it can
+    validate. ``_ui.order`` and ``_ui.propertyLabels`` are where a static field belongs and are not
+    touched.
+    """
+    changes: list[dict[str, Any]] = []
+
+    def walk(container: Any, path: str) -> Any:
+        if not isinstance(container, dict):
+            return container
+        result = copy.deepcopy(container)
+        statics = static_child_names(result)
+        if statics:
+            for key, where in (("required", "required"),):
+                names = result.get(key)
+                if isinstance(names, list):
+                    kept = [n for n in names if n not in statics]
+                    for n in [n for n in names if n in statics]:
+                        changes.append({"path": f"{path}/{key}", "replaced": n, "wrote": None,
+                                        "where": where})
+                    if kept != names:
+                        result[key] = kept
+            properties = result.get("properties")
+            context = properties.get("@context") if isinstance(properties, dict) else None
+            if isinstance(context, dict):
+                names = context.get("required")
+                if isinstance(names, list):
+                    kept = [n for n in names if n not in statics]
+                    for n in [n for n in names if n in statics]:
+                        changes.append({"path": f"{path}/properties/@context/required",
+                                        "replaced": n, "wrote": None, "where": "@context.required"})
+                    if kept != names:
+                        context["required"] = kept
+                mapping = context.get("properties")
+                if isinstance(mapping, dict):
+                    for n in sorted(statics & set(mapping)):
+                        changes.append({
+                            "path": f"{path}/properties/@context/properties/"
+                                    f"{rest.json_pointer_component(n)}",
+                            "replaced": mapping[n], "wrote": None, "where": "@context.properties"})
+                        del mapping[n]
+        for name, child, multiple in container_children(container):
+            declared = rest.child_path(path, name)
+            here = f"{declared}/items" if multiple else declared
+            repaired = walk(child, here)
+            if multiple:
+                result["properties"][name]["items"] = repaired
+            else:
+                result["properties"][name] = repaired
+        return result
+
+    return walk(copy.deepcopy(artifact), ""), changes
+
+
+def only_dropped_static_demands(before: Any, after: Any) -> Optional[str]:
+    """The invariant: the only differences remove a static child's name from where it was demanded.
+
+    This walks containers the way the transform does rather than the document generically, because
+    which names may disappear is decided by the container that declares them, and the three places
+    they may be demanded all hang off that container.
+    """
+
+    def identical(old: Any, new: Any, path: str) -> Optional[str]:
+        return None if type(old) is type(new) and old == new else (path or "/")
+
+    def container(old: Any, new: Any, path: str) -> Optional[str]:
+        if not isinstance(old, dict) or not isinstance(new, dict) or set(old) != set(new):
+            return path or "/"
+        statics = static_child_names(old)
+        for name in old:
+            here = f"{path}/{rest.json_pointer_component(name)}"
+            if name == "required" and isinstance(old[name], list):
+                if [n for n in old[name] if n not in statics] != new[name]:
+                    return here
+                continue
+            if name == "properties" and isinstance(old[name], dict):
+                difference = properties(old[name], new[name], statics, here)
+                if difference is not None:
+                    return difference
+                continue
+            difference = identical(old[name], new[name], here)
+            if difference is not None:
+                return difference
+        return None
+
+    def properties(old: dict, new: dict, statics: set[str], path: str) -> Optional[str]:
+        if not isinstance(new, dict) or set(old) != set(new):
+            return path
+        children = {name for name, _child, _multiple in container_children({"properties": old})}
+        for name in old:
+            here = f"{path}/{rest.json_pointer_component(name)}"
+            if name == "@context" and isinstance(old[name], dict):
+                difference = context(old[name], new[name], statics, here)
+                if difference is not None:
+                    return difference
+                continue
+            if name in children:
+                declared_old, declared_new = old[name], new[name]
+                if declared_old.get("type") == "array":
+                    if not isinstance(declared_new, dict) or set(declared_old) != set(declared_new):
+                        return here
+                    for key in declared_old:
+                        inner = f"{here}/{rest.json_pointer_component(key)}"
+                        difference = container(declared_old[key], declared_new[key], inner) \
+                            if key == "items" else identical(declared_old[key], declared_new[key], inner)
+                        if difference is not None:
+                            return difference
+                    continue
+                difference = container(declared_old, declared_new, here)
+                if difference is not None:
+                    return difference
+                continue
+            difference = identical(old[name], new[name], here)
+            if difference is not None:
+                return difference
+        return None
+
+    def context(old: dict, new: dict, statics: set[str], path: str) -> Optional[str]:
+        if not isinstance(new, dict) or set(old) != set(new):
+            return path
+        for name in old:
+            here = f"{path}/{rest.json_pointer_component(name)}"
+            if name == "required" and isinstance(old[name], list):
+                if [n for n in old[name] if n not in statics] != new[name]:
+                    return here
+                continue
+            if name == "properties" and isinstance(old[name], dict):
+                if {k: v for k, v in old[name].items() if k not in statics} != new[name]:
+                    return here
+                continue
+            difference = identical(old[name], new[name], here)
+            if difference is not None:
+                return difference
+        return None
+
+    return container(before, after, "")
+
+
+def mapped_serializing_children(container: Any) -> set[str]:
+    """Children a container maps to a usable property IRI and whose values an instance carries.
+
+    A non-serializing child, a section break or rich text say, is never a key of an instance, so it is
+    not something the instance's ``@context`` can be made to declare.
+    """
+    mapping = context_properties(container)
+    if not isinstance(mapping, dict):
+        return set()
+    names: set[str] = set()
+    for name, child, _multiple in container_children(container):
+        ui = child.get("_ui")
+        if not isinstance(ui, dict) or ui.get("inputType") in rest.NON_SERIALIZING_INPUT_TYPES:
+            continue
+        present, value = mapped_property_iri(mapping.get(name))
+        if present and rest.is_absolute_iri(value):
+            names.add(name)
+    return names
+
+
+def complete_context_required(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """List in ``@context.required`` every child the container already maps to a property IRI.
+
+    The two lists answer different questions. ``@context.properties`` says what an instance's context
+    entry for a child must equal if it carries one; ``@context.required`` says it must carry one at
+    all. A child in the first and not the second leaves the instance free to omit the entry, and an
+    instance that omits it says nothing about what the field means, however well its value validates.
+
+    Nothing is minted here: a child with no mapping stays unmapped and unrequired, because inventing a
+    property IRI is a separate decision. Only names the container already maps are added, so the
+    change tightens the contract to what the template itself already states.
+    """
+    changes: list[dict[str, Any]] = []
+
+    def walk(container: Any, path: str) -> Any:
+        if not isinstance(container, dict):
+            return container
+        result = copy.deepcopy(container)
+        mapped = mapped_serializing_children(result)
+        properties = result.get("properties")
+        context = properties.get("@context") if isinstance(properties, dict) else None
+        if mapped and isinstance(context, dict) and isinstance(context.get("required"), list):
+            listed = [entry for entry in context["required"] if isinstance(entry, str)]
+            omitted = [name for name in
+                       (n for n, _child, _multiple in container_children(result)) if
+                       name in mapped and name not in listed]
+            if omitted:
+                context["required"] = list(context["required"]) + omitted
+                for name in omitted:
+                    changes.append({"path": f"{path}/properties/@context/required",
+                                    "replaced": None, "wrote": name})
+        for name, child, multiple in container_children(container):
+            declared = rest.child_path(path, name)
+            here = f"{declared}/items" if multiple else declared
+            repaired = walk(child, here)
+            if multiple:
+                result["properties"][name]["items"] = repaired
+            else:
+                result["properties"][name] = repaired
+        return result
+
+    return walk(copy.deepcopy(artifact), ""), changes
+
+
+def only_completed_context_required(before: Any, after: Any) -> Optional[str]:
+    """The invariant: a required list only gained names the container already maps, appended at the end."""
+
+    def walk(old: Any, new: Any, path: str) -> Optional[str]:
+        if isinstance(old, dict):
+            if not isinstance(new, dict) or set(old) != set(new):
+                return path or "/"
+            mapped = mapped_serializing_children(old)
+            for name in old:
+                here = f"{path}/{rest.json_pointer_component(name)}"
+                if name == "properties" and isinstance(old[name], dict):
+                    difference = properties_walk(old[name], new[name], mapped, here)
+                    if difference is not None:
+                        return difference
+                    continue
+                if type(old[name]) is not type(new[name]) or old[name] != new[name]:
+                    return here
+            return None
+        return None if type(old) is type(new) and old == new else (path or "/")
+
+    def properties_walk(old: dict, new: dict, mapped: set[str], path: str) -> Optional[str]:
+        if not isinstance(new, dict) or set(old) != set(new):
+            return path
+        children = {name for name, _child, _multiple in container_children({"properties": old})}
+        for name in old:
+            here = f"{path}/{rest.json_pointer_component(name)}"
+            if name == "@context" and isinstance(old[name], dict):
+                difference = context_walk(old[name], new[name], mapped, here)
+                if difference is not None:
+                    return difference
+                continue
+            if name in children:
+                declared_old, declared_new = old[name], new[name]
+                if isinstance(declared_old, dict) and declared_old.get("type") == "array":
+                    if not isinstance(declared_new, dict) or set(declared_old) != set(declared_new):
+                        return here
+                    for key in declared_old:
+                        inner = f"{here}/{rest.json_pointer_component(key)}"
+                        difference = walk(declared_old[key], declared_new[key], inner) if key == "items" \
+                            else (None if declared_old[key] == declared_new[key] else inner)
+                        if difference is not None:
+                            return difference
+                    continue
+                difference = walk(declared_old, declared_new, here)
+                if difference is not None:
+                    return difference
+                continue
+            if type(old[name]) is not type(new[name]) or old[name] != new[name]:
+                return here
+        return None
+
+    def context_walk(old: dict, new: dict, mapped: set[str], path: str) -> Optional[str]:
+        if not isinstance(new, dict) or set(old) != set(new):
+            return path
+        for name in old:
+            here = f"{path}/{rest.json_pointer_component(name)}"
+            if name == "required" and isinstance(old[name], list) and isinstance(new.get(name), list):
+                kept, appended = new[name][:len(old[name])], new[name][len(old[name]):]
+                if kept != old[name]:
+                    return here
+                if any(entry not in mapped or entry in old[name] for entry in appended):
+                    return here
+                continue
+            if type(old[name]) is not type(new[name]) or old[name] != new[name]:
+                return here
+        return None
+
+    return walk(before, after, "")
+
+
+def wrap_inherently_multiple(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Deploy an inherently multiple child as the array it always serializes to.
+
+    Checkbox, attribute-value and multiple-choice list fields emit arrays whenever they are deployed,
+    so a container describing one as an object rejects every populated instance of itself. The field's
+    own metadata stays on the inner definition and cardinality moves to the array envelope, which is
+    the same repair the patch tool makes. A standalone field artifact is excluded: it is the reusable
+    inner definition and is correctly object-shaped, so only children under a container are examined.
+    """
+    changes: list[dict[str, Any]] = []
+
+    def inherently_multiple(field: Any) -> bool:
+        ui = field.get("_ui") if isinstance(field, dict) else None
+        if not isinstance(ui, dict):
+            return False
+        if ui.get("inputType") in {"checkbox", "attribute-value"}:
+            return True
+        constraints = field.get("_valueConstraints")
+        return ui.get("inputType") == "list" and isinstance(constraints, dict) \
+            and constraints.get("multipleChoice") is True
+
+    def walk(container: Any, path: str) -> Any:
+        if not isinstance(container, dict):
+            return container
+        result = copy.deepcopy(container)
+        for name, child, multiple in container_children(container):
+            declared = rest.child_path(path, name)
+            here = f"{declared}/items" if multiple else declared
+            repaired = walk(child, here)
+            if multiple:
+                result["properties"][name]["items"] = repaired
+                continue
+            if not inherently_multiple(repaired):
+                result["properties"][name] = repaired
+                continue
+            stored = result["properties"][name]
+            constraints = repaired.get("_valueConstraints")
+            required = isinstance(constraints, dict) and constraints.get("requiredValue") is True
+            minimum = stored.get("minItems")
+            if not isinstance(minimum, int) or isinstance(minimum, bool):
+                minimum = 1 if required else 0
+            maximum = stored.get("maxItems")
+            bounded = maximum if isinstance(maximum, int) and not isinstance(maximum, bool) \
+                and maximum > 0 else None
+            if bounded is not None and bounded < minimum:
+                raise TransformRefused(
+                    f"{name!r} is object-shaped and its bounds contradict each other "
+                    f"(maxItems {bounded} below minItems {minimum}); the cardinality needs a decision")
+            inner = copy.deepcopy(repaired)
+            inner.pop("minItems", None)
+            inner.pop("maxItems", None)
+            envelope: dict[str, Any] = {"type": "array", "minItems": minimum, "items": inner}
+            if bounded is not None:
+                envelope["maxItems"] = bounded
+            result["properties"][name] = envelope
+            changes.append({"path": declared, "replaced": "object", "wrote": "array",
+                            "inputType": repaired.get("_ui", {}).get("inputType"),
+                            "minItems": minimum, "maxItems": bounded})
+        return result
+
+    return walk(copy.deepcopy(artifact), ""), changes
+
+
+def only_wrapped_inherently_multiple(before: Any, after: Any) -> Optional[str]:
+    """The invariant: a child became an array envelope around exactly its former self.
+
+    The inner definition must be the stored one with its cardinality keys lifted out, and nothing
+    else in the document may differ.
+    """
+
+    def walk(old: Any, new: Any, path: str) -> Optional[str]:
+        if isinstance(old, dict):
+            if not isinstance(new, dict):
+                return path or "/"
+            for name in set(old) | set(new):
+                here = f"{path}/{rest.json_pointer_component(name)}"
+                if (name in old) != (name in new):
+                    return here
+                wrapped = isinstance(old[name], dict) and isinstance(new[name], dict) \
+                    and old[name].get("type") != "array" and new[name].get("type") == "array"
+                if wrapped:
+                    difference = envelope_difference(old[name], new[name], here)
+                    if difference is not None:
+                        return difference
+                    continue
+                difference = walk(old[name], new[name], here)
+                if difference is not None:
+                    return difference
+            return None
+        if isinstance(old, list):
+            if not isinstance(new, list) or len(old) != len(new):
+                return path or "/"
+            for index, value in enumerate(old):
+                difference = walk(value, new[index], f"{path}/{index}")
+                if difference is not None:
+                    return difference
+            return None
+        return None if type(old) is type(new) and old == new else (path or "/")
+
+    def envelope_difference(stored: dict, envelope: dict, path: str) -> Optional[str]:
+        if set(envelope) - {"type", "minItems", "maxItems", "items"}:
+            return path
+        inner = envelope.get("items")
+        expected = {k: v for k, v in stored.items() if k not in ("minItems", "maxItems")}
+        if inner != expected:
+            return f"{path}/items"
+        if not isinstance(envelope.get("minItems"), int):
+            return f"{path}/minItems"
+        if "maxItems" in envelope and not isinstance(envelope["maxItems"], int):
+            return f"{path}/maxItems"
+        return None
+
+    return walk(before, after, "")
+
+
+def stamp_model_version(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Write the current model version on an artifact that already conforms to it.
+
+    ``schema:schemaVersion`` asserts that the artifact conforms to the model it names, so stamping one
+    onto an artifact that does not replaces a detectable defect with an undetectable one. This writes
+    only the root value, and only over a version that parses; the tool validates every body before it
+    is written, which is what makes the assertion true rather than hopeful.
+    """
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    stored = artifact.get(MODEL_VERSION_KEY)
+    if stored == audit.MODEL_VERSION:
+        return copy.deepcopy(artifact), []
+    if not isinstance(stored, str) or not audit.VERSION_PATTERN.match(stored):
+        raise TransformRefused(
+            f"root {MODEL_VERSION_KEY} is {stored!r}, which does not parse as a version; an absent or "
+            "malformed version is a different decision from a stale one")
+    result = copy.deepcopy(artifact)
+    result[MODEL_VERSION_KEY] = audit.MODEL_VERSION
+    return result, [{"path": f"/{rest.json_pointer_component(MODEL_VERSION_KEY)}",
+                     "replaced": stored, "wrote": audit.MODEL_VERSION}]
+
+
+def only_stamped_model_version(before: Any, after: Any) -> Optional[str]:
+    """The invariant: the root model version moved to the current one, and nothing else moved."""
+    if not isinstance(before, dict) or not isinstance(after, dict):
+        return "/"
+    if set(before) != set(after):
+        return "/"
+    for name in before:
+        if name == MODEL_VERSION_KEY:
+            if after[name] != audit.MODEL_VERSION:
+                return f"/{rest.json_pointer_component(name)}"
+            continue
+        if type(before[name]) is not type(after[name]) or before[name] != after[name]:
+            return f"/{rest.json_pointer_component(name)}"
+    return None
+
+
+def complete_ui_order(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Append to ``_ui.order`` the children a container declares but does not list.
+
+    The order is a presentation index over the children, not the authority for whether one exists, so
+    a child absent from it is invisible rather than gone. Each omitted key is appended after the
+    existing order, which changes no established position. The inverse drift, an order entry naming no
+    child, is deliberately left alone: the store does not hold enough to synthesize the child, and
+    removing the entry would discard the only remaining evidence that it was there.
+    """
+    changes: list[dict[str, Any]] = []
+
+    def walk(container: Any, path: str) -> Any:
+        if not isinstance(container, dict):
+            return container
+        result = copy.deepcopy(container)
+        names = [name for name, _child, _multiple in container_children(container)]
+        ui = result.get("_ui")
+        if names and isinstance(ui, dict) and isinstance(ui.get("order"), list):
+            listed = [entry for entry in ui["order"] if isinstance(entry, str)]
+            omitted = [name for name in names if name not in listed]
+            if omitted:
+                ui["order"] = list(ui["order"]) + omitted
+                for name in omitted:
+                    changes.append({"path": f"{path}/_ui/order", "replaced": None, "wrote": name})
+        for name, child, multiple in container_children(container):
+            declared = rest.child_path(path, name)
+            here = f"{declared}/items" if multiple else declared
+            repaired = walk(child, here)
+            if multiple:
+                result["properties"][name]["items"] = repaired
+            else:
+                result["properties"][name] = repaired
+        return result
+
+    return walk(copy.deepcopy(artifact), ""), changes
+
+
+def only_appended_ui_order(before: Any, after: Any) -> Optional[str]:
+    """The invariant: an order list only gained declared children, appended after what it already held."""
+
+    def walk(old: Any, new: Any, path: str) -> Optional[str]:
+        if isinstance(old, dict):
+            if not isinstance(new, dict):
+                return path or "/"
+            declared = {name for name, _child, _multiple in container_children(old)}
+            for name in set(old) | set(new):
+                here = f"{path}/{rest.json_pointer_component(name)}"
+                if (name in old) != (name in new):
+                    return here
+                if name == "_ui" and isinstance(old[name], dict) and isinstance(new[name], dict):
+                    difference = ui_difference(old[name], new[name], declared, here)
+                    if difference is not None:
+                        return difference
+                    continue
+                difference = walk(old[name], new[name], here)
+                if difference is not None:
+                    return difference
+            return None
+        if isinstance(old, list):
+            if not isinstance(new, list) or len(old) != len(new):
+                return path or "/"
+            for index, value in enumerate(old):
+                difference = walk(value, new[index], f"{path}/{index}")
+                if difference is not None:
+                    return difference
+            return None
+        return None if type(old) is type(new) and old == new else (path or "/")
+
+    def ui_difference(old: dict, new: dict, declared: set[str], path: str) -> Optional[str]:
+        for name in set(old) | set(new):
+            here = f"{path}/{rest.json_pointer_component(name)}"
+            if (name in old) != (name in new):
+                return here
+            if name == "order" and isinstance(old[name], list) and isinstance(new[name], list):
+                kept, appended = new[name][:len(old[name])], new[name][len(old[name]):]
+                if kept != old[name]:
+                    return here
+                if any(entry not in declared or entry in old[name] for entry in appended):
+                    return here
+                continue
+            difference = walk(old[name], new[name], here)
+            if difference is not None:
+                return difference
+        return None
+
+    return walk(before, after, "")
+
+
+def derive_title(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Compose the artifact's own JSON Schema title from its name, as every ordinary write does.
+
+    The title is derived metadata rather than an authored value, and a stale one records a name the
+    artifact no longer has. Only the artifact's own title is written: an embedded child carries a pair
+    written by whatever generated that piece, which the server also leaves as sent. The description is
+    not touched, since it carries the generator's signature that the audits read.
+    """
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    kind = KIND_WORD.get(artifact.get(AT_TYPE))
+    name = artifact.get("schema:name")
+    if kind is None:
+        raise TransformRefused(f"@type {artifact.get(AT_TYPE)!r} names no kind a title is composed from")
+    if not isinstance(name, str) or not name.strip():
+        raise TransformRefused("artifact has no usable schema:name to compose a title from")
+    expected = f"{name} {kind} schema"
+    if artifact.get("title") == expected:
+        return copy.deepcopy(artifact), []
+    result = copy.deepcopy(artifact)
+    replaced = result.get("title")
+    result["title"] = expected
+    return result, [{"path": "/title", "replaced": replaced, "wrote": expected}]
+
+
+def only_derived_title(before: Any, after: Any) -> Optional[str]:
+    """The invariant: the root title became the one the name composes, and nothing else moved."""
+    if not isinstance(before, dict) or not isinstance(after, dict):
+        return "/"
+    if set(before) | {"title"} != set(after) | {"title"}:
+        return "/"
+    kind = KIND_WORD.get(before.get(AT_TYPE))
+    name = before.get("schema:name")
+    if kind is None or not isinstance(name, str):
+        return "/"
+    for key in set(before) | set(after):
+        if key == "title":
+            if after.get(key) != f"{name} {kind} schema":
+                return "/title"
+            continue
+        if (key in before) != (key in after):
+            return f"/{rest.json_pointer_component(key)}"
+        if type(before[key]) is not type(after[key]) or before[key] != after[key]:
+            return f"/{rest.json_pointer_component(key)}"
+    return None
+
+
 class TransformRefused(Exception):
     """The artifact is not one this repair can speak for, so it is reported rather than written."""
 
@@ -515,6 +1104,48 @@ REPAIRS = {
         needs_template=True,
         error_pattern=CONTEXT_ENUM_ERROR,
     ),
+    "drop-static-field-demands": Repair(
+        name="drop-static-field-demands",
+        condition="static-field-required",
+        summary="stop a container demanding a static field its instances never carry",
+        transform=drop_static_field_demands,
+        invariant=only_dropped_static_demands,
+    ),
+    "complete-context-required": Repair(
+        name="complete-context-required",
+        condition="child-context-required-missing",
+        summary="list in @context.required every child the container already maps",
+        transform=complete_context_required,
+        invariant=only_completed_context_required,
+    ),
+    "wrap-inherently-multiple": Repair(
+        name="wrap-inherently-multiple",
+        condition="inherently-multiple-child-object",
+        summary="deploy an inherently multiple child as the array it always serializes to",
+        transform=wrap_inherently_multiple,
+        invariant=only_wrapped_inherently_multiple,
+    ),
+    "stamp-model-version": Repair(
+        name="stamp-model-version",
+        condition="schema-version-stale",
+        summary="write the current model version on an artifact that already conforms to it",
+        transform=stamp_model_version,
+        invariant=only_stamped_model_version,
+    ),
+    "complete-ui-order": Repair(
+        name="complete-ui-order",
+        condition="ui-order-missing-child",
+        summary="append to _ui.order the children a container declares but does not list",
+        transform=complete_ui_order,
+        invariant=only_appended_ui_order,
+    ),
+    "derive-title": Repair(
+        name="derive-title",
+        condition="title-not-canonical",
+        summary="compose the artifact's own title from its name, as every ordinary write does",
+        transform=derive_title,
+        invariant=only_derived_title,
+    ),
     "mint-property-iris": Repair(
         name="mint-property-iris",
         condition="child-property-iri-unusable",
@@ -598,6 +1229,27 @@ class RepairClient(rest.GetOnlyClient):
 # --------------------------------------------------------------------------------------------------
 
 
+def conditions_named_by(path: Path, sample: int = 5000) -> list[str]:
+    """The conditions a records file measures, from its opening lines.
+
+    Only the error path asks, so the cost is paid where the run is ending anyway, and a sample is
+    enough to say which rules the file knows about.
+    """
+    found: set[str] = set()
+    try:
+        with path.open(encoding="utf-8") as stream:
+            for number, line in enumerate(stream):
+                if number >= sample:
+                    break
+                try:
+                    found.update(json.loads(line).get("conditionRules") or {})
+                except (ValueError, AttributeError):
+                    continue
+    except OSError:
+        return []
+    return sorted(found)
+
+
 def targets_from_records(path: Path, conditions: list[str], patterns: list[str],
                          parser: argparse.ArgumentParser) -> list[rest.ArtifactRef]:
     """Every artifact the audit found carrying one of these conditions, or failing in one of these ways.
@@ -631,8 +1283,15 @@ def targets_from_records(path: Path, conditions: list[str], patterns: list[str],
     except (OSError, ValueError) as error:
         parser.error(f"cannot read --from-records {path}: {error}")
     if not refs:
-        parser.error(f"no artifact in {path} carries any of {sorted(wanted)}"
-                     + (f" or fails in the way {arguments_repair_names(patterns)} repairs" if patterns else ""))
+        # A records file written before a rule existed names nothing it measures, which looks exactly
+        # like a clean deployment. Say so, since the two are worth telling apart.
+        seen = conditions_named_by(path)
+        parser.error(
+            f"no artifact in {path} carries any of {sorted(wanted)}"
+            + (f" or fails in the way {arguments_repair_names(patterns)} repairs" if patterns else "")
+            + (f"; that file measures {seen}, so it may predate the rule this repair selects on, in "
+               "which case a fresh audit run is what is missing rather than the defect"
+               if seen else "; that file records no conditions at all"))
     return refs
 
 

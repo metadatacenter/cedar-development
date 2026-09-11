@@ -212,50 +212,71 @@ async function verifySplitNavigation(page) {
 // brittle than reproducing every click in the old sharing dialog, while still running the shipped
 // browser code, its Angular authorization layer, CORS, and the real conditional endpoints.
 async function verifyWorkspaceConditionalMutations(page, folderId, mutableFolderId, groupId) {
-  await gotoListing(page, folderId);
-  await page.evaluate(async ({folderId, mutableFolderId, groupId, firstName, secondName}) => {
-    const injector = window.angular.element(document).injector();
-    if (!injector) throw new Error('Workspace Angular injector is unavailable');
-    const resources = injector.get('resourceService');
-    const backend = injector.get('AuthorizedBackendService');
-    const folder = id => ({'@id': id, resourceType: 'folder'});
-    const call = register => new Promise((resolve, reject) => register(resolve, error => {
-      const status = error?.status ?? 'unknown';
-      const detail = error?.data?.errorMessage ?? error?.data?.message ?? error?.statusText ?? 'request failed';
-      reject(new Error(`${status}: ${detail}`));
-    }));
-    const currentResource = resource => call((ok, fail) => resources.getCurrentResource(resource, ok, fail));
-    const rename = async (id, name) => {
-      const current = await currentResource(folder(id));
-      await call((ok, fail) => backend.doCall(resources.renameNode(current, name, null), ok, fail));
-    };
+  const validatorFailures = [];
+  let checkedValidators = 0;
+  const checkValidator = response => {
+    const url = new URL(response.url());
+    if (!/^(group|resource)\./.test(url.hostname)) return;
+    const headers = response.headers();
+    if (!headers.etag) return;
+    checkedValidators++;
+    if (headers.etag.startsWith('W/') ||
+        !/(?:^|,)\s*no-transform\s*(?:,|$)/i.test(headers['cache-control'] ?? '')) {
+      validatorFailures.push(`${response.request().method()} ${url.pathname}: ETag=${headers.etag}, Cache-Control=${headers['cache-control']}`);
+    }
+  };
+  page.on('response', checkValidator);
+  try {
+    await gotoListing(page, folderId);
+    await page.evaluate(async ({folderId, mutableFolderId, groupId, firstName, secondName}) => {
+      const injector = window.angular.element(document).injector();
+      if (!injector) throw new Error('Workspace Angular injector is unavailable');
+      const resources = injector.get('resourceService');
+      const backend = injector.get('AuthorizedBackendService');
+      const folder = id => ({'@id': id, resourceType: 'folder'});
+      const call = register => new Promise((resolve, reject) => register(resolve, error => {
+        const status = error?.status ?? 'unknown';
+        const detail = error?.data?.message ?? error?.statusText ?? 'request failed';
+        reject(new Error(`${status}: ${detail}`));
+      }));
+      const currentResource = resource => call((ok, fail) => resources.getCurrentResource(resource, ok, fail));
+      const rename = async (id, name) => {
+        const current = await currentResource(folder(id));
+        await call((ok, fail) => backend.doCall(resources.renameNode(current, name, null), ok, fail));
+      };
 
-    await rename(mutableFolderId, firstName);
-    await rename(mutableFolderId, secondName);
+      await rename(mutableFolderId, firstName);
+      await rename(mutableFolderId, secondName);
 
-    const workspaceFolder = folder(folderId);
-    const permissions = await call((ok, fail) => resources.getResourceShare(workspaceFolder, ok, fail));
-    await call((ok, fail) => resources.setResourceShare(workspaceFolder, permissions, ok, fail));
-    await call((ok, fail) => resources.setResourceShare(workspaceFolder, permissions, ok, fail));
+      const workspaceFolder = folder(folderId);
+      const permissions = await call((ok, fail) => resources.getResourceShare(workspaceFolder, ok, fail));
+      await call((ok, fail) => resources.setResourceShare(workspaceFolder, permissions, ok, fail));
+      await call((ok, fail) => resources.setResourceShare(workspaceFolder, permissions, ok, fail));
 
-    const group = await call((ok, fail) => resources.getGroup(groupId, ok, fail));
-    group['schema:description'] = 'Workspace conditional update one';
-    await call((ok, fail) => resources.updateGroup(group, ok, fail));
-    group['schema:description'] = 'Workspace conditional update two';
-    await call((ok, fail) => resources.updateGroup(group, ok, fail));
+      const group = await call((ok, fail) => resources.getGroup(groupId, ok, fail));
+      group['schema:description'] = 'Workspace conditional update one';
+      await call((ok, fail) => resources.updateGroup(group, ok, fail));
+      group['schema:description'] = 'Workspace conditional update two';
+      await call((ok, fail) => resources.updateGroup(group, ok, fail));
 
-    const members = await call((ok, fail) => resources.getGroupMembers(group, ok, fail));
-    group.users = members.users;
-    await call((ok, fail) => resources.updateGroupMembers(group, ok, fail));
-    await call((ok, fail) => resources.updateGroupMembers(group, ok, fail));
-    await call((ok, fail) => resources.deleteGroup(group, ok, fail));
-  }, {
-    folderId,
-    mutableFolderId,
-    groupId,
-    firstName: `${MUTATION_FOLDER_NAME} once`,
-    secondName: MUTATION_FOLDER_FINAL_NAME,
-  });
+      const members = await call((ok, fail) => resources.getGroupMembers(group, ok, fail));
+      group.users = members.users;
+      await call((ok, fail) => resources.updateGroupMembers(group, ok, fail));
+      await call((ok, fail) => resources.updateGroupMembers(group, ok, fail));
+      await call((ok, fail) => resources.deleteGroup(group, ok, fail));
+    }, {
+      folderId,
+      mutableFolderId,
+      groupId,
+      firstName: `${MUTATION_FOLDER_NAME} once`,
+      secondName: MUTATION_FOLDER_FINAL_NAME,
+    });
+  } finally {
+    page.off('response', checkValidator);
+  }
+  if (!checkedValidators || validatorFailures.length) {
+    throw new Error(`Conditional responses must preserve strong ETags across proxies: ${validatorFailures.join('; ') || 'no validators observed'}`);
+  }
   console.log('✓ Workspace conditionally renamed a folder twice, replaced permissions twice, and completed group update/membership/delete lifecycles');
 }
 
@@ -1005,6 +1026,28 @@ async function gotoSharedWithMe(page, homeFolderId) {
   await page.waitForTimeout(500);
 }
 
+// A regrade reaches the "Shared with Me" listing through the search index, which the resource
+// server updates asynchronously after the ACL write. The row is already present when a role
+// changes, so waiting for the row says nothing about the capabilities it carries: poll the menu
+// entry itself, and leave the menu open for the caller that reads the rest of it.
+async function waitForRowCapability(page, homeFolderId, templateName, selector, enabled, complaint) {
+  let seen = null;
+  for (let attempt = 1; attempt <= 10; attempt++) {
+    await gotoSharedWithMe(page, homeFolderId);
+    if (await row(page, templateName).count() === 0) {
+      await page.waitForTimeout(1000);
+      continue;
+    }
+    await openRowMenu(page, templateName);
+    const item = page.locator(selector).first();
+    seen = (await item.getAttribute('class')) ?? '';
+    if (seen.includes('link-disabled') !== enabled) return item;
+    await page.waitForTimeout(1000);
+  }
+  throw new Error(`${complaint} after 10 attempts (the menu entry read class ${JSON.stringify(seen)}; `
+    + 'a regraded permission reaches this listing only once the search index has it)');
+}
+
 async function waitForSharedRow(page, homeFolderId, templateName, present) {
   for (let attempt = 1; attempt <= 8; attempt++) {
     await gotoSharedWithMe(page, homeFolderId);
@@ -1033,12 +1076,8 @@ async function verifyTwoUserSharing(browser, ownerPage, folderId, templateId, us
     await expectInfoPanelOwner(recipientPage, TEMPLATE_NAME, USER1_NAME);
 
     await changeUserShare(ownerPage, folderId, TEMPLATE_NAME, USER2_NAME, 'editor');
-    await waitForSharedRow(recipientPage, user2.profile.homeFolderId, TEMPLATE_NAME, true);
-    await openRowMenu(recipientPage, TEMPLATE_NAME);
-    const editorRename = recipientPage.locator('a.rename:visible').first();
-    if (((await editorRename.getAttribute('class')) ?? '').includes('link-disabled')) {
-      throw new Error('Editor still saw Rename disabled');
-    }
+    await waitForRowCapability(recipientPage, user2.profile.homeFolderId, TEMPLATE_NAME,
+        'a.rename:visible', true, 'Editor still saw Rename disabled');
     const editorShare = recipientPage.locator('ul.dropdown-menu:visible a.share').first();
     if (!((await editorShare.getAttribute('class')) ?? '').includes('link-disabled')) {
       throw new Error('Editor was offered an enabled Share action');
@@ -1061,12 +1100,8 @@ async function verifyTwoUserSharing(browser, ownerPage, folderId, templateId, us
     }
 
     await changeUserShare(ownerPage, folderId, TEMPLATE_NAME, USER2_NAME, 'manager');
-    await waitForSharedRow(recipientPage, user2.profile.homeFolderId, TEMPLATE_NAME, true);
-    await openRowMenu(recipientPage, TEMPLATE_NAME);
-    const managerShare = recipientPage.locator('ul.dropdown-menu:visible a.share').first();
-    if (((await managerShare.getAttribute('class')) ?? '').includes('link-disabled')) {
-      throw new Error('Manager still saw Share disabled');
-    }
+    await waitForRowCapability(recipientPage, user2.profile.homeFolderId, TEMPLATE_NAME,
+        'ul.dropdown-menu:visible a.share', true, 'Manager still saw Share disabled');
     await menuItem(recipientPage, 'Open');
     await recipientPage.waitForURL(/\/templates\/edit\//, { timeout: 30_000 });
     await recipientPage.getByRole('textbox', { name: 'Description' }).first()
@@ -1324,6 +1359,46 @@ async function reEditInstance(page, newValue) {
   if (resp.status() !== 200) throw new Error(`instance update answered ${resp.status()}`);
 }
 
+async function editorIsDirty(page) {
+  return page.evaluate(
+    () => window.angular.element(document).injector().get('UIUtilService').isDirty());
+}
+
+// What the page held when it would not move: both inputs, what the host compares them against,
+// and whether the dirty-navigation warning is on screen. A bare navigation timeout says none of it.
+async function editorState(page) {
+  const state = await page.evaluate(() => {
+    const injector = window.angular ? window.angular.element(document).injector() : null;
+    const cee = document.querySelector('cedar-embeddable-editor');
+    const nameField = document.querySelector('#instance-name');
+    const alert = document.querySelector('.sweet-alert');
+    return {
+      url: window.location.href,
+      angularUrl: injector ? injector.get('$location').url() : null,
+      dirty: injector ? injector.get('UIUtilService').isDirty() : null,
+      instanceName: nameField ? nameField.value : null,
+      ceeName: cee && cee.currentMetadata ? cee.currentMetadata['schema:name'] : null,
+      warningVisible: !!(alert && window.getComputedStyle(alert).display !== 'none'),
+    };
+  });
+  return JSON.stringify(state);
+}
+
+// The host is dirty when the CEE metadata differs from the saved baseline or the instance name
+// does, and the back arrow navigates only when it is clean. A typed value reaches the CEE model
+// asynchronously, so a flag read once can say clean while the change is still landing. Require the
+// field and the flag to agree, and to still agree a moment later.
+async function settleCleanEditor(page, expectedValue) {
+  for (let attempt = 1; attempt <= 10; attempt++) {
+    if (await notesValue(page) === expectedValue && !(await editorIsDirty(page))) {
+      await page.waitForTimeout(500);
+      if (await notesValue(page) === expectedValue && !(await editorIsDirty(page))) return;
+    }
+    await page.waitForTimeout(500);
+  }
+  throw new Error(`the editor never settled clean on the saved value: ${await editorState(page)}`);
+}
+
 async function waitForEditorDirty(page, dirty) {
   await page.waitForFunction(expected => {
     const injector = window.angular.element(document).injector();
@@ -1380,8 +1455,15 @@ async function verifyDirtyNavigationProtection(page, cleanValue, returnUrl) {
 
   await fillCeeTextField(page, TEXT_FIELD_NAME, cleanValue);
   await waitForEditorDirty(page, false);
+  await settleCleanEditor(page, cleanValue);
+  const beforeBack = await editorState(page);
   await page.locator('.back-arrow-click:visible').click();
-  await page.waitForURL(url => sameNavigationTarget(url.href, returnUrl), { timeout: 20_000 });
+  try {
+    await page.waitForURL(url => sameNavigationTarget(url.href, returnUrl), { timeout: 20_000 });
+  } catch (navigationTimeout) {
+    throw new Error('the back arrow did not return to the listing after the value was reverted.'
+      + `\n  before: ${beforeBack}\n  after:  ${await editorState(page)}`);
+  }
   if (await page.locator('.sweet-alert:visible').count()) {
     throw new Error('exactly reverting to the saved value still produced a dirty-navigation warning');
   }
