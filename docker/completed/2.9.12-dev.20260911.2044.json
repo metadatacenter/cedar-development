@@ -1,0 +1,228 @@
+{
+  "completedAt": "2026-09-11T21:18:58.598041+00:00",
+  "frontendManifestSha256": "47dd2349f3d35fac659144da1619374078bbce57442d4f9d5d592b6fd53bf84f",
+  "images": [
+    {
+      "digest": "sha256:427613ff12a777067218787e3ba0029069ca2b9ba7fbebabef35fe30a9b101bf",
+      "image": "cedar-java",
+      "platform": "linux/amd64",
+      "reference": "nexus.bmir.stanford.edu/docker-cedar-internal/cedar-java:2.9.12-dev.20260911.2044",
+      "sourceRevision": "cca89416a8bfe48fed8d1704162bb593d401cd2c"
+    },
+    {
+      "digest": "sha256:d3f3e4ff234e3e75a2941e27396f881e084fd444a5ceb803a66536fdbdb7b046",
+      "image": "cedar-microservice",
+      "platform": "linux/amd64",
+      "reference": "nexus.bmir.stanford.edu/docker-cedar-internal/cedar-microservice:2.9.12-dev.20260911.2044",
+      "sourceRevision": "cca89416a8bfe48fed8d1704162bb593d401cd2c"
+    },
+    {
+      "digest": "sha256:a0094b00309971b7cb6897c895b9b68a4ef2cf36940daf0180bd6e98fd86c1f9",
+      "image": "cedar-infra-keycloak",
+      "platform": "linux/amd64",
+      "reference": "nexus.bmir.stanford.edu/docker-cedar/cedar-infra-keycloak:2.9.12-dev.20260911.2044",
+      "sourceRevision": "cca89416a8bfe48fed8d1704162bb593d401cd2c"
+    },
+    {
+      "digest": "sha256:11bad56822c7968f81418ee49621763dec370a0f9f5bcb09e2f6b89a71b68ba1",
+      "image": "cedar-infra-mongo",
+      "platform": "linux/amd64",
+      "reference": "nexus.bmir.stanford.edu/docker-cedar/cedar-infra-mongo:2.9.12-dev.20260911.2044",
+      "sourceRevision": "cca89416a8bfe48fed8d1704162bb593d401cd2c"
+    },
+    {
+      "digest": "sha256:27d12d5327a49b86dd04a9018be362302fde0a2c08b953a363a0353bfc7ec03e",
+      "image": "cedar-infra-mysql",
+      "platform": "linux/amd64",
+      "reference": "nexus.bmir.stanford.edu/docker-cedar/cedar-infra-mysql:2.9.12-dev.20260911.2044",
+      "sourceRevision": "cca89416a8bfe48fed8d1704162bb593d401cd2c"
+    },
+    {
+      "digest": "sha256:29aa5996d9b8befd8f158ece9b46ea87ca5bcc43019745b27c84177f98301ea6",
+      "image": "cedar-infra-neo4j",
+      "platform": "linux/amd64",
+      "reference": "nexus.bmir.stanford.edu/docker-cedar/cedar-infra-neo4j:2.9.12-dev.20260911.2044",
+      "sourceRevision": "cca89416a8bfe48fed8d1704162bb593d401cd2c"
+    },
+    {
+      "digest": "sha256:56ca0b2c704a801a3fd5f6cec1e881a032b74aa27c7b8ff5efdafeb0d237fc4d",
+      "image": "cedar-infra-nginx",
+      "platform": "linux/amd64",
+      "reference": "nexus.bmir.stanford.edu/docker-cedar/cedar-infra-nginx:2.9.12-dev.20260911.2044",
+      "sourceRevision": "cca89416a8bfe48fed8d1704162bb593d401cd2c"
+    },
+    {
+      "digest": "sha256:8b1891ca9af0a13e0d939bd5965c8573c4eeab1b6943553984f2992c42762edd",
+      "image": "cedar-infra-opensearch",
+      "platform": "linux/amd64",
+      "reference": "nexus.bmir.stanford.edu/docker-cedar/cedar-infra-opensearch:2.9.12-dev.20260911.2044",
+      "sourceRevision": "cca89416a8bfe48fed8d1704162bb593d401cd2c"
+    },
+    {
+      "digest": "sha256:c845580710226ea5b9c7b87bed7e28608fd97a1622120a06fd72d9f8439b8534",
+      "image": "cedar-infra-redis-persistent",
+      "platform": "linux/amd64",
+      "reference": "nexus.bmir.stanford.edu/docker-cedar/cedar-infra-redis-persistent:2.9.12-dev.20260911.2044",
+      "sourceRevision": "cca89416a8bfe48fed8d1704162bb593d401cd2c"
+    },
+    {
+      "digest": "sha256:13e128a6b41c7e1d44eb1ae29789a79a86954e58c04ee019173abb7516ef22fb",
+      "image": "cedar-server-artifact",
+      "platform": "linux/amd64",
+      "reference": "nexus.bmir.stanford.edu/docker-cedar/cedar-server-artifact:2.9.12-dev.20260911.2044",
+      "sourceRevision": "cca89416a8bfe48fed8d1704162bb593d401cd2c"
+    },
+    {
+      "digest": "sha256:d36cebb5894bae609cdc14f676d6bd4128d396f63d9283c69690c7134dff8f49",
+      "image": "cedar-server-bridge",
+      "platform": "linux/amd64",
+      "reference": "nexus.bmir.stanford.edu/docker-cedar/cedar-server-bridge:2.9.12-dev.20260911.2044",
+      "sourceRevision": "cca89416a8bfe48fed8d1704162bb593d401cd2c"
+    },
+    {
+      "digest": "sha256:e8feb8344cc59770b54cac3ca685b349817578db27d2b60db9dd9236645e34f3",
+      "image": "cedar-server-group",
+      "platform": "linux/amd64",
+      "reference": "nexus.bmir.stanford.edu/docker-cedar/cedar-server-group:2.9.12-dev.20260911.2044",
+      "sourceRevision": "cca89416a8bfe48fed8d1704162bb593d401cd2c"
+    },
+    {
+      "digest": "sha256:b72159cbe2ea42e67c1d851a0156c5d33267913c53d4afb0bef78ae057f5d12a",
+      "image": "cedar-server-impex",
+      "platform": "linux/amd64",
+      "reference": "nexus.bmir.stanford.edu/docker-cedar/cedar-server-impex:2.9.12-dev.20260911.2044",
+      "sourceRevision": "cca89416a8bfe48fed8d1704162bb593d401cd2c"
+    },
+    {
+      "digest": "sha256:d9b4b82c90d9540378ad623d2ca006becd788f828b23d2e9b53628bbafddcbed",
+      "image": "cedar-server-messaging",
+      "platform": "linux/amd64",
+      "reference": "nexus.bmir.stanford.edu/docker-cedar/cedar-server-messaging:2.9.12-dev.20260911.2044",
+      "sourceRevision": "cca89416a8bfe48fed8d1704162bb593d401cd2c"
+    },
+    {
+      "digest": "sha256:ad694d866dedbb379640a0b92aa80987fc1ab83becc952deb6ba1c1693e787bd",
+      "image": "cedar-server-monitor",
+      "platform": "linux/amd64",
+      "reference": "nexus.bmir.stanford.edu/docker-cedar/cedar-server-monitor:2.9.12-dev.20260911.2044",
+      "sourceRevision": "cca89416a8bfe48fed8d1704162bb593d401cd2c"
+    },
+    {
+      "digest": "sha256:ec683e7b8197d807c566b14a36b0b4f051780be12c254298e06ba489cd5411f4",
+      "image": "cedar-server-openview",
+      "platform": "linux/amd64",
+      "reference": "nexus.bmir.stanford.edu/docker-cedar/cedar-server-openview:2.9.12-dev.20260911.2044",
+      "sourceRevision": "cca89416a8bfe48fed8d1704162bb593d401cd2c"
+    },
+    {
+      "digest": "sha256:bfed4939417ec4fa66405cc9541c2e9c5b74128748de34e2c362da1b98718ef0",
+      "image": "cedar-server-repo",
+      "platform": "linux/amd64",
+      "reference": "nexus.bmir.stanford.edu/docker-cedar/cedar-server-repo:2.9.12-dev.20260911.2044",
+      "sourceRevision": "cca89416a8bfe48fed8d1704162bb593d401cd2c"
+    },
+    {
+      "digest": "sha256:9ed79d3a956d209775661ade286a7f7556962db78e1be5b18c4977d1113b9f73",
+      "image": "cedar-server-resource",
+      "platform": "linux/amd64",
+      "reference": "nexus.bmir.stanford.edu/docker-cedar/cedar-server-resource:2.9.12-dev.20260911.2044",
+      "sourceRevision": "cca89416a8bfe48fed8d1704162bb593d401cd2c"
+    },
+    {
+      "digest": "sha256:7eb9176385ee958abbc9fcada5169f0310ed0c11111197fdc46725d56d28ede1",
+      "image": "cedar-server-schema",
+      "platform": "linux/amd64",
+      "reference": "nexus.bmir.stanford.edu/docker-cedar/cedar-server-schema:2.9.12-dev.20260911.2044",
+      "sourceRevision": "cca89416a8bfe48fed8d1704162bb593d401cd2c"
+    },
+    {
+      "digest": "sha256:a88fb6ae86ba0b12308de64e90617a3322b8fd2ea4057ef17936ed8125cf1744",
+      "image": "cedar-server-submission",
+      "platform": "linux/amd64",
+      "reference": "nexus.bmir.stanford.edu/docker-cedar/cedar-server-submission:2.9.12-dev.20260911.2044",
+      "sourceRevision": "cca89416a8bfe48fed8d1704162bb593d401cd2c"
+    },
+    {
+      "digest": "sha256:cdb289b28c0878c9fb593dcadf458a22287abedccc20b9ea276e826c6170e3d7",
+      "image": "cedar-server-terminology",
+      "platform": "linux/amd64",
+      "reference": "nexus.bmir.stanford.edu/docker-cedar/cedar-server-terminology:2.9.12-dev.20260911.2044",
+      "sourceRevision": "cca89416a8bfe48fed8d1704162bb593d401cd2c"
+    },
+    {
+      "digest": "sha256:ee3d1fc33777dbc48de45225c033c8e735fafe2030023fced283932d81b3a9bc",
+      "image": "cedar-server-user",
+      "platform": "linux/amd64",
+      "reference": "nexus.bmir.stanford.edu/docker-cedar/cedar-server-user:2.9.12-dev.20260911.2044",
+      "sourceRevision": "cca89416a8bfe48fed8d1704162bb593d401cd2c"
+    },
+    {
+      "digest": "sha256:868999c0d9809fb2172f49e785e998e9d073b222211741fd3a5ad31894036c0e",
+      "image": "cedar-server-valuerecommender",
+      "platform": "linux/amd64",
+      "reference": "nexus.bmir.stanford.edu/docker-cedar/cedar-server-valuerecommender:2.9.12-dev.20260911.2044",
+      "sourceRevision": "cca89416a8bfe48fed8d1704162bb593d401cd2c"
+    },
+    {
+      "digest": "sha256:cd155ef018952cba63b748b574ef26e7094b23b901faaf88e11823eb391f762c",
+      "image": "cedar-server-worker",
+      "platform": "linux/amd64",
+      "reference": "nexus.bmir.stanford.edu/docker-cedar/cedar-server-worker:2.9.12-dev.20260911.2044",
+      "sourceRevision": "cca89416a8bfe48fed8d1704162bb593d401cd2c"
+    },
+    {
+      "digest": "sha256:230b2979691899d14720c3bdb88fbda52833e0efb9f121ce5269a157db14ca25",
+      "image": "cedar-frontend-content",
+      "platform": "linux/amd64",
+      "reference": "nexus.bmir.stanford.edu/docker-cedar/cedar-frontend-content:2.9.12-dev.20260911.2044",
+      "sourceRevision": "cca89416a8bfe48fed8d1704162bb593d401cd2c"
+    },
+    {
+      "digest": "sha256:be89c57114b8cb82e466d6276891ec9f1f839cd4d302b1d1b51c1798ac79983a",
+      "image": "cedar-frontend-main",
+      "platform": "linux/amd64",
+      "reference": "nexus.bmir.stanford.edu/docker-cedar/cedar-frontend-main:2.9.12-dev.20260911.2044",
+      "sourceRevision": "cca89416a8bfe48fed8d1704162bb593d401cd2c"
+    },
+    {
+      "digest": "sha256:ff84dfa15dd0efa166a57544e802ca4c60340741fa59d97c5a22b92f0caa5bd1",
+      "image": "cedar-frontend-monitoring",
+      "platform": "linux/amd64",
+      "reference": "nexus.bmir.stanford.edu/docker-cedar/cedar-frontend-monitoring:2.9.12-dev.20260911.2044",
+      "sourceRevision": "cca89416a8bfe48fed8d1704162bb593d401cd2c"
+    },
+    {
+      "digest": "sha256:619cd04a0fd44374bd1be338df44925c48a879b36643d7d20ff6c12b47f8cb3b",
+      "image": "cedar-frontend-bridging",
+      "platform": "linux/amd64",
+      "reference": "nexus.bmir.stanford.edu/docker-cedar/cedar-frontend-bridging:2.9.12-dev.20260911.2044",
+      "sourceRevision": "cca89416a8bfe48fed8d1704162bb593d401cd2c"
+    },
+    {
+      "digest": "sha256:ade6f19869120dbe67506a31923ed25e01017d10e44d9cf5c0278ed554840ace",
+      "image": "cedar-frontend-openview",
+      "platform": "linux/amd64",
+      "reference": "nexus.bmir.stanford.edu/docker-cedar/cedar-frontend-openview:2.9.12-dev.20260911.2044",
+      "sourceRevision": "cca89416a8bfe48fed8d1704162bb593d401cd2c"
+    },
+    {
+      "digest": "sha256:0d7436e378525d54dae90f94d4cda7d31d8331ded9b45a7d0bc1c3c65b51e8e6",
+      "image": "cedar-frontend-workspace",
+      "platform": "linux/amd64",
+      "reference": "nexus.bmir.stanford.edu/docker-cedar/cedar-frontend-workspace:2.9.12-dev.20260911.2044",
+      "sourceRevision": "cca89416a8bfe48fed8d1704162bb593d401cd2c"
+    },
+    {
+      "digest": "sha256:63a0ea5ee5d92f3ad05da2d0a91f4e4bd6ff81779fe0eebe3a3bea66ab95dbb5",
+      "image": "cedar-frontend-template-designer",
+      "platform": "linux/amd64",
+      "reference": "nexus.bmir.stanford.edu/docker-cedar/cedar-frontend-template-designer:2.9.12-dev.20260911.2044",
+      "sourceRevision": "cca89416a8bfe48fed8d1704162bb593d401cd2c"
+    }
+  ],
+  "npmPlanSha256": "58131641fc1623b14bd569e9404969f0859f805e9010270c139eab938af0e26d",
+  "plan": "docker/trains/2.9.12-dev.20260911.2044.json",
+  "schemaVersion": 2,
+  "sourceManifestSha256": "04434a85f1271e11973bba61943a98f6891973312b51ce9b34165ec6c6afb963",
+  "version": "2.9.12-dev.20260911.2044"
+}
