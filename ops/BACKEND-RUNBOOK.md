@@ -1785,6 +1785,22 @@ check remains atomic when two requests pass the HTTP read check at the same time
 without the internal field read as revision zero and acquire revision one on their first conditional
 update. `_cedarRevision` is storage metadata and must never appear in public artifact JSON.
 
+Strong validators must also survive the public reverse proxy. Every Jersey response carrying a
+strong ETag receives `Cache-Control: no-transform` from the shared
+`StrongEtagResponseFilter`; existing cache directives are preserved. Cloudflare can otherwise
+recompress JSON with Brotli and turn `"1"` into `W/"1"`. That weak tag cannot satisfy `If-Match`,
+so even a newly created group's first member edit fails with 412. The same failure applies to ACL,
+ownership and artifact mutations. Do not strip `W/` in clients or accept weak tags on writes.
+[Cloudflare compression rules](https://developers.cloudflare.com/rules/compression-rules/) honor
+`no-transform`; retain this header through nginx and any edge response rules. Jetty may still emit
+its own strong gzip representation tag, which the revision parser understands.
+
+After deploying this shared library, verify the **public, proxied** group membership and permission
+GET responses in a browser: `ETag` must remain strong and `Cache-Control` must include `no-transform`.
+Then add/remove members and grants repeatedly, and verify a genuinely stale revision still gets 412.
+A direct-origin or local-only check cannot prove the Cloudflare path. The browser smoke checks the
+strong validator and `no-transform` headers during its group and permission mutation lifecycle.
+
 The shared AngularJS backend service stores the ETag on each in-memory artifact representation and
 adds that representation's value to its later `PUT`. Do not replace this with a URL-global latest
 value: two in-page editors can hold different representations of the same URL, and borrowing the
@@ -1792,6 +1808,22 @@ newer editor's ETag would recreate lost updates. Internal server read-modify-wri
 likewise forward the ETag from their own preceding `GET`; fetching a fresh ETag immediately before
 writing would defeat the concurrency guarantee. CORS allows the `If-Match` request header and exposes
 the `ETag` response header to browser JavaScript.
+
+Browser mutations also need a synchronous handler guard while a request is pending. A disabled
+button alone does not protect an already-open confirmation callback, keyboard submission, or a
+second call from another binding. The monolithic frontend and split Workspace guard CEE saves,
+group mutations, permissions, rename/move/copy/create dialogs, inclusion updates, publication and
+OpenView actions, inline descriptions, and upload submission. The split Designer guards artifact
+saves and inclusion updates. Release the guard on both success and failure; do not automatically
+retry a 412 with a newly fetched validator.
+
+Workspace deletion tracks pending operations by resource identifier. Separate folder/artifact
+rows can be deleted concurrently: each deletion reads and sends its own resource validator, not a
+shared folder validator. Completion removes only the matching row and adjusts the count only if
+that row is still present, so navigation or another deletion cannot remove a different selection.
+Group metadata and group membership likewise have separate validators; permission and ownership
+commands use their own representation contracts. New-resource POSTs have no prior ETag and need
+reentrancy guards to prevent duplicate creation.
 
 Template-instance validation is unconditional. `skip_validation=true` remains accepted only for
 wire compatibility and does not bypass validation or storage checks. If a privileged bypass is ever

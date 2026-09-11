@@ -212,50 +212,71 @@ async function verifySplitNavigation(page) {
 // brittle than reproducing every click in the old sharing dialog, while still running the shipped
 // browser code, its Angular authorization layer, CORS, and the real conditional endpoints.
 async function verifyWorkspaceConditionalMutations(page, folderId, mutableFolderId, groupId) {
-  await gotoListing(page, folderId);
-  await page.evaluate(async ({folderId, mutableFolderId, groupId, firstName, secondName}) => {
-    const injector = window.angular.element(document).injector();
-    if (!injector) throw new Error('Workspace Angular injector is unavailable');
-    const resources = injector.get('resourceService');
-    const backend = injector.get('AuthorizedBackendService');
-    const folder = id => ({'@id': id, resourceType: 'folder'});
-    const call = register => new Promise((resolve, reject) => register(resolve, error => {
-      const status = error?.status ?? 'unknown';
-      const detail = error?.data?.message ?? error?.statusText ?? 'request failed';
-      reject(new Error(`${status}: ${detail}`));
-    }));
-    const currentResource = resource => call((ok, fail) => resources.getCurrentResource(resource, ok, fail));
-    const rename = async (id, name) => {
-      const current = await currentResource(folder(id));
-      await call((ok, fail) => backend.doCall(resources.renameNode(current, name, null), ok, fail));
-    };
+  const validatorFailures = [];
+  let checkedValidators = 0;
+  const checkValidator = response => {
+    const url = new URL(response.url());
+    if (!/^(group|resource)\./.test(url.hostname)) return;
+    const headers = response.headers();
+    if (!headers.etag) return;
+    checkedValidators++;
+    if (headers.etag.startsWith('W/') ||
+        !/(?:^|,)\s*no-transform\s*(?:,|$)/i.test(headers['cache-control'] ?? '')) {
+      validatorFailures.push(`${response.request().method()} ${url.pathname}: ETag=${headers.etag}, Cache-Control=${headers['cache-control']}`);
+    }
+  };
+  page.on('response', checkValidator);
+  try {
+    await gotoListing(page, folderId);
+    await page.evaluate(async ({folderId, mutableFolderId, groupId, firstName, secondName}) => {
+      const injector = window.angular.element(document).injector();
+      if (!injector) throw new Error('Workspace Angular injector is unavailable');
+      const resources = injector.get('resourceService');
+      const backend = injector.get('AuthorizedBackendService');
+      const folder = id => ({'@id': id, resourceType: 'folder'});
+      const call = register => new Promise((resolve, reject) => register(resolve, error => {
+        const status = error?.status ?? 'unknown';
+        const detail = error?.data?.message ?? error?.statusText ?? 'request failed';
+        reject(new Error(`${status}: ${detail}`));
+      }));
+      const currentResource = resource => call((ok, fail) => resources.getCurrentResource(resource, ok, fail));
+      const rename = async (id, name) => {
+        const current = await currentResource(folder(id));
+        await call((ok, fail) => backend.doCall(resources.renameNode(current, name, null), ok, fail));
+      };
 
-    await rename(mutableFolderId, firstName);
-    await rename(mutableFolderId, secondName);
+      await rename(mutableFolderId, firstName);
+      await rename(mutableFolderId, secondName);
 
-    const workspaceFolder = folder(folderId);
-    const permissions = await call((ok, fail) => resources.getResourceShare(workspaceFolder, ok, fail));
-    await call((ok, fail) => resources.setResourceShare(workspaceFolder, permissions, ok, fail));
-    await call((ok, fail) => resources.setResourceShare(workspaceFolder, permissions, ok, fail));
+      const workspaceFolder = folder(folderId);
+      const permissions = await call((ok, fail) => resources.getResourceShare(workspaceFolder, ok, fail));
+      await call((ok, fail) => resources.setResourceShare(workspaceFolder, permissions, ok, fail));
+      await call((ok, fail) => resources.setResourceShare(workspaceFolder, permissions, ok, fail));
 
-    const group = await call((ok, fail) => resources.getGroup(groupId, ok, fail));
-    group['schema:description'] = 'Workspace conditional update one';
-    await call((ok, fail) => resources.updateGroup(group, ok, fail));
-    group['schema:description'] = 'Workspace conditional update two';
-    await call((ok, fail) => resources.updateGroup(group, ok, fail));
+      const group = await call((ok, fail) => resources.getGroup(groupId, ok, fail));
+      group['schema:description'] = 'Workspace conditional update one';
+      await call((ok, fail) => resources.updateGroup(group, ok, fail));
+      group['schema:description'] = 'Workspace conditional update two';
+      await call((ok, fail) => resources.updateGroup(group, ok, fail));
 
-    const members = await call((ok, fail) => resources.getGroupMembers(group, ok, fail));
-    group.users = members.users;
-    await call((ok, fail) => resources.updateGroupMembers(group, ok, fail));
-    await call((ok, fail) => resources.updateGroupMembers(group, ok, fail));
-    await call((ok, fail) => resources.deleteGroup(group, ok, fail));
-  }, {
-    folderId,
-    mutableFolderId,
-    groupId,
-    firstName: `${MUTATION_FOLDER_NAME} once`,
-    secondName: MUTATION_FOLDER_FINAL_NAME,
-  });
+      const members = await call((ok, fail) => resources.getGroupMembers(group, ok, fail));
+      group.users = members.users;
+      await call((ok, fail) => resources.updateGroupMembers(group, ok, fail));
+      await call((ok, fail) => resources.updateGroupMembers(group, ok, fail));
+      await call((ok, fail) => resources.deleteGroup(group, ok, fail));
+    }, {
+      folderId,
+      mutableFolderId,
+      groupId,
+      firstName: `${MUTATION_FOLDER_NAME} once`,
+      secondName: MUTATION_FOLDER_FINAL_NAME,
+    });
+  } finally {
+    page.off('response', checkValidator);
+  }
+  if (!checkedValidators || validatorFailures.length) {
+    throw new Error(`Conditional responses must preserve strong ETags across proxies: ${validatorFailures.join('; ') || 'no validators observed'}`);
+  }
   console.log('✓ Workspace conditionally renamed a folder twice, replaced permissions twice, and completed group update/membership/delete lifecycles');
 }
 
