@@ -572,20 +572,21 @@ cedarcli native start infra           # or: backends, microservices, frontends
 cedarcli native start microservice <name>   # artifact, bridge, group, resource, …
 cedarcli native start frontend <name>       # main, workspace, designer, openview, …
 cedarcli native stop all              # same shapes as start
-cedarcli native restart [name...]     # all managed applications, or only the named ones
+cedarcli native restart all           # managed applications; infrastructure stays up
+cedarcli native restart microservice repo
+cedarcli native restart microservices
+cedarcli native restart frontend openview
+cedarcli native restart frontends
 cedarcli native status                # one-shot table: PID / port / health / binary / error-count
 cedarcli native watch                 # auto-refreshing status
 cedarcli native logs <name>           # tail -f a service log
 cedarcli native health                # exit 0 only if every managed application is healthy
 ```
 
-`start` and `stop` name one service at a time through their `microservice` and `frontend`
-subcommands, while `restart` takes a list. Starting an arbitrary named subset in one call is only
-available on the controller itself:
-
-```bash
-bash $CEDAR_HOME/cedar-development/ops/cedar-services.sh start ui-main ui-workspace ui-designer
-```
+`start`, `stop`, and `restart` name one application through `microservice <name>` or
+`frontend <name>`, and accept the `microservices` and `frontends` application groups.
+For compatibility, restart also accepts a flat list such as `restart repo ui-openview`.
+Use `restart all` for all managed applications; infrastructure remains running.
 
 `cedarcli native status` is the preferred whole-host view. It renders one grouped table for the
 managed applications and native infrastructure. Managed rows retain every
@@ -825,7 +826,7 @@ previous values, and restart artifact first so it accepts both. Then restart res
 they send the new key. Verify the callers and smoke suite before `cedarcli env artifact-key retire`,
 distribute that state and restart artifact again to stop accepting the old key. A second rotation is
 refused while a previous key is retained, so an unfinished rollout cannot silently lose its overlap.
-Use `cedarcli native restart <service>` for native deployments; containers must be recreated with the
+Use `cedarcli native restart microservice <service>` for native deployments; containers must be recreated with the
 updated environment. Rotation does not change end-user API keys or login tokens. The previous key
 must be retained until every caller has switched, including workers processing queued jobs.
 
@@ -1603,7 +1604,7 @@ TypeScript, while both emit the same bytes for it.
   Restart the offender by name so it loads the current jar, and re-check that its **BINARY** column
   reads `current`:
   ```bash
-  cedarcli native restart <name>
+  cedarcli native restart microservice <name>
   ```
   If you suspect the *current* jar is itself a partial build, confirm it is a sound fat jar before
   restarting into it: `unzip -l <app>.jar | grep -c RemovalCause` should be non-zero, and the jar
@@ -1634,6 +1635,12 @@ The `docker` group covers build, validation, Docker-aware status, per-stack star
 network/certificate setup, and destructive removal. Native `start` and `stop` manage infrastructure
 and the application groups without terminal automation. The `native` group exposes application
 status, health, logs, restart, and the continuously refreshing status view.
+
+Native restart accepts the same application groups as start and stop: `microservice <name>`,
+`microservices`, `frontend <name>`, `frontends`, and `frontend split-frontends`. `restart all`
+restarts every managed application while infrastructure stays running. The old no-argument
+`restart` and flat service lists (`restart repo ui-openview`) remain compatibility aliases.
+Hybrid mode permits only frontend targets. A failed stop prevents the corresponding start step.
 
 ## Building CEDAR
 
