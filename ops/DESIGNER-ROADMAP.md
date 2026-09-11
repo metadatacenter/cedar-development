@@ -25,10 +25,9 @@ wrong answer to it.
 
 ## The Goal, and the Order
 
-Every parameter the model library exposes is reachable from a card, and that is
-what makes the cards the problem to solve next. A Basic-profile author meets the
+The cards need a deliberate choice of controls for each profile. A Basic-profile author meets the
 whole surface at once — a datatype menu, a granularity menu, a regular-expression
-box, an occurrence range, a property IRI — where that profile's own mockup shows a
+box and an occurrence range — where that profile's own mockup shows a
 name, a requirement and a help line. Adding controls to one card is how the
 designer CED replaces became cluttered, and CED has now arrived at the same place
 by the same route.
@@ -44,8 +43,8 @@ Semantic profile's; then opening and saving, which is what makes the component
 usable by anyone outside a demo; then structure beyond a flat template, which is
 the Modular profile's and which touches everything else.
 
-Two field-level questions remain, and they are first because they are small and
-because both are decisions rather than implementations.
+The field-level work comes first: semantic authoring controls and two palette
+and model capability decisions.
 
 Item numbers are for referring to items in conversation, and they are not stable
 handles — an item that is finished leaves the document, and the rest are
@@ -54,7 +53,20 @@ rather than its number.
 
 ## The Fields
 
-### 1. A palette entry for a date that carries a time
+### 1. Annotation and property IRI authoring
+
+Provide a clear authoring surface for annotations and property IRIs, appropriate
+for the Semantic and Modular profiles. Replace the Field details placeholder with focused controls for language, alternate
+labels, property IRI/property name and annotations. Support adding, editing and removing
+literal and IRI-valued annotations, with unique names and validation of IRI values.
+Property IRI editing must apply to a dynamic field's placement in its containing
+template or element, with clear validation and no control on static fields.
+
+Preserve imported annotations and property IRIs through unrelated edits, nesting,
+and JSON/YAML round trips. Cover published-field restrictions and cancellation or
+invalid drafts without losing the saved values.
+
+### 2. A palette entry for a date that carries a time
 
 The palette offers Date and Time, and `xsd:dateTime` has no entry of its own. An
 author reaches it by adding a Date and changing its datatype, which works and is
@@ -65,7 +77,7 @@ Either a third entry, or the datatype control has to be plain enough on a Date c
 that nobody needs the palette to find it. The palette already has twenty-six
 entries, which is the argument against a third.
 
-### 2. Length and pattern on a paragraph
+### 3. Length and pattern on a paragraph
 
 A text field constrains its values by `minLength`, `maxLength` and a regular
 expression. A paragraph carries none of the three in CED, and the reason is that
@@ -86,7 +98,7 @@ them.
 
 ## The Surface Around the Fields
 
-### 3. The three profiles, and what each one holds
+### 4. The three profiles, and what each one holds
 
 Basic, Semantic and Modular are the product structure, and CED has their names
 already: three presets in the preferences modal, each a bundle of visibility
@@ -111,7 +123,7 @@ does not show.
 Every control on a card today is a decision this item has to absorb, and there are
 now a great many of them.
 
-### 4. Per-type capability rules
+### 5. Per-type capability rules
 
 CED's descriptor is the one place that answers what a type will accept, and the
 cards and the writer ask it rather than testing for a type's name.
@@ -136,14 +148,14 @@ open-and-save. It is written as a text field today to stop the decay, which trad
 one surprise for a smaller one. Refusing to save it, and saying so, is the better
 answer and belongs with validation.
 
-### 5. A template's header and footer
+### 6. A template's header and footer
 
 A template carries a header and a footer that a form shows around the fields, and
 neither is reachable. Both are the template's own text rather than any field's, so
 they belong with the template's name and description rather than on a card — which
 is the only part of this that needs deciding.
 
-### 6. Guidance in the interface
+### 7. Guidance in the interface
 
 Tooltips, help messages and worked examples are part of what makes the Basic
 profile usable by someone who has never met a metadata standard, and the Semantic
@@ -160,13 +172,13 @@ be told what the choice does.
 
 ## Version Awareness
 
-### 7. Say what a constraint resolves to
+### 8. Say what a constraint resolves to
 
 An author who has pinned DOID 2026-06-30 to a branch of 4,000 terms cannot see
 that from the panel. The terminology server can answer it and the picker already
 shows counts while choosing; the constraint, once chosen, shows a label.
 
-### 8. Freeze on publish
+### 9. Freeze on publish
 
 A draft template names a release or names latest; a published one must name a
 release, resolved at publish time. CED does not publish anything yet, so this
@@ -174,7 +186,7 @@ follows publishing, but the constraint shape has to be right before then.
 
 ## Persistence and Lifecycle
 
-### 9. Open from and save to the artifact server
+### 10. Open from and save to the artifact server
 
 CED reads a file and writes a download. The production designer opens from a
 folder, saves back to it, and knows about permissions. For an embeddable
@@ -182,14 +194,14 @@ component the host may own that, which makes this a contract question before it
 is an implementation one: an event carrying the template a host is expected to
 store, or a REST client of CED's own.
 
-### 10. Publish, and make a new version
+### 11. Publish, and make a new version
 
 Implement the artifact server's lifecycle for `bibo:status`, `pav:version`,
 `pav:derivedFrom` and `pav:previousVersion`. Define creation and update provenance
 for editable drafts: who created an artifact and when, and who last modified it.
 Coordinate version allocation and publish operations with the embedding host.
 
-### 11. Edit published fields through an explicit draft workflow
+### 12. Edit published fields through an explicit draft workflow
 
 Define an explicit “Edit as draft” action for a published field, coordinated with
 its embedding host and the artifact server. Decide whether that action creates a
@@ -201,7 +213,7 @@ Keep the published definition immutable. Cover permission failures, cancellation
 saving the draft and publishing it, with tests proving that none of those paths
 silently rewrites the source published field.
 
-### 12. Validate before saving
+### 13. Validate before saving
 
 The schema server validates a template and returns what is wrong with it. Nothing
 in CED asks. The model library refuses to build some invalid artifacts, which
@@ -209,7 +221,7 @@ covers less ground than the validator and is not the same answer.
 
 ## The Embedding Contract
 
-### 13. Settle and declare the rest of the contract
+### 14. Settle and declare the rest of the contract
 
 `CedConfig` currently names terminology and bridge endpoints. A host embedding a designer will want at least a
 read-only mode, a language, and somewhere to say which field types to offer.
@@ -222,7 +234,7 @@ which one wins where they disagree. What each profile contains is settled with
 the profiles, not here. Every key added needs the conformance test that already
 asserts the contract and the implementation cannot drift apart.
 
-### 14. Publish the package
+### 15. Publish the package
 
 Nothing is on either channel. The staging and the channel rule are in place, so
 this is a decision rather than work: a dev snapshot to Nexus lets the Workbench
@@ -230,7 +242,7 @@ consume CED before it is finished.
 
 ## Structure Beyond a Flat Template
 
-### 15. Give the field library somewhere to keep things
+### 16. Give the field library somewhere to keep things
 
 An author can save any field they have built — its type, its parameters, its
 constraints, the whole definition — into a named library, and drop it into another
@@ -247,7 +259,7 @@ there, is the decision to make first.
 
 ## Quality
 
-### 16. Keyboard and screen-reader access
+### 17. Keyboard and screen-reader access
 
 The names are right now. Seven controls announced nothing useful — a visible
 `label` that labelled no control, a box named only by a placeholder that vanishes

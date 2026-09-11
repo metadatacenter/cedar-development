@@ -220,10 +220,11 @@ controlled-term summary; the term picker remains the constraint authoring surfac
 
 Field settings start collapsed behind the grey chevron centered at the bottom
 of each card. Expanding it reveals underline tabs for the applicable values,
-display, placement, constraints, metadata and identity controls. Switching tabs
+display, constraints, details, occurrences and metadata controls. Switching tabs
 or collapsing the panel retains incomplete input; valid settings update immediately
-without Apply buttons. Identity and provenance appear under Field metadata, while
-labels, identifiers and annotations appear under Field details. Published fields allow tab
+without Apply buttons. Identity and provenance appear under Field metadata. Field details contains placeholder text for planned language, alternate label,
+property IRI/property name and annotation controls; imported labels, identifiers, annotations and property IRIs remain
+preserved in the model. Published fields allow tab
 navigation and inspection while their editing controls remain disabled.
 The card-level Save field to library action has been removed; import and reuse
 remain available through Field Designer.
@@ -240,6 +241,15 @@ temporal values are converted between the default's declared precision and CEF's
 complete instance literal without shifting timezones. Choices are stored with
 `selectedByDefault` on options, including multiple checkbox/list selections.
 
+Numeric authoring validates minimum, maximum and defaults against the datatype,
+finite-number limits, bound ordering and decimal precision. Integer datatypes accept
+only whole numbers and zero or unspecified decimal places. Byte, short and int use
+their datatype ranges; long is limited to JavaScript's exact integer range
+(-9007199254740991 to 9007199254740991), because the model stores numbers rather than
+arbitrary-precision integers. Float checks overflow and nonzero underflow. Invalid
+and incomplete numeric input stays in the panel until corrected and does not replace
+the saved settings. Occurrences appears immediately before Field metadata.
+
 Rebuild CEE and refresh the sibling copy when testing defaults: an older CEE
 bundle may omit email, phone, link and authority defaults from its preview even
 when CED's output contains them. `npm start` refreshes the development host's
@@ -248,8 +258,8 @@ copies; a manually served `dist-bundle/` needs the copy commands above again.
 Display label and Display description apply to the field's deployment in this
 template. CEE gives those overrides precedence over the field's own labels and
 description, and falls back to the artifact when an override is absent. Preferred
-label remains part of the reusable field's metadata. Property IRI is available
-only for dynamic fields, because static content has no instance property to name.
+label remains part of the reusable field's metadata. Annotation and property IRI
+authoring are tracked in the designer roadmap.
 
 Controlled defaults use the current `<cedar-term-picker>` bundle's term-only mode,
 then verify membership through the configured terminology server's
@@ -300,7 +310,7 @@ the chevron in their template-style header collapses or expands their children w
 discarding input or changing the artifact. **Element settings** edits the placement's
 property name, display labels, property IRI, requirement, cardinality and layout, and
 contains duplicate, remove and move actions. Add/import controls within each element
-target that container. Move selectors transfer fields or whole element subtrees;
+target that container. The Element settings move selector transfers whole element subtrees;
 cycles, duplicate property names and page breaks inside elements are refused. On
 narrow screens the outline is hidden; nested sections remain editable inline.
 
