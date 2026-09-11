@@ -833,17 +833,24 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
     this one is settled by differential testing against production artifacts, not by a green build.
   - **OWLAPI 4.5.9 to 5.5.1.** Ontology semantics, where a behavioural difference does not show up
     in a compile.
-  - **Embedded Mongo 4.20.0 to 5.0.0.** Test lifecycle only, but that lifecycle was reworked twice
-    in early September 2026, so this wants settled code under it.
 
   **Versions that follow a locked server or framework.** Six sit here: the Neo4j driver 5.28.14 to
   6.2.1, MySQL Connector/J 8.4.0 to 26.7.0, the Mongo driver 5.1.2 to 5.11.0, the OpenSearch client
   2.19.2 to 3.8.0, the Lucene pin 9.12.1 to 10.5.1, and the Neo4j test harness 5.3.0 to 2026.07.1.
   Client libraries are free to move in general, but a driver crossing a major has to be proven
   against the pinned server it talks to, so these are sequenced behind item 4 rather than taken on
-  their own.
-  Keycloak 22.0.4 to 25.0.3 is item 4's own, and RESTEasy 6.2.4 to 7.0.4 is held by the Keycloak
+  their own. Keycloak 22.0.4 to 25.0.3 is item 4's own, and RESTEasy 6.2.4 to 7.0.4 is held by the Keycloak
   client stack, which items 3 and 15 own.
+
+  Embedded Mongo 4.20.0 to 5.0.0 belongs here too, and it is the deployed Mongo it follows rather
+  than a framework. The code cost is one import, since flapdoodle moved `de.flapdoodle.reverse` to
+  `de.flapdoodle.commons.reverse`, and `EmbeddedCedarMongo` is the estate's only consumer. The
+  obstacle is the binary: 5.0.0 offers no mongod 5.0 package for macOS on ARM, so every suite that
+  starts the embedded store dies at `could not resolve package for
+  V5_0:Platform{operatingSystem=OS_X, architecture=ARM_64}`, while 6.0, 7.0 and 8.0 all start.
+  MongoDB published no macOS ARM build before 6.0 and 4.20.0 resolves one anyway; 5.0.0 does not.
+  Taking the upgrade therefore means running the suites against a different major from the deployed
+  5.0.31, which is the one thing `EmbeddedCedarMongo` exists to avoid. It moves with item 4.
 
   Logback 1.5.33 to 1.6.3 belongs here rather than among the upgrades to make, and SLF4J is not
   what holds it: every 1.6 release builds against slf4j 2.0.18, which the estate already carries.
