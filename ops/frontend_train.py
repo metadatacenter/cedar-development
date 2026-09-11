@@ -84,11 +84,16 @@ def train_package_version(source_version: str, train: str, revision: str,
         raise RuntimeError(f"invalid package source revision {revision!r}")
     base = package_base(source_version, "source package")
     train_day, train_minute = train.split("-dev.", 1)[1].split(".", 1)
-    # A four-digit UTC time can begin with zero, but SemVer numeric prerelease
-    # identifiers cannot. Keep the human-facing train ID unchanged and use one
-    # combined, always-valid timestamp identifier for its npm packages.
-    package_timestamp = f"{train_day}{train_minute}"
-    result = f"{base}-dev.{package_timestamp}.g{revision[:12]}"
+    # The day stays its own identifier, as it is in an ordinary dev version
+    # (`1.0.8-dev.20260909.f1fbbbc`), so the two compare by date. Combining the day
+    # and the minute into `202609090251` made that identifier twelve digits against
+    # an ordinary version's eight, and SemVer compares numeric identifiers
+    # numerically: a train package then outranked every later dev package of the
+    # same base version, so a dev build asking for the newest of something kept
+    # being handed the build a release happened to make. The minute follows the
+    # revision and carries a `t`, because a four-digit UTC time can begin with zero
+    # and a numeric identifier cannot.
+    result = f"{base}-dev.{train_day}.g{revision[:12]}.t{train_minute}"
     if package_format:
         result += f".{package_format}"
     return result
@@ -135,11 +140,15 @@ def require_exact_alias(manifest: Path, lock: Path, local_name: str,
 
 def frontend_version(repository: Path, manifest_version: str, revision: str) -> str:
     base = manifest_version.removesuffix("-SNAPSHOT").split("-", 1)[0]
-    timestamp = subprocess.run(
-        ["git", "show", "-s", "--format=%cd", "--date=format:%Y%m%d%H%M%S", revision],
+    stamp = subprocess.run(
+        ["git", "show", "-s", "--format=%cd", "--date=format:%Y%m%d.%H%M%S", revision],
         cwd=repository, text=True, capture_output=True, check=True,
     ).stdout.strip()
-    return f"{base}-dev.{timestamp}.g{revision[:12]}.{FRONTEND_PACKAGE_FORMAT}"
+    # Shaped like train_package_version, and for the same reason: the day is its own
+    # identifier so these compare by date against an ordinary dev version, and the
+    # time follows the revision behind a `t` so a leading zero stays legal.
+    day, time_of_day = stamp.split(".", 1)
+    return f"{base}-dev.{day}.g{revision[:12]}.t{time_of_day}.{FRONTEND_PACKAGE_FORMAT}"
 
 
 def wired_frontend_version(manifest_version: str, train: str, revision: str) -> str:
