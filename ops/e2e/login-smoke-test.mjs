@@ -23,6 +23,11 @@
 // local-dev values as fallbacks. Exit code 0 = pass; on failure a screenshot is
 // written to failures/.
 //
+// Synchronization rules: listings and row menus are index-backed. Poll until they reflect
+// the preceding write; a single read can observe stale state. Inputs can be repopulated by
+// a late page load: settle before and after typing, then verify the typed value in the save
+// request body. HTTP 200 alone does not prove the intended content was sent.
+//
 // Selectors live in ./selectors.mjs, which is the one place to edit when the
 // template editor's markup moves. They were originally established by the tutorial
 // runner, now in cedar-mkdocs/runner, which still keeps its own copies.
@@ -526,11 +531,35 @@ async function deleteRow(page, name, folderId) {
 
 // ── controlled-term helpers ────────────────────────────────────────────────
 
-// Field-editor inputs bind ng-model-options debounce ~1s; set atomically then wait.
+// Field-editor inputs bind ng-model-options debounce ~1s. Observe a stable value for
+// longer than that before typing and after each fill; a late load can overwrite the input.
+async function settleText(loc) {
+  const deadline = Date.now() + 10_000;
+  let previous = await loc.inputValue();
+  let stableSince = Date.now();
+  while (Date.now() < deadline) {
+    await loc.page().waitForTimeout(200);
+    const current = await loc.inputValue();
+    if (current !== previous) {
+      previous = current;
+      stableSince = Date.now();
+    } else if (Date.now() - stableSince >= 1200) {
+      return current;
+    }
+  }
+  throw new Error(`input never settled: ${JSON.stringify(previous)}`);
+}
+
 async function setText(loc, value) {
-  await loc.click();
-  await loc.fill(value);
-  await loc.page().waitForTimeout(1100);
+  await settleText(loc);
+  let seen;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    await loc.click();
+    await loc.fill(value);
+    seen = await settleText(loc);
+    if (seen === value) return;
+  }
+  throw new Error(`input was overwritten after typing ${JSON.stringify(value)}: ${JSON.stringify(seen)}`);
 }
 
 // Add a plain text field on the open template designer and name it.
@@ -579,6 +608,11 @@ async function saveTemplateDescription(page, value, expectedStatus = 200) {
     { timeout: 20_000 });
   await page.getByRole('button', { name: 'Save Template' }).click();
   const response = await pending;
+  const sentDescription = JSON.parse(response.request().postData() ?? '{}')['schema:description'];
+  if (sentDescription !== value) {
+    throw new Error(`template description save sent stale content: expected ${JSON.stringify(value)}, `
+      + `sent ${JSON.stringify(sentDescription)} (HTTP ${response.status()})`);
+  }
   if (response.status() !== expectedStatus) {
     throw new Error(`template update answered ${response.status()}, expected ${expectedStatus}: ${response.url()}`);
   }
@@ -1026,14 +1060,14 @@ async function gotoSharedWithMe(page, homeFolderId) {
   await page.waitForTimeout(500);
 }
 
-// A regrade reaches the "Shared with Me" listing through the search index, which the resource
-// server updates asynchronously after the ACL write. The row is already present when a role
+// Writes reach folder and "Shared with Me" listings through the search index, which the resource
+// server updates asynchronously. The row is already present when a role
 // changes, so waiting for the row says nothing about the capabilities it carries: poll the menu
 // entry itself, and leave the menu open for the caller that reads the rest of it.
-async function waitForRowCapability(page, homeFolderId, templateName, selector, enabled, complaint) {
+async function waitForRowCapability(page, navigate, templateName, selector, enabled, complaint) {
   let seen = null;
   for (let attempt = 1; attempt <= 10; attempt++) {
-    await gotoSharedWithMe(page, homeFolderId);
+    await navigate();
     if (await row(page, templateName).count() === 0) {
       await page.waitForTimeout(1000);
       continue;
@@ -1045,7 +1079,7 @@ async function waitForRowCapability(page, homeFolderId, templateName, selector, 
     await page.waitForTimeout(1000);
   }
   throw new Error(`${complaint} after 10 attempts (the menu entry read class ${JSON.stringify(seen)}; `
-    + 'a regraded permission reaches this listing only once the search index has it)');
+    + 'a write reaches this listing only once the search index has it)');
 }
 
 async function waitForSharedRow(page, homeFolderId, templateName, present) {
@@ -1076,7 +1110,8 @@ async function verifyTwoUserSharing(browser, ownerPage, folderId, templateId, us
     await expectInfoPanelOwner(recipientPage, TEMPLATE_NAME, USER1_NAME);
 
     await changeUserShare(ownerPage, folderId, TEMPLATE_NAME, USER2_NAME, 'editor');
-    await waitForRowCapability(recipientPage, user2.profile.homeFolderId, TEMPLATE_NAME,
+    await waitForRowCapability(recipientPage,
+        () => gotoSharedWithMe(recipientPage, user2.profile.homeFolderId), TEMPLATE_NAME,
         'a.rename:visible', true, 'Editor still saw Rename disabled');
     const editorShare = recipientPage.locator('ul.dropdown-menu:visible a.share').first();
     if (!((await editorShare.getAttribute('class')) ?? '').includes('link-disabled')) {
@@ -1100,7 +1135,8 @@ async function verifyTwoUserSharing(browser, ownerPage, folderId, templateId, us
     }
 
     await changeUserShare(ownerPage, folderId, TEMPLATE_NAME, USER2_NAME, 'manager');
-    await waitForRowCapability(recipientPage, user2.profile.homeFolderId, TEMPLATE_NAME,
+    await waitForRowCapability(recipientPage,
+        () => gotoSharedWithMe(recipientPage, user2.profile.homeFolderId), TEMPLATE_NAME,
         'ul.dropdown-menu:visible a.share', true, 'Manager still saw Share disabled');
     await menuItem(recipientPage, 'Open');
     await recipientPage.waitForURL(/\/templates\/edit\//, { timeout: 30_000 });
@@ -1609,12 +1645,8 @@ async function setVersionModal(page, version) {
 }
 
 async function publishFromWorkspace(page, folderId, templateName, version) {
-  await gotoListing(page, folderId);
-  await openRowMenu(page, templateName);
-  const publish = row(page, templateName).locator('a.publish:visible');
-  if (((await publish.getAttribute('class')) ?? '').includes('link-disabled')) {
-    throw new Error('Workspace disabled Publish for a writable draft');
-  }
+  const publish = await waitForRowCapability(page, () => gotoListing(page, folderId), templateName,
+      'a.publish:visible', true, 'Workspace disabled Publish for a writable draft');
   await publish.click();
   const modal = await setVersionModal(page, version);
   const pending = page.waitForResponse(response => response.request().method() === 'POST'
