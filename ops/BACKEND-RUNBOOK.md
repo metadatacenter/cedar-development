@@ -1683,11 +1683,19 @@ does not change the environment of running services. Normal completion, failures
 interruptions remove the workspace after subprocess cleanup; a killed CLI or host crash can leave
 an orphan directory, which should be removed only after checking that no build owns it.
 
+The workspace also has to be short. A Unix domain socket path cannot exceed 103 characters, and a
+build's embedded MariaDB names its socket inside that workspace, so a root longer than 60
+characters leaves a Java test unable to start its database. The CLI measures the root it derives,
+and places the workspace beside the user's home when `$CEDAR_HOME` is too deep to hold a socket.
+A release is the case that reaches this, because it exports its own attempt workspace as
+`$CEDAR_HOME`.
+
 If `$CEDAR_HOME` is also on a `noexec` filesystem, set `CEDAR_BUILD_TMPDIR` to an absolute path
-on a writable, executable filesystem in the build invocation environment. Keep unrelated JVM
-options; remove competing `-Djava.io.tmpdir` settings from `MAVEN_OPTS`, `JDK_JAVA_OPTIONS` or
-`_JAVA_OPTIONS` and use this override instead. Direct Maven invocations outside `cedarcli` do not
-receive this configuration. Test reports remain in the repositories' normal `target` directories.
+on a writable, executable filesystem in the build invocation environment. An explicit override is
+taken as given rather than replaced, so the CLI refuses one that resolves beyond that same 60
+characters and names the limit. Keep unrelated JVM options; remove competing `-Djava.io.tmpdir`
+settings from `MAVEN_OPTS`, `JDK_JAVA_OPTIONS` or `_JAVA_OPTIONS` and use this override instead.
+Direct Maven invocations outside `cedarcli` do not receive this configuration. Test reports remain in the repositories' normal `target` directories.
 
 Release preparation, Maven publication, and immutable build-train assembly remain explicit
 `-DskipTests` paths; verify with the default CLI build or repository CI before invoking them.

@@ -319,7 +319,8 @@ service nginx start
 - **System `/tmp` may remain `noexec`.** The CLI's Maven and frontend build tasks use private
   executable workspaces under `$CEDAR_HOME/.cedar/build-tmp`. If that filesystem also forbids
   execution, select an executable location with `CEDAR_BUILD_TMPDIR`; the CLI probes it before
-  running the task. Java's forked test JVMs receive the same temporary-directory setting, so
+  running the task, and refuses a path that resolves beyond 60 characters, because a build's
+  embedded MariaDB could not open its socket under one. Java's forked test JVMs receive the same temporary-directory setting, so
   embedded Redis tests do not require `--skip-tests` merely because `/tmp` is hardened.
 
 - **Hot-patches on prod are invisible to `git pull`.** If someone live-edited the box, `git pull`
