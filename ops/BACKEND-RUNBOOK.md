@@ -611,7 +611,10 @@ its health says nothing about your latest code.
 jar can itself have been built before its repository's `develop` head, and every row says `current`
 while it is, which is how a stack came to be smoke-tested against commits it did not contain. The
 summary under the table names any microservice in that position, and `cedarcli test e2e` refuses to
-record a run while one exists. The remedy is `cedarcli build java` followed by `cedarcli native
+record a run while one exists. A service that is merely warming is treated differently from one that
+is wrong: terminology answers its health probe only once it has loaded every ontology, and the probe
+times out in seconds, so a stack whose every finding is a warming service is given five minutes and
+polled rather than refused. The remedy is `cedarcli build java` followed by `cedarcli native
 restart`. For the `ui-main` and `ui-workspace` rows the column
 asks the equivalent question of the Embeddable Editor, which each of those frontends takes from npm
 and a gulp task copies out of `node_modules` into the tree gulp serves. Those two hops are invisible

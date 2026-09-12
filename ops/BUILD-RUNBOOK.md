@@ -86,6 +86,12 @@ and each red repository among them, rather than the first one met. It then print
 dispatch command. It does not start GitHub Actions, publish an artifact, alter Docker or npm
 client configuration, or write a manifest.
 
+Local preflight also reports CI environment drift as an advisory. Every Java repository's `ci.yml`
+carries a copy of `ops/ci-env-block.yml`, and a copy missing an entry breaks only the repositories
+whose suites build that part of the configuration. That is not evidence a train would fail, so it
+advises rather than refuses; `cedarcli check ci-env` asks the same question on its own, and
+`--apply` rewrites the drifted copies for review and one commit per repository.
+
 The CI question is also answered on its own by `cedarcli check ci`. It lists every captured
 `develop` head whose CI is not green, with the run to look at and, for a red run, the `gh run
 rerun --failed` command that repeats only its failed jobs. A release advances `develop` in forty
@@ -291,6 +297,16 @@ cedarcli publish train-status <TRAIN_ID>
 - A source record with incomplete publication is resumable when source and train configuration stay
   unchanged. If the correction changes either, commit it and create a new train instead.
 - A Docker completion record means the train is complete: neither resume nor abandon it.
+- For a few seconds after the workflow concludes, neither holds: the run has succeeded and the
+  completion record is still being written. The decision names that window and asks you to look
+  again rather than offering a resume, which would spend an immutable version on a train that was
+  merely finishing.
+
+A complete train also reports whether it can still back a release. A release stamps a train's exact
+commits and refuses any repository whose `develop` has left them, so a train stops being releasable
+the moment anything lands in one of the forty-four it captured. The verdict counts the repositories
+that moved against what the train captured and names them, which is the difference between one
+commit that can be explained and an estate that has moved on.
 
 Train state has no abandon operation. An incomplete immutable ID remains useful evidence of what was
 attempted; it cannot block a later ID.
