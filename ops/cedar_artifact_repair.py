@@ -47,7 +47,9 @@ import json
 import os
 import re
 import sys
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -77,6 +79,7 @@ OUTCOMES = ("repaired", "would-repair", "already-clean", "still-invalid", "invar
             "transform-refused", "fetch-failed", "write-failed")
 DEFAULT_PROGRESS_EVERY = 100
 DEFAULT_PROGRESS_SECONDS = 30
+DEFAULT_WORKERS = 4
 
 
 # --------------------------------------------------------------------------------------------------
@@ -731,6 +734,77 @@ def only_derived_title(before: Any, after: Any) -> Optional[str]:
         if type(before[key]) is not type(after[key]) or before[key] != after[key]:
             return f"/{rest.json_pointer_component(key)}"
     return None
+
+
+class GuardedBridge:
+    """The validation bridge, made safe to call from several workers at once.
+
+    The JVM answers one request at a time over a single pipe, so concurrent callers would interleave
+    on it and desynchronise the protocol. Everything expensive about a repair is network latency, and
+    validation is about a millisecond against roughly four hundred of round trips, so holding one lock
+    across it costs almost nothing while letting the waiting happen in parallel.
+
+    Restarting is guarded by the same lock: a bridge that died takes every in-flight validation with
+    it, and only one worker should rebuild it.
+    """
+
+    def __init__(self, bridge: audit.ValidationBridge, max_restarts: int):
+        self._bridge = bridge
+        self._lock = threading.Lock()
+        self._max_restarts = max_restarts
+        self._restarts = 0
+
+    @property
+    def hello(self) -> dict[str, Any]:
+        return self._bridge.hello
+
+    @property
+    def starts(self) -> int:
+        return self._bridge.starts
+
+    def validate(self, kind: str, artifact: Any, template_id: Optional[str] = None) -> dict[str, Any]:
+        with self._lock:
+            self._ensure_running()
+            return self._bridge.validate(kind, artifact, template_id)
+
+    def cache_template(self, template_id: str, template: dict) -> dict[str, Any]:
+        with self._lock:
+            self._ensure_running()
+            return self._bridge.cache_template(template_id, template)
+
+    def _ensure_running(self) -> None:
+        if self._bridge.process is not None:
+            return
+        self._restarts += 1
+        if self._restarts > self._max_restarts:
+            raise audit.BridgeError(f"bridge failed {self._restarts} times; giving up")
+        print(f"! restarting the validation bridge ({self._restarts}/{self._max_restarts})",
+              file=sys.stderr)
+        self._bridge.start()
+
+    def close(self) -> None:
+        with self._lock:
+            self._bridge.close()
+
+
+class GuardedResolver:
+    """The template resolver, made safe to share. Its caches are ordinary dicts."""
+
+    def __init__(self, resolver: audit.TemplateResolver):
+        self._resolver = resolver
+        self._lock = threading.Lock()
+
+    @property
+    def unresolved(self) -> dict[str, Any]:
+        return self._resolver.unresolved
+
+    def fetch_body(self, template_id: str) -> Optional[dict]:
+        with self._lock:
+            return self._resolver.fetch_body(template_id)
+
+    def ensure_cached_in_bridge(self, template_id: str) -> bool:
+        with self._lock:
+            return self._resolver.ensure_cached_in_bridge(template_id)
 
 
 class TransformRefused(Exception):
@@ -1530,6 +1604,13 @@ def build_parser() -> argparse.ArgumentParser:
                         help=f"report every N artifacts (default: {DEFAULT_PROGRESS_EVERY})")
     parser.add_argument("--progress-seconds", type=float, default=DEFAULT_PROGRESS_SECONDS,
                         help=f"also report every N seconds (default: {DEFAULT_PROGRESS_SECONDS})")
+    parser.add_argument("--bridge-max-restarts", type=int, default=audit.DEFAULT_BRIDGE_MAX_RESTARTS,
+                        help="JVM restarts tolerated before the run stops "
+                             f"(default: {audit.DEFAULT_BRIDGE_MAX_RESTARTS})")
+    parser.add_argument("--workers", type=int, default=DEFAULT_WORKERS,
+                        help="artifacts repaired in parallel. Each costs three round trips and almost "
+                             "no local work, so the run is latency-bound and this is what makes it "
+                             f"quick (default: {DEFAULT_WORKERS}; 1 restores the serial order)")
     parser.add_argument("--delay-ms", type=int, default=0, help="polite delay before every request")
     parser.add_argument("--timeout", type=float, default=90, help="per-request timeout (default: 90)")
     parser.add_argument("--retries", type=int, default=5, help="attempts for transient GET failures")
@@ -1555,6 +1636,10 @@ def main(argv: Optional[list[str]] = None) -> int:
     patterns = [] if arguments.condition else [r.error_pattern for r in repairs if r.error_pattern]
     if arguments.limit is not None and arguments.limit <= 0:
         parser.error("--limit must be positive")
+    if arguments.workers <= 0:
+        parser.error("--workers must be positive")
+    if arguments.bridge_max_restarts <= 0:
+        parser.error("--bridge-max-restarts must be positive")
     api_key = rest.resolve_api_key(arguments, parser)
 
     records_path = Path(arguments.out).expanduser()
@@ -1605,7 +1690,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     print(f"Server: {arguments.server}")
     print(f"Targets: {len(pending)} artifacts ({audit.counts_text(by_type)}) "
           f"from {arguments.from_records}" + (f", {len(done)} already done" if done else ""))
-    print(f"Mode: {'APPLY, writing with PUT ?verbatim=true' if arguments.apply else 'dry run, no writes'}")
+    print(f"Mode: {'APPLY, writing with PUT ?verbatim=true' if arguments.apply else 'dry run, no writes'}"
+          + (f"; {arguments.workers} workers" if arguments.workers > 1 else "; serial"))
     print(f"Records: {records_path}; summary: {summary_path}")
     if arguments.apply:
         print(f"Pre-images: {preimages}")
@@ -1628,30 +1714,52 @@ def main(argv: Optional[list[str]] = None) -> int:
         parser.error(f"cannot start the validation bridge: {error} (see {java_log})")
     print(f"Validator: {hello.get('validator')} on Java {hello.get('java')}", flush=True)
 
-    resolver = audit.TemplateResolver(client, bridge, 200)
+    guarded_bridge = GuardedBridge(bridge, arguments.bridge_max_restarts)
+    resolver = GuardedResolver(audit.TemplateResolver(client, bridge, 200))
     progress = Progress(total=len(pending))
     status = "COMPLETE"
     details: dict[str, list[dict[str, Any]]] = collections.defaultdict(list)
+    bookkeeping = threading.Lock()
+    REPORTABLE = {"still-invalid", "invariant-failed", "transform-refused", "fetch-failed",
+                  "write-failed"}
     try:
         with rest.open_private_text_file(records_path, append=arguments.resume) as stream:
-            for ref in pending:
-                record = repair_one(arguments, repairs, client, bridge, resolver, ref)
-                stream.write(json.dumps(record, ensure_ascii=False) + "\n")
-                stream.flush()
-                progress.note(record["outcome"], len(record.get("pathsRemoved") or []))
-                if record["outcome"] == "repaired" and record.get("verified") is False:
-                    details["unverified"].append({"artifactId": ref.artifact_id,
-                                                  "artifactType": ref.artifact_type,
-                                                  "detail": record.get("detail", "")})
-                if record["outcome"] in {"still-invalid", "invariant-failed", "transform-refused",
-                                         "fetch-failed", "write-failed"}:
-                    details[record["outcome"]].append(
-                        {"artifactId": ref.artifact_id, "artifactType": ref.artifact_type,
-                         "detail": record.get("detail", "")})
-                    print(f"! {record['outcome']} {ref.artifact_type} {ref.artifact_id}: "
-                          f"{record.get('detail', '')[:200]}", file=sys.stderr)
-                if progress.due(arguments.progress_every, arguments.progress_seconds):
-                    progress.report(applied=arguments.apply)
+
+            def record_outcome(ref: rest.ArtifactRef, record: dict[str, Any]) -> None:
+                with bookkeeping:
+                    stream.write(json.dumps(record, ensure_ascii=False) + "\n")
+                    stream.flush()
+                    progress.note(record["outcome"], len(record.get("pathsRemoved") or []))
+                    if record["outcome"] == "repaired" and record.get("verified") is False:
+                        details["unverified"].append({"artifactId": ref.artifact_id,
+                                                      "artifactType": ref.artifact_type,
+                                                      "detail": record.get("detail", "")})
+                    if record["outcome"] in REPORTABLE:
+                        details[record["outcome"]].append(
+                            {"artifactId": ref.artifact_id, "artifactType": ref.artifact_type,
+                             "detail": record.get("detail", "")})
+                        print(f"! {record['outcome']} {ref.artifact_type} {ref.artifact_id}: "
+                              f"{record.get('detail', '')[:200]}", file=sys.stderr)
+                    if progress.due(arguments.progress_every, arguments.progress_seconds):
+                        progress.report(applied=arguments.apply)
+
+            if arguments.workers <= 1:
+                for ref in pending:
+                    record_outcome(ref, repair_one(arguments, repairs, client, guarded_bridge,
+                                                   resolver, ref))
+            else:
+                # Each artifact is independent and appears once, and every write carries If-Match, so
+                # workers cannot race one another onto the same document.
+                with ThreadPoolExecutor(max_workers=arguments.workers) as pool:
+                    futures = {pool.submit(repair_one, arguments, repairs, client, guarded_bridge,
+                                           resolver, ref): ref for ref in pending}
+                    try:
+                        for future in as_completed(futures):
+                            record_outcome(futures[future], future.result())
+                    except BaseException:
+                        for pending_future in futures:
+                            pending_future.cancel()
+                        raise
     except KeyboardInterrupt:
         status = "INTERRUPTED"
     except rest.AuthenticationError as error:
@@ -1661,7 +1769,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         status = "BRIDGE_FAILURE"
         print(f"! {error}", file=sys.stderr)
     finally:
-        bridge.close()
+        guarded_bridge.close()
         progress.report(final=True, applied=arguments.apply)
 
     summary = {

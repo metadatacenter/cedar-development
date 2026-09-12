@@ -9,6 +9,7 @@ what a write would contain, which is where a mistake would be silent.
 
 import copy
 import importlib.util
+import time
 import json
 import pathlib
 import sys
@@ -1160,3 +1161,144 @@ class CompleteContextRequiredTest(unittest.TestCase):
         self.assertEqual([c["path"] for c in changes],
                          ["/properties/Address/properties/@context/required"])
         self.assertEqual(after["properties"]["Address"]["properties"]["@context"]["required"], ["Street"])
+
+
+import threading
+from concurrent.futures import ThreadPoolExecutor
+
+
+class GuardedBridgeTest(unittest.TestCase):
+    """The JVM answers one request at a time down one pipe. Two workers validating at once would
+    interleave on it, so the guard serializes exactly that and nothing else."""
+
+    class FakeBridge:
+        def __init__(self, fail_times=0):
+            self.process = object()
+            self.starts = 1
+            self.hello = {"validator": "fake"}
+            self.concurrent = 0
+            self.max_concurrent = 0
+            self.calls = 0
+            self._fail_times = fail_times
+            self._lock = threading.Lock()
+
+        def validate(self, kind, artifact, template_id=None):
+            with self._lock:
+                self.concurrent += 1
+                self.max_concurrent = max(self.max_concurrent, self.concurrent)
+            time.sleep(0.005)
+            with self._lock:
+                self.concurrent -= 1
+                self.calls += 1
+            return {"status": "valid", "errors": []}
+
+        def cache_template(self, template_id, template):
+            return {"status": "ok"}
+
+        def start(self):
+            self.starts += 1
+            self.process = object()
+            return self.hello
+
+        def close(self):
+            self.process = None
+
+    def test_validation_never_overlaps_however_many_workers_call_it(self):
+        fake = self.FakeBridge()
+        guard = REPAIR.GuardedBridge(fake, max_restarts=5)
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            list(pool.map(lambda _: guard.validate("field", {}), range(40)))
+        self.assertEqual(fake.calls, 40)
+        self.assertEqual(fake.max_concurrent, 1, "two threads were inside the bridge at once")
+
+    def test_a_dead_bridge_is_restarted_once_not_once_per_worker(self):
+        fake = self.FakeBridge()
+        guard = REPAIR.GuardedBridge(fake, max_restarts=5)
+        fake.process = None
+        before = fake.starts
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            list(pool.map(lambda _: guard.validate("field", {}), range(12)))
+        self.assertEqual(fake.starts - before, 1, "the bridge was restarted more than once")
+
+    def test_restarts_are_bounded_when_the_bridge_keeps_dying(self):
+        # A bridge that comes up and dies again on every call. The guard must rebuild it a bounded
+        # number of times and then give up, rather than restarting a JVM forever.
+        class Flaky(self.FakeBridge):
+            def validate(self, kind, artifact, template_id=None):
+                self.process = None      # dies as it answers
+                return {"status": "valid", "errors": []}
+        flaky = Flaky()
+        flaky.process = None
+        guard = REPAIR.GuardedBridge(flaky, max_restarts=3)
+        for _ in range(3):
+            guard.validate("field", {})
+        self.assertEqual(flaky.starts, 1 + 3)
+        with self.assertRaises(REPAIR.audit.BridgeError):
+            guard.validate("field", {})
+
+    def test_a_start_that_raises_is_not_swallowed(self):
+        class Broken(self.FakeBridge):
+            def start(self):
+                self.starts += 1
+                raise REPAIR.audit.BridgeError("cannot start")
+        broken = Broken()
+        broken.process = None
+        guard = REPAIR.GuardedBridge(broken, max_restarts=2)
+        with self.assertRaises(REPAIR.audit.BridgeError):
+            guard.validate("field", {})
+
+    def test_it_forwards_the_handshake_and_start_count(self):
+        fake = self.FakeBridge()
+        guard = REPAIR.GuardedBridge(fake, max_restarts=1)
+        self.assertEqual(guard.hello, {"validator": "fake"})
+        self.assertEqual(guard.starts, 1)
+
+
+class GuardedResolverTest(unittest.TestCase):
+    """The resolver's caches are ordinary dicts, shared by every worker."""
+
+    class FakeResolver:
+        def __init__(self):
+            self.unresolved = {}
+            self.concurrent = 0
+            self.max_concurrent = 0
+            self._lock = threading.Lock()
+
+        def fetch_body(self, template_id):
+            with self._lock:
+                self.concurrent += 1
+                self.max_concurrent = max(self.max_concurrent, self.concurrent)
+            time.sleep(0.003)
+            with self._lock:
+                self.concurrent -= 1
+            return {"@id": template_id}
+
+        def ensure_cached_in_bridge(self, template_id):
+            return True
+
+    def test_cache_access_is_serialized(self):
+        fake = self.FakeResolver()
+        guard = REPAIR.GuardedResolver(fake)
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            bodies = list(pool.map(lambda n: guard.fetch_body(f"t{n}"), range(24)))
+        self.assertEqual(len(bodies), 24)
+        self.assertEqual(fake.max_concurrent, 1)
+
+    def test_the_unresolved_record_is_visible_through_the_guard(self):
+        fake = self.FakeResolver()
+        fake.unresolved["t1"] = {"error": "gone"}
+        self.assertEqual(REPAIR.GuardedResolver(fake).unresolved["t1"], {"error": "gone"})
+
+
+class WorkerArgumentTest(unittest.TestCase):
+
+    def test_the_flag_exists_and_defaults_above_one(self):
+        help_text = REPAIR.build_parser().format_help()
+        self.assertIn("--workers", help_text)
+        self.assertGreater(REPAIR.DEFAULT_WORKERS, 1)
+
+    def test_the_parser_accepts_an_explicit_worker_count(self):
+        args = REPAIR.build_parser().parse_args(["--from-records", "x", "--workers", "8"])
+        self.assertEqual(args.workers, 8)
+        serial = REPAIR.build_parser().parse_args(["--from-records", "x", "--workers", "1"])
+        self.assertEqual(serial.workers, 1)
