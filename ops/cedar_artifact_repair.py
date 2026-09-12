@@ -563,42 +563,88 @@ def only_wrapped_inherently_multiple(before: Any, after: Any) -> Optional[str]:
 
 
 def stamp_model_version(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
-    """Write the current model version on an artifact that already conforms to it.
+    """Write the current model version on every definition that already conforms to it.
 
-    ``schema:schemaVersion`` asserts that the artifact conforms to the model it names, so stamping one
-    onto an artifact that does not replaces a detectable defect with an undetectable one. This writes
-    only the root value, and only over a version that parses; the tool validates every body before it
-    is written, which is what makes the assertion true rather than hopeful.
+    ``schema:schemaVersion`` asserts that the definition carrying it conforms to the model it names, so
+    stamping one onto a definition that does not replaces a detectable defect with an undetectable one.
+    This writes only over a version that parses; the tool validates every body before it is written,
+    which is what makes the assertion true rather than hopeful.
+
+    A template states a version on each nested field and element as well as at its root, and the two
+    drift apart, so the walk covers both. A version that is absent or does not parse is left where it
+    stands: inferring which model a definition was authored against is a different decision from moving
+    one that is merely behind, and the inventory goes on reporting the ones left alone. Refusing the
+    artifact outright is reserved for the case where that is all there is to do, which keeps a refusal
+    visible in the record instead of reporting an artifact nothing touched as though it were clean.
     """
     if not isinstance(artifact, dict):
         raise TransformRefused("artifact is not a JSON object")
-    stored = artifact.get(MODEL_VERSION_KEY)
-    if stored == audit.MODEL_VERSION:
-        return copy.deepcopy(artifact), []
-    if not isinstance(stored, str) or not audit.VERSION_PATTERN.match(stored):
+    changes: list[dict[str, Any]] = []
+    unsettled: list[tuple[str, Any]] = []
+
+    def walk(definition: Any, path: str) -> Any:
+        if not isinstance(definition, dict):
+            return definition
+        result = copy.deepcopy(definition)
+        here = f"{path}/{rest.json_pointer_component(MODEL_VERSION_KEY)}"
+        stored = definition.get(MODEL_VERSION_KEY)
+        if stored != audit.MODEL_VERSION:
+            if isinstance(stored, str) and audit.VERSION_PATTERN.match(stored):
+                result[MODEL_VERSION_KEY] = audit.MODEL_VERSION
+                changes.append({"path": here, "replaced": stored, "wrote": audit.MODEL_VERSION})
+            else:
+                unsettled.append((here, stored))
+        for name, child, multiple in container_children(definition):
+            declared = rest.child_path(path, name)
+            repaired = walk(child, f"{declared}/items" if multiple else declared)
+            if multiple:
+                result["properties"][name]["items"] = repaired
+            else:
+                result["properties"][name] = repaired
+        return result
+
+    stamped = walk(copy.deepcopy(artifact), "")
+    if not changes and unsettled:
+        path, stored = unsettled[0]
         raise TransformRefused(
-            f"root {MODEL_VERSION_KEY} is {stored!r}, which does not parse as a version; an absent or "
-            "malformed version is a different decision from a stale one")
-    result = copy.deepcopy(artifact)
-    result[MODEL_VERSION_KEY] = audit.MODEL_VERSION
-    return result, [{"path": f"/{rest.json_pointer_component(MODEL_VERSION_KEY)}",
-                     "replaced": stored, "wrote": audit.MODEL_VERSION}]
+            f"{path} is {stored!r}, which does not parse as a version; an absent or malformed version "
+            "is a different decision from a stale one")
+    return stamped, changes
 
 
 def only_stamped_model_version(before: Any, after: Any) -> Optional[str]:
-    """The invariant: the root model version moved to the current one, and nothing else moved."""
-    if not isinstance(before, dict) or not isinstance(after, dict):
-        return "/"
-    if set(before) != set(after):
-        return "/"
-    for name in before:
-        if name == MODEL_VERSION_KEY:
-            if after[name] != audit.MODEL_VERSION:
-                return f"/{rest.json_pointer_component(name)}"
-            continue
-        if type(before[name]) is not type(after[name]) or before[name] != after[name]:
-            return f"/{rest.json_pointer_component(name)}"
-    return None
+    """The invariant: model versions moved to the current one or stood still, and nothing else moved."""
+
+    def walk(old: Any, new: Any, path: str) -> Optional[str]:
+        if isinstance(old, dict):
+            if not isinstance(new, dict) or set(old) != set(new):
+                return path or "/"
+            for name in old:
+                here = f"{path}/{rest.json_pointer_component(name)}"
+                if name == MODEL_VERSION_KEY:
+                    if new[name] == old[name]:
+                        continue
+                    moved_to_current = new[name] == audit.MODEL_VERSION
+                    came_from_a_version = isinstance(old[name], str) \
+                        and bool(audit.VERSION_PATTERN.match(old[name]))
+                    if not (moved_to_current and came_from_a_version):
+                        return here
+                    continue
+                difference = walk(old[name], new[name], here)
+                if difference is not None:
+                    return difference
+            return None
+        if isinstance(old, list):
+            if not isinstance(new, list) or len(old) != len(new):
+                return path or "/"
+            for index, value in enumerate(old):
+                difference = walk(value, new[index], f"{path}/{index}")
+                if difference is not None:
+                    return difference
+            return None
+        return None if type(old) is type(new) and old == new else (path or "/")
+
+    return walk(before, after, "")
 
 
 def complete_ui_order(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
@@ -636,6 +682,111 @@ def complete_ui_order(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
         return result
 
     return walk(copy.deepcopy(artifact), ""), changes
+
+
+def unusable_order_entries(container: Any) -> list[str]:
+    """The entries of a container's ``_ui.order`` that name no child and never could.
+
+    An order entry is a presentation index over the children, so one naming no child renders nothing
+    and is inert. That alone does not make it safe to remove: where a child was deleted from
+    ``properties`` and left in the order, the entry is the only surviving evidence that it existed, and
+    discarding it costs more than the tidiness is worth. Two cases carry their own proof that nothing
+    is lost.
+
+    The first is an entry bearing a name the model reserves for an artifact's own keywords, which no
+    child can ever be called; these arrive when a writer pours every key of an object into the order.
+    The second is a name that a rename left behind, recognised by the container declaring a child whose
+    name is the entry with each ``/`` replaced by ``-`` — the spelling a property name is allowed. The
+    renamed child is present and already ordered, so the stale entry duplicates a record that survives
+    in full.
+    """
+    ui = container.get("_ui") if isinstance(container, dict) else None
+    order = ui.get("order") if isinstance(ui, dict) else None
+    if not isinstance(order, list):
+        return []
+    declared = {name for name, _child, _multiple in container_children(container)}
+    unusable = []
+    for entry in order:
+        if not isinstance(entry, str) or entry in declared:
+            continue
+        if entry in rest.RESERVED_CHILD_NAMES or ("/" in entry and entry.replace("/", "-") in declared):
+            unusable.append(entry)
+    return unusable
+
+
+def drop_unusable_order_entries(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Remove the order entries that name no child and never could."""
+    changes: list[dict[str, Any]] = []
+
+    def walk(container: Any, path: str) -> Any:
+        if not isinstance(container, dict):
+            return container
+        result = copy.deepcopy(container)
+        unusable = unusable_order_entries(container)
+        if unusable:
+            ui = result["_ui"]
+            ui["order"] = [entry for entry in ui["order"]
+                           if not (isinstance(entry, str) and entry in unusable)]
+            for entry in unusable:
+                changes.append({"path": f"{path}/_ui/order", "replaced": entry, "wrote": None})
+        for name, child, multiple in container_children(container):
+            declared = rest.child_path(path, name)
+            repaired = walk(child, f"{declared}/items" if multiple else declared)
+            if multiple:
+                result["properties"][name]["items"] = repaired
+            else:
+                result["properties"][name] = repaired
+        return result
+
+    return walk(copy.deepcopy(artifact), ""), changes
+
+
+def only_dropped_unusable_order_entries(before: Any, after: Any) -> Optional[str]:
+    """The invariant: an order list lost only unusable entries, and kept the rest in sequence."""
+
+    def walk(old: Any, new: Any, path: str) -> Optional[str]:
+        if isinstance(old, dict):
+            if not isinstance(new, dict) or set(old) != set(new):
+                return path or "/"
+            unusable = unusable_order_entries(old)
+            for name in old:
+                here = f"{path}/{rest.json_pointer_component(name)}"
+                if name == "_ui" and unusable and isinstance(old[name], dict) and isinstance(new[name], dict):
+                    difference = ui_order_difference(old[name], new[name], unusable, here)
+                    if difference is not None:
+                        return difference
+                    continue
+                difference = walk(old[name], new[name], here)
+                if difference is not None:
+                    return difference
+            return None
+        if isinstance(old, list):
+            if not isinstance(new, list) or len(old) != len(new):
+                return path or "/"
+            for index, value in enumerate(old):
+                difference = walk(value, new[index], f"{path}/{index}")
+                if difference is not None:
+                    return difference
+            return None
+        return None if type(old) is type(new) and old == new else (path or "/")
+
+    def ui_order_difference(old: dict, new: dict, unusable: list[str], path: str) -> Optional[str]:
+        if set(old) != set(new):
+            return path
+        for name in old:
+            here = f"{path}/{rest.json_pointer_component(name)}"
+            if name != "order":
+                difference = walk(old[name], new[name], here)
+                if difference is not None:
+                    return difference
+                continue
+            kept = [entry for entry in old[name]
+                    if not (isinstance(entry, str) and entry in unusable)]
+            if new[name] != kept:
+                return here
+        return None
+
+    return walk(before, after, "")
 
 
 def only_appended_ui_order(before: Any, after: Any) -> Optional[str]:
@@ -689,51 +840,397 @@ def only_appended_ui_order(before: Any, after: Any) -> Optional[str]:
     return walk(before, after, "")
 
 
+def drop_zero_term_count(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Delete a ``numTerms`` written as zero, which claims a constraint matches nothing.
+
+    ``numTerms`` caches how many terms a controlled-term constraint covers, so a reader can size a
+    picker before asking the terminology server. Zero says the constraint matches nothing, which would
+    make the field unfillable, and no constraint in production means that: the value is a sentinel for
+    a count that was never taken. Deleting the key restores the honest state, an unknown count, which
+    is what every reader already handles when the key is absent.
+    """
+    changes: list[dict[str, Any]] = []
+
+    def walk(definition: Any, path: str) -> Any:
+        if not isinstance(definition, dict):
+            return definition
+        result = copy.deepcopy(definition)
+        constraints = result.get("_valueConstraints")
+        if isinstance(constraints, dict):
+            for key in audit.COUNTED_CONSTRAINT_KEYS:
+                entries = constraints.get(key)
+                if not isinstance(entries, list):
+                    continue
+                for index, entry in enumerate(entries):
+                    if not isinstance(entry, dict) or not audit.is_plain_int(entry.get("numTerms")):
+                        continue
+                    if entry["numTerms"] != 0:
+                        continue
+                    del entry["numTerms"]
+                    changes.append({"path": f"{path}/_valueConstraints/{key}/{index}/numTerms",
+                                    "replaced": 0, "wrote": None})
+        for name, child, multiple in container_children(definition):
+            declared = rest.child_path(path, name)
+            repaired = walk(child, f"{declared}/items" if multiple else declared)
+            if multiple:
+                result["properties"][name]["items"] = repaired
+            else:
+                result["properties"][name] = repaired
+        return result
+
+    return walk(copy.deepcopy(artifact), ""), changes
+
+
+def only_dropped_zero_term_counts(before: Any, after: Any) -> Optional[str]:
+    """The invariant: only a ``numTerms`` of exactly zero went, and nothing else moved."""
+
+    def walk(old: Any, new: Any, path: str) -> Optional[str]:
+        if isinstance(old, dict):
+            if not isinstance(new, dict):
+                return path or "/"
+            for key in set(old) | set(new):
+                here = f"{path}/{rest.json_pointer_component(key)}"
+                if key not in new:
+                    if key != "numTerms" or old[key] != 0 or not audit.is_plain_int(old[key]):
+                        return here
+                    continue
+                if key not in old:
+                    return here
+                difference = walk(old[key], new[key], here)
+                if difference is not None:
+                    return difference
+            return None
+        if isinstance(old, list):
+            if not isinstance(new, list) or len(old) != len(new):
+                return path or "/"
+            for index, value in enumerate(old):
+                difference = walk(value, new[index], f"{path}/{index}")
+                if difference is not None:
+                    return difference
+            return None
+        return None if type(old) is type(new) and old == new else (path or "/")
+
+    return walk(before, after, "")
+
+
+def drop_stray_cardinality_keys(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Delete ``minItems`` and ``maxItems`` from a child deployed as a single object.
+
+    The two keys are JSON Schema's bounds on an array, and a child deployed as an object holds one
+    value by construction. Left in place they read as a cardinality the deployment cannot express, and
+    a reader that believes them describes a child that does not exist. Removing them changes nothing
+    an instance may contain: the object deployment already permits exactly one value.
+    """
+    changes: list[dict[str, Any]] = []
+
+    def walk(container: Any, path: str) -> Any:
+        if not isinstance(container, dict):
+            return container
+        result = copy.deepcopy(container)
+        for name, child, multiple in container_children(container):
+            declared_path = rest.child_path(path, name)
+            repaired = walk(child, f"{declared_path}/items" if multiple else declared_path)
+            if multiple:
+                result["properties"][name]["items"] = repaired
+                continue
+            # A child deployed as an object is its own declaration, so the bounds come off the
+            # walked result rather than the original, which the walk would otherwise reinstate.
+            for key in ("minItems", "maxItems"):
+                if key in repaired:
+                    changes.append({"path": f"{declared_path}/{key}",
+                                    "replaced": repaired[key], "wrote": None})
+                    del repaired[key]
+            result["properties"][name] = repaired
+        return result
+
+    return walk(copy.deepcopy(artifact), ""), changes
+
+
+def only_dropped_stray_cardinality_keys(before: Any, after: Any) -> Optional[str]:
+    """The invariant: bounds went only from a child that is not an array, and nothing else moved."""
+
+    def walk(old: Any, new: Any, path: str) -> Optional[str]:
+        if isinstance(old, dict):
+            if not isinstance(new, dict):
+                return path or "/"
+            single = {name for name, _child, multiple in container_children(old) if not multiple}
+            declarations = old.get("properties") if isinstance(old.get("properties"), dict) else {}
+            for key in set(old) | set(new):
+                here = f"{path}/{rest.json_pointer_component(key)}"
+                if (key in old) != (key in new):
+                    return here
+                if key == "properties" and isinstance(old[key], dict) and isinstance(new[key], dict):
+                    difference = properties_difference(old[key], new[key], single, here)
+                    if difference is not None:
+                        return difference
+                    continue
+                difference = walk(old[key], new[key], here)
+                if difference is not None:
+                    return difference
+            return None
+        if isinstance(old, list):
+            if not isinstance(new, list) or len(old) != len(new):
+                return path or "/"
+            for index, value in enumerate(old):
+                difference = walk(value, new[index], f"{path}/{index}")
+                if difference is not None:
+                    return difference
+            return None
+        return None if type(old) is type(new) and old == new else (path or "/")
+
+    def properties_difference(old: dict, new: dict, single: set[str], path: str) -> Optional[str]:
+        if set(old) != set(new):
+            return path
+        for name in old:
+            here = f"{path}/{rest.json_pointer_component(name)}"
+            if name in single and isinstance(old[name], dict) and isinstance(new[name], dict):
+                for key in set(old[name]) | set(new[name]):
+                    there = f"{here}/{rest.json_pointer_component(key)}"
+                    if key not in new[name]:
+                        if key not in ("minItems", "maxItems"):
+                            return there
+                        continue
+                    if key not in old[name]:
+                        return there
+                    difference = walk(old[name][key], new[name][key], there)
+                    if difference is not None:
+                        return difference
+                continue
+            difference = walk(old[name], new[name], here)
+            if difference is not None:
+                return difference
+        return None
+
+    return walk(before, after, "")
+
+
+def settle_temporal_type(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Write the temporal type a temporal field's own granularity already settles.
+
+    ``_valueConstraints.temporalType`` is what makes a temporal field fillable; without it the field
+    sits in the template as a slot nobody can complete. A granularity of a day or coarser can only be
+    a date, so the field itself already says what it holds and the type is read off rather than
+    chosen. Below a day the field may hold a time of day or a full timestamp, the granularity does not
+    decide between them, and those fields are left for the stored values to settle.
+    """
+    changes: list[dict[str, Any]] = []
+
+    def walk(definition: Any, path: str) -> Any:
+        if not isinstance(definition, dict):
+            return definition
+        result = copy.deepcopy(definition)
+        ui = definition.get("_ui")
+        constraints = definition.get("_valueConstraints")
+        settled = audit.GRANULARITY_TO_TEMPORAL_TYPE.get(
+            ui.get("temporalGranularity")) if isinstance(ui, dict) else None
+        if isinstance(ui, dict) and ui.get("inputType") == "temporal" and settled is not None \
+                and isinstance(constraints, dict) and not constraints.get("temporalType"):
+            result["_valueConstraints"]["temporalType"] = settled
+            changes.append({"path": f"{path}/_valueConstraints/temporalType",
+                            "replaced": constraints.get("temporalType"), "wrote": settled})
+        for name, child, multiple in container_children(definition):
+            declared = rest.child_path(path, name)
+            repaired = walk(child, f"{declared}/items" if multiple else declared)
+            if multiple:
+                result["properties"][name]["items"] = repaired
+            else:
+                result["properties"][name] = repaired
+        return result
+
+    return walk(copy.deepcopy(artifact), ""), changes
+
+
+def only_settled_temporal_types(before: Any, after: Any) -> Optional[str]:
+    """The invariant: a temporal type appeared only where the field's own granularity settles it.
+
+    The granularity sits in ``_ui`` and the type in ``_valueConstraints``, so the two are read
+    together at the definition that holds both rather than at the block that changed.
+    """
+
+    def walk(old: Any, new: Any, path: str) -> Optional[str]:
+        if isinstance(old, dict):
+            if not isinstance(new, dict) or set(old) != set(new):
+                return path or "/"
+            ui = old.get("_ui")
+            settled = audit.GRANULARITY_TO_TEMPORAL_TYPE.get(
+                ui.get("temporalGranularity")) if isinstance(ui, dict) else None
+            temporal = isinstance(ui, dict) and ui.get("inputType") == "temporal"
+            for key in old:
+                here = f"{path}/{rest.json_pointer_component(key)}"
+                if key == "_valueConstraints" and temporal and settled is not None \
+                        and isinstance(old[key], dict) and isinstance(new[key], dict):
+                    difference = constraints_difference(old[key], new[key], settled, here)
+                    if difference is not None:
+                        return difference
+                    continue
+                difference = walk(old[key], new[key], here)
+                if difference is not None:
+                    return difference
+            return None
+        if isinstance(old, list):
+            if not isinstance(new, list) or len(old) != len(new):
+                return path or "/"
+            for index, value in enumerate(old):
+                difference = walk(value, new[index], f"{path}/{index}")
+                if difference is not None:
+                    return difference
+            return None
+        return None if type(old) is type(new) and old == new else (path or "/")
+
+    def constraints_difference(old: dict, new: dict, settled: str, path: str) -> Optional[str]:
+        if set(old) | {"temporalType"} != set(new) | {"temporalType"}:
+            return path
+        for key in set(old) | set(new):
+            here = f"{path}/{rest.json_pointer_component(key)}"
+            if key == "temporalType":
+                # An absent or empty type may take the settled value; a stated one may not move.
+                if old.get(key):
+                    if new.get(key) != old.get(key):
+                        return here
+                elif new.get(key) != settled:
+                    return here
+                continue
+            if (key in old) != (key in new):
+                return here
+            difference = walk(old[key], new[key], here)
+            if difference is not None:
+                return difference
+        return None
+
+    return walk(before, after, "")
+
+
+def kind_word(definition: Any) -> Optional[str]:
+    """The kind a definition's ``@type`` names, where it names one.
+
+    A JSON Schema subtree can hold an ``@type`` that is not an artifact type at all: inside a field's
+    ``properties`` it is the object constraining an instance's own ``@type``, which is neither a
+    string nor hashable, so it is read rather than looked up.
+    """
+    if not isinstance(definition, dict):
+        return None
+    at_type = definition.get(AT_TYPE)
+    return KIND_WORD.get(at_type) if isinstance(at_type, str) else None
+
+
+def canonical_title(definition: Any) -> Optional[str]:
+    """The title a definition's own ``@type`` and ``schema:name`` compose, where both are usable."""
+    kind = kind_word(definition)
+    name = definition.get("schema:name") if isinstance(definition, dict) else None
+    if kind is None or not isinstance(name, str) or not name.strip():
+        return None
+    return f"{name} {kind} schema"
+
+
 def derive_title(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
-    """Compose the artifact's own JSON Schema title from its name, as every ordinary write does.
+    """Compose every definition's JSON Schema title from its own name, as an ordinary write does.
 
     The title is derived metadata rather than an authored value, and a stale one records a name the
-    artifact no longer has. Only the artifact's own title is written: an embedded child carries a pair
-    written by whatever generated that piece, which the server also leaves as sent. The description is
-    not touched, since it carries the generator's signature that the audits read.
+    definition no longer has. A template states a title on each embedded field and element as well as
+    at its root, and the server rewrites only the artifact's own, so an embedded child keeps whatever
+    its generator gave it however far that has drifted. Each title here is composed from the name
+    beside it, never from an ancestor's.
+
+    A definition whose ``@type`` names no kind, or that has no usable name, is left alone: there is
+    nothing to compose from, and guessing would write a title that asserts a name the definition does
+    not have. Refusing the artifact outright is reserved for the case where that is all there is to
+    do. The description is never touched, since it carries the generator's signature the audits read.
     """
     if not isinstance(artifact, dict):
         raise TransformRefused("artifact is not a JSON object")
-    kind = KIND_WORD.get(artifact.get(AT_TYPE))
-    name = artifact.get("schema:name")
-    if kind is None:
-        raise TransformRefused(f"@type {artifact.get(AT_TYPE)!r} names no kind a title is composed from")
-    if not isinstance(name, str) or not name.strip():
+    changes: list[dict[str, Any]] = []
+
+    def walk(definition: Any, path: str) -> Any:
+        if not isinstance(definition, dict):
+            return definition
+        result = copy.deepcopy(definition)
+        expected = canonical_title(definition)
+        if expected is not None and definition.get("title") != expected:
+            result["title"] = expected
+            changes.append({"path": f"{path}/title", "replaced": definition.get("title"),
+                            "wrote": expected})
+        for name, child, multiple in container_children(definition):
+            declared = rest.child_path(path, name)
+            repaired = walk(child, f"{declared}/items" if multiple else declared)
+            if multiple:
+                result["properties"][name]["items"] = repaired
+            else:
+                result["properties"][name] = repaired
+        return result
+
+    titled = walk(copy.deepcopy(artifact), "")
+    if not changes and canonical_title(artifact) is None:
+        if kind_word(artifact) is None:
+            raise TransformRefused(
+                f"@type {artifact.get(AT_TYPE)!r} names no kind a title is composed from")
         raise TransformRefused("artifact has no usable schema:name to compose a title from")
-    expected = f"{name} {kind} schema"
-    if artifact.get("title") == expected:
-        return copy.deepcopy(artifact), []
-    result = copy.deepcopy(artifact)
-    replaced = result.get("title")
-    result["title"] = expected
-    return result, [{"path": "/title", "replaced": replaced, "wrote": expected}]
+    return titled, changes
 
 
 def only_derived_title(before: Any, after: Any) -> Optional[str]:
-    """The invariant: the root title became the one the name composes, and nothing else moved."""
-    if not isinstance(before, dict) or not isinstance(after, dict):
-        return "/"
-    if set(before) | {"title"} != set(after) | {"title"}:
-        return "/"
-    kind = KIND_WORD.get(before.get(AT_TYPE))
-    name = before.get("schema:name")
-    if kind is None or not isinstance(name, str):
-        return "/"
-    for key in set(before) | set(after):
-        if key == "title":
-            if after.get(key) != f"{name} {kind} schema":
-                return "/title"
-            continue
-        if (key in before) != (key in after):
-            return f"/{rest.json_pointer_component(key)}"
-        if type(before[key]) is not type(after[key]) or before[key] != after[key]:
-            return f"/{rest.json_pointer_component(key)}"
-    return None
+    """The invariant: every title that moved became the one its own definition composes.
+
+    The walk follows the same path the transform does, definition to declared child, rather than
+    descending every dict. A container may declare a child literally named ``title``, and only the
+    traversal says whether a key of that name is the JSON Schema keyword or a child's key.
+    """
+
+    def definition_difference(old: Any, new: Any, path: str) -> Optional[str]:
+        if not isinstance(old, dict) or not isinstance(new, dict):
+            return path or "/"
+        if set(old) | {"title"} != set(new) | {"title"}:
+            return path or "/"
+        expected = canonical_title(old)
+        children = {name for name, _child, _multiple in container_children(old)}
+        for key in set(old) | set(new):
+            here = f"{path}/{rest.json_pointer_component(key)}"
+            if key == "title":
+                if new.get(key) != old.get(key) and new.get(key) != expected:
+                    return here
+                continue
+            if (key in old) != (key in new):
+                return here
+            if key == "properties" and children \
+                    and isinstance(old[key], dict) and isinstance(new[key], dict):
+                difference = properties_difference(old, old[key], new[key], here)
+                if difference is not None:
+                    return difference
+                continue
+            if type(old[key]) is not type(new[key]) or old[key] != new[key]:
+                return here
+        return None
+
+    def properties_difference(container: dict, old: dict, new: dict, path: str) -> Optional[str]:
+        if set(old) != set(new):
+            return path
+        multiple_by_name = {name: multiple for name, _child, multiple in container_children(container)}
+        for name in old:
+            here = f"{path}/{rest.json_pointer_component(name)}"
+            if name not in multiple_by_name:
+                if type(old[name]) is not type(new[name]) or old[name] != new[name]:
+                    return here
+                continue
+            if not multiple_by_name[name]:
+                difference = definition_difference(old[name], new[name], here)
+                if difference is not None:
+                    return difference
+                continue
+            # A multi-instance child is an array wrapper; only the definition under items may move.
+            if not isinstance(old[name], dict) or not isinstance(new[name], dict) \
+                    or set(old[name]) != set(new[name]):
+                return here
+            for key in old[name]:
+                there = f"{here}/{rest.json_pointer_component(key)}"
+                if key == "items":
+                    difference = definition_difference(old[name][key], new[name][key], there)
+                    if difference is not None:
+                        return difference
+                    continue
+                if type(old[name][key]) is not type(new[name][key]) or old[name][key] != new[name][key]:
+                    return there
+        return None
+
+    return definition_difference(before, after, "")
 
 
 class GuardedBridge:
@@ -1159,6 +1656,13 @@ class Repair:
     needs_template: bool = False
     # Some defects are a validator complaint rather than an inventory condition, and are selected by it.
     error_pattern: Optional[str] = None
+    # The inventory counts a defect at the root apart from the same defect on a nested definition, so
+    # a repair that reaches both is named by more than one condition.
+    also_conditions: tuple[str, ...] = ()
+
+    @property
+    def conditions(self) -> tuple[str, ...]:
+        return (self.condition, *self.also_conditions) if self.condition else self.also_conditions
 
 
 REPAIRS = {
@@ -1202,7 +1706,8 @@ REPAIRS = {
     "stamp-model-version": Repair(
         name="stamp-model-version",
         condition="schema-version-stale",
-        summary="write the current model version on an artifact that already conforms to it",
+        also_conditions=("schema-version-nested-stale",),
+        summary="write the current model version on every definition that already conforms to it",
         transform=stamp_model_version,
         invariant=only_stamped_model_version,
     ),
@@ -1213,10 +1718,39 @@ REPAIRS = {
         transform=complete_ui_order,
         invariant=only_appended_ui_order,
     ),
+    "drop-unusable-order-entries": Repair(
+        name="drop-unusable-order-entries",
+        condition="ui-order-orphan-entry",
+        summary="remove the _ui.order entries that name no child and never could",
+        transform=drop_unusable_order_entries,
+        invariant=only_dropped_unusable_order_entries,
+    ),
+    "drop-zero-term-count": Repair(
+        name="drop-zero-term-count",
+        condition="num-terms-zero",
+        summary="delete a numTerms written as zero, which claims a constraint matches nothing",
+        transform=drop_zero_term_count,
+        invariant=only_dropped_zero_term_counts,
+    ),
+    "drop-stray-cardinality-keys": Repair(
+        name="drop-stray-cardinality-keys",
+        condition="stray-cardinality-keys",
+        summary="delete minItems and maxItems from a child deployed as a single object",
+        transform=drop_stray_cardinality_keys,
+        invariant=only_dropped_stray_cardinality_keys,
+    ),
+    "settle-temporal-type": Repair(
+        name="settle-temporal-type",
+        condition="temporal-type-absent",
+        summary="write the temporal type a field's own granularity already settles",
+        transform=settle_temporal_type,
+        invariant=only_settled_temporal_types,
+    ),
     "derive-title": Repair(
         name="derive-title",
         condition="title-not-canonical",
-        summary="compose the artifact's own title from its name, as every ordinary write does",
+        also_conditions=("title-not-canonical-nested",),
+        summary="compose every definition's title from its own name, as an ordinary write does",
         transform=derive_title,
         invariant=only_derived_title,
     ),
@@ -1632,7 +2166,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     if len(set(names)) != len(names):
         parser.error("each repair may appear only once in a chain")
     repairs = [REPAIRS[name] for name in names]
-    conditions = [arguments.condition] if arguments.condition else [r.condition for r in repairs]
+    conditions = [arguments.condition] if arguments.condition \
+        else [c for r in repairs for c in r.conditions]
     patterns = [] if arguments.condition else [r.error_pattern for r in repairs if r.error_pattern]
     if arguments.limit is not None and arguments.limit <= 0:
         parser.error("--limit must be positive")

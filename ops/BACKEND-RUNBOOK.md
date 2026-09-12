@@ -3084,18 +3084,23 @@ than by an inventory condition, since no condition describes this. Only a name t
 touched, only where the template's own value is usable, and element occurrences are walked against the
 element definition they belong to at every depth.
 
-Five further repairs address defects the roadmap names, and all five are container rewrites that no
+Six further repairs address defects the roadmap names, and all six are container rewrites that no
 instance references. `drop-static-field-demands` stops a container naming a static field in
 `required`, `@context.required` or `@context.properties`: a static field renders and holds nothing,
 so every editor omits it and a container demanding one describes an instance nothing will build.
 `wrap-inherently-multiple` deploys a checkbox, attribute-value or multiple-choice list child as the
 array it always serializes to, lifting cardinality onto the envelope and leaving the field's own
 metadata on the inner definition; contradictory bounds are refused rather than guessed.
-`stamp-model-version` writes the current model version, and only over one that parses, since the key
-asserts conformance and stamping it onto an artifact that does not conform replaces a detectable
-defect with an undetectable one. `complete-ui-order` appends declared children the order omits, after
-what it already holds, and leaves the inverse drift alone because the store cannot synthesize a child
-an order entry names. `derive-title` composes the artifact's own title from its name, as every
+`stamp-model-version` writes the current model version on the root and on every nested definition,
+and only over one that parses, since the key asserts conformance and stamping it onto a definition
+that does not conform replaces a detectable defect with an undetectable one; a version that is absent
+or malformed stays where it stands, and the artifact is refused outright only when that is all there
+is to do. `complete-ui-order` appends declared children the order omits, after what it already holds.
+`drop-unusable-order-entries` takes the inverse drift, but only the part of it that carries its own
+proof that nothing is lost: an entry bearing a name the model reserves, which no child can be called,
+and an entry a rename left behind, recognised by the container declaring a child named the same with
+each `/` replaced by `-`. An entry that could be the last surviving evidence of a deleted child is
+left alone, since the store cannot synthesize the child back. `derive-title` composes the artifact's own title from its name, as every
 ordinary write does, touching neither the description that carries the generator's signature nor an
 embedded child's pair, which the server also leaves as sent.
 

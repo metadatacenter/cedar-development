@@ -210,6 +210,7 @@ mint_invariant = REPAIR.only_minted_child_ids
 
 def child(at_type=FIELD_TYPE, identifier=None, **extra):
     node = {"@type": at_type, "type": "object", "_ui": {"inputType": "textfield"},
+            "schema:schemaVersion": AUDIT_MODEL_VERSION,
             "properties": {"@value": {"type": ["string", "null"]}}}
     if identifier is not None:
         node["@id"] = identifier
@@ -220,6 +221,7 @@ def child(at_type=FIELD_TYPE, identifier=None, **extra):
 def template(children, root=BASE + "templates/9d1f0b8e-1f3c-4a2b-9f77-2b1a7c3d4e5f"):
     return {"@id": root, "@type": "https://schema.metadatacenter.org/core/Template",
             "schema:name": "Study", "title": "Study template schema",
+            "schema:schemaVersion": AUDIT_MODEL_VERSION,
             "type": "object", "_ui": {"order": list(children)},
             "properties": {"@context": {"properties": {}, "required": []}, **children}}
 
@@ -930,6 +932,318 @@ class StampModelVersionTest(unittest.TestCase):
         self.assertIsNone(REPAIR.only_stamped_model_version(doc, after))
         after["schema:name"] = "Renamed"
         self.assertEqual(REPAIR.only_stamped_model_version(doc, after), "/schema:name")
+
+
+    def test_a_nested_stale_version_is_written_forward_with_the_root(self):
+        doc = template({"Name": child(), "Address": child(ELEMENT_TYPE)})
+        doc["properties"]["Name"]["schema:schemaVersion"] = "1.5.0"
+        doc["properties"]["Address"]["schema:schemaVersion"] = "1.5.0"
+        after, changes = REPAIR.stamp_model_version(doc)
+        self.assertEqual([c["path"] for c in changes],
+                         ["/properties/Name/schema:schemaVersion",
+                          "/properties/Address/schema:schemaVersion"])
+        self.assertEqual(after["properties"]["Name"]["schema:schemaVersion"], AUDIT_MODEL_VERSION)
+        self.assertIsNone(REPAIR.only_stamped_model_version(doc, after))
+
+    def test_a_stale_version_inside_a_multi_instance_child_is_reached(self):
+        nested = child()
+        nested["schema:schemaVersion"] = "1.5.0"
+        doc = template({"Names": {"type": "array", "items": nested}})
+        after, changes = REPAIR.stamp_model_version(doc)
+        self.assertEqual([c["path"] for c in changes], ["/properties/Names/items/schema:schemaVersion"])
+        self.assertEqual(after["properties"]["Names"]["items"]["schema:schemaVersion"],
+                         AUDIT_MODEL_VERSION)
+
+    def test_an_absent_nested_version_is_left_where_a_stale_one_is_repaired(self):
+        doc = template({"Name": child(), "Age": child()})
+        doc["properties"]["Name"]["schema:schemaVersion"] = "1.5.0"
+        doc["properties"]["Age"].pop("schema:schemaVersion")
+        after, changes = REPAIR.stamp_model_version(doc)
+        self.assertEqual(len(changes), 1)
+        self.assertNotIn("schema:schemaVersion", after["properties"]["Age"])
+        self.assertIsNone(REPAIR.only_stamped_model_version(doc, after))
+
+    def test_an_absent_nested_version_alone_refuses_rather_than_reporting_clean(self):
+        doc = template({"Name": child()})
+        doc["properties"]["Name"].pop("schema:schemaVersion")
+        with self.assertRaises(REPAIR.TransformRefused):
+            REPAIR.stamp_model_version(doc)
+
+    def test_the_invariant_rejects_a_version_moved_anywhere_but_forward(self):
+        doc = template({"Name": child()})
+        doc["properties"]["Name"]["schema:schemaVersion"] = "1.5.0"
+        after, _changes = REPAIR.stamp_model_version(doc)
+        sideways = copy.deepcopy(after)
+        sideways["properties"]["Name"]["schema:schemaVersion"] = "9.9.9"
+        self.assertEqual(REPAIR.only_stamped_model_version(doc, sideways),
+                         "/properties/Name/schema:schemaVersion")
+
+
+class NestedTitleTest(unittest.TestCase):
+
+    def test_a_nested_child_title_is_composed_from_its_own_name(self):
+        stale = child()
+        stale["schema:name"] = "Age"
+        stale["title"] = "Years field schema"
+        doc = template({"Age": stale})
+        after, changes = REPAIR.derive_title(doc)
+        self.assertEqual(after["properties"]["Age"]["title"], "Age field schema")
+        self.assertEqual([c["path"] for c in changes], ["/properties/Age/title"])
+        self.assertIsNone(REPAIR.only_derived_title(doc, after))
+
+    def test_a_nested_title_is_never_composed_from_an_ancestor_name(self):
+        stale = child(ELEMENT_TYPE)
+        stale["schema:name"] = "Address"
+        stale["title"] = "wrong"
+        stale["properties"] = {"@context": {"properties": {}, "required": []}, "Street": child()}
+        stale["properties"]["Street"]["schema:name"] = "Street"
+        stale["properties"]["Street"]["title"] = "wrong too"
+        doc = template({"Address": stale})
+        after, _changes = REPAIR.derive_title(doc)
+        self.assertEqual(after["properties"]["Address"]["title"], "Address element schema")
+        self.assertEqual(after["properties"]["Address"]["properties"]["Street"]["title"],
+                         "Street field schema")
+
+    def test_a_child_with_no_usable_name_is_left_where_another_is_repaired(self):
+        nameless = child()
+        nameless.pop("schema:name", None)
+        nameless["title"] = "whatever"
+        stale = child()
+        stale["schema:name"] = "Age"
+        stale["title"] = "stale"
+        doc = template({"Nameless": nameless, "Age": stale})
+        after, changes = REPAIR.derive_title(doc)
+        self.assertEqual(len(changes), 1)
+        self.assertEqual(after["properties"]["Nameless"]["title"], "whatever")
+
+    def test_an_unusable_root_alone_still_refuses(self):
+        doc = template({"Name": child()})
+        doc[REPAIR.AT_TYPE] = "Antibody Reagents"
+        with self.assertRaises(REPAIR.TransformRefused):
+            REPAIR.derive_title(doc)
+
+    def test_an_at_type_that_is_not_a_string_is_read_rather_than_looked_up(self):
+        """A field's properties hold an @type constraint object, which is unhashable."""
+        node = child()
+        node["schema:name"] = "Age"
+        node["title"] = "stale"
+        node["properties"] = {"@value": {"type": ["string", "null"]},
+                              "@type": {"oneOf": [{"type": "string", "format": "uri"}]}}
+        doc = template({"Age": node})
+        after, changes = REPAIR.derive_title(doc)
+        self.assertEqual(after["properties"]["Age"]["title"], "Age field schema")
+        self.assertIsNone(REPAIR.only_derived_title(doc, after))
+        self.assertEqual(len(changes), 1)
+
+    def test_a_child_named_title_is_not_the_title_keyword(self):
+        """Production templates declare a child called "title"; only the traversal tells them apart."""
+        inner = child()
+        inner["schema:name"] = "title"
+        inner["title"] = "stale"
+        doc = template({"title": inner})
+        after, changes = REPAIR.derive_title(doc)
+        self.assertEqual(after["properties"]["title"]["title"], "title field schema")
+        self.assertEqual([c["path"] for c in changes], ["/properties/title/title"])
+        self.assertIsNone(REPAIR.only_derived_title(doc, after))
+
+    def test_a_title_inside_a_multi_instance_child_is_reached(self):
+        inner = child()
+        inner["schema:name"] = "Author"
+        inner["title"] = "stale"
+        doc = template({"Authors": {"type": "array", "items": inner}})
+        after, changes = REPAIR.derive_title(doc)
+        self.assertEqual(after["properties"]["Authors"]["items"]["title"], "Author field schema")
+        self.assertEqual([c["path"] for c in changes], ["/properties/Authors/items/title"])
+        self.assertIsNone(REPAIR.only_derived_title(doc, after))
+
+    def test_the_invariant_rejects_a_change_to_an_array_wrapper(self):
+        inner = child()
+        inner["schema:name"] = "Author"
+        inner["title"] = "stale"
+        doc = template({"Authors": {"type": "array", "items": inner}})
+        after, _changes = REPAIR.derive_title(doc)
+        meddled = copy.deepcopy(after)
+        meddled["properties"]["Authors"]["minItems"] = 1
+        self.assertIsNotNone(REPAIR.only_derived_title(doc, meddled))
+
+    def test_the_invariant_rejects_a_title_composed_from_the_wrong_name(self):
+        stale = child()
+        stale["schema:name"] = "Age"
+        stale["title"] = "stale"
+        doc = template({"Age": stale})
+        after, _changes = REPAIR.derive_title(doc)
+        wrong = copy.deepcopy(after)
+        wrong["properties"]["Age"]["title"] = "Study field schema"
+        self.assertEqual(REPAIR.only_derived_title(doc, wrong), "/properties/Age/title")
+
+
+class DropZeroTermCountTest(unittest.TestCase):
+
+    def test_a_zero_term_count_is_deleted(self):
+        node = child()
+        node["_valueConstraints"] = {"ontologies": [{"acronym": "NCIT", "numTerms": 0}]}
+        doc = template({"Term": node})
+        after, changes = REPAIR.drop_zero_term_count(doc)
+        self.assertNotIn("numTerms", after["properties"]["Term"]["_valueConstraints"]["ontologies"][0])
+        self.assertEqual(changes[0]["path"], "/properties/Term/_valueConstraints/ontologies/0/numTerms")
+        self.assertIsNone(REPAIR.only_dropped_zero_term_counts(doc, after))
+
+    def test_a_real_count_is_left_alone(self):
+        node = child()
+        node["_valueConstraints"] = {"ontologies": [{"acronym": "NCIT", "numTerms": 12}]}
+        doc = template({"Term": node})
+        _after, changes = REPAIR.drop_zero_term_count(doc)
+        self.assertEqual(changes, [])
+
+    def test_the_invariant_rejects_deleting_anything_else(self):
+        node = child()
+        node["_valueConstraints"] = {"ontologies": [{"acronym": "NCIT", "numTerms": 0}]}
+        doc = template({"Term": node})
+        after, _changes = REPAIR.drop_zero_term_count(doc)
+        greedy = copy.deepcopy(after)
+        del greedy["properties"]["Term"]["_valueConstraints"]["ontologies"][0]["acronym"]
+        self.assertIsNotNone(REPAIR.only_dropped_zero_term_counts(doc, greedy))
+
+
+class DropStrayCardinalityKeysTest(unittest.TestCase):
+
+    def test_bounds_go_from_a_child_deployed_as_an_object(self):
+        doc = template({"Name": child()})
+        doc["properties"]["Name"]["minItems"] = 0
+        doc["properties"]["Name"]["maxItems"] = 1
+        after, changes = REPAIR.drop_stray_cardinality_keys(doc)
+        self.assertNotIn("minItems", after["properties"]["Name"])
+        self.assertNotIn("maxItems", after["properties"]["Name"])
+        self.assertEqual(sorted(c["path"] for c in changes),
+                         ["/properties/Name/maxItems", "/properties/Name/minItems"])
+        self.assertIsNone(REPAIR.only_dropped_stray_cardinality_keys(doc, after))
+
+    def test_bounds_on_a_real_array_child_are_left_alone(self):
+        doc = template({"Names": {"type": "array", "minItems": 0, "maxItems": 3, "items": child()}})
+        _after, changes = REPAIR.drop_stray_cardinality_keys(doc)
+        self.assertEqual(changes, [])
+
+    def test_the_invariant_rejects_losing_another_key(self):
+        doc = template({"Name": child()})
+        doc["properties"]["Name"]["maxItems"] = 1
+        after, _changes = REPAIR.drop_stray_cardinality_keys(doc)
+        greedy = copy.deepcopy(after)
+        del greedy["properties"]["Name"]["_ui"]
+        self.assertIsNotNone(REPAIR.only_dropped_stray_cardinality_keys(doc, greedy))
+
+
+class SettleTemporalTypeTest(unittest.TestCase):
+
+    def temporal(self, granularity, **constraints):
+        node = child()
+        node["_ui"] = {"inputType": "temporal", "temporalGranularity": granularity}
+        node["_valueConstraints"] = dict(constraints)
+        return node
+
+    def test_a_day_granularity_settles_the_type_to_a_date(self):
+        doc = template({"When": self.temporal("day")})
+        after, changes = REPAIR.settle_temporal_type(doc)
+        self.assertEqual(after["properties"]["When"]["_valueConstraints"]["temporalType"], "xsd:date")
+        self.assertEqual(changes[0]["path"], "/properties/When/_valueConstraints/temporalType")
+        self.assertIsNone(REPAIR.only_settled_temporal_types(doc, after))
+
+    def test_a_sub_day_granularity_is_left_for_the_values_to_settle(self):
+        doc = template({"When": self.temporal("minute")})
+        _after, changes = REPAIR.settle_temporal_type(doc)
+        self.assertEqual(changes, [])
+
+    def test_a_stated_type_is_never_moved(self):
+        doc = template({"When": self.temporal("day", temporalType="xsd:dateTime")})
+        _after, changes = REPAIR.settle_temporal_type(doc)
+        self.assertEqual(changes, [])
+
+    def test_the_invariant_rejects_a_type_the_granularity_does_not_settle(self):
+        doc = template({"When": self.temporal("day")})
+        after, _changes = REPAIR.settle_temporal_type(doc)
+        wrong = copy.deepcopy(after)
+        wrong["properties"]["When"]["_valueConstraints"]["temporalType"] = "xsd:dateTime"
+        self.assertIsNotNone(REPAIR.only_settled_temporal_types(doc, wrong))
+
+    def test_a_second_pass_changes_nothing(self):
+        doc = template({"When": self.temporal("day")})
+        once, first = REPAIR.settle_temporal_type(doc)
+        _twice, second = REPAIR.settle_temporal_type(once)
+        self.assertEqual(len(first), 1)
+        self.assertEqual(second, [])
+
+
+class RepairConditionTest(unittest.TestCase):
+
+    def test_the_model_version_repair_is_named_by_the_root_and_nested_conditions(self):
+        repair = REPAIR.REPAIRS["stamp-model-version"]
+        self.assertEqual(repair.conditions, ("schema-version-stale", "schema-version-nested-stale"))
+
+    def test_a_repair_with_one_condition_reports_just_that_one(self):
+        self.assertEqual(REPAIR.REPAIRS["drop-unusable-order-entries"].conditions,
+                         ("ui-order-orphan-entry",))
+
+
+class DropUnusableOrderEntriesTest(unittest.TestCase):
+
+    def test_an_entry_bearing_a_reserved_name_is_removed(self):
+        doc = template({"Name": child()})
+        doc["_ui"]["order"] = ["@context", "Name", "@id"]
+        after, changes = REPAIR.drop_unusable_order_entries(doc)
+        self.assertEqual(after["_ui"]["order"], ["Name"])
+        self.assertEqual([c["replaced"] for c in changes], ["@context", "@id"])
+
+    def test_a_pre_rename_spelling_is_removed_once_the_renamed_child_is_present(self):
+        doc = template({"provider-VendorName": child(), "Name": child()})
+        doc["_ui"]["order"] = ["provider/VendorName", "Name", "provider-VendorName"]
+        after, _changes = REPAIR.drop_unusable_order_entries(doc)
+        self.assertEqual(after["_ui"]["order"], ["Name", "provider-VendorName"])
+
+    def test_a_pre_rename_spelling_is_kept_while_no_renamed_child_exists(self):
+        doc = template({"Name": child()})
+        doc["_ui"]["order"] = ["provider/VendorName", "Name"]
+        after, changes = REPAIR.drop_unusable_order_entries(doc)
+        self.assertEqual(changes, [])
+        self.assertEqual(after["_ui"]["order"], ["provider/VendorName", "Name"])
+
+    def test_an_entry_naming_a_plausible_removed_child_is_left_alone(self):
+        doc = template({"Name": child()})
+        doc["_ui"]["order"] = ["Name", "Subject Label", "schemaVersion"]
+        after, changes = REPAIR.drop_unusable_order_entries(doc)
+        self.assertEqual(changes, [])
+        self.assertEqual(after["_ui"]["order"], ["Name", "Subject Label", "schemaVersion"])
+
+    def test_a_page_break_child_is_not_treated_as_an_unusable_entry(self):
+        doc = template({"Name": child(), "_page_break_1": child(STATIC_TYPE)})
+        doc["_ui"]["order"] = ["Name", "_page_break_1"]
+        _after, changes = REPAIR.drop_unusable_order_entries(doc)
+        self.assertEqual(changes, [])
+
+    def test_a_nested_container_is_reached(self):
+        inner = child(ELEMENT_TYPE)
+        inner["properties"] = {"@context": {"properties": {}, "required": []}, "Street": child()}
+        inner["_ui"] = {"order": ["Street", "@id"]}
+        doc = template({"Address": inner})
+        after, changes = REPAIR.drop_unusable_order_entries(doc)
+        self.assertEqual(after["properties"]["Address"]["_ui"]["order"], ["Street"])
+        self.assertEqual(changes[0]["path"], "/properties/Address/_ui/order")
+
+    def test_the_invariant_rejects_losing_a_usable_entry_or_reordering(self):
+        doc = template({"Name": child(), "Age": child()})
+        doc["_ui"]["order"] = ["@id", "Name", "Age"]
+        after, _changes = REPAIR.drop_unusable_order_entries(doc)
+        self.assertIsNone(REPAIR.only_dropped_unusable_order_entries(doc, after))
+        lost = copy.deepcopy(after); lost["_ui"]["order"] = ["Name"]
+        self.assertIsNotNone(REPAIR.only_dropped_unusable_order_entries(doc, lost))
+        reordered = copy.deepcopy(after); reordered["_ui"]["order"] = ["Age", "Name"]
+        self.assertIsNotNone(REPAIR.only_dropped_unusable_order_entries(doc, reordered))
+
+    def test_a_second_pass_changes_nothing(self):
+        doc = template({"Name": child()})
+        doc["_ui"]["order"] = ["@id", "Name"]
+        once, first = REPAIR.drop_unusable_order_entries(doc)
+        _twice, second = REPAIR.drop_unusable_order_entries(once)
+        self.assertEqual(len(first), 1)
+        self.assertEqual(second, [])
 
 
 class CompleteUiOrderTest(unittest.TestCase):
