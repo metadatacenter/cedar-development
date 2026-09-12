@@ -720,50 +720,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   Done when each class of outbound call takes its timeouts from configuration, the request log carries
   durations, the compensating write is durable, and the remaining clients read the same settings.
 
-- **19. Make native bring-up prove a service runs.** `cedarcli native start` reports what the
-  launcher accepted rather than what the stack ends up running, and the gap swallowed a whole-stack
-  outage on 2026-09-02: every application exited in milliseconds for want of `CEDAR_PROFILE`,
-  launchd's keepalive respawned each one, and the CLI printed `started <name> (pid N)` for all
-  twenty-two because a PID existed each time it looked. The launcher passes that environment through
-  today, rejects a service that dies at once, refuses a `JAVA_HOME` that is not a Java 17, and covers
-  all three in tests.
-
-  What remains is to confirm a service is serving, not merely alive. The survival check waits half a
-  second and asks whether the process still exists, which catches the failures that land before a JVM
-  starts and none after that. A microservice that boots, fails to reach Neo4j or Mongo, and exits
-  after ten seconds is still reported as started. `cedarcli native health` already knows how to judge
-  this and exits non-zero unless every managed application is healthy, so let `start` end by waiting
-  for the services it just launched to pass that same gate and report the ones that never arrive
-  along with the last lines of their logs.
-
-  **Wait once, after launching, rather than per service.** Waiting for each service before starting
-  the next makes the cost the sum of twenty-two JVM boots and their dependency connections, which is
-  minutes; polling the whole set after launching them all makes it the slowest service alone. Bound
-  the total rather than each service, and report each one as it arrives, so a developer sees progress
-  rather than a silent block.
-
-  Most of what it adds is already being paid. The survival check sleeps half a second per service,
-  serially, which is about eleven seconds of every `start all` spent waiting on nothing in
-  particular. A health gate subsumes it — a service that died at once will never pass — so those
-  sleeps can go, and the early per-service error they print is what the report of services that never
-  arrived already covers.
-
-  `start infra` is the layer where waiting earns the most. Microservices connect to Neo4j, Mongo and
-  Keycloak while they boot, so returning before those are serving is what produces the failure the
-  survival check cannot see; waiting there prevents a cascade rather than reporting one.
-
-  A flag that skips the wait restores exactly the behaviour this item exists to remove, so if one
-  exists it should be asked for explicitly and never be the default.
-
-  One constraint on the implementation. `ServerWorker` probes each service in turn with no per-probe
-  timeout, which is fast only because a stopped service refuses the connection; a service that
-  accepts one and then hangs would stall the loop and make the gate its own source of delay. A poll
-  needs a bounded probe, and reads better concurrent.
-
-  Done when `start` reports a service only once it is healthy or names why it is not, and `start all`
-  costs the readiness of its slowest service rather than the sum of all of them.
-
-- **20. Run the whole-stack tiers in CI, and gate the workflow train the way the CLI is gated.**
+- **19. Run the whole-stack tiers in CI, and gate the workflow train the way the CLI is gated.**
   **Production consequence:** none at runtime. CI needs a deployable environment, credentials, time
   and somewhere to keep the reports.
 
@@ -785,7 +742,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   when both tiers run unattended on a cadence, their reports are retained, and a train dispatched
   through Actions is refused on the same evidence that refuses one dispatched from `cedarcli`.
 
-- **21. Let the artifact server own the uniqueness of `@id`.** No two documents in an artifact
+- **20. Let the artifact server own the uniqueness of `@id`.** No two documents in an artifact
   collection may share an `@id`. The server relies on a unique index on that field to enforce it. A
   create is a read that finds the identifier absent followed by an insert, and
   `GenericLDDaoMongoDB.create` answers a duplicate-key rejection with the same 412 the update path
@@ -821,7 +778,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   Done when a fresh, unprovisioned Mongo refuses the second insert, the suites prove it, a store with
   duplicates still boots and reports why its index is missing, and the runbook carries the preflight.
 
-- **22. Take the dependency upgrades that need code changes.** The versions that could move without
+- **21. Take the dependency upgrades that need code changes.** The versions that could move without
   consequence have moved. What stayed behind stayed deliberately, and it separates into work to do,
   versions that follow something else, and versions upstream has not released.
 
@@ -887,7 +844,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   Done when each upgrade above has either landed or been recorded as refused with its reason, and
   the estate no longer carries a dependency held back only because nobody looked at it.
 
-- **23. Give the public CEE release a CLI route.** Publishing `cedar-embeddable-editor` to npmjs is a
+- **22. Give the public CEE release a CLI route.** Publishing `cedar-embeddable-editor` to npmjs is a
   runbook of about twenty-five commands across `develop`, a pull request, `main`, the registry, a
   tag, the development-state restore and the train baseline refresh. Release 2.0.6 took an hour of
   operator attention for two minutes of gate time, and CEE has shipped four public versions in a
@@ -900,7 +857,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   the command exists, rewrite the npmjs runbook into a description of what it does and where it
   stops.
 
-- **24. Decide whether an attribute-value child keeps its declared property IRI.** Both model
+- **23. Decide whether an attribute-value child keeps its declared property IRI.** Both model
   libraries read such a child's property IRI out of a template's `@context` and then decline to write
   it back as JSON, so a read-and-write cycle over `template-022.json` loses
   `https://schema.metadatacenter.org/properties/d01cb533-265c-474a-95f3-9afb4616a6e1` from the
@@ -935,7 +892,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
 
 ## Production data
 
-- **25. Normalize production artifacts to one explicit model contract.** Production contains several
+- **24. Normalize production artifacts to one explicit model contract.** Production contains several
   legacy representations that the current model surfaces tolerate or normalize differently, so bring
   them to canonical shapes before tightening readers or introducing terminology routing across source
   systems. The permission-scoped audit found 76 inherently-multiple fields deployed as JSON objects in
@@ -1116,7 +1073,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
 
 ## Later decisions
 
-- **26. Enforce the request-body classification, and decide what an open body requires.**
+- **25. Enforce the request-body classification, and decide what an open body requires.**
   `cedarcli check openapi` reads `additionalProperties` only when deciding whether a schema counts
   as a stub, so nothing across the estate fails when a new request schema states neither that it is
   closed nor that it is open. Only the resource server asks, in its own contract test. Add the rule,
@@ -1137,7 +1094,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   subtree outside the named mappers. Sixteen more across the servers and shared libraries read
   responses or build output, where the tolerant mapper is what they want.
 
-- **27. A published artifact can be deleted, contradicting the docs.** The docs say a published
+- **26. A published artifact can be deleted, contradicting the docs.** The docs say a published
   artifact is permanent, but `DELETE` on one succeeds. The guard in
   `AbstractResourceServerResource.executeArtifactDelete` was briefly re-enabled and then **reverted by
   deliberate decision**: blocking deletion strands published artifacts and the folders holding them with
@@ -1151,7 +1108,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   representation is corrected. Whichever way deletability is settled, the docs have both exceptions
   to describe.
 
-- **28. Address artifacts by bare identifier in REST paths, keeping the full IRI as stored
+- **27. Address artifacts by bare identifier in REST paths, keeping the full IRI as stored
   identity.** **Production consequence:** an addressing migration rather than a data one. Stored
   identifiers in MongoDB, Neo4j and OpenSearch do not change, and no reindex is required, but
   clients that build URLs in the current form need the legacy shape kept as an alias until traffic
@@ -1183,7 +1140,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   Done when every resource-specific route takes the bare identifier, one parser owns the
   reconstruction, and staging's per-artifact blocks are gone.
 
-- **29. Decide what each compatibility adapter is for, now that neither reads artifacts itself.**
+- **28. Decide what each compatibility adapter is for, now that neither reads artifacts itself.**
   Repo and OpenView exist to preserve URLs rather than to do work: the runbook's account of artifact
   route ownership gives repo the identifier dereferencing URLs and OpenView the anonymous
   presentation and open-artifact URLs, and says neither adapter should own artifact storage or an

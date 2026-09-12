@@ -111,6 +111,15 @@ the command says so and starts the applications only. To put fresh binaries behi
 `cedarcli native restart` with no arguments is the command; `start` adopts what is already up rather
 than replacing it.
 
+Start waits for what it launched to serve, and says so. Infrastructure is waited for first, because
+a microservice reaches Neo4j, Mongo and Keycloak while it boots. The applications are then launched
+together and polled as a set, so the wait costs the slowest one rather than the sum of all of them;
+each is reported as `ready <name>` when it arrives, and anything that never does is named with the
+last lines of its log and removed rather than left respawning. `CEDAR_START_READY_TIMEOUT` bounds
+the set, 240 seconds by default, and `CEDAR_HEALTH_PROBE_TIMEOUT` bounds one probe, 5 seconds by
+default — long enough for terminology, whose health report is cached and takes a couple of seconds
+to rebuild once it lapses.
+
 ## The containerized stack
 
 An alternative to the native bring-up: the same fifteen microservices and the same infrastructure,

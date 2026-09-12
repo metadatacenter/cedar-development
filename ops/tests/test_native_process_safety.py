@@ -327,7 +327,7 @@ class NativeProcessSafetyTest(unittest.TestCase):
         self.assertIn("-- /bin/bash -c", result.stdout)
         self.assertIn('exec "$3" run-one "$4"', result.stdout)
         self.assertIn(f"develop {SCRIPT} group", result.stdout)
-        self.assertIn("started group (pid 4242)", result.stdout)
+        self.assertIn("launched group (pid 4242)", result.stdout)
 
     def test_linux_start_uses_the_background_launcher_and_not_launchd(self):
         """The other half of the branch above, which no test reached while every test said Darwin."""
@@ -344,7 +344,7 @@ class NativeProcessSafetyTest(unittest.TestCase):
         )
 
         self.assertEqual(0, result.returncode, result.stderr)
-        self.assertIn("started group", result.stdout)
+        self.assertIn("launched group", result.stdout)
         self.assertNotIn("launchctl reached on Linux", result.stdout)
         self.assertNotIn("submit -l", result.stdout)
 
@@ -367,7 +367,7 @@ class NativeProcessSafetyTest(unittest.TestCase):
         self.assertIn("CEDAR_PROFILE is not set", result.stderr)
         self.assertNotIn("submit -l", result.stdout)
 
-    def test_start_reports_a_service_that_exits_at_once_rather_than_starting_it(self):
+    def test_start_launches_without_claiming_the_service_runs(self):
         """A submitted job restarts on exit, so a PID alone never proves a service runs."""
         result = self.run_library(
             'base="$CEDAR_HOME/cedar-group-server/cedar-group-server-application"; '
@@ -376,19 +376,56 @@ class NativeProcessSafetyTest(unittest.TestCase):
             'touch "$base/src/main/resources/config.yml"; '
             'port_open() { return 1; }; uname() { echo Darwin; }; '
             'remove_launchd_job() { echo "removed $1"; }; launchd_job_pid() { echo 4242; }; '
-            'process_alive() { return 1; }; '
-            # start_one truncates the log before submitting, so the child's message has to land
-            # after that, which is where a real service writes it.
-            'launchctl() { printf "%s\\n" "$*"; '
-            'echo "Cannot load native CEDAR profile" >> "$(logfile group)"; }; '
+            'launchctl() { printf "%s\\n" "$*"; }; '
             'start_one group'
         )
 
-        self.assertNotEqual(0, result.returncode)
-        self.assertIn("exited immediately (pid 4242)", result.stderr)
-        self.assertIn("Cannot load native CEDAR profile", result.stderr)
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn("launched group (pid 4242)", result.stdout)
         self.assertNotIn("started group", result.stdout)
+
+    def test_the_readiness_gate_reports_each_service_as_it_arrives(self):
+        """The set is polled together, so the cost is the slowest service and not their sum."""
+        result = self.run_library(
+            'health_of() { echo healthy; }; await_ready group messaging'
+        )
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn("ready group", result.stdout)
+        self.assertIn("ready messaging", result.stdout)
+
+    def test_the_readiness_gate_names_a_service_that_never_serves(self):
+        """What the removed per-service survival check reported, for every later failure too."""
+        result = self.run_library(
+            'START_READY_TIMEOUT=1; '
+            'echo "Cannot reach Neo4j" >> "$(logfile group)"; '
+            'health_of() { echo starting; }; '
+            'remove_launchd_job() { echo "removed $1"; }; '
+            'await_ready group'
+        )
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("never became healthy", result.stderr)
+        self.assertIn("Cannot reach Neo4j", result.stderr)
         self.assertIn("removed group", result.stdout)
+
+    def test_the_readiness_gate_waits_for_nothing_when_nothing_launched(self):
+        result = self.run_library('await_ready')
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertNotIn("Waiting for", result.stdout)
+
+    def test_the_health_probe_outlasts_a_cached_report_being_rebuilt(self):
+        """Terminology answers in 4-7ms warm and up to 2.45s once its cached report has lapsed."""
+        result = self.run_library(
+            'curl() { printf "%s\\n" "$*" > "$CEDAR_HOME/probe-arguments"; echo 200; }; '
+            'health_of terminology; cat "$CEDAR_HOME/probe-arguments"'
+        )
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn("healthy", result.stdout)
+        timeout = result.stdout.split("-m ", 1)[1].split(" ", 1)[0]
+        self.assertGreaterEqual(int(timeout), 3, result.stdout)
 
     def test_logs_resolves_the_two_logs_a_service_writes(self):
         result = self.run_library(

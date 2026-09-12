@@ -570,20 +570,11 @@ start_one() {
     nohup "$SCRIPT_PATH" run-one "$name" >"$log" 2>&1 &
     p=$!
   fi
-  # A PID proves only that the launcher spawned something. A submitted job restarts when it exits,
-  # so a service that cannot start shows a fresh PID on every look and buries its first, useful
-  # error under identical repeats. Give it a moment and confirm this same process is still there,
-  # which catches what fails before a JVM starts: an unreadable profile, a missing config, no JDK.
-  # A service that dies later still reads as unhealthy in status and health.
-  sleep 0.5
-  if ! process_alive "$p"; then
-    remove_launchd_job "$name" || true
-    echo "  $name: exited immediately (pid $p); last lines of $log:" >&2
-    tail -n 4 "$log" 2>/dev/null | sed 's/^/    /' >&2
-    return 1
-  fi
+  # A PID proves only that the launcher spawned something, and a submitted job restarts when it
+  # exits, so a service that cannot start shows a fresh PID on every look. Launching says nothing
+  # about serving: await_ready is what decides, and it reports what never arrived.
   echo "$p" > "$(pidfile "$name")"
-  echo "  started $name (pid $p) -> port $app, log $log"
+  echo "  launched $name (pid $p) -> port $app, log $log"
 }
 
 stop_one() {
@@ -634,16 +625,62 @@ stop_one() {
 
 names() { if [ $# -gt 0 ]; then printf '%s\n' "$@"; else for s in "${SERVICES[@]}"; do set -- $s; echo "$1"; done; fi; }
 
+# Long enough for the slowest healthy answer rather than the typical one. Fourteen services answer
+# their admin check in 6-22ms, and terminology caches its report: three calls in a row take 4-7ms,
+# one after a quiet fifteen seconds takes 0.99s and one after longer takes 2.45s, because the first
+# probe after the cache lapses rebuilds it. At two seconds that read as `starting` on a healthy
+# server, which is what refused a gate run on 2026-09-10. A closed port still fails at once, so this
+# bound is paid only by a service that accepts a connection and is slow to answer.
+HEALTH_PROBE_TIMEOUT=${CEDAR_HEALTH_PROBE_TIMEOUT:-5}
+
 health_of() {  # echoes healthy|UNHEALTHY|starting|down
   local name=$1 app admin; app=$(app_port "$name"); admin=$(admin_port "$name")
   local code
   if [ "$admin" = 0 ]; then
-    code=$(curl -s -o /dev/null -m 2 -w '%{http_code}' "http://127.0.0.1:$app/" 2>/dev/null)
+    code=$(curl -s -o /dev/null -m "$HEALTH_PROBE_TIMEOUT" -w '%{http_code}' "http://127.0.0.1:$app/" 2>/dev/null)
     case "$code" in 2??|3??) echo healthy;; *) port_open "$app" && echo UNHEALTHY || echo down;; esac
     return
   fi
-  code=$(curl -s -o /dev/null -m 2 -w '%{http_code}' "http://127.0.0.1:$admin/healthcheck" 2>/dev/null)
+  code=$(curl -s -o /dev/null -m "$HEALTH_PROBE_TIMEOUT" -w '%{http_code}' "http://127.0.0.1:$admin/healthcheck" 2>/dev/null)
   case "$code" in 200) echo healthy;; 500) echo UNHEALTHY;; *) port_open "$app" && echo starting || echo down;; esac
+}
+
+# How long the whole set has to become healthy, not each service. Twenty-two JVMs started in
+# sequence and waited for one at a time would cost the sum of their boots; polling them together
+# after launching them all costs the slowest one. A frontend compiling its bundle is that one.
+START_READY_TIMEOUT=${CEDAR_START_READY_TIMEOUT:-240}
+
+# Waits for the services just launched to serve, reports each as it arrives, and names the ones
+# that never did with the last lines of their logs. A submitted job restarts what it launched, so a
+# service that never arrives is also removed rather than left respawning.
+#
+# The probe is bounded but serial. A service that is not listening refuses at once, so a pending
+# set costs almost nothing until it starts answering; one that accepts a connection and then hangs
+# costs HEALTH_PROBE_TIMEOUT per pass, which the deadline below contains.
+await_ready() {
+  [ $# -gt 0 ] || return 0
+  local deadline pending=("$@") still n failed=0
+  deadline=$(( $(date +%s) + START_READY_TIMEOUT ))
+  echo "Waiting for ${#pending[@]} service(s) to serve (up to ${START_READY_TIMEOUT}s for the set)..."
+  while [ "${#pending[@]}" -gt 0 ] && [ "$(date +%s)" -lt "$deadline" ]; do
+    still=()
+    for n in "${pending[@]}"; do
+      if [ "$(health_of "$n")" = healthy ]; then
+        echo "  ready $n"
+      else
+        still+=("$n")
+      fi
+    done
+    pending=("${still[@]}")
+    [ "${#pending[@]}" -gt 0 ] && sleep 1
+  done
+  for n in "${pending[@]}"; do
+    failed=1
+    echo "  $n: never became healthy within ${START_READY_TIMEOUT}s ($(health_of "$n")); last lines of $(logfile "$n"):" >&2
+    tail -n 4 "$(logfile "$n")" 2>/dev/null | sed 's/^/    /' >&2
+    remove_launchd_job "$n" || true
+  done
+  return "$failed"
 }
 
 health() {
@@ -830,7 +867,13 @@ fi
 cmd="${1:-status}"; shift 2>/dev/null
 case "$cmd" in
   run-one) run_one_foreground "$1" ;;
-  start)   echo "Starting CEDAR app tier (JDK 17)..."; failed=0; while read -r n; do start_one "$n" || failed=1; sleep 3; done < <(names "$@"); exit "$failed" ;;
+  start)   echo "Starting CEDAR app tier (JDK 17)..."; failed=0; launched=()
+           while read -r n; do
+             if start_one "$n"; then launched+=("$n"); else failed=1; fi
+             sleep 3
+           done < <(names "$@")
+           await_ready "${launched[@]}" || failed=1
+           exit "$failed" ;;
   stop)    failed=0; while read -r n; do stop_one "$n" || failed=1; done < <(names "$@"); exit "$failed" ;;
   restart) "$SCRIPT_PATH" stop "$@" || exit $?; sleep 2; "$SCRIPT_PATH" start "$@" ;;
   status)  status ;;
