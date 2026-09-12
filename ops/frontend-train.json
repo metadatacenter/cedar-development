@@ -151,7 +151,7 @@
       "repository": "cedar-embeddable-editor",
       "lock": "package-lock.json",
       "strictInstallScripts": true,
-      "sha256": "37a23d1ba5206f098277611bff1189081f111a6706142402b2e124931a0dd95c",
+      "sha256": "893f494aa329780273e79d1aa547b7b99df6c1c5a432778d2d229d73ec1cd550",
       "vulnerabilities": {
         "low": 0,
         "moderate": 0,
@@ -175,7 +175,7 @@
       "repository": "cedar-embeddable-editor",
       "lock": "visual/package-lock.json",
       "strictInstallScripts": true,
-      "sha256": "20a37c31de88c90dcd4a4ea2b8f10dfe3913885adf3a298e8da2e3b0ee80e57e",
+      "sha256": "41a0055ae2c3bc1931215984229eb9b9fe80a1c685fb416c0b43330d4f398885",
       "vulnerabilities": {
         "low": 0,
         "moderate": 0,
