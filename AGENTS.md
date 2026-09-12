@@ -22,12 +22,13 @@ cedarcli cheat                 # the command cheatsheet
 cedarcli build java            # authoritative full build
 cedarcli native start all      # infra + microservices + frontends, headless
 cedarcli native status         # health + BINARY column; every row must read `current` after a redeploy
-cedarcli native restart <svc>  # redeploy one service
+cedarcli native restart microservice <svc>  # redeploy one service
 cedarcli native logs <svc>     # follow one log
 cedarcli native health         # exits non-zero unless every managed application is healthy
 cedarcli git status            # working-tree state across all repos
-cedarcli check versions        # version consistency; --strict also fails a checkout behind its remote
+cedarcli check versions        # version consistency; --strict also fails a checkout behind its remote or a stale fetch
 cedarcli check ci              # CI at every develop head a train would capture
+cedarcli check ci-env          # every Java repository's CI environment block; --apply repairs drift
 cedarcli test e2e              # both whole-stack smoke tiers; records the run the train and release gates require
 ```
 

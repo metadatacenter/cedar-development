@@ -36,6 +36,18 @@ versions, and the byte-equivalence proof between the train's development
 CEE and the public npmjs CEE, and then runs the complete release gate. It must finish with
 `No changes made.`
 
+### Nothing May Land Between the Train and the Release
+
+A release stamps the exact commits its train captured and refuses any repository whose `develop`
+has moved off them. A single commit to any one of the forty-four therefore spends the train, and
+the release needs a new one, built and smoke-gated from scratch. Do CI, tooling and documentation
+work before the train rather than between the train and the release it backs.
+
+`cedarcli publish train-status` reports whether a complete train can still back a release, which
+is the cheap way to learn this while it can still change what you do. The refusal itself names
+every repository that moved and counts them against what the train captured, because one
+repository that can be explained and an estate that has moved on call for different remedies.
+
 The CEE version bases need not match. A train may already have advanced to the next development
 base after the public package was cut, so eligibility comes from the tarball proof rather than from
 version-name similarity.
@@ -306,6 +318,10 @@ exact `<NEXT>` snapshot version. This is artifact and development-state acceptan
 after deployment, the environment smoke check must still prove which artifact the web server is
 actually serving. A completed release reports `Release <VER> — COMPLETE` and shows acceptance at
 `1/1`.
+
+An accepted release advances `develop` in every repository it integrated and leaves the local
+checkouts on the commits before it, so it prints what the next train needs: `cedarcli git pull`,
+then `cedarcli check ci` and `cedarcli test e2e` at the new heads.
 
 Acceptance also marks the release concluded and frees the active slot. There is no separate
 `finish` command. If the process stops after writing the accepted ledger but before marking its

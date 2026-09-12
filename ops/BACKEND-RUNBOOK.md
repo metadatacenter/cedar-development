@@ -572,20 +572,21 @@ cedarcli native start infra           # or: backends, microservices, frontends
 cedarcli native start microservice <name>   # artifact, bridge, group, resource, …
 cedarcli native start frontend <name>       # main, workspace, designer, openview, …
 cedarcli native stop all              # same shapes as start
-cedarcli native restart [name...]     # all managed applications, or only the named ones
+cedarcli native restart all           # managed applications; infrastructure stays up
+cedarcli native restart microservice repo
+cedarcli native restart microservices
+cedarcli native restart frontend openview
+cedarcli native restart frontends
 cedarcli native status                # one-shot table: PID / port / health / binary / error-count
 cedarcli native watch                 # auto-refreshing status
 cedarcli native logs <name>           # tail -f a service log
 cedarcli native health                # exit 0 only if every managed application is healthy
 ```
 
-`start` and `stop` name one service at a time through their `microservice` and `frontend`
-subcommands, while `restart` takes a list. Starting an arbitrary named subset in one call is only
-available on the controller itself:
-
-```bash
-bash $CEDAR_HOME/cedar-development/ops/cedar-services.sh start ui-main ui-workspace ui-designer
-```
+`start`, `stop`, and `restart` name one application through `microservice <name>` or
+`frontend <name>`, and accept the `microservices` and `frontends` application groups.
+For compatibility, restart also accepts a flat list such as `restart repo ui-openview`.
+Use `restart all` for all managed applications; infrastructure remains running.
 
 `cedarcli native status` is the preferred whole-host view. It renders one grouped table for the
 managed applications and native infrastructure. Managed rows retain every
@@ -610,7 +611,10 @@ its health says nothing about your latest code.
 jar can itself have been built before its repository's `develop` head, and every row says `current`
 while it is, which is how a stack came to be smoke-tested against commits it did not contain. The
 summary under the table names any microservice in that position, and `cedarcli test e2e` refuses to
-record a run while one exists. The remedy is `cedarcli build java` followed by `cedarcli native
+record a run while one exists. A service that is merely warming is treated differently from one that
+is wrong: terminology answers its health probe only once it has loaded every ontology, and the probe
+times out in seconds, so a stack whose every finding is a warming service is given five minutes and
+polled rather than refused. The remedy is `cedarcli build java` followed by `cedarcli native
 restart`. For the `ui-main` and `ui-workspace` rows the column
 asks the equivalent question of the Embeddable Editor, which each of those frontends takes from npm
 and a gulp task copies out of `node_modules` into the tree gulp serves. Those two hops are invisible
@@ -825,7 +829,7 @@ previous values, and restart artifact first so it accepts both. Then restart res
 they send the new key. Verify the callers and smoke suite before `cedarcli env artifact-key retire`,
 distribute that state and restart artifact again to stop accepting the old key. A second rotation is
 refused while a previous key is retained, so an unfinished rollout cannot silently lose its overlap.
-Use `cedarcli native restart <service>` for native deployments; containers must be recreated with the
+Use `cedarcli native restart microservice <service>` for native deployments; containers must be recreated with the
 updated environment. Rotation does not change end-user API keys or login tokens. The previous key
 must be retained until every caller has switched, including workers processing queued jobs.
 
@@ -1603,7 +1607,7 @@ TypeScript, while both emit the same bytes for it.
   Restart the offender by name so it loads the current jar, and re-check that its **BINARY** column
   reads `current`:
   ```bash
-  cedarcli native restart <name>
+  cedarcli native restart microservice <name>
   ```
   If you suspect the *current* jar is itself a partial build, confirm it is a sound fat jar before
   restarting into it: `unzip -l <app>.jar | grep -c RemovalCause` should be non-zero, and the jar
@@ -1635,6 +1639,12 @@ network/certificate setup, and destructive removal. Native `start` and `stop` ma
 and the application groups without terminal automation. The `native` group exposes application
 status, health, logs, restart, and the continuously refreshing status view.
 
+Native restart accepts the same application groups as start and stop: `microservice <name>`,
+`microservices`, `frontend <name>`, `frontends`, and `frontend split-frontends`. `restart all`
+restarts every managed application while infrastructure stays running. The old no-argument
+`restart` and flat service lists (`restart repo ui-openview`) remain compatibility aliases.
+Hybrid mode permits only frontend targets. A failed stop prevents the corresponding start step.
+
 ## Building CEDAR
 
 `cedarcli build java` is the authoritative full build. It compiles and installs the whole Java
@@ -1662,6 +1672,23 @@ seven build commands that can reach Java — `this`, `parent`, `libraries`, `pro
 `java`, and `all` — accept the paired `--tests` / `--skip-tests` option; use `--skip-tests`
 explicitly for a fast compile/install loop. Frontend-only build commands do not expose an inert
 Java-test option.
+
+**Build temporary storage must permit execution.** `cedarcli` creates a private, unique
+workspace per Maven task or frontend build under `$CEDAR_HOME/.cedar/build-tmp/`, and probes
+execution permission before running it. Isolated frontend copies and their npm caches live there;
+`TMPDIR`, `TMP`, and `TEMP` point to its scratch directory. Maven builds also receive
+`java.io.tmpdir` through child-scoped `JAVA_TOOL_OPTIONS`, so Surefire/Failsafe JVMs and embedded
+Redis use the same executable storage. This works when system `/tmp` is mounted `noexec` and
+does not change the environment of running services. Normal completion, failures and handled
+interruptions remove the workspace after subprocess cleanup; a killed CLI or host crash can leave
+an orphan directory, which should be removed only after checking that no build owns it.
+
+If `$CEDAR_HOME` is also on a `noexec` filesystem, set `CEDAR_BUILD_TMPDIR` to an absolute path
+on a writable, executable filesystem in the build invocation environment. Keep unrelated JVM
+options; remove competing `-Djava.io.tmpdir` settings from `MAVEN_OPTS`, `JDK_JAVA_OPTIONS` or
+`_JAVA_OPTIONS` and use this override instead. Direct Maven invocations outside `cedarcli` do not
+receive this configuration. Test reports remain in the repositories' normal `target` directories.
+
 Release preparation, Maven publication, and immutable build-train assembly remain explicit
 `-DskipTests` paths; verify with the default CLI build or repository CI before invoking them.
 
