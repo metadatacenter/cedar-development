@@ -1352,11 +1352,12 @@ past on both sides and neither writer puts it back. The builders offer each sett
 model keeps it, so an artifact carrying one cannot be assembled in the first place; in TypeScript the
 parsed model still answers for every child, since a consumer may ask any of them.
 
-The meta-schemas do permit `header` and `footer` on an element, and neither library carries them:
-Java's `ElementUi` holds an order, property labels and property descriptions while `TemplateUi` holds
-the header and footer too, and the TypeScript element writer builds the same three keys. An element
-that arrives with either loses it on read, in both libraries, and nothing in the estate can author
-one.
+`header` and `footer` go the other way: the meta-schemas declare both on an element as well as on a
+template, and the metadata editor renders them above and below the element's fields whenever it is
+expanded. Neither library kept them until 2026-09-13, so any element either rewrote came back with
+its author's instructions deleted. Both now read and write them, in the position a template writes
+its own, and the same element renders to byte-identical YAML through either. No authoring tool offers
+them yet, so an element gets them by hand-authoring, import or conversion.
 `ChildLinePlacementTest` in `cedar-artifact-library` and `ChildLinePlacement.spec.ts` in
 `cedar-model-typescript-library` pin that. The corpus cannot: every fixture is generated from a
 source JSON the validator accepts, which is a JSON in which the setting cannot appear there at all.
