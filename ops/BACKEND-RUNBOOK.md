@@ -1340,11 +1340,13 @@ thrown — and a green YAML run reports `0 differing` for 18 fields, 6 elements 
 recorded difference among 38 templates. Full and compact output have independent parity gates, so
 unrecorded drift in either representation fails explicitly.
 
-Both libraries confine `continuePreviousLine` to a dynamic field, because the model does:
-`literalFieldUIContent` and `iriFieldUIContent` declare it, while an element's `_ui` and a static
-field's each close with `additionalProperties: false` and admit nothing of the kind. A rendering
-that states it in either of those places is one `cedar-model-validation-library` rejects, so a
-document that states it there is read past on both sides and neither writer puts it back.
+Both libraries confine `continuePreviousLine` and `valueRecommendationEnabled` to a dynamic field,
+because the model does: `literalFieldUIContent` and `iriFieldUIContent` declare them, while an
+element's `_ui` and a static field's each close with `additionalProperties: false` and admit nothing
+of the kind. A rendering that states either in one of those places is one
+`cedar-model-validation-library` rejects, so a document that states them there is read past on both
+sides and neither writer puts them back. Neither library's builders offer the settings where the
+model has no room for them, so an artifact carrying one cannot be assembled in the first place.
 `ChildLinePlacementTest` in `cedar-artifact-library` and `ChildLinePlacement.spec.ts` in
 `cedar-model-typescript-library` pin that. The corpus cannot: every fixture is generated from a
 source JSON the validator accepts, which is a JSON in which the setting cannot appear there at all.
@@ -2091,6 +2093,16 @@ temporary artifacts through the UI. A failed run can stop before teardown and le
 template, field, instance, mutation folder or mutation group behind;
 `ops/e2e/cleanup-smoke-leftovers.mjs` removes timestamped artifact leftovers, while the smoke's own
 catch path removes every fixture whose identifier it acquired before the failure.
+
+The browser smoke runs against whichever frontends are deployed, and the variant has to match
+them. `npm run smoke` drives the monolith on its single origin. Of the two split variants,
+`npm run smoke:split:hostnames:authenticated` addresses Workspace and Designer on their own
+hostnames, which is how a native or Docker stack serves them here, and
+`npm run smoke:split:authenticated` addresses them on loopback ports, which needs frontends whose
+configuration names those ports. Each application builds its in-app navigation from the origins its
+served `config/url-service.conf.json` carries, so a run pointed anywhere else loses the application
+on its first navigation; the smoke reads that file before the cross-application gesture and says
+which origins are deployed and which the run addressed, rather than waiting out a timeout.
 
 `ops/e2e` holds the two whole-stack tests, and they answer different questions. `npm run smoke:rest`
 drives the REST API directly, in about 65–80 seconds, and reaches what no unit suite can: the artifact
