@@ -317,6 +317,18 @@ def declared_path(prefix, name):
     return f"{prefix}/{escaped}" if prefix else escaped
 
 
+def candidate_kind(found, prefix, name):
+    """Whether a declared name is an element, a field, or something the walk could not read."""
+    here = found["containers"].get(prefix)
+    if here is None:
+        return None
+    for child, definition, _multiple, error in rest.direct_schema_children(here["definition"]):
+        if child == name:
+            return None if error or definition is None else \
+                ("element" if repair.is_element(definition) else "field")
+    return None
+
+
 def candidates_for(found, prefix):
     """The declared names a stale key in this container could belong to.
 
@@ -730,6 +742,12 @@ def write_decisions(studies, written):
                     tail = (" — validating instances hold: " + "; ".join(v[:38] for v in values)
                             if values else " — no example values to show")
                     mark = "  ← closest on wording" if choice == guess else ""
+                    if candidate_kind(found, prefix, choice) == "element":
+                        tail = (" — **an element, not a field.** A value cannot be renamed into "
+                                "one: it would have to move down a level into a new occurrence of "
+                                "it, which is a change of shape rather than of name and is not "
+                                "something this repair does. Answer it only to record where the "
+                                "value belongs" + (tail if values else ""))
                     lines.append(f"- **{letter}.** `{choice}`{tail}{mark}")
             lines += ["- **Z.** something else: ______________________", ""]
             if options and not comparable:
