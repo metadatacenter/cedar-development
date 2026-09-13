@@ -1358,10 +1358,18 @@ async function nameInstance(page, name) {
 
 // The saved artifact carries the typed name, and the edit view the save redirected to shows it back.
 async function verifyInstanceName(page, auth, id, expected) {
-  const field = page.locator(S.INSTANCE_NAME_INPUT);
-  await field.waitFor({ state: 'visible', timeout: 20_000 });
-  const shown = await field.inputValue();
-  if (shown !== expected) throw new Error(`edit view shows the metadata name as "${shown}"; expected "${expected}"`);
+  // ngView enters the edit view before its animated leave removes the create view. During that
+  // overlap both inputs have this ID; a strict locator throws immediately, regardless of its
+  // timeout. Poll uniqueness, visibility and the loaded value together so we neither select the
+  // outgoing input nor accept the new view before its instance has loaded.
+  await page.waitForFunction(({ selector, expectedName }) => {
+    const fields = document.querySelectorAll(selector);
+    if (fields.length !== 1) return false;
+    const field = fields[0];
+    return field.getClientRects().length > 0
+      && getComputedStyle(field).visibility !== 'hidden'
+      && field.value === expectedName;
+  }, { selector: S.INSTANCE_NAME_INPUT, expectedName: expected }, { timeout: 20_000 });
   const stored = await restCall(auth, 'GET', `/template-instances/${enc(id)}`);
   if (stored.status !== 200) throw new Error(`could not read the saved instance: ${stored.status} ${stored.text}`);
   if (stored.body['schema:name'] !== expected) {
