@@ -1340,13 +1340,23 @@ thrown — and a green YAML run reports `0 differing` for 18 fields, 6 elements 
 recorded difference among 38 templates. Full and compact output have independent parity gates, so
 unrecorded drift in either representation fails explicitly.
 
-Both libraries confine `continuePreviousLine` and `valueRecommendationEnabled` to a dynamic field,
-because the model does: `literalFieldUIContent` and `iriFieldUIContent` declare them, while an
-element's `_ui` and a static field's each close with `additionalProperties: false` and admit nothing
-of the kind. A rendering that states either in one of those places is one
-`cedar-model-validation-library` rejects, so a document that states them there is read past on both
-sides and neither writer puts them back. Neither library's builders offer the settings where the
-model has no room for them, so an artifact carrying one cannot be assembled in the first place.
+Both libraries confine each setting a parent decides to the children whose `_ui` has room for it.
+`literalFieldUIContent` and `iriFieldUIContent` declare `continuePreviousLine` and
+`valueRecommendationEnabled`; all three field UI definitions declare `hidden`; a requirement lives in
+a field's `_valueConstraints`. An element's `_ui` admits an order, property labels, property
+descriptions, a header and a footer, a static field's admits an input type, content, a size and a
+hidden flag, and every one of them closes with `additionalProperties: false` — so an element carries
+none of the four, and a static field carries only the hidden flag. A rendering that states one
+elsewhere is one `cedar-model-validation-library` rejects, so a document that states it there is read
+past on both sides and neither writer puts it back. The builders offer each setting only where the
+model keeps it, so an artifact carrying one cannot be assembled in the first place; in TypeScript the
+parsed model still answers for every child, since a consumer may ask any of them.
+
+The meta-schemas do permit `header` and `footer` on an element, and neither library carries them:
+Java's `ElementUi` holds an order, property labels and property descriptions while `TemplateUi` holds
+the header and footer too, and the TypeScript element writer builds the same three keys. An element
+that arrives with either loses it on read, in both libraries, and nothing in the estate can author
+one.
 `ChildLinePlacementTest` in `cedar-artifact-library` and `ChildLinePlacement.spec.ts` in
 `cedar-model-typescript-library` pin that. The corpus cannot: every fixture is generated from a
 source JSON the validator accepts, which is a JSON in which the setting cannot appear there at all.
