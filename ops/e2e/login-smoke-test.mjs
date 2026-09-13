@@ -178,6 +178,32 @@ async function gotoListing(page, folderId) {
   await page.waitForTimeout(500);
 }
 
+// Each application builds its in-app navigation from the origins its served configuration names,
+// so a run addressed at other origins loses the application on its first navigation. Reading that
+// configuration turns a thirty-second wait for a URL nothing was going to visit into a statement
+// of which origins are deployed and which this run assumed.
+async function requireConfiguredOrigins(page) {
+  const configUrl = `${BASE}/config/url-service.conf.json`;
+  const response = await page.request.get(configUrl, { failOnStatusCode: false });
+  if (!response.ok()) {
+    throw new Error(`could not read ${configUrl} to check the deployed origins: HTTP ${response.status()}`);
+  }
+  const config = await response.json();
+  const wrong = [
+    ['workspaceFrontend', config.workspaceFrontend, BASE],
+    ['templateDesignerFrontend', config.templateDesignerFrontend, DESIGNER_BASE],
+  ].filter(([, deployed, addressed]) =>
+      !deployed || new URL(deployed).origin !== new URL(addressed).origin);
+  if (wrong.length === 0) return;
+  const detail = wrong
+      .map(([key, deployed, addressed]) =>
+          `${key} is ${deployed ?? '(unset)'}, this run addresses ${new URL(addressed).origin}`)
+      .join('; ');
+  throw new Error(`the frontends are not deployed on the origins this run addresses — ${detail}. `
+      + 'Use the variant matching the deployment (smoke:split:hostnames:authenticated for '
+      + 'hostname-served frontends), or rebuild their configuration for these origins.');
+}
+
 // Prove the real cross-application gesture before the mutating journey begins.
 //
 // This is intentionally driven from the Workspace menu rather than constructed by
@@ -188,6 +214,7 @@ async function gotoListing(page, folderId) {
 // probe because both route owners intentionally share one origin there.
 async function verifySplitNavigation(page) {
   if (new URL(DESIGNER_BASE).origin === new URL(BASE).origin) return;
+  await requireConfiguredOrigins(page);
 
   await gotoListing(page);
   const workspaceUrl = page.url();
@@ -1435,11 +1462,38 @@ async function settleCleanEditor(page, expectedValue) {
   throw new Error(`the editor never settled clean on the saved value: ${await editorState(page)}`);
 }
 
-async function waitForEditorDirty(page, dirty) {
-  await page.waitForFunction(expected => {
-    const injector = window.angular.element(document).injector();
-    return injector?.get('UIUtilService').isDirty() === expected;
-  }, dirty, { timeout: 10_000 });
+async function waitForEditorDirty(page, dirty, where) {
+  try {
+    await page.waitForFunction(expected => {
+      const injector = window.angular.element(document).injector();
+      return injector?.get('UIUtilService').isDirty() === expected;
+    }, dirty, { timeout: 10_000 });
+  } catch (timeout) {
+    throw new Error(`the editor never reported dirty=${dirty} ${where}.\n`
+      + `  ${await dirtyDiagnosis(page)}`);
+  }
+}
+
+// What the host and the tracker each believe, for a wait that timed out. The two can disagree:
+// the host's flag is set from the tracker's verdict at each CEE change event, so a flag stuck on
+// a stale answer means either no event arrived or the verdict it carried was wrong. Reporting the
+// baseline's own presence and freshness separates those.
+async function dirtyDiagnosis(page) {
+  const state = await page.evaluate(() => {
+    const injector = window.angular ? window.angular.element(document).injector() : null;
+    const cee = document.querySelector('cedar-embeddable-editor');
+    const tracker = injector ? injector.get('CeeDirtyTrackerService') : null;
+    const metadata = cee ? cee.currentMetadata : null;
+    return {
+      hostDirty: injector ? injector.get('UIUtilService').isDirty() : null,
+      ceePresent: !!cee,
+      hasBaseline: tracker ? tracker.hasBaseline() : null,
+      trackerSaysDirty: (tracker && metadata) ? tracker.isDirty(metadata) : null,
+      ceeChangeEvents: window.__ceeChangeEvents ?? null,
+      metadata: metadata ? JSON.stringify(metadata).slice(0, 400) : null,
+    };
+  });
+  return JSON.stringify(state);
 }
 
 async function notesValue(page) {
@@ -1472,7 +1526,7 @@ async function verifyDirtyNavigationProtection(page, cleanValue, returnUrl) {
   const editUrl = page.url();
   const dirtyValue = 'dirty-navigation probe: keep me when Cancel is pressed';
   await fillCeeTextField(page, TEXT_FIELD_NAME, dirtyValue);
-  await waitForEditorDirty(page, true);
+  await waitForEditorDirty(page, true, 'after typing a value that differs from the saved one');
   await page.locator('.back-arrow-click:visible').click();
   const warning = page.locator('.sweet-alert:visible');
   await warning.waitFor({ state: 'visible', timeout: 10_000 });
@@ -1490,7 +1544,7 @@ async function verifyDirtyNavigationProtection(page, cleanValue, returnUrl) {
   }
 
   await fillCeeTextField(page, TEXT_FIELD_NAME, cleanValue);
-  await waitForEditorDirty(page, false);
+  await waitForEditorDirty(page, false, 'after reverting to the saved value');
   await settleCleanEditor(page, cleanValue);
   const beforeBack = await editorState(page);
   await page.locator('.back-arrow-click:visible').click();
@@ -1507,15 +1561,15 @@ async function verifyDirtyNavigationProtection(page, cleanValue, returnUrl) {
   await page.goto(editUrl, { waitUntil: 'domcontentloaded' });
   await page.locator('cedar-embeddable-editor').waitFor({ state: 'attached', timeout: 20_000 });
   await fillCeeTextField(page, TEXT_FIELD_NAME, cleanValue);
-  await waitForEditorDirty(page, false);
+  await waitForEditorDirty(page, false, 'on a reloaded edit view carrying the saved value');
 }
 
 async function verifyAdvancedDirtyBaseline(page, savedValue) {
-  await waitForEditorDirty(page, false);
+  await waitForEditorDirty(page, false, 'on the post-save edit view, before typing');
   await fillCeeTextField(page, TEXT_FIELD_NAME, 'post-save baseline probe');
-  await waitForEditorDirty(page, true);
+  await waitForEditorDirty(page, true, 'after typing a probe over the newly saved value');
   await fillCeeTextField(page, TEXT_FIELD_NAME, savedValue);
-  await waitForEditorDirty(page, false);
+  await waitForEditorDirty(page, false, 'after restoring the newly saved value');
   console.log('✓ CEE warned on dirty navigation, Cancel preserved the value, exact revert removed the warning, and save advanced the clean baseline');
 }
 
@@ -1883,6 +1937,16 @@ const context = await browser.newContext({
 // Aborting it is not papering over a product bug: livereload is a dev-loop convenience that
 // cannot work over TLS at all, and nothing here tests it. Reloads are explicit in this suite.
 await context.route('**://*:35729/**', route => route.abort());
+
+// Count the editor's own change announcements, per page. The host sets its unsaved-changes flag
+// only from these, so when a dirty-state wait times out the count separates an editor that said
+// nothing from a host that heard it and decided wrongly. Read only by dirtyDiagnosis.
+await context.addInitScript(() => {
+  window.__ceeChangeEvents = 0;
+  document.addEventListener('change', event => {
+    if (event.target && event.target.tagName === 'CEDAR-EMBEDDABLE-EDITOR') window.__ceeChangeEvents++;
+  }, true);
+});
 
 const page = await context.newPage();
 
