@@ -1,0 +1,6 @@
+This commit also carried an unrelated change from a parallel session's working tree: the
+paragraph in the browser-smoke section naming which split variant matches which deployment,
+and why a run addressed at other origins loses the application on its first navigation. That
+paragraph was swept in by staging ops/BACKEND-RUNBOOK.md while it was uncommitted, and the
+message above describes only the valueRecommendationEnabled change. The smoke work it belongs
+to is 4cc593e, which added the guard the paragraph documents.
