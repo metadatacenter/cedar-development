@@ -1172,6 +1172,59 @@ class SettleTemporalTypeTest(unittest.TestCase):
         self.assertEqual(second, [])
 
 
+class DropSchemaKeysFromInstanceTest(unittest.TestCase):
+    """A template is drafted, published and versioned; an instance of it simply is."""
+
+    def test_the_artifact_level_keys_are_removed(self):
+        tmpl = template({"Name": child()})
+        before = {"schema:isBasedOn": BASE + "t", "Name": {"@value": "Ada"},
+                  "pav:version": "0.0.1", "bibo:status": "bibo:draft"}
+        after, changes = REPAIR.drop_schema_keys_from_instance(before, tmpl)
+        self.assertNotIn("pav:version", after)
+        self.assertNotIn("bibo:status", after)
+        self.assertEqual(after["Name"], {"@value": "Ada"})
+        self.assertEqual(len(changes), 2)
+        self.assertIsNone(REPAIR.only_dropped_schema_keys(before, after, tmpl))
+
+    def test_an_instance_without_them_is_untouched(self):
+        tmpl = template({"Name": child()})
+        before = {"schema:isBasedOn": BASE + "t", "Name": {"@value": "Ada"}}
+        _after, changes = REPAIR.drop_schema_keys_from_instance(before, tmpl)
+        self.assertEqual(changes, [])
+
+    def test_provenance_an_instance_does_carry_is_kept(self):
+        tmpl = template({"Name": child()})
+        before = {"schema:isBasedOn": BASE + "t", "pav:createdOn": "2021-01-01T00:00:00-08:00",
+                  "pav:createdBy": "https://example.org/u", "pav:version": "0.0.1"}
+        after, _changes = REPAIR.drop_schema_keys_from_instance(before, tmpl)
+        self.assertIn("pav:createdOn", after)
+        self.assertIn("pav:createdBy", after)
+
+    def test_the_context_entry_goes_with_the_key(self):
+        tmpl = template({"Name": child()})
+        before = {"schema:isBasedOn": BASE + "t",
+                  "@context": {"pav": "http://purl.org/pav/", "pav:version": {"@type": "xsd:string"}},
+                  "pav:version": "0.0.1"}
+        after, _changes = REPAIR.drop_schema_keys_from_instance(before, tmpl)
+        self.assertNotIn("pav:version", after["@context"])
+        self.assertIn("pav", after["@context"])
+
+    def test_the_invariant_rejects_removing_anything_else(self):
+        tmpl = template({"Name": child()})
+        before = {"schema:isBasedOn": BASE + "t", "Name": {"@value": "Ada"}, "pav:version": "0.0.1"}
+        after, _changes = REPAIR.drop_schema_keys_from_instance(before, tmpl)
+        greedy = copy.deepcopy(after); del greedy["Name"]
+        self.assertEqual(REPAIR.only_dropped_schema_keys(before, greedy, tmpl), "/Name")
+
+    def test_a_second_pass_changes_nothing(self):
+        tmpl = template({"Name": child()})
+        before = {"schema:isBasedOn": BASE + "t", "pav:version": "0.0.1"}
+        once, first = REPAIR.drop_schema_keys_from_instance(before, tmpl)
+        _twice, second = REPAIR.drop_schema_keys_from_instance(once, tmpl)
+        self.assertEqual(len(first), 1)
+        self.assertEqual(second, [])
+
+
 class DropSupersededInstanceKeysTest(unittest.TestCase):
     """A field renamed by copying leaves the old key behind holding a duplicate."""
 

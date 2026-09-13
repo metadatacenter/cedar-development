@@ -2357,6 +2357,66 @@ def only_dropped_superseded_keys(before: Any, after: Any, template: Any) -> Opti
 RENAMES: dict[str, dict[str, str]] = {}
 
 
+# Keys `ModelNodeNames` allows at the top of a schema artifact and not at the top of an instance.
+# A template states its version and publication status; an instance of it does not have either, and
+# the meta-schema admits no property it does not declare, so one that carries them cannot validate.
+# Confined to the two seen in production: `schema:schemaVersion`, `pav:previousVersion` and `_ui`
+# are equally schema-only, and would be removed only on the same decision being taken about them.
+SCHEMA_ONLY_INSTANCE_KEYS = frozenset({"pav:version", "bibo:status"})
+
+
+def drop_schema_keys_from_instance(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Remove artifact-level keys an instance may not carry.
+
+    ``pav:version`` and ``bibo:status`` belong to the artifact that declares a shape, not to one that
+    fills it in: a template is drafted and published and versioned, an instance simply is. Where they
+    appear on an instance they were copied from the template that made it, and they carry nothing
+    about the instance that is true.
+    """
+    if not isinstance(instance, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    result = copy.deepcopy(instance)
+    changes: list[dict[str, Any]] = []
+    for key in SCHEMA_ONLY_INSTANCE_KEYS:
+        if key not in result:
+            continue
+        changes.append({"path": f"/{rest.json_pointer_component(key)}",
+                        "replaced": result[key], "wrote": None})
+        del result[key]
+        context = result.get("@context")
+        if isinstance(context, dict) and key in context:
+            del context[key]
+    return result, changes
+
+
+def only_dropped_schema_keys(before: Any, after: Any, template: Any) -> Optional[str]:
+    """The invariant: only the artifact-level keys went, and nothing else moved."""
+    if not isinstance(before, dict) or not isinstance(after, dict):
+        return "/"
+    for key in set(before) | set(after):
+        here = f"/{rest.json_pointer_component(key)}"
+        if key in before and key not in after:
+            if key not in SCHEMA_ONLY_INSTANCE_KEYS:
+                return here
+            continue
+        if key == "@context":
+            continue
+        if (key in before) != (key in after):
+            return here
+        if before[key] != after[key] or type(before[key]) is not type(after[key]):
+            return here
+    old_context = before.get("@context")
+    new_context = after.get("@context")
+    if isinstance(old_context, dict) and isinstance(new_context, dict):
+        expected = {k: v for k, v in old_context.items()
+                    if not (k in SCHEMA_ONLY_INSTANCE_KEYS and k not in after)}
+        if new_context != expected:
+            return "/@context"
+    elif old_context != new_context:
+        return "/@context"
+    return None
+
+
 def declared_multiplicity(template: Any) -> dict[str, bool]:
     """Whether each declared child holds one value or a list of them."""
     return {name: multiple for name, _child, multiple in container_children(template)}
@@ -2807,6 +2867,15 @@ REPAIRS = {
         summary="delete every pav:derivedFrom whose value is the empty string",
         transform=strip_empty_derived_from,
         invariant=only_removed_empty_derived_from,
+    ),
+    "drop-schema-keys-from-instance": Repair(
+        name="drop-schema-keys-from-instance",
+        condition="",
+        summary="remove artifact-level keys an instance may not carry",
+        transform=drop_schema_keys_from_instance,
+        invariant=only_dropped_schema_keys,
+        needs_template=True,
+        error_pattern=UNDECLARED_KEY_ERROR,
     ),
     "drop-superseded-instance-keys": Repair(
         name="drop-superseded-instance-keys",

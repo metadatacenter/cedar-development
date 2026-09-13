@@ -229,6 +229,32 @@ VALID = {}
 ANSWERED: dict = {}
 
 
+REGISTRY = HOME / "decision-registry.json"
+
+
+def decision_numbers(pending):
+    """A stable number per decision, kept in a registry beside the run records.
+
+    Numbering by position makes an answer ambiguous: regenerate the sheet after a repair lands and
+    every number below the change shifts, so an answer given against one sheet lands on a different
+    question in the next. A decision is identified by the template it belongs to and the key it rules
+    on; once numbered it keeps that number, and a number is never reused.
+    """
+    try:
+        registry = json.loads(REGISTRY.read_text(encoding="utf-8")) if REGISTRY.is_file() else {}
+    except ValueError:
+        registry = {}
+    highest = max(registry.values(), default=0)
+    for template_id, found, _proposals, undecided in pending:
+        for stale, _guess in undecided:
+            token = f"{template_id}\t{stale}"
+            if token not in registry:
+                highest += 1
+                registry[token] = highest
+    REGISTRY.write_text(json.dumps(registry, indent=1, sort_keys=True) + "\n", encoding="utf-8")
+    return registry
+
+
 def load_answered():
     path = HOME / "answers-mapping.json"
     if not path.is_file():
@@ -450,12 +476,47 @@ def write_decisions(studies, written):
         if undecided:
             pending.append((template_id, found, proposals, undecided))
 
+    scope = {}
+    path = HOME / "residual-scope.json"
+    if path.is_file():
+        try:
+            scope = json.loads(path.read_text(encoding="utf-8"))
+        except ValueError:
+            scope = {}
+    silent = [(found["template"].get("schema:name") or "(unnamed)", found["instances"])
+              for _r, _t, found in studies
+              if not any(found is f for _t2, f, _p, _u in pending)]
     lines = ["# CEDAR — Rename Decisions",
              "",
              "Only the keys that still need a person. Anything settled by matching names or "
              "matching values, and anything you have already answered, is left out; those are "
              "decided and wait on these.",
              "",
+             "## What this covers",
+             ""]
+    if scope:
+        lines += [f"- Production holds **{scope['total']} invalid instances** across "
+                  f"**{scope['templates']} templates**.",
+                  f"- This sheet studies the **{len(studies)} largest**, covering "
+                  f"{scope['covered']} of those instances "
+                  f"({100 * scope['covered'] // max(1, scope['total'])}%).",
+                  f"- Of those, **{len(pending)} have questions left**; the rest are answered "
+                  "already, or fail for reasons renaming cannot fix.",
+                  f"- The remaining {scope['templates'] - len(studies)} templates hold "
+                  f"{scope['total'] - scope['covered']} instances between them, most of them one "
+                  "or two each. Per-template curation will not reach that tail.",
+                  ""]
+    if silent:
+        lines += ["Studied and **not** asking you anything, with why:", ""]
+        for name, count in sorted(silent, key=lambda s: -s[1])[:12]:
+            lines.append(f"- {name} — {count} instances")
+        lines += ["",
+                  "Those either have every key answered — in which case they are waiting on a "
+                  "repair, not on you — or are invalid for something other than a renamed field: "
+                  "a value of the wrong shape, a term missing from `@context`, a child the "
+                  "template began requiring later.",
+                  ""]
+    lines += [
              "An instance is written only once it fully validates, so a template releases nothing "
              "until **every** key below it is answered. Fewest questions per instance first.",
              "",
@@ -463,17 +524,24 @@ def write_decisions(studies, written):
              "column, or your own answer if none of them fits. The numbered sections below carry "
              "the full value samples behind each row.",
              "",
+             "**A number belongs to one question for good.** It is keyed to the template and the "
+             "key it rules on, so regenerating this sheet never moves an answer onto a different "
+             "question. Numbers you have already answered do not come back, which is why the "
+             "sequence has gaps — and the table is ordered by what releases most for least effort, "
+             "not by number, so the numbers run out of order. The sections below are in numerical "
+             "order for looking one up.",
+             "",
              "| # | Template | Key | What it holds | Answers | Yours |",
              "| --- | --- | --- | --- | --- | --- |"]
+    registry = decision_numbers(pending)
     order = sorted(pending, key=lambda p: (len(p[3]) / max(1, p[1]["instances"])))
     numbered = []
-    number = 0
     for template_id, found, proposals, undecided in order:
         name = found["template"].get("schema:name") or "(unnamed)"
         claimed = {p[0] for s, p in proposals.items() if p[0] and s not in dict(undecided)}
         options = [n for n in found["declared"] if n in found["absent"] and n not in claimed]
         for stale, guess in undecided:
-            number += 1
+            number = registry[f"{template_id}\t{stale}"]
             letters = answer_letters(options)
             numbered.append((number, name, found, stale, guess, options, letters))
             holds = tidy(found["staleValues"].get(stale, []))[:2]
@@ -491,16 +559,15 @@ def write_decisions(studies, written):
               "again).",
               ""]
     seen_template = None
-    for number, name, found, stale, guess, options, letters in numbered:
-        if name != seen_template:
-            seen_template = name
-            lines += [f"## {name} — {found['instances']} instances", ""]
+    for number, name, found, stale, guess, options, letters in sorted(numbered, key=lambda n: n[0]):
+
         for stale, guess in [(stale, guess)]:
             raw = found["staleValues"].get(stale, [])
             counted = collections.Counter(raw)
             carried = found["stale"][stale]
-            lines += [f"### {number}. `{stale}`", "",
-                      f"{carried} of the {found['sampled']} instances I sampled carry this key."]
+            lines += [f"## {number}. `{stale}` — {name}", "",
+                      f"{carried} of the {found['sampled']} instances I sampled carry this key, of "
+                      f"{found['instances']} invalid ones this template has."]
             if not raw:
                 lines += ["Every one of them leaves it empty, so its values say nothing about "
                           "where it belongs.", ""]
