@@ -1340,6 +1340,15 @@ thrown — and a green YAML run reports `0 differing` for 18 fields, 6 elements 
 recorded difference among 38 templates. Full and compact output have independent parity gates, so
 unrecorded drift in either representation fails explicitly.
 
+Both libraries confine `continuePreviousLine` to a dynamic field, because the model does:
+`literalFieldUIContent` and `iriFieldUIContent` declare it, while an element's `_ui` and a static
+field's each close with `additionalProperties: false` and admit nothing of the kind. A rendering
+that states it in either of those places is one `cedar-model-validation-library` rejects, so a
+document that states it there is read past on both sides and neither writer puts it back.
+`ChildLinePlacementTest` in `cedar-artifact-library` and `ChildLinePlacement.spec.ts` in
+`cedar-model-typescript-library` pin that. The corpus cannot: every fixture is generated from a
+source JSON the validator accepts, which is a JSON in which the setting cannot appear there at all.
+
 The field concordance matrix complements the corpus with 327 generated cases: all 25 field types
 (including both list modes), each metadata feature separately and in combination, supported defaults,
 and independent image/YouTube dimensions. Each case exercises standalone and template-child JSON,
