@@ -148,12 +148,20 @@ open-and-save. It is written as a text field today to stop the decay, which trad
 one surprise for a smaller one. Refusing to save it, and saying so, is the better
 answer and belongs with validation.
 
-### 6. A template's header and footer
+### 6. Header and footer, on a template and on an element
 
-A template carries a header and a footer that a form shows around the fields, and
-neither is reachable. Both are the template's own text rather than any field's, so
-they belong with the template's name and description rather than on a card — which
-is the only part of this that needs deciding.
+A template carries a header and a footer that a form shows around the fields, and an
+element carries its own, which the metadata editor renders above and below that
+element's fields whenever it is expanded. CED reaches none of the four, and nothing
+else in the estate authors them either: an artifact gets them by hand-authoring, by
+import or by conversion.
+
+Both model libraries have read and written an element's pair since 2026-09-13, so the
+text now survives whatever CED does to the artifact around it. What needs deciding is
+where each control goes. A template's is the template's own text rather than any
+field's, so it belongs with the template's name and description rather than on a card;
+an element's belongs with the element's own settings rather than among the placement
+its parent decides.
 
 ### 7. Guidance in the interface
 
