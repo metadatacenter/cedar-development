@@ -1492,6 +1492,267 @@ class RenameInstanceKeysTest(unittest.TestCase):
         self.assertEqual(second, [])
 
 
+class MappingPathTest(unittest.TestCase):
+    """A mapping key addresses a key inside a container, escaped the way a pointer component is."""
+
+    def test_a_single_segment_names_a_key_at_this_level(self):
+        self.assertEqual(REPAIR.path_head("Age"), ("Age", None))
+
+    def test_a_slash_separates_the_container_from_what_is_inside_it(self):
+        self.assertEqual(REPAIR.path_head("DataCite Title/titleLanguage"),
+                         ("DataCite Title", "titleLanguage"))
+
+    def test_a_slash_in_a_name_is_escaped(self):
+        self.assertEqual(REPAIR.path_head("City ~1Region 1"), ("City /Region 1", None))
+
+    def test_a_tilde_in_a_name_is_escaped(self):
+        self.assertEqual(REPAIR.path_head("a~0b/c"), ("a~b", "c"))
+
+    def test_only_the_first_separator_is_consumed(self):
+        self.assertEqual(REPAIR.path_head("a/b/c"), ("a", "b/c"))
+
+    def test_a_level_is_split_from_what_lies_inside_it(self):
+        here, deeper = REPAIR.split_mapping(
+            {"Title": "DataCite Title", "DataCite Title/title": "Title",
+             "DataCite Title/lang": None, "Age": "age"})
+        self.assertEqual(here, {"Title": "DataCite Title", "Age": "age"})
+        self.assertEqual(deeper, {"DataCite Title": {"title": "Title", "lang": None}})
+
+    def test_a_container_addressed_only_from_within_is_not_renamed_here(self):
+        here, deeper = REPAIR.split_mapping({"Funding/Body": "Funding Body or Agency"})
+        self.assertEqual(here, {})
+        self.assertEqual(deeper, {"Funding": {"Body": "Funding Body or Agency"}})
+
+
+class NestedRenameTest(unittest.TestCase):
+    """Renaming an element moves the occurrence across, and its children answer to the new name."""
+
+    TID = BASE + "templates/t-nested"
+
+    def setUp(self):
+        REPAIR.RENAMES.clear()
+
+    def tearDown(self):
+        REPAIR.RENAMES.clear()
+
+    def element(self, inner, multiple=False):
+        node = child(ELEMENT_TYPE)
+        node["properties"] = {
+            "@context": {"properties": {n: {"enum": [GOOD_IRI + n]} for n in inner},
+                         "required": list(inner)},
+            "@id": {"type": "string", "format": "uri"}, **inner}
+        node["_ui"] = {"order": list(inner)}
+        if multiple:
+            return {"type": "array", "items": node, "minItems": 1}
+        return node
+
+    def tmpl(self, children):
+        doc = template(children, root=self.TID)
+        doc["properties"]["@context"]["properties"] = {
+            name: {"enum": [GOOD_IRI + name]} for name in children}
+        return doc
+
+    def instance(self, **values):
+        return {"schema:isBasedOn": self.TID, "@context": {}, **values}
+
+    def occurrence(self, **values):
+        return {"@context": {k: "http://old.example/" + k for k in values},
+                "@id": BASE + "template-element-instances/e1", **values}
+
+    def test_a_key_inside_a_renamed_element_moves_with_it(self):
+        REPAIR.RENAMES[self.TID] = {"Title": "DataCite Title", "DataCite Title/title": "Title"}
+        tmpl = self.tmpl({"DataCite Title": self.element({"Title": child()})})
+        before = self.instance(Title=self.occurrence(title={"@value": "Nanog"}))
+        after, changes = REPAIR.rename_instance_keys(before, tmpl)
+        self.assertEqual(after["DataCite Title"]["Title"], {"@value": "Nanog"})
+        self.assertNotIn("title", after["DataCite Title"])
+        self.assertNotIn("Title", after)
+        self.assertIn("/DataCite Title/title", [c["path"] for c in changes])
+        self.assertIsNone(REPAIR.only_renamed_instance_keys(before, after, tmpl))
+
+    def test_the_inner_context_entry_moves_with_the_inner_key(self):
+        REPAIR.RENAMES[self.TID] = {"Title": "DataCite Title", "DataCite Title/title": "Title"}
+        tmpl = self.tmpl({"DataCite Title": self.element({"Title": child()})})
+        before = self.instance(Title=self.occurrence(title={"@value": "Nanog"}))
+        after, _changes = REPAIR.rename_instance_keys(before, tmpl)
+        self.assertEqual(after["DataCite Title"]["@context"], {"Title": GOOD_IRI + "Title"})
+
+    def test_the_element_keeps_the_identity_it_already_had(self):
+        REPAIR.RENAMES[self.TID] = {"Title": "DataCite Title", "DataCite Title/title": "Title"}
+        tmpl = self.tmpl({"DataCite Title": self.element({"Title": child()})})
+        before = self.instance(Title=self.occurrence(title={"@value": "Nanog"}))
+        after, _changes = REPAIR.rename_instance_keys(before, tmpl)
+        self.assertEqual(after["DataCite Title"]["@id"], BASE + "template-element-instances/e1")
+
+    def test_a_key_inside_an_element_that_kept_its_name_still_moves(self):
+        REPAIR.RENAMES[self.TID] = {"Funding/Funding Body": "Funding Body or Agency"}
+        tmpl = self.tmpl({"Funding": self.element({"Funding Body or Agency": child()})})
+        before = self.instance(Funding=self.occurrence(**{"Funding Body": {"@value": "NIH"}}))
+        after, _changes = REPAIR.rename_instance_keys(before, tmpl)
+        self.assertEqual(after["Funding"]["Funding Body or Agency"], {"@value": "NIH"})
+        self.assertIsNone(REPAIR.only_renamed_instance_keys(before, after, tmpl))
+
+    def test_every_occurrence_of_a_repeating_element_is_settled(self):
+        REPAIR.RENAMES[self.TID] = {"Title": "DataCite Title", "DataCite Title/title": "Title"}
+        tmpl = self.tmpl({"DataCite Title": self.element({"Title": child()}, multiple=True)})
+        before = self.instance(Title=[self.occurrence(title={"@value": "one"}),
+                                      self.occurrence(title={"@value": "two"})])
+        after, _changes = REPAIR.rename_instance_keys(before, tmpl)
+        self.assertEqual([o["Title"] for o in after["DataCite Title"]],
+                         [{"@value": "one"}, {"@value": "two"}])
+        self.assertIsNone(REPAIR.only_renamed_instance_keys(before, after, tmpl))
+
+    def test_a_single_occurrence_moving_into_a_repeating_element_is_wrapped(self):
+        REPAIR.RENAMES[self.TID] = {"Title": "DataCite Title", "DataCite Title/title": "Title"}
+        tmpl = self.tmpl({"DataCite Title": self.element({"Title": child()}, multiple=True)})
+        before = self.instance(Title=self.occurrence(title={"@value": "one"}))
+        after, _changes = REPAIR.rename_instance_keys(before, tmpl)
+        self.assertEqual(after["DataCite Title"][0]["Title"], {"@value": "one"})
+        self.assertIsNone(REPAIR.only_renamed_instance_keys(before, after, tmpl))
+
+    def test_an_inner_key_mapped_to_null_is_dropped(self):
+        REPAIR.RENAMES[self.TID] = {"Title": "DataCite Title", "DataCite Title/titleLanguage": None}
+        tmpl = self.tmpl({"DataCite Title": self.element({"Title Type": child()})})
+        before = self.instance(Title=self.occurrence(titleLanguage={"@id": "urn:en"}))
+        after, changes = REPAIR.rename_instance_keys(before, tmpl)
+        self.assertNotIn("titleLanguage", after["DataCite Title"])
+        self.assertNotIn("titleLanguage", after["DataCite Title"]["@context"])
+        self.assertEqual([c["discarded"] for c in changes if c["path"] == "/DataCite Title/titleLanguage"],
+                         [["titleLanguage"]])
+        self.assertIsNone(REPAIR.only_renamed_instance_keys(before, after, tmpl))
+
+    def test_a_path_through_a_name_the_template_does_not_declare_reaches_nothing(self):
+        # Every segment but the last names a declared child, so a path headed by a key the template
+        # dropped addresses nowhere, and the drop is all that happens.
+        REPAIR.RENAMES[self.TID] = {"Gone": None, "Gone/inner": "Kept"}
+        tmpl = self.tmpl({"Kept": child()})
+        before = self.instance(Gone=self.occurrence(inner={"@value": "x"}))
+        after, changes = REPAIR.rename_instance_keys(before, tmpl)
+        self.assertNotIn("Gone", after)
+        self.assertNotIn("Kept", after)
+        self.assertEqual([c["path"] for c in changes], ["/Gone"])
+        self.assertIsNone(REPAIR.only_renamed_instance_keys(before, after, tmpl))
+
+    def test_a_rename_two_elements_deep_is_carried_out(self):
+        REPAIR.RENAMES[self.TID] = {"Outer/Middle/leaf": "Leaf"}
+        inner = self.element({"Leaf": child()})
+        tmpl = self.tmpl({"Outer": self.element({"Middle": inner})})
+        before = self.instance(Outer=self.occurrence(Middle=self.occurrence(leaf={"@value": "v"})))
+        after, _changes = REPAIR.rename_instance_keys(before, tmpl)
+        self.assertEqual(after["Outer"]["Middle"]["Leaf"], {"@value": "v"})
+        self.assertIsNone(REPAIR.only_renamed_instance_keys(before, after, tmpl))
+
+    def test_a_path_the_instance_does_not_hold_changes_nothing(self):
+        REPAIR.RENAMES[self.TID] = {"Absent/inner": "Leaf"}
+        tmpl = self.tmpl({"Absent": self.element({"Leaf": child()})})
+        before = self.instance(Other={"@value": "x"})
+        after, changes = REPAIR.rename_instance_keys(before, tmpl)
+        self.assertEqual(changes, [])
+        self.assertEqual(after, before)
+
+    def test_a_path_into_a_field_rather_than_an_element_changes_nothing(self):
+        REPAIR.RENAMES[self.TID] = {"Age/inner": "Leaf"}
+        tmpl = self.tmpl({"Age": child()})
+        before = self.instance(Age={"@value": "38"})
+        after, changes = REPAIR.rename_instance_keys(before, tmpl)
+        self.assertEqual(changes, [])
+        self.assertEqual(after, before)
+
+    def test_a_container_name_holding_a_slash_is_reached_through_the_escape(self):
+        REPAIR.RENAMES[self.TID] = {"City ~1Region/old": "new"}
+        tmpl = self.tmpl({"City /Region": self.element({"new": child()})})
+        before = self.instance(**{"City /Region": self.occurrence(old={"@value": "Turin"})})
+        after, _changes = REPAIR.rename_instance_keys(before, tmpl)
+        self.assertEqual(after["City /Region"]["new"], {"@value": "Turin"})
+        self.assertIsNone(REPAIR.only_renamed_instance_keys(before, after, tmpl))
+
+    def test_a_value_already_inside_the_target_is_never_overwritten(self):
+        REPAIR.RENAMES[self.TID] = {"Funding/old": "Body"}
+        tmpl = self.tmpl({"Funding": self.element({"Body": child()})})
+        before = self.instance(Funding=self.occurrence(old={"@value": "NIH"},
+                                                       Body={"@value": "NSF"}))
+        after, _changes = REPAIR.rename_instance_keys(before, tmpl)
+        self.assertEqual(after["Funding"]["Body"], {"@value": "NSF"})
+
+    def test_the_repair_is_settled_after_one_pass(self):
+        REPAIR.RENAMES[self.TID] = {"Title": "DataCite Title", "DataCite Title/title": "Title"}
+        tmpl = self.tmpl({"DataCite Title": self.element({"Title": child()})})
+        once, first = REPAIR.rename_instance_keys(
+            self.instance(Title=self.occurrence(title={"@value": "Nanog"})), tmpl)
+        _twice, second = REPAIR.rename_instance_keys(once, tmpl)
+        self.assertTrue(first)
+        self.assertEqual(second, [])
+
+
+class NestedRenameInvariantTest(unittest.TestCase):
+    """An invariant that stops at the top would not see a value changed inside an element."""
+
+    TID = BASE + "templates/t-nested-inv"
+
+    def setUp(self):
+        REPAIR.RENAMES.clear()
+        REPAIR.RENAMES[self.TID] = {"Title": "DataCite Title", "DataCite Title/title": "Title"}
+        inner = {"Title": child()}
+        node = child(ELEMENT_TYPE)
+        node["properties"] = {
+            "@context": {"properties": {n: {"enum": [GOOD_IRI + n]} for n in inner},
+                         "required": list(inner)},
+            "@id": {"type": "string", "format": "uri"}, **inner}
+        node["_ui"] = {"order": list(inner)}
+        self.template = template({"DataCite Title": node, "Subject": child()}, root=self.TID)
+        self.template["properties"]["@context"]["properties"] = {
+            name: {"enum": [GOOD_IRI + name]} for name in ("DataCite Title", "Subject")}
+        self.before = {"schema:isBasedOn": self.TID, "@context": {},
+                       "Subject": {"@value": "biology"},
+                       "Title": {"@context": {"title": "http://old.example/title"},
+                                 "@id": BASE + "template-element-instances/e1",
+                                 "title": {"@value": "Nanog"}}}
+        self.after, _changes = REPAIR.rename_instance_keys(self.before, self.template)
+
+    def tearDown(self):
+        REPAIR.RENAMES.clear()
+
+    def faulted(self, mutate):
+        candidate = copy.deepcopy(self.after)
+        mutate(candidate)
+        return REPAIR.only_renamed_instance_keys(self.before, candidate, self.template)
+
+    def test_the_repair_as_carried_out_holds(self):
+        self.assertIsNone(REPAIR.only_renamed_instance_keys(self.before, self.after, self.template))
+
+    def test_a_value_changed_inside_the_element_is_caught(self):
+        self.assertEqual(
+            self.faulted(lambda c: c["DataCite Title"]["Title"].__setitem__("@value", "other")),
+            "/DataCite Title/Title")
+
+    def test_a_key_added_inside_the_element_is_caught(self):
+        self.assertEqual(
+            self.faulted(lambda c: c["DataCite Title"].__setitem__("Extra", {"@value": 1})),
+            "/DataCite Title/Extra")
+
+    def test_the_element_identity_being_reminted_is_caught(self):
+        self.assertEqual(
+            self.faulted(lambda c: c["DataCite Title"].__setitem__("@id", "urn:new")),
+            "/DataCite Title/@id")
+
+    def test_an_inner_context_left_stale_is_caught(self):
+        self.assertEqual(
+            self.faulted(lambda c: c["DataCite Title"]["@context"].__setitem__(
+                "title", "http://old.example/title")),
+            "/DataCite Title/@context")
+
+    def test_an_untouched_sibling_being_altered_is_caught(self):
+        self.assertEqual(self.faulted(lambda c: c.__setitem__("Subject", {"@value": "chemistry"})),
+                         "/Subject")
+
+    def test_the_inner_key_left_in_place_is_caught(self):
+        # Both the old key and the new one are then present, so which of the two differences the
+        # walk reaches first is not fixed; that it is caught inside the element is what matters.
+        fault = self.faulted(lambda c: c["DataCite Title"].__setitem__("title", {"@value": "Nanog"}))
+        self.assertIsNotNone(fault)
+        self.assertTrue(fault.startswith("/DataCite Title/"), fault)
+
+
 class CompleteInstanceTest(unittest.TestCase):
     """A CEDAR instance states every declared field, carrying the model's shape for absence."""
 

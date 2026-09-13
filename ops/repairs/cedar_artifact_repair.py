@@ -2435,51 +2435,61 @@ def chosen_source(instance: Any, sources: list[str]) -> Optional[str]:
     return None
 
 
-def rename_instance_keys(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
-    """Carry an instance's values over to the names its template now declares.
+def path_head(path: str) -> tuple[str, Optional[str]]:
+    """Split a mapping path into the key it names here and whatever it names further in.
 
-    A template edited after its instances were written leaves them naming a field the template no
-    longer has, and the schema admits no property it does not declare, so the instance stops
-    validating however complete it is. The value is not in question — only what it is filed under.
-
-    The mapping is supplied, never inferred: which old name became which new one is a fact about an
-    edit nobody recorded, and guessing it would move a value into a field that means something else.
-    A key is moved only where the template declares the new name and does not declare the old one.
-    A mapping to ``null`` removes the key instead, which is the answer where the field was dropped
-    rather than renamed and the value is not wanted.
-
-    Two shapes need care. A field the template declares as repeating takes a list, so a single value
-    moving into one is wrapped. A field that used to repeat and now holds one value has its list
-    unwrapped, but only where the list holds nought or one: a longer one is refused, since which
-    element survives is not this repair's to decide. And where several old keys map to one
-    field the template consolidated them: the first that carries a value supplies it, the rest go,
-    and the record says which were discarded so the loss is visible rather than silent.
+    A path names the route through the template down to the key being ruled on: every segment but
+    the last is a name the template declares, and the last is the key an instance carries there.
+    Segments are separated by ``/`` and each is escaped the way a JSON Pointer component is, ``~1``
+    for a ``/`` in the name itself and ``~0`` for a ``~``. A path of one segment names a key at the
+    top of the instance, which is every mapping written before nesting was supported.
     """
-    if not isinstance(template, dict):
-        raise TransformRefused("the template this instance names could not be read")
-    if not isinstance(instance, dict):
-        raise TransformRefused("artifact is not a JSON object")
-    based_on = instance.get("schema:isBasedOn")
-    mapping = RENAMES.get(based_on) if isinstance(based_on, str) else None
-    if not mapping:
-        return copy.deepcopy(instance), []
-    multiplicity = declared_multiplicity(template)
-    declared = set(multiplicity)
-    iris = declared_context_iris(template)
+    head, separator, tail = path.partition("/")
+    return head.replace("~1", "/").replace("~0", "~"), (tail if separator else None)
+
+
+def split_mapping(mapping: dict[str, Any]) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
+    """Separate a level's own renames from the ones addressed inside one of its children."""
+    here: dict[str, Any] = {}
+    deeper: dict[str, dict[str, Any]] = {}
+    for path, target in mapping.items():
+        head, tail = path_head(path)
+        if tail is None:
+            here[head] = target
+        else:
+            deeper.setdefault(head, {})[tail] = target
+    return here, deeper
+
+
+def renamed_container(node: Any, definition: Any, mapping: dict[str, Any], path: str,
+                      changes: list[dict[str, Any]]) -> Any:
+    """Apply one level of a rename mapping to a container instance, then settle its children.
+
+    This level is settled before anything inside it, so a child is reached under the name the
+    container declares rather than the one the instance happened to file it under. That is what
+    lets a mapping path name the route through the template.
+    """
+    if not isinstance(node, dict):
+        return node
+    here, deeper = split_mapping(mapping)
+    declarations = {name: (child, multiple) for name, child, multiple in container_children(definition)}
+    multiplicity = {name: multiple for name, (_child, multiple) in declarations.items()}
+    declared = set(declarations)
+    iris = declared_context_iris(definition)
+    result = copy.deepcopy(node)
+
     targets: dict[str, list[str]] = {}
-    for old, new in mapping.items():
+    for old, new in here.items():
         if new is not None:
             targets.setdefault(new, []).append(old)
 
-    result = copy.deepcopy(instance)
-    changes: list[dict[str, Any]] = []
-    # A mapping to null says the key is not to be carried anywhere: the template dropped the field
+    # A mapping to null says the key is not to be carried anywhere: the container dropped the field
     # and the operator has decided the value goes with it.
-    for old, new in mapping.items():
+    for old, new in here.items():
         if new is not None or old not in result or old in declared:
             continue
         del result[old]
-        changes.append({"path": f"/{rest.json_pointer_component(old)}", "replaced": old,
+        changes.append({"path": f"{path}/{rest.json_pointer_component(old)}", "replaced": old,
                         "wrote": None, "discarded": [old]})
         context = result.get("@context")
         if isinstance(context, dict) and old in context:
@@ -2499,42 +2509,118 @@ def rename_instance_keys(instance: Any, template: Any) -> tuple[Any, list[dict[s
             # same thing either way, so it is unwrapped. A longer one does not, and is refused.
             if len(value) > 1:
                 raise TransformRefused(
-                    f"{present[0]!r} holds {len(value)} values and {new!r} takes one; which "
+                    f"{path}/{present[0]} holds {len(value)} values and {new!r} takes one; which "
                     "survives is not this repair's to decide")
-            value = value[0] if value else empty_instance_value(
-                next((c for n, c, _m in container_children(template) if n == new), {}), False)
+            value = value[0] if value else empty_instance_value(declarations[new][0], False)
         for source in present:
             del result[source]
             context = result.get("@context")
             if isinstance(context, dict) and source in context:
                 del context[source]
         result[new] = value
-        changes.append({"path": f"/{rest.json_pointer_component(present[0])}",
+        changes.append({"path": f"{path}/{rest.json_pointer_component(present[0])}",
                         "replaced": supplier or present[0], "wrote": new,
                         "discarded": [s for s in present if s != (supplier or present[0])]})
         context = result.get("@context")
         if isinstance(context, dict) and new not in context and new in iris:
             context[new] = iris[new]
-    return result, changes
+
+    # Now that this level answers to the names the container declares, each child that has renames
+    # of its own is settled against its own declaration. Doing it in this order is what lets a path
+    # name the route through the template: every segment but the last is a declared name.
+    for segment, submapping in deeper.items():
+        entry = declarations.get(segment)
+        if segment not in result or entry is None or not is_element(entry[0]):
+            continue
+        child_definition = entry[0]
+        child_path = f"{path}/{rest.json_pointer_component(segment)}"
+        value = result[segment]
+        if isinstance(value, list):
+            result[segment] = [renamed_container(item, child_definition, submapping,
+                                                 f"{child_path}/{index}", changes)
+                               for index, item in enumerate(value)]
+        else:
+            result[segment] = renamed_container(value, child_definition, submapping, child_path,
+                                                changes)
+    return result
 
 
-def only_renamed_instance_keys(before: Any, after: Any, template: Any) -> Optional[str]:
-    """The invariant: the mapped keys went, one of their values survives under the declared name.
+def rename_instance_keys(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Carry an instance's values over to the names its template now declares.
 
-    The repair is allowed to discard, but only a value belonging to a key the mapping names and only
-    where another of that group's values lands under the target. Nothing outside the mapping moves.
+    A template edited after its instances were written leaves them naming a field the template no
+    longer has, and the schema admits no property it does not declare, so the instance stops
+    validating however complete it is. The value is not in question — only what it is filed under.
+
+    The mapping is supplied, never inferred: which old name became which new one is a fact about an
+    edit nobody recorded, and guessing it would move a value into a field that means something else.
+    A key is moved only where the container declares the new name and does not declare the old one.
+    A mapping to ``null`` removes the key instead, which is the answer where the field was dropped
+    rather than renamed and the value is not wanted.
+
+    A rename reaches inside an element. Renaming an element moves the whole occurrence across, and
+    its own children are then answerable to what the new declaration names, so a mapping key can
+    address a key inside one. ``DataCite Title/titleLanguage`` names the key ``titleLanguage`` as an
+    instance carries it inside the element the template declares as ``DataCite Title``, whether the
+    instance reached that element by a rename or was always filed there. Every segment but the last
+    is a declared name, so a path reads as the route through the template.
+
+    Two shapes need care. A field the template declares as repeating takes a list, so a single value
+    moving into one is wrapped. A field that used to repeat and now holds one value has its list
+    unwrapped, but only where the list holds nought or one: a longer one is refused, since which
+    element survives is not this repair's to decide. And where several old keys map to one
+    field the template consolidated them: the first that carries a value supplies it, the rest go,
+    and the record says which were discarded so the loss is visible rather than silent.
+    """
+    if not isinstance(template, dict):
+        raise TransformRefused("the template this instance names could not be read")
+    if not isinstance(instance, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    based_on = instance.get("schema:isBasedOn")
+    mapping = RENAMES.get(based_on) if isinstance(based_on, str) else None
+    if not mapping:
+        return copy.deepcopy(instance), []
+    changes: list[dict[str, Any]] = []
+    return renamed_container(instance, template, mapping, "", changes), changes
+
+
+def occurrence_fault(before: Any, after: Any, definition: Any, submapping: dict[str, Any],
+                     path: str) -> Optional[str]:
+    """Compare a child's occurrences, allowing only what a sub-mapping accounts for."""
+    if isinstance(before, list) and isinstance(after, list):
+        if len(before) != len(after):
+            return path
+        for index, (was, now) in enumerate(zip(before, after)):
+            fault = occurrence_fault(was, now, definition, submapping, f"{path}/{index}")
+            if fault is not None:
+                return fault
+        return None
+    if submapping and isinstance(before, dict) and isinstance(after, dict):
+        return renamed_container_fault(before, after, definition, submapping, path)
+    if before != after or type(before) is not type(after):
+        return path
+    return None
+
+
+def renamed_container_fault(before: Any, after: Any, definition: Any, mapping: dict[str, Any],
+                            path: str) -> Optional[str]:
+    """Where one level of the rename did something the mapping does not account for.
+
+    The check follows the transform's own traversal rather than descending everything it finds, so a
+    child whose name collides with a JSON Schema keyword is read as the child it is.
     """
     if not isinstance(before, dict) or not isinstance(after, dict):
-        return "/"
-    based_on = before.get("schema:isBasedOn")
-    mapping = RENAMES.get(based_on) or {}
-    multiplicity = declared_multiplicity(template) if isinstance(template, dict) else {}
-    iris = declared_context_iris(template) if isinstance(template, dict) else {}
+        return None if before == after and type(before) is type(after) else (path or "/")
+    here, deeper = split_mapping(mapping)
+    declarations = ({name: (child, multiple) for name, child, multiple in container_children(definition)}
+                    if isinstance(definition, dict) else {})
+    multiplicity = {name: multiple for name, (_child, multiple) in declarations.items()}
+    iris = declared_context_iris(definition) if isinstance(definition, dict) else {}
     targets: dict[str, list[str]] = {}
-    for old, new in mapping.items():
+    for old, new in here.items():
         if new is not None:
             targets.setdefault(new, []).append(old)
-    dropped = {old for old, new in mapping.items()
+    dropped = {old for old, new in here.items()
                if new is None and old in before and old not in after}
 
     moved: dict[str, list[str]] = {}
@@ -2542,27 +2628,47 @@ def only_renamed_instance_keys(before: Any, after: Any, template: Any) -> Option
         present = [s for s in sources if s in before]
         if present and all(s not in after for s in present) and new in after:
             moved[new] = present
+
+    # A key that moved carries its supplier's value, settled inside by whatever sub-mapping the
+    # supplier's own path names, and wrapped or unwrapped to the arity the target declares.
     for new, present in moved.items():
         supplier = chosen_source(before, present) or present[0]
+        submapping = deeper.get(new, {})
+        child_definition = declarations.get(new, ({}, False))[0]
         expected = before[supplier]
+        here_path = f"{path}/{rest.json_pointer_component(new)}"
+        value = after[new]
         if multiplicity.get(new) and not isinstance(expected, list):
-            expected = [expected]
-        elif not multiplicity.get(new) and isinstance(expected, list) and len(expected) == 1:
+            if not isinstance(value, list) or len(value) != 1:
+                return here_path
+            value = value[0]
+        elif not multiplicity.get(new) and isinstance(expected, list):
+            if len(expected) > 1:
+                return here_path
+            if not expected:
+                continue           # an empty list became the model's shape for absence
             expected = expected[0]
-        elif not multiplicity.get(new) and isinstance(expected, list) and not expected:
-            expected = after[new]      # an empty list became the model's shape for absence
-        if after[new] != expected or type(after[new]) is not type(expected):
-            return f"/{rest.json_pointer_component(new)}"
+        fault = occurrence_fault(expected, value, child_definition, submapping, here_path)
+        if fault is not None:
+            return fault
 
+    # A child that stayed where it is may still have been settled inside, and nothing else may move.
     surrendered = {s for sources in moved.values() for s in sources} | dropped
     for key in set(before) | set(after):
         if key == "@context" or key in surrendered or key in moved:
             continue
-        here = f"/{rest.json_pointer_component(key)}"
+        here_path = f"{path}/{rest.json_pointer_component(key)}"
         if (key in before) != (key in after):
-            return here
+            return here_path
+        submapping = deeper.get(key)
+        if submapping:
+            child_definition = declarations.get(key, ({}, False))[0]
+            fault = occurrence_fault(before[key], after[key], child_definition, submapping, here_path)
+            if fault is not None:
+                return fault
+            continue
         if before[key] != after[key] or type(before[key]) is not type(after[key]):
-            return here
+            return here_path
     old_context = before.get("@context")
     new_context = after.get("@context")
     if isinstance(old_context, dict) and isinstance(new_context, dict):
@@ -2571,10 +2677,25 @@ def only_renamed_instance_keys(before: Any, after: Any, template: Any) -> Option
             if new in iris:
                 expected_context.setdefault(new, iris[new])
         if new_context != expected_context:
-            return "/@context"
+            return f"{path}/@context"
     elif old_context != new_context:
-        return "/@context"
+        return f"{path}/@context"
     return None
+
+
+def only_renamed_instance_keys(before: Any, after: Any, template: Any) -> Optional[str]:
+    """The invariant: the mapped keys went, one of their values survives under the declared name.
+
+    The repair is allowed to discard, but only a value belonging to a key the mapping names and only
+    where another of that group's values lands under the target. Nothing outside the mapping moves,
+    at any depth the mapping reaches.
+    """
+    if not isinstance(before, dict) or not isinstance(after, dict):
+        return "/"
+    based_on = before.get("schema:isBasedOn")
+    mapping = RENAMES.get(based_on) or {}
+    fault = renamed_container_fault(before, after, template, mapping, "")
+    return fault if fault != "" else "/"
 
 
 ELEMENT_INSTANCE_BASE = "https://repo.metadatacenter.org/template-element-instances/"

@@ -8,6 +8,11 @@ HOME = pathlib.Path(os.environ.get("CEDAR_HOME", pathlib.Path.home() / "CEDAR"))
 spec = importlib.util.spec_from_file_location("cedar_artifact_rest_audit",
                                               OPS / "cedar_artifact_rest_audit.py")
 rest = importlib.util.module_from_spec(spec); sys.modules[spec.name] = rest; spec.loader.exec_module(rest)
+spec = importlib.util.spec_from_file_location("cedar_artifact_repair",
+                                              pathlib.Path(__file__).resolve().parent
+                                              / "cedar_artifact_repair.py")
+repair = importlib.util.module_from_spec(spec); sys.modules[spec.name] = repair
+spec.loader.exec_module(repair)
 KEY = pathlib.Path.home().joinpath('.cedar-admin-key').read_text().strip()
 RESERVED = {'@context','@id','@type','schema:isBasedOn','schema:name','schema:description','pav:createdOn',
             'pav:createdBy','pav:lastUpdatedOn','oslc:modifiedBy','pav:derivedFrom','_annotations'}
@@ -80,8 +85,9 @@ def shared_values(found, stale, name):
     A value carried under the old name and under the new one, in instances of the same template, is
     the two names describing one field. It settles a pairing that wording alone only suggests.
     """
+    prefix = found["at"].get(stale, "")
     old = {v for v in (found["staleValues"].get(stale) or []) if len(v) > 2}
-    new = {v for v in (found["declaredValues"].get(name) or []) if len(v) > 2}
+    new = {v for v in (found["declaredValues"].get(declared_path(prefix, name)) or []) if len(v) > 2}
     return old & new
 
 
@@ -173,6 +179,88 @@ def propose_all(stale_keys, candidates, prevalence=None):
     return out
 
 
+def settled_mapping():
+    """Every rename the operator has already confirmed, loaded the way the repair loads it."""
+    path = HOME / "mapping-all.json"
+    if not path.is_file():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except ValueError:
+        return {}
+
+
+def element_children(definition):
+    """Each child a container declares that is itself a container, with its declaration."""
+    out = {}
+    for name, child, _multiple, error in rest.direct_schema_children(definition):
+        if not error and child is not None and repair.is_element(child):
+            out[name] = child
+    return out
+
+
+def occurrences(value):
+    """A child's value as the occurrences it holds, whether or not it is declared repeating."""
+    return [v for v in (value if isinstance(value, list) else [value]) if isinstance(v, dict)]
+
+
+def walk_container(node, definition, prefix, found):
+    """Record what a container carries that its declaration does not name, at any depth.
+
+    The walk descends only into a child the template declares as an element, so a path it reports
+    names the route through the template: every segment but the last is a declared name. A key the
+    template does not declare is recorded where it sits and not entered, because there is nothing to
+    read it against until someone says where it belongs.
+    """
+    declared = [n for n, _c, _m, e in rest.direct_schema_children(definition) if not e]
+    found["containers"].setdefault(prefix, {"definition": definition, "declared": declared,
+                                            "absent": collections.Counter(), "seen": 0})
+    here = found["containers"][prefix]
+    here["seen"] += 1
+    present = {k for k in node if k not in RESERVED}
+    for key in present - set(declared):
+        path = f"{prefix}/{rest.json_pointer_component(key)}" if prefix else \
+            rest.json_pointer_component(key)
+        found["stale"][path] += 1
+        found["at"][path] = prefix
+        shown = render(node[key])
+        if shown:
+            found["staleValues"][path].append(shown)
+            for name in declared:
+                if name in node and node[name] == node[key] and type(node[name]) is type(node[key]):
+                    found["superseded"][path][name] += 1
+                    break
+    for key in set(declared) - present:
+        here["absent"][key] += 1
+    for name, child in element_children(definition).items():
+        if name not in node:
+            continue
+        inner = f"{prefix}/{rest.json_pointer_component(name)}" if prefix else \
+            rest.json_pointer_component(name)
+        for one in occurrences(node[name]):
+            walk_container(one, child, inner, found)
+
+
+def container_values(node, definition, prefix, into):
+    """What each declared name holds, by the same route, read from an instance that validates."""
+    declared = [n for n, _c, _m, e in rest.direct_schema_children(definition) if not e]
+    for name in declared:
+        if name not in node:
+            continue
+        path = f"{prefix}/{rest.json_pointer_component(name)}" if prefix else \
+            rest.json_pointer_component(name)
+        shown = render(node[name])
+        if shown:
+            into[path].append(shown)
+    for name, child in element_children(definition).items():
+        if name not in node:
+            continue
+        inner = f"{prefix}/{rest.json_pointer_component(name)}" if prefix else \
+            rest.json_pointer_component(name)
+        for one in occurrences(node[name]):
+            container_values(one, child, inner, into)
+
+
 def study(template_id, instance_ids):
     template = get(template_id, 'templates')
     if template is None:
@@ -180,30 +268,24 @@ def study(template_id, instance_ids):
     declared = [n for n, _c, _m, _e in rest.direct_schema_children(template)]
     random.seed(11)
     chosen = random.sample(instance_ids, min(SAMPLE, len(instance_ids)))
-    stale = collections.Counter()
-    absent = collections.Counter()
-    stale_values = collections.defaultdict(list)
-    superseded = collections.defaultdict(collections.Counter)
+    found = {"stale": collections.Counter(), "at": {},
+             "staleValues": collections.defaultdict(list),
+             "superseded": collections.defaultdict(collections.Counter),
+             "containers": {}}
+    # A key is asked about only where it still has nowhere to go, so every rename already confirmed
+    # is applied first. That is also what puts the inside of a renamed element within reach: until
+    # the element itself is settled, there is no declaration to read its children against.
+    repair.RENAMES.clear()
+    repair.RENAMES.update(SETTLED)
     with cf.ThreadPoolExecutor(max_workers=8) as pool:
         for body in pool.map(lambda i: get(i, 'template-instances'), chosen):
             if body is None:
                 continue
-            present = {k for k in body if k not in RESERVED}
-            for k in present - set(declared):
-                stale[k] += 1
-                shown = render(body[k])
-                if shown:
-                    stale_values[k].append(shown)
-                # The template's history written in the instance: the same value under a name the
-                # template still declares means the field was renamed by copying, not by moving.
-                if shown:
-                    for name in declared:
-                        if name in body and body[name] == body[k] \
-                                and type(body[name]) is type(body[k]):
-                            superseded[k][name] += 1
-                            break
-            for k in set(declared) - present:
-                absent[k] += 1
+            try:
+                body, _changes = repair.rename_instance_keys(body, template)
+            except repair.TransformRefused:
+                pass
+            walk_container(body, template, "", found)
     # What the declared names hold where the template's own instances do validate.
     declared_values = collections.defaultdict(list)
     healthy = VALID.get(template_id, [])[:VALUES * 2]
@@ -212,21 +294,61 @@ def study(template_id, instance_ids):
             for body in pool.map(lambda i: get(i, 'template-instances'), healthy):
                 if body is None:
                     continue
-                for k in declared:
-                    if k in body:
-                        shown = render(body[k])
-                        if shown:
-                            declared_values[k].append(shown)
+                container_values(body, template, "", declared_values)
+    absent = found["containers"].get("", {}).get("absent", collections.Counter())
     return {"template": template, "declared": declared, "sampled": len(chosen),
-            "instances": len(instance_ids), "stale": stale, "absent": absent,
-            "staleValues": stale_values, "declaredValues": declared_values,
-            "superseded": superseded, "healthy": len(healthy)}
-
+            "instances": len(instance_ids), "stale": found["stale"], "absent": absent,
+            "at": found["at"], "containers": found["containers"],
+            "staleValues": found["staleValues"], "declaredValues": declared_values,
+            "superseded": found["superseded"], "healthy": len(healthy)}
 
 VALID = {}
 # Decisions the operator has already given, keyed by template IRI then by the key they ruled on.
 # A key answered here is not asked again, however long its rename waits on a sibling.
 ANSWERED: dict = {}
+# Every rename already confirmed, applied to a sampled instance before it is read, so the sheet
+# asks only about what is left. Settling an element is what brings its children into view.
+SETTLED: dict = {}
+
+
+def declared_path(prefix, name):
+    """The route to a declared name inside the container at `prefix`."""
+    escaped = rest.json_pointer_component(name)
+    return f"{prefix}/{escaped}" if prefix else escaped
+
+
+def candidates_for(found, prefix):
+    """The declared names a stale key in this container could belong to.
+
+    A name some occurrence of the container already carries is not offered: the field is not the one
+    that went missing. Where nothing is unclaimed the whole declaration is offered instead, so a key
+    is never left without candidates to weigh.
+    """
+    here = found["containers"].get(prefix)
+    if here is None:
+        return []
+    unclaimed = [n for n in here["declared"] if here["absent"].get(n)]
+    return unclaimed or here["declared"]
+
+
+def proposals_for(found):
+    """Pair every stale key with a declared name, one container at a time.
+
+    A rename is one-to-one within the container it happens in, so the pairing is settled separately
+    for each: a key inside an element competes only with the other keys inside that element.
+    """
+    out = {}
+    grouped = collections.defaultdict(list)
+    for path in found["stale"]:
+        grouped[found["at"].get(path, "")].append(path)
+    for prefix, paths in grouped.items():
+        names = [path.rsplit("/", 1)[-1] for path in paths]
+        by_name = dict(zip(names, paths))
+        picked = propose_all(names, candidates_for(found, prefix),
+                             {n: found["stale"][by_name[n]] for n in names})
+        for name, answer in picked.items():
+            out[by_name[name]] = answer
+    return out
 
 
 REGISTRY = HOME / "decision-registry.json"
@@ -307,6 +429,7 @@ def load_valid_instances():
 def main():
     VALID.update(load_valid_instances())
     ANSWERED.update(load_answered())
+    SETTLED.update(settled_mapping())
     written = load_written()
     residual = json.load(open(HOME / 'top10-residual.json'))
     out = ["# CEDAR — Template Rename Review",
@@ -376,9 +499,8 @@ def main():
             out += ["No instance carries a key this template does not declare, so nothing here is a "
                     "rename. These instances fail for another reason.", ""]
             continue
-        unclaimed = [n for n in found["declared"] if n in found["absent"]]
-        proposals = propose_all(list(found["stale"]), unclaimed or found["declared"],
-                                dict(found["stale"]))
+        proposals = proposals_for(found)
+        unclaimed = candidates_for(found, "")
         settled, rows = [], []
         for stale, count in found["stale"].most_common():
             name, basis, value = proposals[stale]
@@ -426,7 +548,8 @@ def main():
             out += ([f"- {s}" for s in samples] if samples
                     else ["- _every sampled instance leaves it empty_"]) + [""]
             if name:
-                current = tidy(found["declaredValues"].get(name, []))
+                current = tidy(found["declaredValues"].get(
+                    declared_path(found["at"].get(stale, ""), name), []))
                 out += [f"**`{name}`** — what instances that do validate carry:", ""]
                 out += ([f"- {s}" for s in current] if current
                         else [f"- _no valid instance of this template carries a value here"
@@ -440,7 +563,7 @@ def main():
                     "belong to. The values come from instances of this template that already "
                     "validate.", ""]
             for name in leftover_values:
-                samples = tidy(found["declaredValues"].get(name, []))
+                samples = tidy(found["declaredValues"].get(declared_path("", name), []))
                 out += [f"**`{name}`**", ""]
                 out += ([f"- {s}" for s in samples] if samples
                         else [f"- _no valid instance carries a value here "
@@ -459,9 +582,7 @@ def write_decisions(studies, written):
     """Only the keys a person still has to rule on, worst blocker first."""
     pending = []
     for _rank, template_id, found in studies:
-        unclaimed = [n for n in found["declared"] if n in found["absent"]]
-        proposals = propose_all(list(found["stale"]), unclaimed or found["declared"],
-                                dict(found["stale"]))
+        proposals = proposals_for(found)
         answered = ANSWERED.get(template_id) or {}
         undecided = []
         for stale in found["stale"]:
@@ -531,6 +652,13 @@ def write_decisions(studies, written):
              "not by number, so the numbers run out of order. The sections below are in numerical "
              "order for looking one up.",
              "",
+             "**A key written with a slash sits inside an element.** `DataCite Title/titleLanguage` "
+             "is the key `titleLanguage` as an instance carries it inside the element the template "
+             "declares as `DataCite Title`; the answers offered for it are that element's own "
+             "fields, not the template's. These questions appear only once the element itself is "
+             "settled, because until then there is no declaration to read its children against — "
+             "so answering an element rename uncovers the next round rather than finishing it.",
+             "",
              "| # | Template | Key | What it holds | Answers | Yours |",
              "| --- | --- | --- | --- | --- | --- |"]
     registry = decision_numbers(pending)
@@ -538,9 +666,15 @@ def write_decisions(studies, written):
     numbered = []
     for template_id, found, proposals, undecided in order:
         name = found["template"].get("schema:name") or "(unnamed)"
-        claimed = {p[0] for s, p in proposals.items() if p[0] and s not in dict(undecided)}
-        options = [n for n in found["declared"] if n in found["absent"] and n not in claimed]
+        pending_paths = dict(undecided)
         for stale, guess in undecided:
+            prefix = found["at"].get(stale, "")
+            # A name another key in the same container has already claimed is not offered again;
+            # a claim made in a different container says nothing about this one.
+            claimed = {answer[0] for path, answer in proposals.items()
+                       if answer[0] and path not in pending_paths
+                       and found["at"].get(path, "") == prefix}
+            options = [n for n in candidates_for(found, prefix) if n not in claimed]
             number = registry[f"{template_id}\t{stale}"]
             letters = answer_letters(options)
             numbered.append((number, name, found, stale, guess, options, letters))
@@ -580,7 +714,9 @@ def write_decisions(studies, written):
                 for shown, n in counted.most_common(6):
                     lines.append(f"- `{shown[:70]}` — in {n} of them")
                 lines += [""]
-            comparable = [o for o in options if found["declaredValues"].get(o)]
+            prefix = found["at"].get(stale, "")
+            comparable = [o for o in options
+                          if found["declaredValues"].get(declared_path(prefix, o))]
             lines += ["Answers:", ""]
             for letter, choice in letters:
                 if choice == "delete":
@@ -590,7 +726,7 @@ def write_decisions(studies, written):
                     lines.append(f"- **{letter}.** `keep` — the field should not have been removed; "
                                  "the template is what needs changing, not the instances")
                 else:
-                    values = tidy(found["declaredValues"].get(choice, []))[:3]
+                    values = tidy(found["declaredValues"].get(declared_path(prefix, choice), []))[:3]
                     tail = (" — validating instances hold: " + "; ".join(v[:38] for v in values)
                             if values else " — no example values to show")
                     mark = "  ← closest on wording" if choice == guess else ""

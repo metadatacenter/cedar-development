@@ -3161,6 +3161,20 @@ something else. `repairs/rename_sheet.py` drafts that mapping for an owner to co
 stale key with a declared name by wording, spelling and how many instances carry it, and marking a
 pairing **confirmed by data** where the same value appears under both names.
 
+A rename reaches inside an element, because renaming one moves the whole occurrence across and its
+own children then answer to what the new declaration names. A mapping key is therefore a path:
+`DataCite Title/titleLanguage` names the key `titleLanguage` as an instance carries it inside the
+element the template declares as `DataCite Title`. Every segment but the last is a declared name, so
+a path reads as the route through the template, and a segment holding a `/` of its own is escaped the
+way a JSON Pointer component is. The same form reaches a child of a container that was never renamed
+itself, which is the case where only the inside changed. A path of one segment names a key at the top
+of the instance, which is every mapping written before nesting was supported.
+
+Which questions the sheet can even ask depends on what is settled already: it applies the confirmed
+mapping to each sampled instance before reading it, so the inside of an element comes into view only
+once the element itself has a declaration to be read against. Answering an element rename therefore
+uncovers a fresh round of questions about its children rather than finishing it.
+
 **Repairs compose, and for some artifacts they must.** A child identifier the server would otherwise
 mint makes it refuse a verbatim write outright, so an artifact carrying that defect alongside another
 cannot be fixed by either repair on its own: one leaves the artifact invalid and is skipped, the other
