@@ -333,6 +333,9 @@ stop_auxiliary_processes() {
     owner=$(port_owner "$port")
     [ -n "$owner" ] || continue
     if ! is_service_process "$name" "$owner"; then
+      # lsof and ps are separate snapshots. The JVM may have exited between them after the
+      # application-port stop, leaving an empty command or a zombie. A closed port needs no kill.
+      port_open "$port" || continue
       echo "  $name: REFUSED TO STOP auxiliary port $port owner pid $owner — it is not the expected CEDAR process: $(process_summary "$owner")" >&2
       result=1
       continue
@@ -342,8 +345,19 @@ stop_auxiliary_processes() {
     attempt=0
     while port_open "$port" && [ "$attempt" -lt 10 ]; do sleep 0.2; attempt=$((attempt+1)); done
     if port_open "$port"; then
+      # The TERM wait can outlive its owner. Never signal the cached PID/root when a different
+      # process may now own this port; a still-open port without a verifiable owner also fails.
+      owner=$(port_owner "$port")
+      if [ -z "$owner" ] || ! is_service_process "$name" "$owner"; then
+        port_open "$port" || continue
+        echo "  $name: REFUSED TO KILL auxiliary port $port — its current owner is not the expected CEDAR process${owner:+ (pid $owner)}" >&2
+        result=1
+        continue
+      fi
+      root=$(verified_listener_root "$name" "$owner")
       kill -KILL "$root" 2>/dev/null || true
-      sleep 0.2
+      attempt=0
+      while port_open "$port" && [ "$attempt" -lt 10 ]; do sleep 0.2; attempt=$((attempt+1)); done
     fi
     if port_open "$port"; then
       echo "  $name: FAILED TO STOP auxiliary port $port (pid $owner)" >&2

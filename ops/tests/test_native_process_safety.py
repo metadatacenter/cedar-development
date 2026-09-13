@@ -299,6 +299,70 @@ class NativeProcessSafetyTest(unittest.TestCase):
         self.assertNotEqual(0, result.returncode)
         self.assertIn("CONFIG MISSING", result.stdout)
 
+    def test_auxiliary_stop_accepts_an_owner_that_exited_during_inspection(self):
+        for command in ('', '[java] <defunct>'):
+            with self.subTest(command=command):
+                result = self.run_library(
+                    'auxiliary_ports() { echo 9209; }; '
+                    'port_owner() { echo 4242; }; '
+                    f'process_command() {{ echo "{command}"; }}; '
+                    'port_open() { return 1; }; '
+                    'kill() { echo SIGNALLED; }; stop_auxiliary_processes group'
+                )
+                self.assertEqual(0, result.returncode, result.stderr)
+                self.assertNotIn('SIGNALLED', result.stdout)
+
+    def test_auxiliary_stop_refuses_a_live_foreign_listener(self):
+        result = self.run_library(
+            'auxiliary_ports() { echo 9209; }; '
+            'port_owner() { echo 4242; }; port_open() { return 0; }; '
+            'process_command() { echo "python unrelated.py"; }; '
+            'kill() { echo SIGNALLED; }; stop_auxiliary_processes group'
+        )
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn('REFUSED TO STOP', result.stderr)
+        self.assertNotIn('SIGNALLED', result.stdout)
+
+    def test_auxiliary_stop_rechecks_ownership_before_escalating(self):
+        result = self.run_library(
+            'auxiliary_ports() { echo 9209; }; '
+            'port_owner() { if [ -f "$CEDAR_HOME/terminated" ]; then echo 4343; '
+            'else echo 4242; fi; }; '
+            'is_service_process() { [ "$2" = 4242 ]; }; '
+            'verified_listener_root() { echo "$2"; }; '
+            'terminate_tree() { touch "$CEDAR_HOME/terminated"; }; '
+            'port_open() { return 0; }; sleep() { :; }; '
+            'kill() { echo SIGNALLED; }; stop_auxiliary_processes group'
+        )
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn('REFUSED TO KILL', result.stderr)
+        self.assertNotIn('SIGNALLED', result.stdout)
+
+    def test_auxiliary_stop_waits_for_socket_release_after_kill(self):
+        result = self.run_library(
+            'auxiliary_ports() { echo 9209; }; port_owner() { echo 4242; }; '
+            'is_service_process() { return 0; }; '
+            'verified_listener_root() { echo "$2"; }; terminate_tree() { :; }; '
+            'ticks=0; killed=0; '
+            'kill() { killed=1; }; '
+            'sleep() { if [ "$killed" = 1 ]; then ticks=$((ticks+1)); fi; }; '
+            'port_open() { [ "$ticks" -lt 3 ]; }; stop_auxiliary_processes group'
+        )
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn('stopped stale group', result.stdout)
+
+    def test_auxiliary_stop_still_fails_if_the_port_survives_kill(self):
+        result = self.run_library(
+            'auxiliary_ports() { echo 9209; }; port_owner() { echo 4242; }; '
+            'is_service_process() { return 0; }; '
+            'verified_listener_root() { echo "$2"; }; terminate_tree() { :; }; '
+            'port_open() { return 0; }; sleep() { :; }; '
+            'kill() { echo "SIGNALLED $*"; }; stop_auxiliary_processes group'
+        )
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn('FAILED TO STOP', result.stderr)
+        self.assertIn('SIGNALLED -KILL 4242', result.stdout)
+
     def test_start_refuses_a_stale_service_on_an_auxiliary_port(self):
         result = self.run_library(
             'port_open() { [ "$1" = 9209 ]; }; auxiliary_ports() { echo 9209; }; '
