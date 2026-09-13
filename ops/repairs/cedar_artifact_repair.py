@@ -58,7 +58,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Iterator, Optional
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+# The audit and its REST client live one level up, in ops/, and this tool is their consumer.
+OPS = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(OPS))
 import cedar_artifact_rest_audit as rest  # noqa: E402
 import cedar_artifact_validation_audit as audit  # noqa: E402
 
@@ -344,6 +346,11 @@ def complete_context_required(artifact: Any) -> tuple[Any, list[dict[str, Any]]]
     Nothing is minted here: a child with no mapping stays unmapped and unrequired, because inventing a
     property IRI is a separate decision. Only names the container already maps are added, so the
     change tightens the contract to what the template itself already states.
+
+    Where a container states no ``required`` at all the list is created, which is what an ordinary
+    update does: the server synchronizes the two lists whenever ``@context`` is an object and its
+    ``required`` is either absent or an array. A ``required`` that is present and is not an array is
+    left alone, since the server refuses that shape rather than repairing it.
     """
     changes: list[dict[str, Any]] = []
 
@@ -354,13 +361,15 @@ def complete_context_required(artifact: Any) -> tuple[Any, list[dict[str, Any]]]
         mapped = mapped_serializing_children(result)
         properties = result.get("properties")
         context = properties.get("@context") if isinstance(properties, dict) else None
-        if mapped and isinstance(context, dict) and isinstance(context.get("required"), list):
-            listed = [entry for entry in context["required"] if isinstance(entry, str)]
+        stated = context.get("required") if isinstance(context, dict) else None
+        if mapped and isinstance(context, dict) and (stated is None or isinstance(stated, list)):
+            base = stated if isinstance(stated, list) else []
+            listed = [entry for entry in base if isinstance(entry, str)]
             omitted = [name for name in
                        (n for n, _child, _multiple in container_children(result)) if
                        name in mapped and name not in listed]
             if omitted:
-                context["required"] = list(context["required"]) + omitted
+                context["required"] = list(base) + omitted
                 for name in omitted:
                     changes.append({"path": f"{path}/properties/@context/required",
                                     "replaced": None, "wrote": name})
@@ -429,17 +438,30 @@ def only_completed_context_required(before: Any, after: Any) -> Optional[str]:
         return None
 
     def context_walk(old: dict, new: dict, mapped: set[str], path: str) -> Optional[str]:
-        if not isinstance(new, dict) or set(old) != set(new):
+        # The list may be created where none was stated, so it is the one key allowed to appear.
+        if not isinstance(new, dict) or set(old) | {"required"} != set(new) | {"required"}:
             return path
-        for name in old:
+        for name in set(old) | set(new):
             here = f"{path}/{rest.json_pointer_component(name)}"
-            if name == "required" and isinstance(old[name], list) and isinstance(new.get(name), list):
-                kept, appended = new[name][:len(old[name])], new[name][len(old[name]):]
-                if kept != old[name]:
+            if name == "required":
+                stated = old.get(name)
+                if stated is not None and not isinstance(stated, list):
+                    if new.get(name) != stated:
+                        return here
+                    continue
+                base = stated if isinstance(stated, list) else []
+                if not isinstance(new.get(name), list):
                     return here
-                if any(entry not in mapped or entry in old[name] for entry in appended):
+                kept, appended = new[name][:len(base)], new[name][len(base):]
+                if kept != base:
+                    return here
+                if any(entry not in mapped or entry in base for entry in appended):
+                    return here
+                if name not in old and not appended:
                     return here
                 continue
+            if (name in old) != (name in new):
+                return here
             if type(old[name]) is not type(new[name]) or old[name] != new[name]:
                 return here
         return None
@@ -1113,6 +1135,700 @@ def kind_word(definition: Any) -> Optional[str]:
     return KIND_WORD.get(at_type) if isinstance(at_type, str) else None
 
 
+# The model fixes the head of a container's JSON Schema `required` array: `@context` then `@id`, then
+# the rest. A container is the artifact's own account of what an instance must carry.
+CONTAINER_AT_TYPES = frozenset({audit.TEMPLATE, rest.TEMPLATE_ELEMENT})
+
+
+def is_container(definition: Any) -> bool:
+    """Whether a definition is a template or an element.
+
+    The ``@type`` is read as a string before it is looked up. A JSON Schema subtree can hold an
+    ``@type`` that is not an artifact type at all — inside a field's ``properties`` it is the object
+    constraining an instance's own ``@type`` — and an object is not hashable, so testing it for
+    membership raises rather than answering.
+    """
+    if not isinstance(definition, dict):
+        return False
+    at_type = definition.get(AT_TYPE)
+    return isinstance(at_type, str) and at_type in CONTAINER_AT_TYPES
+MISSING_CONTEXT_REQUIRED_ERROR = r"^object instance has properties which are not allowed by the schema"
+
+
+def require_context(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Put ``@context`` back at the head of a container's ``required`` array.
+
+    A template or element states in ``required`` what an instance of it must carry, and the model
+    fixes the first entries: ``@context`` before ``@id``. A container that lists ``@id`` and not
+    ``@context`` describes an instance with no context at all, which is not a CEDAR instance, and the
+    library reads the container under the wrong branch entirely — it stops matching the element
+    schema, falls through to the field schema, and then reports every child as a property a field may
+    not have. One absent entry, and the whole subtree is misread.
+
+    The entry goes at the head rather than the end, which is where the model puts it and where the
+    positions of the entries after it are counted from.
+    """
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def walk(definition: Any, path: str) -> Any:
+        if not isinstance(definition, dict):
+            return definition
+        result = copy.deepcopy(definition)
+        required = definition.get("required")
+        if is_container(definition) and isinstance(required, list) \
+                and "@context" not in required:
+            result["required"] = ["@context"] + list(required)
+            changes.append({"path": f"{path}/required", "replaced": None, "wrote": "@context"})
+        for name, child, multiple in container_children(definition):
+            declared = rest.child_path(path, name)
+            repaired = walk(child, f"{declared}/items" if multiple else declared)
+            if multiple:
+                result["properties"][name]["items"] = repaired
+            else:
+                result["properties"][name] = repaired
+        return result
+
+    return walk(copy.deepcopy(artifact), ""), changes
+
+
+def only_required_context(before: Any, after: Any) -> Optional[str]:
+    """The invariant: a required array gained only ``@context``, at its head, order otherwise kept."""
+
+    def walk(old: Any, new: Any, path: str) -> Optional[str]:
+        if isinstance(old, dict):
+            if not isinstance(new, dict) or set(old) != set(new):
+                return path or "/"
+            required = old.get("required")
+            addable = is_container(old) and isinstance(required, list) \
+                and "@context" not in required
+            for key in old:
+                here = f"{path}/{rest.json_pointer_component(key)}"
+                if key == "required" and addable:
+                    if new[key] != ["@context"] + list(old[key]):
+                        return here
+                    continue
+                difference = walk(old[key], new[key], here)
+                if difference is not None:
+                    return difference
+            return None
+        if isinstance(old, list):
+            if not isinstance(new, list) or len(old) != len(new):
+                return path or "/"
+            for index, value in enumerate(old):
+                difference = walk(value, new[index], f"{path}/{index}")
+                if difference is not None:
+                    return difference
+            return None
+        return None if type(old) is type(new) and old == new else (path or "/")
+
+    return walk(before, after, "")
+
+
+# The name the model gave a date field before it gave one name to every temporal kind. The Template
+# Designer still carries a branch for it, which is why artifacts hold it long after the rename.
+LEGACY_TEMPORAL_INPUT_TYPE = "date"
+LITERAL_INPUT_TYPE_ERROR = (r"^/(.*/)?_ui/inputType: does not have a value in the enumeration "
+                            r"\['textfield', 'textarea'")
+
+
+def rename_legacy_temporal_input_type(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Give a field declared ``date`` the name the model now uses for a temporal field.
+
+    ``date`` was the input type of a field holding a date before the model settled on ``temporal`` for
+    every temporal kind, and the rename left stored artifacts behind. The Designer's own branch for it
+    also shaped the field: it constrains ``@type`` as a bare URI and adds ``@type`` to ``required``,
+    which is why a field written this way does not look like its modern siblings. Both of those the
+    model still accepts; only the name does not.
+
+    Nothing else is written. In particular no granularity or temporal type is invented: the field says
+    it holds a date and not which kind of date, so the repair leaves it stating what it states, and the
+    inventory goes on counting it among the temporal types only stored values can settle.
+    """
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def walk(definition: Any, path: str) -> Any:
+        if not isinstance(definition, dict):
+            return definition
+        result = copy.deepcopy(definition)
+        ui = definition.get("_ui")
+        properties = definition.get("properties")
+        literal = isinstance(properties, dict) and "@value" in properties
+        if definition.get(AT_TYPE) == rest.TEMPLATE_FIELD and literal and isinstance(ui, dict) \
+                and ui.get("inputType") == LEGACY_TEMPORAL_INPUT_TYPE:
+            result["_ui"]["inputType"] = "temporal"
+            changes.append({"path": f"{path}/_ui/inputType",
+                            "replaced": LEGACY_TEMPORAL_INPUT_TYPE, "wrote": "temporal"})
+        for name, child, multiple in container_children(definition):
+            declared = rest.child_path(path, name)
+            repaired = walk(child, f"{declared}/items" if multiple else declared)
+            if multiple:
+                result["properties"][name]["items"] = repaired
+            else:
+                result["properties"][name] = repaired
+        return result
+
+    return walk(copy.deepcopy(artifact), ""), changes
+
+
+def only_renamed_legacy_temporal_input_types(before: Any, after: Any) -> Optional[str]:
+    """The invariant: only a literal field's ``date`` became ``temporal``, and nothing else moved."""
+
+    def walk(old: Any, new: Any, path: str) -> Optional[str]:
+        if isinstance(old, dict):
+            if not isinstance(new, dict) or set(old) != set(new):
+                return path or "/"
+            properties = old.get("properties")
+            literal = isinstance(properties, dict) and "@value" in properties
+            renameable = old.get(AT_TYPE) == rest.TEMPLATE_FIELD and literal
+            for key in old:
+                here = f"{path}/{rest.json_pointer_component(key)}"
+                if key == "_ui" and isinstance(old[key], dict) and isinstance(new[key], dict):
+                    difference = ui_difference(old[key], new[key], renameable, here)
+                    if difference is not None:
+                        return difference
+                    continue
+                difference = walk(old[key], new[key], here)
+                if difference is not None:
+                    return difference
+            return None
+        if isinstance(old, list):
+            if not isinstance(new, list) or len(old) != len(new):
+                return path or "/"
+            for index, value in enumerate(old):
+                difference = walk(value, new[index], f"{path}/{index}")
+                if difference is not None:
+                    return difference
+            return None
+        return None if type(old) is type(new) and old == new else (path or "/")
+
+    def ui_difference(old: dict, new: dict, renameable: bool, path: str) -> Optional[str]:
+        if set(old) != set(new):
+            return path
+        for key in old:
+            here = f"{path}/{rest.json_pointer_component(key)}"
+            if key == "inputType" and new[key] != old[key]:
+                if not renameable or old[key] != LEGACY_TEMPORAL_INPUT_TYPE \
+                        or new[key] != "temporal":
+                    return here
+                continue
+            difference = walk(old[key], new[key], here)
+            if difference is not None:
+                return difference
+        return None
+
+    return walk(before, after, "")
+
+
+# The input types the model allows a field whose value is an IRI, and the text bounds only a field
+# whose value is a literal may carry.
+IRI_FIELD_INPUT_TYPES = frozenset({
+    "link", "controlled-term", "ext-ror", "ext-orcid", "ext-pfas", "ext-rrid", "ext-pubmed",
+    "ext-nih-grant-id", "ext-doi",
+})
+LITERAL_ONLY_CONSTRAINT_KEYS = ("minLength", "maxLength")
+TERM_CONSTRAINT_KEYS = ("ontologies", "valueSets", "classes", "branches")
+IRI_INPUT_TYPE_ERROR = (r"^/(.*/)?_ui/inputType: does not have a value in the enumeration "
+                        r"\['link', 'controlled-term'")
+
+
+def holds_an_iri_value(definition: Any) -> bool:
+    """Whether a field's own value shape is an IRI rather than a literal.
+
+    The shape is the field's account of what an instance may carry: ``@id`` for a term, ``@value``
+    for a literal. It is the part a user cannot set by hand and an editor does not rewrite, which is
+    why it is the reliable witness when the rest of the declaration disagrees with it.
+    """
+    if not isinstance(definition, dict) or definition.get(AT_TYPE) != rest.TEMPLATE_FIELD:
+        return False
+    properties = definition.get("properties")
+    if not isinstance(properties, dict):
+        return False
+    return "@id" in properties and "@value" not in properties
+
+
+def constrains_terms(definition: Any) -> bool:
+    """Whether a field names ontologies, value sets, classes or branches to draw its terms from."""
+    constraints = definition.get("_valueConstraints") if isinstance(definition, dict) else None
+    if not isinstance(constraints, dict):
+        return False
+    return any(constraints.get(key) for key in TERM_CONSTRAINT_KEYS)
+
+
+def settle_controlled_term_field(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Declare as a controlled-term field one whose value and constraints already are.
+
+    A field states its kind three times: in the value shape under ``properties``, in the constraints
+    it draws terms from, and in ``_ui.inputType``. Where the first two say a term and the third says
+    a literal, the third is the one that moved, because an editor writes it and nothing else does.
+    The type is read off the body rather than chosen: ``controlled-term`` is what a field drawing
+    from ontologies, value sets, classes or branches is, as distinct from the other IRI input types,
+    which take their value from somewhere no constraint names.
+
+    The bounds a literal field may carry go at the same time. ``minLength`` and ``maxLength`` measure
+    a string, and the model does not let a field holding an IRI state them; they are left over from
+    the literal the field was declared as, and keeping them would describe a length nothing has.
+    """
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def walk(definition: Any, path: str) -> Any:
+        if not isinstance(definition, dict):
+            return definition
+        result = copy.deepcopy(definition)
+        ui = definition.get("_ui")
+        input_type = ui.get("inputType") if isinstance(ui, dict) else None
+        if holds_an_iri_value(definition) and constrains_terms(definition) \
+                and isinstance(input_type, str) and input_type not in IRI_FIELD_INPUT_TYPES:
+            result["_ui"]["inputType"] = "controlled-term"
+            changes.append({"path": f"{path}/_ui/inputType", "replaced": input_type,
+                            "wrote": "controlled-term"})
+            constraints = result.get("_valueConstraints")
+            if isinstance(constraints, dict):
+                for key in LITERAL_ONLY_CONSTRAINT_KEYS:
+                    if key in constraints:
+                        changes.append({"path": f"{path}/_valueConstraints/{key}",
+                                        "replaced": constraints[key], "wrote": None})
+                        del constraints[key]
+        for name, child, multiple in container_children(definition):
+            declared = rest.child_path(path, name)
+            repaired = walk(child, f"{declared}/items" if multiple else declared)
+            if multiple:
+                result["properties"][name]["items"] = repaired
+            else:
+                result["properties"][name] = repaired
+        return result
+
+    return walk(copy.deepcopy(artifact), ""), changes
+
+
+def only_settled_controlled_term_fields(before: Any, after: Any) -> Optional[str]:
+    """The invariant: only a term-constrained IRI field's declaration moved, and only those parts."""
+
+    def walk(old: Any, new: Any, path: str) -> Optional[str]:
+        if isinstance(old, dict):
+            if not isinstance(new, dict) or set(old) != set(new):
+                return path or "/"
+            ui = old.get("_ui")
+            input_type = ui.get("inputType") if isinstance(ui, dict) else None
+            settleable = holds_an_iri_value(old) and constrains_terms(old) \
+                and isinstance(input_type, str) and input_type not in IRI_FIELD_INPUT_TYPES
+            for key in old:
+                here = f"{path}/{rest.json_pointer_component(key)}"
+                if key == "_ui" and settleable and isinstance(old[key], dict) \
+                        and isinstance(new[key], dict):
+                    difference = ui_difference(old[key], new[key], here)
+                    if difference is not None:
+                        return difference
+                    continue
+                if key == "_valueConstraints" and settleable and isinstance(old[key], dict) \
+                        and isinstance(new[key], dict):
+                    difference = constraints_difference(old[key], new[key], here)
+                    if difference is not None:
+                        return difference
+                    continue
+                difference = walk(old[key], new[key], here)
+                if difference is not None:
+                    return difference
+            return None
+        if isinstance(old, list):
+            if not isinstance(new, list) or len(old) != len(new):
+                return path or "/"
+            for index, value in enumerate(old):
+                difference = walk(value, new[index], f"{path}/{index}")
+                if difference is not None:
+                    return difference
+            return None
+        return None if type(old) is type(new) and old == new else (path or "/")
+
+    def ui_difference(old: dict, new: dict, path: str) -> Optional[str]:
+        if set(old) != set(new):
+            return path
+        for key in old:
+            here = f"{path}/{rest.json_pointer_component(key)}"
+            if key == "inputType":
+                if new[key] != old[key] and new[key] != "controlled-term":
+                    return here
+                continue
+            difference = walk(old[key], new[key], here)
+            if difference is not None:
+                return difference
+        return None
+
+    def constraints_difference(old: dict, new: dict, path: str) -> Optional[str]:
+        if set(new) != set(old) - set(LITERAL_ONLY_CONSTRAINT_KEYS) and set(new) != set(old):
+            return path
+        for key in new:
+            here = f"{path}/{rest.json_pointer_component(key)}"
+            if key not in old:
+                return here
+            difference = walk(old[key], new[key], here)
+            if difference is not None:
+                return difference
+        return None
+
+    return walk(before, after, "")
+
+
+BLANK_PROPERTY_LABEL_ERROR = r"^/(.*/)?_ui/propertyLabels/.+: must be at least 1 characters long$"
+
+
+def blank_orphan_property_labels(container: Any) -> list[str]:
+    """The ``_ui.propertyLabels`` keys that name no child and carry no label.
+
+    A label names a child for a reader. The model requires a non-empty one, so a blank label is not a
+    way of hiding a heading; it is a value the artifact may not hold. Where the key also names no
+    child the entry is what a deleted child left behind, and nothing is lost by removing it. A blank
+    label on a child that still exists is a different repair, because the child's own name is the
+    label to write and dropping the entry would throw that answer away.
+    """
+    ui = container.get("_ui") if isinstance(container, dict) else None
+    labels = ui.get("propertyLabels") if isinstance(ui, dict) else None
+    if not isinstance(labels, dict):
+        return []
+    declared = {name for name, _child, _multiple in container_children(container)}
+    return [name for name, label in labels.items()
+            if isinstance(label, str) and not label.strip() and name not in declared]
+
+
+def drop_blank_orphan_property_labels(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Remove a blank property label left behind by a child that no longer exists."""
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def walk(container: Any, path: str) -> Any:
+        if not isinstance(container, dict):
+            return container
+        result = copy.deepcopy(container)
+        for name in blank_orphan_property_labels(container):
+            del result["_ui"]["propertyLabels"][name]
+            changes.append({"path": f"{path}/_ui/propertyLabels/"
+                                    f"{rest.json_pointer_component(name)}",
+                            "replaced": container["_ui"]["propertyLabels"][name], "wrote": None})
+        for name, child, multiple in container_children(container):
+            declared = rest.child_path(path, name)
+            repaired = walk(child, f"{declared}/items" if multiple else declared)
+            if multiple:
+                result["properties"][name]["items"] = repaired
+            else:
+                result["properties"][name] = repaired
+        return result
+
+    return walk(copy.deepcopy(artifact), ""), changes
+
+
+def only_dropped_blank_orphan_property_labels(before: Any, after: Any) -> Optional[str]:
+    """The invariant: only a blank label naming no child went, and nothing else moved."""
+
+    def walk(old: Any, new: Any, path: str) -> Optional[str]:
+        if isinstance(old, dict):
+            if not isinstance(new, dict) or set(old) != set(new):
+                return path or "/"
+            droppable = set(blank_orphan_property_labels(old))
+            for key in old:
+                here = f"{path}/{rest.json_pointer_component(key)}"
+                if key == "_ui" and droppable and isinstance(old[key], dict) \
+                        and isinstance(new[key], dict):
+                    difference = ui_difference(old[key], new[key], droppable, here)
+                    if difference is not None:
+                        return difference
+                    continue
+                difference = walk(old[key], new[key], here)
+                if difference is not None:
+                    return difference
+            return None
+        if isinstance(old, list):
+            if not isinstance(new, list) or len(old) != len(new):
+                return path or "/"
+            for index, value in enumerate(old):
+                difference = walk(value, new[index], f"{path}/{index}")
+                if difference is not None:
+                    return difference
+            return None
+        return None if type(old) is type(new) and old == new else (path or "/")
+
+    def ui_difference(old: dict, new: dict, droppable: set[str], path: str) -> Optional[str]:
+        if set(old) != set(new):
+            return path
+        for key in old:
+            here = f"{path}/{rest.json_pointer_component(key)}"
+            if key != "propertyLabels":
+                difference = walk(old[key], new[key], here)
+                if difference is not None:
+                    return difference
+                continue
+            if not isinstance(old[key], dict) or not isinstance(new[key], dict):
+                return None if old[key] == new[key] else here
+            if set(new[key]) != set(old[key]) - droppable:
+                return here
+            for name in new[key]:
+                if new[key][name] != old[key][name]:
+                    return f"{here}/{rest.json_pointer_component(name)}"
+        return None
+
+    return walk(before, after, "")
+
+
+MISSING_ACTION_SOURCE_ERROR = r"^object has missing required properties \(\['source'\]\)$"
+
+
+def action_source_index(constraints: Any) -> dict[str, str]:
+    """The acronym each constrained ontology, value set, class or branch is known by, keyed by its URI.
+
+    An action names what it acted on by URI; the constraint entry beside it carries the acronym under
+    whichever key its kind uses — ``source`` for a class, ``acronym`` for an ontology, ``vsCollection``
+    for a value set.
+    """
+    index: dict[str, str] = {}
+    if not isinstance(constraints, dict):
+        return index
+    for key in audit.CONSTRAINT_KEYS:
+        for entry in constraints.get(key) or []:
+            if not isinstance(entry, dict) or not isinstance(entry.get("uri"), str):
+                continue
+            acronym = entry.get("source") or entry.get("acronym") or entry.get("vsCollection")
+            if isinstance(acronym, str) and acronym:
+                index.setdefault(entry["uri"], acronym)
+    return index
+
+
+def settled_action_source(action: Any, index: dict[str, str]) -> Optional[str]:
+    """The acronym an action's own URIs resolve to, where the field still constrains what it names."""
+    if not isinstance(action, dict):
+        return None
+    for key in ("sourceUri", "termUri"):
+        value = action.get(key)
+        if isinstance(value, str) and value in index:
+            return index[value]
+    return None
+
+
+def settle_constraint_actions(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Give an action the source it names, or drop it where it names nothing the field still holds.
+
+    An action records an edit to the term list a controlled-term field offers: a term moved to a
+    position, or removed from the list. The model requires five keys on one, and ``source`` — the
+    acronym of the collection the term came from — is the one some editors left out. ``sourceUri``
+    is not that key under another name: it identifies what the term was picked from, an ontology, a
+    branch, a value set, or the literal ``template`` where the list was built in place.
+
+    The acronym is read off the field rather than chosen, by matching the action's own URIs against
+    the constraint entries beside it. An action naming something the field no longer constrains is
+    dropped instead: there is no list for it to act on, so it changes nothing today, and completing it
+    would mean inventing the collection it once referred to. Positions are left as they stand, since a
+    move names an absolute index into a list the remaining actions still describe.
+    """
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def walk(definition: Any, path: str) -> Any:
+        if not isinstance(definition, dict):
+            return definition
+        result = copy.deepcopy(definition)
+        constraints = result.get("_valueConstraints")
+        actions = constraints.get("actions") if isinstance(constraints, dict) else None
+        if isinstance(actions, list):
+            index = action_source_index(constraints)
+            kept: list[Any] = []
+            for position, action in enumerate(actions):
+                where = f"{path}/_valueConstraints/actions/{position}"
+                if not isinstance(action, dict) or "source" in action:
+                    kept.append(action)
+                    continue
+                acronym = settled_action_source(action, index)
+                if acronym is None:
+                    changes.append({"path": where, "replaced": action.get("termUri"), "wrote": None,
+                                    "reason": "names nothing the field still constrains"})
+                    continue
+                settled = dict(action)
+                settled["source"] = acronym
+                kept.append(settled)
+                changes.append({"path": f"{where}/source", "replaced": None, "wrote": acronym})
+            if changes:
+                constraints["actions"] = kept
+        for name, child, multiple in container_children(definition):
+            declared = rest.child_path(path, name)
+            repaired = walk(child, f"{declared}/items" if multiple else declared)
+            if multiple:
+                result["properties"][name]["items"] = repaired
+            else:
+                result["properties"][name] = repaired
+        return result
+
+    return walk(copy.deepcopy(artifact), ""), changes
+
+
+def only_settled_constraint_actions(before: Any, after: Any) -> Optional[str]:
+    """The invariant: an action kept its order and gained only a source the field itself names.
+
+    Stated as properties rather than by recomputing the transform: what survives is a subsequence of
+    what was there, each survivor differs by at most the one key, and what did not survive had no
+    source and resolved to nothing.
+    """
+
+    def walk(old: Any, new: Any, path: str) -> Optional[str]:
+        if isinstance(old, dict):
+            if not isinstance(new, dict) or set(old) != set(new):
+                return path or "/"
+            for key in old:
+                here = f"{path}/{rest.json_pointer_component(key)}"
+                if key == "_valueConstraints" and isinstance(old[key], dict) \
+                        and isinstance(new[key], dict):
+                    difference = constraints_difference(old[key], new[key], here)
+                    if difference is not None:
+                        return difference
+                    continue
+                difference = walk(old[key], new[key], here)
+                if difference is not None:
+                    return difference
+            return None
+        if isinstance(old, list):
+            if not isinstance(new, list) or len(old) != len(new):
+                return path or "/"
+            for index, value in enumerate(old):
+                difference = walk(value, new[index], f"{path}/{index}")
+                if difference is not None:
+                    return difference
+            return None
+        return None if type(old) is type(new) and old == new else (path or "/")
+
+    def constraints_difference(old: dict, new: dict, path: str) -> Optional[str]:
+        if set(old) != set(new):
+            return path
+        for key in old:
+            here = f"{path}/{rest.json_pointer_component(key)}"
+            if key != "actions":
+                difference = walk(old[key], new[key], here)
+                if difference is not None:
+                    return difference
+                continue
+            if not isinstance(old[key], list) or not isinstance(new[key], list):
+                return None if old[key] == new[key] else here
+            difference = actions_difference(old[key], new[key], action_source_index(old), here)
+            if difference is not None:
+                return difference
+        return None
+
+    def actions_difference(old: list, new: list, index: dict[str, str],
+                           path: str) -> Optional[str]:
+        remaining = list(new)
+        for position, action in enumerate(old):
+            here = f"{path}/{position}"
+            settled = settled_action_source(action, index)
+            if remaining and action_survives(action, remaining[0], settled):
+                remaining.pop(0)
+                continue
+            # Dropped: only an action with no source that resolves to nothing may go.
+            if not isinstance(action, dict) or "source" in action or settled is not None:
+                return here
+        return path if remaining else None
+
+    def action_survives(old: Any, new: Any, settled: Optional[str]) -> bool:
+        if old == new:
+            return True
+        if not isinstance(old, dict) or not isinstance(new, dict):
+            return False
+        if "source" in old or settled is None:
+            return False
+        return set(new) == set(old) | {"source"} and new["source"] == settled \
+            and all(new[key] == old[key] for key in old)
+
+    return walk(before, after, "")
+
+
+# The input types a static field deploys. A static field renders and holds nothing, so unlike
+# `attribute-value` — which does not serialize either, but is a field with a value — these say the
+# definition carrying one is static.
+STATIC_INPUT_TYPES = frozenset({"page-break", "section-break", "richtext", "image", "youtube"})
+STATIC_INPUT_TYPE_ERROR = r"^/(.*/)?_ui/inputType: does not have a value in the enumeration"
+
+
+def reclassify_static_field(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Give a definition that is a static field in every respect but its ``@type`` that type.
+
+    The Designer converts a field to a static type without revisiting everything the change implies,
+    which is the same mechanism that leaves a static field named in ``required``. Here it leaves the
+    original ``@type``, so the library reads the definition as an ordinary field and then finds it
+    missing the ``properties`` and ``_valueConstraints`` an ordinary field must have, carrying a
+    ``_ui._content`` only a static field may carry, and naming an ``inputType`` that is not among
+    those a field holding a value can take. One key is wrong; the four complaints are its shadow.
+
+    The type is read off the definition rather than chosen: it is written only where the input type is
+    a static one and the definition has neither the value shape nor the constraints an ordinary field
+    is defined by. A definition holding either of those is a different case, because the type would
+    then contradict the rest of the body instead of agreeing with it.
+    """
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def walk(definition: Any, path: str) -> Any:
+        if not isinstance(definition, dict):
+            return definition
+        result = copy.deepcopy(definition)
+        ui = definition.get("_ui")
+        input_type = ui.get("inputType") if isinstance(ui, dict) else None
+        if definition.get(AT_TYPE) == rest.TEMPLATE_FIELD and input_type in STATIC_INPUT_TYPES \
+                and "properties" not in definition and "_valueConstraints" not in definition:
+            result[AT_TYPE] = STATIC_AT_TYPE
+            changes.append({"path": f"{path}/{rest.json_pointer_component(AT_TYPE)}",
+                            "replaced": rest.TEMPLATE_FIELD, "wrote": STATIC_AT_TYPE,
+                            "inputType": input_type})
+        for name, child, multiple in container_children(definition):
+            declared = rest.child_path(path, name)
+            repaired = walk(child, f"{declared}/items" if multiple else declared)
+            if multiple:
+                result["properties"][name]["items"] = repaired
+            else:
+                result["properties"][name] = repaired
+        return result
+
+    # An artifact with nothing to reclassify reports no change rather than refusing: the tool reruns
+    # every transform over the stored body to confirm a write, and a refusal there reads as a failure.
+    return walk(copy.deepcopy(artifact), ""), changes
+
+
+def only_reclassified_static_fields(before: Any, after: Any) -> Optional[str]:
+    """The invariant: only a static definition's @type moved, from field to static field."""
+
+    def walk(old: Any, new: Any, path: str) -> Optional[str]:
+        if isinstance(old, dict):
+            if not isinstance(new, dict) or set(old) != set(new):
+                return path or "/"
+            ui = old.get("_ui")
+            input_type = ui.get("inputType") if isinstance(ui, dict) else None
+            reclassifiable = old.get(AT_TYPE) == rest.TEMPLATE_FIELD \
+                and input_type in STATIC_INPUT_TYPES \
+                and "properties" not in old and "_valueConstraints" not in old
+            for key in old:
+                here = f"{path}/{rest.json_pointer_component(key)}"
+                if key == AT_TYPE and new[key] != old[key]:
+                    if not reclassifiable or new[key] != STATIC_AT_TYPE:
+                        return here
+                    continue
+                difference = walk(old[key], new[key], here)
+                if difference is not None:
+                    return difference
+            return None
+        if isinstance(old, list):
+            if not isinstance(new, list) or len(old) != len(new):
+                return path or "/"
+            for index, value in enumerate(old):
+                difference = walk(value, new[index], f"{path}/{index}")
+                if difference is not None:
+                    return difference
+            return None
+        return None if type(old) is type(new) and old == new else (path or "/")
+
+    return walk(before, after, "")
+
+
 def canonical_title(definition: Any) -> Optional[str]:
     """The title a definition's own ``@type`` and ``schema:name`` compose, where both are usable."""
     kind = kind_word(definition)
@@ -1541,6 +2257,239 @@ def instance_context_expectations(container: Any) -> dict[str, str]:
     return expected
 
 
+UNDECLARED_KEY_ERROR = r"^object instance has properties which are not allowed by the schema"
+# Confirmed renames, keyed by template IRI then by the key an instance carries. Supplied by the
+# operator through --mapping, because nothing in the artifacts says which old name became which new
+# one: a rename is a fact about the template's history, and only its owner holds that.
+RENAMES: dict[str, dict[str, str]] = {}
+
+
+def rename_instance_keys(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Carry an instance's values over to the names its template now declares.
+
+    A template edited after its instances were written leaves them naming a field the template no
+    longer has, and the schema admits no property it does not declare, so the instance stops
+    validating however complete it is. The value is not in question — only what it is filed under.
+
+    The mapping is supplied, never inferred: which old name became which new one is a fact about an
+    edit nobody recorded, and guessing it would move a value into a field that means something else.
+    A key is moved only where the template declares the new name and does not declare the old one,
+    and only where the instance is not already carrying a value under the new name.
+    """
+    if not isinstance(template, dict):
+        raise TransformRefused("the template this instance names could not be read")
+    if not isinstance(instance, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    based_on = instance.get("schema:isBasedOn")
+    mapping = RENAMES.get(based_on) if isinstance(based_on, str) else None
+    if not mapping:
+        return copy.deepcopy(instance), []
+    declared = {name for name, _child, _multiple in container_children(template)}
+    iris = declared_context_iris(template)
+    result = copy.deepcopy(instance)
+    changes: list[dict[str, Any]] = []
+    for old, new in mapping.items():
+        if old not in result or new in result or new not in declared or old in declared:
+            continue
+        result[new] = result.pop(old)
+        changes.append({"path": f"/{rest.json_pointer_component(old)}", "replaced": old,
+                        "wrote": new})
+        context = result.get("@context")
+        if isinstance(context, dict) and old in context:
+            del context[old]
+        if isinstance(context, dict) and new not in context and new in iris:
+            context[new] = iris[new]
+    return result, changes
+
+
+def only_renamed_instance_keys(before: Any, after: Any, template: Any) -> Optional[str]:
+    """The invariant: a value moved to the name it was told to, carrying nothing else with it."""
+    if not isinstance(before, dict) or not isinstance(after, dict):
+        return "/"
+    based_on = before.get("schema:isBasedOn")
+    mapping = {old: new for old, new in (RENAMES.get(based_on) or {}).items()
+               if old in before and new not in before}
+    iris = declared_context_iris(template) if isinstance(template, dict) else {}
+    for old, new in mapping.items():
+        if old in after and new not in after:
+            continue  # left alone, which the transform is allowed to do
+        if old in after or new not in after:
+            return f"/{rest.json_pointer_component(old)}"
+        if after[new] != before[old] or type(after[new]) is not type(before[old]):
+            return f"/{rest.json_pointer_component(new)}"
+    moved = {old: new for old, new in mapping.items() if new in after and old not in after}
+    for key in set(before) | set(after):
+        if key in moved or key in moved.values() or key == "@context":
+            continue
+        if (key in before) != (key in after):
+            return f"/{rest.json_pointer_component(key)}"
+        if before[key] != after[key] or type(before[key]) is not type(after[key]):
+            return f"/{rest.json_pointer_component(key)}"
+    old_context = before.get("@context")
+    new_context = after.get("@context")
+    if isinstance(old_context, dict) and isinstance(new_context, dict):
+        expected = {k: v for k, v in old_context.items() if k not in moved}
+        for old, new in moved.items():
+            if old in old_context or new in iris:
+                expected.setdefault(new, iris.get(new, old_context.get(old)))
+        if new_context != expected:
+            return "/@context"
+    elif old_context != new_context:
+        return "/@context"
+    return None
+
+
+ELEMENT_INSTANCE_BASE = "https://repo.metadatacenter.org/template-element-instances/"
+MISSING_CHILD_ERROR = r"^object has missing required properties"
+
+
+def declared_context_iris(definition: Any) -> dict[str, str]:
+    """What property IRI a container says each of its children's ``@context`` entry must equal."""
+    properties = definition.get("properties") if isinstance(definition, dict) else None
+    context = properties.get("@context") if isinstance(properties, dict) else None
+    mapped = context.get("properties") if isinstance(context, dict) else None
+    if not isinstance(mapped, dict):
+        return {}
+    iris = {}
+    for name, entry in mapped.items():
+        values = entry.get("enum") if isinstance(entry, dict) else None
+        if isinstance(values, list) and values and isinstance(values[0], str):
+            iris[name] = values[0]
+    return iris
+
+
+def empty_instance_value(definition: Any, multiple: bool) -> Any:
+    """What an instance carries for a child it holds no value for.
+
+    The model has a shape for absence and every CEDAR editor writes it: an empty list where a child
+    may repeat, ``{"@value": null}`` where the value is a literal, and ``{}`` where it is an IRI,
+    since ``@id: null`` is not legal JSON-LD. An element is not empty in the same way — it is a
+    container whose own children are each empty — so it is built out rather than left blank.
+    """
+    if multiple:
+        return []
+    if is_element(definition):
+        return completed_element({}, definition)
+    properties = definition.get("properties") if isinstance(definition, dict) else None
+    if isinstance(properties, dict) and "@value" in properties:
+        return {"@value": None}
+    return {}
+
+
+def is_element(definition: Any) -> bool:
+    if not isinstance(definition, dict):
+        return False
+    at_type = definition.get(AT_TYPE)
+    return isinstance(at_type, str) and at_type == rest.TEMPLATE_ELEMENT
+
+
+def completed_element(value: Any, definition: Any) -> Any:
+    """An element instance with every declared child present and its own identity stated."""
+    node = dict(value) if isinstance(value, dict) else {}
+    if not isinstance(node.get("@id"), str):
+        node["@id"] = f"{ELEMENT_INSTANCE_BASE}{uuid.uuid4()}"
+    iris = declared_context_iris(definition)
+    context = dict(node["@context"]) if isinstance(node.get("@context"), dict) else {}
+    for name, child, multiple in container_children(definition):
+        if name not in node:
+            node[name] = empty_instance_value(child, multiple)
+        else:
+            node[name] = completed_value(node[name], child, multiple)
+        if name in iris and name not in context:
+            context[name] = iris[name]
+    node["@context"] = context
+    return node
+
+
+def completed_value(value: Any, definition: Any, multiple: bool) -> Any:
+    """Complete whatever an instance already holds, without touching a value it states.
+
+    A value that is not the shape its definition calls for is left exactly as it stands. Production
+    holds element occurrences written as bare strings, and replacing one with a built-out element
+    would discard the only content there is: that is a malformed value, which is a different defect
+    from an absent one and not this repair's to decide.
+    """
+    if multiple:
+        if not isinstance(value, list):
+            return value
+        return [completed_value(item, definition, False) for item in value]
+    if is_element(definition) and isinstance(value, dict):
+        return completed_element(value, definition)
+    return value
+
+
+def complete_instance(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Give an instance the shape its template declares, with nothing filled in.
+
+    A CEDAR instance states every field its template declares, carrying the model's shape for absence
+    where it holds no value. An instance written before a field was added, or before one was made
+    required, simply lacks the key, and the library reads that as a missing required property rather
+    than as an empty field. Adding the empty shape says exactly what is true — that there is no value
+    — and is what the server itself writes when it completes an instance against its template.
+
+    No value already present is touched, at any depth. An element gains the ``@id`` the model requires
+    of it and the ``@context`` entries its own container maps, since an element instance carries both.
+    """
+    if not isinstance(template, dict):
+        raise TransformRefused("the template this instance names could not be read")
+    if not isinstance(instance, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    before = json.dumps(instance, sort_keys=True)
+    completed = completed_element(instance, template)
+    # The instance's own identity is its own, not an element's: never mint one here.
+    if isinstance(instance.get("@id"), str):
+        completed["@id"] = instance["@id"]
+    elif "@id" not in instance:
+        completed.pop("@id", None)
+    changes: list[dict[str, Any]] = []
+    if json.dumps(completed, sort_keys=True) != before:
+        for path in added_paths(instance, completed, ""):
+            changes.append({"path": path, "replaced": None, "wrote": "empty"})
+    return completed, changes
+
+
+def added_paths(old: Any, new: Any, path: str) -> Iterator[str]:
+    """Every place the completion put something where the instance had nothing."""
+    if isinstance(old, dict) and isinstance(new, dict):
+        for key in new:
+            here = f"{path}/{rest.json_pointer_component(key)}"
+            if key not in old:
+                yield here
+            else:
+                yield from added_paths(old[key], new[key], here)
+    elif isinstance(old, list) and isinstance(new, list) and len(old) == len(new):
+        for index, value in enumerate(old):
+            yield from added_paths(value, new[index], f"{path}/{index}")
+
+
+def only_completed_absences(before: Any, after: Any, template: Any) -> Optional[str]:
+    """The invariant: every difference is a key that was absent, and no stated value moved."""
+
+    def walk(old: Any, new: Any, path: str) -> Optional[str]:
+        if isinstance(old, dict):
+            if not isinstance(new, dict):
+                return path or "/"
+            for key in old:
+                here = f"{path}/{rest.json_pointer_component(key)}"
+                if key not in new:
+                    return here
+                difference = walk(old[key], new[key], here)
+                if difference is not None:
+                    return difference
+            return None
+        if isinstance(old, list):
+            if not isinstance(new, list) or len(old) != len(new):
+                return path or "/"
+            for index, value in enumerate(old):
+                difference = walk(value, new[index], f"{path}/{index}")
+                if difference is not None:
+                    return difference
+            return None
+        return None if type(old) is type(new) and old == new else (path or "/")
+
+    return walk(before, after, "")
+
+
 def align_instance_context_iris(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
     """Rewrite an instance's ``@context`` property IRIs to the ones its template names.
 
@@ -1673,6 +2622,24 @@ REPAIRS = {
         transform=strip_empty_derived_from,
         invariant=only_removed_empty_derived_from,
     ),
+    "rename-instance-keys": Repair(
+        name="rename-instance-keys",
+        condition="",
+        summary="carry an instance's values over to the names its template now declares",
+        transform=rename_instance_keys,
+        invariant=only_renamed_instance_keys,
+        needs_template=True,
+        error_pattern=UNDECLARED_KEY_ERROR,
+    ),
+    "complete-instance": Repair(
+        name="complete-instance",
+        condition="",
+        summary="give an instance the shape its template declares, with nothing filled in",
+        transform=complete_instance,
+        invariant=only_completed_absences,
+        needs_template=True,
+        error_pattern=MISSING_CHILD_ERROR,
+    ),
     "align-instance-context-iris": Repair(
         name="align-instance-context-iris",
         condition="",
@@ -1724,6 +2691,54 @@ REPAIRS = {
         summary="remove the _ui.order entries that name no child and never could",
         transform=drop_unusable_order_entries,
         invariant=only_dropped_unusable_order_entries,
+    ),
+    "require-context": Repair(
+        name="require-context",
+        condition="",
+        summary="put @context back at the head of a container's required array",
+        transform=require_context,
+        invariant=only_required_context,
+        error_pattern=MISSING_CONTEXT_REQUIRED_ERROR,
+    ),
+    "rename-legacy-temporal-input-type": Repair(
+        name="rename-legacy-temporal-input-type",
+        condition="",
+        summary="give a field declared date the name the model now uses for a temporal field",
+        transform=rename_legacy_temporal_input_type,
+        invariant=only_renamed_legacy_temporal_input_types,
+        error_pattern=LITERAL_INPUT_TYPE_ERROR,
+    ),
+    "settle-controlled-term-field": Repair(
+        name="settle-controlled-term-field",
+        condition="",
+        summary="declare as a controlled-term field one whose value and constraints already are",
+        transform=settle_controlled_term_field,
+        invariant=only_settled_controlled_term_fields,
+        error_pattern=IRI_INPUT_TYPE_ERROR,
+    ),
+    "drop-blank-orphan-property-label": Repair(
+        name="drop-blank-orphan-property-label",
+        condition="",
+        summary="remove a blank property label left behind by a child that no longer exists",
+        transform=drop_blank_orphan_property_labels,
+        invariant=only_dropped_blank_orphan_property_labels,
+        error_pattern=BLANK_PROPERTY_LABEL_ERROR,
+    ),
+    "settle-constraint-actions": Repair(
+        name="settle-constraint-actions",
+        condition="",
+        summary="give a value-constraint action the source it names, or drop it where it names nothing",
+        transform=settle_constraint_actions,
+        invariant=only_settled_constraint_actions,
+        error_pattern=MISSING_ACTION_SOURCE_ERROR,
+    ),
+    "reclassify-static-field": Repair(
+        name="reclassify-static-field",
+        condition="",
+        summary="give a definition that is a static field in all but its @type that type",
+        transform=reclassify_static_field,
+        invariant=only_reclassified_static_fields,
+        error_pattern=STATIC_INPUT_TYPE_ERROR,
     ),
     "drop-zero-term-count": Repair(
         name="drop-zero-term-count",
@@ -2110,6 +3125,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--repair", default="empty-derived-from",
                         help="repair to perform, or several comma separated to apply in one write; "
                              f"choose from {', '.join(sorted(REPAIRS))} (default: empty-derived-from)")
+    parser.add_argument("--mapping",
+                        help="JSON of confirmed renames, {templateId: {oldKey: newKey}}, which "
+                             "rename-instance-keys applies; nothing is renamed without it")
     parser.add_argument("--condition",
                         help="audit condition naming the targets (default: any condition the repairs name)")
     parser.add_argument("--from-records", required=True,
@@ -2234,6 +3252,11 @@ def main(argv: Optional[list[str]] = None) -> int:
         print("nothing to do")
         return 0
 
+    if arguments.mapping:
+        try:
+            RENAMES.update(json.loads(Path(arguments.mapping).expanduser().read_text(encoding="utf-8")))
+        except (OSError, ValueError) as error:
+            parser.error(f"cannot read --mapping {arguments.mapping}: {error}")
     java, classpath = audit.resolve_toolchain(arguments, parser)
     try:
         client = RepairClient(arguments.server, api_key, timeout=arguments.timeout, retries=arguments.retries,

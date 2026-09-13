@@ -2967,7 +2967,7 @@ makes a labelled sample. `--fetch-workers` GETs run ahead of validation, four by
 comes from `CEDAR_API_KEY`, a one-line `--api-key-file`, or a hidden prompt, and is never written.
 
 `--recheck <file>` re-validates exactly the artifacts a JSONL names, and is how a repair is proved.
-Both this audit and `cedar_artifact_repair.py` write one object per artifact carrying its type and
+Both this audit and `repairs/cedar_artifact_repair.py` write one object per artifact carrying its type and
 identifier, so a repair's own records are a valid target list. `--recheck-outcome repaired` narrows it
 to the artifacts a run actually wrote, and the option is repeatable, since a defect is often cleared
 across more than one run:
@@ -3044,7 +3044,7 @@ complete for what this key can enumerate and read.
 
 ## Repairing a defect across the stored population
 
-`ops/cedar_artifact_repair.py` carries out a repair the audit has already measured. A repair
+`ops/repairs/cedar_artifact_repair.py` carries out a repair the audit has already measured. A repair
 qualifies only when it can be stated as an invariant, meaning it changes the thing it names and
 provably nothing else. Each artifact is fetched, transformed, checked against that invariant,
 validated by the library, and written back with `PUT ?verbatim=true`, so it keeps its identifier,
@@ -3056,9 +3056,9 @@ which artifacts carry the condition. Dry run is the default.
 
 ```bash
 export CEDAR_API_KEY=…
-python3 ops/cedar_artifact_repair.py --from-records production-validation.jsonl
-python3 ops/cedar_artifact_repair.py --from-records production-validation.jsonl --limit 5 --apply
-python3 ops/cedar_artifact_repair.py --from-records production-validation.jsonl --apply
+python3 ops/repairs/cedar_artifact_repair.py --from-records production-validation.jsonl
+python3 ops/repairs/cedar_artifact_repair.py --from-records production-validation.jsonl --limit 5 --apply
+python3 ops/repairs/cedar_artifact_repair.py --from-records production-validation.jsonl --apply
 ```
 
 Two repairs are implemented. `empty-derived-from` deletes every `pav:derivedFrom` whose value is the
@@ -3113,6 +3113,23 @@ left alone, since the store cannot synthesize the child back. `derive-title` com
 ordinary write does, touching neither the description that carries the generator's signature nor an
 embedded child's pair, which the server also leaves as sent.
 
+Three repairs act on instances rather than containers, and they compose with one another.
+`align-instance-context-iris` rewrites an instance's `@context` property IRIs to the ones its
+template names. `complete-instance` gives an instance the shape its template declares, carrying the
+model's own form for absence — an empty list where a child may repeat, `{"@value": null}` for a
+literal, `{}` for an IRI, and a built-out element with its own `@id` and `@context` — because an
+instance written before a field was added simply lacks the key, and the library reads that as a
+missing property rather than an empty field. A value already present is never touched, and a value
+that is not the shape its definition calls for is left exactly as it stands: production holds element
+occurrences written as bare strings, and building one out would discard the only content there is.
+
+`rename-instance-keys` carries an instance's values over to the names its template now declares. The
+mapping is supplied through `--mapping`, never inferred: which old name became which new one is a
+fact about an edit nobody recorded, and guessing it would move a value into a field that means
+something else. `repairs/rename_sheet.py` drafts that mapping for an owner to confirm, pairing each
+stale key with a declared name by wording, spelling and how many instances carry it, and marking a
+pairing **confirmed by data** where the same value appears under both names.
+
 **Repairs compose, and for some artifacts they must.** A child identifier the server would otherwise
 mint makes it refuse a verbatim write outright, so an artifact carrying that defect alongside another
 cannot be fixed by either repair on its own: one leaves the artifact invalid and is skipped, the other
@@ -3122,7 +3139,7 @@ artifacts are in exactly that position, which is why the empty-provenance sweep 
 further group needs all three repairs at once.
 
 ```bash
-python3 ops/cedar_artifact_repair.py --from-records production-validation.jsonl \
+python3 ops/repairs/cedar_artifact_repair.py --from-records production-validation.jsonl \
   --repair mint-child-ids,empty-derived-from --condition child-id-unusable --apply
 ```
 

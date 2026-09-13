@@ -1172,6 +1172,677 @@ class SettleTemporalTypeTest(unittest.TestCase):
         self.assertEqual(second, [])
 
 
+class RenameInstanceKeysTest(unittest.TestCase):
+    """Which old name became which new one is a fact about an edit nobody recorded."""
+
+    TID = BASE + "templates/t-rename"
+
+    def setUp(self):
+        REPAIR.RENAMES.clear()
+
+    def tearDown(self):
+        REPAIR.RENAMES.clear()
+
+    def tmpl(self, children):
+        doc = template(children, root=self.TID)
+        doc["properties"]["@context"]["properties"] = {
+            name: {"enum": [GOOD_IRI + name]} for name in children}
+        return doc
+
+    def instance(self, **values):
+        return {"schema:isBasedOn": self.TID, "@context": {}, **values}
+
+    def test_a_value_moves_to_the_name_the_template_now_declares(self):
+        REPAIR.RENAMES[self.TID] = {"Age": "age"}
+        tmpl = self.tmpl({"age": child()})
+        before = self.instance(Age={"@value": "38"})
+        after, changes = REPAIR.rename_instance_keys(before, tmpl)
+        self.assertEqual(after["age"], {"@value": "38"})
+        self.assertNotIn("Age", after)
+        self.assertEqual(changes[0]["replaced"], "Age")
+        self.assertIsNone(REPAIR.only_renamed_instance_keys(before, after, tmpl))
+
+    def test_the_context_entry_moves_with_it(self):
+        REPAIR.RENAMES[self.TID] = {"Age": "age"}
+        tmpl = self.tmpl({"age": child()})
+        before = self.instance(Age={"@value": "38"})
+        before["@context"] = {"Age": "https://example.org/stale"}
+        after, _changes = REPAIR.rename_instance_keys(before, tmpl)
+        self.assertNotIn("Age", after["@context"])
+        self.assertEqual(after["@context"]["age"], GOOD_IRI + "age")
+
+    def test_nothing_moves_without_a_mapping(self):
+        tmpl = self.tmpl({"age": child()})
+        before = self.instance(Age={"@value": "38"})
+        _after, changes = REPAIR.rename_instance_keys(before, tmpl)
+        self.assertEqual(changes, [])
+
+    def test_a_name_the_template_still_declares_is_not_moved(self):
+        """If both names are declared they are two fields, not one renamed."""
+        REPAIR.RENAMES[self.TID] = {"Age": "age"}
+        tmpl = self.tmpl({"age": child(), "Age": child()})
+        before = self.instance(Age={"@value": "38"})
+        _after, changes = REPAIR.rename_instance_keys(before, tmpl)
+        self.assertEqual(changes, [])
+
+    def test_a_value_already_under_the_new_name_is_never_overwritten(self):
+        REPAIR.RENAMES[self.TID] = {"Age": "age"}
+        tmpl = self.tmpl({"age": child()})
+        before = self.instance(Age={"@value": "38"}, age={"@value": "21"})
+        after, changes = REPAIR.rename_instance_keys(before, tmpl)
+        self.assertEqual(changes, [])
+        self.assertEqual(after["age"], {"@value": "21"})
+
+    def test_a_target_the_template_does_not_declare_is_refused(self):
+        REPAIR.RENAMES[self.TID] = {"Age": "invented"}
+        tmpl = self.tmpl({"age": child()})
+        _after, changes = REPAIR.rename_instance_keys(self.instance(Age={"@value": "38"}), tmpl)
+        self.assertEqual(changes, [])
+
+    def test_the_invariant_rejects_altering_the_value_on_the_way(self):
+        REPAIR.RENAMES[self.TID] = {"Age": "age"}
+        tmpl = self.tmpl({"age": child()})
+        before = self.instance(Age={"@value": "38"})
+        after, _changes = REPAIR.rename_instance_keys(before, tmpl)
+        meddled = copy.deepcopy(after); meddled["age"] = {"@value": "39"}
+        self.assertEqual(REPAIR.only_renamed_instance_keys(before, meddled, tmpl), "/age")
+
+    def test_the_invariant_rejects_dropping_an_unrelated_key(self):
+        REPAIR.RENAMES[self.TID] = {"Age": "age"}
+        tmpl = self.tmpl({"age": child(), "Name": child()})
+        before = self.instance(Age={"@value": "38"}, Name={"@value": "Ada"})
+        after, _changes = REPAIR.rename_instance_keys(before, tmpl)
+        lost = copy.deepcopy(after); del lost["Name"]
+        self.assertIsNotNone(REPAIR.only_renamed_instance_keys(before, lost, tmpl))
+
+    def test_an_instance_of_another_template_is_untouched(self):
+        REPAIR.RENAMES[self.TID] = {"Age": "age"}
+        tmpl = self.tmpl({"age": child()})
+        before = {"schema:isBasedOn": BASE + "templates/other", "Age": {"@value": "38"}}
+        _after, changes = REPAIR.rename_instance_keys(before, tmpl)
+        self.assertEqual(changes, [])
+
+    def test_a_second_pass_changes_nothing(self):
+        REPAIR.RENAMES[self.TID] = {"Age": "age"}
+        tmpl = self.tmpl({"age": child()})
+        once, first = REPAIR.rename_instance_keys(self.instance(Age={"@value": "38"}), tmpl)
+        _twice, second = REPAIR.rename_instance_keys(once, tmpl)
+        self.assertEqual(len(first), 1)
+        self.assertEqual(second, [])
+
+
+class CompleteInstanceTest(unittest.TestCase):
+    """A CEDAR instance states every declared field, carrying the model's shape for absence."""
+
+    def template_with(self, children):
+        doc = template(children)
+        doc["properties"]["@context"]["properties"] = {
+            name: {"enum": [GOOD_IRI + name]} for name in children}
+        return doc
+
+    def element_child(self, name, inner):
+        node = child(ELEMENT_TYPE)
+        node["schema:name"] = name
+        node["properties"] = {"@context": {"properties": {n: {"enum": [GOOD_IRI + n]} for n in inner},
+                                           "required": list(inner)}, **inner}
+        node["_ui"] = {"order": list(inner)}
+        return node
+
+    def test_an_absent_literal_child_gains_the_empty_literal(self):
+        tmpl = self.template_with({"Name": child(), "Age": child()})
+        after, changes = REPAIR.complete_instance({"Name": {"@value": "Ada"}}, tmpl)
+        self.assertEqual(after["Age"], {"@value": None})
+        self.assertEqual(after["Name"], {"@value": "Ada"})
+        self.assertIn("/Age", [c["path"] for c in changes])
+        self.assertIsNone(REPAIR.only_completed_absences({"Name": {"@value": "Ada"}}, after, tmpl))
+
+    def test_an_absent_iri_child_gains_an_empty_object(self):
+        """@id: null is not legal JSON-LD, so an IRI field with no value is {}."""
+        iri = child()
+        iri["properties"] = {"@id": {"type": "string", "format": "uri"}}
+        tmpl = self.template_with({"Term": iri})
+        after, _changes = REPAIR.complete_instance({}, tmpl)
+        self.assertEqual(after["Term"], {})
+
+    def test_an_absent_multiple_child_gains_an_empty_list(self):
+        tmpl = self.template_with({"Names": {"type": "array", "items": child()}})
+        after, _changes = REPAIR.complete_instance({}, tmpl)
+        self.assertEqual(after["Names"], [])
+
+    def test_an_absent_element_is_built_out_with_its_own_identity_and_context(self):
+        tmpl = self.template_with({"Address": self.element_child("Address", {"Street": child()})})
+        after, _changes = REPAIR.complete_instance({}, tmpl)
+        address = after["Address"]
+        self.assertEqual(address["Street"], {"@value": None})
+        self.assertTrue(address["@id"].startswith(REPAIR.ELEMENT_INSTANCE_BASE))
+        self.assertEqual(address["@context"], {"Street": GOOD_IRI + "Street"})
+
+    def test_an_element_already_present_is_completed_in_place(self):
+        tmpl = self.template_with(
+            {"Address": self.element_child("Address", {"Street": child(), "City": child()})})
+        instance = {"Address": {"@id": "https://example.org/e1", "Street": {"@value": "Main"}}}
+        after, _changes = REPAIR.complete_instance(instance, tmpl)
+        self.assertEqual(after["Address"]["@id"], "https://example.org/e1")
+        self.assertEqual(after["Address"]["Street"], {"@value": "Main"})
+        self.assertEqual(after["Address"]["City"], {"@value": None})
+
+    def test_every_occurrence_of_a_multiple_element_is_completed(self):
+        tmpl = self.template_with({"Addresses": {"type": "array",
+                                                 "items": self.element_child("Address", {"Street": child()})}})
+        instance = {"Addresses": [{"@id": "https://example.org/a"}, {"@id": "https://example.org/b"}]}
+        after, _changes = REPAIR.complete_instance(instance, tmpl)
+        self.assertEqual([a["Street"] for a in after["Addresses"]],
+                         [{"@value": None}, {"@value": None}])
+
+    def test_an_element_written_as_a_bare_string_is_left_alone(self):
+        """Production holds these; building one out would discard the only content there is."""
+        tmpl = self.template_with({"Characteristic": {"type": "array",
+                                                      "items": self.element_child("C", {"S": child()})}})
+        instance = {"Characteristic": ["activity", "repetitions"]}
+        after, _changes = REPAIR.complete_instance(instance, tmpl)
+        self.assertEqual(after["Characteristic"], ["activity", "repetitions"])
+        self.assertIsNone(REPAIR.only_completed_absences(instance, after, tmpl))
+
+    def test_a_stated_value_is_never_touched_and_no_instance_id_is_minted(self):
+        tmpl = self.template_with({"Name": child()})
+        instance = {"Name": {"@value": "Ada", "@type": "xsd:string"}}
+        after, _changes = REPAIR.complete_instance(instance, tmpl)
+        self.assertEqual(after["Name"], {"@value": "Ada", "@type": "xsd:string"})
+        self.assertNotIn("@id", after)
+
+    def test_an_existing_context_entry_is_left_as_it_stands(self):
+        tmpl = self.template_with({"Name": child()})
+        instance = {"@context": {"Name": "https://example.org/stale"}, "Name": {"@value": None}}
+        after, _changes = REPAIR.complete_instance(instance, tmpl)
+        self.assertEqual(after["@context"]["Name"], "https://example.org/stale")
+
+    def test_a_complete_instance_reports_no_change(self):
+        tmpl = self.template_with({"Name": child()})
+        instance = {"@context": {"Name": GOOD_IRI + "Name"}, "Name": {"@value": "Ada"}}
+        _after, changes = REPAIR.complete_instance(instance, tmpl)
+        self.assertEqual(changes, [])
+
+    def test_the_invariant_rejects_changing_a_stated_value(self):
+        tmpl = self.template_with({"Name": child(), "Age": child()})
+        instance = {"Name": {"@value": "Ada"}}
+        after, _changes = REPAIR.complete_instance(instance, tmpl)
+        meddled = copy.deepcopy(after)
+        meddled["Name"] = {"@value": "Grace"}
+        self.assertEqual(REPAIR.only_completed_absences(instance, meddled, tmpl), "/Name/@value")
+
+    def test_the_invariant_rejects_dropping_a_key(self):
+        tmpl = self.template_with({"Name": child(), "Age": child()})
+        instance = {"Name": {"@value": "Ada"}}
+        after, _changes = REPAIR.complete_instance(instance, tmpl)
+        lost = copy.deepcopy(after); del lost["Name"]
+        self.assertIsNotNone(REPAIR.only_completed_absences(instance, lost, tmpl))
+
+    def test_a_second_pass_changes_nothing(self):
+        tmpl = self.template_with({"Name": child(), "Address": self.element_child("Address", {"S": child()})})
+        once, first = REPAIR.complete_instance({}, tmpl)
+        _twice, second = REPAIR.complete_instance(once, tmpl)
+        self.assertTrue(first)
+        self.assertEqual(second, [])
+
+
+class RequireContextTest(unittest.TestCase):
+    """A container that does not require @context describes an instance with no context at all."""
+
+    def element(self, required):
+        node = child(ELEMENT_TYPE)
+        node["properties"] = {"@context": {"properties": {}, "required": []},
+                              "@id": {"type": ["string", "null"], "format": "uri"},
+                              "Street": child()}
+        node["_ui"] = {"order": ["Street"], "propertyLabels": {"Street": "Street"}}
+        node["required"] = list(required)
+        return template({"Address": node})
+
+    def required_of(self, doc):
+        return doc["properties"]["Address"]["required"]
+
+    def test_context_goes_back_at_the_head(self):
+        doc = self.element(["@id", "Street"])
+        after, changes = REPAIR.require_context(doc)
+        self.assertEqual(self.required_of(after), ["@context", "@id", "Street"])
+        self.assertEqual(changes[0]["path"], "/properties/Address/required")
+        self.assertEqual(changes[0]["wrote"], "@context")
+        self.assertIsNone(REPAIR.only_required_context(doc, after))
+
+    def test_a_container_that_already_requires_it_is_left_alone(self):
+        doc = self.element(["@context", "@id", "Street"])
+        _after, changes = REPAIR.require_context(doc)
+        self.assertEqual(changes, [])
+
+    def test_a_field_is_never_touched(self):
+        """A field's required array is about its value, and @context has no place in it."""
+        doc = template({"Name": child()})
+        doc["properties"]["Name"]["required"] = ["@value"]
+        _after, changes = REPAIR.require_context(doc)
+        self.assertEqual(changes, [])
+
+    def test_the_order_after_the_head_is_kept(self):
+        doc = self.element(["@id", "Zebra", "Apple"])
+        after, _changes = REPAIR.require_context(doc)
+        self.assertEqual(self.required_of(after), ["@context", "@id", "Zebra", "Apple"])
+
+    def test_the_invariant_rejects_appending_instead_of_prepending(self):
+        doc = self.element(["@id", "Street"])
+        after, _changes = REPAIR.require_context(doc)
+        appended = copy.deepcopy(after)
+        appended["properties"]["Address"]["required"] = ["@id", "Street", "@context"]
+        self.assertIsNotNone(REPAIR.only_required_context(doc, appended))
+
+    def test_the_invariant_rejects_adding_anything_else(self):
+        doc = self.element(["@id", "Street"])
+        after, _changes = REPAIR.require_context(doc)
+        extra = copy.deepcopy(after)
+        extra["properties"]["Address"]["required"] = ["@context", "@id", "Street", "Ghost"]
+        self.assertIsNotNone(REPAIR.only_required_context(doc, extra))
+
+    def test_an_at_type_that_is_not_a_string_is_read_before_it_is_looked_up(self):
+        """A field's properties hold an @type constraint object, which is unhashable."""
+        doc = self.element(["@id", "Street"])
+        doc["properties"]["Address"]["properties"]["Street"]["properties"] = {
+            "@value": {"type": ["string", "null"]},
+            "@type": {"oneOf": [{"type": "string", "format": "uri"}]}}
+        after, changes = REPAIR.require_context(doc)
+        self.assertEqual(len(changes), 1)
+        self.assertIsNone(REPAIR.only_required_context(doc, after))
+
+    def test_a_second_pass_changes_nothing(self):
+        once, first = REPAIR.require_context(self.element(["@id", "Street"]))
+        _twice, second = REPAIR.require_context(once)
+        self.assertEqual(len(first), 1)
+        self.assertEqual(second, [])
+
+
+class RenameLegacyTemporalInputTypeTest(unittest.TestCase):
+    """`date` named a date field before the model settled on `temporal` for every temporal kind."""
+
+    def date_field(self):
+        node = child()
+        node["_ui"] = {"inputType": "date"}
+        node["properties"] = {"@value": {"type": ["string", "null"]},
+                              "rdfs:label": {"type": ["string", "null"]},
+                              "@type": {"type": "string", "format": "uri"}}
+        node["required"] = ["@value", "@type"]
+        return template({"Released": node})
+
+    def test_a_date_field_takes_the_temporal_name(self):
+        doc = self.date_field()
+        after, changes = REPAIR.rename_legacy_temporal_input_type(doc)
+        self.assertEqual(after["properties"]["Released"]["_ui"]["inputType"], "temporal")
+        self.assertEqual(changes[0]["path"], "/properties/Released/_ui/inputType")
+        self.assertIsNone(REPAIR.only_renamed_legacy_temporal_input_types(doc, after))
+
+    def test_the_designer_shape_around_it_is_left_as_it_stands(self):
+        """The bare-URI @type and the @type in required are the Designer's own date branch."""
+        doc = self.date_field()
+        after, changes = REPAIR.rename_legacy_temporal_input_type(doc)
+        self.assertEqual(len(changes), 1)
+        self.assertEqual(after["properties"]["Released"]["required"], ["@value", "@type"])
+        self.assertEqual(after["properties"]["Released"]["properties"]["@type"],
+                         {"type": "string", "format": "uri"})
+
+    def test_no_granularity_or_temporal_type_is_invented(self):
+        doc = self.date_field()
+        after, _changes = REPAIR.rename_legacy_temporal_input_type(doc)
+        ui = after["properties"]["Released"]["_ui"]
+        self.assertNotIn("temporalGranularity", ui)
+        self.assertNotIn("temporalType",
+                         after["properties"]["Released"].get("_valueConstraints") or {})
+
+    def test_an_iri_field_is_not_renamed(self):
+        doc = self.date_field()
+        node = doc["properties"]["Released"]
+        node["properties"] = {"@id": {"type": "string", "format": "uri"}}
+        _after, changes = REPAIR.rename_legacy_temporal_input_type(doc)
+        self.assertEqual(changes, [])
+
+    def test_another_input_type_is_left_alone(self):
+        doc = self.date_field()
+        doc["properties"]["Released"]["_ui"]["inputType"] = "textfield"
+        _after, changes = REPAIR.rename_legacy_temporal_input_type(doc)
+        self.assertEqual(changes, [])
+
+    def test_the_invariant_rejects_any_other_target_name(self):
+        doc = self.date_field()
+        after, _changes = REPAIR.rename_legacy_temporal_input_type(doc)
+        wrong = copy.deepcopy(after)
+        wrong["properties"]["Released"]["_ui"]["inputType"] = "textfield"
+        self.assertEqual(REPAIR.only_renamed_legacy_temporal_input_types(doc, wrong),
+                         "/properties/Released/_ui/inputType")
+
+    def test_a_second_pass_changes_nothing(self):
+        once, first = REPAIR.rename_legacy_temporal_input_type(self.date_field())
+        _twice, second = REPAIR.rename_legacy_temporal_input_type(once)
+        self.assertEqual(len(first), 1)
+        self.assertEqual(second, [])
+
+
+class SettleControlledTermFieldTest(unittest.TestCase):
+    """A field states its kind three times; the input type is the one an editor rewrites."""
+
+    def term_field(self, input_type="textfield", constraints=None, value_shape=None):
+        node = child()
+        node["properties"] = value_shape if value_shape is not None else {
+            "@id": {"type": "string", "format": "uri"}, "@type": {"type": "string"},
+            "rdfs:label": {"type": ["string", "null"]}}
+        node["_ui"] = {"inputType": input_type}
+        node["_valueConstraints"] = constraints if constraints is not None else {
+            "requiredValue": False,
+            "classes": [{"uri": "http://semanticscience.org/resource/LastName",
+                         "label": "last name", "type": "OntologyClass", "source": "HASCO"}]}
+        return template({"name": node})
+
+    def child_of(self, doc):
+        return doc["properties"]["name"]
+
+    def test_a_term_constrained_iri_field_declared_as_text_is_settled(self):
+        doc = self.term_field()
+        after, changes = REPAIR.settle_controlled_term_field(doc)
+        self.assertEqual(self.child_of(after)["_ui"]["inputType"], "controlled-term")
+        self.assertEqual(changes[0]["replaced"], "textfield")
+        self.assertIsNone(REPAIR.only_settled_controlled_term_fields(doc, after))
+
+    def test_text_bounds_go_with_it(self):
+        doc = self.term_field(constraints={
+            "requiredValue": False, "minLength": 1, "maxLength": 40,
+            "valueSets": [{"uri": "http://example.org/vs", "vsCollection": "CADSR-VS"}]})
+        after, changes = REPAIR.settle_controlled_term_field(doc)
+        vc = self.child_of(after)["_valueConstraints"]
+        self.assertNotIn("minLength", vc)
+        self.assertNotIn("maxLength", vc)
+        self.assertEqual({c["path"].rsplit("/", 1)[-1] for c in changes},
+                         {"inputType", "minLength", "maxLength"})
+        self.assertIsNone(REPAIR.only_settled_controlled_term_fields(doc, after))
+
+    def test_a_literal_field_is_left_alone(self):
+        doc = self.term_field(value_shape={"@value": {"type": ["string", "null"]},
+                                           "@type": {"type": "string"}})
+        _after, changes = REPAIR.settle_controlled_term_field(doc)
+        self.assertEqual(changes, [])
+
+    def test_an_iri_field_naming_no_terms_is_left_alone(self):
+        """A link field takes its value from somewhere no constraint names."""
+        doc = self.term_field(constraints={"requiredValue": False})
+        _after, changes = REPAIR.settle_controlled_term_field(doc)
+        self.assertEqual(changes, [])
+
+    def test_an_input_type_the_model_already_allows_is_left_alone(self):
+        for input_type in ("controlled-term", "link", "ext-orcid"):
+            with self.subTest(input_type=input_type):
+                _after, changes = REPAIR.settle_controlled_term_field(self.term_field(input_type))
+                self.assertEqual(changes, [])
+
+    def test_the_invariant_rejects_any_other_input_type(self):
+        doc = self.term_field()
+        after, _changes = REPAIR.settle_controlled_term_field(doc)
+        wrong = copy.deepcopy(after)
+        wrong["properties"]["name"]["_ui"]["inputType"] = "ext-orcid"
+        self.assertEqual(REPAIR.only_settled_controlled_term_fields(doc, wrong),
+                         "/properties/name/_ui/inputType")
+
+    def test_the_invariant_rejects_dropping_a_term_constraint(self):
+        doc = self.term_field()
+        after, _changes = REPAIR.settle_controlled_term_field(doc)
+        greedy = copy.deepcopy(after)
+        del greedy["properties"]["name"]["_valueConstraints"]["classes"]
+        self.assertIsNotNone(REPAIR.only_settled_controlled_term_fields(doc, greedy))
+
+    def test_a_second_pass_changes_nothing(self):
+        once, first = REPAIR.settle_controlled_term_field(self.term_field())
+        _twice, second = REPAIR.settle_controlled_term_field(once)
+        self.assertEqual(len(first), 1)
+        self.assertEqual(second, [])
+
+
+class DropBlankOrphanPropertyLabelTest(unittest.TestCase):
+    """A label names a child for a reader, and the model will not hold an empty one."""
+
+    def element_with_labels(self, labels):
+        doc = template({"Name": child()})
+        doc["_ui"]["propertyLabels"] = dict(labels)
+        return doc
+
+    def test_a_blank_label_naming_no_child_is_dropped(self):
+        doc = self.element_with_labels({"Name": "Name", "17584714-479c": ""})
+        after, changes = REPAIR.drop_blank_orphan_property_labels(doc)
+        self.assertEqual(after["_ui"]["propertyLabels"], {"Name": "Name"})
+        self.assertEqual(changes[0]["path"], "/_ui/propertyLabels/17584714-479c")
+        self.assertIsNone(REPAIR.only_dropped_blank_orphan_property_labels(doc, after))
+
+    def test_a_whitespace_label_counts_as_blank(self):
+        doc = self.element_with_labels({"Name": "Name", "ghost": "   "})
+        after, _changes = REPAIR.drop_blank_orphan_property_labels(doc)
+        self.assertNotIn("ghost", after["_ui"]["propertyLabels"])
+
+    def test_a_blank_label_on_a_child_that_exists_is_left_for_a_different_repair(self):
+        """The child's own name is the label to write, and dropping would throw that answer away."""
+        doc = self.element_with_labels({"Name": ""})
+        _after, changes = REPAIR.drop_blank_orphan_property_labels(doc)
+        self.assertEqual(changes, [])
+
+    def test_a_stated_orphan_label_is_evidence_and_stays(self):
+        doc = self.element_with_labels({"Name": "Name", "ghost": "Once A Field"})
+        _after, changes = REPAIR.drop_blank_orphan_property_labels(doc)
+        self.assertEqual(changes, [])
+
+    def test_a_nested_container_is_reached(self):
+        inner = child(ELEMENT_TYPE)
+        inner["properties"] = {"@context": {"properties": {}, "required": []}, "Street": child()}
+        inner["_ui"] = {"order": ["Street"], "propertyLabels": {"Street": "Street", "gone": ""}}
+        doc = template({"Address": inner})
+        after, changes = REPAIR.drop_blank_orphan_property_labels(doc)
+        self.assertEqual(after["properties"]["Address"]["_ui"]["propertyLabels"], {"Street": "Street"})
+        self.assertEqual(changes[0]["path"], "/properties/Address/_ui/propertyLabels/gone")
+
+    def test_the_invariant_rejects_dropping_a_stated_label(self):
+        doc = self.element_with_labels({"Name": "Name", "ghost": ""})
+        after, _changes = REPAIR.drop_blank_orphan_property_labels(doc)
+        greedy = copy.deepcopy(after)
+        del greedy["_ui"]["propertyLabels"]["Name"]
+        self.assertIsNotNone(REPAIR.only_dropped_blank_orphan_property_labels(doc, greedy))
+
+    def test_the_invariant_rejects_rewriting_a_surviving_label(self):
+        doc = self.element_with_labels({"Name": "Name", "ghost": ""})
+        after, _changes = REPAIR.drop_blank_orphan_property_labels(doc)
+        meddled = copy.deepcopy(after)
+        meddled["_ui"]["propertyLabels"]["Name"] = "Renamed"
+        self.assertIsNotNone(REPAIR.only_dropped_blank_orphan_property_labels(doc, meddled))
+
+    def test_a_second_pass_changes_nothing(self):
+        doc = self.element_with_labels({"Name": "Name", "ghost": ""})
+        once, first = REPAIR.drop_blank_orphan_property_labels(doc)
+        _twice, second = REPAIR.drop_blank_orphan_property_labels(once)
+        self.assertEqual(len(first), 1)
+        self.assertEqual(second, [])
+
+
+class SettleConstraintActionsTest(unittest.TestCase):
+    """An action records an edit to a controlled-term list: a term moved, or removed."""
+
+    VS = "https://cadsr.nci.nih.gov/metadata/CADSR-VS/VD6409709v1"
+    TERM = "https://cadsr.nci.nih.gov/metadata/CADSR-VS/220367bc"
+    CLASS = "http://data.bioontology.org/provisional_classes/be890ee0"
+
+    def field(self, actions, value_sets=None, classes=None):
+        node = child()
+        node["_valueConstraints"] = {"requiredValue": False, "actions": list(actions)}
+        if value_sets is not None:
+            node["_valueConstraints"]["valueSets"] = value_sets
+        if classes is not None:
+            node["_valueConstraints"]["classes"] = classes
+        return template({"Race": node})
+
+    def actions_of(self, doc):
+        return doc["properties"]["Race"]["_valueConstraints"]["actions"]
+
+    def test_a_value_action_takes_the_collection_of_the_value_set_it_names(self):
+        doc = self.field(
+            [{"termUri": self.TERM, "sourceUri": self.VS, "type": "Value", "action": "delete"}],
+            value_sets=[{"uri": self.VS, "name": "VD6409709v1", "vsCollection": "CADSR-VS"}])
+        after, changes = REPAIR.settle_constraint_actions(doc)
+        self.assertEqual(self.actions_of(after)[0]["source"], "CADSR-VS")
+        self.assertEqual(changes[0]["wrote"], "CADSR-VS")
+        self.assertIsNone(REPAIR.only_settled_constraint_actions(doc, after))
+
+    def test_a_class_action_resolves_through_its_term_when_the_source_is_the_template(self):
+        doc = self.field(
+            [{"termUri": self.CLASS, "sourceUri": "template", "type": "OntologyClass",
+              "action": "delete"}],
+            classes=[{"uri": self.CLASS, "label": "Prevention", "type": "OntologyClass",
+                      "source": "CEDARPC"}])
+        after, _changes = REPAIR.settle_constraint_actions(doc)
+        self.assertEqual(self.actions_of(after)[0]["source"], "CEDARPC")
+
+    def test_an_action_naming_nothing_the_field_constrains_is_dropped(self):
+        doc = self.field(
+            [{"termUri": "http://example.org/gone", "sourceUri": "template",
+              "type": "OntologyClass", "action": "delete"}],
+            classes=[{"uri": self.CLASS, "source": "CEDARPC"}])
+        after, changes = REPAIR.settle_constraint_actions(doc)
+        self.assertEqual(self.actions_of(after), [])
+        self.assertIsNone(changes[0]["wrote"])
+        self.assertIsNone(REPAIR.only_settled_constraint_actions(doc, after))
+
+    def test_surviving_actions_keep_their_order_around_a_dropped_one(self):
+        keep_one = {"termUri": self.CLASS, "sourceUri": "template", "type": "OntologyClass",
+                    "action": "move", "to": 0}
+        gone = {"termUri": "http://example.org/gone", "sourceUri": "template",
+                "type": "OntologyClass", "action": "delete"}
+        keep_two = {"termUri": self.TERM, "sourceUri": self.VS, "type": "Value", "action": "delete"}
+        doc = self.field([keep_one, gone, keep_two],
+                         value_sets=[{"uri": self.VS, "vsCollection": "CADSR-VS"}],
+                         classes=[{"uri": self.CLASS, "source": "CEDARPC"}])
+        after, _changes = REPAIR.settle_constraint_actions(doc)
+        surviving = self.actions_of(after)
+        self.assertEqual([a["termUri"] for a in surviving], [self.CLASS, self.TERM])
+        self.assertEqual([a["source"] for a in surviving], ["CEDARPC", "CADSR-VS"])
+        self.assertIsNone(REPAIR.only_settled_constraint_actions(doc, after))
+
+    def test_an_action_that_already_names_a_source_is_untouched(self):
+        stated = {"termUri": self.CLASS, "sourceUri": "template", "type": "OntologyClass",
+                  "action": "delete", "source": "SOMETHING-ELSE"}
+        doc = self.field([stated], classes=[{"uri": self.CLASS, "source": "CEDARPC"}])
+        after, changes = REPAIR.settle_constraint_actions(doc)
+        self.assertEqual(changes, [])
+        self.assertEqual(self.actions_of(after)[0]["source"], "SOMETHING-ELSE")
+
+    def test_the_invariant_rejects_dropping_an_action_that_resolves(self):
+        doc = self.field(
+            [{"termUri": self.TERM, "sourceUri": self.VS, "type": "Value", "action": "delete"}],
+            value_sets=[{"uri": self.VS, "vsCollection": "CADSR-VS"}])
+        emptied = copy.deepcopy(doc)
+        emptied["properties"]["Race"]["_valueConstraints"]["actions"] = []
+        self.assertIsNotNone(REPAIR.only_settled_constraint_actions(doc, emptied))
+
+    def test_the_invariant_rejects_an_invented_source(self):
+        doc = self.field(
+            [{"termUri": self.TERM, "sourceUri": self.VS, "type": "Value", "action": "delete"}],
+            value_sets=[{"uri": self.VS, "vsCollection": "CADSR-VS"}])
+        after, _changes = REPAIR.settle_constraint_actions(doc)
+        invented = copy.deepcopy(after)
+        invented["properties"]["Race"]["_valueConstraints"]["actions"][0]["source"] = "NCIT"
+        self.assertIsNotNone(REPAIR.only_settled_constraint_actions(doc, invented))
+
+    def test_the_invariant_rejects_reordering(self):
+        one = {"termUri": self.CLASS, "sourceUri": "template", "type": "OntologyClass",
+               "action": "delete"}
+        two = {"termUri": self.TERM, "sourceUri": self.VS, "type": "Value", "action": "delete"}
+        doc = self.field([one, two], value_sets=[{"uri": self.VS, "vsCollection": "CADSR-VS"}],
+                         classes=[{"uri": self.CLASS, "source": "CEDARPC"}])
+        after, _changes = REPAIR.settle_constraint_actions(doc)
+        swapped = copy.deepcopy(after)
+        actions = swapped["properties"]["Race"]["_valueConstraints"]["actions"]
+        actions.reverse()
+        self.assertIsNotNone(REPAIR.only_settled_constraint_actions(doc, swapped))
+
+    def test_a_second_pass_changes_nothing(self):
+        doc = self.field(
+            [{"termUri": self.TERM, "sourceUri": self.VS, "type": "Value", "action": "delete"}],
+            value_sets=[{"uri": self.VS, "vsCollection": "CADSR-VS"}])
+        once, first = REPAIR.settle_constraint_actions(doc)
+        _twice, second = REPAIR.settle_constraint_actions(once)
+        self.assertEqual(len(first), 1)
+        self.assertEqual(second, [])
+
+
+class ReclassifyStaticFieldTest(unittest.TestCase):
+
+    def static_body(self, input_type="richtext"):
+        """A standalone field that is static in every respect but its @type."""
+        return {"@id": BASE + "template-fields/b65c1029", "@type": FIELD_TYPE,
+                "schema:name": "business definition", "title": "Untitled field schema",
+                "schema:schemaVersion": AUDIT_MODEL_VERSION, "type": "object",
+                "_ui": {"inputType": input_type, "_content": "<p>this is a rule</p>"}}
+
+    def test_a_static_body_carrying_a_field_type_is_reclassified(self):
+        doc = self.static_body()
+        after, changes = REPAIR.reclassify_static_field(doc)
+        self.assertEqual(after["@type"], STATIC_TYPE)
+        self.assertEqual(changes[0]["path"], "/@type")
+        self.assertEqual(changes[0]["replaced"], FIELD_TYPE)
+        self.assertIsNone(REPAIR.only_reclassified_static_fields(doc, after))
+
+    def test_every_static_input_type_is_recognised(self):
+        for input_type in ("page-break", "section-break", "richtext", "image", "youtube"):
+            with self.subTest(input_type=input_type):
+                after, _changes = REPAIR.reclassify_static_field(self.static_body(input_type))
+                self.assertEqual(after["@type"], STATIC_TYPE)
+
+    def test_an_attribute_value_field_is_not_static_and_is_left_alone(self):
+        """attribute-value does not serialize either, but it is a field that holds a value."""
+        _after, changes = REPAIR.reclassify_static_field(self.static_body("attribute-value"))
+        self.assertEqual(changes, [])
+
+    def test_a_body_carrying_a_value_shape_is_left_alone(self):
+        doc = self.static_body()
+        doc["properties"] = {"@value": {"type": ["string", "null"]}}
+        _after, changes = REPAIR.reclassify_static_field(doc)
+        self.assertEqual(changes, [])
+
+    def test_a_body_carrying_value_constraints_is_left_alone(self):
+        doc = self.static_body()
+        doc["_valueConstraints"] = {"requiredValue": False}
+        _after, changes = REPAIR.reclassify_static_field(doc)
+        self.assertEqual(changes, [])
+
+    def test_a_nested_static_child_is_reached(self):
+        inner = self.static_body()
+        doc = template({"Note": inner, "Name": child()})
+        after, changes = REPAIR.reclassify_static_field(doc)
+        self.assertEqual(after["properties"]["Note"]["@type"], STATIC_TYPE)
+        self.assertEqual(changes[0]["path"], "/properties/Note/@type")
+        self.assertIsNone(REPAIR.only_reclassified_static_fields(doc, after))
+
+    def test_an_ordinary_field_is_never_reclassified(self):
+        doc = template({"Name": child()})
+        _after, changes = REPAIR.reclassify_static_field(doc)
+        self.assertEqual(changes, [])
+
+    def test_the_invariant_rejects_reclassifying_an_ordinary_field(self):
+        doc = template({"Name": child()})
+        meddled = copy.deepcopy(doc)
+        meddled["properties"]["Name"]["@type"] = STATIC_TYPE
+        self.assertEqual(REPAIR.only_reclassified_static_fields(doc, meddled),
+                         "/properties/Name/@type")
+
+    def test_the_invariant_rejects_any_other_change(self):
+        doc = self.static_body()
+        after, _changes = REPAIR.reclassify_static_field(doc)
+        meddled = copy.deepcopy(after)
+        meddled["_ui"]["_content"] = "<p>something else</p>"
+        self.assertEqual(REPAIR.only_reclassified_static_fields(doc, meddled), "/_ui/_content")
+
+    def test_a_second_pass_changes_nothing(self):
+        """The tool reruns every transform over the stored body to confirm a write."""
+        once, first = REPAIR.reclassify_static_field(self.static_body())
+        _twice, second = REPAIR.reclassify_static_field(once)
+        self.assertEqual(len(first), 1)
+        self.assertEqual(second, [])
+
+
 class RepairConditionTest(unittest.TestCase):
 
     def test_the_model_version_repair_is_named_by_the_root_and_nested_conditions(self):
@@ -1407,6 +2078,52 @@ class CompleteContextRequiredTest(unittest.TestCase):
         after, changes = REPAIR.complete_context_required(doc)
         self.assertEqual(after["properties"]["@context"]["required"], ["Name", "Age"])
         self.assertEqual([c["wrote"] for c in changes], ["Age"])
+
+    def test_an_absent_required_list_is_created(self):
+        """The server synchronizes the two lists on any ordinary save, creating the array."""
+        doc = self.container(["Name", "Age"], [])
+        del doc["properties"]["@context"]["required"]
+        after, changes = REPAIR.complete_context_required(doc)
+        self.assertEqual(after["properties"]["@context"]["required"], ["Name", "Age"])
+        self.assertEqual([c["wrote"] for c in changes], ["Name", "Age"])
+        self.assertIsNone(REPAIR.only_completed_context_required(doc, after))
+
+    def test_an_absent_required_list_stays_absent_when_nothing_is_mapped(self):
+        doc = self.container([], [])
+        del doc["properties"]["@context"]["required"]
+        after, changes = REPAIR.complete_context_required(doc)
+        self.assertEqual(changes, [])
+        self.assertNotIn("required", after["properties"]["@context"])
+
+    def test_a_required_that_is_not_a_list_is_left_alone(self):
+        doc = self.container(["Name"], [])
+        doc["properties"]["@context"]["required"] = "Name"
+        after, changes = REPAIR.complete_context_required(doc)
+        self.assertEqual(changes, [])
+        self.assertEqual(after["properties"]["@context"]["required"], "Name")
+
+    def test_the_invariant_rejects_a_created_list_holding_an_unmapped_name(self):
+        doc = self.container(["Name"], [])
+        del doc["properties"]["@context"]["required"]
+        after, _changes = REPAIR.complete_context_required(doc)
+        invented = copy.deepcopy(after)
+        invented["properties"]["@context"]["required"] = ["Name", "Ghost"]
+        self.assertIsNotNone(REPAIR.only_completed_context_required(doc, invented))
+
+    def test_the_invariant_rejects_an_empty_list_appearing_from_nowhere(self):
+        doc = self.container(["Name"], [])
+        del doc["properties"]["@context"]["required"]
+        hollow = copy.deepcopy(doc)
+        hollow["properties"]["@context"]["required"] = []
+        self.assertIsNotNone(REPAIR.only_completed_context_required(doc, hollow))
+
+    def test_a_second_pass_over_a_created_list_changes_nothing(self):
+        doc = self.container(["Name", "Age"], [])
+        del doc["properties"]["@context"]["required"]
+        once, first = REPAIR.complete_context_required(doc)
+        _twice, second = REPAIR.complete_context_required(once)
+        self.assertEqual(len(first), 2)
+        self.assertEqual(second, [])
 
     def test_an_unmapped_child_is_neither_mapped_nor_required(self):
         doc = self.container(["Name"], ["Name"])
