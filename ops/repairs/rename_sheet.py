@@ -36,14 +36,42 @@ def render(value, depth=0):
     if "@value" in value:
         literal = value["@value"]
         return None if literal in (None, "") else str(literal)
+    # An element instance carries an @id of its own alongside its children; the children are what a
+    # reader recognises, so they are read before the identifier is fallen back on.
+    if depth < 2:
+        inner = []
+        for k, v in value.items():
+            if k.startswith("@") or k == "rdfs:label":
+                continue
+            shown = render(v, depth + 1)
+            if shown:
+                inner.append(f"{k}={shown}")
+        if inner:
+            return ", ".join(inner[:3])
     if "@id" in value:
         label = value.get("rdfs:label") or value.get("skos:prefLabel")
         return str(label) if label else str(value["@id"]).rsplit("/", 1)[-1]
-    if depth >= 1:
+    return None
+
+
+def answer_letters(options):
+    """Lettered answers for one key: each candidate field, then delete, then keep."""
+    letters = "ABCDEFGHIJKLMNOPQRSTUVWXY"
+    choices = list(options) + ["delete", "keep"]
+    return list(zip(letters, choices))
+
+
+def supersedes(found, stale, carried):
+    """The declared name already holding this key's value, where one does in every instance.
+
+    Nothing is renamed here and nothing is lost: the value is in the instance twice, once under a
+    name the template declares and once under the name it dropped. The second copy is simply deleted.
+    """
+    seen = found["superseded"].get(stale) or collections.Counter()
+    if not seen:
         return None
-    inner = [f"{k}={render(v, depth + 1)}" for k, v in value.items()
-             if not k.startswith("@") and render(v, depth + 1)]
-    return "{" + ", ".join(inner[:3]) + "}" if inner else None
+    name, count = seen.most_common(1)[0]
+    return name if count == carried else None
 
 
 def shared_values(found, stale, name):
@@ -155,6 +183,7 @@ def study(template_id, instance_ids):
     stale = collections.Counter()
     absent = collections.Counter()
     stale_values = collections.defaultdict(list)
+    superseded = collections.defaultdict(collections.Counter)
     with cf.ThreadPoolExecutor(max_workers=8) as pool:
         for body in pool.map(lambda i: get(i, 'template-instances'), chosen):
             if body is None:
@@ -165,6 +194,14 @@ def study(template_id, instance_ids):
                 shown = render(body[k])
                 if shown:
                     stale_values[k].append(shown)
+                # The template's history written in the instance: the same value under a name the
+                # template still declares means the field was renamed by copying, not by moving.
+                if shown:
+                    for name in declared:
+                        if name in body and body[name] == body[k] \
+                                and type(body[name]) is type(body[k]):
+                            superseded[k][name] += 1
+                            break
             for k in set(declared) - present:
                 absent[k] += 1
     # What the declared names hold where the template's own instances do validate.
@@ -183,10 +220,43 @@ def study(template_id, instance_ids):
     return {"template": template, "declared": declared, "sampled": len(chosen),
             "instances": len(instance_ids), "stale": stale, "absent": absent,
             "staleValues": stale_values, "declaredValues": declared_values,
-            "healthy": len(healthy)}
+            "superseded": superseded, "healthy": len(healthy)}
 
 
 VALID = {}
+# Decisions the operator has already given, keyed by template IRI then by the key they ruled on.
+# A key answered here is not asked again, however long its rename waits on a sibling.
+ANSWERED: dict = {}
+
+
+def load_answered():
+    path = HOME / "answers-mapping.json"
+    if not path.is_file():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except ValueError:
+        return {}
+
+
+def load_written():
+    """How many instances of each template a repair run has actually written."""
+    written = collections.Counter()
+    for name in ("settled-fix.jsonl", "complete-fix.jsonl"):
+        path = HOME / name
+        if not path.is_file():
+            continue
+        for line in path.open(encoding="utf-8"):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                record = json.loads(line)
+            except ValueError:
+                continue
+            if record.get("outcome") == "repaired" and record.get("templateId"):
+                written[record["templateId"]] += 1
+    return written
 
 
 def load_valid_instances():
@@ -210,6 +280,8 @@ def load_valid_instances():
 
 def main():
     VALID.update(load_valid_instances())
+    ANSWERED.update(load_answered())
+    written = load_written()
     residual = json.load(open(HOME / 'top10-residual.json'))
     out = ["# CEDAR — Template Rename Review",
            "",
@@ -225,9 +297,14 @@ def main():
            "Dates are the template's own `pav:createdOn` and `pav:lastUpdatedOn`. Sampling is up to "
            f"{SAMPLE} invalid instances per template.",
            "",
-           "A pairing marked **confirmed by data** is one where the same value appears under both "
-           "names in instances of this template: that is the two names describing one field, and "
-           "needs no judgement. Everything else is a proposal. "
+           "A key marked **superseded** needs no pairing at all: the instance already carries its "
+           "value under a name the template declares, so the old key is a duplicate and is simply "
+           "deleted. "
+           "A pairing is **settled** when the two names differ only in case or punctuation, or when "
+           "the same value appears under both names in instances of this template. Those need no "
+           "judgement from you. They may still read *waiting*: an instance is written only once it "
+           "fully validates, so one unsettled key in a template holds back every settled rename "
+           "beside it. Deciding the keys listed as unsettled is therefore what releases the rest. "
            "Confidence combines how strongly the wording and spelling agree with how many instances "
            "carry the key, so a name used once does not outbid one used throughout. It is not a "
            "probability that the rename happened. "
@@ -264,25 +341,57 @@ def main():
                 f"{(t.get('bibo:status') or '?').replace('bibo:', '')}",
                 f"- **Identifier**: `{template_id}`",
                 f"- **Fields declared**: {len(found['declared'])}",
+                f"- **Valid instances to compare against**: "
+                + (f"{found['healthy']}" if found['healthy'] else
+                   "**none** — no value comparison is possible for this template, so every pairing "
+                   "below rests on the names alone"),
                 ""]
         if not found["stale"]:
             out += ["No instance carries a key this template does not declare, so nothing here is a "
                     "rename. These instances fail for another reason.", ""]
             continue
-        out += ["| Key the instances carry | Proposed current name | Basis | Confidence | Instances | Confirm |",
-                "| --- | --- | --- | --- | --- | --- |"]
         unclaimed = [n for n in found["declared"] if n in found["absent"]]
         proposals = propose_all(list(found["stale"]), unclaimed or found["declared"],
                                 dict(found["stale"]))
+        settled, rows = [], []
         for stale, count in found["stale"].most_common():
             name, basis, value = proposals[stale]
             shown = f"`{name}`" if name else "_no candidate_"
             confidence = ("high" if value >= 0.7 else "moderate" if value >= 0.5
                           else "weak — check first" if name else "—")
-            if name and shared_values(found, stale, name):
-                basis, confidence = "same values", "**confirmed by data**"
-            out += [f"| `{stale}` | {shown} | {basis} | {confidence} | {count} | ☐ |"]
+            answered_as = (ANSWERED.get(template_id) or {}).get(stale, "")
+            twin = supersedes(found, stale, count)
+            if stale in (ANSWERED.get(template_id) or {}):
+                shown = (f"`{answered_as}`" if answered_as else "_delete_")
+                basis, confidence = "you answered", "settled"
+                settled.append(stale)
+            elif twin:
+                shown, basis, confidence = f"`{twin}` (already present)", "superseded", "settled"
+                settled.append(stale)
+            elif name and (shared_values(found, stale, name) or basis == "spelling"):
+                basis = "same values" if basis != "spelling" else "spelling"
+                confidence = "settled"
+                settled.append(stale)
+            rows.append((stale, shown, basis, confidence, count))
+        blocked = [s for s in found["stale"] if s not in settled]
+        done = written.get(template_id, 0)
+        if blocked:
+            out += [f"**Nothing can be written for this template yet.** {len(settled)} of "
+                    f"{len(found['stale'])} keys are settled, but an instance is only written once "
+                    f"it fully validates, so the settled renames wait on the rest: "
+                    + ", ".join(f"`{s}`" for s in blocked) + ".", ""]
+        elif done:
+            out += [f"**{done} instances written.** Every key here is settled; what remains invalid "
+                    "fails for some other reason.", ""]
+        out += ["| Key the instances carry | Proposed current name | Basis | Status | Instances |",
+                "| --- | --- | --- | --- | --- |"]
+        for stale, shown, basis, confidence, count in rows:
+            status = confidence if confidence != "settled" else (
+                "settled — applied" if not blocked and done else "settled — waiting")
+            out += [f"| `{stale}` | {shown} | {basis} | {status} | {count} |"]
         out += [""]
+        leftover = [n for n in unclaimed
+                    if n not in {p[0] for p in proposals.values() if p[0]}]
         out += ["<details><summary>What the values look like</summary>", ""]
         for stale, _count in found["stale"].most_common():
             name = proposals[stale][0]
@@ -297,16 +406,141 @@ def main():
                         else [f"- _no valid instance of this template carries a value here"
                               f" ({found['healthy']} checked)_"]) + [""]
         out += ["</details>", ""]
-        leftover = [n for n in unclaimed
-                    if n not in {p[0] for p in proposals.values() if p[0]}]
+        if leftover_values := [n for n in (unclaimed or [])
+                               if n not in {pr[0] for pr in proposals.values() if pr[0]}]:
+            out += ["<details><summary>Declared fields still unclaimed, and what they hold</summary>",
+                    "",
+                    "Where a key above has no candidate, or a weak one, these are what it might "
+                    "belong to. The values come from instances of this template that already "
+                    "validate.", ""]
+            for name in leftover_values:
+                samples = tidy(found["declaredValues"].get(name, []))
+                out += [f"**`{name}`**", ""]
+                out += ([f"- {s}" for s in samples] if samples
+                        else [f"- _no valid instance carries a value here "
+                              f"({found['healthy']} checked)_"]) + [""]
+            out += ["</details>", ""]
         if leftover:
             out += [f"Declared fields no stale key was matched to: "
                     + ", ".join(f"`{n}`" for n in leftover), ""]
-    out.insert(6, f"Covering **{total} invalid instances**.")
-    out.insert(7, "")
-    path = pathlib.Path.home() / "Desktop" / "cedar-template-rename-review.md"
-    path.write_text("\n".join(out) + "\n", encoding="utf-8")
-    print(f"wrote {path} ({path.stat().st_size} bytes), covering {total} instances")
+    # The per-template review this loop assembles is not written out: the decision list is the only
+    # document anyone reads, and a second view of the same data was more confusing than useful.
+    print(f"studied {len(studies)} templates covering {total} invalid instances")
+    write_decisions(studies, written)
+
+
+def write_decisions(studies, written):
+    """Only the keys a person still has to rule on, worst blocker first."""
+    pending = []
+    for _rank, template_id, found in studies:
+        unclaimed = [n for n in found["declared"] if n in found["absent"]]
+        proposals = propose_all(list(found["stale"]), unclaimed or found["declared"],
+                                dict(found["stale"]))
+        answered = ANSWERED.get(template_id) or {}
+        undecided = []
+        for stale in found["stale"]:
+            if stale in answered:
+                continue
+            name, basis, _value = proposals[stale]
+            if name and (shared_values(found, stale, name) or basis == "spelling"):
+                continue
+            if supersedes(found, stale, found["stale"][stale]):
+                continue
+            undecided.append((stale, name))
+        if undecided:
+            pending.append((template_id, found, proposals, undecided))
+
+    lines = ["# CEDAR — Rename Decisions",
+             "",
+             "Only the keys that still need a person. Anything settled by matching names or "
+             "matching values, and anything you have already answered, is left out; those are "
+             "decided and wait on these.",
+             "",
+             "An instance is written only once it fully validates, so a template releases nothing "
+             "until **every** key below it is answered. Fewest questions per instance first.",
+             "",
+             "Each decision is numbered and offers lettered answers. Write the letter in the last "
+             "column, or your own answer if none of them fits. The numbered sections below carry "
+             "the full value samples behind each row.",
+             "",
+             "| # | Template | Key | What it holds | Answers | Yours |",
+             "| --- | --- | --- | --- | --- | --- |"]
+    order = sorted(pending, key=lambda p: (len(p[3]) / max(1, p[1]["instances"])))
+    numbered = []
+    number = 0
+    for template_id, found, proposals, undecided in order:
+        name = found["template"].get("schema:name") or "(unnamed)"
+        claimed = {p[0] for s, p in proposals.items() if p[0] and s not in dict(undecided)}
+        options = [n for n in found["declared"] if n in found["absent"] and n not in claimed]
+        for stale, guess in undecided:
+            number += 1
+            letters = answer_letters(options)
+            numbered.append((number, name, found, stale, guess, options, letters))
+            holds = tidy(found["staleValues"].get(stale, []))[:2]
+            shown = "; ".join(holds) if holds else "_always empty_"
+            offer = ", ".join(f"**{letter}** {choice}" if choice == guess
+                              else f"{letter} {choice}"
+                              for letter, choice in letters)
+            if len(offer) > 96:
+                offer = offer[:94] + "…"
+            lines.append(f"| **{number}** | {name} | `{stale}` | {shown[:40]} | {offer} | |")
+    lines += ["",
+              "A letter in bold is the closest match on wording alone — a hint, not a "
+              "recommendation. The last two letters are always `delete` (the value is recorded "
+              "elsewhere or no longer wanted) and `keep` (the template should declare the field "
+              "again).",
+              ""]
+    seen_template = None
+    for number, name, found, stale, guess, options, letters in numbered:
+        if name != seen_template:
+            seen_template = name
+            lines += [f"## {name} — {found['instances']} instances", ""]
+        for stale, guess in [(stale, guess)]:
+            raw = found["staleValues"].get(stale, [])
+            counted = collections.Counter(raw)
+            carried = found["stale"][stale]
+            lines += [f"### {number}. `{stale}`", "",
+                      f"{carried} of the {found['sampled']} instances I sampled carry this key."]
+            if not raw:
+                lines += ["Every one of them leaves it empty, so its values say nothing about "
+                          "where it belongs.", ""]
+            else:
+                distinct = len(counted)
+                lines += [f"Between them they hold {distinct} distinct "
+                          f"{'value' if distinct == 1 else 'values'}"
+                          + (", every instance the same one:" if distinct == 1
+                             else ". The commonest are:"), ""]
+                for shown, n in counted.most_common(6):
+                    lines.append(f"- `{shown[:70]}` — in {n} of them")
+                lines += [""]
+            comparable = [o for o in options if found["declaredValues"].get(o)]
+            lines += ["Answers:", ""]
+            for letter, choice in letters:
+                if choice == "delete":
+                    lines.append(f"- **{letter}.** `delete` — the value is recorded elsewhere or is "
+                                 "no longer wanted, so the key goes and the value with it")
+                elif choice == "keep":
+                    lines.append(f"- **{letter}.** `keep` — the field should not have been removed; "
+                                 "the template is what needs changing, not the instances")
+                else:
+                    values = tidy(found["declaredValues"].get(choice, []))[:3]
+                    tail = (" — validating instances hold: " + "; ".join(v[:38] for v in values)
+                            if values else " — no example values to show")
+                    mark = "  ← closest on wording" if choice == guess else ""
+                    lines.append(f"- **{letter}.** `{choice}`{tail}{mark}")
+            lines += ["- **Z.** something else: ______________________", ""]
+            if options and not comparable:
+                lines += ["This template has no instances that validate, so there is nothing to "
+                          "compare the candidates against. The choice rests on what the field "
+                          "names mean to you.", ""]
+            if not options:
+                lines += ["The template has no unclaimed field left, so this key was most likely "
+                          "removed rather than renamed.", ""]
+            lines += [f"**Answer {number}:** ______", ""]
+    path = pathlib.Path.home() / "Desktop" / "cedar-rename-decisions.md"
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    count = sum(len(p[3]) for p in pending)
+    print(f"wrote {path} ({path.stat().st_size} bytes): {count} decisions across {len(pending)} templates")
 
 
 main()

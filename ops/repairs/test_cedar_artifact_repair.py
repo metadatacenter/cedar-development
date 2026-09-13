@@ -1172,6 +1172,91 @@ class SettleTemporalTypeTest(unittest.TestCase):
         self.assertEqual(second, [])
 
 
+class DropSupersededInstanceKeysTest(unittest.TestCase):
+    """A field renamed by copying leaves the old key behind holding a duplicate."""
+
+    TID = BASE + "templates/t-superseded"
+
+    def tmpl(self, children):
+        doc = template(children, root=self.TID)
+        doc["properties"]["@context"]["properties"] = {
+            name: {"enum": [GOOD_IRI + name]} for name in children}
+        return doc
+
+    def test_a_duplicate_of_a_declared_value_is_removed(self):
+        tmpl = self.tmpl({"Data_Repository": child()})
+        before = {"schema:isBasedOn": self.TID, "@context": {},
+                  "Data_Repository": {"@value": "IMPC"}, "Repository": {"@value": "IMPC"}}
+        after, changes = REPAIR.drop_superseded_instance_keys(before, tmpl)
+        self.assertNotIn("Repository", after)
+        self.assertEqual(after["Data_Repository"], {"@value": "IMPC"})
+        self.assertEqual(changes[0]["supersededBy"], "Data_Repository")
+        self.assertIsNone(REPAIR.only_dropped_superseded_keys(before, after, tmpl))
+
+    def test_a_key_whose_value_is_carried_nowhere_else_is_kept(self):
+        """Removing it would be the only copy of that value going."""
+        tmpl = self.tmpl({"Data_Repository": child()})
+        before = {"schema:isBasedOn": self.TID,
+                  "Data_Repository": {"@value": "IMPC"}, "Repository": {"@value": "Synapse"}}
+        _after, changes = REPAIR.drop_superseded_instance_keys(before, tmpl)
+        self.assertEqual(changes, [])
+
+    def test_an_empty_key_is_left_alone(self):
+        """Two fields both saying nothing are not evidence that one supersedes the other."""
+        tmpl = self.tmpl({"Data_Repository": child()})
+        before = {"schema:isBasedOn": self.TID,
+                  "Data_Repository": {"@value": None}, "Repository": {"@value": None}}
+        _after, changes = REPAIR.drop_superseded_instance_keys(before, tmpl)
+        self.assertEqual(changes, [])
+
+    def test_a_declared_key_is_never_removed_even_if_duplicated(self):
+        tmpl = self.tmpl({"A": child(), "B": child()})
+        before = {"schema:isBasedOn": self.TID, "A": {"@value": "x"}, "B": {"@value": "x"}}
+        _after, changes = REPAIR.drop_superseded_instance_keys(before, tmpl)
+        self.assertEqual(changes, [])
+
+    def test_values_differing_in_type_are_not_the_same_value(self):
+        tmpl = self.tmpl({"Count": child()})
+        before = {"schema:isBasedOn": self.TID,
+                  "Count": {"@value": "1"}, "Number": {"@value": 1}}
+        _after, changes = REPAIR.drop_superseded_instance_keys(before, tmpl)
+        self.assertEqual(changes, [])
+
+    def test_the_context_entry_goes_with_the_key(self):
+        tmpl = self.tmpl({"Data_Repository": child()})
+        before = {"schema:isBasedOn": self.TID,
+                  "@context": {"Repository": "https://example.org/r",
+                               "Data_Repository": GOOD_IRI + "Data_Repository"},
+                  "Data_Repository": {"@value": "IMPC"}, "Repository": {"@value": "IMPC"}}
+        after, _changes = REPAIR.drop_superseded_instance_keys(before, tmpl)
+        self.assertNotIn("Repository", after["@context"])
+        self.assertIn("Data_Repository", after["@context"])
+
+    def test_the_invariant_rejects_dropping_the_surviving_copy_too(self):
+        tmpl = self.tmpl({"Data_Repository": child()})
+        before = {"schema:isBasedOn": self.TID,
+                  "Data_Repository": {"@value": "IMPC"}, "Repository": {"@value": "IMPC"}}
+        after, _changes = REPAIR.drop_superseded_instance_keys(before, tmpl)
+        greedy = copy.deepcopy(after); del greedy["Data_Repository"]
+        self.assertIsNotNone(REPAIR.only_dropped_superseded_keys(before, greedy, tmpl))
+
+    def test_the_invariant_rejects_dropping_an_unduplicated_key(self):
+        tmpl = self.tmpl({"Data_Repository": child()})
+        before = {"schema:isBasedOn": self.TID,
+                  "Data_Repository": {"@value": "IMPC"}, "Repository": {"@value": "Synapse"}}
+        meddled = {k: v for k, v in before.items() if k != "Repository"}
+        self.assertEqual(REPAIR.only_dropped_superseded_keys(before, meddled, tmpl), "/Repository")
+
+    def test_a_second_pass_changes_nothing(self):
+        tmpl = self.tmpl({"Data_Repository": child()})
+        before = {"schema:isBasedOn": self.TID,
+                  "Data_Repository": {"@value": "IMPC"}, "Repository": {"@value": "IMPC"}}
+        once, first = REPAIR.drop_superseded_instance_keys(before, tmpl)
+        _twice, second = REPAIR.drop_superseded_instance_keys(once, tmpl)
+        self.assertEqual(len(first), 1)
+        self.assertEqual(second, [])
+
+
 class RenameInstanceKeysTest(unittest.TestCase):
     """Which old name became which new one is a fact about an edit nobody recorded."""
 
@@ -1262,6 +1347,89 @@ class RenameInstanceKeysTest(unittest.TestCase):
         _after, changes = REPAIR.rename_instance_keys(before, tmpl)
         self.assertEqual(changes, [])
 
+    def test_a_mapping_to_null_removes_the_key(self):
+        """The field was dropped rather than renamed, and the value goes with it."""
+        REPAIR.RENAMES[self.TID] = {"pav:version": None}
+        tmpl = self.tmpl({"age": child()})
+        before = self.instance(**{"pav:version": "0.0.1"})
+        after, changes = REPAIR.rename_instance_keys(before, tmpl)
+        self.assertNotIn("pav:version", after)
+        self.assertEqual(changes[0]["discarded"], ["pav:version"])
+        self.assertIsNone(REPAIR.only_renamed_instance_keys(before, after, tmpl))
+
+    def test_the_invariant_rejects_removing_a_key_the_mapping_does_not_name(self):
+        REPAIR.RENAMES[self.TID] = {"pav:version": None}
+        tmpl = self.tmpl({"age": child()})
+        before = self.instance(**{"pav:version": "0.0.1", "Keep": {"@value": "x"}})
+        after, _changes = REPAIR.rename_instance_keys(before, tmpl)
+        greedy = copy.deepcopy(after); del greedy["Keep"]
+        self.assertIsNotNone(REPAIR.only_renamed_instance_keys(before, greedy, tmpl))
+
+    def test_a_value_moving_into_a_repeating_field_is_wrapped(self):
+        REPAIR.RENAMES[self.TID] = {"Title": "DataCite Title"}
+        tmpl = self.tmpl({"DataCite Title": {"type": "array", "items": child()}})
+        before = self.instance(Title={"@value": "A paper"})
+        after, _changes = REPAIR.rename_instance_keys(before, tmpl)
+        self.assertEqual(after["DataCite Title"], [{"@value": "A paper"}])
+        self.assertIsNone(REPAIR.only_renamed_instance_keys(before, after, tmpl))
+
+    def test_a_longer_list_moving_into_a_single_valued_field_is_refused(self):
+        """Which element survives is not this repair's to decide."""
+        REPAIR.RENAMES[self.TID] = {"Titles": "Title"}
+        tmpl = self.tmpl({"Title": child()})
+        before = self.instance(Titles=[{"@value": "one"}, {"@value": "two"}])
+        with self.assertRaises(REPAIR.TransformRefused):
+            REPAIR.rename_instance_keys(before, tmpl)
+
+    def test_a_single_element_list_is_unwrapped(self):
+        """A field that used to repeat and now holds one value says the same thing either way."""
+        REPAIR.RENAMES[self.TID] = {"Titles": "Title"}
+        tmpl = self.tmpl({"Title": child()})
+        before = self.instance(Titles=[{"@value": "one"}])
+        after, _changes = REPAIR.rename_instance_keys(before, tmpl)
+        self.assertEqual(after["Title"], {"@value": "one"})
+        self.assertIsNone(REPAIR.only_renamed_instance_keys(before, after, tmpl))
+
+    def test_an_empty_list_becomes_the_shape_for_absence(self):
+        REPAIR.RENAMES[self.TID] = {"Titles": "Title"}
+        tmpl = self.tmpl({"Title": child()})
+        before = self.instance(Titles=[])
+        after, _changes = REPAIR.rename_instance_keys(before, tmpl)
+        self.assertEqual(after["Title"], {"@value": None})
+        self.assertIsNone(REPAIR.only_renamed_instance_keys(before, after, tmpl))
+
+    def test_several_keys_consolidate_onto_the_one_that_carries_a_value(self):
+        REPAIR.RENAMES[self.TID] = {"Event Date 1": "evento", "Event Date": "evento",
+                                    "Event Date1": "evento"}
+        tmpl = self.tmpl({"evento": child()})
+        before = self.instance(**{"Event Date 1": {"@value": None},
+                                  "Event Date": {"@value": "2020-03-01"},
+                                  "Event Date1": {"@value": None}})
+        after, changes = REPAIR.rename_instance_keys(before, tmpl)
+        self.assertEqual(after["evento"], {"@value": "2020-03-01"})
+        for gone in ("Event Date 1", "Event Date", "Event Date1"):
+            self.assertNotIn(gone, after)
+        self.assertEqual(changes[0]["replaced"], "Event Date")
+        self.assertIsNone(REPAIR.only_renamed_instance_keys(before, after, tmpl))
+
+    def test_consolidation_records_what_it_discarded(self):
+        REPAIR.RENAMES[self.TID] = {"Info 1": "Section", "Info 2": "Section"}
+        tmpl = self.tmpl({"Section": child()})
+        before = self.instance(**{"Info 1": {"@value": "Value 1"}, "Info 2": {"@value": "Value 2"}})
+        after, changes = REPAIR.rename_instance_keys(before, tmpl)
+        self.assertEqual(after["Section"], {"@value": "Value 1"})
+        self.assertEqual(changes[0]["discarded"], ["Info 2"])
+
+    def test_an_element_value_moves_whole(self):
+        REPAIR.RENAMES[self.TID] = {"SpatialCoverage": "Geospatial"}
+        inner = child(ELEMENT_TYPE)
+        inner["properties"] = {"@context": {"properties": {}, "required": []}, "east": child()}
+        tmpl = self.tmpl({"Geospatial": inner})
+        value = {"@id": "https://example.org/e", "@context": {}, "east": {"@value": "12"}}
+        before = self.instance(SpatialCoverage=value)
+        after, _changes = REPAIR.rename_instance_keys(before, tmpl)
+        self.assertEqual(after["Geospatial"], value)
+
     def test_a_second_pass_changes_nothing(self):
         REPAIR.RENAMES[self.TID] = {"Age": "age"}
         tmpl = self.tmpl({"age": child()})
@@ -1305,6 +1473,17 @@ class CompleteInstanceTest(unittest.TestCase):
         self.assertEqual(after["Term"], {})
 
     def test_an_absent_multiple_child_gains_an_empty_list(self):
+        tmpl = self.template_with({"Names": {"type": "array", "items": child()}})
+        after, _changes = REPAIR.complete_instance({}, tmpl)
+        self.assertEqual(after["Names"], [])
+
+    def test_a_repeating_child_carries_as_many_empties_as_minItems_demands(self):
+        """An empty list does not satisfy minItems, however empty the field is."""
+        tmpl = self.template_with({"Names": {"type": "array", "minItems": 1, "items": child()}})
+        after, _changes = REPAIR.complete_instance({}, tmpl)
+        self.assertEqual(after["Names"], [{"@value": None}])
+
+    def test_a_repeating_child_with_no_minimum_stays_an_empty_list(self):
         tmpl = self.template_with({"Names": {"type": "array", "items": child()}})
         after, _changes = REPAIR.complete_instance({}, tmpl)
         self.assertEqual(after["Names"], [])

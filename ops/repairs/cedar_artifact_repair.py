@@ -2258,10 +2258,121 @@ def instance_context_expectations(container: Any) -> dict[str, str]:
 
 
 UNDECLARED_KEY_ERROR = r"^object instance has properties which are not allowed by the schema"
+
+
+def carries_a_value(value: Any) -> bool:
+    """Whether an instance value says anything, as distinct from stating that it says nothing."""
+    if value in (None, "", [], {}):
+        return False
+    if isinstance(value, dict):
+        return any(carries_a_value(inner) for key, inner in value.items() if key != "@id")
+    if isinstance(value, list):
+        return any(carries_a_value(inner) for inner in value)
+    return True
+
+
+def superseded_keys(instance: Any, declared: set[str]) -> dict[str, str]:
+    """Undeclared keys whose value the instance already carries under a name the template declares.
+
+    A field renamed by copying rather than moving leaves the old key behind holding a duplicate. The
+    duplicate is what stops the instance validating, and removing it discards nothing, because the
+    value it holds is still there under the declared name — the same value, compared whole and by
+    type, not merely a similar one.
+    """
+    if not isinstance(instance, dict):
+        return {}
+    superseded = {}
+    for key, value in instance.items():
+        if key in declared or key.startswith("@") or ":" in key or not carries_a_value(value):
+            continue
+        for name in declared:
+            if name in instance and instance[name] == value \
+                    and type(instance[name]) is type(value):
+                superseded[key] = name
+                break
+    return superseded
+
+
+def drop_superseded_instance_keys(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Remove an instance key the template no longer declares and whose value it carries elsewhere.
+
+    This is the one rename that needs no mapping. Where the old key and a declared one hold the same
+    value, the template's history is written in the instance itself: the field was renamed, the value
+    was copied across, and the old key stayed. Nothing has to be inferred and nothing can be lost,
+    because the repair refuses to touch a key unless the value survives under a name the template
+    declares.
+    """
+    if not isinstance(template, dict):
+        raise TransformRefused("the template this instance names could not be read")
+    if not isinstance(instance, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    declared = {name for name, _child, _multiple in container_children(template)}
+    result = copy.deepcopy(instance)
+    changes: list[dict[str, Any]] = []
+    for key, name in superseded_keys(instance, declared).items():
+        del result[key]
+        changes.append({"path": f"/{rest.json_pointer_component(key)}", "replaced": key,
+                        "wrote": None, "supersededBy": name})
+        context = result.get("@context")
+        if isinstance(context, dict) and key in context:
+            del context[key]
+    return result, changes
+
+
+def only_dropped_superseded_keys(before: Any, after: Any, template: Any) -> Optional[str]:
+    """The invariant: a key went only where its value stays under a name the template declares."""
+    if not isinstance(before, dict) or not isinstance(after, dict):
+        return "/"
+    declared = {name for name, _child, _multiple in container_children(template)} \
+        if isinstance(template, dict) else set()
+    droppable = superseded_keys(before, declared)
+    for key in set(before) | set(after):
+        here = f"/{rest.json_pointer_component(key)}"
+        if key == "@context":
+            continue
+        if key in before and key not in after:
+            if key not in droppable:
+                return here
+            twin = droppable[key]
+            if after.get(twin) != before[key]:
+                return here          # the value did not in fact survive
+            continue
+        if (key in before) != (key in after):
+            return here
+        if before[key] != after[key] or type(before[key]) is not type(after[key]):
+            return here
+    old_context = before.get("@context")
+    new_context = after.get("@context")
+    if isinstance(old_context, dict) and isinstance(new_context, dict):
+        expected = {k: v for k, v in old_context.items()
+                    if not (k in droppable and k not in after)}
+        if new_context != expected:
+            return "/@context"
+    elif old_context != new_context:
+        return "/@context"
+    return None
 # Confirmed renames, keyed by template IRI then by the key an instance carries. Supplied by the
 # operator through --mapping, because nothing in the artifacts says which old name became which new
 # one: a rename is a fact about the template's history, and only its owner holds that.
 RENAMES: dict[str, dict[str, str]] = {}
+
+
+def declared_multiplicity(template: Any) -> dict[str, bool]:
+    """Whether each declared child holds one value or a list of them."""
+    return {name: multiple for name, _child, multiple in container_children(template)}
+
+
+def chosen_source(instance: Any, sources: list[str]) -> Optional[str]:
+    """Which of several old keys mapped to one field supplies the value.
+
+    Where a template consolidated fields, only one of the old keys usually carries anything and the
+    rest are empty. The first that carries a value wins, in the order the mapping states them, so the
+    choice is the operator's rather than the instance's ordering.
+    """
+    for source in sources:
+        if source in instance and carries_a_value(instance[source]):
+            return source
+    return None
 
 
 def rename_instance_keys(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
@@ -2273,8 +2384,16 @@ def rename_instance_keys(instance: Any, template: Any) -> tuple[Any, list[dict[s
 
     The mapping is supplied, never inferred: which old name became which new one is a fact about an
     edit nobody recorded, and guessing it would move a value into a field that means something else.
-    A key is moved only where the template declares the new name and does not declare the old one,
-    and only where the instance is not already carrying a value under the new name.
+    A key is moved only where the template declares the new name and does not declare the old one.
+    A mapping to ``null`` removes the key instead, which is the answer where the field was dropped
+    rather than renamed and the value is not wanted.
+
+    Two shapes need care. A field the template declares as repeating takes a list, so a single value
+    moving into one is wrapped. A field that used to repeat and now holds one value has its list
+    unwrapped, but only where the list holds nought or one: a longer one is refused, since which
+    element survives is not this repair's to decide. And where several old keys map to one
+    field the template consolidated them: the first that carries a value supplies it, the rest go,
+    and the record says which were discarded so the loss is visible rather than silent.
     """
     if not isinstance(template, dict):
         raise TransformRefused("the template this instance names could not be read")
@@ -2284,55 +2403,114 @@ def rename_instance_keys(instance: Any, template: Any) -> tuple[Any, list[dict[s
     mapping = RENAMES.get(based_on) if isinstance(based_on, str) else None
     if not mapping:
         return copy.deepcopy(instance), []
-    declared = {name for name, _child, _multiple in container_children(template)}
+    multiplicity = declared_multiplicity(template)
+    declared = set(multiplicity)
     iris = declared_context_iris(template)
+    targets: dict[str, list[str]] = {}
+    for old, new in mapping.items():
+        if new is not None:
+            targets.setdefault(new, []).append(old)
+
     result = copy.deepcopy(instance)
     changes: list[dict[str, Any]] = []
+    # A mapping to null says the key is not to be carried anywhere: the template dropped the field
+    # and the operator has decided the value goes with it.
     for old, new in mapping.items():
-        if old not in result or new in result or new not in declared or old in declared:
+        if new is not None or old not in result or old in declared:
             continue
-        result[new] = result.pop(old)
+        del result[old]
         changes.append({"path": f"/{rest.json_pointer_component(old)}", "replaced": old,
-                        "wrote": new})
+                        "wrote": None, "discarded": [old]})
         context = result.get("@context")
         if isinstance(context, dict) and old in context:
             del context[old]
+    for new, sources in targets.items():
+        present = [s for s in sources if s in result]
+        if not present or new not in declared or any(s in declared for s in present):
+            continue
+        if new in result and carries_a_value(result[new]):
+            continue                      # the field already holds a value; never overwrite one
+        supplier = chosen_source(result, present)
+        value = result[supplier] if supplier else result[present[0]]
+        if multiplicity.get(new) and not isinstance(value, list):
+            value = [value]
+        elif not multiplicity.get(new) and isinstance(value, list):
+            # A field that used to repeat and now holds one value: a list of nought or one says the
+            # same thing either way, so it is unwrapped. A longer one does not, and is refused.
+            if len(value) > 1:
+                raise TransformRefused(
+                    f"{present[0]!r} holds {len(value)} values and {new!r} takes one; which "
+                    "survives is not this repair's to decide")
+            value = value[0] if value else empty_instance_value(
+                next((c for n, c, _m in container_children(template) if n == new), {}), False)
+        for source in present:
+            del result[source]
+            context = result.get("@context")
+            if isinstance(context, dict) and source in context:
+                del context[source]
+        result[new] = value
+        changes.append({"path": f"/{rest.json_pointer_component(present[0])}",
+                        "replaced": supplier or present[0], "wrote": new,
+                        "discarded": [s for s in present if s != (supplier or present[0])]})
+        context = result.get("@context")
         if isinstance(context, dict) and new not in context and new in iris:
             context[new] = iris[new]
     return result, changes
 
 
 def only_renamed_instance_keys(before: Any, after: Any, template: Any) -> Optional[str]:
-    """The invariant: a value moved to the name it was told to, carrying nothing else with it."""
+    """The invariant: the mapped keys went, one of their values survives under the declared name.
+
+    The repair is allowed to discard, but only a value belonging to a key the mapping names and only
+    where another of that group's values lands under the target. Nothing outside the mapping moves.
+    """
     if not isinstance(before, dict) or not isinstance(after, dict):
         return "/"
     based_on = before.get("schema:isBasedOn")
-    mapping = {old: new for old, new in (RENAMES.get(based_on) or {}).items()
-               if old in before and new not in before}
+    mapping = RENAMES.get(based_on) or {}
+    multiplicity = declared_multiplicity(template) if isinstance(template, dict) else {}
     iris = declared_context_iris(template) if isinstance(template, dict) else {}
+    targets: dict[str, list[str]] = {}
     for old, new in mapping.items():
-        if old in after and new not in after:
-            continue  # left alone, which the transform is allowed to do
-        if old in after or new not in after:
-            return f"/{rest.json_pointer_component(old)}"
-        if after[new] != before[old] or type(after[new]) is not type(before[old]):
+        if new is not None:
+            targets.setdefault(new, []).append(old)
+    dropped = {old for old, new in mapping.items()
+               if new is None and old in before and old not in after}
+
+    moved: dict[str, list[str]] = {}
+    for new, sources in targets.items():
+        present = [s for s in sources if s in before]
+        if present and all(s not in after for s in present) and new in after:
+            moved[new] = present
+    for new, present in moved.items():
+        supplier = chosen_source(before, present) or present[0]
+        expected = before[supplier]
+        if multiplicity.get(new) and not isinstance(expected, list):
+            expected = [expected]
+        elif not multiplicity.get(new) and isinstance(expected, list) and len(expected) == 1:
+            expected = expected[0]
+        elif not multiplicity.get(new) and isinstance(expected, list) and not expected:
+            expected = after[new]      # an empty list became the model's shape for absence
+        if after[new] != expected or type(after[new]) is not type(expected):
             return f"/{rest.json_pointer_component(new)}"
-    moved = {old: new for old, new in mapping.items() if new in after and old not in after}
+
+    surrendered = {s for sources in moved.values() for s in sources} | dropped
     for key in set(before) | set(after):
-        if key in moved or key in moved.values() or key == "@context":
+        if key == "@context" or key in surrendered or key in moved:
             continue
+        here = f"/{rest.json_pointer_component(key)}"
         if (key in before) != (key in after):
-            return f"/{rest.json_pointer_component(key)}"
+            return here
         if before[key] != after[key] or type(before[key]) is not type(after[key]):
-            return f"/{rest.json_pointer_component(key)}"
+            return here
     old_context = before.get("@context")
     new_context = after.get("@context")
     if isinstance(old_context, dict) and isinstance(new_context, dict):
-        expected = {k: v for k, v in old_context.items() if k not in moved}
-        for old, new in moved.items():
-            if old in old_context or new in iris:
-                expected.setdefault(new, iris.get(new, old_context.get(old)))
-        if new_context != expected:
+        expected_context = {k: v for k, v in old_context.items() if k not in surrendered}
+        for new in moved:
+            if new in iris:
+                expected_context.setdefault(new, iris[new])
+        if new_context != expected_context:
             return "/@context"
     elif old_context != new_context:
         return "/@context"
@@ -2358,16 +2536,20 @@ def declared_context_iris(definition: Any) -> dict[str, str]:
     return iris
 
 
-def empty_instance_value(definition: Any, multiple: bool) -> Any:
+def empty_instance_value(definition: Any, multiple: bool, minimum: int = 0) -> Any:
     """What an instance carries for a child it holds no value for.
 
     The model has a shape for absence and every CEDAR editor writes it: an empty list where a child
     may repeat, ``{"@value": null}`` where the value is a literal, and ``{}`` where it is an IRI,
     since ``@id: null`` is not legal JSON-LD. An element is not empty in the same way — it is a
     container whose own children are each empty — so it is built out rather than left blank.
+
+    A repeating child carries as many empty occurrences as its declaration demands. A container that
+    states ``minItems`` is saying an instance must hold at least that many, and an empty list does
+    not satisfy it however empty the field is.
     """
     if multiple:
-        return []
+        return [empty_instance_value(definition, False) for _ in range(max(0, minimum))]
     if is_element(definition):
         return completed_element({}, definition)
     properties = definition.get("properties") if isinstance(definition, dict) else None
@@ -2390,9 +2572,13 @@ def completed_element(value: Any, definition: Any) -> Any:
         node["@id"] = f"{ELEMENT_INSTANCE_BASE}{uuid.uuid4()}"
     iris = declared_context_iris(definition)
     context = dict(node["@context"]) if isinstance(node.get("@context"), dict) else {}
+    declarations = definition.get("properties") if isinstance(definition, dict) else {}
     for name, child, multiple in container_children(definition):
         if name not in node:
-            node[name] = empty_instance_value(child, multiple)
+            declared = declarations.get(name) if isinstance(declarations, dict) else None
+            minimum = declared.get("minItems") if isinstance(declared, dict) else None
+            node[name] = empty_instance_value(
+                child, multiple, minimum if isinstance(minimum, int) else 0)
         else:
             node[name] = completed_value(node[name], child, multiple)
         if name in iris and name not in context:
@@ -2621,6 +2807,15 @@ REPAIRS = {
         summary="delete every pav:derivedFrom whose value is the empty string",
         transform=strip_empty_derived_from,
         invariant=only_removed_empty_derived_from,
+    ),
+    "drop-superseded-instance-keys": Repair(
+        name="drop-superseded-instance-keys",
+        condition="",
+        summary="remove an instance key the template dropped whose value it carries elsewhere",
+        transform=drop_superseded_instance_keys,
+        invariant=only_dropped_superseded_keys,
+        needs_template=True,
+        error_pattern=UNDECLARED_KEY_ERROR,
     ),
     "rename-instance-keys": Repair(
         name="rename-instance-keys",
