@@ -195,6 +195,470 @@ class ProgressTest(unittest.TestCase):
                          {"repaired": 1, "would-repair": 1, "still-invalid": 1})
 
 
+
+def numeric(number_type=None, **extra):
+    node = child(**extra)
+    node["_ui"] = {"inputType": "numeric"}
+    node["required"] = ["@value", "@type"]
+    node["properties"] = {"@value": {"type": ["number", "null"]},
+                          "@type": {"type": "string", "format": "uri"}}
+    node["_valueConstraints"] = {"numberType": number_type} if number_type else {}
+    return node
+
+
+def temporal(temporal_type=None):
+    node = child()
+    node["_ui"] = {"inputType": "temporal"}
+    node["required"] = ["@value", "@type"]
+    node["properties"] = {"@value": {"type": ["string", "null"]},
+                          "@type": {"type": "string", "format": "uri"}}
+    node["_valueConstraints"] = {"temporalType": temporal_type} if temporal_type else {}
+    return node
+
+
+def iri_field():
+    node = child()
+    node["properties"] = {"@id": {"type": "string", "format": "uri"},
+                          "rdfs:label": {"type": ["string", "null"]}}
+    return node
+
+
+def repeating(node, minimum=None):
+    wrapper = {"type": "array", "items": node}
+    if minimum is not None:
+        wrapper["minItems"] = minimum
+    return wrapper
+
+
+class DeclaredValueTypeTest(unittest.TestCase):
+    """What datatype a field pins for the value an instance carries."""
+
+    def test_a_numeric_field_names_its_own(self):
+        self.assertEqual(REPAIR.declared_value_type(numeric("xsd:int")), "xsd:int")
+
+    def test_a_numeric_field_naming_none_falls_back_to_decimal(self):
+        self.assertEqual(REPAIR.declared_value_type(numeric()), "xsd:decimal")
+
+    def test_a_temporal_field_names_its_own(self):
+        self.assertEqual(REPAIR.declared_value_type(temporal("xsd:date")), "xsd:date")
+
+    def test_a_temporal_field_naming_none_falls_back_to_datetime(self):
+        self.assertEqual(REPAIR.declared_value_type(temporal()), "xsd:dateTime")
+
+    def test_a_plain_field_pins_nothing(self):
+        self.assertIsNone(REPAIR.declared_value_type(child()))
+
+    def test_a_field_that_does_not_require_a_type_is_not_stamped(self):
+        self.assertFalse(REPAIR.demands_value_type(child()))
+        self.assertTrue(REPAIR.demands_value_type(numeric("xsd:int")))
+
+
+class DifferencesTest(unittest.TestCase):
+    """An invariant built on this cannot overlook a change."""
+
+    def test_an_added_key_is_reported_with_its_absence(self):
+        found = list(REPAIR.differences({"a": 1}, {"a": 1, "b": 2}))
+        self.assertEqual(found, [("/b", REPAIR.ABSENT, 2)])
+
+    def test_a_removed_key_is_reported(self):
+        found = list(REPAIR.differences({"a": 1, "b": 2}, {"a": 1}))
+        self.assertEqual(found, [("/b", 2, REPAIR.ABSENT)])
+
+    def test_a_change_deep_inside_is_reported_at_its_own_path(self):
+        found = list(REPAIR.differences({"a": {"b": [{"c": 1}]}}, {"a": {"b": [{"c": 2}]}}))
+        self.assertEqual(found, [("/a/b/0/c", 1, 2)])
+
+    def test_a_list_growing_is_reported_whole(self):
+        found = list(REPAIR.differences({"a": [1]}, {"a": [1, 2]}))
+        self.assertEqual(found, [("/a", [1], [1, 2])])
+
+    def test_a_name_holding_a_slash_is_escaped(self):
+        found = list(REPAIR.differences({}, {"a/b": 1}))
+        self.assertEqual(found, [("/a~1b", REPAIR.ABSENT, 1)])
+
+    def test_identical_documents_differ_nowhere(self):
+        self.assertEqual(list(REPAIR.differences({"a": [1, {"b": None}]}, {"a": [1, {"b": None}]})), [])
+
+    def test_a_type_change_is_a_difference_even_where_values_compare_equal(self):
+        self.assertEqual(list(REPAIR.differences({"a": 1}, {"a": True})), [("/a", 1, True)])
+
+
+class StampInstanceValueTypeTest(unittest.TestCase):
+    """A numeric or temporal field renders with @type among the properties its value must carry."""
+
+    def template_with(self, children):
+        doc = template(children)
+        doc["properties"]["@context"]["properties"] = {
+            name: {"enum": [GOOD_IRI + name]} for name in children}
+        return doc
+
+    def test_an_empty_numeric_value_gains_the_declared_datatype(self):
+        tmpl = self.template_with({"Dose": numeric("xsd:int")})
+        before = {"Dose": {"@value": None}}
+        after, changes = REPAIR.stamp_instance_value_type(before, tmpl)
+        self.assertEqual(after["Dose"], {"@value": None, "@type": "xsd:int"})
+        self.assertEqual(changes[0]["path"], "/Dose/@type")
+        self.assertIsNone(REPAIR.only_stamped_value_types(before, after, tmpl))
+
+    def test_a_numeric_field_naming_no_type_gets_the_model_default(self):
+        tmpl = self.template_with({"Dose": numeric()})
+        after, _changes = REPAIR.stamp_instance_value_type({"Dose": {"@value": 3}}, tmpl)
+        self.assertEqual(after["Dose"]["@type"], "xsd:decimal")
+
+    def test_a_temporal_field_naming_no_type_gets_the_model_default(self):
+        tmpl = self.template_with({"When": temporal()})
+        after, _changes = REPAIR.stamp_instance_value_type({"When": {"@value": None}}, tmpl)
+        self.assertEqual(after["When"]["@type"], "xsd:dateTime")
+
+    def test_a_type_already_stated_is_never_rewritten(self):
+        tmpl = self.template_with({"Dose": numeric("xsd:int")})
+        before = {"Dose": {"@value": 1, "@type": "xsd:decimal"}}
+        after, changes = REPAIR.stamp_instance_value_type(before, tmpl)
+        self.assertEqual(after, before)
+        self.assertEqual(changes, [])
+
+    def test_a_field_pinning_no_datatype_is_left_alone(self):
+        tmpl = self.template_with({"Name": child()})
+        after, changes = REPAIR.stamp_instance_value_type({"Name": {"@value": "Ada"}}, tmpl)
+        self.assertEqual(changes, [])
+        self.assertEqual(after["Name"], {"@value": "Ada"})
+
+    def test_every_occurrence_of_a_repeating_field_is_stamped(self):
+        tmpl = self.template_with({"Dose": repeating(numeric("xsd:int"))})
+        before = {"Dose": [{"@value": 1}, {"@value": 2}]}
+        after, _changes = REPAIR.stamp_instance_value_type(before, tmpl)
+        self.assertEqual([v["@type"] for v in after["Dose"]], ["xsd:int", "xsd:int"])
+        self.assertIsNone(REPAIR.only_stamped_value_types(before, after, tmpl))
+
+    def test_a_value_inside_an_element_is_stamped(self):
+        inner = {"Dose": numeric("xsd:float")}
+        node = child(ELEMENT_TYPE)
+        node["properties"] = {"@context": {"properties": {}, "required": []}, **inner}
+        node["_ui"] = {"order": list(inner)}
+        tmpl = self.template_with({"Panel": node})
+        before = {"Panel": {"Dose": {"@value": None}}}
+        after, _changes = REPAIR.stamp_instance_value_type(before, tmpl)
+        self.assertEqual(after["Panel"]["Dose"]["@type"], "xsd:float")
+        self.assertIsNone(REPAIR.only_stamped_value_types(before, after, tmpl))
+
+    def test_the_invariant_catches_a_datatype_that_is_not_the_declared_one(self):
+        tmpl = self.template_with({"Dose": numeric("xsd:int")})
+        before = {"Dose": {"@value": None}}
+        self.assertEqual(
+            REPAIR.only_stamped_value_types(before, {"Dose": {"@value": None, "@type": "xsd:long"}}, tmpl),
+            "/Dose/@type")
+
+    def test_the_invariant_catches_a_value_altered_alongside(self):
+        tmpl = self.template_with({"Dose": numeric("xsd:int")})
+        before = {"Dose": {"@value": 1}}
+        self.assertEqual(
+            REPAIR.only_stamped_value_types(before, {"Dose": {"@value": 2, "@type": "xsd:int"}}, tmpl),
+            "/Dose/@value")
+
+    def test_the_repair_is_settled_after_one_pass(self):
+        tmpl = self.template_with({"Dose": numeric("xsd:int")})
+        once, first = REPAIR.stamp_instance_value_type({"Dose": {"@value": None}}, tmpl)
+        _twice, second = REPAIR.stamp_instance_value_type(once, tmpl)
+        self.assertTrue(first)
+        self.assertEqual(second, [])
+
+
+class WrapAndUnwrapOccurrenceTest(unittest.TestCase):
+    """A repeating child takes a list whether it holds one occurrence or several."""
+
+    def template_with(self, children):
+        doc = template(children)
+        doc["properties"]["@context"]["properties"] = {
+            name: {"enum": [GOOD_IRI + name]} for name in children}
+        return doc
+
+    def test_a_lone_value_is_put_in_the_list_declared_for_it(self):
+        tmpl = self.template_with({"Tag": repeating(child())})
+        before = {"Tag": {"@value": "one"}}
+        after, changes = REPAIR.wrap_instance_occurrence(before, tmpl)
+        self.assertEqual(after["Tag"], [{"@value": "one"}])
+        self.assertEqual(changes[0]["path"], "/Tag")
+        self.assertIsNone(REPAIR.only_wrapped_occurrences(before, after, tmpl))
+
+    def test_a_list_already_there_is_left_alone(self):
+        tmpl = self.template_with({"Tag": repeating(child())})
+        after, changes = REPAIR.wrap_instance_occurrence({"Tag": [{"@value": "one"}]}, tmpl)
+        self.assertEqual(changes, [])
+        self.assertEqual(after["Tag"], [{"@value": "one"}])
+
+    def test_a_single_child_is_not_wrapped(self):
+        tmpl = self.template_with({"Tag": child()})
+        after, changes = REPAIR.wrap_instance_occurrence({"Tag": {"@value": "one"}}, tmpl)
+        self.assertEqual(changes, [])
+        self.assertEqual(after["Tag"], {"@value": "one"})
+
+    def test_the_wrap_invariant_catches_a_value_changed_on_the_way_in(self):
+        tmpl = self.template_with({"Tag": repeating(child())})
+        before = {"Tag": {"@value": "one"}}
+        self.assertEqual(REPAIR.only_wrapped_occurrences(before, {"Tag": [{"@value": "two"}]}, tmpl),
+                         "/Tag")
+
+    def test_the_wrap_invariant_catches_a_second_occurrence_appearing(self):
+        tmpl = self.template_with({"Tag": repeating(child())})
+        before = {"Tag": {"@value": "one"}}
+        self.assertEqual(
+            REPAIR.only_wrapped_occurrences(before, {"Tag": [{"@value": "one"}, {"@value": "x"}]}, tmpl),
+            "/Tag")
+
+    def test_a_list_of_one_becomes_the_value_declared_for_it(self):
+        tmpl = self.template_with({"Tag": child()})
+        before = {"Tag": [{"@value": "one"}]}
+        after, changes = REPAIR.unwrap_instance_occurrence(before, tmpl)
+        self.assertEqual(after["Tag"], {"@value": "one"})
+        self.assertTrue(changes)
+        self.assertIsNone(REPAIR.only_unwrapped_occurrences(before, after, tmpl))
+
+    def test_an_empty_list_becomes_the_form_for_absence(self):
+        tmpl = self.template_with({"Tag": child()})
+        before = {"Tag": []}
+        after, _changes = REPAIR.unwrap_instance_occurrence(before, tmpl)
+        self.assertEqual(after["Tag"], {"@value": None})
+        self.assertIsNone(REPAIR.only_unwrapped_occurrences(before, after, tmpl))
+
+    def test_a_list_of_several_is_left_for_someone_to_decide(self):
+        tmpl = self.template_with({"Tag": child()})
+        before = {"Tag": [{"@value": "one"}, {"@value": "two"}]}
+        after, changes = REPAIR.unwrap_instance_occurrence(before, tmpl)
+        self.assertEqual(changes, [])
+        self.assertEqual(after["Tag"], before["Tag"])
+
+    def test_the_unwrap_invariant_catches_a_longer_list_being_cut_down(self):
+        tmpl = self.template_with({"Tag": child()})
+        before = {"Tag": [{"@value": "one"}, {"@value": "two"}]}
+        self.assertEqual(REPAIR.only_unwrapped_occurrences(before, {"Tag": {"@value": "one"}}, tmpl),
+                         "/Tag")
+
+
+class SettleInstanceEmptyShapeTest(unittest.TestCase):
+    """The model has two forms for absence and they are not interchangeable."""
+
+    def template_with(self, children):
+        doc = template(children)
+        doc["properties"]["@context"]["properties"] = {
+            name: {"enum": [GOOD_IRI + name]} for name in children}
+        return doc
+
+    def test_an_empty_object_on_a_literal_field_becomes_a_null_literal(self):
+        tmpl = self.template_with({"Name": child()})
+        before = {"Name": {}}
+        after, changes = REPAIR.settle_instance_empty_shape(before, tmpl)
+        self.assertEqual(after["Name"], {"@value": None})
+        self.assertTrue(changes)
+        self.assertIsNone(REPAIR.only_settled_empty_shapes(before, after, tmpl))
+
+    def test_an_empty_numeric_field_also_gains_its_datatype(self):
+        tmpl = self.template_with({"Dose": numeric("xsd:int")})
+        before = {"Dose": {}}
+        after, _changes = REPAIR.settle_instance_empty_shape(before, tmpl)
+        self.assertEqual(after["Dose"], {"@value": None, "@type": "xsd:int"})
+        self.assertIsNone(REPAIR.only_settled_empty_shapes(before, after, tmpl))
+
+    def test_a_null_literal_on_an_iri_field_becomes_an_empty_object(self):
+        tmpl = self.template_with({"Term": iri_field()})
+        before = {"Term": {"@value": None}}
+        after, _changes = REPAIR.settle_instance_empty_shape(before, tmpl)
+        self.assertEqual(after["Term"], {})
+        self.assertIsNone(REPAIR.only_settled_empty_shapes(before, after, tmpl))
+
+    def test_a_null_identifier_becomes_an_empty_object(self):
+        tmpl = self.template_with({"Term": iri_field()})
+        before = {"Term": {"@id": None}}
+        after, _changes = REPAIR.settle_instance_empty_shape(before, tmpl)
+        self.assertEqual(after["Term"], {})
+
+    def test_a_value_carrying_content_is_never_reshaped(self):
+        tmpl = self.template_with({"Term": iri_field()})
+        before = {"Term": {"@value": "https://example.org/x"}}
+        after, changes = REPAIR.settle_instance_empty_shape(before, tmpl)
+        self.assertEqual(changes, [])
+        self.assertEqual(after["Term"], before["Term"])
+
+    def test_a_literal_already_in_its_own_form_is_left_alone(self):
+        tmpl = self.template_with({"Name": child()})
+        after, changes = REPAIR.settle_instance_empty_shape({"Name": {"@value": None}}, tmpl)
+        self.assertEqual(changes, [])
+
+    def test_the_invariant_catches_content_being_discarded(self):
+        tmpl = self.template_with({"Term": iri_field()})
+        before = {"Term": {"@id": "https://example.org/x"}}
+        self.assertEqual(REPAIR.only_settled_empty_shapes(before, {"Term": {}}, tmpl), "/Term/@id")
+
+
+class CompleteInstanceContextTest(unittest.TestCase):
+    """A template states what an instance's @context must carry and what each term may be."""
+
+    def template_with(self, children, context=None):
+        doc = template(children)
+        mapped = {name: {"enum": [GOOD_IRI + name]} for name in children}
+        mapped.update(context or {})
+        doc["properties"]["@context"] = {"properties": mapped, "required": list(mapped)}
+        return doc
+
+    def test_a_missing_property_term_is_written_from_the_template(self):
+        tmpl = self.template_with({"Name": child()})
+        before = {"@context": {}, "Name": {"@value": "Ada"}}
+        after, changes = REPAIR.complete_instance_context(before, tmpl)
+        self.assertEqual(after["@context"]["Name"], GOOD_IRI + "Name")
+        self.assertTrue(changes)
+        self.assertIsNone(REPAIR.only_added_context_entries(before, after, tmpl))
+
+    def test_a_term_definition_object_is_written_whole(self):
+        tmpl = self.template_with(
+            {"Name": child()},
+            {"skos:notation": {"type": "object",
+                               "properties": {"@type": {"enum": ["xsd:string"], "type": "string"}}}})
+        before = {"@context": {}}
+        after, _changes = REPAIR.complete_instance_context(before, tmpl)
+        self.assertEqual(after["@context"]["skos:notation"], {"@type": "xsd:string"})
+        self.assertIsNone(REPAIR.only_added_context_entries(before, after, tmpl))
+
+    def test_a_term_the_template_leaves_open_is_not_invented(self):
+        tmpl = self.template_with({"Name": child()}, {"loose": {"type": "string"}})
+        before = {"@context": {}}
+        after, _changes = REPAIR.complete_instance_context(before, tmpl)
+        self.assertNotIn("loose", after["@context"])
+
+    def test_a_term_already_there_is_never_rewritten(self):
+        tmpl = self.template_with({"Name": child()})
+        before = {"@context": {"Name": "https://example.org/other"}}
+        after, changes = REPAIR.complete_instance_context(before, tmpl)
+        self.assertEqual(after["@context"]["Name"], "https://example.org/other")
+        self.assertEqual(changes, [])
+
+    def test_the_invariant_catches_a_term_written_with_the_wrong_value(self):
+        tmpl = self.template_with({"Name": child()})
+        before = {"@context": {}}
+        self.assertEqual(
+            REPAIR.only_added_context_entries(before, {"@context": {"Name": "https://example.org/x"}}, tmpl),
+            "/@context/Name")
+
+
+class RestateInstanceLiteralTest(unittest.TestCase):
+    """A number and the digits that spell it are the same literal; the schema pins which is stored."""
+
+    def literal_typed(self, types):
+        node = child()
+        node["properties"] = {"@value": {"type": types}}
+        return node
+
+    def template_with(self, children):
+        doc = template(children)
+        doc["properties"]["@context"]["properties"] = {
+            name: {"enum": [GOOD_IRI + name]} for name in children}
+        return doc
+
+    def test_a_number_becomes_the_string_the_schema_states(self):
+        tmpl = self.template_with({"Count": self.literal_typed(["string", "null"])})
+        before = {"Count": {"@value": 826}}
+        after, changes = REPAIR.restate_instance_literal(before, tmpl)
+        self.assertEqual(after["Count"]["@value"], "826")
+        self.assertTrue(changes)
+        self.assertIsNone(REPAIR.only_restated_literals(before, after, tmpl))
+
+    def test_a_numeric_string_becomes_the_number_the_schema_states(self):
+        tmpl = self.template_with({"Count": self.literal_typed(["number", "null"])})
+        before = {"Count": {"@value": "124351"}}
+        after, _changes = REPAIR.restate_instance_literal(before, tmpl)
+        self.assertEqual(after["Count"]["@value"], 124351)
+        self.assertIsNone(REPAIR.only_restated_literals(before, after, tmpl))
+
+    def test_text_that_is_not_a_number_is_left_exactly_as_it_is(self):
+        tmpl = self.template_with({"Count": self.literal_typed(["number", "null"])})
+        after, changes = REPAIR.restate_instance_literal({"Count": {"@value": "LSJDK=1213"}}, tmpl)
+        self.assertEqual(changes, [])
+        self.assertEqual(after["Count"]["@value"], "LSJDK=1213")
+
+    def test_a_string_that_would_not_spell_itself_back_is_refused(self):
+        tmpl = self.template_with({"Count": self.literal_typed(["number", "null"])})
+        for text in ("007", "1e3", " 5", "5 ", "+5"):
+            after, changes = REPAIR.restate_instance_literal({"Count": {"@value": text}}, tmpl)
+            self.assertEqual(changes, [], text)
+            self.assertEqual(after["Count"]["@value"], text)
+
+    def test_a_null_is_not_a_literal_to_restate(self):
+        tmpl = self.template_with({"Count": self.literal_typed(["number", "null"])})
+        _after, changes = REPAIR.restate_instance_literal({"Count": {"@value": None}}, tmpl)
+        self.assertEqual(changes, [])
+
+    def test_a_boolean_is_never_restated_as_a_number(self):
+        tmpl = self.template_with({"Count": self.literal_typed(["number", "null"])})
+        _after, changes = REPAIR.restate_instance_literal({"Count": {"@value": True}}, tmpl)
+        self.assertEqual(changes, [])
+
+    def test_the_invariant_catches_a_literal_that_says_something_else(self):
+        tmpl = self.template_with({"Count": self.literal_typed(["string", "null"])})
+        before = {"Count": {"@value": 826}}
+        self.assertEqual(REPAIR.only_restated_literals(before, {"Count": {"@value": "827"}}, tmpl),
+                         "/Count/@value")
+
+
+class DropStaticFieldFromInstanceTest(unittest.TestCase):
+    """A static field renders in the form and holds nothing, so it is not a property of an instance."""
+
+    def static(self):
+        node = child(STATIC_TYPE)
+        node["_ui"] = {"inputType": "sectionbreak"}
+        return node
+
+    def template_with(self, children):
+        doc = template(children)
+        doc["properties"]["@context"]["properties"] = {
+            name: {"enum": [GOOD_IRI + name]} for name in children}
+        return doc
+
+    def test_an_empty_static_field_is_removed(self):
+        tmpl = self.template_with({"Heading": self.static(), "Name": child()})
+        before = {"@context": {"Heading": GOOD_IRI + "Heading"}, "Heading": {},
+                  "Name": {"@value": "Ada"}}
+        after, changes = REPAIR.drop_static_field_from_instance(before, tmpl)
+        self.assertNotIn("Heading", after)
+        self.assertNotIn("Heading", after["@context"])
+        self.assertTrue(changes)
+        self.assertIsNone(REPAIR.only_dropped_static_fields(before, after, tmpl))
+
+    def test_a_static_field_somehow_holding_content_is_left_for_an_owner(self):
+        tmpl = self.template_with({"Heading": self.static()})
+        before = {"@context": {}, "Heading": {"@value": "typed by someone"}}
+        after, changes = REPAIR.drop_static_field_from_instance(before, tmpl)
+        self.assertEqual(changes, [])
+        self.assertIn("Heading", after)
+
+    def test_a_field_that_is_not_static_is_never_removed(self):
+        tmpl = self.template_with({"Name": child()})
+        after, changes = REPAIR.drop_static_field_from_instance({"@context": {}, "Name": {}}, tmpl)
+        self.assertEqual(changes, [])
+        self.assertIn("Name", after)
+
+    def test_the_invariant_catches_an_ordinary_field_going_with_it(self):
+        tmpl = self.template_with({"Heading": self.static(), "Name": child()})
+        before = {"@context": {}, "Heading": {}, "Name": {}}
+        self.assertEqual(REPAIR.only_dropped_static_fields(before, {"@context": {}}, tmpl), "/Name")
+
+
+class SchemaKeyDemandTest(unittest.TestCase):
+    """A few templates render with pav:version among the properties an instance must carry."""
+
+    def test_a_key_the_template_requires_is_kept(self):
+        tmpl = template({"Name": child()})
+        tmpl["required"] = ["@context", "@id", "pav:version"]
+        before = {"@context": {}, "pav:version": "1.0.0", "bibo:status": "bibo:published"}
+        after, _changes = REPAIR.drop_schema_keys_from_instance(before, tmpl)
+        self.assertEqual(after["pav:version"], "1.0.0")
+        self.assertNotIn("bibo:status", after)
+        self.assertIsNone(REPAIR.only_dropped_schema_keys(before, after, tmpl))
+
+    def test_the_invariant_catches_a_required_key_being_removed(self):
+        tmpl = template({"Name": child()})
+        tmpl["required"] = ["@context", "pav:version"]
+        before = {"@context": {}, "pav:version": "1.0.0"}
+        self.assertEqual(REPAIR.only_dropped_schema_keys(before, {"@context": {}}, tmpl),
+                         "/pav:version")
+
 if __name__ == "__main__":
     unittest.main()
 

@@ -2377,8 +2377,12 @@ def drop_schema_keys_from_instance(instance: Any, template: Any) -> tuple[Any, l
         raise TransformRefused("artifact is not a JSON object")
     result = copy.deepcopy(instance)
     changes: list[dict[str, Any]] = []
+    # A handful of templates render with these among the properties an instance must carry. Where a
+    # template demands one, removing it is what breaks the instance, so the demand wins.
+    demanded = template.get("required") if isinstance(template, dict) else None
+    demanded = set(demanded) if isinstance(demanded, list) else set()
     for key in SCHEMA_ONLY_INSTANCE_KEYS:
-        if key not in result:
+        if key not in result or key in demanded:
             continue
         changes.append({"path": f"/{rest.json_pointer_component(key)}",
                         "replaced": result[key], "wrote": None})
@@ -2393,10 +2397,12 @@ def only_dropped_schema_keys(before: Any, after: Any, template: Any) -> Optional
     """The invariant: only the artifact-level keys went, and nothing else moved."""
     if not isinstance(before, dict) or not isinstance(after, dict):
         return "/"
+    demanded = template.get("required") if isinstance(template, dict) else None
+    demanded = set(demanded) if isinstance(demanded, list) else set()
     for key in set(before) | set(after):
         here = f"/{rest.json_pointer_component(key)}"
         if key in before and key not in after:
-            if key not in SCHEMA_ONLY_INSTANCE_KEYS:
+            if key not in SCHEMA_ONLY_INSTANCE_KEYS or key in demanded:
                 return here
             continue
         if key == "@context":
@@ -2725,6 +2731,11 @@ def empty_instance_value(definition: Any, multiple: bool, minimum: int = 0) -> A
     since ``@id: null`` is not legal JSON-LD. An element is not empty in the same way — it is a
     container whose own children are each empty — so it is built out rather than left blank.
 
+    A numeric or temporal field carries its datatype even when it carries no value, because CEDAR
+    renders both with ``@type`` among the properties the value must have. That is what the model's
+    own `EmptyFieldInstances` builds, down to the defaults it falls back on when the field names
+    neither: ``xsd:decimal`` for a numeric field, ``xsd:dateTime`` for a temporal one.
+
     A repeating child carries as many empty occurrences as its declaration demands. A container that
     states ``minItems`` is saying an instance must hold at least that many, and an empty list does
     not satisfy it however empty the field is.
@@ -2735,7 +2746,12 @@ def empty_instance_value(definition: Any, multiple: bool, minimum: int = 0) -> A
         return completed_element({}, definition)
     properties = definition.get("properties") if isinstance(definition, dict) else None
     if isinstance(properties, dict) and "@value" in properties:
-        return {"@value": None}
+        empty: dict[str, Any] = {"@value": None}
+        if demands_value_type(definition):
+            datatype = declared_value_type(definition)
+            if datatype is not None:
+                empty["@type"] = datatype
+        return empty
     return {}
 
 
@@ -2981,6 +2997,703 @@ class Repair:
         return (self.condition, *self.also_conditions) if self.condition else self.also_conditions
 
 
+# --------------------------------------------------------------------------------------------------
+# Instance value shapes
+#
+# An instance value is answerable to the field that declares it, and a handful of defects are simply
+# the wrong shape rather than the wrong content: a typed literal with no datatype, one value where
+# the template declares a list, a list of one where it declares a value, and the model's form for
+# absence written as the other kind's. Each is settled by reading the declaration, so none of them
+# needs an owner.
+# --------------------------------------------------------------------------------------------------
+
+ABSENT = object()
+
+
+def differences(before: Any, after: Any, path: str = "") -> Iterator[tuple[str, Any, Any]]:
+    """Every place two documents differ, as a pointer and the pair of values.
+
+    An invariant built on this cannot overlook a change: the walk visits the union of both
+    documents, so a key added, removed or altered at any depth is reported whether or not the rule
+    being checked expected to find anything there.
+    """
+    if isinstance(before, dict) and isinstance(after, dict):
+        for key in set(before) | set(after):
+            here = f"{path}/{rest.json_pointer_component(key)}"
+            if key not in before or key not in after:
+                yield here, before.get(key, ABSENT), after.get(key, ABSENT)
+            else:
+                yield from differences(before[key], after[key], here)
+    elif isinstance(before, list) and isinstance(after, list):
+        if len(before) != len(after):
+            yield path, before, after
+        else:
+            for index, (was, now) in enumerate(zip(before, after)):
+                yield from differences(was, now, f"{path}/{index}")
+    elif before != after or type(before) is not type(after):
+        yield path, before, after
+
+
+def declaration_at(template: Any, pointer: str) -> Optional[dict]:
+    """The declaration governing an instance location, or ``None`` where the path leaves the schema.
+
+    List indices are stepped over, since an occurrence answers to the same declaration as its
+    siblings. A segment naming a model keyword ends the walk: below that point the pointer is inside
+    a value rather than in the tree of declarations.
+    """
+    definition = template
+    for segment in [s for s in pointer.split("/") if s]:
+        name = segment.replace("~1", "/").replace("~0", "~")
+        if name.isdigit():
+            continue
+        if name.startswith("@") or name in RESERVED_INSTANCE_KEYS:
+            return None
+        found = None
+        for child_name, child, _multiple in container_children(definition):
+            if child_name == name:
+                found = child
+                break
+        if found is None:
+            return None
+        definition = found
+    return definition if isinstance(definition, dict) else None
+
+
+# Keys an instance carries that belong to the artifact rather than to a declared field.
+RESERVED_INSTANCE_KEYS = frozenset({
+    "@context", "@id", "@type", "@value", "schema:isBasedOn", "schema:name", "schema:description",
+    "pav:createdOn", "pav:createdBy", "pav:lastUpdatedOn", "oslc:modifiedBy", "pav:derivedFrom",
+    "_annotations", "rdfs:label",
+})
+
+# What a field's own declaration says an instance value's `@type` must be. The model's defaults are
+# `EmptyFieldInstances` in cedar-artifact-library: a numeric field with no `numberType` is
+# `xsd:decimal`, a temporal field with no `temporalType` is `xsd:dateTime`.
+NUMERIC_DEFAULT_TYPE = "xsd:decimal"
+TEMPORAL_DEFAULT_TYPE = "xsd:dateTime"
+
+
+def declared_value_type(definition: Any) -> Optional[str]:
+    """The datatype an instance value must state, where its field pins one.
+
+    Only numeric and temporal fields carry one. CEDAR renders both with `@type` in the field's own
+    `required` array, so an instance that omits it does not validate however empty the field is.
+    """
+    if not isinstance(definition, dict):
+        return None
+    input_type = (definition.get("_ui") or {}).get("inputType")
+    constraints = definition.get("_valueConstraints") or {}
+    if input_type == "numeric":
+        value = constraints.get("numberType")
+        return value if isinstance(value, str) and value else NUMERIC_DEFAULT_TYPE
+    if input_type == "temporal":
+        value = constraints.get("temporalType")
+        return value if isinstance(value, str) and value else TEMPORAL_DEFAULT_TYPE
+    return None
+
+
+def demands_value_type(definition: Any) -> bool:
+    """Whether the field's rendered schema lists ``@type`` among the properties it requires."""
+    required = definition.get("required") if isinstance(definition, dict) else None
+    return isinstance(required, list) and "@type" in required
+
+
+def instance_field_children(container: Any) -> Iterator[tuple[str, dict, bool]]:
+    """The children a container declares that hold a value rather than another container."""
+    for name, child, multiple in container_children(container):
+        if not is_element(child):
+            yield name, child, multiple
+
+
+def walk_instance(node: Any, container: Any, path: str,
+                  visit) -> Any:
+    """Rebuild an instance, letting ``visit`` settle each declared field value it holds.
+
+    ``visit`` is handed one occurrence with the declaration that governs it and returns what should
+    stand there. Element occurrences are walked against the element they belong to, so the rule
+    reaches every depth, and a child the instance does not carry is left absent: putting one there
+    is completion's job, not this walk's.
+    """
+    if not isinstance(node, dict):
+        return node
+    result = copy.deepcopy(node)
+    for name, child, multiple in container_children(container):
+        if name not in result:
+            continue
+        here = f"{path}/{rest.json_pointer_component(name)}"
+        value = result[name]
+        if is_element(child):
+            if isinstance(value, list):
+                result[name] = [walk_instance(item, child, f"{here}/{index}", visit)
+                                for index, item in enumerate(value)]
+            elif isinstance(value, dict):
+                result[name] = walk_instance(value, child, here, visit)
+            continue
+        if isinstance(value, list):
+            result[name] = [visit(item, child, f"{here}/{index}") for index, item in enumerate(value)]
+        else:
+            result[name] = visit(value, child, here)
+    return result
+
+
+def stamp_instance_value_type(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Give a typed literal the datatype its field declares.
+
+    A numeric or temporal field renders with ``@type`` among the properties its instance value must
+    carry, and CEDAR's own editor writes the datatype the field declares — ``xsd:decimal`` for a
+    numeric field that names none, ``xsd:dateTime`` for a temporal one. A value written before that
+    was enforced states only ``@value``, and the library reads it as a missing required property
+    however complete the field is.
+
+    Only an absent ``@type`` is written. One already stated is left alone even where it disagrees
+    with the declaration: that is a value someone chose, and correcting it is not this repair's to
+    decide.
+    """
+    if not isinstance(template, dict):
+        raise TransformRefused("the template this instance names could not be read")
+    if not isinstance(instance, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def visit(value: Any, definition: Any, path: str) -> Any:
+        wanted = declared_value_type(definition)
+        if wanted is None or not demands_value_type(definition):
+            return value
+        if not isinstance(value, dict) or "@type" in value:
+            return value
+        settled = dict(value)
+        settled["@type"] = wanted
+        changes.append({"path": f"{path}/@type", "replaced": None, "wrote": wanted})
+        return settled
+
+    return walk_instance(instance, template, "", visit), changes
+
+
+def only_stamped_value_types(before: Any, after: Any, template: Any) -> Optional[str]:
+    """The invariant: every change is an absent ``@type`` gaining the datatype its field declares."""
+    if not isinstance(template, dict):
+        return "/"
+    for path, was, now in differences(before, after):
+        if not path.endswith("/@type") or was is not ABSENT:
+            return path or "/"
+        definition, _where = declaration_for_value(template, path)
+        if definition is None or not demands_value_type(definition):
+            return path
+        if now != declared_value_type(definition) or not isinstance(now, str):
+            return path
+    return None
+
+
+def declaration_for_value(template: Any, pointer: str) -> tuple[Optional[dict], str]:
+    """The declaration governing an instance value, and the pointer to the value itself.
+
+    A change inside a value is reported at the key that moved — ``/age/@value`` rather than ``/age``
+    — and a repeating field puts an index between the value and its name, so both are stepped over
+    to reach the declaration that governs what sits there.
+    """
+    parts = [s for s in pointer.split("/") if s]
+    while parts and parts[-1].startswith("@"):
+        parts.pop()
+    value_pointer = "/" + "/".join(parts) if parts else ""
+    return declaration_at(template, value_pointer), value_pointer
+
+
+def child_declaration_at(template: Any, pointer: str) -> tuple[Optional[dict], bool]:
+    """The declaration a pointer's last segment names, and whether it is declared as repeating."""
+    head, _sep, tail = pointer.rpartition("/")
+    name = tail.replace("~1", "/").replace("~0", "~")
+    parent = declaration_at(template, head) if head else template
+    if not isinstance(parent, dict):
+        return None, False
+    for child_name, child, multiple in container_children(parent):
+        if child_name == name:
+            return child, multiple
+    return None, False
+
+
+def wrap_instance_occurrence(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Put a lone occurrence in the list its template declares.
+
+    A child the template declares as repeating takes a JSON array whether it holds one occurrence or
+    several, and an instance written while the field held a single value carries the occurrence bare.
+    The content is not in question: the same occurrence, in the list the declaration calls for.
+    """
+    if not isinstance(template, dict):
+        raise TransformRefused("the template this instance names could not be read")
+    if not isinstance(instance, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def walk(node: Any, container: Any, path: str) -> Any:
+        if not isinstance(node, dict):
+            return node
+        result = copy.deepcopy(node)
+        for name, child, multiple in container_children(container):
+            if name not in result:
+                continue
+            here = f"{path}/{rest.json_pointer_component(name)}"
+            value = result[name]
+            if multiple and not isinstance(value, list):
+                result[name] = value = [value]
+                changes.append({"path": here, "replaced": "one value", "wrote": "a list of one"})
+            if not is_element(child):
+                continue
+            if isinstance(value, list):
+                result[name] = [walk(item, child, f"{here}/{index}")
+                                for index, item in enumerate(value)]
+            elif isinstance(value, dict):
+                result[name] = walk(value, child, here)
+        return result
+
+    return walk(instance, template, ""), changes
+
+
+def only_wrapped_occurrences(before: Any, after: Any, template: Any) -> Optional[str]:
+    """The invariant: every change is one occurrence becoming a list holding exactly it."""
+    if not isinstance(template, dict):
+        return "/"
+    for path, was, now in differences(before, after):
+        if was is ABSENT or now is ABSENT:
+            return path or "/"
+        if not isinstance(now, list) or len(now) != 1 or now[0] != was:
+            return path or "/"
+        if type(now[0]) is not type(was):
+            return path or "/"
+        _declaration, multiple = child_declaration_at(template, path)
+        if not multiple:
+            return path or "/"
+    return None
+
+
+def unwrap_instance_occurrence(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Take a lone occurrence out of a list its template does not declare as one.
+
+    A child the template declares as holding one value takes the occurrence itself, and a list of
+    one says exactly what the bare occurrence says. A longer list does not: which of several
+    survives is a decision, so a list holding more than one is left as it stands rather than being
+    cut down. An empty list is the model's form for absence under a repeating declaration, and
+    becomes this field's own form for absence.
+    """
+    if not isinstance(template, dict):
+        raise TransformRefused("the template this instance names could not be read")
+    if not isinstance(instance, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def walk(node: Any, container: Any, path: str) -> Any:
+        if not isinstance(node, dict):
+            return node
+        result = copy.deepcopy(node)
+        for name, child, multiple in container_children(container):
+            if name not in result:
+                continue
+            here = f"{path}/{rest.json_pointer_component(name)}"
+            value = result[name]
+            if not multiple and isinstance(value, list) and len(value) <= 1:
+                settled = value[0] if value else empty_instance_value(child, False)
+                result[name] = value = settled
+                changes.append({"path": here, "replaced": f"a list of {len(value) if isinstance(value, list) else 1}",
+                                "wrote": "one value"})
+            if not is_element(child):
+                continue
+            if isinstance(value, list):
+                result[name] = [walk(item, child, f"{here}/{index}")
+                                for index, item in enumerate(value)]
+            elif isinstance(value, dict):
+                result[name] = walk(value, child, here)
+        return result
+
+    return walk(instance, template, ""), changes
+
+
+def only_unwrapped_occurrences(before: Any, after: Any, template: Any) -> Optional[str]:
+    """The invariant: every change is a list of nought or one becoming what it held."""
+    if not isinstance(template, dict):
+        return "/"
+    for path, was, now in differences(before, after):
+        if was is ABSENT or now is ABSENT or not isinstance(was, list) or len(was) > 1:
+            return path or "/"
+        declaration, multiple = child_declaration_at(template, path)
+        if declaration is None or multiple:
+            return path or "/"
+        expected = was[0] if was else empty_instance_value(declaration, False)
+        if now != expected or type(now) is not type(expected):
+            return path or "/"
+    return None
+
+
+def holds_a_literal(definition: Any) -> bool:
+    """Whether the field's rendered schema gives its instance value a ``@value``."""
+    properties = definition.get("properties") if isinstance(definition, dict) else None
+    return isinstance(properties, dict) and "@value" in properties
+
+
+def settle_instance_empty_shape(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Write an absent value in the form its own field takes.
+
+    The model has two forms for absence and they are not interchangeable: ``{"@value": null}`` where
+    the field holds a literal, ``{}`` where it holds an IRI, since ``@id: null`` is not legal
+    JSON-LD. A field that changed from one kind to the other, or an instance built by something that
+    knew only one form, carries the wrong one, and the rendered schema admits only its own — so the
+    instance fails on a value that says nothing either way.
+
+    Three shapes are settled and no others: an empty object where the field holds a literal, a null
+    literal where it holds an IRI, and a null ``@id``. Each says the field is empty and each is
+    replaced by the other way of saying exactly that, so nothing can be lost. A value carrying
+    anything at all is left as it stands, including where its shape disagrees with the declaration:
+    moving content between the two forms is a different repair and a larger claim.
+    """
+    if not isinstance(template, dict):
+        raise TransformRefused("the template this instance names could not be read")
+    if not isinstance(instance, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def visit(value: Any, definition: Any, path: str) -> Any:
+        if not isinstance(value, dict):
+            return value
+        if holds_a_literal(definition):
+            if value != {}:
+                return value
+            settled: dict[str, Any] = {"@value": None}
+            if demands_value_type(definition):
+                datatype = declared_value_type(definition)
+                if datatype is not None:
+                    settled["@type"] = datatype
+        else:
+            if value not in ({"@value": None}, {"@id": None}):
+                return value
+            settled = {}
+        changes.append({"path": path, "replaced": json.dumps(value, sort_keys=True),
+                        "wrote": json.dumps(settled, sort_keys=True)})
+        return settled
+
+    return walk_instance(instance, template, "", visit), changes
+
+
+def only_settled_empty_shapes(before: Any, after: Any, template: Any) -> Optional[str]:
+    """The invariant: every change replaces one stated absence with the form its field takes."""
+    if not isinstance(template, dict):
+        return "/"
+    settled: set[str] = set()
+    for path, _was, _now in differences(before, after):
+        definition, here = declaration_for_value(template, path)
+        if here in settled:
+            continue
+        if definition is None or is_element(definition):
+            return path or "/"
+        old_value, new_value = value_at(before, here), value_at(after, here)
+        if holds_a_literal(definition):
+            wanted: Any = {"@value": None}
+            if demands_value_type(definition) and declared_value_type(definition) is not None:
+                wanted["@type"] = declared_value_type(definition)
+            if old_value != {} or new_value != wanted:
+                return path or "/"
+        else:
+            if old_value not in ({"@value": None}, {"@id": None}) or new_value != {}:
+                return path or "/"
+        settled.add(here)
+    return None
+
+
+def value_at(document: Any, pointer: str) -> Any:
+    """What a document holds at a pointer, or ``None`` where the path does not reach."""
+    current = document
+    for segment in [s for s in pointer.split("/") if s]:
+        name = segment.replace("~1", "/").replace("~0", "~")
+        if isinstance(current, list):
+            if not name.isdigit() or int(name) >= len(current):
+                return None
+            current = current[int(name)]
+        elif isinstance(current, dict):
+            if name not in current:
+                return None
+            current = current[name]
+        else:
+            return None
+    return current
+
+
+def pinned_context_value(entry: Any) -> Any:
+    """The single value a ``@context`` schema entry allows, where it allows exactly one.
+
+    A term is pinned in one of two shapes. A prefix or a property IRI is a string with a
+    one-value ``enum``. A JSON-LD term definition is a small object — ``{"@type": "xsd:string"}``
+    for a literal, ``{"@type": "@id"}`` for a reference — whose own properties are each pinned the
+    same way. Anything else leaves the instance a choice, and a choice is not the template's to make
+    on its behalf.
+    """
+    if not isinstance(entry, dict):
+        return ABSENT
+    values = entry.get("enum")
+    if isinstance(values, list) and len(values) == 1 and isinstance(values[0], str):
+        return values[0]
+    if entry.get("type") != "object":
+        return ABSENT
+    mapped = entry.get("properties")
+    if not isinstance(mapped, dict) or not mapped:
+        return ABSENT
+    built = {}
+    for name, inner in mapped.items():
+        value = pinned_context_value(inner)
+        if value is ABSENT:
+            return ABSENT
+        built[name] = value
+    return built
+
+
+def required_context_entries(container: Any) -> dict[str, Any]:
+    """Each ``@context`` entry a container requires and pins to a single value.
+
+    An instance's ``@context`` carries the prefix declarations the model uses and the JSON-LD term
+    definitions for its own provenance, as well as a property IRI per declared field. The template
+    states all of them: what it requires, and what each may be. Where it admits exactly one value,
+    the entry is the template's to supply rather than the instance's.
+    """
+    properties = container.get("properties") if isinstance(container, dict) else None
+    context = properties.get("@context") if isinstance(properties, dict) else None
+    if not isinstance(context, dict):
+        return {}
+    required = context.get("required")
+    mapped = context.get("properties")
+    if not isinstance(required, list) or not isinstance(mapped, dict):
+        return {}
+    wanted = {}
+    for name in required:
+        value = pinned_context_value(mapped.get(name))
+        if value is not ABSENT:
+            wanted[name] = value
+    return wanted
+
+
+def complete_instance_context(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Give an instance the ``@context`` entries its template requires and states.
+
+    A template requires certain terms in an instance's ``@context`` and pins each to a single
+    permitted IRI: the prefixes the model itself uses, and a property IRI per declared field. An
+    instance written before a term was required simply lacks it, and no amount of content makes up
+    for it, because the schema names it as a missing required property.
+
+    Only an entry the template pins to one value is written, and only where the instance has none.
+    An entry already there is left alone even where it differs — reconciling that is what
+    ``align-instance-context-iris`` is for, and the two are separate so that adding a term never
+    quietly rewrites one.
+    """
+    if not isinstance(template, dict):
+        raise TransformRefused("the template this instance names could not be read")
+    if not isinstance(instance, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def walk(node: Any, container: Any, path: str) -> Any:
+        if not isinstance(node, dict):
+            return node
+        result = copy.deepcopy(node)
+        context = result.get("@context")
+        if isinstance(context, dict):
+            for name, wanted in required_context_entries(container).items():
+                if name not in context:
+                    context[name] = wanted
+                    changes.append({"path": f"{path}/@context/{rest.json_pointer_component(name)}",
+                                    "replaced": None, "wrote": wanted})
+        for name, child, _multiple in container_children(container):
+            if not is_element(child) or name not in result:
+                continue
+            here = f"{path}/{rest.json_pointer_component(name)}"
+            value = result[name]
+            if isinstance(value, list):
+                result[name] = [walk(item, child, f"{here}/{index}")
+                                for index, item in enumerate(value)]
+            elif isinstance(value, dict):
+                result[name] = walk(value, child, here)
+        return result
+
+    return walk(instance, template, ""), changes
+
+
+def only_added_context_entries(before: Any, after: Any, template: Any) -> Optional[str]:
+    """The invariant: every change adds a ``@context`` term the template requires and pins."""
+    if not isinstance(template, dict):
+        return "/"
+    for path, was, now in differences(before, after):
+        head, _sep, name = path.rpartition("/")
+        if was is not ABSENT or not head.endswith("/@context"):
+            return path or "/"
+        container = declaration_at(template, head[: -len("/@context")]) or template
+        wanted = required_context_entries(container)
+        term = name.replace("~1", "/").replace("~0", "~")
+        if term not in wanted or now != wanted[term]:
+            return path or "/"
+    return None
+
+
+def literal_json_types(definition: Any) -> set[str]:
+    """The JSON types a field's rendered schema allows its ``@value`` to take."""
+    properties = definition.get("properties") if isinstance(definition, dict) else None
+    entry = properties.get("@value") if isinstance(properties, dict) else None
+    declared = entry.get("type") if isinstance(entry, dict) else None
+    if isinstance(declared, str):
+        return {declared}
+    if isinstance(declared, list):
+        return {t for t in declared if isinstance(t, str)}
+    return set()
+
+
+def restated_literal(value: Any, allowed: set[str]) -> Any:
+    """The same literal written as the schema's own JSON type, or ``ABSENT`` where it cannot be.
+
+    A number and the digits that spell it are the same literal, and CEDAR's rendered schema pins
+    which of the two an instance carries. The restatement has to survive a round trip: a string
+    becomes a number only where writing that number back gives the string it came from, so nothing
+    is rounded, re-based or silently normalised on the way.
+    """
+    if isinstance(value, bool) or value is None:
+        return ABSENT
+    if isinstance(value, str) and "string" not in allowed and {"number", "integer"} & allowed:
+        text = value.strip()
+        if text != value:
+            return ABSENT
+        try:
+            number: Any = int(text)
+        except ValueError:
+            try:
+                number = float(text)
+            except ValueError:
+                return ABSENT
+        if "integer" in allowed and "number" not in allowed and not isinstance(number, int):
+            return ABSENT
+        return number if str(number) == text else ABSENT
+    if isinstance(value, (int, float)) and "string" in allowed \
+            and not {"number", "integer"} & allowed:
+        return str(value)
+    return ABSENT
+
+
+def restate_instance_literal(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Write a literal as the JSON type its field's schema states.
+
+    CEDAR renders a numeric field's ``@value`` as a JSON number in some templates and as the string
+    that spells it in others, following what the field declares, and an instance written against one
+    rendering does not validate against the other. The content is the same literal either way; only
+    its JSON type differs.
+
+    The restatement must survive a round trip, so ``"826"`` becomes ``826`` and ``826`` becomes
+    ``"826"``, while ``"LSJDK=1213"``, ``"007"`` and ``"1e3"`` are left exactly as they are. A value
+    that cannot be restated without changing what it says is not this repair's to change.
+    """
+    if not isinstance(template, dict):
+        raise TransformRefused("the template this instance names could not be read")
+    if not isinstance(instance, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def visit(value: Any, definition: Any, path: str) -> Any:
+        if not isinstance(value, dict) or "@value" not in value:
+            return value
+        allowed = literal_json_types(definition)
+        if not allowed:
+            return value
+        restated = restated_literal(value["@value"], allowed)
+        if restated is ABSENT:
+            return value
+        settled = dict(value)
+        settled["@value"] = restated
+        changes.append({"path": f"{path}/@value", "replaced": value["@value"], "wrote": restated})
+        return settled
+
+    return walk_instance(instance, template, "", visit), changes
+
+
+def only_restated_literals(before: Any, after: Any, template: Any) -> Optional[str]:
+    """The invariant: every change restates one literal as its schema's type, saying the same thing."""
+    if not isinstance(template, dict):
+        return "/"
+    for path, was, now in differences(before, after):
+        if not path.endswith("/@value") or was is ABSENT or now is ABSENT:
+            return path or "/"
+        definition, _where = declaration_for_value(template, path)
+        if definition is None:
+            return path or "/"
+        if restated_literal(was, literal_json_types(definition)) != now:
+            return path or "/"
+        # The two must spell each other: a restatement that does not round-trip is a different value.
+        if str(was).strip() != str(now).strip():
+            return path or "/"
+    return None
+
+
+def instance_static_names(container: Any) -> set[str]:
+    """The children a container declares that render nothing and hold nothing."""
+    return {name for name, child, _multiple in container_children(container)
+            if isinstance(child, dict) and child.get(AT_TYPE) == STATIC_AT_TYPE}
+
+
+def drop_static_field_from_instance(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Remove a static field an instance was given.
+
+    A static field is a heading, a break or a block of rich text: it renders in the form and holds
+    nothing, so it is not a property of an instance and CEDAR's editor writes none. Where an
+    instance carries one it was copied from the template that made it, and the rendered schema
+    demands of it a ``_content`` the instance has no business holding, so it cannot validate.
+
+    Only a key holding nothing is removed. One that somehow carries content is left alone and
+    reported by the audit instead, because discarding what someone typed is a decision.
+    """
+    if not isinstance(template, dict):
+        raise TransformRefused("the template this instance names could not be read")
+    if not isinstance(instance, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def walk(node: Any, container: Any, path: str) -> Any:
+        if not isinstance(node, dict):
+            return node
+        result = copy.deepcopy(node)
+        for name in instance_static_names(container):
+            if name not in result or carries_a_value(result[name]):
+                continue
+            here = f"{path}/{rest.json_pointer_component(name)}"
+            changes.append({"path": here, "replaced": name, "wrote": None})
+            del result[name]
+            context = result.get("@context")
+            if isinstance(context, dict) and name in context:
+                del context[name]
+        for name, child, _multiple in container_children(container):
+            if not is_element(child) or name not in result:
+                continue
+            here = f"{path}/{rest.json_pointer_component(name)}"
+            value = result[name]
+            if isinstance(value, list):
+                result[name] = [walk(item, child, f"{here}/{index}")
+                                for index, item in enumerate(value)]
+            elif isinstance(value, dict):
+                result[name] = walk(value, child, here)
+        return result
+
+    return walk(instance, template, ""), changes
+
+
+def only_dropped_static_fields(before: Any, after: Any, template: Any) -> Optional[str]:
+    """The invariant: every change removes an empty key the template declares as a static field."""
+    if not isinstance(template, dict):
+        return "/"
+    for path, was, now in differences(before, after):
+        if now is not ABSENT or was is ABSENT:
+            return path or "/"
+        head, _sep, tail = path.rpartition("/")
+        name = tail.replace("~1", "/").replace("~0", "~")
+        if head.endswith("/@context"):
+            # The term maps the name to its property IRI; it goes with the key, not with content.
+            container = declaration_at(template, head[: -len("/@context")]) or template
+        elif carries_a_value(was):
+            return path or "/"
+        else:
+            container = declaration_at(template, head) if head else template
+        if not isinstance(container, dict) or name not in instance_static_names(container):
+            return path or "/"
+    return None
+
+
 REPAIRS = {
     "empty-derived-from": Repair(
         name="empty-derived-from",
@@ -3015,6 +3728,69 @@ REPAIRS = {
         invariant=only_renamed_instance_keys,
         needs_template=True,
         error_pattern=UNDECLARED_KEY_ERROR,
+    ),
+    "stamp-instance-value-type": Repair(
+        name="stamp-instance-value-type",
+        condition="",
+        summary="give a typed literal the datatype its field declares",
+        transform=stamp_instance_value_type,
+        invariant=only_stamped_value_types,
+        needs_template=True,
+        error_pattern=MISSING_CHILD_ERROR,
+    ),
+    "wrap-instance-occurrence": Repair(
+        name="wrap-instance-occurrence",
+        condition="",
+        summary="put a lone occurrence in the list its template declares",
+        transform=wrap_instance_occurrence,
+        invariant=only_wrapped_occurrences,
+        needs_template=True,
+        error_pattern=r"array expected",
+    ),
+    "unwrap-instance-occurrence": Repair(
+        name="unwrap-instance-occurrence",
+        condition="",
+        summary="take a lone occurrence out of a list its template does not declare",
+        transform=unwrap_instance_occurrence,
+        invariant=only_unwrapped_occurrences,
+        needs_template=True,
+        error_pattern=r"object expected",
+    ),
+    "settle-instance-empty-shape": Repair(
+        name="settle-instance-empty-shape",
+        condition="",
+        summary="write an absent value in the form its own field takes",
+        transform=settle_instance_empty_shape,
+        invariant=only_settled_empty_shapes,
+        needs_template=True,
+        error_pattern=r"@value",
+    ),
+    "complete-instance-context": Repair(
+        name="complete-instance-context",
+        condition="",
+        summary="give an instance the @context entries its template requires and states",
+        transform=complete_instance_context,
+        invariant=only_added_context_entries,
+        needs_template=True,
+        error_pattern=MISSING_CHILD_ERROR,
+    ),
+    "restate-instance-literal": Repair(
+        name="restate-instance-literal",
+        condition="",
+        summary="write a literal as the JSON type its field's schema states",
+        transform=restate_instance_literal,
+        invariant=only_restated_literals,
+        needs_template=True,
+        error_pattern=r"expected",
+    ),
+    "drop-static-field-from-instance": Repair(
+        name="drop-static-field-from-instance",
+        condition="",
+        summary="remove a static field an instance was given",
+        transform=drop_static_field_from_instance,
+        invariant=only_dropped_static_fields,
+        needs_template=True,
+        error_pattern=MISSING_CHILD_ERROR,
     ),
     "complete-instance": Repair(
         name="complete-instance",

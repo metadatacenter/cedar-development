@@ -911,6 +911,70 @@ The main conformance gates are `ResourcePermissionModelTest`,
 user and group grants, folder inheritance and precedence, the **Everyone** restriction, REST
 authorization for all artifact types and folders, and ownership-transfer authority and concurrency.
 
+## Authenticated user rate limits
+
+Every authenticated request through `CedarMicroserviceResource.buildRequestContext` checks a user
+quota after resolving its credential and before entering business logic. The shared Jersey feature
+assigns GET, HEAD and OPTIONS to `reads`, and all other methods to `writes`; POST searches therefore
+use the write allowance in this first policy. The user total and operation bucket are checked and
+charged together atomically. Multiple API keys and refreshed browser tokens for one user share the
+same quota across services. Rebuilding a context within the same HTTP request does not charge twice.
+Anonymous handlers retain their existing behavior and do not spend an authenticated user quota.
+
+Defaults live in the packaged `cedar-config-library` resource `cedar-main.yml`. Production may set
+these variables in `$CEDAR_HOME/set-env-internal.sh`; the template there documents them. The CLI
+loads the selected profile. Restart affected microservices to pick up an environment change; a YAML
+or Java change also needs rebuilding the config library and consuming services first.
+
+| Variable suffix (after `CEDAR_RATE_LIMIT_`) | Default | Meaning |
+|---|---|---|
+| `MODE` | `observe` | `off` makes no quota Redis calls; `observe` measures but allows; `enforce` rejects exhausted quotas |
+| `TOTAL_PER_MINUTE`, `TOTAL_BURST` | `720`, `40` | Aggregate allowance across read and write requests |
+| `READS_PER_MINUTE`, `READS_BURST` | `600`, `30` | Read allowance |
+| `WRITES_PER_MINUTE`, `WRITES_BURST` | `120`, `10` | Write allowance |
+| `TOTAL_FAILURE_MODE`, `READS_FAILURE_MODE` | `open`, `open` | Allow when Redis cannot check the quota |
+| `WRITES_FAILURE_MODE` | `closed` | Reject admission with 503 when Redis cannot check the quota in enforcement mode |
+| `REDIS_TIMEOUT_MS` | `100` | Socket/connect timeout and bounded pool-wait timeout, each; these are not one end-to-end deadline |
+| `REDIS_PREFIX` | `CEDAR-RATE-LIMIT` | Usage-key namespace; keep identical on participating services |
+
+Rates are refill rates; burst is the full token-bucket capacity, including the first request.
+The shipped values are observation starting points, not a measured production capacity commitment.
+A Redis failure uses the stricter of the total and selected operation failure policies. Observation
+always allows, including during a Redis failure. Enforced exhaustion returns 429 with `Retry-After`,
+`Cache-Control: no-store`, and a JSON error carrying `status`, `statusCode`, `errorType`, `error`,
+`message`, `policy` and `retryAfterSeconds`. Failure to check a closed policy returns 503 with the
+same shape. Cross-origin clients may read `Retry-After`. Neither response requests token refresh or
+automatic mutation retries; the existing editor error paths retain edits and re-enable saving.
+
+Usage lives in the existing persistent Redis database under
+`CEDAR-RATE-LIMIT:{sha256(user-id)}:<mode>:<policy>`. Redis time drives refill, the two buckets use
+one Lua operation, and idle keys expire only after their allowance would be full. No API keys or
+bearer tokens are stored. Observation and enforcement use separate buckets, so a rolling mode
+change cannot spend the other mode's allowance. This namespace does not isolate Redis outages:
+failed RDB persistence can block quota writes just as it blocks queue writes. Never clear work
+queues to reset quotas. No Redis server upgrade or nginx change is required.
+
+The artifact server marks a request internal only after its existing service-key authentication
+succeeds. Those downstream reads/writes do not spend the user quota again, including worker
+reindex reads. Supplying that header to another server does not grant an exemption. Other calls
+forwarding ordinary user credentials, such as monitor fan-out, count at each authenticated HTTP
+boundary. There is no blanket administrator bypass. User-specific tiers, anonymous-client limits,
+job-admission limits and worker throughput limits are not part of this first implementation.
+
+Metrics are per service and policy, with no per-user metric labels and no extra app-log queue
+messages. On the loopback admin connector, inspect:
+
+```bash
+curl -fsS http://127.0.0.1:9107/metrics |
+  jq '.meters | with_entries(select(.key | startswith("cedar.rateLimits.")))'
+```
+
+`allowed`, `wouldReject`, `rejected`, `unavailable`, `failedOpen`, and `failedClosed` expose counts
+and rates. `internal` counts trusted downstream exemptions. These meters reset on process restart;
+Redis allowances are shared and survive a service restart. Inspect all participating services,
+including errors, before enabling enforcement. No new app-log event is emitted per quota decision.
+The normal backend-free suites select `MODE=off`; dedicated tests use an isolated embedded Redis.
+
 ## The Redis queues, and where failed permission events go
 
 Five persistent queues carry work between services. Their names are set in
@@ -3175,6 +3239,27 @@ Which questions the sheet can even ask depends on what is settled already: it ap
 mapping to each sampled instance before reading it, so the inside of an element comes into view only
 once the element itself has a declaration to be read against. Answering an element rename therefore
 uncovers a fresh round of questions about its children rather than finishing it.
+
+Seven repairs settle an instance value that is the wrong shape rather than the wrong content, each
+reading the answer off the declaration so none of them needs an owner.
+`stamp-instance-value-type` gives a typed literal the datatype its field declares, since CEDAR
+renders a numeric or temporal field with `@type` among the properties its value must carry — the
+model's own `EmptyFieldInstances` supplies the defaults, `xsd:decimal` for a numeric field naming
+none and `xsd:dateTime` for a temporal one. `wrap-instance-occurrence` and
+`unwrap-instance-occurrence` move one occurrence into the list a repeating child declares, and a
+list of nought or one back out again; a longer list is left alone, because which of several survives
+is a decision. `settle-instance-empty-shape` writes an absent value in its own field's form,
+`{"@value": null}` for a literal and `{}` for an IRI, and touches only a value that already says
+nothing. `complete-instance-context` writes the `@context` entries a template requires and pins,
+whether a property IRI or a JSON-LD term definition such as `{"@type": "xsd:string"}`.
+`restate-instance-literal` writes a literal as the JSON type its schema states, but only where the
+restatement spells the original back, so `826` and `"826"` are interchangeable while `"007"` and
+`"LSJDK=1213"` are left as they stand. `drop-static-field-from-instance` removes a heading or a
+break an instance was given, which renders nothing and holds nothing.
+
+Each invariant is built on an exhaustive walk of the two documents rather than on the transform's
+own traversal, so a change anywhere — at any depth, in a key neither rule expected to touch — is
+reported and has to be licensed before the write proceeds.
 
 **Repairs compose, and for some artifacts they must.** A child identifier the server would otherwise
 mint makes it refuse a verbatim write outright, so an artifact carrying that defect alongside another
