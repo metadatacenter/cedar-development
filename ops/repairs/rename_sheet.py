@@ -729,6 +729,7 @@ def write_decisions(studies, written):
             prefix = found["at"].get(stale, "")
             comparable = [o for o in options
                           if found["declaredValues"].get(declared_path(prefix, o))]
+            elements_offered = False
             lines += ["Answers:", ""]
             for letter, choice in letters:
                 if choice == "delete":
@@ -743,13 +744,15 @@ def write_decisions(studies, written):
                             if values else " — no example values to show")
                     mark = "  ← closest on wording" if choice == guess else ""
                     if candidate_kind(found, prefix, choice) == "element":
-                        tail = (" — **an element, not a field.** A value cannot be renamed into "
-                                "one: it would have to move down a level into a new occurrence of "
-                                "it, which is a change of shape rather than of name and is not "
-                                "something this repair does. Answer it only to record where the "
-                                "value belongs" + (tail if values else ""))
+                        elements_offered = True
+                        tail = " — **an element, not a field**" + (tail if values else "")
                     lines.append(f"- **{letter}.** `{choice}`{tail}{mark}")
             lines += ["- **Z.** something else: ______________________", ""]
+            if elements_offered:
+                lines += ["An answer marked *an element* records where the value belongs without "
+                          "moving it. A value cannot be renamed into an element: it would have to "
+                          "go down a level into a new occurrence of one, which changes the shape "
+                          "rather than the name, and no repair does that today.", ""]
             if options and not comparable:
                 lines += ["This template has no instances that validate, so there is nothing to "
                           "compare the candidates against. The choice rests on what the field "
