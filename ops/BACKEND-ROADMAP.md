@@ -780,7 +780,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
 
 - **21. Take the dependency upgrades that need code changes.** The versions that could move without
   consequence have moved. What stayed behind stayed deliberately, and it separates into work to do,
-  versions that follow something else, and versions upstream has not released.
+  versions that follow something else, and versions whose newest release is not a final.
 
   **The upgrades that need code or test changes.** Each of these is a change to make rather than a
   version to raise, which is why none of them rode along with a sweep.
@@ -790,13 +790,17 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
     this one is settled by differential testing against production artifacts, not by a green build.
   - **OWLAPI 4.5.9 to 5.5.1.** Ontology semantics, where a behavioural difference does not show up
     in a compile.
+  - **jaxb2-maven-plugin 4.1.0 to 4.2.0.** A code generator whose only consumer is
+    `cedar-cadsr-tools`, so what has to be reviewed is the sources it emits rather than the version.
 
   **Versions that follow a locked server or framework.** Six sit here: the Neo4j driver 5.28.14 to
-  6.2.1, MySQL Connector/J 8.4.0 to 26.7.0, the Mongo driver 5.1.2 to 5.11.0, the OpenSearch client
+  6.2.1, MySQL Connector/J 8.4.0 to 26.7.0, the Mongo driver 5.1.2 to 5.11.1, the OpenSearch client
   2.19.2 to 3.8.0, the Lucene pin 9.12.1 to 10.5.1, and the Neo4j test harness 5.3.0 to 2026.07.1.
   Client libraries are free to move in general, but a driver crossing a major has to be proven
   against the pinned server it talks to, so these are sequenced behind item 4 rather than taken on
-  their own. Keycloak 22.0.4 to 25.0.3 is item 4's own, and RESTEasy 6.2.4 to 7.0.4 is held by the Keycloak
+  their own. The Mongo driver is the exception: 5.11.1 stays inside major 5, so nothing about it
+  needs proving against the pinned server, and it is grouped here only to move with that server's
+  own upgrade. Keycloak 22.0.4 to 25.0.3 is item 4's own, and RESTEasy 6.2.4 to 7.0.4 is held by the Keycloak
   client stack, which items 3 and 15 own.
 
   Embedded Mongo 4.20.0 to 5.0.0 belongs here too, and it is the deployed Mongo it follows rather
@@ -809,28 +813,42 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   Taking the upgrade therefore means running the suites against a different major from the deployed
   5.0.31, which is the one thing `EmbeddedCedarMongo` exists to avoid. It moves with item 4.
 
-  Logback 1.5.33 to 1.6.3 belongs here rather than among the upgrades to make, and SLF4J is not
-  what holds it: every 1.6 release builds against slf4j 2.0.18, which the estate already carries.
-  Dropwizard does. 1.5.33 is Dropwizard 5.0.2's own pin, which `cedar-parent` mirrors, and raising
-  it alone fails before a test runs — `LogbackAccessRequestLayout` reads `DEFAULT_CONVERTER_MAP`,
-  which logback 1.6 removed, so every Dropwizard-booting suite dies in a class initializer.
-  `mvn test -Dlogback.version=1.6.3` in a server module reproduces it. Dropwizard 5.0.2 is the
-  current release, so there is nowhere to move yet; logback, logback-access 2.0.12 and
-  logback-throttling-appender 1.5.3 travel together when Dropwizard ships a line carrying them.
+  Logback 1.6 belongs here rather than among the upgrades to make, and SLF4J is not what holds it:
+  every 1.6 release builds against slf4j 2.0.18, which the estate already carries. Dropwizard does.
+  Raising logback to 1.6 fails before a test runs — `LogbackAccessRequestLayout` reads
+  `DEFAULT_CONVERTER_MAP`, which logback 1.6 removed, so every Dropwizard-booting suite dies in a
+  class initializer. `mvn test -Dlogback.version=1.6.3` in a server module reproduces it, and an
+  enforcer rule in `cedar-parent` now fails the build there rather than inside a test JVM, where
+  the error names a logback-access class for a field that lives in logback-classic.
+
+  What the hold costs is only what 1.6 itself carries, because the 1.5 maintenance line is still
+  open and `cedar-parent` runs on it, ahead of the 1.5.33 that Dropwizard 5.0.2 pins.
+  logback-access is held by its own build rather than by that rule: its 2.0.15 release compiles
+  against logback-core 1.6.3, so it cannot move while 1.6 is banned. Both wait on Dropwizard
+  shipping a line built against 1.6.
 
   **Versions that follow whatever pulls them in.** The transitive block exists so that every module
   resolves one version of an artifact nothing here depends on directly, which makes these five
-  nobody's choice to raise: HK2 locator 3.0.6 to 4.0.2, Jandex 2.4.3 to 3.3.1, Netty 4.1.115 to
-  4.2.17, protobuf-java 3.25.5 to 4.36.1 and Reactor Core 3.5.20 to 3.8.7. Each belongs to a
+  nobody's choice to raise: HK2 locator 3.0.6 to 4.0.2, Jandex 2.4.3 to 3.3.1, Netty 4.1.138 to
+  4.2.18, protobuf-java 3.25.5 to 4.36.1 and Reactor Core 3.5.20 to 3.8.7. Each belongs to a
   framework above it, so each moves when Jersey, Hibernate, the Neo4j driver or OpenSearch moves.
   Raising one on its own would pin a version its owner does not expect.
 
-  **Versions that are not released.** These wait on upstream to ship a final: HttpCore 5.5-beta2 and
-  HttpClient 5.7-alpha1, Hibernate 8.0.0.Beta1, Jedis 8.1.0-beta1, SLF4J 2.1.0-alpha1, Log4j
-  3.0.0-beta2, Jersey 5.0.0-M1, Angus Activation 2.1.0-M1, the Jakarta activation, persistence,
-  servlet, validation and XML binding milestones, and the Maven 4.0.0 betas of Clean, Compiler,
-  Deploy, Install, Jar, Resources and Source, with Site at a milestone. The old javax
-  jaxb-api's only newer version is a 2018 build that was never finalized, so it stays too.
+  **Versions whose newest release is not a final.** These have no final to move to: HttpCore
+  5.5-beta2 and HttpClient 5.7-alpha1, Hibernate 8.0.0.Beta1, Jedis 8.1.0-beta1, SLF4J
+  2.1.0-alpha1, Log4j 3.0.0-beta2, Jersey 5.0.0-M1, Angus Activation 2.1.0-M1, and the Jakarta
+  activation, persistence, servlet, validation and XML binding milestones. The old javax jaxb-api's
+  only newer version is a 2018 build that was never finalized, so it stays too.
+
+  Read that list with suspicion, because the report it came from hides releases.
+  `versions:display-property-updates` names only the newest version an artifact has, so a
+  pre-release at the head conceals every stable release behind it. Seven Maven plugins sat in this
+  group behind 4.0.0 betas, and Site behind a milestone, until each was checked against the
+  published metadata and turned out to have a current stable release — which is how the compiler
+  plugin reached 3.16.0 from a 2018 build, and Site 3.22.0. Every entry above was gathered the same
+  way and is unverified in the same way. Read an artifact's
+  `maven-metadata.xml`, or `versions:display-plugin-updates`, which reports the newest release a
+  given Maven version can actually use, before concluding that something cannot move.
 
   Verifying any of this locally is unreliable, and the cause is worth knowing before an upgrade is
   blamed for it. Several suites bind fixed ports rather than asking the operating system for a free
