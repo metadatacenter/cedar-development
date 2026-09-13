@@ -438,12 +438,14 @@ on a commit. Inside the gate it would break an unrelated pull request with an er
 its author cannot fix there, and would teach people to expect a red gate for reasons
 that are not theirs.
 
-A root `npm audit` reports **3**, all moderate: `@angular/cli` and the two
-packages reached through it, `@hono/node-server` and `@modelcontextprotocol/sdk`.
-It reported 11 until `@angular-devkit/build-angular` was dropped — the webpack
-toolchain no build target had named since the move to `@angular/build` — which
-took every `high` with it, along with 427 packages. `npm run audit:prod` reports
-0, and that is the number that describes what ships.
+A root `npm audit` reports **0**, and so does `npm run audit:prod`. It reported 11
+until `@angular-devkit/build-angular` was dropped — the webpack toolchain no build
+target had named since the move to `@angular/build` — which took every `high` with
+it, along with 427 packages. The three moderates that survived that, against
+`@angular/cli` and the two packages reached through it, `@hono/node-server` and
+`@modelcontextprotocol/sdk`, closed when the Angular toolchain moved to 22.1.8.
+Expect the root number to move again on the next disclosure; `npm run audit:prod`
+is the one that describes what ships.
 
 **Never run `npm audit fix --force` here.** npm's idea of fixing the Angular
 tooling is to walk it backwards: it proposed `@angular/cli@21.0.4` and
