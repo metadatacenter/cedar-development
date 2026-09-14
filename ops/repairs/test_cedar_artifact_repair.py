@@ -866,6 +866,182 @@ class SettleInstanceTermLabelTest(unittest.TestCase):
         self.assertEqual(second, [])
 
 
+class DeclareInstanceFieldTest(unittest.TestCase):
+    """Where a field was added to the instances and never to the template, declaring it is the repair."""
+
+    def setUp(self):
+        REPAIR.DECLARED_FIELDS.clear()
+        self.tid = BASE + "templates/t-declare"
+        self.property_iri = "https://schema.metadatacenter.org/properties/p-1"
+        self.field_id = BASE + "template-fields/f-1"
+
+    def tearDown(self):
+        REPAIR.DECLARED_FIELDS.clear()
+
+    def controlled(self):
+        node = child()
+        node["@id"] = BASE + "template-fields/f-controlled"
+        node["properties"] = {"@id": {"type": "string", "format": "uri"},
+                              "@type": {"type": "string"},
+                              "rdfs:label": {"type": ["string", "null"]}}
+        node["_valueConstraints"] = {"branches": [{"acronym": "BAO"}], "ontologies": [],
+                                     "classes": [], "valueSets": [], "requiredValue": True}
+        return node
+
+    def literal(self):
+        node = child()
+        node["@id"] = BASE + "template-fields/f-literal"
+        node["_valueConstraints"] = {"requiredValue": True}
+        return node
+
+    def tmpl(self, children):
+        document = template(children, root=self.tid)
+        document["required"] = list(children)
+        document["_ui"] = {"order": list(children), "propertyLabels": {k: k for k in children},
+                           "propertyDescriptions": {k: "" for k in children}}
+        return document
+
+    def declaration(self, **extra):
+        stated = {"name": "Comparator", "description": "What performance is compared against",
+                  "kind": "literal", "multiple": True,
+                  "propertyIri": self.property_iri, "fieldId": self.field_id}
+        stated.update(extra)
+        return stated
+
+    def test_the_field_is_declared_with_the_identifiers_the_decision_states(self):
+        REPAIR.DECLARED_FIELDS[self.tid] = [self.declaration()]
+        before = self.tmpl({"Name": self.literal()})
+        after, changes = REPAIR.declare_instance_field(before)
+        declared = after["properties"]["Comparator"]
+        self.assertEqual(declared["type"], "array")
+        self.assertEqual(declared["items"]["@id"], self.field_id)
+        self.assertEqual(declared["items"]["schema:name"], "Comparator")
+        self.assertEqual(after["properties"]["@context"]["properties"]["Comparator"],
+                         {"enum": [self.property_iri]})
+        self.assertEqual(changes[0]["path"], "/properties/Comparator")
+        self.assertIsNone(REPAIR.only_declared_fields(before, after))
+
+    def test_a_field_that_may_not_repeat_is_declared_without_an_array(self):
+        REPAIR.DECLARED_FIELDS[self.tid] = [self.declaration(multiple=False)]
+        before = self.tmpl({"Name": self.literal()})
+        after, _changes = REPAIR.declare_instance_field(before)
+        self.assertEqual(after["properties"]["Comparator"]["@id"], self.field_id)
+        self.assertIsNone(REPAIR.only_declared_fields(before, after))
+
+    def test_the_field_is_required_ordered_and_labelled(self):
+        REPAIR.DECLARED_FIELDS[self.tid] = [self.declaration()]
+        before = self.tmpl({"Name": self.literal()})
+        after, _changes = REPAIR.declare_instance_field(before)
+        self.assertEqual(after["required"], ["Name", "Comparator"])
+        self.assertEqual(after["_ui"]["order"], ["Name", "Comparator"])
+        self.assertEqual(after["_ui"]["propertyLabels"]["Comparator"], "Comparator")
+        self.assertEqual(after["_ui"]["propertyDescriptions"]["Comparator"],
+                         "What performance is compared against")
+
+    def test_a_controlled_field_takes_the_classes_the_decision_names(self):
+        classes = [{"label": "Gain", "uri": "http://example.org/Gain", "source": "NCIT",
+                    "type": "OntologyClass", "prefLabel": "Gain"}]
+        REPAIR.DECLARED_FIELDS[self.tid] = [self.declaration(name="Message framing", kind="iri",
+                                                             classes=classes)]
+        before = self.tmpl({"Term": self.controlled(), "Name": self.literal()})
+        after, _changes = REPAIR.declare_instance_field(before)
+        declared = after["properties"]["Message framing"]["items"]
+        self.assertIn("@id", declared["properties"])
+        self.assertNotIn("@value", declared["properties"])
+        self.assertEqual(declared["_valueConstraints"]["classes"], classes)
+        self.assertEqual(declared["_valueConstraints"]["branches"], [])
+        self.assertIsNone(REPAIR.only_declared_fields(before, after))
+
+    def test_a_declared_field_never_inherits_a_sibling_requirement(self):
+        REPAIR.DECLARED_FIELDS[self.tid] = [self.declaration()]
+        before = self.tmpl({"Name": self.literal()})
+        after, _changes = REPAIR.declare_instance_field(before)
+        constraints = after["properties"]["Comparator"]["items"]["_valueConstraints"]
+        self.assertIs(constraints["requiredValue"], False)
+
+    def test_a_sibling_of_the_wrong_kind_is_not_followed(self):
+        REPAIR.DECLARED_FIELDS[self.tid] = [self.declaration(kind="iri", classes=[])]
+        before = self.tmpl({"Name": self.literal()})
+        with self.assertRaises(REPAIR.TransformRefused):
+            REPAIR.declare_instance_field(before)
+
+    def test_a_field_already_declared_is_left_exactly_as_it_is(self):
+        REPAIR.DECLARED_FIELDS[self.tid] = [self.declaration(name="Name")]
+        before = self.tmpl({"Name": self.literal()})
+        after, changes = REPAIR.declare_instance_field(before)
+        self.assertEqual(changes, [])
+        self.assertEqual(after, before)
+
+    def test_a_template_not_named_changes_nothing(self):
+        before = self.tmpl({"Name": self.literal()})
+        after, changes = REPAIR.declare_instance_field(before)
+        self.assertEqual(changes, [])
+        self.assertEqual(after, before)
+
+    def test_a_declaration_missing_an_identifier_is_refused(self):
+        for absent in ("name", "kind", "propertyIri", "fieldId"):
+            with self.subTest(absent=absent):
+                stated = self.declaration()
+                stated[absent] = ""
+                REPAIR.DECLARED_FIELDS[self.tid] = [stated]
+                with self.assertRaises(REPAIR.TransformRefused):
+                    REPAIR.declare_instance_field(self.tmpl({"Name": self.literal()}))
+
+    def test_a_declaration_stating_an_unknown_kind_is_refused(self):
+        REPAIR.DECLARED_FIELDS[self.tid] = [self.declaration(kind="element")]
+        with self.assertRaises(REPAIR.TransformRefused):
+            REPAIR.declare_instance_field(self.tmpl({"Name": self.literal()}))
+
+    def test_a_declaration_naming_something_the_repair_does_not_write_is_refused(self):
+        REPAIR.DECLARED_FIELDS[self.tid] = [dict(self.declaration(), hidden=True)]
+        with self.assertRaises(REPAIR.TransformRefused):
+            REPAIR.declare_instance_field(self.tmpl({"Name": self.literal()}))
+
+    def test_the_invariant_catches_an_existing_field_being_altered(self):
+        REPAIR.DECLARED_FIELDS[self.tid] = [self.declaration()]
+        before = self.tmpl({"Name": self.literal()})
+        after, _changes = REPAIR.declare_instance_field(before)
+        after["properties"]["Name"]["_valueConstraints"]["requiredValue"] = False
+        self.assertIsNotNone(REPAIR.only_declared_fields(before, after))
+
+    def test_the_invariant_catches_a_field_declared_that_was_not_asked_for(self):
+        REPAIR.DECLARED_FIELDS[self.tid] = [self.declaration()]
+        before = self.tmpl({"Name": self.literal()})
+        after, _changes = REPAIR.declare_instance_field(before)
+        after["properties"]["Sneaked"] = self.literal()
+        self.assertIsNotNone(REPAIR.only_declared_fields(before, after))
+
+    def test_the_invariant_catches_a_context_entry_that_is_not_the_stated_property(self):
+        REPAIR.DECLARED_FIELDS[self.tid] = [self.declaration()]
+        before = self.tmpl({"Name": self.literal()})
+        after, _changes = REPAIR.declare_instance_field(before)
+        after["properties"]["@context"]["properties"]["Comparator"] = {"enum": ["http://elsewhere"]}
+        self.assertIsNotNone(REPAIR.only_declared_fields(before, after))
+
+    def test_the_invariant_catches_a_requirement_being_dropped(self):
+        REPAIR.DECLARED_FIELDS[self.tid] = [self.declaration()]
+        before = self.tmpl({"Name": self.literal(), "Title": self.literal()})
+        after, _changes = REPAIR.declare_instance_field(before)
+        after["required"] = ["Name", "Comparator"]
+        self.assertIsNotNone(REPAIR.only_declared_fields(before, after))
+
+    def test_the_invariant_catches_the_order_being_rewritten(self):
+        REPAIR.DECLARED_FIELDS[self.tid] = [self.declaration()]
+        before = self.tmpl({"Name": self.literal(), "Title": self.literal()})
+        after, _changes = REPAIR.declare_instance_field(before)
+        after["_ui"]["order"] = ["Comparator", "Title", "Name"]
+        self.assertIsNotNone(REPAIR.only_declared_fields(before, after))
+
+    def test_the_repair_is_settled_after_one_pass(self):
+        REPAIR.DECLARED_FIELDS[self.tid] = [self.declaration()]
+        before = self.tmpl({"Name": self.literal()})
+        after, first = REPAIR.declare_instance_field(before)
+        again, second = REPAIR.declare_instance_field(after)
+        self.assertTrue(first)
+        self.assertEqual(second, [])
+        self.assertEqual(again, after)
+
+
 class FreeControlledFieldTest(unittest.TestCase):
     """Where the terminology has no term for what people write, the template is what needs changing."""
 

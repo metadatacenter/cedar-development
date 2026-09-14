@@ -3294,6 +3294,35 @@ today — because a term-holding instance that is already invalid costs nothing.
 template one field had a single term-holder that was already invalid, so freeing it was free, while
 the other had 267 valid ones, so freeing it would have destroyed more than it repaired.
 
+`declare-instance-field` answers a third case: the instances carry a key the template never declared
+at all. A template's `additionalProperties` admits a plain literal and nothing else, so an
+undeclared key holding a term, or holding a list, cannot validate however the instance is written.
+Two quite different things produce such a key, and they need opposite repairs. Where a field was
+renamed, the value belongs under the new name and `rename-instance-keys` moves it; where a field was
+added to the instances and never to the template, the template is behind and declaring the field is
+the repair. Only the owner knows which applies, which is why the declarations come through
+`--declare-fields`.
+
+A declaration states the field's name, whether it holds a term or free text, whether it may repeat,
+and the two identifiers it will be written under — its own `@id` and the property IRI its
+`@context` entry will name. The identifiers are stated rather than minted so that the file says
+exactly what will be written and a second run changes nothing. The declaration's boilerplate is
+copied from a field the template already declares of the same kind, so the new field is consistent
+with the template it joins rather than with whatever the tool was written against; a template with
+no sibling of that kind is refused rather than guessed at.
+
+**A declared field is required to be present, so the change reaches every instance, including the
+ones that validate today.** Those hold the new field empty, which `complete-instance` writes, and
+they have to be repaired in the same campaign or the template change leaves them invalid. Measure
+both populations before writing anything: on CEDAR's `message template` the four new fields made all
+58 invalid instances valid and took all 28 valid ones down to zero until they were completed, so the
+job was 86 instance writes, not 58.
+
+Weigh a proposed declaration against the valid instances as carefully as a proposed freeing. The
+same template's `Visual display` had been answered as a rename into the declared `Default display`,
+and the valid instances refuted it: they hold plain text there — `line chart`, `text-only` — so
+`Default display` has to stay free text, and `Visual display` is a controlled field of its own.
+
 **The order a chain names its repairs in is part of the repair.** `drop-superseded-instance-keys`
 removes a key whose value the instance already carries under a name the template declares, and it can
 only see that duplicate once the value is under the declared name — which is what

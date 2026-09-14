@@ -68,6 +68,7 @@ DERIVED_FROM = "pav:derivedFrom"
 AT_ID = "@id"
 AT_TYPE = "@type"
 ELEMENT_AT_TYPE = "https://schema.metadatacenter.org/core/TemplateElement"
+FIELD_AT_TYPE = "https://schema.metadatacenter.org/core/TemplateField"
 # The path segment an identifier carries for each kind of child. A static field is a field here: only
 # the element case picks a different prefix, which mirrors ModelUtil.childResourceType.
 ELEMENT_SEGMENT = "template-elements/"
@@ -156,7 +157,7 @@ MODEL_VERSION_KEY = "schema:schemaVersion"
 KIND_WORD = {
     "https://schema.metadatacenter.org/core/Template": "template",
     ELEMENT_AT_TYPE: "element",
-    "https://schema.metadatacenter.org/core/TemplateField": "field",
+    FIELD_AT_TYPE: "field",
     STATIC_AT_TYPE: "field",
 }
 
@@ -3960,6 +3961,159 @@ def only_freed_controlled_fields(before: Any, after: Any) -> Optional[str]:
     return None
 
 
+# Fields an operator has decided a template should declare, keyed by template IRI. Supplied through
+# --declare-fields, never inferred: instances carry keys a template does not declare for two quite
+# different reasons, and only its owner knows which applies. Where the key is a field that was
+# renamed, the answer is a rename; where the field was added to the instances and never to the
+# template, the answer is to declare it, and that is what this carries out.
+#
+# Each declaration names the field, what it holds, whether it may repeat, and the two identifiers it
+# will be written under. The identifiers are stated rather than minted so that the file says exactly
+# what will be written and a second run changes nothing.
+DECLARED_FIELDS: dict[str, list[dict[str, Any]]] = {}
+
+DECLARATION_KEYS = {"name", "description", "kind", "multiple", "classes", "propertyIri", "fieldId"}
+LITERAL_VALUE_PROPERTIES = {"@value", "@type", "rdfs:label"}
+
+
+def field_model(declarations: dict, kind: str) -> Optional[dict]:
+    """A field this template already declares of the kind wanted, to take the boilerplate from.
+
+    A field declaration carries more than the decision behind it: a ``@context`` block, a schema
+    version, provenance, the shape its value may take. Copying a sibling keeps the new field
+    consistent with the template it joins rather than with whatever the tool was written against.
+    The choice is by name so that it does not depend on key order.
+    """
+    for name in sorted(k for k in declarations if isinstance(declarations.get(k), dict)):
+        entry = declarations[name]
+        holder = entry.get("items") if "items" in entry else entry
+        if not isinstance(holder, dict) or holder.get(AT_TYPE) != FIELD_AT_TYPE:
+            continue
+        properties = holder.get("properties")
+        if not isinstance(properties, dict):
+            continue
+        controlled = "@id" in properties and "@value" not in properties
+        if (kind == "iri") == controlled:
+            return holder
+    return None
+
+
+def declared_field(model: dict, declaration: dict) -> dict:
+    """One field declaration, built from a sibling's boilerplate and this declaration's decision."""
+    field = copy.deepcopy(model)
+    field[AT_ID] = declaration["fieldId"]
+    field["schema:name"] = declaration["name"]
+    field["schema:description"] = declaration.get("description") or ""
+    field["title"] = f"{declaration['name']} field schema"
+    field["description"] = f"{declaration['name']} field schema"
+    field.pop("skos:prefLabel", None)
+    field.pop("skos:altLabel", None)
+    if declaration["kind"] == "iri":
+        field["_valueConstraints"] = {"requiredValue": False, "ontologies": [], "valueSets": [],
+                                      "classes": copy.deepcopy(declaration.get("classes") or []),
+                                      "branches": [], "multipleChoice": False}
+    else:
+        field["_valueConstraints"] = {"requiredValue": False}
+    return field
+
+
+def declare_instance_field(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Declare a field the template's instances already carry.
+
+    An instance may hold a key its template never declared, and the template's own
+    ``additionalProperties`` decides what happens next: it admits a plain literal and nothing else,
+    so a key holding a term, or a list, cannot validate however the instance is written. Where the
+    field is real and only the template is behind, declaring it is the repair.
+
+    A declared field is required to be present, so every instance of the template gains the key,
+    including the ones that validate today. Those hold it empty, which ``complete-instance`` writes,
+    and they must be repaired in the same campaign or the template change leaves them invalid.
+    """
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    wanted = DECLARED_FIELDS.get(artifact.get(AT_ID) or "") or []
+    if not wanted:
+        return copy.deepcopy(artifact), []
+    result = copy.deepcopy(artifact)
+    declarations = result.get("properties")
+    if not isinstance(declarations, dict):
+        raise TransformRefused("the artifact declares no properties")
+    context = declarations.get("@context")
+    if not isinstance(context, dict) or not isinstance(context.get("properties"), dict):
+        raise TransformRefused("the artifact declares no @context properties")
+    required = result.get("required")
+    if not isinstance(required, list):
+        raise TransformRefused("the artifact states no required properties")
+    interface = result.get("_ui")
+    if not isinstance(interface, dict) or not isinstance(interface.get("order"), list):
+        raise TransformRefused("the artifact states no field order")
+    changes: list[dict[str, Any]] = []
+    for declaration in wanted:
+        if not isinstance(declaration, dict) or not DECLARATION_KEYS.issuperset(declaration):
+            raise TransformRefused("a declaration names something this repair does not write")
+        for key in ("name", "kind", "propertyIri", "fieldId"):
+            if not declaration.get(key):
+                raise TransformRefused(f"a declaration states no {key}")
+        if declaration["kind"] not in ("iri", "literal"):
+            raise TransformRefused("a declaration states a kind that is neither iri nor literal")
+        name = declaration["name"]
+        if name in declarations:
+            continue          # already declared; saying so twice is not a change
+        model = field_model(declarations, declaration["kind"])
+        if model is None:
+            raise TransformRefused(f"the template declares no {declaration['kind']} field to follow")
+        field = declared_field(model, declaration)
+        declarations[name] = ({"type": "array", "minItems": 1, "items": field}
+                              if declaration.get("multiple") else field)
+        context["properties"][name] = {"enum": [declaration["propertyIri"]]}
+        required.append(name)
+        interface["order"].append(name)
+        for place, value in (("propertyLabels", name),
+                             ("propertyDescriptions", declaration.get("description") or "")):
+            if isinstance(interface.get(place), dict):
+                interface[place][name] = value
+        wrote = "a controlled field" if declaration["kind"] == "iri" else "a free-text field"
+        changes.append({"path": f"/properties/{rest.json_pointer_component(name)}",
+                        "replaced": None, "wrote": wrote})
+    return result, changes
+
+
+def only_declared_fields(before: Any, after: Any) -> Optional[str]:
+    """The invariant: the named fields were declared, and nothing the template already said moved."""
+    if not isinstance(before, dict) or not isinstance(after, dict):
+        return "/"
+    wanted = [d for d in (DECLARED_FIELDS.get(before.get(AT_ID) or "") or [])
+              if isinstance(d, dict) and d.get("name")
+              and d["name"] not in (before.get("properties") or {})]
+    names = [d["name"] for d in wanted]
+    by_name = {d["name"]: d for d in wanted}
+    if len(set(names)) != len(names):
+        return "/properties"
+    for path, was, now in differences(before, after):
+        parts = [p.replace("~1", "/").replace("~0", "~") for p in path.split("/") if p]
+        if parts[:1] == ["properties"] and parts[1:2] and parts[1] in by_name and len(parts) == 2:
+            if was is not ABSENT or not isinstance(now, dict):
+                return path
+        elif parts[:3] == ["properties", "@context", "properties"] and len(parts) == 4:
+            declaration = by_name.get(parts[3])
+            if declaration is None or was is not ABSENT \
+                    or now != {"enum": [declaration["propertyIri"]]}:
+                return path
+        elif parts == ["required"]:
+            if not isinstance(was, list) or now != was + names:
+                return path
+        elif parts == ["_ui", "order"]:
+            if not isinstance(was, list) or now != was + names:
+                return path
+        elif parts[:2] in (["_ui", "propertyLabels"], ["_ui", "propertyDescriptions"]) \
+                and len(parts) == 3 and parts[2] in by_name:
+            if was is not ABSENT:
+                return path
+        else:
+            return path or "/"
+    return None
+
+
 REPAIRS = {
     "empty-derived-from": Repair(
         name="empty-derived-from",
@@ -4021,6 +4175,14 @@ REPAIRS = {
         invariant=only_unwrapped_occurrences,
         needs_template=True,
         error_pattern=OBJECT_EXPECTED_ERROR,
+    ),
+    "declare-instance-field": Repair(
+        name="declare-instance-field",
+        condition="",
+        summary="declare a field the template's instances already carry",
+        transform=declare_instance_field,
+        invariant=only_declared_fields,
+        needs_template=False,
     ),
     "free-controlled-field": Repair(
         name="free-controlled-field",
@@ -4581,6 +4743,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--mapping",
                         help="JSON of confirmed renames, {templateId: {oldKey: newKey}}, which "
                              "rename-instance-keys applies; nothing is renamed without it")
+    parser.add_argument("--declare-fields",
+                        help="JSON: template IRI -> the field declarations to add, for "
+                             "declare-instance-field; nothing is declared without it")
     parser.add_argument("--free-fields",
                         help="JSON of fields to make free text, {templateId: [fieldName]}, which "
                              "free-controlled-field applies; nothing is freed without it")
@@ -4713,7 +4878,8 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     for flag, supplied, into in (("--mapping", arguments.mapping, RENAMES),
                                  ("--terms", arguments.terms, TERMS),
-                                 ("--free-fields", arguments.free_fields, FREE_FIELDS)):
+                                 ("--free-fields", arguments.free_fields, FREE_FIELDS),
+                                 ("--declare-fields", arguments.declare_fields, DECLARED_FIELDS)):
         if not supplied:
             continue
         try:
