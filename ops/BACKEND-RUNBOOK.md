@@ -111,6 +111,15 @@ the command says so and starts the applications only. To put fresh binaries behi
 `cedarcli native restart` with no arguments is the command; `start` adopts what is already up rather
 than replacing it.
 
+Start waits for what it launched to serve, and says so. Infrastructure is waited for first, because
+a microservice reaches Neo4j, Mongo and Keycloak while it boots. The applications are then launched
+together and polled as a set, so the wait costs the slowest one rather than the sum of all of them;
+each is reported as `ready <name>` when it arrives, and anything that never does is named with the
+last lines of its log and removed rather than left respawning. `CEDAR_START_READY_TIMEOUT` bounds
+the set, 240 seconds by default, and `CEDAR_HEALTH_PROBE_TIMEOUT` bounds one probe, 5 seconds by
+default — long enough for terminology, whose health report is cached and takes a couple of seconds
+to rebuild once it lapses.
+
 ## The containerized stack
 
 An alternative to the native bring-up: the same fifteen microservices and the same infrastructure,
@@ -902,6 +911,70 @@ The main conformance gates are `ResourcePermissionModelTest`,
 user and group grants, folder inheritance and precedence, the **Everyone** restriction, REST
 authorization for all artifact types and folders, and ownership-transfer authority and concurrency.
 
+## Authenticated user rate limits
+
+Every authenticated request through `CedarMicroserviceResource.buildRequestContext` checks a user
+quota after resolving its credential and before entering business logic. The shared Jersey feature
+assigns GET, HEAD and OPTIONS to `reads`, and all other methods to `writes`; POST searches therefore
+use the write allowance in this first policy. The user total and operation bucket are checked and
+charged together atomically. Multiple API keys and refreshed browser tokens for one user share the
+same quota across services. Rebuilding a context within the same HTTP request does not charge twice.
+Anonymous handlers retain their existing behavior and do not spend an authenticated user quota.
+
+Defaults live in the packaged `cedar-config-library` resource `cedar-main.yml`. Production may set
+these variables in `$CEDAR_HOME/set-env-internal.sh`; the template there documents them. The CLI
+loads the selected profile. Restart affected microservices to pick up an environment change; a YAML
+or Java change also needs rebuilding the config library and consuming services first.
+
+| Variable suffix (after `CEDAR_RATE_LIMIT_`) | Default | Meaning |
+|---|---|---|
+| `MODE` | `observe` | `off` makes no quota Redis calls; `observe` measures but allows; `enforce` rejects exhausted quotas |
+| `TOTAL_PER_MINUTE`, `TOTAL_BURST` | `720`, `40` | Aggregate allowance across read and write requests |
+| `READS_PER_MINUTE`, `READS_BURST` | `600`, `30` | Read allowance |
+| `WRITES_PER_MINUTE`, `WRITES_BURST` | `120`, `10` | Write allowance |
+| `TOTAL_FAILURE_MODE`, `READS_FAILURE_MODE` | `open`, `open` | Allow when Redis cannot check the quota |
+| `WRITES_FAILURE_MODE` | `closed` | Reject admission with 503 when Redis cannot check the quota in enforcement mode |
+| `REDIS_TIMEOUT_MS` | `100` | Socket/connect timeout and bounded pool-wait timeout, each; these are not one end-to-end deadline |
+| `REDIS_PREFIX` | `CEDAR-RATE-LIMIT` | Usage-key namespace; keep identical on participating services |
+
+Rates are refill rates; burst is the full token-bucket capacity, including the first request.
+The shipped values are observation starting points, not a measured production capacity commitment.
+A Redis failure uses the stricter of the total and selected operation failure policies. Observation
+always allows, including during a Redis failure. Enforced exhaustion returns 429 with `Retry-After`,
+`Cache-Control: no-store`, and a JSON error carrying `status`, `statusCode`, `errorType`, `error`,
+`message`, `policy` and `retryAfterSeconds`. Failure to check a closed policy returns 503 with the
+same shape. Cross-origin clients may read `Retry-After`. Neither response requests token refresh or
+automatic mutation retries; the existing editor error paths retain edits and re-enable saving.
+
+Usage lives in the existing persistent Redis database under
+`CEDAR-RATE-LIMIT:{sha256(user-id)}:<mode>:<policy>`. Redis time drives refill, the two buckets use
+one Lua operation, and idle keys expire only after their allowance would be full. No API keys or
+bearer tokens are stored. Observation and enforcement use separate buckets, so a rolling mode
+change cannot spend the other mode's allowance. This namespace does not isolate Redis outages:
+failed RDB persistence can block quota writes just as it blocks queue writes. Never clear work
+queues to reset quotas. No Redis server upgrade or nginx change is required.
+
+The artifact server marks a request internal only after its existing service-key authentication
+succeeds. Those downstream reads/writes do not spend the user quota again, including worker
+reindex reads. Supplying that header to another server does not grant an exemption. Other calls
+forwarding ordinary user credentials, such as monitor fan-out, count at each authenticated HTTP
+boundary. There is no blanket administrator bypass. User-specific tiers, anonymous-client limits,
+job-admission limits and worker throughput limits are not part of this first implementation.
+
+Metrics are per service and policy, with no per-user metric labels and no extra app-log queue
+messages. On the loopback admin connector, inspect:
+
+```bash
+curl -fsS http://127.0.0.1:9107/metrics |
+  jq '.meters | with_entries(select(.key | startswith("cedar.rateLimits.")))'
+```
+
+`allowed`, `wouldReject`, `rejected`, `unavailable`, `failedOpen`, and `failedClosed` expose counts
+and rates. `internal` counts trusted downstream exemptions. These meters reset on process restart;
+Redis allowances are shared and survive a service restart. Inspect all participating services,
+including errors, before enabling enforcement. No new app-log event is emitted per quota decision.
+The normal backend-free suites select `MODE=off`; dedicated tests use an isolated embedded Redis.
+
 ## The Redis queues, and where failed permission events go
 
 Five persistent queues carry work between services. Their names are set in
@@ -1331,6 +1404,28 @@ thrown — and a green YAML run reports `0 differing` for 18 fields, 6 elements 
 recorded difference among 38 templates. Full and compact output have independent parity gates, so
 unrecorded drift in either representation fails explicitly.
 
+Both libraries confine each setting a parent decides to the children whose `_ui` has room for it.
+`literalFieldUIContent` and `iriFieldUIContent` declare `continuePreviousLine` and
+`valueRecommendationEnabled`; all three field UI definitions declare `hidden`; a requirement lives in
+a field's `_valueConstraints`. An element's `_ui` admits an order, property labels, property
+descriptions, a header and a footer, a static field's admits an input type, content, a size and a
+hidden flag, and every one of them closes with `additionalProperties: false` — so an element carries
+none of the four, and a static field carries only the hidden flag. A rendering that states one
+elsewhere is one `cedar-model-validation-library` rejects, so a document that states it there is read
+past on both sides and neither writer puts it back. The builders offer each setting only where the
+model keeps it, so an artifact carrying one cannot be assembled in the first place; in TypeScript the
+parsed model still answers for every child, since a consumer may ask any of them.
+
+`header` and `footer` go the other way: the meta-schemas declare both on an element as well as on a
+template, and the metadata editor renders them above and below the element's fields whenever it is
+expanded. Neither library kept them until 2026-09-13, so any element either rewrote came back with
+its author's instructions deleted. Both now read and write them, in the position a template writes
+its own, and the same element renders to byte-identical YAML through either. No authoring tool offers
+them yet, so an element gets them by hand-authoring, import or conversion.
+`ChildLinePlacementTest` in `cedar-artifact-library` and `ChildLinePlacement.spec.ts` in
+`cedar-model-typescript-library` pin that. The corpus cannot: every fixture is generated from a
+source JSON the validator accepts, which is a JSON in which the setting cannot appear there at all.
+
 The field concordance matrix complements the corpus with 327 generated cases: all 25 field types
 (including both list modes), each metadata feature separately and in combination, supported defaults,
 and independent image/YouTube dimensions. Each case exercises standalone and template-child JSON,
@@ -1683,11 +1778,19 @@ does not change the environment of running services. Normal completion, failures
 interruptions remove the workspace after subprocess cleanup; a killed CLI or host crash can leave
 an orphan directory, which should be removed only after checking that no build owns it.
 
+The workspace also has to be short. A Unix domain socket path cannot exceed 103 characters, and a
+build's embedded MariaDB names its socket inside that workspace, so a root longer than 60
+characters leaves a Java test unable to start its database. The CLI measures the root it derives,
+and places the workspace beside the user's home when `$CEDAR_HOME` is too deep to hold a socket.
+A release is the case that reaches this, because it exports its own attempt workspace as
+`$CEDAR_HOME`.
+
 If `$CEDAR_HOME` is also on a `noexec` filesystem, set `CEDAR_BUILD_TMPDIR` to an absolute path
-on a writable, executable filesystem in the build invocation environment. Keep unrelated JVM
-options; remove competing `-Djava.io.tmpdir` settings from `MAVEN_OPTS`, `JDK_JAVA_OPTIONS` or
-`_JAVA_OPTIONS` and use this override instead. Direct Maven invocations outside `cedarcli` do not
-receive this configuration. Test reports remain in the repositories' normal `target` directories.
+on a writable, executable filesystem in the build invocation environment. An explicit override is
+taken as given rather than replaced, so the CLI refuses one that resolves beyond that same 60
+characters and names the limit. Keep unrelated JVM options; remove competing `-Djava.io.tmpdir`
+settings from `MAVEN_OPTS`, `JDK_JAVA_OPTIONS` or `_JAVA_OPTIONS` and use this override instead.
+Direct Maven invocations outside `cedarcli` do not receive this configuration. Test reports remain in the repositories' normal `target` directories.
 
 Release preparation, Maven publication, and immutable build-train assembly remain explicit
 `-DskipTests` paths; verify with the default CLI build or repository CI before invoking them.
@@ -1795,6 +1898,14 @@ defect permanently, because the only other route mints a new version to record a
 authored. The `WRITE_ARTIFACT_VERBATIM` permission is the whole gate, and the DOI guard is unchanged:
 it refuses a *changed* DOI, so a verbatim write under an unchanged one proceeds. Ordinary editing of a
 published artifact is still refused, and `TemplatesResourceWriteRejectionTest` pins all three cases.
+
+Deletion is outside that immutability, and deliberately so. A published artifact can be deleted by
+anyone holding `DELETE_RESOURCE` on it: the guard that would refuse it stands commented out in
+`AbstractResourceServerResource.executeArtifactDelete`, disabled by commit `3f26ee7` (2021, "Allow
+users to delete published resources") because refusing the delete strands published artifacts and
+the folders holding them with no ordinary cleanup path. A delete still requires the artifact's current
+ETag in `If-Match`, so the precondition contract below governs it as it governs an update. The
+re-publish guard is a different rule and is enforced.
 
 Every successful artifact create, single-artifact read and update returns a strong revision `ETag`.
 The read service derives the public content and revision from the same Mongo document, so the ETag
@@ -2065,6 +2176,16 @@ temporary artifacts through the UI. A failed run can stop before teardown and le
 template, field, instance, mutation folder or mutation group behind;
 `ops/e2e/cleanup-smoke-leftovers.mjs` removes timestamped artifact leftovers, while the smoke's own
 catch path removes every fixture whose identifier it acquired before the failure.
+
+The browser smoke runs against whichever frontends are deployed, and the variant has to match
+them. `npm run smoke` drives the monolith on its single origin. Of the two split variants,
+`npm run smoke:split:hostnames:authenticated` addresses Workspace and Designer on their own
+hostnames, which is how a native or Docker stack serves them here, and
+`npm run smoke:split:authenticated` addresses them on loopback ports, which needs frontends whose
+configuration names those ports. Each application builds its in-app navigation from the origins its
+served `config/url-service.conf.json` carries, so a run pointed anywhere else loses the application
+on its first navigation; the smoke reads that file before the cross-application gesture and says
+which origins are deployed and which the run addressed, rather than waiting out a timeout.
 
 `ops/e2e` holds the two whole-stack tests, and they answer different questions. `npm run smoke:rest`
 drives the REST API directly, in about 65–80 seconds, and reaches what no unit suite can: the artifact
@@ -2950,7 +3071,7 @@ makes a labelled sample. `--fetch-workers` GETs run ahead of validation, four by
 comes from `CEDAR_API_KEY`, a one-line `--api-key-file`, or a hidden prompt, and is never written.
 
 `--recheck <file>` re-validates exactly the artifacts a JSONL names, and is how a repair is proved.
-Both this audit and `cedar_artifact_repair.py` write one object per artifact carrying its type and
+Both this audit and `repairs/cedar_artifact_repair.py` write one object per artifact carrying its type and
 identifier, so a repair's own records are a valid target list. `--recheck-outcome repaired` narrows it
 to the artifacts a run actually wrote, and the option is repeatable, since a defect is often cleared
 across more than one run:
@@ -3027,7 +3148,7 @@ complete for what this key can enumerate and read.
 
 ## Repairing a defect across the stored population
 
-`ops/cedar_artifact_repair.py` carries out a repair the audit has already measured. A repair
+`ops/repairs/cedar_artifact_repair.py` carries out a repair the audit has already measured. A repair
 qualifies only when it can be stated as an invariant, meaning it changes the thing it names and
 provably nothing else. Each artifact is fetched, transformed, checked against that invariant,
 validated by the library, and written back with `PUT ?verbatim=true`, so it keeps its identifier,
@@ -3039,9 +3160,9 @@ which artifacts carry the condition. Dry run is the default.
 
 ```bash
 export CEDAR_API_KEY=…
-python3 ops/cedar_artifact_repair.py --from-records production-validation.jsonl
-python3 ops/cedar_artifact_repair.py --from-records production-validation.jsonl --limit 5 --apply
-python3 ops/cedar_artifact_repair.py --from-records production-validation.jsonl --apply
+python3 ops/repairs/cedar_artifact_repair.py --from-records production-validation.jsonl
+python3 ops/repairs/cedar_artifact_repair.py --from-records production-validation.jsonl --limit 5 --apply
+python3 ops/repairs/cedar_artifact_repair.py --from-records production-validation.jsonl --apply
 ```
 
 Two repairs are implemented. `empty-derived-from` deletes every `pav:derivedFrom` whose value is the
@@ -3076,20 +3197,77 @@ than by an inventory condition, since no condition describes this. Only a name t
 touched, only where the template's own value is usable, and element occurrences are walked against the
 element definition they belong to at every depth.
 
-Five further repairs address defects the roadmap names, and all five are container rewrites that no
+Six further repairs address defects the roadmap names, and all six are container rewrites that no
 instance references. `drop-static-field-demands` stops a container naming a static field in
 `required`, `@context.required` or `@context.properties`: a static field renders and holds nothing,
 so every editor omits it and a container demanding one describes an instance nothing will build.
 `wrap-inherently-multiple` deploys a checkbox, attribute-value or multiple-choice list child as the
 array it always serializes to, lifting cardinality onto the envelope and leaving the field's own
 metadata on the inner definition; contradictory bounds are refused rather than guessed.
-`stamp-model-version` writes the current model version, and only over one that parses, since the key
-asserts conformance and stamping it onto an artifact that does not conform replaces a detectable
-defect with an undetectable one. `complete-ui-order` appends declared children the order omits, after
-what it already holds, and leaves the inverse drift alone because the store cannot synthesize a child
-an order entry names. `derive-title` composes the artifact's own title from its name, as every
+`stamp-model-version` writes the current model version on the root and on every nested definition,
+and only over one that parses, since the key asserts conformance and stamping it onto a definition
+that does not conform replaces a detectable defect with an undetectable one; a version that is absent
+or malformed stays where it stands, and the artifact is refused outright only when that is all there
+is to do. `complete-ui-order` appends declared children the order omits, after what it already holds.
+`drop-unusable-order-entries` takes the inverse drift, but only the part of it that carries its own
+proof that nothing is lost: an entry bearing a name the model reserves, which no child can be called,
+and an entry a rename left behind, recognised by the container declaring a child named the same with
+each `/` replaced by `-`. An entry that could be the last surviving evidence of a deleted child is
+left alone, since the store cannot synthesize the child back. `derive-title` composes the artifact's own title from its name, as every
 ordinary write does, touching neither the description that carries the generator's signature nor an
 embedded child's pair, which the server also leaves as sent.
+
+Three repairs act on instances rather than containers, and they compose with one another.
+`align-instance-context-iris` rewrites an instance's `@context` property IRIs to the ones its
+template names. `complete-instance` gives an instance the shape its template declares, carrying the
+model's own form for absence — an empty list where a child may repeat, `{"@value": null}` for a
+literal, `{}` for an IRI, and a built-out element with its own `@id` and `@context` — because an
+instance written before a field was added simply lacks the key, and the library reads that as a
+missing property rather than an empty field. A value already present is never touched, and a value
+that is not the shape its definition calls for is left exactly as it stands: production holds element
+occurrences written as bare strings, and building one out would discard the only content there is.
+
+`rename-instance-keys` carries an instance's values over to the names its template now declares. The
+mapping is supplied through `--mapping`, never inferred: which old name became which new one is a
+fact about an edit nobody recorded, and guessing it would move a value into a field that means
+something else. `repairs/rename_sheet.py` drafts that mapping for an owner to confirm, pairing each
+stale key with a declared name by wording, spelling and how many instances carry it, and marking a
+pairing **confirmed by data** where the same value appears under both names.
+
+A rename reaches inside an element, because renaming one moves the whole occurrence across and its
+own children then answer to what the new declaration names. A mapping key is therefore a path:
+`DataCite Title/titleLanguage` names the key `titleLanguage` as an instance carries it inside the
+element the template declares as `DataCite Title`. Every segment but the last is a declared name, so
+a path reads as the route through the template, and a segment holding a `/` of its own is escaped the
+way a JSON Pointer component is. The same form reaches a child of a container that was never renamed
+itself, which is the case where only the inside changed. A path of one segment names a key at the top
+of the instance, which is every mapping written before nesting was supported.
+
+Which questions the sheet can even ask depends on what is settled already: it applies the confirmed
+mapping to each sampled instance before reading it, so the inside of an element comes into view only
+once the element itself has a declaration to be read against. Answering an element rename therefore
+uncovers a fresh round of questions about its children rather than finishing it.
+
+Seven repairs settle an instance value that is the wrong shape rather than the wrong content, each
+reading the answer off the declaration so none of them needs an owner.
+`stamp-instance-value-type` gives a typed literal the datatype its field declares, since CEDAR
+renders a numeric or temporal field with `@type` among the properties its value must carry — the
+model's own `EmptyFieldInstances` supplies the defaults, `xsd:decimal` for a numeric field naming
+none and `xsd:dateTime` for a temporal one. `wrap-instance-occurrence` and
+`unwrap-instance-occurrence` move one occurrence into the list a repeating child declares, and a
+list of nought or one back out again; a longer list is left alone, because which of several survives
+is a decision. `settle-instance-empty-shape` writes an absent value in its own field's form,
+`{"@value": null}` for a literal and `{}` for an IRI, and touches only a value that already says
+nothing. `complete-instance-context` writes the `@context` entries a template requires and pins,
+whether a property IRI or a JSON-LD term definition such as `{"@type": "xsd:string"}`.
+`restate-instance-literal` writes a literal as the JSON type its schema states, but only where the
+restatement spells the original back, so `826` and `"826"` are interchangeable while `"007"` and
+`"LSJDK=1213"` are left as they stand. `drop-static-field-from-instance` removes a heading or a
+break an instance was given, which renders nothing and holds nothing.
+
+Each invariant is built on an exhaustive walk of the two documents rather than on the transform's
+own traversal, so a change anywhere — at any depth, in a key neither rule expected to touch — is
+reported and has to be licensed before the write proceeds.
 
 **Repairs compose, and for some artifacts they must.** A child identifier the server would otherwise
 mint makes it refuse a verbatim write outright, so an artifact carrying that defect alongside another
@@ -3100,7 +3278,7 @@ artifacts are in exactly that position, which is why the empty-provenance sweep 
 further group needs all three repairs at once.
 
 ```bash
-python3 ops/cedar_artifact_repair.py --from-records production-validation.jsonl \
+python3 ops/repairs/cedar_artifact_repair.py --from-records production-validation.jsonl \
   --repair mint-child-ids,empty-derived-from --condition child-id-unusable --apply
 ```
 

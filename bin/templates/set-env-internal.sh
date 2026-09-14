@@ -86,3 +86,19 @@ export CEDAR_CDE_FOLDER_ID="https://repo.metadatacenter.orgx/folders/00000000-11
 
 # Trusted folders
 export CEDAR_TRUSTED_FOLDERS="{\\\"caDSR\\\":[\\\"https://repo.metadatacenter.orgx/folders/00000000-1111-2222-3333-444444444444\\\"]}"
+
+# Authenticated user quotas share persistent Redis, independently of the work queues.
+# Leave unset to observe; choose enforcement only after reviewing cedar.rateLimits.* metrics.
+# Values are consumed by cedar-main.yml on microservice startup, not by nginx.
+#export CEDAR_RATE_LIMIT_MODE="observe"           # off | observe | enforce
+#export CEDAR_RATE_LIMIT_TOTAL_PER_MINUTE="720"
+#export CEDAR_RATE_LIMIT_TOTAL_BURST="40"
+#export CEDAR_RATE_LIMIT_READS_PER_MINUTE="600"
+#export CEDAR_RATE_LIMIT_READS_BURST="30"
+#export CEDAR_RATE_LIMIT_WRITES_PER_MINUTE="120"
+#export CEDAR_RATE_LIMIT_WRITES_BURST="10"
+#export CEDAR_RATE_LIMIT_REDIS_TIMEOUT_MS="100"
+#export CEDAR_RATE_LIMIT_REDIS_PREFIX="CEDAR-RATE-LIMIT"
+#export CEDAR_RATE_LIMIT_TOTAL_FAILURE_MODE="open"
+#export CEDAR_RATE_LIMIT_READS_FAILURE_MODE="open"
+#export CEDAR_RATE_LIMIT_WRITES_FAILURE_MODE="closed"

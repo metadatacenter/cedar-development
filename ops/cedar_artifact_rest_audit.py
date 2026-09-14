@@ -98,7 +98,22 @@ SYSTEM_CONTEXT_KEYS = {
     "pav:createdBy", "pav:lastUpdatedOn", "oslc:modifiedBy", "skos:notation", "rdfs:label",
     "schema:identifier",
 }
-SPECIAL_CHILD_NAME = re.compile(r"(^@)|(^_)|(^schema:)|(^pav:)|(^oslc:)")
+# The names a schema artifact's `properties` map reserves for the artifact's own keywords rather
+# than for a child. This mirrors the exclusion `JsonArtifactReader.readNestedFieldAndElementSchema-
+# Artifacts` applies, which is the union of `ModelNodeNames`' template, element and field instance
+# keyword sets. A prefix rule is not equivalent: the Template Editor names a page break `_page_break_1`
+# and the reader treats it as the static child it is, so a leading underscore reserves nothing.
+RESERVED_CHILD_NAMES = frozenset({
+    # JSON_LD_KEYWORDS
+    "@context", "@id", "@type", "@value", "@graph", "@base", "@container", "@index", "@language",
+    "@list", "@nest", "@none", "@prefix", "@reverse", "@version", "@vocab",
+    # the rest of ARTIFACT_KEYWORDS
+    "schema:name", "schema:description", "schema:identifier", "pav:createdOn", "pav:createdBy",
+    "pav:lastUpdatedOn", "pav:derivedFrom", "oslc:modifiedBy",
+    # INSTANCE_ARTIFACT_KEYWORDS, then what the template and field sets add
+    "_annotations", "schema:isBasedOn", "rdfs:label", "skos:notation", "skos:prefLabel",
+    "skos:altLabel",
+})
 URI_SCHEME = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
 REPOSITORY_PROPERTY_IRI_PREFIX = "https://schema.metadatacenter.org/properties/"
 JSON_SCHEMA_DRAFT_04 = "http://json-schema.org/draft-04/schema#"
@@ -327,6 +342,11 @@ def is_repository_property_iri(value: Any) -> bool:
 def direct_schema_children(container: Any) -> Iterator[tuple[str, Optional[dict], bool, Optional[str]]]:
     """Yield the same schema-child candidates the artifact server treats as fields/elements.
 
+    A candidate is any entry of ``properties`` whose name the model does not reserve and whose
+    definition declares an object or an array, which is what the reader requires before it will read
+    a child. The reader refuses a candidate missing that declaration; an auditor passes over it, since
+    a body it cannot read is a finding for the validator rather than a child to inspect.
+
     The fourth value is an error for a malformed multi-instance child. Keeping that candidate in the
     stream lets the auditor report it instead of silently skipping the shape the server will refuse.
     """
@@ -336,7 +356,7 @@ def direct_schema_children(container: Any) -> Iterator[tuple[str, Optional[dict]
     if not isinstance(properties, dict):
         return
     for name, declared in properties.items():
-        if SPECIAL_CHILD_NAME.search(name) or not isinstance(declared, dict) or "type" not in declared:
+        if name in RESERVED_CHILD_NAMES or not isinstance(declared, dict) or "type" not in declared:
             continue
         declared_type = declared.get("type")
         if declared_type == "array":

@@ -31,17 +31,38 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   one reading of an advisory line of going that way. The release gate refuses such a source now, and
   `cedarcli check main` answers the same question between releases, but neither prevents the push.
 
-  Requiring a pull request on `main` does not settle it by itself. `cedarcli release start` pushes
-  straight to `main` in forty-two repositories, as whoever runs it, so a bypass naming that person
-  protects nothing against the case that prompted this. Give the release a machine identity, a
-  GitHub App or a dedicated account, grant the bypass to that rather than to a human, and
-  authenticate the release as it. The bypass has to cover every ref a release creates — `develop`,
-  the tags, and `release/pre-*` among them — or a release fails after its Maven and frontend builds
-  are already spent. Prove the ruleset against one repository before it reaches all forty-four.
+  **The goal is that no ordinary push lands on `main`.** How the release lands its own commit is a
+  second decision, and the two are worth keeping apart, because a protection rule written around
+  whoever runs the release protects nothing against the case that prompted this. `cedarcli release
+  start` pushes to `main` in forty-two repositories as that person, so granting them the bypass
+  reopens the hole the rule closes. Whichever route below is taken, the release needs credentials of
+  its own: a GitHub App or a dedicated account, authenticated as itself rather than as an operator.
 
-  The npm releases already go through pull requests and need nothing. Until the machine identity
-  exists, run `cedarcli check main` on a schedule, so divergence is found the next morning rather
-  than mid-release.
+  **Route one, a bypass on a direct push.** The release keeps the mechanism it has, and the ruleset
+  grants the bypass to the release identity. The bypass has to cover every ref a release creates —
+  `develop`, the tags, and `release/pre-*` among them — or a release fails after its Maven and
+  frontend builds are already spent. It changes nothing in the release code, and it leaves the
+  protection weaker on paper than a review gate, since the identity holding the bypass can write
+  anything.
+
+  **Route two, a pull request the release opens.** Nothing in the design forbids it. Each repository
+  gets its integration commit on a branch, a pull request, and a merge through the API, which is how
+  the npm releases already reach `main`. It costs three things. GitHub's merge produces a commit
+  that is not the one the release prepared, so the ledger's `expectedCommit` check has to verify
+  `main` by the tree it already records beside that commit (`release_support/integration.py`).
+  Something has to merge forty-two pull requests: requiring only a pull request lets the release
+  merge its own, which buys an audit trail rather than a review, while requiring an approval means a
+  person approves forty-two of them mid-release, since GitHub refuses self-approval. And a pull request is a step other people can
+  close or merge out of order, which weakens the guarantee that a resumed run reproduces the refs it
+  recorded.
+
+  The npm releases are the working example of route two and need nothing, but they are driven by an
+  operator who is already there for the twenty-five commands item 22 exists to remove. Automating
+  that route puts the identity question back.
+
+  Prove whichever ruleset is chosen against one repository before it reaches all forty-four. Until
+  the release has an identity, run `cedarcli check main` on a schedule, so divergence is found the
+  next morning rather than mid-release.
 
 - **3. Rename the legacy role relationships in production Neo4j.** The application currently
   interprets `CANREAD` as Viewer and `CANWRITE` as Manager, so the new permission model can be
@@ -298,12 +319,12 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   rate-limits per key, and a burnt quota surfaces to users as controlled terms silently not existing,
   because the picker latches its empty cache for the life of the page.
 
-- **9. Rate limit the edge in every environment.** An anonymous caller can spend the deployment's
-  third-party quota, and only the development host bounds how fast. The `/ext-auth/*` routes are
-  the clearest case: they proxy seven registries, three of them on credentials the deployment
-  holds, and they carry none of their own. `POST /bioportal/integrated-search` and `/bioportal/integrated-retrieve`
-  belong in the same limit: both are anonymous by the same decision and both spend the deployment's
-  BioPortal key.
+- **9. Rate limit the edge in every environment, and turn the authenticated user quotas on.** An
+  anonymous caller can spend the deployment's third-party quota, and only the development host
+  bounds how fast. The `/ext-auth/*` routes are the clearest case: they proxy seven registries,
+  three of them on credentials the deployment holds, and they carry none of their own. `POST
+  /bioportal/integrated-search` and `/bioportal/integrated-retrieve` belong in the same limit: both
+  are anonymous by the same decision and both spend the deployment's BioPortal key.
 
   A limit rather than a credential is deliberate. The embeddable editor calls them from a browser with
   nothing to send and nowhere in `CeeConfig` to keep a key, so a gate would break every host that
@@ -317,9 +338,30 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   terminology routes named above spend the same kind of credential with no limit at all; whatever is
   decided about their gate, they want the same treatment.
 
-  Done when every environment serving an unauthenticated third-party proxy carries a limit, the
-  chosen rates are recorded where the deployment is documented rather than only in the config, and a
-  probe shows the limit taking effect.
+  **The authenticated half admits requests and refuses none.** A signed-in user's own traffic is
+  bounded by a second mechanism, inside the applications rather than at nginx, and it covers what
+  the edge limit cannot address by source address. Every route on a shared
+  `CedarMicroserviceResource` acquires two token buckets — the user's total, and the bucket for the
+  method's class, reads or writes — in one atomic Lua evaluation against the persistent Redis, keyed
+  by a hash of the user identifier. The check runs where the resource builds its request context
+  from the authenticated user, so an anonymous handler never spends a quota and no header can carry
+  one. A refusal answers 429 with `Retry-After`, now on the CORS exposed-header list, and a body
+  naming the policy. An unreachable Redis fails open for reads and, once enforcement is on, closed
+  for writes. The artifact server marks a verified internal service call exempt, so a proxied hop
+  does not charge the user twice.
+
+  Nothing is refused yet, and the numbers are guesses. `cedar-main.yml` ships `mode: observe`, so
+  every decision is counted through the `cedar.rateLimits.*` meters and every request proceeds, and
+  the rates counted against — 720 requests a minute in total, 600 reads and 120 writes — were
+  chosen without traffic to choose them from. So collect those meters from a deployment carrying
+  real traffic and set the rates from what they show. Decide the mode per environment, since
+  `set-env-internal.sh` carries the overrides commented out and no profile sets one. Then prove a
+  refusal end to end: no environment has run under `enforce`, so the 429, its `Retry-After` and the
+  write bucket's closed failure mode have passed their unit tests and nothing else.
+
+  Done when every environment serving an unauthenticated third-party proxy carries a limit, every
+  environment states the mode and rates its authenticated quotas run at, both are recorded where the
+  deployment is documented rather than only in the config, and a probe shows each taking effect.
 
 - **10. Put the MySQL connections on TLS, and make the timezone a setting rather than a constant.**
   **Production consequence:** server certificates and client trust have to exist before rollout, and
@@ -720,50 +762,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   Done when each class of outbound call takes its timeouts from configuration, the request log carries
   durations, the compensating write is durable, and the remaining clients read the same settings.
 
-- **19. Make native bring-up prove a service runs.** `cedarcli native start` reports what the
-  launcher accepted rather than what the stack ends up running, and the gap swallowed a whole-stack
-  outage on 2026-09-02: every application exited in milliseconds for want of `CEDAR_PROFILE`,
-  launchd's keepalive respawned each one, and the CLI printed `started <name> (pid N)` for all
-  twenty-two because a PID existed each time it looked. The launcher passes that environment through
-  today, rejects a service that dies at once, refuses a `JAVA_HOME` that is not a Java 17, and covers
-  all three in tests.
-
-  What remains is to confirm a service is serving, not merely alive. The survival check waits half a
-  second and asks whether the process still exists, which catches the failures that land before a JVM
-  starts and none after that. A microservice that boots, fails to reach Neo4j or Mongo, and exits
-  after ten seconds is still reported as started. `cedarcli native health` already knows how to judge
-  this and exits non-zero unless every managed application is healthy, so let `start` end by waiting
-  for the services it just launched to pass that same gate and report the ones that never arrive
-  along with the last lines of their logs.
-
-  **Wait once, after launching, rather than per service.** Waiting for each service before starting
-  the next makes the cost the sum of twenty-two JVM boots and their dependency connections, which is
-  minutes; polling the whole set after launching them all makes it the slowest service alone. Bound
-  the total rather than each service, and report each one as it arrives, so a developer sees progress
-  rather than a silent block.
-
-  Most of what it adds is already being paid. The survival check sleeps half a second per service,
-  serially, which is about eleven seconds of every `start all` spent waiting on nothing in
-  particular. A health gate subsumes it — a service that died at once will never pass — so those
-  sleeps can go, and the early per-service error they print is what the report of services that never
-  arrived already covers.
-
-  `start infra` is the layer where waiting earns the most. Microservices connect to Neo4j, Mongo and
-  Keycloak while they boot, so returning before those are serving is what produces the failure the
-  survival check cannot see; waiting there prevents a cascade rather than reporting one.
-
-  A flag that skips the wait restores exactly the behaviour this item exists to remove, so if one
-  exists it should be asked for explicitly and never be the default.
-
-  One constraint on the implementation. `ServerWorker` probes each service in turn with no per-probe
-  timeout, which is fast only because a stopped service refuses the connection; a service that
-  accepts one and then hangs would stall the loop and make the gate its own source of delay. A poll
-  needs a bounded probe, and reads better concurrent.
-
-  Done when `start` reports a service only once it is healthy or names why it is not, and `start all`
-  costs the readiness of its slowest service rather than the sum of all of them.
-
-- **20. Run the whole-stack tiers in CI, and gate the workflow train the way the CLI is gated.**
+- **19. Run the whole-stack tiers in CI, and gate the workflow train the way the CLI is gated.**
   **Production consequence:** none at runtime. CI needs a deployable environment, credentials, time
   and somewhere to keep the reports.
 
@@ -785,7 +784,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   when both tiers run unattended on a cadence, their reports are retained, and a train dispatched
   through Actions is refused on the same evidence that refuses one dispatched from `cedarcli`.
 
-- **21. Let the artifact server own the uniqueness of `@id`.** No two documents in an artifact
+- **20. Let the artifact server own the uniqueness of `@id`.** No two documents in an artifact
   collection may share an `@id`. The server relies on a unique index on that field to enforce it. A
   create is a read that finds the identifier absent followed by an insert, and
   `GenericLDDaoMongoDB.create` answers a duplicate-key rejection with the same 412 the update path
@@ -821,9 +820,9 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   Done when a fresh, unprovisioned Mongo refuses the second insert, the suites prove it, a store with
   duplicates still boots and reports why its index is missing, and the runbook carries the preflight.
 
-- **22. Take the dependency upgrades that need code changes.** The versions that could move without
+- **21. Take the dependency upgrades that need code changes.** The versions that could move without
   consequence have moved. What stayed behind stayed deliberately, and it separates into work to do,
-  versions that follow something else, and versions upstream has not released.
+  versions that follow something else, and versions whose newest release is not a final.
 
   **The upgrades that need code or test changes.** Each of these is a change to make rather than a
   version to raise, which is why none of them rode along with a sweep.
@@ -833,14 +832,18 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
     this one is settled by differential testing against production artifacts, not by a green build.
   - **OWLAPI 4.5.9 to 5.5.1.** Ontology semantics, where a behavioural difference does not show up
     in a compile.
+  - **jaxb2-maven-plugin 4.1.0 to 4.2.0.** A code generator whose only consumer is
+    `cedar-cadsr-tools`, so what has to be reviewed is the sources it emits rather than the version.
 
   **Versions that follow a locked server or framework.** Six sit here: the Neo4j driver 5.28.14 to
-  6.2.1, MySQL Connector/J 8.4.0 to 26.7.0, the Mongo driver 5.1.2 to 5.11.0, the OpenSearch client
+  6.2.1, MySQL Connector/J 8.4.0 to 26.7.0, the Mongo driver 5.1.2 to 5.11.1, the OpenSearch client
   2.19.2 to 3.8.0, the Lucene pin 9.12.1 to 10.5.1, and the Neo4j test harness 5.3.0 to 2026.07.1.
   Client libraries are free to move in general, but a driver crossing a major has to be proven
   against the pinned server it talks to, so these are sequenced behind item 4 rather than taken on
-  their own. Keycloak 22.0.4 to 25.0.3 is item 4's own, and RESTEasy 6.2.4 to 7.0.4 is held by the Keycloak
-  client stack, which items 3 and 15 own.
+  their own. The Mongo driver is the exception: 5.11.1 stays inside major 5, so nothing about it
+  needs proving against the pinned server, and it is grouped here only to move with that server's
+  own upgrade. Keycloak 22.0.4 to 25.0.3 is item 4's own, and RESTEasy 6.2.4 to 7.0.4 is held by the Keycloak
+  client stack, which items 4 and 16 own.
 
   Embedded Mongo 4.20.0 to 5.0.0 belongs here too, and it is the deployed Mongo it follows rather
   than a framework. The code cost is one import, since flapdoodle moved `de.flapdoodle.reverse` to
@@ -852,28 +855,42 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   Taking the upgrade therefore means running the suites against a different major from the deployed
   5.0.31, which is the one thing `EmbeddedCedarMongo` exists to avoid. It moves with item 4.
 
-  Logback 1.5.33 to 1.6.3 belongs here rather than among the upgrades to make, and SLF4J is not
-  what holds it: every 1.6 release builds against slf4j 2.0.18, which the estate already carries.
-  Dropwizard does. 1.5.33 is Dropwizard 5.0.2's own pin, which `cedar-parent` mirrors, and raising
-  it alone fails before a test runs — `LogbackAccessRequestLayout` reads `DEFAULT_CONVERTER_MAP`,
-  which logback 1.6 removed, so every Dropwizard-booting suite dies in a class initializer.
-  `mvn test -Dlogback.version=1.6.3` in a server module reproduces it. Dropwizard 5.0.2 is the
-  current release, so there is nowhere to move yet; logback, logback-access 2.0.12 and
-  logback-throttling-appender 1.5.3 travel together when Dropwizard ships a line carrying them.
+  Logback 1.6 belongs here rather than among the upgrades to make, and SLF4J is not what holds it:
+  every 1.6 release builds against slf4j 2.0.18, which the estate already carries. Dropwizard does.
+  Raising logback to 1.6 fails before a test runs — `LogbackAccessRequestLayout` reads
+  `DEFAULT_CONVERTER_MAP`, which logback 1.6 removed, so every Dropwizard-booting suite dies in a
+  class initializer. `mvn test -Dlogback.version=1.6.3` in a server module reproduces it, and an
+  enforcer rule in `cedar-parent` now fails the build there rather than inside a test JVM, where
+  the error names a logback-access class for a field that lives in logback-classic.
+
+  What the hold costs is only what 1.6 itself carries, because the 1.5 maintenance line is still
+  open and `cedar-parent` runs on it, ahead of the 1.5.33 that Dropwizard 5.0.2 pins.
+  logback-access is held by its own build rather than by that rule: its 2.0.15 release compiles
+  against logback-core 1.6.3, so it cannot move while 1.6 is banned. Both wait on Dropwizard
+  shipping a line built against 1.6.
 
   **Versions that follow whatever pulls them in.** The transitive block exists so that every module
   resolves one version of an artifact nothing here depends on directly, which makes these five
-  nobody's choice to raise: HK2 locator 3.0.6 to 4.0.2, Jandex 2.4.3 to 3.3.1, Netty 4.1.115 to
-  4.2.17, protobuf-java 3.25.5 to 4.36.1 and Reactor Core 3.5.20 to 3.8.7. Each belongs to a
+  nobody's choice to raise: HK2 locator 3.0.6 to 4.0.2, Jandex 2.4.3 to 3.3.1, Netty 4.1.138 to
+  4.2.18, protobuf-java 3.25.5 to 4.36.1 and Reactor Core 3.5.20 to 3.8.7. Each belongs to a
   framework above it, so each moves when Jersey, Hibernate, the Neo4j driver or OpenSearch moves.
   Raising one on its own would pin a version its owner does not expect.
 
-  **Versions that are not released.** These wait on upstream to ship a final: HttpCore 5.5-beta2 and
-  HttpClient 5.7-alpha1, Hibernate 8.0.0.Beta1, Jedis 8.1.0-beta1, SLF4J 2.1.0-alpha1, Log4j
-  3.0.0-beta2, Jersey 5.0.0-M1, Angus Activation 2.1.0-M1, the Jakarta activation, persistence,
-  servlet, validation and XML binding milestones, and the Maven 4.0.0 betas of Clean, Compiler,
-  Deploy, Install, Jar, Resources and Source, with Site at a milestone. The old javax
-  jaxb-api's only newer version is a 2018 build that was never finalized, so it stays too.
+  **Versions whose newest release is not a final.** These have no final to move to: HttpCore
+  5.5-beta2 and HttpClient 5.7-alpha1, Hibernate 8.0.0.Beta1, Jedis 8.1.0-beta1, SLF4J
+  2.1.0-alpha1, Log4j 3.0.0-beta2, Jersey 5.0.0-M1, Angus Activation 2.1.0-M1, and the Jakarta
+  activation, persistence, servlet, validation and XML binding milestones. The old javax jaxb-api's
+  only newer version is a 2018 build that was never finalized, so it stays too.
+
+  Read that list with suspicion, because the report it came from hides releases.
+  `versions:display-property-updates` names only the newest version an artifact has, so a
+  pre-release at the head conceals every stable release behind it. Seven Maven plugins sat in this
+  group behind 4.0.0 betas, and Site behind a milestone, until each was checked against the
+  published metadata and turned out to have a current stable release — which is how the compiler
+  plugin reached 3.16.0 from a 2018 build, and Site 3.22.0. Every entry above was gathered the same
+  way and is unverified in the same way. Read an artifact's
+  `maven-metadata.xml`, or `versions:display-plugin-updates`, which reports the newest release a
+  given Maven version can actually use, before concluding that something cannot move.
 
   Verifying any of this locally is unreliable, and the cause is worth knowing before an upgrade is
   blamed for it. Several suites bind fixed ports rather than asking the operating system for a free
@@ -887,7 +904,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   Done when each upgrade above has either landed or been recorded as refused with its reason, and
   the estate no longer carries a dependency held back only because nobody looked at it.
 
-- **23. Give the public CEE release a CLI route.** Publishing `cedar-embeddable-editor` to npmjs is a
+- **22. Give the public CEE release a CLI route.** Publishing `cedar-embeddable-editor` to npmjs is a
   runbook of about twenty-five commands across `develop`, a pull request, `main`, the registry, a
   tag, the development-state restore and the train baseline refresh. Release 2.0.6 took an hour of
   operator attention for two minutes of gate time, and CEE has shipped four public versions in a
@@ -900,7 +917,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   the command exists, rewrite the npmjs runbook into a description of what it does and where it
   stops.
 
-- **24. Decide whether an attribute-value child keeps its declared property IRI.** Both model
+- **23. Decide whether an attribute-value child keeps its declared property IRI.** Both model
   libraries read such a child's property IRI out of a template's `@context` and then decline to write
   it back as JSON, so a read-and-write cycle over `template-022.json` loses
   `https://schema.metadatacenter.org/properties/d01cb533-265c-474a-95f3-9afb4616a6e1` from the
@@ -935,7 +952,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
 
 ## Production data
 
-- **25. Normalize production artifacts to one explicit model contract.** Production contains several
+- **24. Normalize production artifacts to one explicit model contract.** Production contains several
   legacy representations that the current model surfaces tolerate or normalize differently, so bring
   them to canonical shapes before tightening readers or introducing terminology routing across source
   systems. The permission-scoped audit found 76 inherently-multiple fields deployed as JSON objects in
@@ -1116,7 +1133,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
 
 ## Later decisions
 
-- **26. Enforce the request-body classification, and decide what an open body requires.**
+- **25. Enforce the request-body classification, and decide what an open body requires.**
   `cedarcli check openapi` reads `additionalProperties` only when deciding whether a schema counts
   as a stub, so nothing across the estate fails when a new request schema states neither that it is
   closed nor that it is open. Only the resource server asks, in its own contract test. Add the rule,
@@ -1137,21 +1154,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   subtree outside the named mappers. Sixteen more across the servers and shared libraries read
   responses or build output, where the tolerant mapper is what they want.
 
-- **27. A published artifact can be deleted, contradicting the docs.** The docs say a published
-  artifact is permanent, but `DELETE` on one succeeds. The guard in
-  `AbstractResourceServerResource.executeArtifactDelete` was briefly re-enabled and then **reverted by
-  deliberate decision**: blocking deletion strands published artifacts and the folders holding them with
-  no ordinary cleanup path, and commit `3f26ee7` (2021, "Allow users to delete published resources") had
-  disabled the guard on purpose. So deletability stays for now; the discrepancy with the documentation
-  is the open question. Deciding it means choosing between amending the docs (published is deletable) or
-  re-enabling the guard together with a supported cleanup path (e.g. an admin-only delete, or cascading
-  through folder deletion). Immutability of published content is a separate guarantee with its own
-  boundary: ordinary editing is refused, and a verbatim write is not, because that write states the
-  whole document rather than editing it and is how a defect in a published artifact's stored
-  representation is corrected. Whichever way deletability is settled, the docs have both exceptions
-  to describe.
-
-- **28. Address artifacts by bare identifier in REST paths, keeping the full IRI as stored
+- **26. Address artifacts by bare identifier in REST paths, keeping the full IRI as stored
   identity.** **Production consequence:** an addressing migration rather than a data one. Stored
   identifiers in MongoDB, Neo4j and OpenSearch do not change, and no reindex is required, but
   clients that build URLs in the current form need the legacy shape kept as an alias until traffic
@@ -1183,7 +1186,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   Done when every resource-specific route takes the bare identifier, one parser owns the
   reconstruction, and staging's per-artifact blocks are gone.
 
-- **29. Decide what each compatibility adapter is for, now that neither reads artifacts itself.**
+- **27. Decide what each compatibility adapter is for, now that neither reads artifacts itself.**
   Repo and OpenView exist to preserve URLs rather than to do work: the runbook's account of artifact
   route ownership gives repo the identifier dereferencing URLs and OpenView the anonymous
   presentation and open-artifact URLs, and says neither adapter should own artifact storage or an
@@ -1221,9 +1224,9 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   outage producing a successful read. That comparison is what proving routing compatibility means,
   and no adapter should be reduced before it passes on the deployed topology.
 
-  Item 28 settles a different question about the same two services — which path shape a route takes —
+  Item 26 settles a different question about the same two services — which path shape a route takes —
   and the two interact: retiring repo's routes would retire the bare-identifier convention that item
-  28 proposes to generalize, so whichever is decided first constrains the other.
+  26 proposes to generalize, so whichever is decided first constrains the other.
 
   Done when each of the two hosts has a stated role, an owner, and either a current caller that needs
   the process or a routing arrangement that keeps its URLs resolving without one.

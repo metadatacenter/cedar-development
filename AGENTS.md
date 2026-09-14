@@ -81,11 +81,15 @@ below have no CLI front end yet, so call them directly:
   splits each count by verdict, since a valid artifact may still carry one. Streams one record per
   artifact, reports progress every 200 artifacts, resumes. `--recheck` re-validates exactly the
   artifacts a repair run reports having written, which is how a repair is proved.
-- `cedar_artifact_repair.py` — carry out a repair the audit has measured, one `PUT ?verbatim=true` at
+- `repairs/cedar_artifact_repair.py` — carry out a repair the audit has measured, one `PUT ?verbatim=true` at
   a time, so each artifact keeps its identifier, provenance, version and child identifiers. A repair
   is a transform plus an invariant proving nothing else changed; the library validates every body
   before it is written, the stored body is saved first, and the artifact is read back after. Reports
-  by default, writes only under `--apply`. Targets come from the audit's records.
+  by default, writes only under `--apply`. Targets come from the audit's records. Its suite and the
+  tools that plan a repair sit beside it under `ops/repairs/`: `ctxreq_at_risk.py` weighs which
+  templates can take a tightened `@context.required` without invalidating an instance they already
+  have, and `rename_sheet.py` drafts the field renames a template's instances imply, for an owner to
+  confirm.
 
 - `cedar_term_bench.py` — times the terminology server's lookup paths against whatever it is
   serving, drawing query strings from the served index so every lookup matches something. Reports

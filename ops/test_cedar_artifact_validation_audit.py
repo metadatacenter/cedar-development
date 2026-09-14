@@ -198,6 +198,23 @@ class UiOrderRuleTest(unittest.TestCase):
         self.assertEqual([c.value for c in found["ui-order-orphan-entry"]], ["Ghost"])
         self.assertEqual([c.value for c in found["ui-order-duplicate-entry"]], ["Name"])
 
+    def test_a_page_break_is_a_child_rather_than_an_orphan_entry(self):
+        """A leading underscore reserves nothing: the Template Editor names page breaks this way."""
+        page_break = field_definition("Break", input_type="page-break")
+        page_break["@type"] = AUDIT.rest.STATIC_TEMPLATE_FIELD
+        doc = template({"Name": field_definition("Name"), "_page_break_1": page_break})
+        doc["_ui"]["order"] = ["Name", "_page_break_1"]
+        found = rules(doc)
+        self.assertNotIn("ui-order-orphan-entry", found)
+        self.assertNotIn("ui-order-missing-child", found)
+
+    def test_a_reserved_instance_keyword_is_never_a_child(self):
+        doc = template({"Name": field_definition("Name")})
+        doc["properties"]["_annotations"] = {"type": "object", "@type": FIELD}
+        doc["_ui"]["order"] = ["Name"]
+        found = rules(doc)
+        self.assertNotIn("ui-order-missing-child", found)
+
     def test_absent_order_on_a_container_with_children(self):
         doc = template({"Name": field_definition("Name")})
         del doc["_ui"]["order"]

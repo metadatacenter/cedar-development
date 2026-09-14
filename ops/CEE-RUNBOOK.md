@@ -330,18 +330,24 @@ needs. Install, then get the bundle into what each host serves:
 |---|---|---|
 | `cedar-workspace` | plain | `npx gulp copy:cee` (needs the profile sourced) |
 | `cedar-template-editor` | plain | `npx gulp copy:cee` (needs the profile sourced) |
-| `cedar-bridging` | plain | `cedarcli build this --wd "$PWD"` |
-| `cedar-openview` | plain | `cedarcli build this --wd "$PWD"` — it compiles the source output; publication alone materializes `cedar-openview-dist` |
-| `cedar-component-demo` (Angular) | plain | `cedarcli build this --wd "$PWD"` |
+| `cedar-bridging` | plain | restart the server |
+| `cedar-openview` | plain | restart the server; publication alone materializes `cedar-openview-dist` |
+| `cedar-component-demo` (Angular) | plain | nothing to deploy — it is not served here |
 | `cedar-component-demo` (Ember, React) | plain | nothing — they run from source |
 
-A build refreshes what is on disk. A **running `ng serve` still serves what it
-started with**, because a `node_modules` swap is not a source change, so
-`ui-openview` and `ui-bridging` need restarting; the same
-`.angular/cache` caveat above applies to openview. Native Workspace and monolith
-Gulp servers need no restart — each serves the file `copy:cee` wrote, so the copy is
-the deploy. A Workspace preview image must instead be rebuilt and recreated because
-its CEE bundle was copied into the image.
+The install is what places the new bytes for openview and bridging. Neither imports
+CEE: each declares an asset glob that copies `cedar-embeddable-editor.js` out of
+`node_modules`, and loads it through a script tag in `index.html`. A **running `ng
+serve` still serves what it started with**, because a `node_modules` swap is not a
+source change, so `ui-openview` and `ui-bridging` need restarting and the restart is
+the deploy; the same `.angular/cache` caveat above applies to openview. Native
+Workspace and monolith Gulp servers need no restart — each serves the file
+`copy:cee` wrote, so there the copy is the deploy. A Workspace preview image must
+instead be rebuilt and recreated because its CEE bundle was copied into the image.
+
+`cedarcli build this` deploys nothing to any of them. It builds in an isolated
+workspace and leaves the repository's own `dist/` untouched, so reach for it to prove
+a host still compiles against the new bundle, not to put one in front of a server.
 
 ```bash
 cedarcli native restart ui-openview ui-bridging
@@ -360,25 +366,35 @@ and checking the wrong file reads exactly like a failed deploy:
 | Extracted Workspace (`cedar-workspace`) | `/third_party_components/cedar-embeddable-editor/cedar-embeddable-editor.js` |
 | Production monolith (`cedar-template-editor`) | `/third_party_components/cedar-embeddable-editor/cedar-embeddable-editor.js` |
 | openview | `/node_modules/cedar-embeddable-editor/cedar-embeddable-editor.js` |
-| bridging | bundled, not served as a file — it is imported in `app.module.ts`. **Which bundle depends on which build**: the running `ng serve` splits it into `vendor.js`, and the production dist emits no `vendor.js` at all, carrying it in content-hashed `main.<hash>.js`. |
+| bridging | `/node_modules/cedar-embeddable-editor/cedar-embeddable-editor.js` |
 
-For the first two, compare sha256 against the staged bundle. For the bundled case
-there is no file to hash: grep the bundle for the load-trace stamp, which names
-one build exactly. The version string alone is not enough — the bundle holds every
-dependency's version, so a bare semver such as `2.0.3` in it may belong to something else
-entirely.
+Every host serves the bundle as a file, so compare sha256 against the staged one in
+each case. That holds for the distributions too: a build copies the same file to the
+same path rather than folding it into `main.<hash>.js`.
 
-Ask the dev server for `vendor.js` and the dist for `main.*.js`. Grepping the other
-one of the pair returns zero, which reads exactly like the failed deploy this
-check exists to rule out — and a zero from the wrong file has already been
-mistaken for one.
+Compare the hash rather than the version, because a dev snapshot's two versions
+differ by design. CEE stamps the bundle with the commit it was last versioned at, so
+the snapshot published as `2.0.12-dev.20260913.96b2097` carries the stamp
+`2.0.12-dev.20260911.448b9d2e`, and a check reading the stamp against the version
+npm resolved fails a correct deploy. A bare semver is weaker still: the bundle holds
+every dependency's version, so a `2.0.3` in it may belong to something else entirely.
 
 ```bash
+# The four running servers. All four answer with the staged bundle's hash.
 curl -s http://127.0.0.1:4220/node_modules/cedar-embeddable-editor/cedar-embeddable-editor.js | shasum -a 256
+curl -s http://127.0.0.1:4340/node_modules/cedar-embeddable-editor/cedar-embeddable-editor.js | shasum -a 256
 curl -sk https://cedar.metadatacenter.orgx/third_party_components/cedar-embeddable-editor/cedar-embeddable-editor.js | shasum -a 256
 curl -sk https://workspace.metadatacenter.orgx/third_party_components/cedar-embeddable-editor/cedar-embeddable-editor.js | shasum -a 256
-curl -s http://127.0.0.1:4340/vendor.js | grep -c '<the load-trace stamp>'
-grep -c '<the load-trace stamp>' $CEDAR_HOME/cedar-bridging/cedar-bridging-dist/main.*.js
+```
+
+The committed distribution directories are a separate question, and asking them this
+after a local deploy invites the false alarm this section exists to prevent. A train
+or a publication writes `cedar-bridging-dist` and `cedar-openview-dist`; nothing done
+locally does, so each keeps the CEE of the last one until then and answers with an
+older hash while every running server is correct.
+
+```bash
+shasum -a 256 $CEDAR_HOME/cedar-bridging/cedar-bridging-dist/node_modules/cedar-embeddable-editor/cedar-embeddable-editor.js
 ```
 
 ### First-time setup
@@ -438,12 +454,14 @@ on a commit. Inside the gate it would break an unrelated pull request with an er
 its author cannot fix there, and would teach people to expect a red gate for reasons
 that are not theirs.
 
-A root `npm audit` reports **3**, all moderate: `@angular/cli` and the two
-packages reached through it, `@hono/node-server` and `@modelcontextprotocol/sdk`.
-It reported 11 until `@angular-devkit/build-angular` was dropped — the webpack
-toolchain no build target had named since the move to `@angular/build` — which
-took every `high` with it, along with 427 packages. `npm run audit:prod` reports
-0, and that is the number that describes what ships.
+A root `npm audit` reports **0**, and so does `npm run audit:prod`. It reported 11
+until `@angular-devkit/build-angular` was dropped — the webpack toolchain no build
+target had named since the move to `@angular/build` — which took every `high` with
+it, along with 427 packages. The three moderates that survived that, against
+`@angular/cli` and the two packages reached through it, `@hono/node-server` and
+`@modelcontextprotocol/sdk`, closed when the Angular toolchain moved to 22.1.8.
+Expect the root number to move again on the next disclosure; `npm run audit:prod`
+is the one that describes what ships.
 
 **Never run `npm audit fix --force` here.** npm's idea of fixing the Angular
 tooling is to walk it backwards: it proposed `@angular/cli@21.0.4` and
