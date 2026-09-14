@@ -665,6 +665,14 @@ class ErrorPatternTest(unittest.TestCase):
         self.assertTrue(self.selects("restate-instance-literal",
                                      "/Count/@value: integer found, [string, null] expected"))
 
+    def test_a_context_mismatch_inside_an_element_is_selected(self):
+        self.assertTrue(self.selects(
+            "align-instance-context-iris",
+            "/Person/@context/ORCID: does not have a value in the enumeration [\"x\"]"))
+        self.assertTrue(self.selects(
+            "align-instance-context-iris",
+            "/@context/ORCID: does not have a value in the enumeration [\"x\"]"))
+
     def test_the_value_shape_repair_selects_both_of_its_complaints(self):
         self.assertTrue(self.selects("settle-instance-empty-shape",
                                      "object has missing required properties (['@value'])"))

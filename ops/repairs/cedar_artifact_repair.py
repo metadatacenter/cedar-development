@@ -2241,7 +2241,10 @@ def only_minted_property_iris(before: Any, after: Any) -> Optional[str]:
     return walk(before, after, "", None)
 
 
-CONTEXT_ENUM_ERROR = r"^/@context/.+: does not have a value in the enumeration"
+# An element occurrence carries its own `@context`, so the complaint names the route to it —
+# "/Person/@context/ORCID: ..." — and a pattern anchored on the top-level one selects none of
+# those. The repair walks every depth; its pattern has to reach as far.
+CONTEXT_ENUM_ERROR = r".*@context/.+: does not have a value in the enumeration"
 
 
 def instance_context_expectations(container: Any) -> dict[str, str]:
