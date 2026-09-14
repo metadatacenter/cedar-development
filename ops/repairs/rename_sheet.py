@@ -105,6 +105,33 @@ def tidy(values):
     return out
 
 
+
+def distinct(values, limit=VALUES):
+    """Values in the order the instances gave them, each whole, without repeats."""
+    seen, out = set(), []
+    for value in values:
+        value = " ".join(str(value).split())
+        if value and value not in seen:
+            seen.add(value)
+            out.append(value)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def elide(text, budget):
+    """Shorten a value while keeping both ends, since what distinguishes it may be at either.
+
+    Truncating from the right hides the one part that tells two values apart when they share a long
+    prefix, which is exactly the case for a path expression left unsubstituted by a translation.
+    """
+    text = " ".join(str(text).split())
+    if len(text) <= budget:
+        return text
+    head = (budget - 1) // 2
+    return text[:head] + "…" + text[-(budget - 1 - head):]
+
+
 def normalise(name):
     return re.sub(r'[^a-z0-9]', '', name.lower())
 
@@ -364,6 +391,7 @@ def proposals_for(found):
 
 
 REGISTRY = HOME / "decision-registry.json"
+DECISIONS = pathlib.Path.home() / "Desktop" / "cedar-rename-decisions.md"
 
 
 def decision_numbers(pending):
@@ -591,7 +619,12 @@ def main():
 
 
 def write_decisions(studies, written):
-    """Only the keys a person still has to rule on, worst blocker first."""
+    """One line per decision, grouped so the answers are read once and used many times.
+
+    Every key in the same container competes for the same declared names, so the lettered answers
+    belong to the container rather than to each question. Stating them once turns a decision into a
+    single line: the key, what it holds, and a blank.
+    """
     pending = []
     for _rank, template_id, found in studies:
         proposals = proposals_for(found)
@@ -616,155 +649,82 @@ def write_decisions(studies, written):
             scope = json.loads(path.read_text(encoding="utf-8"))
         except ValueError:
             scope = {}
-    silent = [(found["template"].get("schema:name") or "(unnamed)", found["instances"])
-              for _r, _t, found in studies
-              if not any(found is f for _t2, f, _p, _u in pending)]
+    registry = decision_numbers(pending)
+    questions = sum(len(p[3]) for p in pending)
+
     lines = ["# CEDAR — Rename Decisions",
              "",
-             "Only the keys that still need a person. Anything settled by matching names or "
-             "matching values, and anything you have already answered, is left out; those are "
-             "decided and wait on these.",
-             "",
-             "## What this covers",
+             f"**{questions} questions across {len(pending)} templates.** Each instance carries a key "
+             "its template no longer declares. Say where the value goes.",
              ""]
     if scope:
-        lines += [f"- Production holds **{scope['total']} invalid instances** across "
-                  f"**{scope['templates']} templates**.",
-                  f"- This sheet studies the **{len(studies)} largest**, covering "
-                  f"{scope['covered']} of those instances "
-                  f"({100 * scope['covered'] // max(1, scope['total'])}%).",
-                  f"- Of those, **{len(pending)} have questions left**; the rest are answered "
-                  "already, or fail for reasons renaming cannot fix.",
-                  f"- The remaining {scope['templates'] - len(studies)} templates hold "
-                  f"{scope['total'] - scope['covered']} instances between them, most of them one "
-                  "or two each. Per-template curation will not reach that tail.",
-                  ""]
-    if silent:
-        lines += ["Studied and **not** asking you anything, with why:", ""]
-        for name, count in sorted(silent, key=lambda s: -s[1])[:12]:
-            lines.append(f"- {name} — {count} instances")
-        lines += ["",
-                  "Those either have every key answered — in which case they are waiting on a "
-                  "repair, not on you — or are invalid for something other than a renamed field: "
-                  "a value of the wrong shape, a term missing from `@context`, a child the "
-                  "template began requiring later.",
-                  ""]
-    lines += [
-             "An instance is written only once it fully validates, so a template releases nothing "
-             "until **every** key below it is answered. Fewest questions per instance first.",
-             "",
-             "Each decision is numbered and offers lettered answers. Write the letter in the last "
-             "column, or your own answer if none of them fits. The numbered sections below carry "
-             "the full value samples behind each row.",
-             "",
-             "**A number belongs to one question for good.** It is keyed to the template and the "
-             "key it rules on, so regenerating this sheet never moves an answer onto a different "
-             "question. Numbers you have already answered do not come back, which is why the "
-             "sequence has gaps — and the table is ordered by what releases most for least effort, "
-             "not by number, so the numbers run out of order. The sections below are in numerical "
-             "order for looking one up.",
-             "",
-             "**A key written with a slash sits inside an element.** `DataCite Title/titleLanguage` "
-             "is the key `titleLanguage` as an instance carries it inside the element the template "
-             "declares as `DataCite Title`; the answers offered for it are that element's own "
-             "fields, not the template's. These questions appear only once the element itself is "
-             "settled, because until then there is no declaration to read its children against — "
-             "so answering an element rename uncovers the next round rather than finishing it.",
-             "",
-             "| # | Template | Key | What it holds | Answers | Yours |",
-             "| --- | --- | --- | --- | --- | --- |"]
-    registry = decision_numbers(pending)
-    order = sorted(pending, key=lambda p: (len(p[3]) / max(1, p[1]["instances"])))
-    numbered = []
-    for template_id, found, proposals, undecided in order:
-        name = found["template"].get("schema:name") or "(unnamed)"
-        pending_paths = dict(undecided)
-        for stale, guess in undecided:
-            prefix = found["at"].get(stale, "")
-            # A name another key in the same container has already claimed is not offered again;
-            # a claim made in a different container says nothing about this one.
-            claimed = {answer[0] for path, answer in proposals.items()
-                       if answer[0] and path not in pending_paths
-                       and found["at"].get(path, "") == prefix}
-            options = [n for n in candidates_for(found, prefix) if n not in claimed]
-            number = registry[f"{template_id}\t{stale}"]
-            letters = answer_letters(options)
-            numbered.append((number, name, found, stale, guess, options, letters))
-            holds = tidy(found["staleValues"].get(stale, []))[:2]
-            shown = "; ".join(holds) if holds else "_always empty_"
-            offer = ", ".join(f"**{letter}** {choice}" if choice == guess
-                              else f"{letter} {choice}"
-                              for letter, choice in letters)
-            if len(offer) > 96:
-                offer = offer[:94] + "…"
-            lines.append(f"| **{number}** | {name} | `{stale}` | {shown[:40]} | {offer} | |")
-    lines += ["",
-              "A letter in bold is the closest match on wording alone — a hint, not a "
-              "recommendation. The last two letters are always `delete` (the value is recorded "
-              "elsewhere or no longer wanted) and `keep` (the template should declare the field "
-              "again).",
+        lines += [f"Production holds {scope['total']} invalid instances across {scope['templates']} "
+                  f"templates; the {len(studies)} largest are studied here, covering "
+                  f"{scope['covered']} of them. Anything settled by matching names or matching "
+                  "values, and anything you have already answered, is left out.", ""]
+    lines += ["## How to Answer",
+              "",
+              "Write a letter in the last column. The letters are listed once per group and mean the "
+              "same for every question in it. Two are always there: **delete** where the value is "
+              "recorded elsewhere or no longer wanted, and **keep** where the template is what "
+              "should change. A letter in bold is the closest match on wording, which is a hint and "
+              "not a recommendation.",
+              "",
+              "A key written with a slash sits inside an element — `DataCite Title/titleLanguage` is "
+              "`titleLanguage` inside the element the template declares as `DataCite Title` — and "
+              "its answers are that element's own fields. An answer marked *elem* names an element "
+              "rather than a field: a value cannot be renamed into one, so choosing it records where "
+              "the value belongs without moving it.",
+              "",
+              "Numbers belong to one question for good, so they run out of order and the sequence "
+              "has gaps where you have already answered. Groups are ordered by what releases most "
+              "for least effort.",
+              "",
+              "A template releases nothing until **every** question under it is answered.",
               ""]
-    seen_template = None
-    for number, name, found, stale, guess, options, letters in sorted(numbered, key=lambda n: n[0]):
 
-        for stale, guess in [(stale, guess)]:
-            raw = found["staleValues"].get(stale, [])
-            counted = collections.Counter(raw)
-            carried = found["stale"][stale]
-            lines += [f"## {number}. `{stale}` — {name}", "",
-                      f"{carried} of the {found['sampled']} instances I sampled carry this key, of "
-                      f"{found['instances']} invalid ones this template has."]
-            if not raw:
-                lines += ["Every one of them leaves it empty, so its values say nothing about "
-                          "where it belongs.", ""]
-            else:
-                distinct = len(counted)
-                lines += [f"Between them they hold {distinct} distinct "
-                          f"{'value' if distinct == 1 else 'values'}"
-                          + (", every instance the same one:" if distinct == 1
-                             else ". The commonest are:"), ""]
-                for shown, n in counted.most_common(6):
-                    lines.append(f"- `{shown[:70]}` — in {n} of them")
-                lines += [""]
-            prefix = found["at"].get(stale, "")
-            comparable = [o for o in options
-                          if found["declaredValues"].get(declared_path(prefix, o))]
-            elements_offered = False
-            lines += ["Answers:", ""]
+    order = sorted(pending, key=lambda p: (len(p[3]) / max(1, p[1]["instances"])))
+    for template_id, found, proposals, undecided in order:
+        title = found["template"].get("schema:name") or "(unnamed)"
+        pending_here = dict(undecided)
+        grouped = collections.defaultdict(list)
+        for stale, guess in undecided:
+            grouped[found["at"].get(stale, "")].append((stale, guess))
+        lines += [f"### {title} — {found['instances']} instances, {len(undecided)} to answer", ""]
+        for prefix, rows in sorted(grouped.items()):
+            claimed = {answer[0] for path_, answer in proposals.items()
+                       if answer[0] and path_ not in pending_here
+                       and found["at"].get(path_, "") == prefix}
+            options = [n for n in candidates_for(found, prefix) if n not in claimed]
+            letters = answer_letters(options)
+            guesses = {guess for _stale, guess in rows}
+            if prefix:
+                lines += [f"Inside the element `{prefix}`:", ""]
+            offered = []
             for letter, choice in letters:
-                if choice == "delete":
-                    lines.append(f"- **{letter}.** `delete` — the value is recorded elsewhere or is "
-                                 "no longer wanted, so the key goes and the value with it")
-                elif choice == "keep":
-                    lines.append(f"- **{letter}.** `keep` — the field should not have been removed; "
-                                 "the template is what needs changing, not the instances")
-                else:
-                    values = tidy(found["declaredValues"].get(declared_path(prefix, choice), []))[:3]
-                    tail = (" — validating instances hold: " + "; ".join(v[:38] for v in values)
-                            if values else " — no example values to show")
-                    mark = "  ← closest on wording" if choice == guess else ""
-                    if candidate_kind(found, prefix, choice) == "element":
-                        elements_offered = True
-                        tail = " — **an element, not a field**" + (tail if values else "")
-                    lines.append(f"- **{letter}.** `{choice}`{tail}{mark}")
-            lines += ["- **Z.** something else: ______________________", ""]
-            if elements_offered:
-                lines += ["An answer marked *an element* records where the value belongs without "
-                          "moving it. A value cannot be renamed into an element: it would have to "
-                          "go down a level into a new occurrence of one, which changes the shape "
-                          "rather than the name, and no repair does that today.", ""]
-            if options and not comparable:
-                lines += ["This template has no instances that validate, so there is nothing to "
-                          "compare the candidates against. The choice rests on what the field "
-                          "names mean to you.", ""]
-            if not options:
-                lines += ["The template has no unclaimed field left, so this key was most likely "
-                          "removed rather than renamed.", ""]
-            lines += [f"**Answer {number}:** ______", ""]
-    path = pathlib.Path.home() / "Desktop" / "cedar-rename-decisions.md"
+                mark = ""
+                if choice not in ("delete", "keep") and \
+                        candidate_kind(found, prefix, choice) == "element":
+                    mark = " *elem*"
+                shown = f"**{letter}** {choice}{mark}" if choice in guesses else \
+                    f"{letter} {choice}{mark}"
+                offered.append(shown)
+            offered.append("Z something else")
+            lines += ["Answers: " + " · ".join(offered), "",
+                      "| # | Key the instances carry | What it holds | ✎ |",
+                      "| --- | --- | --- | --- |"]
+            for stale, _guess in sorted(rows, key=lambda r: registry[f"{template_id}\t{r[0]}"]):
+                number = registry[f"{template_id}\t{stale}"]
+                key = stale.rsplit("/", 1)[-1] if prefix else stale
+                held = distinct(found["staleValues"].get(stale, []), 3)
+                shown = "; ".join(elide(v, 34) for v in held) if held else "_always empty_"
+                lines.append(f"| **{number}** | `{key}` | {elide(shown, 78)} | |")
+            lines += [""]
+
+    path = DECISIONS
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    count = sum(len(p[3]) for p in pending)
-    print(f"wrote {path} ({path.stat().st_size} bytes): {count} decisions across {len(pending)} templates")
+    print(f"wrote {path} ({path.stat().st_size} bytes): {questions} decisions "
+          f"across {len(pending)} templates")
 
 
 main()
