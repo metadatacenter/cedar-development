@@ -634,6 +634,15 @@ class DropStaticFieldFromInstanceTest(unittest.TestCase):
         self.assertEqual(changes, [])
         self.assertIn("Name", after)
 
+    def test_completion_does_not_put_a_static_field_back(self):
+        # The two repairs would otherwise fight: one removes the field, the other writes it again,
+        # so the artifact never settles and a read-back can never confirm the write.
+        tmpl = self.template_with({"Heading": self.static(), "Name": child()})
+        dropped, _changes = REPAIR.drop_static_field_from_instance(
+            {"@context": {}, "Heading": {}, "Name": {"@value": "Ada"}}, tmpl)
+        completed, _more = REPAIR.complete_instance(dropped, tmpl)
+        self.assertNotIn("Heading", completed)
+
     def test_the_invariant_catches_an_ordinary_field_going_with_it(self):
         tmpl = self.template_with({"Heading": self.static(), "Name": child()})
         before = {"@context": {}, "Heading": {}, "Name": {}}

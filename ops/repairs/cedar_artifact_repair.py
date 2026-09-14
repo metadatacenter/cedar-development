@@ -2771,6 +2771,11 @@ def completed_element(value: Any, definition: Any) -> Any:
     context = dict(node["@context"]) if isinstance(node.get("@context"), dict) else {}
     declarations = definition.get("properties") if isinstance(definition, dict) else {}
     for name, child, multiple in container_children(definition):
+        # A static field renders in the form and holds nothing, so it is not a property of an
+        # instance and has no empty form to write. The model says so itself: `EmptyFieldInstances`
+        # refuses one outright and tells the caller to skip the child before asking.
+        if isinstance(child, dict) and child.get(AT_TYPE) == STATIC_AT_TYPE:
+            continue
         if name not in node:
             declared = declarations.get(name) if isinstance(declarations, dict) else None
             minimum = declared.get("minItems") if isinstance(declared, dict) else None
