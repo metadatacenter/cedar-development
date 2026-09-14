@@ -8,6 +8,7 @@ what a write would contain, which is where a mistake would be silent.
 """
 
 import copy
+import re
 import importlib.util
 import time
 import json
@@ -647,6 +648,34 @@ class DropStaticFieldFromInstanceTest(unittest.TestCase):
         tmpl = self.template_with({"Heading": self.static(), "Name": child()})
         before = {"@context": {}, "Heading": {}, "Name": {}}
         self.assertEqual(REPAIR.only_dropped_static_fields(before, {"@context": {}}, tmpl), "/Name")
+
+
+class ErrorPatternTest(unittest.TestCase):
+    """Target selection anchors a pattern at the start of the validator's message."""
+
+    def selects(self, name, message):
+        pattern = REPAIR.REPAIRS[name].error_pattern
+        return re.match(pattern, message) is not None
+
+    def test_a_complaint_naming_its_location_first_is_still_selected(self):
+        self.assertTrue(self.selects("wrap-instance-occurrence",
+                                     "/Date: object found, array expected"))
+        self.assertTrue(self.selects("unwrap-instance-occurrence",
+                                     "/dataType: array found, object expected"))
+        self.assertTrue(self.selects("restate-instance-literal",
+                                     "/Count/@value: integer found, [string, null] expected"))
+
+    def test_the_value_shape_repair_selects_both_of_its_complaints(self):
+        self.assertTrue(self.selects("settle-instance-empty-shape",
+                                     "object has missing required properties (['@value'])"))
+        self.assertTrue(self.selects(
+            "settle-instance-empty-shape",
+            "object instance has properties which are not allowed by the schema: ['@value']"))
+
+    def test_every_repair_naming_a_pattern_can_match_something(self):
+        for name, repair in REPAIR.REPAIRS.items():
+            if repair.error_pattern:
+                re.compile(repair.error_pattern)
 
 
 class SchemaKeyDemandTest(unittest.TestCase):

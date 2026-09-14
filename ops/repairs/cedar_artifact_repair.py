@@ -2258,6 +2258,13 @@ def instance_context_expectations(container: Any) -> dict[str, str]:
 
 
 UNDECLARED_KEY_ERROR = r"^object instance has properties which are not allowed by the schema"
+# A records file is searched with `re.match`, which anchors at the start of the message. These
+# complaints name their location first — "/Date: object found, array expected" — so a pattern that
+# describes only the complaint would select nothing at all.
+ARRAY_EXPECTED_ERROR = r".*array expected"
+OBJECT_EXPECTED_ERROR = r".*object expected"
+VALUE_SHAPE_ERROR = r".*@value"
+TYPE_EXPECTED_ERROR = r".*expected"
 
 
 def carries_a_value(value: Any) -> bool:
@@ -3750,7 +3757,7 @@ REPAIRS = {
         transform=wrap_instance_occurrence,
         invariant=only_wrapped_occurrences,
         needs_template=True,
-        error_pattern=r"array expected",
+        error_pattern=ARRAY_EXPECTED_ERROR,
     ),
     "unwrap-instance-occurrence": Repair(
         name="unwrap-instance-occurrence",
@@ -3759,7 +3766,7 @@ REPAIRS = {
         transform=unwrap_instance_occurrence,
         invariant=only_unwrapped_occurrences,
         needs_template=True,
-        error_pattern=r"object expected",
+        error_pattern=OBJECT_EXPECTED_ERROR,
     ),
     "settle-instance-empty-shape": Repair(
         name="settle-instance-empty-shape",
@@ -3768,7 +3775,7 @@ REPAIRS = {
         transform=settle_instance_empty_shape,
         invariant=only_settled_empty_shapes,
         needs_template=True,
-        error_pattern=r"@value",
+        error_pattern=VALUE_SHAPE_ERROR,
     ),
     "complete-instance-context": Repair(
         name="complete-instance-context",
@@ -3786,7 +3793,7 @@ REPAIRS = {
         transform=restate_instance_literal,
         invariant=only_restated_literals,
         needs_template=True,
-        error_pattern=r"expected",
+        error_pattern=TYPE_EXPECTED_ERROR,
     ),
     "drop-static-field-from-instance": Repair(
         name="drop-static-field-from-instance",
