@@ -298,12 +298,12 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   rate-limits per key, and a burnt quota surfaces to users as controlled terms silently not existing,
   because the picker latches its empty cache for the life of the page.
 
-- **9. Rate limit the edge in every environment.** An anonymous caller can spend the deployment's
-  third-party quota, and only the development host bounds how fast. The `/ext-auth/*` routes are
-  the clearest case: they proxy seven registries, three of them on credentials the deployment
-  holds, and they carry none of their own. `POST /bioportal/integrated-search` and `/bioportal/integrated-retrieve`
-  belong in the same limit: both are anonymous by the same decision and both spend the deployment's
-  BioPortal key.
+- **9. Rate limit the edge in every environment, and turn the authenticated user quotas on.** An
+  anonymous caller can spend the deployment's third-party quota, and only the development host
+  bounds how fast. The `/ext-auth/*` routes are the clearest case: they proxy seven registries,
+  three of them on credentials the deployment holds, and they carry none of their own. `POST
+  /bioportal/integrated-search` and `/bioportal/integrated-retrieve` belong in the same limit: both
+  are anonymous by the same decision and both spend the deployment's BioPortal key.
 
   A limit rather than a credential is deliberate. The embeddable editor calls them from a browser with
   nothing to send and nowhere in `CeeConfig` to keep a key, so a gate would break every host that
@@ -317,9 +317,30 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   terminology routes named above spend the same kind of credential with no limit at all; whatever is
   decided about their gate, they want the same treatment.
 
-  Done when every environment serving an unauthenticated third-party proxy carries a limit, the
-  chosen rates are recorded where the deployment is documented rather than only in the config, and a
-  probe shows the limit taking effect.
+  **The authenticated half admits requests and refuses none.** A signed-in user's own traffic is
+  bounded by a second mechanism, inside the applications rather than at nginx, and it covers what
+  the edge limit cannot address by source address. Every route on a shared
+  `CedarMicroserviceResource` acquires two token buckets — the user's total, and the bucket for the
+  method's class, reads or writes — in one atomic Lua evaluation against the persistent Redis, keyed
+  by a hash of the user identifier. The check runs where the resource builds its request context
+  from the authenticated user, so an anonymous handler never spends a quota and no header can carry
+  one. A refusal answers 429 with `Retry-After`, now on the CORS exposed-header list, and a body
+  naming the policy. An unreachable Redis fails open for reads and, once enforcement is on, closed
+  for writes. The artifact server marks a verified internal service call exempt, so a proxied hop
+  does not charge the user twice.
+
+  Nothing is refused yet, and the numbers are guesses. `cedar-main.yml` ships `mode: observe`, so
+  every decision is counted through the `cedar.rateLimits.*` meters and every request proceeds, and
+  the rates counted against — 720 requests a minute in total, 600 reads and 120 writes — were
+  chosen without traffic to choose them from. So collect those meters from a deployment carrying
+  real traffic and set the rates from what they show. Decide the mode per environment, since
+  `set-env-internal.sh` carries the overrides commented out and no profile sets one. Then prove a
+  refusal end to end: no environment has run under `enforce`, so the 429, its `Retry-After` and the
+  write bucket's closed failure mode have passed their unit tests and nothing else.
+
+  Done when every environment serving an unauthenticated third-party proxy carries a limit, every
+  environment states the mode and rates its authenticated quotas run at, both are recorded where the
+  deployment is documented rather than only in the config, and a probe shows each taking effect.
 
 - **10. Put the MySQL connections on TLS, and make the timezone a setting rather than a constant.**
   **Production consequence:** server certificates and client trust have to exist before rollout, and
@@ -801,7 +822,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   their own. The Mongo driver is the exception: 5.11.1 stays inside major 5, so nothing about it
   needs proving against the pinned server, and it is grouped here only to move with that server's
   own upgrade. Keycloak 22.0.4 to 25.0.3 is item 4's own, and RESTEasy 6.2.4 to 7.0.4 is held by the Keycloak
-  client stack, which items 3 and 15 own.
+  client stack, which items 4 and 16 own.
 
   Embedded Mongo 4.20.0 to 5.0.0 belongs here too, and it is the deployed Mongo it follows rather
   than a framework. The code cost is one import, since flapdoodle moved `de.flapdoodle.reverse` to
@@ -1196,9 +1217,9 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   outage producing a successful read. That comparison is what proving routing compatibility means,
   and no adapter should be reduced before it passes on the deployed topology.
 
-  Item 28 settles a different question about the same two services — which path shape a route takes —
+  Item 27 settles a different question about the same two services — which path shape a route takes —
   and the two interact: retiring repo's routes would retire the bare-identifier convention that item
-  28 proposes to generalize, so whichever is decided first constrains the other.
+  27 proposes to generalize, so whichever is decided first constrains the other.
 
   Done when each of the two hosts has a stated role, an owner, and either a current caller that needs
   the process or a routing arrangement that keeps its URLs resolving without one.
