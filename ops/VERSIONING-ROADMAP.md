@@ -157,7 +157,7 @@ true order. The self-claimed date is sparse and provably stale; kept as a displa
 
 #### 4.3 Identity: raw bytes vs normalized content — SETTLED (normalized, incl. labels; shipped)
 
-Today `version_id` is `sha256` of the raw downloaded file, tying identity to the *serialization*: the
+Originally `version_id` was `sha256` of the raw downloaded file, tying identity to the *serialization*: the
 same release from BioPortal vs an OBO PURL, or OWL vs OBO form, gives different bytes and different
 ids for content served identically — source and format leak into identity.
 
@@ -174,6 +174,13 @@ recomputed every `version_id` from the on-disk snapshots (no re-download), kept 
 `file_hash` provenance, and merged the 2 duplicates (INCENTIVE 6→5, MODSCI 3→2). Existing snapshot
 files keep their raw-hash names (`file_path` is authoritative); new ingests name files by the content
 hash and compute identity from the extracted model.
+
+Property extraction extends that same canonical model with property IRIs and kinds, labels,
+obsolete flags, literal annotations, and asserted superproperty edges. Classes and properties share
+one snapshot and one ontology version identity. Enriching an older class-only snapshot creates a
+new combined version; the original snapshot remains readable for existing pins. The extraction
+coverage marker distinguishes an ontology with no properties from a snapshot whose properties
+have not been extracted. See [the property backfill procedure](VERSIONING-RUNBOOK.md#versioned-properties-in-ontology-snapshots).
 
 #### 4.4 Both date-ish members must stay quoted in YAML
 

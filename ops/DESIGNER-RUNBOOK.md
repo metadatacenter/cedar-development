@@ -228,11 +228,28 @@ of each card. Expanding it reveals underline tabs for the applicable values,
 display, constraints, details, occurrences and metadata controls. Switching tabs
 or collapsing the panel retains incomplete input; valid settings update immediately
 without Apply buttons. Identity and provenance appear under Field metadata. Field details contains placeholder text for planned language, alternate label,
-property IRI/property name and annotation controls; imported labels, identifiers, annotations and property IRIs remain
+property name and annotation controls; imported labels, identifiers, annotations and property IRIs remain
 preserved in the model. Published fields allow tab
 navigation and inspection while their editing controls remain disabled.
 The card-level Save field to library action has been removed; import and reuse
 remain available through Field Designer.
+
+The root template header has a settings chevron. **Display** offers full-width
+Header and Footer controls; **Template Metadata** lists identity and provenance,
+ending with **Types**. Element metadata also offers Types, including a standalone
+element. Types uses CEF's read-only controlled-term summary and CETP with
+`termTypes = ['class']`, without `maximumTerms`. Done writes the allowed instance
+class IRIs into both `properties.@type.oneOf` enum branches; cancellation retains
+the saved set. These are allowed alternatives, not a requirement to assign all
+selected types. The serialized model retains the IRIs; picker labels and pins are
+session selection details.
+
+CED pins the published model development package `1.0.11-dev.20260914.3147347`
+for multi-type constraints. New child placements explicitly carry their effective display labels and descriptions
+so JSON and the model's YAML reconstruction agree; absent imported overrides remain absent.
+Java's artifact library also preserves the full set through JSON and YAML; its
+`instanceJsonLdTypes()` API returns the list, while `instanceJsonLdType()` retains
+the single-type compatibility view.
 
 The Overview shows each field's type icon and a right-aligned reorder handle.
 Dragging reorders siblings within the Overview; the document and main editor update
@@ -267,8 +284,15 @@ copies; a manually served `dist-bundle/` needs the copy commands above again.
 Display label and Display description apply to the field's deployment in this
 template. CEE gives those overrides precedence over the field's own labels and
 description, and falls back to the artifact when an override is absent. Preferred
-label remains part of the reusable field's metadata. Annotation and property IRI
-authoring are tracked in the designer roadmap.
+label remains part of the reusable field's metadata. Annotation authoring is tracked in the designer roadmap.
+
+Field metadata (for dynamic fields) and Element metadata end with a compact Property IRI box and **Edit**.
+They invoke CETP with `termTypes = ['property']` and `maximumTerms = 1`. Done
+applies the selected property IRI to the child placement in its parent JSON-LD
+context; cancellation preserves the existing IRI. The picker starts an empty
+replacement selection because an imported property IRI has no ontology/version
+provenance. The placement stores the IRI only; the ontology release chosen while
+browsing is not a versioned value constraint. Published field controls are disabled.
 
 Controlled defaults use the current `<cedar-embeddable-term-picker>` bundle's term-only mode,
 then verify membership through the configured terminology server's
@@ -277,7 +301,7 @@ in a vocabulary/release selector; membership checks still receive the entire fie
 constraint set and its actions. Constraint edits retain a permitted default and
 require explicit clearing before an invalid default's replacement set is applied.
 
-CED uses the picker's `selectionMode = 'constraints'`, `constraintSet` input and
+CED uses the picker's `selectionMode = 'constraints'`, `termTypes = ['ontology', 'class', 'branch', 'valueSet']`, `constraintSet` input and
 `constraintsSelected` event. The picker owns draft assembly, individual entry
 removal and branch depth. To change a selection, remove it and add the desired one. Exclusion and reordering authoring controls
 are deferred; imported term actions remain intact. Done returns the entire set; cancellation leaves the original intact.

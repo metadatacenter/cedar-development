@@ -1391,6 +1391,28 @@ address on read. TypeScript omits only a service URI its reader can reconstruct 
 allowance names template 029, and committed TypeScript fixtures pin its additional property; other
 differences, stale fixtures, or this difference disappearing fail the gate.
 
+Template and element instance-type constraints retain an ordered set of IRIs in
+both libraries. Java exposes `instanceJsonLdTypes()` and `withInstanceJsonLdTypes`;
+the singular accessor returns the first entry, and the singular builder replaces
+the set with one entry (or clears it for null). TypeScript exposes
+`instanceTypeSpecifications`, retaining its singular compatibility accessor.
+JSON writes the full set to the scalar and array `@type` enum branches. YAML
+`instanceType` stays a scalar for one IRI and becomes a sequence for multiple IRIs;
+no restriction omits the enum/key. The selected types are permitted alternatives,
+not a requirement that an instance declare every selected type.
+
+`InstanceTypesConformanceTest` checks Java's live JSON/full-YAML/compact-YAML output,
+template and standalone/nested element round trips, collection invariants, and
+CEDAR meta-schema validation for 0, 1, 2 and 64 types. It also tests actual instance
+type acceptance. `InstanceTypesConformance.spec.ts` reads the Java-generated fixture
+and checks TypeScript output and reconstruction against it in all three formats.
+The ordinary Maven/Jest suites include these checks. After a deliberate contract
+change, regenerate with `mvn -Dtest=InstanceTypesConformanceTest
+-DupdateInstanceTypesConformance=true test`, review
+`src/test/resources/concordance/instance-types.json`, and copy that file to the
+TypeScript library's `itest/resources/concordance/java-instance-types.json`.
+The TS test also checks that the two copies match when the Java checkout is present.
+
 Both comparisons live in the TypeScript library, which carries the corpus in-repo, so a plain clone
 runs them with nothing cloned or symlinked first:
 

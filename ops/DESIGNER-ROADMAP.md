@@ -53,14 +53,12 @@ rather than its number.
 
 ## The Fields
 
-### 1. Annotation and property IRI authoring
+### 1. Annotation and descriptive metadata authoring
 
-Provide a clear authoring surface for annotations and property IRIs, appropriate
+Provide a clear authoring surface for annotations, appropriate
 for the Semantic and Modular profiles. Replace the Field details placeholder with focused controls for language, alternate
-labels, property IRI/property name and annotations. Support adding, editing and removing
+labels, property name and annotations. Support adding, editing and removing
 literal and IRI-valued annotations, with unique names and validation of IRI values.
-Property IRI editing must apply to a dynamic field's placement in its containing
-template or element, with clear validation and no control on static fields.
 
 Preserve imported annotations and property IRIs through unrelated edits, nesting,
 and JSON/YAML round trips. Cover published-field restrictions and cancellation or
