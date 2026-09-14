@@ -3651,8 +3651,11 @@ def drop_static_field_from_instance(instance: Any, template: Any) -> tuple[Any, 
     instance carries one it was copied from the template that made it, and the rendered schema
     demands of it a ``_content`` the instance has no business holding, so it cannot validate.
 
-    Only a key holding nothing is removed. One that somehow carries content is left alone and
-    reported by the audit instead, because discarding what someone typed is a decision.
+    The key goes whether or not it holds anything. A static field has no instance representation at
+    all, so text found under one is not a value in a field — it is content with nowhere in the model
+    to live, and no edit to the instance can give it one. Where such content is discarded the change
+    record states it, and the stored body is kept, so the loss is visible and reversible rather than
+    silent.
     """
     if not isinstance(template, dict):
         raise TransformRefused("the template this instance names could not be read")
@@ -3665,10 +3668,13 @@ def drop_static_field_from_instance(instance: Any, template: Any) -> tuple[Any, 
             return node
         result = copy.deepcopy(node)
         for name in instance_static_names(container):
-            if name not in result or carries_a_value(result[name]):
+            if name not in result:
                 continue
             here = f"{path}/{rest.json_pointer_component(name)}"
-            changes.append({"path": here, "replaced": name, "wrote": None})
+            discarded = (json.dumps(result[name], sort_keys=True)[:200]
+                         if carries_a_value(result[name]) else None)
+            changes.append({"path": here, "replaced": name, "wrote": None,
+                            **({"discarded": discarded} if discarded else {})})
             del result[name]
             context = result.get("@context")
             if isinstance(context, dict) and name in context:
@@ -3700,12 +3706,77 @@ def only_dropped_static_fields(before: Any, after: Any, template: Any) -> Option
         if head.endswith("/@context"):
             # The term maps the name to its property IRI; it goes with the key, not with content.
             container = declaration_at(template, head[: -len("/@context")]) or template
-        elif carries_a_value(was):
-            return path or "/"
         else:
             container = declaration_at(template, head) if head else template
         if not isinstance(container, dict) or name not in instance_static_names(container):
             return path or "/"
+    return None
+
+
+def settle_instance_iri_value(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Take an ``@value`` out of a field whose schema admits only an IRI.
+
+    A controlled-term field holds ``@id`` and a label, and its rendered schema names no ``@value`` at
+    all, so an instance carrying one does not validate however ordinary the content looks. Three
+    shapes say nothing the field cannot say properly: a ``@value`` holding nothing, one holding an
+    absolute IRI where the value states no ``@id``, and one repeating the ``@id`` already there.
+
+    Only those are settled. A ``@value`` holding a term's label — ``"Tatum, J. L."`` — is left
+    exactly as it stands: the label alone does not determine the IRI, resolving it means asking the
+    terminology the field is constrained to, and inventing one would say the instance points at a
+    term nobody chose.
+    """
+    if not isinstance(template, dict):
+        raise TransformRefused("the template this instance names could not be read")
+    if not isinstance(instance, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def visit(value: Any, definition: Any, path: str) -> Any:
+        if not isinstance(value, dict) or holds_a_literal(definition) or "@value" not in value:
+            return value
+        held = value.get("@value")
+        settled = {key: inner for key, inner in value.items() if key != "@value"}
+        if held in (None, ""):
+            wrote = "the empty form the field takes"
+        elif isinstance(held, str) and rest.is_absolute_iri(held.strip()) and not value.get("@id"):
+            settled["@id"] = held.strip()
+            wrote = "the same IRI, stated as @id"
+        elif isinstance(held, str) and value.get("@id") == held.strip():
+            wrote = "nothing; the IRI was already stated"
+        else:
+            return value          # a label, or free text: where it belongs is not settled here
+        changes.append({"path": f"{path}/@value", "replaced": held, "wrote": wrote})
+        return settled
+
+    return walk_instance(instance, template, "", visit), changes
+
+
+def only_settled_iri_values(before: Any, after: Any, template: Any) -> Optional[str]:
+    """The invariant: an ``@value`` only ever goes, and only where the IRI it held is kept."""
+    if not isinstance(template, dict):
+        return "/"
+    seen: set[str] = set()
+    for path, _was, _now in differences(before, after):
+        definition, here = declaration_for_value(template, path)
+        if here in seen:
+            continue
+        if definition is None or is_element(definition) or holds_a_literal(definition):
+            return path or "/"
+        old, new = value_at(before, here), value_at(after, here)
+        if not isinstance(old, dict) or not isinstance(new, dict) or "@value" in new:
+            return path or "/"
+        expected = {key: inner for key, inner in old.items() if key != "@value"}
+        held = old.get("@value")
+        if isinstance(held, str) and held.strip() and rest.is_absolute_iri(held.strip()) \
+                and not old.get("@id"):
+            expected["@id"] = held.strip()
+        elif held not in (None, "") and not (isinstance(held, str)
+                                             and old.get("@id") == held.strip()):
+            return path or "/"    # content went that this repair does not speak for
+        if new != expected:
+            return path or "/"
+        seen.add(here)
     return None
 
 
@@ -3770,6 +3841,15 @@ REPAIRS = {
         invariant=only_unwrapped_occurrences,
         needs_template=True,
         error_pattern=OBJECT_EXPECTED_ERROR,
+    ),
+    "settle-instance-iri-value": Repair(
+        name="settle-instance-iri-value",
+        condition="",
+        summary="take an @value out of a field whose schema admits only an IRI",
+        transform=settle_instance_iri_value,
+        invariant=only_settled_iri_values,
+        needs_template=True,
+        error_pattern=VALUE_SHAPE_ERROR,
     ),
     "settle-instance-empty-shape": Repair(
         name="settle-instance-empty-shape",

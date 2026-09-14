@@ -622,12 +622,15 @@ class DropStaticFieldFromInstanceTest(unittest.TestCase):
         self.assertTrue(changes)
         self.assertIsNone(REPAIR.only_dropped_static_fields(before, after, tmpl))
 
-    def test_a_static_field_somehow_holding_content_is_left_for_an_owner(self):
+    def test_a_static_field_holding_content_goes_and_the_record_says_what_went(self):
+        # A static field has no instance representation, so text under one has nowhere in the model
+        # to live; the record names it and the stored body is kept, so the loss is not silent.
         tmpl = self.template_with({"Heading": self.static()})
         before = {"@context": {}, "Heading": {"@value": "typed by someone"}}
         after, changes = REPAIR.drop_static_field_from_instance(before, tmpl)
-        self.assertEqual(changes, [])
-        self.assertIn("Heading", after)
+        self.assertNotIn("Heading", after)
+        self.assertIn("typed by someone", changes[0]["discarded"])
+        self.assertIsNone(REPAIR.only_dropped_static_fields(before, after, tmpl))
 
     def test_a_field_that_is_not_static_is_never_removed(self):
         tmpl = self.template_with({"Name": child()})
@@ -684,6 +687,80 @@ class ErrorPatternTest(unittest.TestCase):
         for name, repair in REPAIR.REPAIRS.items():
             if repair.error_pattern:
                 re.compile(repair.error_pattern)
+
+
+class SettleInstanceIriValueTest(unittest.TestCase):
+    """A controlled-term field's schema names no @value, so one carried there cannot validate."""
+
+    def iri_field(self, **constraints):
+        node = child()
+        node["properties"] = {"@id": {"type": "string", "format": "uri"},
+                              "rdfs:label": {"type": ["string", "null"]}}
+        node["_valueConstraints"] = constraints or {"ontologies": [{"acronym": "X"}]}
+        return node
+
+    def template_with(self, children):
+        doc = template(children)
+        doc["properties"]["@context"]["properties"] = {
+            name: {"enum": [GOOD_IRI + name]} for name in children}
+        return doc
+
+    def test_an_empty_value_key_simply_goes(self):
+        tmpl = self.template_with({"Term": self.iri_field()})
+        before = {"Term": {"@value": None, "@type": "urn:t"}}
+        after, changes = REPAIR.settle_instance_iri_value(before, tmpl)
+        self.assertEqual(after["Term"], {"@type": "urn:t"})
+        self.assertTrue(changes)
+        self.assertIsNone(REPAIR.only_settled_iri_values(before, after, tmpl))
+
+    def test_an_absolute_iri_is_restated_as_the_identifier(self):
+        tmpl = self.template_with({"Link": self.iri_field()})
+        before = {"Link": {"@value": "https://example.org/a"}}
+        after, _changes = REPAIR.settle_instance_iri_value(before, tmpl)
+        self.assertEqual(after["Link"], {"@id": "https://example.org/a"})
+        self.assertIsNone(REPAIR.only_settled_iri_values(before, after, tmpl))
+
+    def test_an_iri_repeating_the_identifier_already_there_just_goes(self):
+        tmpl = self.template_with({"Link": self.iri_field()})
+        before = {"Link": {"@id": "https://example.org/a", "@value": "https://example.org/a"}}
+        after, _changes = REPAIR.settle_instance_iri_value(before, tmpl)
+        self.assertEqual(after["Link"], {"@id": "https://example.org/a"})
+
+    def test_a_label_is_left_exactly_as_it_stands(self):
+        tmpl = self.template_with({"Term": self.iri_field()})
+        before = {"Term": {"@value": "Tatum, J. L."}}
+        after, changes = REPAIR.settle_instance_iri_value(before, tmpl)
+        self.assertEqual(changes, [])
+        self.assertEqual(after["Term"], before["Term"])
+
+    def test_text_beside_a_different_identifier_is_left_alone(self):
+        tmpl = self.template_with({"Term": self.iri_field()})
+        before = {"Term": {"@id": "https://example.org/mit", "rdfs:label": "MIT", "@value": "asd"}}
+        after, changes = REPAIR.settle_instance_iri_value(before, tmpl)
+        self.assertEqual(changes, [])
+        self.assertEqual(after["Term"], before["Term"])
+
+    def test_a_literal_field_is_never_touched(self):
+        tmpl = self.template_with({"Name": child()})
+        before = {"Name": {"@value": None}}
+        after, changes = REPAIR.settle_instance_iri_value(before, tmpl)
+        self.assertEqual(changes, [])
+        self.assertEqual(after["Name"], before["Name"])
+
+    def test_the_invariant_catches_a_label_being_forced_into_the_identifier(self):
+        tmpl = self.template_with({"Term": self.iri_field()})
+        before = {"Term": {"@value": "Tatum, J. L."}}
+        # Two keys differ, so which the walk reaches first is not fixed; that it refuses is the point.
+        fault = REPAIR.only_settled_iri_values(before, {"Term": {"@id": "Tatum, J. L."}}, tmpl)
+        self.assertIsNotNone(fault)
+        self.assertTrue(fault.startswith("/Term"), fault)
+
+    def test_the_repair_is_settled_after_one_pass(self):
+        tmpl = self.template_with({"Link": self.iri_field()})
+        once, first = REPAIR.settle_instance_iri_value({"Link": {"@value": "https://example.org/a"}}, tmpl)
+        _twice, second = REPAIR.settle_instance_iri_value(once, tmpl)
+        self.assertTrue(first)
+        self.assertEqual(second, [])
 
 
 class SchemaKeyDemandTest(unittest.TestCase):
