@@ -151,14 +151,14 @@ The embeddable designer (CED) — `cedar-embeddable-designer`, the authoring hal
 completes, and the replacement for the AngularJS Template Designer:
 - [DESIGNER-RUNBOOK.md](ops/DESIGNER-RUNBOOK.md) — running the development host, the two builds,
   the four test gates, the single-file distribution and the channel its version selects, embedding
-  it alongside `<cedar-term-picker>`, and why controlled-term search needs a local terminology
+  it alongside `<cedar-embeddable-term-picker>`, and why controlled-term search needs a local terminology
   server today.
 - [DESIGNER-ROADMAP.md](ops/DESIGNER-ROADMAP.md) — the distance to a designer anyone could switch
   to, measured against the production designer's own palette configuration, in the order to do it:
   the three profiles that have to make a crowded card legible, the save-and-publish lifecycle it
   has none of, and then template elements.
 
-Terminology versioning, the authoring surface included — `cedar-term-picker`, the Web Component
+Terminology versioning, the authoring surface included — `cedar-embeddable-term-picker`, the Web Component
 replacing the Workbench's controlled-term picker, is tracked here rather than in a pair of its own,
 because it exists to author versioned constraints:
 - [VERSIONING-RUNBOOK.md](ops/VERSIONING-RUNBOOK.md) — running it: the store on disk, ingesting and

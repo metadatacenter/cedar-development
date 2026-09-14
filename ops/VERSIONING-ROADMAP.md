@@ -4,7 +4,7 @@ Forward-looking plan for the model described under [The Model](#the-model); runn
 it — the store, the ingest, the server, the picker — is in
 [VERSIONING-RUNBOOK.md](VERSIONING-RUNBOOK.md).
 
-This covers the whole of versioning, the authoring surface included. `cedar-term-picker`, the Web
+This covers the whole of versioning, the authoring surface included. `cedar-embeddable-term-picker`, the Web
 Component an author picks a versioned constraint with, is tracked here rather than in a roadmap of
 its own: it exists to author versioned constraints, and splitting the two put the version UI in one
 document and the version model in another. The numbered items track only what remains, in three

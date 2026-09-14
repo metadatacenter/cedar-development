@@ -13,7 +13,7 @@ tiered profiles — Basic, Semantic and Modular — each showing one audience wh
 needs and hiding what it does not, and each building on the one before. CED also
 does two things the old designer cannot: it embeds in any page, and it authors
 constraints that name the ontology version an author chose, through
-[`<cedar-term-picker>`](VERSIONING-ROADMAP.md).
+[`<cedar-embeddable-term-picker>`](VERSIONING-ROADMAP.md).
 
 Capability equivalence with the old designer is the bar for the three profiles
 together, because a designer that authors most of a template is not a designer

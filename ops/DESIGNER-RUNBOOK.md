@@ -13,7 +13,7 @@ What CED still needs before it can stand in for that designer is in
 ## Requirements
 
 Node 24.19.0, which `.nvmrc` pins and CI runs — the same version CEE and
-`cedar-term-picker` use. Nothing here needs Java or a running CEDAR stack, except
+`cedar-embeddable-term-picker` use. Nothing here needs Java or a running CEDAR stack, except
 controlled-term search, which needs a terminology server.
 
 ```shell
@@ -91,7 +91,7 @@ that silently stopped updating under OnPush, an image the package does not carry
 
 It drives the built single-file bundle in a host page whose own CSS is chosen to
 be as intrusive as possible, and it is hermetic: no test reaches a terminology
-server, and the one covering `<cedar-term-picker>` registers a stub element in
+server, and the one covering `<cedar-embeddable-term-picker>` registers a stub element in
 the page.
 
 `test:browser:prebuilt` serves `dist-bundle/`, so a source change that has not
@@ -178,16 +178,16 @@ address compiled into it.
 
 The designer uses sibling web components the host loads, and none is bundled.
 A field's constraint set is assembled with
-[`<cedar-term-picker>`](VERSIONING-RUNBOOK.md), and Preview renders the template
+[`<cedar-embeddable-term-picker>`](VERSIONING-RUNBOOK.md), and Preview renders the template
 with [`<cedar-embeddable-editor>`](CEE-RUNBOOK.md), the same renderer that will
 show the form to whoever fills it in.
 
 ```shell
-npm --prefix ../cedar-term-picker run dist
+npm --prefix ../cedar-embeddable-term-picker run dist
 npm --prefix ../cedar-embeddable-editor run build:production
 npm --prefix ../cedar-embeddable-editor/visual run bundle
 npm run dist
-cp ../cedar-term-picker/dist-bundle/cedar-term-picker.js dist-bundle/
+cp ../cedar-embeddable-term-picker/dist-bundle/cedar-embeddable-term-picker.js dist-bundle/
 cp ../cedar-embeddable-editor/visual/public/cedar-embeddable-editor.js dist-bundle/
 ```
 
@@ -265,7 +265,7 @@ description, and falls back to the artifact when an override is absent. Preferre
 label remains part of the reusable field's metadata. Annotation and property IRI
 authoring are tracked in the designer roadmap.
 
-Controlled defaults use the current `<cedar-term-picker>` bundle's term-only mode,
+Controlled defaults use the current `<cedar-embeddable-term-picker>` bundle's term-only mode,
 then verify membership through the configured terminology server's
 `bioportal/integrated-search`. A vocabulary constraint is required first. Several sources or version pins appear
 in a vocabulary/release selector; membership checks still receive the entire field
@@ -342,7 +342,7 @@ and the combined controlled-term picker test, after building all siblings:
 
 ```shell
 CEF_BUNDLE="$PWD/../cedar-embeddable-editor/visual/public/cedar-embeddable-editor.js" \
-PICKER_BUNDLE="$PWD/../cedar-term-picker/dist-bundle/cedar-term-picker.js" \
+PICKER_BUNDLE="$PWD/../cedar-embeddable-term-picker/dist-bundle/cedar-embeddable-term-picker.js" \
 npm --prefix browser test
 ```
 

@@ -1,7 +1,7 @@
 # Terminology Versioning — Runbook
 
 Running the versioned terminology work: the local store, the terminology server that serves it, and
-`cedar-term-picker`, the Web Component an author picks a versioned constraint with. Open work and
+`cedar-embeddable-term-picker`, the Web Component an author picks a versioned constraint with. Open work and
 the decisions behind it are in [VERSIONING-ROADMAP.md](./VERSIONING-ROADMAP.md); what the model is and why, and the
 shapes of the endpoints the picker reads, are sections of that same roadmap —
 [The Model](./VERSIONING-ROADMAP.md#the-model) and
@@ -324,11 +324,11 @@ A count in the millions is the query, not the server.
 
 ## Running the Picker
 
-`$CEDAR_HOME/cedar-term-picker`, default branch `develop`. Node 24.19.0, the version `.nvmrc` pins.
+`$CEDAR_HOME/cedar-embeddable-term-picker`, default branch `develop`. Node 24.19.0, the version `.nvmrc` pins.
 
 ```bash
-npm --prefix $CEDAR_HOME/cedar-term-picker install
-npm --prefix $CEDAR_HOME/cedar-term-picker start
+npm --prefix $CEDAR_HOME/cedar-embeddable-term-picker install
+npm --prefix $CEDAR_HOME/cedar-embeddable-term-picker start
 ```
 
 That serves the development host on port 4500 — `src/index.html`, a page standing in for the
@@ -386,7 +386,7 @@ histories through the search response rather than calling the versions endpoint.
 
 | Command | What it does |
 |---|---|
-| `npm run build:production` | the custom-element bundle, into `dist/cedar-term-picker` |
+| `npm run build:production` | the custom-element bundle, into `dist/cedar-embeddable-term-picker` |
 | `npm test` | unit tests, through the Angular CLI's Vitest builder |
 | `npm run lint` | ESLint over TypeScript and templates, Prettier included |
 | `npm run typecheck` | `tsc` over every file under `src/`, including ones no build or test reaches |
