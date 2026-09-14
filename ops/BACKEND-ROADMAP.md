@@ -1133,21 +1133,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   subtree outside the named mappers. Sixteen more across the servers and shared libraries read
   responses or build output, where the tolerant mapper is what they want.
 
-- **26. A published artifact can be deleted, contradicting the docs.** The docs say a published
-  artifact is permanent, but `DELETE` on one succeeds. The guard in
-  `AbstractResourceServerResource.executeArtifactDelete` was briefly re-enabled and then **reverted by
-  deliberate decision**: blocking deletion strands published artifacts and the folders holding them with
-  no ordinary cleanup path, and commit `3f26ee7` (2021, "Allow users to delete published resources") had
-  disabled the guard on purpose. So deletability stays for now; the discrepancy with the documentation
-  is the open question. Deciding it means choosing between amending the docs (published is deletable) or
-  re-enabling the guard together with a supported cleanup path (e.g. an admin-only delete, or cascading
-  through folder deletion). Immutability of published content is a separate guarantee with its own
-  boundary: ordinary editing is refused, and a verbatim write is not, because that write states the
-  whole document rather than editing it and is how a defect in a published artifact's stored
-  representation is corrected. Whichever way deletability is settled, the docs have both exceptions
-  to describe.
-
-- **27. Address artifacts by bare identifier in REST paths, keeping the full IRI as stored
+- **26. Address artifacts by bare identifier in REST paths, keeping the full IRI as stored
   identity.** **Production consequence:** an addressing migration rather than a data one. Stored
   identifiers in MongoDB, Neo4j and OpenSearch do not change, and no reindex is required, but
   clients that build URLs in the current form need the legacy shape kept as an alias until traffic
@@ -1179,7 +1165,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   Done when every resource-specific route takes the bare identifier, one parser owns the
   reconstruction, and staging's per-artifact blocks are gone.
 
-- **28. Decide what each compatibility adapter is for, now that neither reads artifacts itself.**
+- **27. Decide what each compatibility adapter is for, now that neither reads artifacts itself.**
   Repo and OpenView exist to preserve URLs rather than to do work: the runbook's account of artifact
   route ownership gives repo the identifier dereferencing URLs and OpenView the anonymous
   presentation and open-artifact URLs, and says neither adapter should own artifact storage or an
@@ -1217,9 +1203,9 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   outage producing a successful read. That comparison is what proving routing compatibility means,
   and no adapter should be reduced before it passes on the deployed topology.
 
-  Item 27 settles a different question about the same two services — which path shape a route takes —
+  Item 26 settles a different question about the same two services — which path shape a route takes —
   and the two interact: retiring repo's routes would retire the bare-identifier convention that item
-  27 proposes to generalize, so whichever is decided first constrains the other.
+  26 proposes to generalize, so whichever is decided first constrains the other.
 
   Done when each of the two hosts has a stated role, an owner, and either a current caller that needs
   the process or a routing arrangement that keeps its URLs resolving without one.

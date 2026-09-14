@@ -1899,6 +1899,14 @@ authored. The `WRITE_ARTIFACT_VERBATIM` permission is the whole gate, and the DO
 it refuses a *changed* DOI, so a verbatim write under an unchanged one proceeds. Ordinary editing of a
 published artifact is still refused, and `TemplatesResourceWriteRejectionTest` pins all three cases.
 
+Deletion is outside that immutability, and deliberately so. A published artifact can be deleted by
+anyone holding `DELETE_RESOURCE` on it: the guard that would refuse it stands commented out in
+`AbstractResourceServerResource.executeArtifactDelete`, disabled by commit `3f26ee7` (2021, "Allow
+users to delete published resources") because refusing the delete strands published artifacts and
+the folders holding them with no ordinary cleanup path. A delete still requires the artifact's current
+ETag in `If-Match`, so the precondition contract below governs it as it governs an update. The
+re-publish guard is a different rule and is enforced.
+
 Every successful artifact create, single-artifact read and update returns a strong revision `ETag`.
 The read service derives the public content and revision from the same Mongo document, so the ETag
 can never describe a newer replacement than the body it accompanies.
