@@ -46,6 +46,11 @@ directly, so `ng serve` exercises the same contract an embedder uses. A
 regression in the element shows up during development rather than in someone
 else's page.
 
+For the standalone bundle demo, run `npm run demo:prepare`, then serve
+`dist-bundle/` with a static HTTP server. This stages the versioned
+`demo/index.html` and the current CETP and CEE bundles together; rerun it after
+rebuilding either sibling.
+
 ## Building
 
 There are two builds, because there are two things to produce.
