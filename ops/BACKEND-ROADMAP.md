@@ -31,17 +31,38 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   one reading of an advisory line of going that way. The release gate refuses such a source now, and
   `cedarcli check main` answers the same question between releases, but neither prevents the push.
 
-  Requiring a pull request on `main` does not settle it by itself. `cedarcli release start` pushes
-  straight to `main` in forty-two repositories, as whoever runs it, so a bypass naming that person
-  protects nothing against the case that prompted this. Give the release a machine identity, a
-  GitHub App or a dedicated account, grant the bypass to that rather than to a human, and
-  authenticate the release as it. The bypass has to cover every ref a release creates — `develop`,
-  the tags, and `release/pre-*` among them — or a release fails after its Maven and frontend builds
-  are already spent. Prove the ruleset against one repository before it reaches all forty-four.
+  **The goal is that no ordinary push lands on `main`.** How the release lands its own commit is a
+  second decision, and the two are worth keeping apart, because a protection rule written around
+  whoever runs the release protects nothing against the case that prompted this. `cedarcli release
+  start` pushes to `main` in forty-two repositories as that person, so granting them the bypass
+  reopens the hole the rule closes. Whichever route below is taken, the release needs credentials of
+  its own: a GitHub App or a dedicated account, authenticated as itself rather than as an operator.
 
-  The npm releases already go through pull requests and need nothing. Until the machine identity
-  exists, run `cedarcli check main` on a schedule, so divergence is found the next morning rather
-  than mid-release.
+  **Route one, a bypass on a direct push.** The release keeps the mechanism it has, and the ruleset
+  grants the bypass to the release identity. The bypass has to cover every ref a release creates —
+  `develop`, the tags, and `release/pre-*` among them — or a release fails after its Maven and
+  frontend builds are already spent. It changes nothing in the release code, and it leaves the
+  protection weaker on paper than a review gate, since the identity holding the bypass can write
+  anything.
+
+  **Route two, a pull request the release opens.** Nothing in the design forbids it. Each repository
+  gets its integration commit on a branch, a pull request, and a merge through the API, which is how
+  the npm releases already reach `main`. It costs three things. GitHub's merge produces a commit
+  that is not the one the release prepared, so the ledger's `expectedCommit` check has to verify
+  `main` by the tree it already records beside that commit (`release_support/integration.py`).
+  Something has to merge forty-two pull requests: requiring only a pull request lets the release
+  merge its own, which buys an audit trail rather than a review, while requiring an approval means a
+  person approves forty-two of them mid-release, since GitHub refuses self-approval. And a pull request is a step other people can
+  close or merge out of order, which weakens the guarantee that a resumed run reproduces the refs it
+  recorded.
+
+  The npm releases are the working example of route two and need nothing, but they are driven by an
+  operator who is already there for the twenty-five commands item 22 exists to remove. Automating
+  that route puts the identity question back.
+
+  Prove whichever ruleset is chosen against one repository before it reaches all forty-four. Until
+  the release has an identity, run `cedarcli check main` on a schedule, so divergence is found the
+  next morning rather than mid-release.
 
 - **3. Rename the legacy role relationships in production Neo4j.** The application currently
   interprets `CANREAD` as Viewer and `CANWRITE` as Manager, so the new permission model can be
