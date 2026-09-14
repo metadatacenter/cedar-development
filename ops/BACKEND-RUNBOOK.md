@@ -3269,6 +3269,15 @@ Each invariant is built on an exhaustive walk of the two documents rather than o
 own traversal, so a change anywhere — at any depth, in a key neither rule expected to touch — is
 reported and has to be licensed before the write proceeds.
 
+**The order a chain names its repairs in is part of the repair.** `drop-superseded-instance-keys`
+removes a key whose value the instance already carries under a name the template declares, and it can
+only see that duplicate once the value is under the declared name — which is what
+`rename-instance-keys` does. Naming the two the other way round finds nothing: NanoBRET's 74
+instances each carried `Repository` and `Data_repository` holding the same value, and the duplicate
+became visible only after the rename made the second one `Data_Repository`. Put the rename first.
+For the same reason `complete-instance` goes last: it fills what is absent, and what is absent is not
+settled until everything that moves a value has run.
+
 **Repairs compose, and for some artifacts they must.** A child identifier the server would otherwise
 mint makes it refuse a verbatim write outright, so an artifact carrying that defect alongside another
 cannot be fixed by either repair on its own: one leaves the artifact invalid and is skipped, the other
@@ -3284,6 +3293,10 @@ python3 ops/repairs/cedar_artifact_repair.py --from-records production-validatio
 
 `--condition` names the target set explicitly, which a chain needs whenever its repairs between them
 name more artifacts than the job does.
+
+Each run resolves the validation library's classpath through `cedar_validate.sh`, which builds it
+on first use and occasionally fails outright on a cold Maven cache. Passing `--classpath` with a
+resolved one skips that step, and is worth doing across a campaign of many runs.
 
 Two repair runs may overlap without coordinating. Updating an existing artifact requires the ETag the
 GET returned, and the server refuses a write carrying a stale one, so the second run to reach a shared
