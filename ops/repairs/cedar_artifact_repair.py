@@ -3202,15 +3202,22 @@ def only_stamped_value_types(before: Any, after: Any, template: Any) -> Optional
 def declaration_for_value(template: Any, pointer: str) -> tuple[Optional[dict], str]:
     """The declaration governing an instance value, and the pointer to the value itself.
 
-    A change inside a value is reported at the key that moved — ``/age/@value`` rather than ``/age``
-    — and a repeating field puts an index between the value and its name, so both are stepped over
-    to reach the declaration that governs what sits there.
+    A change inside a value is reported at the key that moved — ``/age/@value`` or
+    ``/Species/rdfs:label`` rather than the field itself — and a repeating field puts an index
+    between the value and its name, so both are stepped over to reach the declaration that governs
+    what sits there.
+
+    The longest route that resolves is the one taken, rather than a fixed list of keys to strip. A
+    container may declare a child named for a model keyword, and assuming such a segment is always
+    part of a value would read that child as something else.
     """
     parts = [s for s in pointer.split("/") if s]
-    while parts and parts[-1].startswith("@"):
+    while True:
+        value_pointer = "/" + "/".join(parts) if parts else ""
+        found = declaration_at(template, value_pointer)
+        if found is not None or not parts:
+            return found, value_pointer
         parts.pop()
-    value_pointer = "/" + "/".join(parts) if parts else ""
-    return declaration_at(template, value_pointer), value_pointer
 
 
 def child_declaration_at(template: Any, pointer: str) -> tuple[Optional[dict], bool]:
@@ -3780,6 +3787,179 @@ def only_settled_iri_values(before: Any, after: Any, template: Any) -> Optional[
     return None
 
 
+# The term each label in a controlled field resolves to, keyed by template IRI, then by the route to
+# the field, then by the label an instance carries. Supplied through --terms, never inferred: a label
+# does not determine an IRI, and the answer comes from asking the terminology the field is
+# constrained to. A mapping to ``null`` says the label states no value, which is what "NA" means.
+TERMS: dict[str, dict[str, dict[str, Any]]] = {}
+
+
+def settle_instance_term_label(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Put a controlled field's value behind the term its label names.
+
+    A controlled-term field holds ``@id`` and a label, and an instance that carries the label alone —
+    under ``@value``, where the schema admits none — names a term without pointing at it. The term is
+    supplied rather than inferred: which IRI a label names is a fact about the ontology the field is
+    constrained to, and the table is built by asking it.
+
+    A label the table maps to nothing is emptied instead. That is what a field holding ``"NA"`` says:
+    not a term, but that there is none, and the model already has a form for saying so.
+    """
+    if not isinstance(template, dict):
+        raise TransformRefused("the template this instance names could not be read")
+    if not isinstance(instance, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    based_on = instance.get("schema:isBasedOn")
+    fields = TERMS.get(based_on) if isinstance(based_on, str) else None
+    if not fields:
+        return copy.deepcopy(instance), []
+    changes: list[dict[str, Any]] = []
+
+    def visit(value: Any, definition: Any, path: str) -> Any:
+        if not isinstance(value, dict) or holds_a_literal(definition):
+            return value
+        if "@value" not in value or value.get("@id"):
+            return value
+        label = value.get("@value")
+        if not isinstance(label, str):
+            return value
+        # The walk numbers a repeating field's occurrences; the table speaks about the field.
+        route = re.sub(r"/\d+(?=/|$)", "", path)
+        known = fields.get(route)
+        if not known or label.strip() not in known:
+            return value
+        term = known[label.strip()]
+        settled = {key: inner for key, inner in value.items() if key != "@value"}
+        if term is None:
+            wrote = "nothing; the label stated no value"
+        else:
+            settled["@id"] = term["@id"]
+            settled["rdfs:label"] = term["rdfs:label"]
+            wrote = term["@id"]
+        changes.append({"path": path, "replaced": label, "wrote": wrote})
+        return settled
+
+    return walk_instance(instance, template, "", visit), changes
+
+
+def only_settled_term_labels(before: Any, after: Any, template: Any) -> Optional[str]:
+    """The invariant: a label only ever becomes the term the table names for it, or absence."""
+    if not isinstance(template, dict) or not isinstance(before, dict):
+        return "/"
+    based_on = before.get("schema:isBasedOn")
+    fields = TERMS.get(based_on) if isinstance(based_on, str) else {}
+    seen: set[str] = set()
+    for path, _was, _now in differences(before, after):
+        definition, here = declaration_for_value(template, path)
+        if here in seen:
+            continue
+        if definition is None or is_element(definition) or holds_a_literal(definition):
+            return path or "/"
+        old, new = value_at(before, here), value_at(after, here)
+        if not isinstance(old, dict) or not isinstance(new, dict):
+            return path or "/"
+        label = old.get("@value")
+        route = re.sub(r"/\d+(?=/|$)", "", here)
+        known = (fields or {}).get(route) or {}
+        if not isinstance(label, str) or label.strip() not in known:
+            return path or "/"
+        term = known[label.strip()]
+        expected = {key: inner for key, inner in old.items() if key != "@value"}
+        if term is not None:
+            expected["@id"] = term["@id"]
+            expected["rdfs:label"] = term["rdfs:label"]
+        if new != expected:
+            return path or "/"
+        seen.add(here)
+    return None
+
+
+# Fields an operator has decided should hold free text rather than a term, keyed by template IRI.
+# Supplied through --free-fields, never inferred: whether a field was meant to be controlled is a
+# decision about what the template means, and only its owner can take it.
+FREE_FIELDS: dict[str, list[str]] = {}
+
+# What a controlled-term field's instance value may carry, and what a free-text one may.
+CONTROLLED_VALUE_PROPERTIES = ("@id",)
+TERM_CONSTRAINT_KEYS = ("ontologies", "branches", "classes", "valueSets")
+
+
+def free_controlled_field(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Let a named field hold free text instead of a term.
+
+    A controlled-term field renders with ``@id`` among the properties its instance value may carry
+    and no ``@value`` at all, so an instance holding a label rather than a term cannot validate. Where
+    the terminology has no term for what people are actually writing, the field was never really
+    controlled, and the template is what needs changing.
+
+    Two things move together, because either alone leaves the field incoherent: the value's shape
+    loses ``@id`` and gains ``@value``, and the constraint loses the ontologies, branches, classes
+    and value sets it named. Everything else the field declares is untouched, including its
+    identifier, its label and whether it is required.
+    """
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    wanted = FREE_FIELDS.get(artifact.get(AT_ID) or "") or []
+    if not wanted:
+        return copy.deepcopy(artifact), []
+    result = copy.deepcopy(artifact)
+    changes: list[dict[str, Any]] = []
+    declarations = result.get("properties")
+    if not isinstance(declarations, dict):
+        raise TransformRefused("the artifact declares no properties")
+    for name in wanted:
+        entry = declarations.get(name)
+        holder = entry.get("items") if isinstance(entry, dict) and "items" in entry else entry
+        if not isinstance(holder, dict):
+            continue
+        properties = holder.get("properties")
+        if not isinstance(properties, dict) or "@value" in properties:
+            continue          # already free text; saying so twice is not a change
+        properties.pop("@id", None)
+        properties["@value"] = {"type": ["string", "null"]}
+        required = holder.get("required")
+        if isinstance(required, list):
+            holder["required"] = [r for r in required if r != "@id"]
+        constraints = holder.get("_valueConstraints")
+        if isinstance(constraints, dict):
+            for key in TERM_CONSTRAINT_KEYS:
+                if constraints.get(key):
+                    constraints[key] = []
+        changes.append({"path": f"/properties/{rest.json_pointer_component(name)}",
+                        "replaced": "a controlled term", "wrote": "free text"})
+    return result, changes
+
+
+def only_freed_controlled_fields(before: Any, after: Any) -> Optional[str]:
+    """The invariant: only the named fields changed, and only from a term to free text."""
+    if not isinstance(before, dict) or not isinstance(after, dict):
+        return "/"
+    wanted = set(FREE_FIELDS.get(before.get(AT_ID) or "") or [])
+    for path, was, now in differences(before, after):
+        parts = [p.replace("~1", "/").replace("~0", "~") for p in path.split("/") if p]
+        if len(parts) < 2 or parts[0] != "properties" or parts[1] not in wanted:
+            return path or "/"
+        inside = parts[2:]
+        # Only three places may move, and each only in the one direction the repair states.
+        if inside[:1] == ["items"]:
+            inside = inside[1:]
+        if inside[:1] == ["properties"] and inside[1:] == ["@id"]:
+            if now is not ABSENT:
+                return path
+        elif inside[:1] == ["properties"] and inside[1:] == ["@value"]:
+            if was is not ABSENT or now != {"type": ["string", "null"]}:
+                return path
+        elif inside[:1] == ["required"]:
+            if not isinstance(now, list) or "@id" in now or was is ABSENT:
+                return path
+        elif inside[:1] == ["_valueConstraints"] and inside[1:2] and inside[1] in TERM_CONSTRAINT_KEYS:
+            if now != []:
+                return path
+        else:
+            return path
+    return None
+
+
 REPAIRS = {
     "empty-derived-from": Repair(
         name="empty-derived-from",
@@ -3841,6 +4021,23 @@ REPAIRS = {
         invariant=only_unwrapped_occurrences,
         needs_template=True,
         error_pattern=OBJECT_EXPECTED_ERROR,
+    ),
+    "free-controlled-field": Repair(
+        name="free-controlled-field",
+        condition="",
+        summary="let a named field hold free text instead of a term",
+        transform=free_controlled_field,
+        invariant=only_freed_controlled_fields,
+        needs_template=False,
+    ),
+    "settle-instance-term-label": Repair(
+        name="settle-instance-term-label",
+        condition="",
+        summary="put a controlled field's value behind the term its label names",
+        transform=settle_instance_term_label,
+        invariant=only_settled_term_labels,
+        needs_template=True,
+        error_pattern=VALUE_SHAPE_ERROR,
     ),
     "settle-instance-iri-value": Repair(
         name="settle-instance-iri-value",
@@ -4384,6 +4581,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--mapping",
                         help="JSON of confirmed renames, {templateId: {oldKey: newKey}}, which "
                              "rename-instance-keys applies; nothing is renamed without it")
+    parser.add_argument("--free-fields",
+                        help="JSON of fields to make free text, {templateId: [fieldName]}, which "
+                             "free-controlled-field applies; nothing is freed without it")
+    parser.add_argument("--terms",
+                        help="JSON of resolved terms, {templateId: {fieldRoute: {label: term}}}, which "
+                             "settle-instance-term-label applies; a term of null empties the field")
     parser.add_argument("--condition",
                         help="audit condition naming the targets (default: any condition the repairs name)")
     parser.add_argument("--from-records", required=True,
@@ -4508,11 +4711,15 @@ def main(argv: Optional[list[str]] = None) -> int:
         print("nothing to do")
         return 0
 
-    if arguments.mapping:
+    for flag, supplied, into in (("--mapping", arguments.mapping, RENAMES),
+                                 ("--terms", arguments.terms, TERMS),
+                                 ("--free-fields", arguments.free_fields, FREE_FIELDS)):
+        if not supplied:
+            continue
         try:
-            RENAMES.update(json.loads(Path(arguments.mapping).expanduser().read_text(encoding="utf-8")))
+            into.update(json.loads(Path(supplied).expanduser().read_text(encoding="utf-8")))
         except (OSError, ValueError) as error:
-            parser.error(f"cannot read --mapping {arguments.mapping}: {error}")
+            parser.error(f"cannot read {flag} {supplied}: {error}")
     java, classpath = audit.resolve_toolchain(arguments, parser)
     try:
         client = RepairClient(arguments.server, api_key, timeout=arguments.timeout, retries=arguments.retries,

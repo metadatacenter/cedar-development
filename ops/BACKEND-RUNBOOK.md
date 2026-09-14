@@ -3269,6 +3269,31 @@ Each invariant is built on an exhaustive walk of the two documents rather than o
 own traversal, so a change anywhere — at any depth, in a key neither rule expected to touch — is
 reported and has to be licensed before the write proceeds.
 
+`settle-instance-term-label` puts a controlled field's value behind the term its label names. A
+controlled-term field holds `@id` and a label, and an instance carrying the label alone — under
+`@value`, where the schema admits none — names a term without pointing at it. The term is supplied
+through `--terms`, never inferred: which IRI a label names is a fact about the ontology the field is
+constrained to, and the table is built by asking it. Send the field's own `_valueConstraints` to
+`POST /bioportal/integrated-search`, which is the lookup the authoring UI performs, so a term found
+is one the field would have offered; take only an exact label match, since a near one would put the
+instance behind a term nobody chose. A label the table maps to `null` empties the field instead,
+which is what a field holding `"NA"` says.
+
+`free-controlled-field` goes the other way, for when the terminology has no term for what people
+are actually writing and the template is what needs changing. It moves two things together, because
+either alone leaves the field incoherent: the value's shape loses `@id` and gains `@value`, and the
+constraint loses the ontologies, branches, classes and value sets it named. The fields to free are
+named through `--free-fields`, because whether a field was ever really controlled is a decision
+about what the template means.
+
+**Freeing a field forbids `@id`, so weigh it against every instance, not the invalid ones.** The
+invalid set is biased towards exactly the instances that hold a label rather than a term, which is
+the case for freeing; the instances that would break are in the valid set, which that sample does
+not contain. Ask two separate questions of each one — does it point at a term, and does it validate
+today — because a term-holding instance that is already invalid costs nothing. On CEDAR's `Cell`
+template one field had a single term-holder that was already invalid, so freeing it was free, while
+the other had 267 valid ones, so freeing it would have destroyed more than it repaired.
+
 **The order a chain names its repairs in is part of the repair.** `drop-superseded-instance-keys`
 removes a key whose value the instance already carries under a name the template declares, and it can
 only see that duplicate once the value is under the declared name — which is what

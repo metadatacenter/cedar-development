@@ -763,6 +763,198 @@ class SettleInstanceIriValueTest(unittest.TestCase):
         self.assertEqual(second, [])
 
 
+class SettleInstanceTermLabelTest(unittest.TestCase):
+    """A label names a term; which IRI it names is a fact about the field's own ontology."""
+
+    TERM = {"@id": "http://purl.bioontology.org/ontology/NCBITAXON/9606",
+            "rdfs:label": "Homo sapiens"}
+
+    def setUp(self):
+        # BASE is defined further down the file, so this is read when the test runs, not at import.
+        self.TID = BASE + "templates/t-terms"
+        REPAIR.TERMS.clear()
+
+    def tearDown(self):
+        REPAIR.TERMS.clear()
+
+    def iri_field(self):
+        node = child()
+        node["properties"] = {"@id": {"type": "string", "format": "uri"},
+                              "rdfs:label": {"type": ["string", "null"]}}
+        node["_valueConstraints"] = {"branches": [{"acronym": "NCBITAXON"}]}
+        return node
+
+    def tmpl(self, children):
+        doc = template(children, root=self.TID)
+        doc["properties"]["@context"]["properties"] = {
+            name: {"enum": [GOOD_IRI + name]} for name in children}
+        return doc
+
+    def instance(self, **values):
+        return {"schema:isBasedOn": self.TID, "@context": {}, **values}
+
+    def test_a_label_becomes_the_term_the_table_names(self):
+        REPAIR.TERMS[self.TID] = {"/Species": {"homo sapiens": self.TERM}}
+        tmpl = self.tmpl({"Species": self.iri_field()})
+        before = self.instance(Species={"@value": "homo sapiens"})
+        after, changes = REPAIR.settle_instance_term_label(before, tmpl)
+        self.assertEqual(after["Species"], self.TERM)
+        self.assertTrue(changes)
+        self.assertIsNone(REPAIR.only_settled_term_labels(before, after, tmpl))
+
+    def test_a_label_mapped_to_nothing_empties_the_field(self):
+        REPAIR.TERMS[self.TID] = {"/Species": {"NA": None}}
+        tmpl = self.tmpl({"Species": self.iri_field()})
+        before = self.instance(Species={"@value": "NA"})
+        after, _changes = REPAIR.settle_instance_term_label(before, tmpl)
+        self.assertEqual(after["Species"], {})
+        self.assertIsNone(REPAIR.only_settled_term_labels(before, after, tmpl))
+
+    def test_a_label_the_table_does_not_name_is_left_alone(self):
+        REPAIR.TERMS[self.TID] = {"/Species": {"homo sapiens": self.TERM}}
+        tmpl = self.tmpl({"Species": self.iri_field()})
+        after, changes = REPAIR.settle_instance_term_label(
+            self.instance(Species={"@value": "mus musculus"}), tmpl)
+        self.assertEqual(changes, [])
+        self.assertEqual(after["Species"], {"@value": "mus musculus"})
+
+    def test_a_value_already_pointing_at_a_term_is_never_rewritten(self):
+        REPAIR.TERMS[self.TID] = {"/Species": {"homo sapiens": self.TERM}}
+        tmpl = self.tmpl({"Species": self.iri_field()})
+        held = {"@id": "http://example.org/other", "@value": "homo sapiens"}
+        after, changes = REPAIR.settle_instance_term_label(self.instance(Species=held), tmpl)
+        self.assertEqual(changes, [])
+        self.assertEqual(after["Species"], held)
+
+    def test_a_repeating_field_is_settled_at_every_occurrence(self):
+        REPAIR.TERMS[self.TID] = {"/Species": {"homo sapiens": self.TERM}}
+        node = {"type": "array", "items": self.iri_field()}
+        tmpl = self.tmpl({"Species": node})
+        before = self.instance(Species=[{"@value": "homo sapiens"}, {"@value": "homo sapiens"}])
+        after, _changes = REPAIR.settle_instance_term_label(before, tmpl)
+        self.assertEqual(after["Species"], [self.TERM, self.TERM])
+        self.assertIsNone(REPAIR.only_settled_term_labels(before, after, tmpl))
+
+    def test_a_literal_field_is_never_touched(self):
+        REPAIR.TERMS[self.TID] = {"/Name": {"Ada": self.TERM}}
+        tmpl = self.tmpl({"Name": child()})
+        after, changes = REPAIR.settle_instance_term_label(
+            self.instance(Name={"@value": "Ada"}), tmpl)
+        self.assertEqual(changes, [])
+
+    def test_a_template_the_table_says_nothing_about_changes_nothing(self):
+        tmpl = self.tmpl({"Species": self.iri_field()})
+        after, changes = REPAIR.settle_instance_term_label(
+            self.instance(Species={"@value": "homo sapiens"}), tmpl)
+        self.assertEqual(changes, [])
+
+    def test_the_invariant_catches_a_term_the_table_does_not_name(self):
+        REPAIR.TERMS[self.TID] = {"/Species": {"homo sapiens": self.TERM}}
+        tmpl = self.tmpl({"Species": self.iri_field()})
+        before = self.instance(Species={"@value": "homo sapiens"})
+        fault = REPAIR.only_settled_term_labels(
+            before, self.instance(Species={"@id": "http://example.org/wrong"}), tmpl)
+        self.assertIsNotNone(fault)
+
+    def test_the_repair_is_settled_after_one_pass(self):
+        REPAIR.TERMS[self.TID] = {"/Species": {"homo sapiens": self.TERM}}
+        tmpl = self.tmpl({"Species": self.iri_field()})
+        once, first = REPAIR.settle_instance_term_label(
+            self.instance(Species={"@value": "homo sapiens"}), tmpl)
+        _twice, second = REPAIR.settle_instance_term_label(once, tmpl)
+        self.assertTrue(first)
+        self.assertEqual(second, [])
+
+
+class FreeControlledFieldTest(unittest.TestCase):
+    """Where the terminology has no term for what people write, the template is what needs changing."""
+
+    def setUp(self):
+        REPAIR.FREE_FIELDS.clear()
+        self.tid = BASE + "templates/t-free"
+
+    def tearDown(self):
+        REPAIR.FREE_FIELDS.clear()
+
+    def controlled(self, multiple=False):
+        node = child()
+        node["properties"] = {"@id": {"type": "string", "format": "uri"},
+                              "@type": {"type": "string"},
+                              "rdfs:label": {"type": ["string", "null"]}}
+        node["_valueConstraints"] = {"branches": [{"acronym": "BAO"}], "ontologies": [],
+                                     "classes": [], "valueSets": [], "requiredValue": False}
+        return {"type": "array", "items": node} if multiple else node
+
+    def tmpl(self, children):
+        return template(children, root=self.tid)
+
+    def test_the_value_loses_its_identifier_and_gains_a_literal(self):
+        REPAIR.FREE_FIELDS[self.tid] = ["Mod_type"]
+        before = self.tmpl({"Mod_type": self.controlled()})
+        after, changes = REPAIR.free_controlled_field(before)
+        holder = after["properties"]["Mod_type"]
+        self.assertNotIn("@id", holder["properties"])
+        self.assertEqual(holder["properties"]["@value"], {"type": ["string", "null"]})
+        self.assertTrue(changes)
+        self.assertIsNone(REPAIR.only_freed_controlled_fields(before, after))
+
+    def test_the_term_constraints_are_emptied(self):
+        REPAIR.FREE_FIELDS[self.tid] = ["Mod_type"]
+        before = self.tmpl({"Mod_type": self.controlled()})
+        after, _changes = REPAIR.free_controlled_field(before)
+        self.assertEqual(after["properties"]["Mod_type"]["_valueConstraints"]["branches"], [])
+        self.assertIs(after["properties"]["Mod_type"]["_valueConstraints"]["requiredValue"], False)
+
+    def test_a_repeating_field_is_freed_inside_its_items(self):
+        REPAIR.FREE_FIELDS[self.tid] = ["Mod_type"]
+        before = self.tmpl({"Mod_type": self.controlled(multiple=True)})
+        after, _changes = REPAIR.free_controlled_field(before)
+        holder = after["properties"]["Mod_type"]["items"]
+        self.assertIn("@value", holder["properties"])
+        self.assertNotIn("@id", holder["properties"])
+        self.assertIsNone(REPAIR.only_freed_controlled_fields(before, after))
+
+    def test_a_field_not_named_is_left_exactly_as_it_is(self):
+        REPAIR.FREE_FIELDS[self.tid] = ["Mod_type"]
+        before = self.tmpl({"Mod_type": self.controlled(), "Type": self.controlled()})
+        after, _changes = REPAIR.free_controlled_field(before)
+        self.assertEqual(after["properties"]["Type"], before["properties"]["Type"])
+
+    def test_a_field_already_free_is_not_changed_twice(self):
+        REPAIR.FREE_FIELDS[self.tid] = ["Name"]
+        before = self.tmpl({"Name": child()})
+        after, changes = REPAIR.free_controlled_field(before)
+        self.assertEqual(changes, [])
+        self.assertEqual(after, before)
+
+    def test_a_template_not_named_changes_nothing(self):
+        before = self.tmpl({"Mod_type": self.controlled()})
+        after, changes = REPAIR.free_controlled_field(before)
+        self.assertEqual(changes, [])
+        self.assertEqual(after, before)
+
+    def test_the_invariant_catches_another_field_being_freed(self):
+        REPAIR.FREE_FIELDS[self.tid] = ["Mod_type"]
+        before = self.tmpl({"Mod_type": self.controlled(), "Type": self.controlled()})
+        after, _changes = REPAIR.free_controlled_field(before)
+        after["properties"]["Type"]["properties"].pop("@id")
+        self.assertIsNotNone(REPAIR.only_freed_controlled_fields(before, after))
+
+    def test_the_invariant_catches_the_label_being_dropped(self):
+        REPAIR.FREE_FIELDS[self.tid] = ["Mod_type"]
+        before = self.tmpl({"Mod_type": self.controlled()})
+        after, _changes = REPAIR.free_controlled_field(before)
+        after["properties"]["Mod_type"]["properties"].pop("rdfs:label")
+        self.assertIsNotNone(REPAIR.only_freed_controlled_fields(before, after))
+
+    def test_the_repair_is_settled_after_one_pass(self):
+        REPAIR.FREE_FIELDS[self.tid] = ["Mod_type"]
+        once, first = REPAIR.free_controlled_field(self.tmpl({"Mod_type": self.controlled()}))
+        _twice, second = REPAIR.free_controlled_field(once)
+        self.assertTrue(first)
+        self.assertEqual(second, [])
+
+
 class SchemaKeyDemandTest(unittest.TestCase):
     """A few templates render with pav:version among the properties an instance must carry."""
 
