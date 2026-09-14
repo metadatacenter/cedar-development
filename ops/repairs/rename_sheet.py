@@ -687,9 +687,10 @@ def write_decisions(studies, written):
              ""]
     if scope:
         lines += [f"Production holds {scope['total']} invalid instances across {scope['templates']} "
-                  f"templates; the {len(studies)} largest are studied here, covering "
-                  f"{scope['covered']} of them. Anything settled by matching names or matching "
-                  "values, and anything you have already answered, is left out.", ""]
+                  f"templates. The {len(studies)} studied here — those with the most instances "
+                  f"waiting on a rename — hold {scope['covered']} of them. Anything settled by "
+                  "matching names or matching values, and anything you have already answered, is "
+                  "left out.", ""]
     lines += ["## How to Answer",
               "",
               "Write a letter in the last column. The letters are listed once per group and mean the "
