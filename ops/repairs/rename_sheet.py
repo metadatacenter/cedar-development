@@ -615,7 +615,35 @@ def main():
     # The per-template review this loop assembles is not written out: the decision list is the only
     # document anyone reads, and a second view of the same data was more confusing than useful.
     print(f"studied {len(studies)} templates covering {total} invalid instances")
+    write_settled(studies)
     write_decisions(studies, written)
+
+
+def write_settled(studies):
+    """Record the pairings the sheet settles on its own, so a repair can carry them out.
+
+    A pairing the names or the values settle is never put to an owner, which is the point of
+    settling it. It still has to reach the repair, and nothing else writes it down: left here, the
+    sheet would quietly stop asking about a rename that then never happens, and the instance would
+    stay invalid with no question outstanding to explain why.
+    """
+    settled = {}
+    for _rank, template_id, found in studies:
+        proposals = proposals_for(found)
+        answered = ANSWERED.get(template_id) or {}
+        for stale in found["stale"]:
+            if stale in answered:
+                continue
+            name, basis, _value = proposals[stale]
+            twin = supersedes(found, stale, found["stale"][stale])
+            if twin:
+                continue          # the value is already under the declared name; dropping the old
+            if name and (shared_values(found, stale, name) or basis == "spelling"):
+                settled.setdefault(template_id, {})[stale] = name
+    path = HOME / "settled-mapping.json"
+    path.write_text(json.dumps(settled, indent=1, sort_keys=True) + "\n", encoding="utf-8")
+    count = sum(len(m) for m in settled.values())
+    print(f"wrote {path}: {count} pairings settled without asking, across {len(settled)} templates")
 
 
 def write_decisions(studies, written):
