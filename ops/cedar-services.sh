@@ -413,6 +413,21 @@ print(node.get("version", ""))
 CEEPY
 }
 
+deps_stale() {  # true when a frontend's installed dependencies predate its lockfile
+  # npm rewrites node_modules/.package-lock.json on every install, so comparing it against the
+  # checked-in package-lock.json says whether this checkout has been installed since the lockfile
+  # last moved. A toolchain change lands as a lockfile change, and a checkout that has not been
+  # reinstalled then fails at launch with an error naming a missing builder rather than npm -- after
+  # which the launcher waits out its whole readiness budget for a process that died immediately.
+  local root lock installed
+  root=$(fe_dir "$1")
+  lock="$root/package-lock.json"
+  installed="$root/node_modules/.package-lock.json"
+  [ -f "$lock" ] || return 1            # not an npm-managed checkout; nothing to compare
+  [ -f "$installed" ] || return 0       # never installed
+  [ "$lock" -nt "$installed" ]
+}
+
 serves_cee() {  # true for the frontends whose checkout embeds the Editor from node_modules
   case "$1" in ui-main|ui-workspace) return 0 ;; *) return 1 ;; esac
 }
@@ -549,7 +564,11 @@ start_one() {
   case "$name" in
     ui-*)
       local dir; dir=$(fe_dir "$name")
-      [ -d "$dir" ] || { echo "  $name: SRC MISSING ($dir) — skip"; return 1; } ;;
+      [ -d "$dir" ] || { echo "  $name: SRC MISSING ($dir) — skip"; return 1; }
+      if deps_stale "$name"; then
+        echo "  $name: node_modules is older than package-lock.json — run (cd $dir && npm ci)"
+        return 1
+      fi ;;
     *)
       local jar; jar=$(jar_of "$name")
       local cfg="$CEDAR_HOME/cedar-$name-server/cedar-$name-server-application/src/main/resources/config.yml"
