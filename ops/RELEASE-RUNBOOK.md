@@ -323,6 +323,16 @@ An accepted release advances `develop` in every repository it integrated and lea
 checkouts on the commits before it, so it prints what the next train needs: `cedarcli git pull`,
 then `cedarcli check ci` and `cedarcli test e2e` at the new heads.
 
+Once the proof holds, acceptance retires the release branches earlier releases left behind. Each
+release writes `release/pre-<version>` to every repository it touches and `release/post-<next>` to
+the release repositories, and the preflight refuses a version whose refs already exist, so nothing
+removed them and they accumulated a pair per release per repository. The current pair stays — it is
+this release's evidence, and what a rollback would reach for — and every older one goes, superseded
+by the tag naming the same tree. The sweep runs only after the proof, so a failed acceptance still
+has the older refs to be read against, and it is housekeeping rather than proof: a remote that
+refuses a delete is recorded in the ledger under `branchRetirement` and does not fail a release that
+has already been accepted.
+
 Acceptance also marks the release concluded and frees the active slot. There is no separate
 `finish` command. If the process stops after writing the accepted ledger but before marking its
 pointer concluded, `cedarcli release resume` repairs that final bookkeeping step without rerunning
