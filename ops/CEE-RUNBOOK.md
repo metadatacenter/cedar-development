@@ -131,6 +131,19 @@ field's named slots. An attribute-value field is read but not written — its sl
 by the control that creates them — and a page break is refused outright, since it
 divides a form and this element has none.
 
+## Where the design values come from
+
+CEDAR's font stack, type scale, brand palettes and neutrals are published from
+`cedar-design-tokens` as `@org.metadatacenter/cedar-design-tokens`, and its README is the reference
+for them. CEE's `src/_cee-tokens.scss` still holds its own copy of those values as of 2026-09-15,
+which is the copy the package was extracted from.
+
+Taking the dependency needs `node_modules` on the Sass load path — one more entry in the
+`stylePreprocessorOptions.includePaths` that `angular.json` already declares for `src` — and the
+package must stay a `devDependency` that the published manifest never names. The reason is in
+[NPMJS-RELEASE-RUNBOOK.md](NPMJS-RELEASE-RUNBOOK.md), under the release contract: the scope resolves
+only from Nexus, which an embedding application installing public CEE from npmjs cannot reach.
+
 ## Building the web component
 
 This is the real deliverable — a single JS file embeddable in any page.

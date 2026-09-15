@@ -136,6 +136,13 @@ The main browser applications — `cedar-workspace`, `cedar-template-editor`,
 - [FRONTEND-ROADMAP.md](ops/FRONTEND-ROADMAP.md) — cross-cutting frontend delivery and the
   end-to-end user workflows initiated by these applications.
 
+What the three embeddable components look like is one thing, held in one place: `cedar-design-tokens`
+publishes CEDAR's font stack, type scale, brand palettes and neutrals as
+`@org.metadatacenter/cedar-design-tokens`, a build-time dependency under the scope `.npmrc` routes
+to Nexus. Its README is the reference, and the rule for a consumer is in each component's runbook.
+The editor, the designer and the term picker still carry their own copies of those values as of
+2026-09-15; the package is where a change to them belongs from now on.
+
 The embeddable editor (CEE) and the TypeScript model library it consumes:
 - [CEE-RUNBOOK.md](ops/CEE-RUNBOOK.md) — the Node version (one now, 24.19.0, read that first),
   running the app, the test gate and what CI runs, checking output against the CEDAR model,

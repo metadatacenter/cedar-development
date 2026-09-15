@@ -36,6 +36,33 @@ as a runtime dependency for the embedding application to resolve. Consequently:
 The releases completed on 2026-08-27 demonstrate the distinction: model library 1.0.4 was public,
 while CEE 2.0.2 deliberately embedded model library 1.0.3.
 
+### The design tokens are a build-time dependency
+
+CEDAR's design values — the font stack, the type scale, the brand palettes and the neutrals — are
+published from `cedar-design-tokens` as `@org.metadatacenter/cedar-design-tokens`, under the scope
+`.npmrc` routes to the CEDAR Nexus registry. Sass reads those values and compiles them away, so a
+built bundle carries the numbers and colours and no reference to the package.
+
+CEE's stylesheets still hold their own copy of the values, so a release made today is unaffected.
+Two rules apply from the moment CEE takes the dependency.
+
+The package stays a `devDependency`, and the published manifest may not name it at all. A scoped
+name resolves only from Nexus, and an embedding application installing public CEE from npmjs cannot
+reach that registry: the install fails with a 404 against a host it holds no credentials for. Check
+the staged `package-dist.json`, which is what ships, rather than the repository's own manifest:
+
+```bash
+node -e "const p=require('./dist-npm/cedar-embeddable-editor/package.json');
+console.log(Object.keys({...p.dependencies, ...p.peerDependencies}).filter(d => d.startsWith('@org.metadatacenter/')))"
+```
+
+An empty list is the only passing answer.
+
+A release build resolves whatever snapshot Nexus holds when it starts. Publish the tokens first and
+raise CEE's dependency to that version before building, or the bundle carries the values of the
+previous snapshot — the same ordering `cedarcli` enforces for a build train by registering the
+package ahead of every npm repository that consumes it.
+
 ## Shared prerequisites
 
 Use Node 24.19.0 for both repositories. On the CEDAR development machine it is installed by

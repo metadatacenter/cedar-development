@@ -470,6 +470,14 @@ histories through the search response rather than calling the versions endpoint.
 
 ## Building and Testing the Picker
 
+The picker's font, type scale and colours are CEDAR's, published from `cedar-design-tokens` as
+`@org.metadatacenter/cedar-design-tokens`. `src/_cee-tokens.scss` and `src/_cedar-neutrals.scss`
+still hold their own copies as of 2026-09-15, and those copies are what the package was extracted
+from — including the advisory colour that had drifted, where the picker drew `#856404` against the
+editor's `#b45309`. Taking the dependency needs `node_modules` on the Sass load path and turns each
+`@use 'cee-tokens' as tokens` into `@use '@org.metadatacenter/cedar-design-tokens/tokens' as
+tokens`; the variables lose their `cee-` prefix, because the alias is what carries the scope.
+
 | Command | What it does |
 |---|---|
 | `npm run build:production` | the custom-element bundle, into `dist/cedar-embeddable-term-picker` |

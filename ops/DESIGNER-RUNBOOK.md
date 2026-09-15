@@ -10,6 +10,16 @@ that serves `/templates/edit/...` in production, which it is meant to replace.
 What CED still needs before it can stand in for that designer is in
 [DESIGNER-ROADMAP.md](DESIGNER-ROADMAP.md).
 
+## Where the design values come from
+
+The designer's type scale and palette are CEDAR's, published from `cedar-design-tokens` as
+`@org.metadatacenter/cedar-design-tokens`. `src/styles.css` still states its own copy of them as
+custom properties as of 2026-09-15; the package emits exactly that file, so taking the dependency is
+an `@import` of `@org.metadatacenter/cedar-design-tokens/custom-properties.css` in place of the
+hand-written block. The five steps of the scale are 12, 14, 15, 18 and 20px, and a size between two
+of them is not on it: the designer ran 11px controls under 10px labels until 2026-09-15, and every
+seam where that met a component at CEE's 14px showed.
+
 ## Requirements
 
 Node 24.19.0, which `.nvmrc` pins and CI runs — the same version CEE and

@@ -154,6 +154,14 @@ workflow run URL and `gh run watch` command using that run ID:
 gh run watch <RUN_ID> --repo metadatacenter/cedar-development --compact --exit-status
 ```
 
+`cedar-design-tokens` is one of the npm repositories captured, and it is registered ahead of every
+repository that consumes it. CEDAR's font stack, type scale, brand palettes and neutrals are
+published from there as `@org.metadatacenter/cedar-design-tokens`, and a consumer's styles resolve
+that package from Nexus when its own build starts: a frontend built before the tokens publish reads
+the previous snapshot and renders the previous values. The order lives in the CLI's repository
+registry rather than in this document, and `tests/test_design_tokens_registration.py` holds it
+there.
+
 The workflow first captures the exact `develop` commit of every Java, npm, frontend, Docker, CLI,
 and orchestration repository. Before it records train state or starts Maven, a hosted preflight
 validates every captured file and the complete cross-repository configuration, requires green CI
@@ -282,7 +290,7 @@ Train 2.9.8-dev.20260905.0436 took 36 minutes: nine and a half for the Maven pha
 TypeScript model, eight and a half for the CEE gate on its ARM runner, two for the seven frontends,
 five for the 31 images, and eight and a half to pull every image back and verify it. Everything but
 the image matrix runs serially. The local dispatch preflight takes about a minute, most of it the
-CI probe across the 44 captured repositories, and a `--dry-run` rehearsal pays it a second time.
+CI probe across the 45 captured repositories, and a `--dry-run` rehearsal pays it a second time.
 
 ## Resume a failed train
 
@@ -304,7 +312,7 @@ cedarcli publish train-status <TRAIN_ID>
 
 A complete train also reports whether it can still back a release. A release stamps a train's exact
 commits and refuses any repository whose `develop` has left them, so a train stops being releasable
-the moment anything lands in one of the forty-four it captured. The verdict counts the repositories
+the moment anything lands in one of the forty-five it captured. The verdict counts the repositories
 that moved against what the train captured and names them, which is the difference between one
 commit that can be explained and an estate that has moved on.
 
