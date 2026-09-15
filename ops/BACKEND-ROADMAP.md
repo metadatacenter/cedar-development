@@ -8,7 +8,7 @@ For how to run and build the system see [BACKEND-RUNBOOK.md](./BACKEND-RUNBOOK.m
 State" section records what the stack currently sits on. Library-internal items belong in that
 library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact-library/ROADMAP.md).
 Work on the main browser applications is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md), work on
-the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the MCP servers is in
+the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), and work on the MCP servers is in
 [MCP-ROADMAP.md](./MCP-ROADMAP.md).
 
 ## Next

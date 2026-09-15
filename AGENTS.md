@@ -53,7 +53,7 @@ Choose the guide by task:
 - **Public npmjs releases (TypeScript model library and CEE):**
   `cedar-development/ops/NPMJS-RELEASE-RUNBOOK.md`
 - **Production deployment:** `cedar-development/ops/PROD-DEPLOY-RUNBOOK.md`
-- **The embeddable template designer:** `cedar-development/ops/DESIGNER-RUNBOOK.md`
+- **The embeddable template designer:** `cedar-development/ops/FRONTEND-RUNBOOK.md#ced`
 
 Helper scripts are in `cedar-development/ops/`. `cedar-services.sh` is the implementation behind
 `cedarcli native start|stop|status|watch|restart|logs` — call the CLI, not the script. The analysis tools
@@ -131,39 +131,25 @@ The backend — the microservices, the shared Java libraries, the stack itself:
 - [DOCKER-ROADMAP.md](ops/DOCKER-ROADMAP.md) — remaining registry-backed delivery, promotion,
   rollback, image-verification and persistence work.
 
-The main browser applications — `cedar-workspace`, `cedar-template-editor`,
-`cedar-metadata-editor` and `cedar-profile-editor`:
-- [FRONTEND-ROADMAP.md](ops/FRONTEND-ROADMAP.md) — cross-cutting frontend delivery and the
-  end-to-end user workflows initiated by these applications.
+The browser applications and embeddable components — `cedar-workspace`,
+`cedar-template-editor`, `cedar-metadata-editor`, `cedar-profile-editor`,
+`cedar-embeddable-editor` (CEE/CEF), and `cedar-embeddable-designer` (CED):
+- [FRONTEND-RUNBOOK.md](ops/FRONTEND-RUNBOOK.md) — CEE/CEF and CED setup, builds,
+  test gates, visual baselines, packaging, embedding and sibling integration; the
+  TypeScript model library's build and release procedures; pointers to browser
+  application deployment and stack operation.
+- [FRONTEND-ROADMAP.md](ops/FRONTEND-ROADMAP.md) — browser workflows, frontend delivery,
+  editor theming and host contracts, designer profiles, authoring and lifecycle,
+  and the model-library work those surfaces require.
+- [NPMJS-RELEASE-RUNBOOK.md](ops/NPMJS-RELEASE-RUNBOOK.md) — public TypeScript model
+  library and CEE releases, consumer pins, tarball verification, development channels,
+  and adoption by a train-backed release.
 
-What the three embeddable components look like is one thing, held in one place: `cedar-design-tokens`
-publishes CEDAR's font stack, type scale, brand palettes and neutrals as
-`@org.metadatacenter/cedar-design-tokens`, a build-time dependency under the scope `.npmrc` routes
-to Nexus. Its README is the reference, and the rule for a consumer is in each component's runbook.
-All three take their values from it as of 2026-09-15; a change to any of them belongs there, and
-nowhere else.
-
-The embeddable editor (CEE) and the TypeScript model library it consumes:
-- [CEE-RUNBOOK.md](ops/CEE-RUNBOOK.md) — the Node version (one now, 24.19.0, read that first),
-  running the app, the test gate and what CI runs, checking output against the CEDAR model,
-  and building the model library.
-- [NPMJS-RELEASE-RUNBOOK.md](ops/NPMJS-RELEASE-RUNBOOK.md) — releasing the public TypeScript model
-  library and CEE packages, explicitly wiring the model into CEE, verifying the repository README
-  in each tarball, restoring both development channels, and handing CEE to a train-backed release.
-- [CEE-ROADMAP.md](ops/CEE-ROADMAP.md) — CEE's open work: what the finished Angular 14 → 22 march
-  left behind, styling and theming, the host contract, plus the model library's own items and
-  adoption status.
-
-The embeddable designer (CED) — `cedar-embeddable-designer`, the authoring half of the pair CEE
-completes, and the replacement for the AngularJS Template Designer:
-- [DESIGNER-RUNBOOK.md](ops/DESIGNER-RUNBOOK.md) — running the development host, the two builds,
-  the four test gates, the single-file distribution and the channel its version selects, embedding
-  it alongside `<cedar-embeddable-term-picker>`, and why controlled-term search needs a local terminology
-  server today.
-- [DESIGNER-ROADMAP.md](ops/DESIGNER-ROADMAP.md) — the distance to a designer anyone could switch
-  to, measured against the production designer's own palette configuration, in the order to do it:
-  the three profiles that have to make a crowded card legible, the save-and-publish lifecycle it
-  has none of, and then template elements.
+`cedar-design-tokens` owns the shared font stack, type scale, brand palettes and
+neutrals for CEE, CED and CETP. Its README is the reference. All three consume
+`@org.metadatacenter/cedar-design-tokens` at build time through the scoped Nexus
+registry; change shared values in that package and follow the consumer rules in
+[FRONTEND-RUNBOOK.md](ops/FRONTEND-RUNBOOK.md) and the versioning runbook.
 
 Terminology versioning, the authoring surface included — `cedar-embeddable-term-picker`, the Web Component
 replacing the Workbench's controlled-term picker, is tracked here rather than in a pair of its own,

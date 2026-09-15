@@ -6,7 +6,7 @@ How to publish the two independent public npm packages that sit outside the norm
 - `cedar-embeddable-editor` (CEE)
 
 This is the operational release procedure. For development, architecture, and the complete test
-surfaces, see [CEE-RUNBOOK.md](./CEE-RUNBOOK.md). For the platform release that consumes a public
+surfaces, see [FRONTEND-RUNBOOK.md](./FRONTEND-RUNBOOK.md#cee). For the platform release that consumes a public
 CEE package, see [RELEASE-RUNBOOK.md](./RELEASE-RUNBOOK.md).
 
 ## Release contract
@@ -534,7 +534,7 @@ node "$CEDAR_HOME/cedar-development/ops/propagate-cee-release.mjs" --check "$CEE
 
 Review and commit each owning repository separately. Rebuild every deployed CEE host and verify the
 served bundle hash; a manifest edit alone does not change a running frontend. The complete consumer
-inventory and rebuild paths are in [CEE-RUNBOOK.md](./CEE-RUNBOOK.md#release).
+inventory and rebuild paths are in [FRONTEND-RUNBOOK.md](./FRONTEND-RUNBOOK.md#cee-release).
 
 Pinning the release rewrites every one of those lockfiles, so all seven dependency-graph digests the
 train's dispatch preflight reads go stale at once and the next `cedarcli publish train` refuses with

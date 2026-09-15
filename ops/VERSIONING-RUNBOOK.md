@@ -10,7 +10,7 @@ shapes of the endpoints the picker reads, are sections of that same roadmap —
 Sibling runbooks:
 - [BACKEND-RUNBOOK.md](./BACKEND-RUNBOOK.md) — running the CEDAR stack the terminology server sits
   in, and the port map.
-- [CEE-RUNBOOK.md](./CEE-RUNBOOK.md) — the CEDAR Embeddable Editor, the other Angular Web Component
+- [FRONTEND-RUNBOOK.md](./FRONTEND-RUNBOOK.md#cee) — the CEDAR Embeddable Editor, the other Angular Web Component
   in the estate and the setup the picker follows.
 
 ---

@@ -117,7 +117,7 @@ Two lines in `pom.xml` pin it:
 
 The hash is the bundle's own, from the package's `bundle-manifest.json`, and the build refuses a
 bundle that does not match. The hash also gives the same deployed-identity check that
-[CEE-RUNBOOK.md](./CEE-RUNBOOK.md) uses when a frontend looks wrong.
+[FRONTEND-RUNBOOK.md](./FRONTEND-RUNBOOK.md#cee) uses when a frontend looks wrong.
 
 To bump: find the version the public `latest` dist-tag names, take its hash from the package's
 `bundle-manifest.json`, change both lines, run the suite, and open a form in a browser with the

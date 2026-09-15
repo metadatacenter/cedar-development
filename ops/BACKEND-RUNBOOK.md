@@ -3890,7 +3890,7 @@ node $CEDAR_HOME/cedar-development/ops/propagate-cee-release.mjs --check <CEE_VE
 Then regenerate the native Workspace server payload (or rebuild an optional local preview image) and
 rerun the deployment and authenticated hostname smokes.
 The detailed release, registry, build, and served-hash procedure is in
-[CEE-RUNBOOK.md](./CEE-RUNBOOK.md#release).
+[FRONTEND-RUNBOOK.md](./FRONTEND-RUNBOOK.md#cee-release).
 
 The shared Dropwizard CORS filter reads `CEDAR_CORS_ALLOWED_ORIGINS` as a comma-separated list of
 Jetty origin patterns. An unset or blank value retains the historical `*` default, so introducing
