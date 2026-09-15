@@ -146,10 +146,15 @@ The package must stay a `devDependency` that the published manifest never names.
 [NPMJS-RELEASE-RUNBOOK.md](NPMJS-RELEASE-RUNBOOK.md), under the release contract: the scope resolves
 only from Nexus, which an embedding application installing public CEE from npmjs cannot reach.
 
-The Material adapter applies the package's primary 500 and accent A200 palettes.
-Its M2 API remains in use; M3 is separate work. Shared neutrals and compact-control
-font/focus defaults also read the package. `THEMING.md` records the palette decision
-and `STYLING.md` records the supported compact-control host overrides.
+The Material adapter uses M3 `mat.theme()` with explicit light color roles from
+the package: primary 500, secondary primary 700, tertiary rust 500, pale brand
+containers and shared neutrals. All typography roles use the shared px scale and
+namespaced font stack. Supported component override mixins preserve 36px compact
+controls, 48px comfortable fields and 36px choice rows with 48px touch targets.
+The system is emitted at each CEE/CEF shadow host so overlays inherit it too.
+`THEMING.md` records the visual contract and `STYLING.md` the public compact-control
+properties; Material's `--mat-*` variables remain private. The M3 browser suite
+checks sentinel host overrides and overlays under a host root-font reset.
 
 ## Building the web component
 

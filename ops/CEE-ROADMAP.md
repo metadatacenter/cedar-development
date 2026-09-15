@@ -7,20 +7,14 @@ libraries still answer differently, is in
 [BACKEND-ROADMAP.md](./BACKEND-ROADMAP.md). The reasoning behind an item is in the
 commit that opened it.
 
-1. **M3 theme adapter.** Replace the M2 compatibility theme with M3 inside
-   `_cee-material-theme.scss` as a deliberate visual migration, not a mechanical upgrade:
-   map the shared design tokens to M3, preserve CEE-owned layout, typography, status,
-   focus and accessibility invariants, use supported theme and component override mixins,
-   review incidental Material-chrome diffs separately, and never expose `--mat-*` tokens as
-   host API. Cut back the Material internal selectors made unnecessary by the adapter.
-2. **General appearance contract.** Extend the existing compact-control contract
+1. **General appearance contract.** Extend the existing compact-control contract
    with deliberate whole-component roles for brand, surface, text, muted and border.
    Preserve the properties in CEE's `STYLING.md`; keep Material internals private.
    A runtime role must reach every affected control through the M3 adapter, with
    browser tests setting a sentinel and checking rendered foregrounds, backgrounds
    and focus states. Define status-color invariants and derive related tints from
    the brand. Document only the properties those tests prove.
-3. **Markup discoverability.** Have the CEDAR workspace's template rich-text editor declare or
+2. **Markup discoverability.** Have the CEDAR workspace's template rich-text editor declare or
    enforce what an embedder will actually render, since its `Source` button accepts markup
    CEE will strip. Three policies decide what survives, and none of them derives from
    another. CEE sanitizes with DOMPurify against an allowlist of 37 tags and 26 attributes,
@@ -49,7 +43,7 @@ commit that opened it.
    expressions that call it name `$root.getUnescapedContent` and nothing puts that function on
    `$rootScope`. The same dead expression leaves the legacy metadata editor rendering a static
    rich-text field as an empty box.
-4. **The authority marks are three different things pretending to be one.** ORCID, PFAS, NIH
+3. **The authority marks are three different things pretending to be one.** ORCID, PFAS, NIH
    Grant and DOI are not those organisations' logos: they are approximations someone drew — an
    `iD` in a green circle, `NIH` in a navy box — inlined as SVG data URIs. PubMed and RRID are
    the real marks, but rasterised, and PubMed's is a JPEG, which is a lossy format with no
@@ -58,7 +52,7 @@ commit that opened it.
    marks for all seven — a trademark and asset-licensing question rather than a technical one,
    though nominative use of a registry's logo to label a field targeting that registry is the
    ordinary case — and if so, obtain them as vectors and inline them the way ROR now is.
-5. **Offer the instance as RDF, which the editor CEE replaced already did.** The download menu
+4. **Offer the instance as RDF, which the editor CEE replaced already did.** The download menu
    holds seven views — the instance as JSON-LD and as YAML in both shapes, the template as JSON
    Schema and as YAML in both, and the data quality report — and no RDF. The legacy metadata
    editor in the CEDAR workspace has an RDF panel beside its JSON-LD and YAML ones, produced by
@@ -102,7 +96,7 @@ commit that opened it.
    honestly. Decide which before the label, the `.ttl` or `.nq` extension and the `text/turtle` or
    `application/n-quads` media type are written into the descriptor.
 
-6. **A quarter of what an embedder downloads is font payload, and most of those glyphs never
+5. **A quarter of what an embedder downloads is font payload, and most of those glyphs never
    render.** The shipped bundle measures 640,829 gzip bytes at `2.0.7-dev.20260904.ed890758`:
    484,489 of code and 156,340 of inlined assets, the assets being 136,569 for two font families
    and about 19,800 for the authority marks. The code figure is unremarkable for what CEE is, one
@@ -141,7 +135,7 @@ commit that opened it.
    its writers behind their own entry point, which only becomes cheap if the download path turns
    asynchronous for other reasons.
 
-7. **Make validation actionable before REST refuses the write.** Invalid template instances no
+6. **Make validation actionable before REST refuses the write.** Invalid template instances no
    longer enter the repository through the artifact REST API. Since the persistence-boundary
    hardening in `release-2.9.2`, both create and update validate against the referenced template,
    return HTTP 400 with `INVALID_DATA`, `VALIDATION_ERROR` and the full `validationReport` when that
@@ -185,7 +179,7 @@ commit that opened it.
    a rejected update, correction followed by a successful save, and a deliberately divergent server
    report. The item is complete when validation is useful before the request and equally useful when
    the server is the first component to detect the problem.
-8. **Finish the widget coverage the two read-write audits started.**
+7. **Finish the widget coverage the two read-write audits started.**
    Both September 2026 audits covered read-write behaviour only, and drew no conclusions
    about the read-only presentation, the download menu, or the source panel. Which stage
    watches which layer, and the five tables that state what the widget family shares, are in
