@@ -134,6 +134,94 @@ before unleashing the multi-night backfill.
 | **2** | +2…N | enable backfill (conservative). Drains `*_pre284` in id-range batches in the off-peak window; restartable via cursor. Parity-check → `READY_TO_DROP` → **`DROP TABLE *_pre284`**. | `BACKFILL=true` → false when done | several nights (throttled) |
 | **3** | +weeks | after the rollups are trusted: enable prune (see §7 for the SAFE way). | `PRUNE=true` | first prune hours/nights |
 
+### 5a. Backfill sizing, and why splitting it is optional now (updated 2026-09-15 evening)
+
+> **SUPERSEDED IN PART.** This section was written when `cedr-prd-db-01` had 19 GB free of 120 GB on
+> 3.8 GB of RAM. **The host was resized the same day** — now **15 GB RAM and 160 GB disk with 56 GB
+> free (66% used)**, and `innodb_buffer_pool_size = 8G` is correct for that machine, not the
+> over-commit it would have been before. `vmstat` shows no swapping. **Re-measure before trusting any
+> number here.**
+>
+> With 56 GB free the two-stage split below is **no longer required**. Keep it as the pattern when
+> headroom is tight, and because stopping after the request drain gives an early parity checkpoint.
+
+The backfill *writes* rollups before the `DROP` returns anything: hourly buckets, `agg_request_user_hourly`, the query catalog, and a
+one-time top-500 outlier capture per table.
+
+**Sizing it from staging**, where the aggregator has processed ~650k raw rows:
+
+| | staging size | per raw row |
+|---|---|---|
+| hourly tables (`agg_*_hourly`, `agg_request_user_hourly`, catalog) | ~48 MB | ~0.074 KB |
+| outlier tables | ~115 MB | capped, **not** proportional |
+
+Prod's `*_pre284` holds **37.5M rows**, so the hourly rate gives **~3 GB**. The outliers add little:
+the backfill captures **top-500 once**, whereas staging's 115 MB came from the *live* aggregator
+taking top-50 slow + top-50 error **per settled day** over 14 months. Budget **3-10 GB**, with 3 the
+better estimate. Comfortable against 56 GB free.
+
+**The two-stage drain, still worth doing for the checkpoint.** The job already drains
+`log_request_pre284` first and `log_cypher_pre284` second, so stopping between them needs no code
+change:
+
+1. Enable backfill; let it drain **request** only.
+2. Wait for `Drained log_request_pre284 -> READY_TO_DROP.` in the worker log.
+3. Stop the worker. Parity-check `rowsIn` against **4,159,527** (the frozen exact count, 2026-09-10).
+4. `DROP TABLE log_request_pre284` — **frees 11.45 GB**.
+5. Restart the worker and let it drain `log_cypher_pre284` (56 GB, ~33.1M rows).
+
+**Phase 1 is bigger than first estimated.** The live tables grew sharply during the 2026-09-08→14
+incident: `log_cypher` went 5.2M rows / 5.58 GB on 09-10 to **17.0M / 22 GB** on 09-15, and
+`log_request` 2.9M to **4.9M**. So the live aggregator's first catch-up covers **~22M rows**, not the
+~7.9M estimated on 09-10. The whole log DB is now **95 GB** across 12 tables.
+
+### 5b. Prune is validated — measured on staging 2026-09-15
+
+Run end-to-end on `cedar_log_staging` with the prod-conservative tuning
+(`retentionDays=30, batch=1000, pauseMs=2000`), while the live aggregator kept running:
+
+| | before | after | Free reclaimed |
+|---|---|---|---|
+| `log_request` | 303,669 | **82,828** (−73%) | 6 MB → 259 MB |
+| `log_cypher` | 335,867 | **251,022** (−25%) | 6 MB → 167 MB |
+
+Roughly 25 minutes, no impact observed on the shared server. **Both safety invariants held
+throughout:** zero rows past retention that were never aggregated, and the `agg_*` rollups unchanged
+while raw rows disappeared.
+
+**The asymmetry is expected, not a fault.** Cypher plateaued early because it has an inflow of one
+row per API-key request (the `findUserByApiKey` auth lookup), so most of it is recent and inside the
+retention window. At the plateau only **84** cypher rows remained prunable. Prod's live tables will
+behave the same way — they only go back to the 2026-07-28 rename, about seven weeks, so with 30-day
+retention roughly the older half is eligible and cypher will plateau sooner than request.
+
+**Ordering, and it is not stated elsewhere in this document: prune can do nothing until the live
+aggregator has run.** It only deletes rows that are *aggregated* **and** past retention. With all
+three jobs off on prod, `aggregatedAt` is NULL everywhere, so enabling prune first would delete
+exactly zero rows and look broken. Phase 1 (live) is a hard prerequisite for phase 3 (prune), not
+merely a sensible order.
+
+To check eligibility before enabling it anywhere:
+
+```sql
+SELECT COUNT(*) AS prunable FROM <schema>.log_request
+WHERE aggregatedAt IS NOT NULL AND requestTime < DATE_SUB(UTC_TIMESTAMP(), INTERVAL 30 DAY);
+-- log_cypher uses logTime, not requestTime
+```
+
+### 5c. Pruning does NOT free disk
+
+Verified on staging 2026-09-15 while the prune job ran: row counts fell steadily
+(`log_request` 261k → 144k, `log_cypher` 337k → 251k) while the tables' **`Free`** column grew
+(`log_request` 6 → 51 MB, `log_cypher` 6 → 167 MB).
+
+**InnoDB returns deleted space to the tablespace, not to the filesystem.** The `.ibd` file does not
+shrink, so `df` barely moves. Only `DROP TABLE` — or `OPTIMIZE TABLE`, a full rebuild — gives space
+back to the OS.
+
+**Consequence for the 85%-full disk: prune will not fix it. Only the `DROP` of `*_pre284` will.**
+Do not schedule prune as a disk-pressure remedy.
+
 ## 6. Env vars (prod)
 Enables (registered in `set-env-internal.sh` + template + worker README + docker-compose):
 `CEDAR_LOG_BACKFILL_ENABLED`, `CEDAR_LOG_LIVE_AGG_ENABLED`, `CEDAR_LOG_PRUNE_ENABLED`.
