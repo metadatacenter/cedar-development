@@ -7,209 +7,85 @@ libraries still answer differently, is in
 [BACKEND-ROADMAP.md](./BACKEND-ROADMAP.md). The reasoning behind an item is in the
 commit that opened it.
 
-1. **General appearance contract.** Extend the existing compact-control contract
-   with deliberate whole-component roles for brand, surface, text, muted and border.
-   Preserve the properties in CEE's `STYLING.md`; keep Material internals private.
-   A runtime role must reach every affected control through the M3 adapter, with
-   browser tests setting a sentinel and checking rendered foregrounds, backgrounds
-   and focus states. Define status-color invariants and derive related tints from
-   the brand. Document only the properties those tests prove.
-2. **Markup discoverability.** Have the CEDAR workspace's template rich-text editor declare or
-   enforce what an embedder will actually render, since its `Source` button accepts markup
-   CEE will strip. Three policies decide what survives, and none of them derives from
-   another. CEE sanitizes with DOMPurify against an allowlist of 37 tags and 26 attributes,
-   refuses `ng-*` and `on*` outright, and admits a `data:` image only as raster. The
-   workspace's `rich-text-config-service.conf.json` gives CKEditor a toolbar, a height and a
-   UI colour and no content filtering at all, so what constrains authoring is CKEditor's
-   automatic ACF, derived from its own enabled plugin set. The workspace's legacy render path
-   hands a plain string to `ng-bind-html`, which leaves the decision to `ngSanitize`. An
-   author gets no signal from any of the three: nothing objects while they type, and the
-   field goes blank in CEE.
+1. **General appearance contract.** Extend the compact-control contract in CEE's
+   `STYLING.md` with whole-component roles for brand, surface, text, muted and border.
+   Keep Material internals private. A runtime role must reach every affected control
+   and overlay through the M3 adapter, with browser tests setting a sentinel and checking
+   rendered foregrounds, backgrounds and focus states. Define status-color invariants,
+   derive related tints from the brand, and document only the properties those tests prove.
 
-   `TEMPLATE_MARKUP_POLICY` in `template-markup-policy.ts` is the obvious single source of
-   truth, and nothing reads it — not the spec, which imports only `sanitizeTemplateMarkup`,
-   and not the README, although its own comment claims both. So the first decision is whether
-   it joins CEE's public API, letting the workspace configure itself from one declaration, or
-   stays internal while the allowlist is duplicated in the workspace's JSON, where it will
-   drift on the first edit to either side. Enforcing costs a mechanical translation of the
-   allowlist into ACF rules plus `disallowedContent` approximations for the two rules ACF
-   cannot express; declaring costs help text and a save-time warning and leaves the preview
-   lying.
+2. **Markup discoverability.** Make template authoring state or enforce what CEE will
+   render. Align the Workspace rich-text editor's `Source` mode and CED's authoring
+   surfaces with `template-markup-policy.ts`; warn when sanitization removes content
+   instead of letting a preview silently lose it.
 
-   Measured, so that it need not be re-derived: neither surface executes static content
-   today. CEE keeps a payload's `<img>` and drops its `onerror`, confirmed by a probe that saw
-   the broken image render with the handler never firing. The `$sce.trustAsHtml` in
-   `schema.service.js` and `data-manipulation.service.js` is unreachable, because the only
-   expressions that call it name `$root.getUnescapedContent` and nothing puts that function on
-   `$rootScope`. The same dead expression leaves the legacy metadata editor rendering a static
-   rich-text field as an empty box.
-3. **The authority marks are three different things pretending to be one.** ORCID, PFAS, NIH
-   Grant and DOI are not those organisations' logos: they are approximations someone drew — an
-   `iD` in a green circle, `NIH` in a navy box — inlined as SVG data URIs. PubMed and RRID are
-   the real marks, but rasterised, and PubMed's is a JPEG, which is a lossy format with no
-   transparency being used for a logo. ROR is the real mark as vector, and was the only one
-   fetched over the network until it was inlined. Decide whether CEE should carry the genuine
-   marks for all seven — a trademark and asset-licensing question rather than a technical one,
-   though nominative use of a registry's logo to label a field targeting that registry is the
-   ordinary case — and if so, obtain them as vectors and inline them the way ROR now is.
-4. **Offer the instance as RDF, which the editor CEE replaced already did.** The download menu
-   holds seven views — the instance as JSON-LD and as YAML in both shapes, the template as JSON
-   Schema and as YAML in both, and the data quality report — and no RDF. The legacy metadata
-   editor in the CEDAR workspace has an RDF panel beside its JSON-LD and YAML ones, produced by
-   `jsonld.toRDF(form, {format: 'application/nquads'})` in `create-instance.controller.js`, so a
-   host that moves to CEE loses a serialization it had. That makes this parity rather than a new
-   feature, and it is the argument for doing it at all: nobody has asked for Turtle, and someone
-   did once ask for RDF.
+   Decide whether `TEMPLATE_MARKUP_POLICY` becomes public embedding API or remains
+   internal with a supported description of the policy. Use that decision to keep editor
+   configuration, tests and documentation in step. Account for rules beyond a tag and
+   attribute allowlist, including forbidden event handlers and non-raster data images.
+   Verify the authoring-to-CEE round trip with supported formatting and rejected markup.
 
-   Use a library rather than writing a serializer. A CEDAR instance carries its `@context` inline,
-   so the translation is mechanical, but the edge cases are not — `@type` coercion, the nested
-   containers an element occurrence produces, and the property IRIs an attribute-value pair mints
-   are exactly where a hand-rolled writer would quietly differ from every other JSON-LD consumer.
-   `jsonld.js` is the reference implementation and is what the workspace already uses, which also
-   means its output is the thing to diff against.
+3. **Consistent authority marks.** Decide whether all seven authority fields should use
+   the organisations' genuine marks, then replace the approximations for ORCID, PFAS,
+   NIH Grant and DOI and the raster PubMed/RRID assets with approved vector assets where
+   available. Keep assets inline, preserve their accessible labels, and check appearance
+   at field-icon size. ROR provides the existing inline-vector pattern. Record asset
+   provenance and usage terms with the assets.
 
-   Four costs to weigh before starting, in the order they will bite.
+4. **RDF instance export.** Add an RDF serialization to the download contract, using a
+   JSON-LD processor rather than a handwritten serializer. Decide first whether the
+   output is N-Quads or Turtle and whether `downloadContentFor` becomes asynchronous or
+   gains a separate asynchronous producer. Carry that decision through the menu,
+   filename, media type, failure handling and harness tests.
 
-   **The download producer is synchronous, and a JSON-LD processor is not.** `downloadContentFor`
-   returns a `string` from a pure function over a `DataContext`, and its comment says why: the
-   harness can ask what a download holds without rendering anything, which is what keeps those
-   assertions honest. `jsonld.toRDF` returns a promise. Either the producer becomes
-   `Promise<string>` — changing every call site and every harness test that reads one — or the
-   descriptor grows a second, asynchronous kind and the menu learns to await it. That decision is
-   the whole shape of the change and should be taken first, not discovered.
+   Install a document loader that rejects remote context fetches: exporting an instance
+   must not introduce network access beyond CEE's embedding contract. Test type coercion,
+   nested and repeated elements, attribute-value property IRIs and malformed contexts
+   against a reference processor. Measure the production bundle with `check:size` before
+   choosing dependencies; do not use old bundle-headroom estimates. Coordinate with the
+   font-payload work if the added processor exceeds the packaging budget.
 
-   **The bundle has room, but not unlimited room.** 199,171 gzip bytes free against the 840,000
-   limit, 1,395,146 raw against 3,600,000, measured 2026-09-06. `jsonld.js` pulls `rdf-canonize`
-   behind it and is the largest single dependency anyone has proposed adding. Measure it against
-   `check:size` before committing to it, and treat the gzip figure as the binding one.
+5. **Reduce embedded font payload.** Measure subsetting the Material Icons font to the
+   ligatures CEE actually uses. Add a build guard that inventories template and descriptor
+   ligatures and rejects a glyph absent from the shipped font; the menu glyph browser
+   check alone does not cover every icon source.
 
-   **A JSON-LD processor fetches remote contexts by default, and CEE must not.** The published
-   security contract is that CEE contacts the servers a host configures and nothing else. CEDAR
-   instances embed every term inline, so nothing needs fetching; a document loader that refuses
-   every fetch must be installed explicitly rather than relied on to be unnecessary, and
-   [Embedding Security](../../cedar-mkdocs/docs/cedar-embeddable-editor/security.md) gains a line
-   either way.
+   Separately decide which Roboto scripts the single-file bundle must carry. Inlining all
+   seven unicode-range subsets at three weights ships every subset, even for a Latin-only
+   form. Retain latin-ext for Hungarian; dropping other scripts requires an explicit
+   fallback-font decision and multilingual rendering checks. Re-measure decoded and gzip
+   savings on the current production bundle. Preserve namespaced font faces and the
+   single-artifact embedding contract; serving fonts as extra files changes that contract.
 
-   **Turtle and N-Quads are different answers.** A JSON-LD processor emits N-Quads natively, which
-   is what the workspace shows under the label "RDF"; Turtle is what a person reads, and getting it
-   means a second dependency such as N3's writer, or accepting N-Quads and naming the menu entry
-   honestly. Decide which before the label, the `.ttl` or `.nq` extension and the `text/turtle` or
-   `application/n-quads` media type are written into the descriptor.
+6. **Complete host validation and save feedback.** Extend Workspace's validation display
+   to render a rejected create/update's structured server `validationReport`, instead of
+   routing it only through the generic backend-error presenter. Keep the document dirty,
+   show the problems' paths and messages, and provide navigation to the affected field
+   across pages and repeated elements where possible. Localize the host summary and
+   missing-required-field messages.
 
-5. **A quarter of what an embedder downloads is font payload, and most of those glyphs never
-   render.** The shipped bundle measures 640,829 gzip bytes at `2.0.7-dev.20260904.ed890758`:
-   484,489 of code and 156,340 of inlined assets, the assets being 136,569 for two font families
-   and about 19,800 for the authority marks. The code figure is unremarkable for what CEE is, one
-   file carrying the Angular runtime, Material and the CDK, the model library and the YAML writer
-   behind it, into a host that provides none of them. The asset figure is avoidable, and reducing
-   it needs no architectural change, which is why this is worth considering before anything harder.
+   Establish which CEE findings predict REST rejection and which are advisory before
+   changing Save behavior. Do not disable Save solely on CEE's `isValid`: the
+   `requiredValue: true` / `minItems: 0` case in `harness/test/report-shape.spec.ts` is an
+   explicit reason these verdicts can differ. Treat the server's response as authoritative
+   when the validators disagree or the template changes between edit and save.
 
-   Roboto is inlined as 21 faces: seven unicode-range subsets at each of three weights, 134,499
-   decoded bytes. Inlining defeats what those ranges are for, since a browser fetches only the
-   subsets a page's characters need while base64 in a script ships all seven whatever the page
-   says. Material Icons is one face carrying the whole glyph set, 58,005 decoded bytes, against the
-   thirteen ligatures CEE names across its templates and its download and field-type descriptors.
+   Cover invalid-to-valid and valid-to-invalid transitions, advisory-only reports, rejected
+   creates and updates, correction followed by a successful save, and differing client
+   and server reports. Extend the existing Workspace controller tests with rendered host
+   workflow checks rather than recreating its report subscription.
 
-   Measured on the shipped file rather than estimated, so it need not be re-derived: removing the
-   fifteen non-Latin Roboto faces leaves 553,053 gzip bytes and saves 79,236; subsetting the icon
-   font to those thirteen glyphs as well leaves 498,325 and saves 133,964 altogether, a fifth of
-   the download. Gzip headroom against the 840,000 limit would go from 199,171 to about 333,100.
-   The same headroom bounds whether a JSON-LD processor can be afforded, so the RDF download and
-   this item are worth deciding in that order.
+7. **Localize numeric and temporal validation.** Replace the numeric widget's
+   `describeNumberType` sentence and the temporal widget's validator message / English
+   required-value fallback with translation keys and parameters. Decide separately
+   whether data-quality-report messages remain stable diagnostic text or are localized;
+   preserve each problem's machine-readable `code`. Check Hungarian and English for
+   required values, numeric type/precision failures and temporal errors, including
+   language changes while an error is visible.
 
-   Two costs decide whether to take it, and only one of them is technical. Dropping Cyrillic, Greek
-   and Vietnamese means a label in those scripts falls back to the host's system font, which is a
-   decision about who CEDAR serves rather than a cleanup; Hungarian is unaffected, because `hu.json`
-   needs latin-ext and that subset stays. Subsetting the icon font needs a guard, because an icon
-   added later without regenerating the subset renders as a tofu box and nothing fails: a test that
-   collects the ligatures named in the templates and the descriptors and rejects any the subset does
-   not carry. The authority marks account for the rest of the asset figure, and converting the two
-   rasterised ones to vectors would recover part of it as a side effect of settling what those marks
-   should be.
-
-   Two things not to do. Serving the fonts as sibling files would recover all 136,569 bytes and cost
-   the single-artifact contract that the shadow-boundary isolation and the packaging step are built
-   around. Angular and Material are the floor for a component that renders CEDAR forms without help
-   from its host, and the remaining code-side candidates are smaller and harder: zoneless rendering
-   is about 12,000 gzip bytes and a real migration, and lazy YAML needs the model library to expose
-   its writers behind their own entry point, which only becomes cheap if the download path turns
-   asynchronous for other reasons.
-
-6. **Make validation actionable before REST refuses the write.** Invalid template instances no
-   longer enter the repository through the artifact REST API. Since the persistence-boundary
-   hardening in `release-2.9.2`, both create and update validate against the referenced template,
-   return HTTP 400 with `INVALID_DATA`, `VALIDATION_ERROR` and the full `validationReport` when that
-   validation fails, and do not store the submitted instance. The legacy `skip_validation` query
-   parameter remains in the create signature for wire compatibility but is deliberately ignored;
-   a regression test pins that it cannot admit an invalid instance. Any older invalid instance
-   already in the store is a data-repair concern, not permission for the current UI to create
-   another one.
-
-   The remaining defect is the save experience. CEE already calculates `dataQualityReport` — its
-   validity, required-field counts and path-addressed problems — and every model-changing `change`
-   event carries that report with `validity`, `title` and `description`. The CEDAR workspace's
-   listener ignores the event payload and uses the notification only to recompute dirty state.
-   Its Save action copies `cee.currentMetadata` and calls create or update without a local
-   validation decision. When REST refuses the request, Workspace hands the response to the generic
-   backend-error presenter; there is no translation for these validation keys and the structured
-   report is available only inside technical response detail. The person learns that the save
-   failed after a round trip, but is not shown which field to fix.
-
-   Define the host contract before choosing the button behavior. Prove over the shared instance
-   corpus which CEE problems correspond to REST-invalid JSON Schema and which are advisory data
-   quality findings; do not disable saving on a stronger client-side notion and silently turn a
-   warning into a new server rule. For a state REST will reject, Workspace may disable Save or let
-   the click open the same explanation, but it must present the summary, path and message, take the
-   author to the affected field where possible, keep the document dirty, and make no claim that an
-   invalid draft was stored. A server-side `validationReport` remains authoritative and must be
-   rendered through the same presentation if the validators disagree or the template changes
-   between edit and save.
-
-   One advisory-only divergence is measured, so it need not be re-derived. A field declaring
-   `requiredValue: true` under `minItems: 0` is reported unfilled by CEE when it holds no
-   occurrences, while the canonical validator accepts the empty array the template's JSON Schema
-   asks for, `requiredValue` being a `_valueConstraints` notion that validator does not enforce.
-   Compatibility case 081 is that shape, and it is the only one of the 178 corpus, compatibility
-   and HuBMAP fixtures where the two disagree. Disabling Save on `isValid` would therefore refuse
-   a document REST would store, which is the failure this item exists to avoid.
-   `harness/test/report-shape.spec.ts` pins the behavior.
-
-   Pin the integration with host tests for invalid-to-valid and valid-to-invalid transitions,
-   multiple problems across pages and repeated elements, an advisory-only report, a rejected create,
-   a rejected update, correction followed by a successful save, and a deliberately divergent server
-   report. The item is complete when validation is useful before the request and equally useful when
-   the server is the first component to detect the problem.
-7. **Finish the widget coverage the two read-write audits started.**
-   Both September 2026 audits covered read-write behaviour only, and drew no conclusions
-   about the read-only presentation, the download menu, or the source panel. Which stage
-   watches which layer, and the five tables that state what the widget family shares, are in
-   "Which stage sees a widget defect" in the [runbook](CEE-RUNBOOK.md). What remains is the
-   read-only path, two files beside it, and the messages two widgets state in English.
-
-   The read-only path is the gap rather than any one file, and it is where the untested files
-   sit. `cedar-field-spec` and `cedar-spec-box` state a field's specification in place of an
-   empty control and have no unit spec at all, and `cedar-component-renderer`, which decides
-   between a control and its specification, is at 40% of statements and 12% of branches. The
-   paging table reaches read-only behaviour only where a widget carries a presentation of its
-   own, as the text widget does for an identifier.
-
-   Two files beside it are thin for a different reason. `cedar-embeddable-metadata-editor` is
-   at 54% and mostly reads host configuration. The static image and YouTube widgets are at
-   zero, though their view logic is in pure helpers that are fully covered and the visual
-   suite renders both.
-
-   Two widgets state a problem in the validator's English whatever the language. The temporal
-   widget prints `FieldValueValidator`'s own message, or `The value is required.`, where every
-   other widget maps an error key to the language files, and the numeric widget prints the
-   sentence `describeNumberType` composes for a value of the wrong type. A Hungarian reader
-   sees English under those two fields and nowhere else. The validator's messages are also the
-   data quality report's, which a host reads, so translating them means deciding whether the
-   report's text is a contract or a rendering. Each problem carries a `code`, which is what a
-   translation would key on.
-
-   One known leniency, deliberately left: `TimezonePickerComponent.zoneForOffset` accepts
-   `-13:00` and `-13:45`, which are not offsets that exist. A user cannot choose one, since
-   the offered list is correctly bounded; it takes a host-supplied instance carrying it.
-   Tightening it would blank the control over a value the instance holds, so which of those
-   is wanted is a product call. `timezone-picker.component.spec.ts` records the behaviour
-   and says why.
+8. **Define handling of out-of-range stored UTC offsets.** Decide what to show and report
+   when a host supplies offsets such as `-13:00` or `-13:45`, which
+   `TimezonePickerComponent.zoneForOffset` accepts but the picker does not offer.
+   Preserve the stored value until an explicit correction; rejecting it must not silently
+   blank the control or rewrite the instance. Update the tests that currently document
+   this leniency once the display and validation behavior is decided.

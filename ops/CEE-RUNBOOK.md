@@ -1102,11 +1102,24 @@ The root unit suite sees a widget's own decisions, constructing it directly with
 stub collaborators. This is where a widget belongs, and where most of the
 thirteen were caught once asked. It sees nothing of the template.
 
-The coordinator tier sees rendered markup. It is the only stage that can answer
-whether anything reached the screen — a required checkbox group had a validator
+The coordinator tier sees rendered Angular markup and bindings. It can answer
+whether a widget projects its feedback — a required checkbox group had a validator
 deciding its fate and no `mat-error` to state the verdict, which every other
 stage reports as working. A widget check that is genuinely about markup goes
 here, as `checkbox-required-notice.coordinator.spec.ts` does.
+
+The browser tier exercises the production bundle, including read-only specification
+boxes, declared defaults versus supplied values, repeated-field paging, authority links,
+accessible temporal names, read-only event suppression, and runtime configuration.
+`harness/test/field-spec.spec.ts` and `harness/test/read-only.spec.ts` cover the pure
+specification and read-only decisions; `component-render-decision.spec.ts` covers the
+render choice. Use browser or coordinator checks for template behavior and the
+harness for pure decisions.
+
+The source panels have been replaced by downloads. `harness/test/download-content.spec.ts`
+checks serialization; the browser suite checks menu contents, template-only read-only
+exports, actual downloaded JSON/YAML bodies and filenames. Extend these contracts
+when adding an export.
 
 Three rules follow, each of them written after a defect that ignored it.
 
