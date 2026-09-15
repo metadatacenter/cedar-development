@@ -952,184 +952,134 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
 
 ## Production data
 
-- **24. Normalize production artifacts to one explicit model contract.** Production contains several
-  legacy representations that the current model surfaces tolerate or normalize differently, so bring
-  them to canonical shapes before tightening readers or introducing terminology routing across source
-  systems. The permission-scoped audit found 76 inherently-multiple fields deployed as JSON objects in
-  31 stored schema artifacts: 23 templates and 8 elements. Every case is a multiple-select list; no
-  object-shaped checkbox or attribute-value deployment was found. CEE correctly serializes these
-  values as arrays, but each stored schema still says `type: object`, so instance validation rejects
-  the array. The affected set is concentrated in the RADx/Data File family, with one template carrying
-  fourteen affected checklist fields, but every reported parent artifact and path is a separate patch
-  target. Updating a standalone element does not rewrite copies already embedded in templates.
+- **24. Finish the production artifact repair, which is now a set of decisions rather than a run.**
+  The audit that opened this work on 2026-09-08 found 127,868 invalid instances of 150,164, along
+  with invalid templates, elements and standalone fields. Production now holds **1,016 invalid
+  instances across 298 templates**, measured 2026-09-14. The automated phase is over: chaining every
+  repair that exists onto what remains gains almost nothing, because each residual artifact waits on
+  a rule nobody has written or an answer only its owner can give. Treat the rest as data repair
+  rather than authored modification, preserving root identifiers, version and publication state, and
+  provenance timestamps. Keep it a narrow store repair rather than an edit through the legacy
+  Template Designer or a blanket REST resave.
 
-  The rule is written. Check 32 in `ops/cedar_artifact_patch.py` wraps a confirmed object-shaped
-  inherently-multiple child in the canonical array deployment, preserving the child body,
-  identifier, property mapping, constraints and parent metadata, and recursing into an element
-  embedded in a template so a copy is repaired where it sits. It refuses an ambiguous shape,
-  reporting without a repair where existing bounds contradict each other; it makes no change when
-  rerun, because a child it has already wrapped is an array; and it reports by default and writes
-  only under `--apply`. Three tests in `ops/test_cedar_artifact_patch.py` cover the lossless repair
-  of direct and nested deployments, the standalone-field exclusion, and the bounds cases. What
-  remains of this item is the production run, and the paragraphs below are that run. Keep it a
-  narrow store repair rather than an edit through the legacy Template Designer or a blanket REST
-  resave, and do not combine it with the unrelated normalization an ordinary artifact update
-  performs.
+  **The renames are the larger half, and each one is a question for an owner.** A residual instance
+  carries a key its template no longer declares, and where that value belongs cannot be read out of
+  the store: matching names and matching values settle some, and the rest are a choice between a
+  field, a deletion, and a template that should change instead. `ops/repairs/rename_sheet.py` drafts
+  the sheet that asks. It stands at **255 questions across 44 templates**, the templates that still
+  hold an unanswered question out of the 59 studied, and those 59 — the ones with the most instances
+  waiting on a rename — hold 626 of the 1,016. Answers are recorded for 62 templates so far. A
+  template releases nothing until every question under it is answered, so progress is counted in
+  templates rather than in questions, and a key naming an element makes that element's own children
+  answerable too.
 
-  Rehearse against a production copy and require the dry run to match the captured manifest: 31
-  artifacts and 76 paths, subject to an explicitly reviewed drift report if production changes
-  first. Those counts exist only as this prose, so capture them as a fixture beside the tool first,
-  or the dry run has nothing to be checked against. Before applying, take a recoverable backup and
-  retain the before/after documents and patch manifest.
-  Treat this as data repair rather than authored modification: preserve root IDs, version/publication
-  state and provenance timestamps. Afterward, require both model libraries to read every repaired
-  artifact, populate representative single- and multi-instance elements in CEE, and validate the
-  resulting instances against the exact repaired templates. A repeated audit must report zero
-  `inherently-multiple-child-object` findings and no new save-rejected findings.
+  **Decide where to stop asking.** 185 of the 298 templates hold a single invalid instance each, so
+  the yield per question falls away sharply below the studied set. An owner's attention is the
+  scarce resource, and a residual that is measured, recorded and understood is a legitimate end state
+  for that tail.
 
-  The `title`/`internalName` contract is settled as part of this production repair: it is derived
-  metadata, not a first-class authored value. JSON-Schema `title` and the model's `internalName` must
-  always be composed from `schema:name` using the canonical `"<name> <type> schema"` form, matching
-  the Java and TypeScript YAML readers. Add an idempotent patch rule that reports and normalizes every
-  divergent stored title without changing `schema:name`, and make both model libraries prevent an
-  independently supplied title from surviving a round-trip. Capture the affected production paths in
-  the reviewed manifest and require JSON → YAML → JSON and JSON → model → JSON tests to prove the
-  canonical result. The artifact server already derives `title` on every ordinary write and makes
-  the name part of `description` follow it, keeping the `generated by …` signature, so the patch is
-  for what is stored and nothing rewrites. This decision does not make `description` derived, and
-  the title patch must not rewrite description or provenance text.
+  **What is not a rename needs new rules, measured before they are built.** The residual error
+  families are a value carrying no `@type` where the model requires one, one value where a list is
+  declared and a list where one value is, the wrong empty shape (`{}` where a literal is declared,
+  `{"@value": null}` where an IRI is), a declared child that completion never reached, and a string
+  where a number is declared. Some of the last, such as `"LSJDK=1213"`, cannot be coerced at all.
+  Count what a candidate rule would finish rather than what it would clear, because a family
+  appearing in hundreds of instances finishes far fewer: most of them carry a second defect as well.
+  Measure it locally rather than through an audit run. Driving `ValidationBridge` from
+  `cedar_artifact_validation_audit.py` against a cached corpus validates at roughly 450 artifacts a
+  second against 7 over REST, so the whole residual validates in seconds and costs production
+  nothing.
 
-  **Normalize zero and unknown encodings.** Three keys currently use zero as a sentinel where the
-  schema gives it a quantity, so settle and apply one model-wide convention before patching the stored
-  population. The Template Designer writes `maxItems: 0` for an unbounded multi-instance field and its
-  runtime treats zero as falsy, although JSON Schema defines it as an array that permits no items;
-  omitting `maxItems` already expresses unbounded cardinality unambiguously. Existing templates require
-  compatibility while the editor, extracted Designer, meta-schema and both model libraries converge on
-  the canonical representation.
+  **The schema artifacts that remain cannot be repaired, only decided.** The last full
+  template and element audit, 2026-09-12, left 8 templates and 1 element invalid. They are
+  structurally broken rather than drifted: a child inside `properties` is missing `@type`, `title`,
+  `_ui`, `_valueConstraints`, `schema:schemaVersion` and its provenance members outright, which no
+  field-preserving repair can synthesize without inventing content. A separate seven templates are
+  refused by the server with `doiCanNotBeAltered`, and they carry what is left of the title,
+  model-version and object-shape findings. Decide what each group gets: a repair path that does not
+  go through the ordinary update, an owner's edit, or a recorded exception. The enforcement below
+  waits on that answer, because those artifacts are why three classes cannot reach zero by repair.
 
-  Value-set and ontology constraints also carry `numTerms: 0` when the count is unknown. The Java and
-  TypeScript models already support absence, but stored zero values cannot distinguish an empty
-  vocabulary from an unmeasured one, and an entire-ontology constraint with zero currently fails the
-  meta-schema's `minimum: 1` check even when the editor's interactive validation passes. Decide whether
-  terminology must supply the real count, producers must omit an unknown count, or the schema must
-  admit zero, then make every producer and validator agree and add an idempotent patch rule for stored
-  artifacts. Inventory the affected paths in the reviewed manifest and retain read compatibility for
-  historical zero values during the transition.
+  **The `title`/`internalName` contract is settled and the stored population is repaired. The
+  libraries are not.** Title is derived metadata composed from `schema:name` in the canonical
+  `"<name> <type> schema"` form. `YamlArtifactReader` composes it that way, while
+  `JsonArtifactReader` still reads `title` as a required string of its own
+  (`JsonArtifactReader.java:292`, `:334`, `:381`), so an independently supplied title survives a JSON
+  round trip. Make both libraries derive it, and prove the canonical result with JSON → YAML → JSON
+  and JSON → model → JSON tests. This does not make `description` derived, and nothing here rewrites
+  description or provenance text.
 
-  Include stray cardinality keys in the same audit: a single-instance object can retain
-  `minItems: 0, maxItems: 0` even though readers ignore cardinality outside an array envelope. Determine
-  whether current frontends still produce that shape, stop the producer if they do, and normalize only
-  the reviewed stored occurrences without changing the field's actual cardinality.
+  **Make the model version explicit, then enforce it.** The population is measured: 13 artifacts, of
+  which 3 declare a stale version and 10 declare none at all. The decision left is what an artifact
+  that never carried a version gets. A version cannot be stamped on faith, because
+  `schema:schemaVersion` asserts that the artifact conforms to the model it names, so writing the
+  current version into an artifact that does not conform replaces a detectable defect with an
+  undetectable one. Write it only where the artifact already satisfies the current model, and report
+  the remainder for a scoped repair of its own.
 
-  Keep the broader legacy population out of this first patch. The same audit found 4,524 artifacts with
-  repair-on-save conditions — chiefly missing `@context.required` entries, empty `pav:derivedFrom`, and
-  child IDs or property IRIs that the server would mint. Those are not the cause of the instance-save
-  failure and should receive separately scoped, field-preserving patch rules rather than hitchhiking on
-  this urgent repair. Empty `pav:derivedFrom` is the first candidate because the strict Java reader
-  cannot open it even though the compatibility reader and ordinary update can recover it.
-
-  Null identifier annotations belong in that production inventory as a scoped repair of their own.
-  A request path has been able to persist a top-level annotation such as
-  `_annotations: {"https://datacite.com/doi": {"@id": null}}`, and the current meta-schemas define
-  the intended annotation content without applying that definition to the artifact's top-level
-  `_annotations` member. `cedar_artifact_validation_audit.py` reports every annotation object carrying
-  an explicit null `@id`, with the artifact ID and JSON Pointer, and says whether the null identifier
-  is the entry's whole payload; run it before changing validation. The patch may remove
-  an annotation entry only when null `@id` is its sole payload, removing the `_annotations` container
-  as well when that leaves it empty; an entry with any additional payload stays report-only for human
-  review. Do not include `@value: null`, which is a separately supported value annotation, and never
-  invent an identifier. Capture the production count and paths in the reviewed manifest, prove the
-  patch is idempotent, and require a repeated audit to report zero null identifier annotations. Only
-  then wire the existing annotation-content definition into every applicable top-level meta-schema so
-  direct artifact writes cannot recreate the shape.
-
-  Child definitions present in `properties` but absent from `_ui.order` are another such repair, and
-  production contains enough of them that the model libraries cannot simply start refusing the shape.
-  `cedar_artifact_validation_audit.py` distinguishes this case from the inverse drift (an order entry
-  with no property) over REST; add the same distinction as a raw-store rule in the patch tool, then
-  offer an idempotent, field-preserving rewrite that appends each omitted child key after
-  the existing order without changing or deleting the child definition. Capture the production count and
-  paths as a reviewed manifest, cover direct and nested containers, and prove a second run makes no
-  changes. Only after that repair has run and a repeated audit reports zero omitted children should the
-  Java and TypeScript readers replace their current cleanup behavior with strict rejection. Keep the
-  inverse drift report-only: the store does not contain enough information to synthesize a missing child.
-
-  **Make the model version explicit, then enforce it.** The two Java readers disagree about
-  `schema:schemaVersion`, so one artifact is accepted as JSON and refused as YAML.
-  `checkSchemaArtifactModelVersion` in `cedar-artifact-library`'s `JsonArtifactShapeChecks` rejects a
-  value it cannot parse and accepts every value it can, because the comparison against the current
-  model version is commented out; `YamlArtifactReader` declares a method of the same name that
-  compares. Absence is the harder half. `readModelVersion` returns an empty result for an artifact
-  that declares no version at all, and the disabled comparison rejects an empty result as well as a
-  stale one, so re-enabling it refuses both the artifact written against an earlier model and the
-  artifact that never carried a version. Production is expected to hold some of each.
-
-  Measure the population before writing a rule for it: how many stored artifacts declare a version
-  older than the current one, which versions appear, and how many declare none.
-  `cedar_artifact_validation_audit.py` reports all three, per artifact and in its summary, while
-  `cedar_artifact_patch.py` still reads nothing of the field. Run the audit against production and
-  capture its findings as a reviewed manifest, the way the object-shaped repair is checked against 31
-  artifacts and 76 paths.
-
-  A version cannot be stamped on faith. `schema:schemaVersion` asserts that the artifact conforms to
-  the model it names, so writing the current version into an artifact that does not conform replaces a
-  detectable defect with an undetectable one. The patch rule therefore writes the current version only
-  where the artifact already satisfies the current model — both model libraries read it, and no other
-  patch rule reports a finding against it — and reports the remainder for a scoped repair of its own.
-  Keep it under the tool's existing discipline: report by default, write only under `--apply`, no
-  change when rerun. Only once a repeated audit reports no stale and no absent version should the
-  comparison in `JsonArtifactShapeChecks` be restored and its explanatory note deleted.
+  The two Java readers disagree until that lands, so one artifact is accepted as JSON and refused as
+  YAML. `checkSchemaArtifactModelVersion` in `cedar-artifact-library`'s `JsonArtifactShapeChecks`
+  rejects a value it cannot parse and accepts every value it can, because the comparison is
+  commented out (`JsonArtifactShapeChecks.java:128`), while `YamlArtifactReader` declares a method of
+  the same name that compares. Absence is the harder half: `readModelVersion` returns an empty result
+  for an artifact that declares no version, and the disabled comparison rejects an empty result as
+  well as a stale one. Restore the comparison and delete its explanatory note only once a repeated
+  audit reports no stale and no absent version, and replace `ModelVersionEnforcementTest`'s two JSON
+  acceptances with rejections at the same time.
 
   The suites cannot find this defect, which is why it stayed open, and the reason is worth fixing
   independently of the production run. Every JSON fixture and every programmatic case supplies the
-  version by referencing the same constant the disabled comparison would compare against, and the YAML
-  renderer writes that constant rather than the version its source artifact declared, so a
-  cross-format round trip launders a stale version into a current one before the strict reader sees it.
-  The in-memory model has no field to carry a model version at all. Restoring the comparison against
-  the library's suites as they stood changed no result anywhere in them, across 1,138 tests.
-  `ModelVersionEnforcementTest` now pins the divergence, stating what each reader does with a
-  well-formed stale version and with none, so the difference is a recorded decision and the day it
-  changes is a failure rather than a surprise. Its two JSON acceptances are the tests to replace with
-  rejections once the comparison comes back.
-
-  Finally reconcile the inventory boundary. Two search results point at artifacts that the typed
-  resource endpoint returns as 404, and two duplicate search rows make the reported row count exceed
-  the unique audit set. Determine whether each is a stale search/workspace projection or a missing
-  artifact before changing anything; then repair the projection from the authoritative stores and
-  rerun the audit to `COMPLETE_FOR_KEY`. Never delete a store artifact merely because its search entry
-  is inconsistent.
+  version by referencing the same constant the disabled comparison would compare against, and the
+  YAML renderer writes that constant rather than the version its source artifact declared, so a
+  cross-format round trip launders a stale version into a current one before the strict reader sees
+  it. The in-memory model has no field to carry a model version at all. `ModelVersionEnforcementTest`
+  pins the divergence, stating what each reader does with a well-formed stale version and with none,
+  so the day it changes is a failure rather than a surprise.
 
   **Make terminology sources explicit.** A controlled-term constraint may name the system serving its
-  vocabulary, and both model libraries read
-  an absent `sourceSystem` as BioPortal —
-  [the value-constraint shape](VERSIONING-ROADMAP.md#6-the-value-constraint-shape) defines the field and
-  that default. The default is correct for production today, because every deployed constraint resolves
-  through BioPortal. It stops being correct as soon as the versioned terminology store serves a second
-  system: a constraint authored before the field existed and one that deliberately names BioPortal are
-  then indistinguishable, while routing has to honour the rule that a non-BioPortal source is never
-  proxied to BioPortal. Writing the default explicitly while it still holds turns silence into evidence.
-  After the sweep, a constraint carrying no `sourceSystem` marks an artifact the patch never reached,
-  and `cedar_artifact_validation_audit.py` counts those constraints, so the sweep has a before and an
-  after.
+  vocabulary, and both model libraries read an absent `sourceSystem` as BioPortal —
+  [the value-constraint shape](VERSIONING-ROADMAP.md#6-the-value-constraint-shape) defines the field
+  and that default. The default is correct for production today, because every deployed constraint
+  resolves through BioPortal. It stops being correct as soon as the versioned terminology store
+  serves a second system: a constraint authored before the field existed and one that deliberately
+  names BioPortal are then indistinguishable, while routing has to honour the rule that a
+  non-BioPortal source is never proxied to BioPortal. Writing the default explicitly while it still
+  holds turns silence into evidence, so afterwards a constraint carrying no `sourceSystem` marks an
+  artifact the sweep never reached. Measured 2026-09-12 across templates and elements, 4,039
+  artifacts carry 28,046 such constraints; the 2026-09-08 corpus audit, standalone fields included,
+  counted 72,393 over 46,937 artifacts.
 
-  The serving system cannot be derived from the term IRI, which is the tempting shortcut and a wrong one.
-  The 51 HuBMAP assay templates carry 504 branch constraints whose targets sit under
+  The serving system cannot be derived from the term IRI, which is the tempting shortcut and a wrong
+  one. The 51 HuBMAP assay templates carry 504 branch constraints whose targets sit under
   `https://purl.humanatlas.io/vocab/hravs#`, and every one of them resolves through BioPortal, which
-  serves that vocabulary as HuBMAP Research Attributes Value Set under the acronym HRAVS. The acronym,
-  paired with a system, is what addresses a source. So the rule writes `BioPortal` where the
-  constraint's acronym resolves in BioPortal, and reports the remainder for review instead of guessing.
+  serves that vocabulary as HuBMAP Research Attributes Value Set under the acronym HRAVS. The
+  acronym, paired with a system, is what addresses a source. So the rule writes `BioPortal` where the
+  constraint's acronym resolves in BioPortal, and reports the remainder for review instead of
+  guessing.
 
-  Add it to `cedar_artifact_patch.py` as its own rule, under that tool's existing discipline: report by
-  default, write only under `--apply`, no change when rerun, refuse any constraint whose system it cannot
-  establish. It needs no library change, since both model libraries already read the field and write it
-  whenever a constraint carries one, so a patched artifact round-trips through the strict readers
-  unchanged. Keep the scope to this one field. The canonical ontology identity (`iri`, `sourceIri` in
-  YAML) is a separate mandatory field with its own derivation precedence, and the free-text `source`
-  display string is separately noncanonical — 497 of those 504 HuBMAP branch constraints record
-  `"undefined (HRAVS)"` where BioPortal has the real name — so each wants a rule of its own rather than a
-  ride on this one. Background work with no deadline of its own. Its value lands at the terminology
-  cutover, which means it has to be finished before a second source system is served, not before
-  anything else.
+  Add it to `cedar_artifact_patch.py` as its own rule, under that tool's existing discipline: report
+  by default, write only under `--apply`, no change when rerun, refuse any constraint whose system it
+  cannot establish. It needs no library change, since both model libraries already read the field and
+  write it whenever a constraint carries one, so a patched artifact round-trips through the strict
+  readers unchanged. Keep the scope to this one field. The canonical ontology identity (`iri`,
+  `sourceIri` in YAML) is absent from 3,973 artifacts over 27,485 constraints and needs the
+  terminology catalogue rather than a string rule, and the free-text `source` display string is
+  separately noncanonical — 497 of those 504 HuBMAP branch constraints record `"undefined (HRAVS)"`
+  where BioPortal has the real name — so each wants a rule of its own rather than a ride on this one.
+  Background work with no deadline of its own. Its value lands at the terminology cutover, which
+  means it has to be finished before a second source system is served, not before anything else.
+
+  **Reconcile the inventory boundary.** The 2026-09-08 run could not read 16 artifacts that search
+  enumerated, ten of them answering 404, and one template the typed resource endpoint could not
+  resolve at all; no duplicate search rows remained. Determine whether each is a stale search or
+  workspace projection or a missing artifact before changing anything, repair the projection from the
+  authoritative stores, and rerun the audit to `COMPLETE_FOR_KEY`. Never delete a store artifact
+  merely because its search entry is inconsistent.
+
+  Done when every enumerable artifact is valid or recorded as a named exception, the rename sheet is
+  answered or explicitly abandoned for its tail, both model libraries derive `title`, the model
+  version comparison is restored, and no constraint lacks a `sourceSystem` the sweep could have
+  written.
 
 ## Later decisions
 
