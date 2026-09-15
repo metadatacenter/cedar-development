@@ -135,12 +135,14 @@ divides a form and this element has none.
 
 CEDAR's font stack, type scale, brand palettes and neutrals are published from
 `cedar-design-tokens` as `@org.metadatacenter/cedar-design-tokens`, and its README is the reference
-for them. CEE's `src/_cee-tokens.scss` still holds its own copy of those values as of 2026-09-15,
-which is the copy the package was extracted from.
+for them. CEE held the original the other two copied, and gave it up on 2026-09-15: the values come from the
+package, reached as `@use '@org.metadatacenter/cedar-design-tokens/tokens' as tokens` with
+`node_modules` on the Sass load path, which `stylePreprocessorOptions.includePaths` declares beside
+`src`. What stays in `src/_cee-layout.scss` is CEE's own — the trailing slot in a title row, the
+card's inline gutter, and the size and gap of a toolbar control — because those measure a card no
+other component draws.
 
-Taking the dependency needs `node_modules` on the Sass load path — one more entry in the
-`stylePreprocessorOptions.includePaths` that `angular.json` already declares for `src` — and the
-package must stay a `devDependency` that the published manifest never names. The reason is in
+The package must stay a `devDependency` that the published manifest never names. The reason is in
 [NPMJS-RELEASE-RUNBOOK.md](NPMJS-RELEASE-RUNBOOK.md), under the release contract: the scope resolves
 only from Nexus, which an embedding application installing public CEE from npmjs cannot reach.
 

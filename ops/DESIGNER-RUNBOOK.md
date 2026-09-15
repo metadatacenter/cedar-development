@@ -13,10 +13,11 @@ What CED still needs before it can stand in for that designer is in
 ## Where the design values come from
 
 The designer's type scale and palette are CEDAR's, published from `cedar-design-tokens` as
-`@org.metadatacenter/cedar-design-tokens`. `src/styles.css` still states its own copy of them as
-custom properties as of 2026-09-15; the package emits exactly that file, so taking the dependency is
-an `@import` of `@org.metadatacenter/cedar-design-tokens/custom-properties.css` in place of the
-hand-written block. The five steps of the scale are 12, 14, 15, 18 and 20px, and a size between two
+`@org.metadatacenter/cedar-design-tokens`. `src/styles.css` imported them on 2026-09-15 —
+`@import '@org.metadatacenter/cedar-design-tokens/custom-properties.css'` — in place of the hand
+translation it had been holding, which had been faithful in all nineteen shared properties except
+the advisory colour it had let drift. Tailwind's `@theme` reads custom properties rather than Sass
+variables, which is why this consumer takes the emitted file and not the partial. The five steps of the scale are 12, 14, 15, 18 and 20px, and a size between two
 of them is not on it: the designer ran 11px controls under 10px labels until 2026-09-15, and every
 seam where that met a component at CEE's 14px showed.
 
