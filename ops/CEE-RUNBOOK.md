@@ -564,7 +564,7 @@ build. Lint covers source and visual TypeScript; `typecheck` runs strict, no-emi
 programs for source, the domain harness and the visual suite. Playwright transpilation
 is not the visual suite's type checker.
 The toolchain matches the framework — `angular-eslint` 22, `typescript-eslint` 8,
-ESLint 9, flat config in `eslint.config.mjs`.
+ESLint 10, flat config in `eslint.config.mjs`.
 
 **Four Angular rules are off, and three of them are decisions rather than debt.**
 Angular 22's rule set reported 413 errors, of which 411 were `prefer-control-flow`

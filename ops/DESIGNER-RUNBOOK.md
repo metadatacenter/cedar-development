@@ -266,7 +266,7 @@ the saved set. These are allowed alternatives, not a requirement to assign all
 selected types. The serialized model retains the IRIs; picker labels and pins are
 session selection details.
 
-CED pins the published model development package `1.0.11-dev.20260914.3147347`
+CED pins the published model development package `1.0.12-dev.20260914.2979eb0`
 for multi-type constraints. New child placements explicitly carry their effective display labels and descriptions
 so JSON and the model's YAML reconstruction agree; absent imported overrides remain absent.
 Java's artifact library also preserves the full set through JSON and YAML; its
