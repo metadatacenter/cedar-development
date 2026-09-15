@@ -173,6 +173,24 @@ output is N-Quads or Turtle and whether `downloadContentFor` becomes asynchronou
 gains a separate asynchronous producer. Carry that decision through the menu,
 filename, media type, failure handling and harness tests.
 
+Use the TypeScript library's existing JSON-LD instance output as the input to the
+conversion. Candidate dependencies and browser payload estimates measured on
+2026-09-15 with esbuild 0.28.2, browser target ES2022, minification and gzip level 9:
+
+| Conversion | Dependencies | Minified JavaScript | Gzipped addition to CEE |
+| --- | --- | ---: | ---: |
+| JSON-LD → N-Quads | `jsonld` 9.0.0 | 120,943 bytes | 35,042 bytes |
+| N-Quads → Turtle | `n3` 2.7.12 (Parser and Writer) | 80,080 bytes | 22,491 bytes |
+| JSON-LD → Turtle | Both libraries | 200,487 bytes | 56,684 bytes |
+
+These are isolated browser bundles with their dependencies and conversion wrappers;
+each conversion was smoke-tested in Chromium. The gzip additions were measured by
+appending each bundle to the current CEE bundle and recompressing the whole payload.
+Against that CEE baseline of 646,203 gzip bytes, N-Quads would total approximately
+681,245 bytes (+5.4%) and Turtle 702,887 bytes (+8.8%), both below the 840,000-byte
+gzip budget. Treat these as planning estimates, not final Angular integration
+measurements; remeasure the production build before accepting the dependency.
+
 Install a document loader that rejects remote context fetches: exporting an instance
 must not introduce network access beyond CEE's embedding contract. Test type coercion,
 nested and repeated elements, attribute-value property IRIs and malformed contexts
@@ -245,18 +263,7 @@ Preserve imported annotations and property IRIs through unrelated edits, nesting
 and JSON/YAML round trips. Respect host-supplied editing restrictions and preserve values when an edit is
 cancelled or invalid.
 
-### 14. A palette entry for a date that carries a time
-
-The palette offers Date and Time, and `xsd:dateTime` has no entry of its own. An
-author reaches it by adding a Date and changing its datatype, which works and is
-not discoverable: the Basic profile's worked example is a Release Date that
-carries both, and nothing in the palette says CED can express one.
-
-Either a third entry, or the datatype control has to be plain enough on a Date card
-that nobody needs the palette to find it. The palette already has twenty-six
-entries, which is the argument against a third.
-
-### 15. The three profiles, and what each one holds
+### 14. The three profiles, and what each one holds
 
 Basic, Semantic and Modular are the product structure, and CED has their names
 already: three presets in the preferences modal, each a bundle of visibility
@@ -281,36 +288,7 @@ does not show.
 Every control on a card today is a decision this item has to absorb, and there are
 now a great many of them.
 
-### 16. Per-type capability rules
-
-Add `primaryField` to the per-type capability rules and authoring surface so an
-author can choose what a search result shows for a template.
-
-Mark controlled-term fields with no vocabulary as invalid and expose that finding
-to the host. Preserve the draft instead of silently serializing it as plain text.
-
-### 17. Guidance in the interface
-
-Tooltips, help messages and worked examples are part of what makes the Basic
-profile usable by someone who has never met a metadata standard, and the Semantic
-profile needs more than that: short explanations of what naming an ontology term
-buys, and of what a particular constraint will do to the form an author's
-colleagues eventually fill in.
-
-Controls need a common way to declare help, let a host reword it, and translate
-it. A `title` attribute naming a button does not explain the choice behind it.
-
-The parameter work makes this larger rather than smaller. A datatype menu, a
-granularity menu and a regular-expression box are each a place an author needs to
-be told what the choice does.
-
-### 18. Say what a constraint resolves to
-
-An author who has pinned DOID 2026-06-30 to a branch of 4,000 terms cannot see
-that from the panel. The terminology server can answer it and the picker already
-shows counts while choosing; the constraint, once chosen, shows a label.
-
-### 19. Complete the CED embedding contract
+### 15. Complete the CED embedding contract
 
 Define inputs for read-only mode, language and allowed field types. Host restrictions
 bound what the author may edit or select; profile and preference settings can narrow
@@ -325,7 +303,7 @@ artifact or creates an editable draft, without CED allocating identities or vers
 Add conformance and browser tests for these inputs and events, including read-only
 published content and transitions to a host-supplied editable document.
 
-### 20. Keyboard and screen-reader access
+### 16. Keyboard and screen-reader access
 
 Verify keyboard focus order across cards, settings, palette actions and nested
 elements. Add live-region announcements for constraint changes and accepted or
