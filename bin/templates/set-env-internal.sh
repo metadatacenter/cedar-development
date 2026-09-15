@@ -69,6 +69,11 @@ export CEDAR_LOG_PRUNE_ENABLED="false"
 # work reads the very rows the default excludes. See LOG-PIPELINE-CAPACITY.md §5 item 2.
 #export CEDAR_LOG_CYPHER_EXCLUDED_METHODS="none"
 
+# How long a service may reuse the user record an API key resolved to. Every service keeps its own
+# cache, so a key revoked through the user server is refused there at once and elsewhere once this
+# passes. Default 10s; 0 turns the cache off and every request resolves from the graph again.
+#export CEDAR_API_KEY_CACHE_TTL_SECONDS="10"
+
 # Neo4j user data
 export CEDAR_NEO4J_USER_NAME="neo4j"
 export CEDAR_NEO4J_USER_PASSWORD="changeme"
