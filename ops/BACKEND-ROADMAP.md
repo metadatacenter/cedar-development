@@ -25,7 +25,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   then. Done when the model is published and every divergence is fixed or recorded.
 
 - **2. Protect `main` in every repository, and give the release an identity of its own.** `main` is
-  unprotected in all forty-four repositories, so a commit can land there without ever reaching a
+  unprotected in all forty-five repositories, so a commit can land there without ever reaching a
   train, which captures `develop`. The next release then replaces it: the work leaves the branch
   that held it and nothing says so afterwards. A hotfix and the unit test guarding it came within
   one reading of an advisory line of going that way. The release gate refuses such a source now, and
@@ -60,7 +60,7 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   operator who is already there for the twenty-five commands item 22 exists to remove. Automating
   that route puts the identity question back.
 
-  Prove whichever ruleset is chosen against one repository before it reaches all forty-four. Until
+  Prove whichever ruleset is chosen against one repository before it reaches all forty-five. Until
   the release has an identity, run `cedarcli check main` on a schedule, so divergence is found the
   next morning rather than mid-release.
 
@@ -693,74 +693,35 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   covers the two `limit`/`offset` shapes today (`rest/suites/pagination.mjs`). Every superseded shape
   is then either withdrawn or carries a recorded date for withdrawal.
 
-- **18. Bound every outbound call by what the call actually is, and measure before choosing the
-  numbers.** Two classes of outbound call are distinguished today, interactive and batch, each with a
-  fixed connect, lease and response timeout and its own connection pool. That covers the difference
-  between a call a user waits on and a job nobody waits on. It does not cover the difference between
-  one hop and another, and nothing about it is configurable.
+- **18. Choose the response timeouts from the durations the request log now carries, and give a
+  user-facing call a deadline.** Outbound calls are bounded by what the call is: an interactive
+  class for a hop to the next CEDAR service, a batch class for a job nobody waits on, and an
+  external class for a registry CEDAR does not operate, each with its own three timeouts and pool,
+  all of them configurable under `http:` in `cedar-main.yml`. What remains is the part that needed
+  data rather than code.
 
-  **The external authorities run on values chosen for a hop to the next CEDAR service.** ORCID,
-  PubMed, ROR, RRID, NIH RePORTER, the LINCS validator and DataCite are all reached through the
-  interactive class, whose one-second connect timeout is generous for a loopback and mean for a cold
-  TLS handshake to a transatlantic host, so a slow third party is reported as an unavailable one.
-  Give the external calls their own class, with a connect timeout in the seconds and a response
-  timeout chosen from what each service does.
+  **The numbers are still arithmetic rather than measurement.** Every response timeout in force is
+  the value the estate ran on before any of it was configurable, carried forward deliberately:
+  choosing one properly needs latency data, and none existed, because no server configured
+  `requestLog` and Dropwizard's default access format records no duration. Each server now logs
+  access lines ending in `%D` to `$CEDAR_HOME/log/<server>/access.log`. Collect a week and set the
+  values from the p99s, per hop where the hops differ. The artifact server's is the one most likely
+  to be wrong, since a large instance write with validation is the plausible outlier, and it already
+  has its own `servers.artifact.timeouts` to take the measured value.
 
-  **No latency data exists to choose a response timeout from.** No server's `config.yml` configures
-  `requestLog`, and Dropwizard's default access log format records no duration, so every value in
-  force is arithmetic against nginx's 180-second `proxy_read_timeout` rather than a measured p99. Add
-  `%D` to the request log, or a timer around the proxied calls, and collect a week of traffic before
-  tuning. The artifact server's response timeout is the value most likely to be wrong, since a large
-  instance write with validation is the plausible outlier.
+  **A hard user-facing bound needs a deadline rather than per-hop values.** Updating an artifact
+  makes two proxied calls in series, and three when compensation runs, so the client's worst case is
+  the sum of whatever each hop is allowed. Only a budget stamped on `CedarRequestContext` and
+  decremented across the hops can say that the second call gets what is left of fifteen seconds.
+  Worth doing when a response-time guarantee is promised, not before.
 
-  **Then move the values into configuration.** `servers:` in `cedar-main.yml` already models every hop
-  and `ServerConfig` already reads it, so a per-hop timeout has a home; the external ones have theirs
-  under `externalAuthorities:` and `dataCite:`. `MicroserviceUrlUtil` should hand out the timeouts
-  with the URL, so a call site cannot obtain one without the other.
-  `CedarTestRuntime.dependencyTimeoutMillis` is the precedent for the override and `Neo4JProxies` for
-  applying it.
-
-  **A hard user-facing bound needs a deadline rather than per-hop values.** Updating an artifact makes
-  two proxied calls in series, and three when compensation runs, so the client's worst case is the sum
-  of whatever each hop is allowed. Only a budget stamped on `CedarRequestContext` and decremented
-  across the hops can say that the second call gets what is left of fifteen seconds. Worth doing when
-  a response-time guarantee is promised, not before.
-
-  **The compensating write in that path is still best effort.**
-  `AbstractResourceServerResource.restoreArtifactAfterFailedGraphUpdate` restores the artifact
-  document when the graph update did not commit, in the request, with one attempt and no retry, and
-  its failure is the one that leaves the two stores disagreeing. It carries an `If-Match` on the
-  replacement ETag, so a replay is safe. A replay after an unseen success answers 412 rather than
-  overwriting a newer document. Hand it to the durable completion machinery artifact deletion already
-  uses.
-
-  **Retry belongs only where the verb allows it.** A GET may retry once, and only on a connect
-  failure, a lease timeout, or a reset before any response, never on a response timeout, since the
-  server may still be working. A PUT or DELETE carrying `If-Match` may retry once on a connect failure
-  for the reason above. A create POST has no deduplication key and must not retry. Any retry comes out
-  of the hop's budget rather than doubling it.
-
-  **Circuit breaking earns its place in front of the external authorities and nowhere else.** A dead
-  third party otherwise burns a full response timeout on every request. Keyed per authority, opening
-  after several consecutive failures and half-opening on a single probe, that is a few dozen lines in
-  the authority base class and needs no new dependency. The artifact server is not optional, so a
-  breaker in front of it would only convert a timeout followed by 503 into an immediate 503, and would
-  flap during a rolling restart.
-
-  **Two clients still carry their own numbers, and one dead copy of the constants remains.** The
-  terminology server builds its own pooled client in `HttpClientFactory` with a third set of values,
-  and the submission server's `StatusNotifier` a JAX-RS client with a fourth. Both are defensible in
-  isolation and neither is reachable from the shared configuration. The unused
-  `HttpConnectionConstants` in `cedar-keycloak-event-listener` is a verbatim copy of the shared class
-  that nothing reads.
-
-  **The constants are in the wrong library.** `HttpConnectionConstants` sits in
-  `cedar-model-library`, whose subject is the CEDAR artifact model, and outbound HTTP timeouts have
-  nothing to do with it. `cedar-server-rest-library` is where they belong. Moving them changes a
-  published library's public API, so it wants a coordinated release rather than a quiet edit.
-
-  Done when each class of outbound call takes its timeouts from configuration, the request log carries
-  durations, the compensating write is durable, and the remaining clients read the same settings.
+  **That deadline is also what a lease-timeout retry is waiting for.** A GET repeats once on a
+  connect failure or a connection closed before any response, and a PUT or DELETE carrying
+  `If-Match` does the same; a response is never repeated, whatever its status, and neither is a
+  response timeout. A lease timeout is the one answerless failure deliberately left un-repeated: the
+  pool is saturated by definition, so an immediate repeat queues against the same full pool and
+  doubles the wait the call site was promised. With a budget to come out of it becomes safe, and the
+  rule can be revisited then.
 
 - **19. Run the whole-stack tiers in CI, and gate the workflow train the way the CLI is gated.**
   **Production consequence:** none at runtime. CI needs a deployable environment, credentials, time

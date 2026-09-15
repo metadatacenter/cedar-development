@@ -975,6 +975,109 @@ Redis allowances are shared and survive a service restart. Inspect all participa
 including errors, before enabling enforcement. No new app-log event is emitted per quota decision.
 The normal backend-free suites select `MODE=off`; dedicated tests use an isolated embedded Redis.
 
+## Bounding outbound calls
+
+Every call a CEDAR service makes to something else is bounded by three timeouts and runs in a
+connection pool, and which three depends on what kind of call it is. `HttpTimeouts` in
+`cedar-server-rest-library` holds the three kinds:
+
+| Class | Which calls | Connect | Lease | Response | Pool (per route / total) |
+|---|---|---|---|---|---|
+| `INTERACTIVE` | One CEDAR service reaching the next while a user waits | 1 s | 1 s | 20 s | 100 / 200 |
+| `BATCH` | A job nobody waits on: an import, a reindex, a bulk clone | 3 s | 5 s | 120 s | 10 / 20 |
+| `EXTERNAL` | A registry CEDAR does not operate | 5 s | 2 s | 20 s | 20 / 40 |
+
+The lease timeout is the wait for a connection out of the pool, and it is consulted before the other
+two, so a saturated dependency can hold a worker thread for the lease on top of the connect and
+response bounds. A pool per class is what stops a bulk job holding every connection an interactive
+request needs.
+
+Whether a proxied call is external follows from whether it carries a `CedarRequestContext`. A hop to
+another CEDAR service forwards the caller's identity and correlation headers, so it has one; a call
+to an outside registry has nobody to forward and takes a plain header map instead. The `ProxyUtil`
+overloads without a context are therefore bounded by the external class.
+
+Three clients sit outside these classes on purpose. DataCite uses `java.net.http.HttpClient` with
+its own `dataCite.connectTimeout` and `requestTimeout`. BioPortal keeps its own connect and response
+timeouts from `terminology.bioPortal`, which are longer than any shared value should be, while
+taking the external class's pool, lease and retry policy. The LINCS validator and the messaging
+notification from the submission server now take a shared class outright.
+
+Defaults live in the packaged `cedar-config-library` resource `cedar-main.yml` under `http:`, and
+every value has an environment variable. Production may set these in
+`$CEDAR_HOME/set-env-internal.sh`. Restart affected microservices to pick up an environment change;
+a YAML or Java change also needs rebuilding the config library and consuming services first.
+
+| Variable suffix (after `CEDAR_HTTP_`) | Default | Meaning |
+|---|---|---|
+| `INTERACTIVE_CONNECT_MS`, `INTERACTIVE_LEASE_MS`, `INTERACTIVE_RESPONSE_MS` | `1000`, `1000`, `20000` | The three bounds on a hop to the next CEDAR service |
+| `INTERACTIVE_MAX_PER_ROUTE`, `INTERACTIVE_MAX_TOTAL` | `100`, `200` | That class's pool |
+| `BATCH_CONNECT_MS`, `BATCH_LEASE_MS`, `BATCH_RESPONSE_MS` | `3000`, `5000`, `120000` | The three bounds on a call nobody waits on |
+| `BATCH_MAX_PER_ROUTE`, `BATCH_MAX_TOTAL` | `10`, `20` | That class's pool |
+| `EXTERNAL_CONNECT_MS`, `EXTERNAL_LEASE_MS`, `EXTERNAL_RESPONSE_MS` | `5000`, `2000`, `20000` | The three bounds on a call that leaves the estate |
+| `EXTERNAL_MAX_PER_ROUTE`, `EXTERNAL_MAX_TOTAL` | `20`, `40` | That class's pool |
+| `ARTIFACT_RESPONSE_MS` | `20000` | The artifact hop's own response timeout, overriding the interactive class |
+| `AUTHORITIES_RESPONSE_MS` | `20000` | The external registries' own response timeout, overriding the external class |
+
+A hop or a registry can override only the connect and response timeouts, which are set on each
+request. The lease timeout and the pool belong to the class, so a per-hop value for either would
+mean a pool per hop; a hop that genuinely needs its own pool belongs in its own class.
+
+### What is retried, and what is not
+
+A response is never repeated, whatever its status. A 503 is a real answer, so the dependency read
+the request and may have acted on it. A response timeout is the same case: the request arrived, and
+the server may still be working on it.
+
+Only a failure that proves nothing was answered is repeated, once. For a GET, HEAD, OPTIONS or TRACE
+that is the end of it. A PUT or DELETE repeats only while carrying an `If-Match`, which makes the
+repeat conditional on the state the first attempt expected; without one, nothing rules out a server
+that read the request, did the work and died before writing. A POST has no deduplication key and
+never repeats.
+
+A lease timeout is not treated as answerless even though nothing was answered. It means the pool is
+saturated, so an immediate repeat queues against the same full pool and doubles the wait a call site
+was promised. Repeating it wants a request deadline to come out of, and there is none.
+
+### The registries that stop answering
+
+Each external authority in the bridge server sits behind its own `AuthorityCircuitBreaker`. A
+registry that is down does not refuse a connection; it accepts one and never replies, so every
+request spends the whole response timeout and holds a worker thread for it. After five answerless
+calls in a row that authority is not asked again for thirty seconds, and the route answers 503 with
+`Retry-After` — the same answer PFAS gives while its own registry is still loading. One request is
+then let through to look; if it fails the wait starts again. A registry that answers, including one
+answering 500, is never cut off, and the other six authorities are unaffected.
+
+Nothing guards a call to another CEDAR service. The artifact server is not optional, so a breaker in
+front of it would turn a timeout followed by 503 into an immediate 503 and nothing else, and it
+would open during a rolling restart.
+
+### Where the durations are recorded
+
+Every server's `config.yml` configures `server.requestLog` with a file appender whose format ends in
+`%D`, the elapsed milliseconds, so access lines land in `$CEDAR_HOME/log/<server>/access.log`
+carrying the time each request took. Before this, the default format recorded no duration, which is
+why every timeout above was arithmetic against nginx's 180-second `proxy_read_timeout` rather than a
+measured p99. A week of these logs is what a chosen response timeout can come from; the artifact
+server's is the one most likely to be wrong, since a large instance write with validation is the
+plausible outlier.
+
+### When a graph update does not commit
+
+An artifact update writes two stores in sequence: the artifact document, then the graph. When the
+second write fails the first has to be undone, and that compensation is durable rather than best
+effort. Before the graph update is attempted, `ArtifactRestoreCompletionService` records in Neo4j
+what putting the artifact back would take; the request then tries the restore itself, and removes the
+record when it succeeds. If it fails, or if the process stops between the two writes, a relay retries
+every five seconds for about five minutes and then parks the job.
+
+Every restore carries `If-Match` on the ETag of the replacement it is undoing, so repeating one is
+safe: a restore that already succeeded, or a document another writer has since changed, answers 412,
+and the relay stops rather than overwriting newer content. A parked job stays in the outbox, because
+an artifact that could not be put back is one the two stores still disagree about and someone has to
+be able to find it. `CedarArtifactRestoreOutbox` nodes are those records.
+
 ## The Redis queues, and where failed permission events go
 
 Five persistent queues carry work between services. Their names are set in
