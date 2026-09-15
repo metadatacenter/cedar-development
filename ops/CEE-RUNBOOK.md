@@ -146,6 +146,11 @@ The package must stay a `devDependency` that the published manifest never names.
 [NPMJS-RELEASE-RUNBOOK.md](NPMJS-RELEASE-RUNBOOK.md), under the release contract: the scope resolves
 only from Nexus, which an embedding application installing public CEE from npmjs cannot reach.
 
+The Material adapter applies the package's primary 500 and accent A200 palettes.
+Its M2 API remains in use; M3 is separate work. Shared neutrals and compact-control
+font/focus defaults also read the package. `THEMING.md` records the palette decision
+and `STYLING.md` records the supported compact-control host overrides.
+
 ## Building the web component
 
 This is the real deliverable — a single JS file embeddable in any page.

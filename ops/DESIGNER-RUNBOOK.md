@@ -84,6 +84,17 @@ bytes. Concatenating the module output instead would produce a file that loads
 and then fails inside Angular, because two modules that never shared a scope
 would suddenly be sharing one.
 
+## Internal boundaries
+
+`EditorSession` owns the authoring document and active container. `TemplateService`
+coordinates commands and UI navigation; `core/model/document-validation.ts`
+validates a document snapshot and pending settings drafts without Angular state.
+`core/model/cedar-template.ts` remains the only model-library adapter. Presentation
+colors come from CSS tokens, never from the document service.
+
+The shared package README describes design ownership and host styling. CED's
+native compact controls retain the API in CEE's `STYLING.md`.
+
 ## Testing
 
 | Command | What it covers |

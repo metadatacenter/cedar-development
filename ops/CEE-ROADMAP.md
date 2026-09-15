@@ -7,28 +7,19 @@ libraries still answer differently, is in
 [BACKEND-ROADMAP.md](./BACKEND-ROADMAP.md). The reasoning behind an item is in the
 commit that opened it.
 
-1. **M3 theme adapter and palette.** Replace the M2 compatibility theme with M3 inside
+1. **M3 theme adapter.** Replace the M2 compatibility theme with M3 inside
    `_cee-material-theme.scss` as a deliberate visual migration, not a mechanical upgrade:
-   choose the CEDAR and neutral palettes, preserve CEE-owned layout, typography, status,
+   map the shared design tokens to M3, preserve CEE-owned layout, typography, status,
    focus and accessibility invariants, use supported theme and component override mixins,
    review incidental Material-chrome diffs separately, and never expose `--mat-*` tokens as
    host API. Cut back the Material internal selectors made unnecessary by the adapter.
-2. **Appearance contract, designed rather than accumulated.** CEE publishes nothing now:
-   the eight `--cee-*` custom properties are gone, two having been read nowhere and the five
-   colours never having reached a Material component, since `_cee-material-theme.scss` is
-   compiled from Sass and carries no `var(--cee-…)`. No embedder had set any of them. What
-   replaces them is a decision about roles, not a list: name what CEE's interface actually
-   has — brand, surface, text, muted, border, and the status colours whose meaning a host
-   must not be able to re-point — derive the rest with `color-mix` so a re-pointed brand
-   drags its tints along, and keep geometry, density and Material internals CEE's own. Two
-   things make it real rather than nominal: the Material theme has to read the properties,
-   which is the M3 adapter's work and why these two land together; and the test has to set a
-   role to a sentinel and assert it reaches rendered pixels, where the old one asserted only that a
-   property was published, which an inert property passes just as well. Expose a font only
-   if it can apply consistently to every control — today `$cee-font-family` threads through
-   the Material typography config from one token, so it is the cheapest of these and still
-   needs the pixel test. Every route re-baselines the visual suite; do the palette decision
-   in [THEMING.md](../../cedar-embeddable-editor/THEMING.md) and the mechanism in one change.
+2. **General appearance contract.** Extend the existing compact-control contract
+   with deliberate whole-component roles for brand, surface, text, muted and border.
+   Preserve the properties in CEE's `STYLING.md`; keep Material internals private.
+   A runtime role must reach every affected control through the M3 adapter, with
+   browser tests setting a sentinel and checking rendered foregrounds, backgrounds
+   and focus states. Define status-color invariants and derive related tints from
+   the brand. Document only the properties those tests prove.
 3. **Markup discoverability.** Have the CEDAR workspace's template rich-text editor declare or
    enforce what an embedder will actually render, since its `Source` button accepts markup
    CEE will strip. Three policies decide what survives, and none of them derives from

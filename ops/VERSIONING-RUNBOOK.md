@@ -541,6 +541,19 @@ A global stylesheet in `angular.json` would be the ordinary way to reach the doc
 not work here: the CLI emits it as a separate `styles.css` that a host page never loads.
 `"styles": []` is deliberate, in this repository and in CEE.
 
+## Internal boundaries
+
+Each picker provides its own `TerminologyClient`; its property-detail child uses
+that same instance. Multiple pickers can name different servers without sharing
+endpoint state. Destruction cancels the search timer and outstanding node-page
+requests.
+
+`search/constraint-table` owns the selected-constraints presentation and emits
+editing intents. The picker owns its draft, application and cancellation.
+`constraint-presentation.ts` names the kinds, labels and identifiers;
+`hierarchy-rows.ts` projects loaded hierarchy state into visible rows without
+Angular or HTTP. Keep those domain operations outside the component.
+
 ## Class Names Are a Shared Namespace
 
 The picker renders into one shadow root, so a class name means one thing across the whole component.
