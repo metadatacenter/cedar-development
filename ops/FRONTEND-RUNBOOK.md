@@ -185,7 +185,9 @@ The Material adapter uses M3 `mat.theme()` with explicit light color roles from
 the package: primary 500, secondary primary 700, tertiary rust 500, pale brand
 containers and shared neutrals. All typography roles use the shared px scale and
 namespaced font stack. Supported component override mixins preserve 36px compact
-controls, 48px comfortable fields and 36px choice rows with 48px touch targets.
+controls, 48px comfortable fields and 28px editable choice rows with hit areas
+contained within each row. Attribute name/value inputs have 16px of padding above
+their form so floating labels clear the occurrence pager.
 The system is emitted at each CEE/CEF shadow host so overlays inherit it too.
 `THEMING.md` records the visual contract and `STYLING.md` the public compact-control
 properties; Material's `--mat-*` variables remain private. The M3 browser suite
