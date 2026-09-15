@@ -2102,9 +2102,12 @@ without Apply buttons. Identity and provenance appear under Field metadata. Fiel
 preserved in the model. Published fields allow tab
 navigation and inspection while their editing controls remain disabled.
 The **Annotations** tab is available on templates, standalone and nested elements,
-and fields. Its shared table adds, edits and removes named text or IRI values.
+and fields. An entry row above the shared table accepts an annotation name, value
+type and value; **Add annotation** validates and inserts the entry, then clears the
+form. Partial entry shows no error until Add is selected. The table supports editing
+and removing existing annotations.
 Names must be nonempty and unique, and IRI values must be absolute identifiers.
-Invalid rows remain local and block saving through the draft-validation report;
+Invalid edits to existing rows remain local and block saving through the draft-validation report;
 valid edits update the artifact immediately. Published field annotation controls
 are disabled. Annotation value types and other metadata survive unrelated edits
 and artifact round trips.
