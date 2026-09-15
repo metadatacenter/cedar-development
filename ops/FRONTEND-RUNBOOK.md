@@ -2106,7 +2106,8 @@ and fields. An entry row above the shared table accepts an annotation name, valu
 type and value; **Add annotation** validates and inserts the entry, then clears the
 form. Partial entry shows no error until Add is selected. The table displays saved annotations as read-only text with a bin action to
 remove an entry; replace a value by removing it and adding the replacement.
-Names must be nonempty and unique, and IRI values must be absolute identifiers.
+Names must be nonempty and unique, values must contain non-whitespace text,
+and IRI values must be absolute identifiers.
 Invalid additions remain in the entry form without changing the artifact;
 valid additions and removals update the artifact immediately. Published field annotation controls
 are disabled. Annotation value types and other metadata survive unrelated edits
