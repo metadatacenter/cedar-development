@@ -491,6 +491,10 @@ git -C $CEDAR_HOME/cedar-development commit -m "Refresh the CEE npm audit baseli
 git -C $CEDAR_HOME/cedar-development push origin develop
 ```
 
+That is CEE's own baseline alone. Pinning the release into its consumers moves seven more, so going
+straight on to [Propagate a stable CEE release](#propagate-a-stable-cee-release) means refreshing
+all eight together there instead of committing the same file twice.
+
 ## Propagate a stable CEE release
 
 Publishing CEE does not update a frontend or an environment. Pin the exact stable version in all
@@ -504,6 +508,27 @@ node "$CEDAR_HOME/cedar-development/ops/propagate-cee-release.mjs" --check "$CEE
 Review and commit each owning repository separately. Rebuild every deployed CEE host and verify the
 served bundle hash; a manifest edit alone does not change a running frontend. The complete consumer
 inventory and rebuild paths are in [CEE-RUNBOOK.md](./CEE-RUNBOOK.md#release).
+
+Pinning the release rewrites every one of those lockfiles, so all seven dependency-graph digests the
+train's dispatch preflight reads go stale at once and the next `cedarcli publish train` refuses with
+`npm dependency graph changed for <repo>:<lockfile>`. Refresh the whole set rather than CEE's alone:
+
+```bash
+cedarcli publish baselines --refresh
+git -C $CEDAR_HOME/cedar-development commit -m "Refresh the npm audit baselines the CEE pin moved" ops/frontend-train.json
+git -C $CEDAR_HOME/cedar-development push origin develop
+```
+
+The refresh prints each digest and the four severity counts on either side of it, and those counts
+are the review. Unchanged counts say the new editor carries no advisory the previous one did not.
+A count that moved is a dependency review to hold before the train, not after it.
+
+**Refresh before the smoke gate, not after.** Those baselines live in `cedar-development`, which is
+itself one of the sources a smoke run records, so committing them after `cedarcli test e2e` moves
+that source out from under the record the train is about to ask for — and the dispatch refuses a
+second time, with `no passing whole-stack smoke run covers this source`. The order that holds is:
+propagate, commit each consumer, refresh and commit the baselines, rebuild the deployed frontends,
+then `cedarcli check ci` and `cedarcli test e2e`.
 
 ## Use the public CEE in a train-backed CEDAR release
 
