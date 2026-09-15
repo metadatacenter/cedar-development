@@ -359,6 +359,41 @@ the embeddable editor is in [CEE-ROADMAP.md](./CEE-ROADMAP.md), and work on the 
   refusal end to end: no environment has run under `enforce`, so the 429, its `Retry-After` and the
   write bucket's closed failure mode have passed their unit tests and nothing else.
 
+  **The same buckets already reach the anonymous terminology routes, and only the key is missing.**
+  `UserRateLimitFeature` registers its admission filter on every resource assignable from
+  `CedarMicroserviceResource`, and `AbstractTerminologyServerResource` is one, so `prepare()` runs on
+  `integrated-search` and `integrated-retrieve` and stashes a bucket the request then never spends.
+  `UserRateLimits.check` has one call site, `CedarMicroserviceResource`, and it passes the
+  authenticated user, which those handlers do not have. `QuotaStore.acquire` takes a string it
+  hashes, so the identity it charges need not be a user.
+
+  What that buys is a ceiling on the total, which is the half a per-address limit cannot give: one
+  bucket for all anonymous traffic to these routes bounds the deployment's whole BioPortal spend.
+  Keying by client address instead would restate the edge limit inside the application and need a
+  trust decision about forwarded addresses that nothing here makes today. The edge limit stays as
+  the fairness half, because a shared bucket refuses whoever arrives when it is empty rather than
+  whoever emptied it. Three details decide whether such a bucket is safe. Both routes are POST, so
+  `prepare()` files them under writes: the wrong rate, and the wrong failure mode, since a closed
+  failure breaks every page embedding the editor where an open one spends the credential the bucket
+  exists to protect. A constant key applied to every shared resource would pool unrelated anonymous
+  traffic, so it has to be scoped to these routes and `/ext-auth/*`. And `VERIFIED_INTERNAL_SERVICE`
+  already exempts a verified internal hop, which wants confirming for the resource server's own
+  calls into terminology.
+
+  **A request is not a call, so the rate cannot be read off CEDAR's meters alone.** The bucket counts
+  requests to CEDAR; the quota belongs to BioPortal. One `integrated-search` carries a set of value
+  constraints rather than a fixed number of upstream lookups, and `RoutingTerminologyService` answers
+  some ontologies from the local store without reaching BioPortal at all, so the multiplier between
+  what is metered and what is spent varies per ontology. It also shrinks by design as ontologies pass
+  the equivalence gate, which moves the denominator any rate is calibrated against. The deeper limit
+  is that the bucket is open-loop: nothing observes the key's remaining allowance, so a rate tuned by
+  the minute can still pass a cap measured by the day, and the deployment learns that from BioPortal
+  rather than from `cedar.rateLimits.*`. Establish what the BioPortal key is actually allowed, by
+  what period, before choosing a rate; if the binding limit is a daily one, spend accounting is the
+  instrument and a token bucket only bounds the burst. A 429 to a browser with nothing to
+  authenticate also invites a retry loop, so the editor has to honour `Retry-After` for the refusal
+  to reduce spend rather than reshape it.
+
   Done when every environment serving an unauthenticated third-party proxy carries a limit, every
   environment states the mode and rates its authenticated quotas run at, both are recorded where the
   deployment is documented rather than only in the config, and a probe shows each taking effect.
