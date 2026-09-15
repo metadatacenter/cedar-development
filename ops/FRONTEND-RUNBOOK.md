@@ -1821,6 +1821,12 @@ and during migration builds both ([PROD-DEPLOY-RUNBOOK.md](./PROD-DEPLOY-RUNBOOK
 
 ## Embeddable designer (CED)
 
+CED is a UI component. The embedding host owns artifact persistence, authentication,
+permissions, server validation requests, publishing, version allocation and provenance.
+CED edits supplied documents, reports changes and local validation, and renders the
+editing state supplied by its host. Reusable-field and preference storage also belongs
+to the host. Keep future integrations within that boundary.
+
 Running, building, testing and packaging `cedar-embeddable-designer` (CED), the
 Web Component for authoring CEDAR templates and elements.
 
@@ -2107,12 +2113,19 @@ the saved set. These are allowed alternatives, not a requirement to assign all
 selected types. The serialized model retains the IRIs; picker labels and pins are
 session selection details.
 
-CED pins the published model development package `1.0.12-dev.20260914.2979eb0`
-for multi-type constraints. New child placements explicitly carry their effective display labels and descriptions
-so JSON and the model's YAML reconstruction agree; absent imported overrides remain absent.
-Java's artifact library also preserves the full set through JSON and YAML; its
+CED pins the published model development package `1.0.12-dev.20260915.076d468`
+for multi-type and paragraph length constraints. New child placements explicitly
+carry their effective display labels and descriptions so JSON and the model's YAML
+reconstruction agree; absent imported overrides remain absent. Java's artifact
+library also preserves the full set of instance types through JSON and YAML; its
 `instanceJsonLdTypes()` API returns the list, while `instanceJsonLdType()` retains
 the single-type compatibility view.
+
+Paragraph Values settings expose minimum and maximum character lengths, including
+zero; clearing either control removes that bound. Invalid limits or defaults remain
+unsaved drafts with local validation feedback. JSON and YAML preserve the limits
+through nested and repeated fields. Regular expressions are available only for text
+fields.
 
 The Overview shows each field's type icon and a right-aligned reorder handle.
 Dragging reorders siblings within the Overview; the document and main editor update

@@ -109,72 +109,7 @@ that user. Transfer ownership and delete the now-empty category as its new owner
 also prove that a stale category ETag and a stale permission ETag are rejected without losing the
 user's proposed input.
 
-<a id="cee"></a>
-
-## Embeddable editor and model library
-
-### 4. Whole-component runtime theme overrides
-
-Define host-facing CSS properties for
-brand, surface, text, muted and border roles beyond the compact-control API in
-`STYLING.md`. Wire them through the M3 adapter to every affected control and overlay,
-keeping Material internals private. Specify how related tints respond to a host's
-brand override and which semantic status colors must remain invariant. Add browser
-tests that set custom role values and check rendered foregrounds, backgrounds and
-focus states before documenting the properties as supported.
-
-### 5. Authoring feedback for unsupported markup
-
-Expose CEE's rendering policy to
-authors in the Workspace/Template Editor rich-text `Source` mode and CED's markup
-input. Configure those surfaces to produce supported markup and warn when CEE's
-sanitization would remove content. Verify the authoring-to-CEE round trip for both
-supported formatting and rejected markup.
-
-Decide how authoring tools obtain the policy: a public `TEMPLATE_MARKUP_POLICY`
-embedding API or a supported description kept in sync with editor configuration
-and tests. Include rules beyond the tag and attribute allowlists, such as forbidden
-event handlers and non-raster data images.
-
-### 6. Consistent authority marks
-
-Decide whether all seven authority fields should use
-the organisations' genuine marks, then replace the approximations for ORCID, PFAS,
-NIH Grant and DOI and the raster PubMed/RRID assets with approved vector assets where
-available. Keep assets inline, preserve their accessible labels, and check appearance
-at field-icon size. ROR provides the existing inline-vector pattern. Record asset
-provenance and usage terms with the assets.
-
-### 7. RDF instance export
-
-Add an RDF serialization to the download contract, using a
-JSON-LD processor rather than a handwritten serializer. Decide first whether the
-output is N-Quads or Turtle and whether `downloadContentFor` becomes asynchronous or
-gains a separate asynchronous producer. Carry that decision through the menu,
-filename, media type, failure handling and harness tests.
-
-Install a document loader that rejects remote context fetches: exporting an instance
-must not introduce network access beyond CEE's embedding contract. Test type coercion,
-nested and repeated elements, attribute-value property IRIs and malformed contexts
-against a reference processor. Measure the production bundle with `check:size` before
-choosing dependencies; do not use old bundle-headroom estimates. Coordinate with the
-font-payload work if the added processor exceeds the packaging budget.
-
-### 8. Reduce embedded font payload
-
-Measure subsetting the Material Icons font to the
-ligatures CEE actually uses. Add a build guard that inventories template and descriptor
-ligatures and rejects a glyph absent from the shipped font; the menu glyph browser
-check alone does not cover every icon source.
-
-Separately decide which Roboto scripts the single-file bundle must carry. Inlining all
-seven unicode-range subsets at three weights ships every subset, even for a Latin-only
-form. Retain latin-ext for Hungarian; dropping other scripts requires an explicit
-fallback-font decision and multilingual rendering checks. Re-measure decoded and gzip
-savings on the current production bundle. Preserve namespaced font faces and the
-single-artifact embedding contract; serving fonts as extra files changes that contract.
-
-### 9. Complete host validation and save feedback
+### 4. Complete Workspace validation and save feedback
 
 Extend Workspace's validation display
 to render a rejected create/update's structured server `validationReport`, instead of
@@ -193,6 +128,71 @@ Cover invalid-to-valid and valid-to-invalid transitions, advisory-only reports, 
 creates and updates, correction followed by a successful save, and differing client
 and server reports. Extend the existing Workspace controller tests with rendered host
 workflow checks rather than recreating its report subscription.
+
+<a id="cee"></a>
+
+## Embeddable editor and model library
+
+### 5. Whole-component runtime theme overrides
+
+Define host-facing CSS properties for
+brand, surface, text, muted and border roles beyond the compact-control API in
+`STYLING.md`. Wire them through the M3 adapter to every affected control and overlay,
+keeping Material internals private. Specify how related tints respond to a host's
+brand override and which semantic status colors must remain invariant. Add browser
+tests that set custom role values and check rendered foregrounds, backgrounds and
+focus states before documenting the properties as supported.
+
+### 6. Authoring feedback for unsupported markup
+
+Expose CEE's rendering policy to
+authors in the Workspace/Template Editor rich-text `Source` mode and CED's markup
+input. Configure those surfaces to produce supported markup and warn when CEE's
+sanitization would remove content. Verify the authoring-to-CEE round trip for both
+supported formatting and rejected markup.
+
+Decide how authoring tools obtain the policy: a public `TEMPLATE_MARKUP_POLICY`
+embedding API or a supported description kept in sync with editor configuration
+and tests. Include rules beyond the tag and attribute allowlists, such as forbidden
+event handlers and non-raster data images.
+
+### 7. Consistent authority marks
+
+Decide whether all seven authority fields should use
+the organisations' genuine marks, then replace the approximations for ORCID, PFAS,
+NIH Grant and DOI and the raster PubMed/RRID assets with approved vector assets where
+available. Keep assets inline, preserve their accessible labels, and check appearance
+at field-icon size. ROR provides the existing inline-vector pattern. Record asset
+provenance and usage terms with the assets.
+
+### 8. RDF instance export
+
+Add an RDF serialization to the download contract, using a
+JSON-LD processor rather than a handwritten serializer. Decide first whether the
+output is N-Quads or Turtle and whether `downloadContentFor` becomes asynchronous or
+gains a separate asynchronous producer. Carry that decision through the menu,
+filename, media type, failure handling and harness tests.
+
+Install a document loader that rejects remote context fetches: exporting an instance
+must not introduce network access beyond CEE's embedding contract. Test type coercion,
+nested and repeated elements, attribute-value property IRIs and malformed contexts
+against a reference processor. Measure the production bundle with `check:size` before
+choosing dependencies; do not use old bundle-headroom estimates. Coordinate with the
+font-payload work if the added processor exceeds the packaging budget.
+
+### 9. Reduce embedded font payload
+
+Measure subsetting the Material Icons font to the
+ligatures CEE actually uses. Add a build guard that inventories template and descriptor
+ligatures and rejects a glyph absent from the shipped font; the menu glyph browser
+check alone does not cover every icon source.
+
+Separately decide which Roboto scripts the single-file bundle must carry. Inlining all
+seven unicode-range subsets at three weights ships every subset, even for a Latin-only
+form. Retain latin-ext for Hungarian; dropping other scripts requires an explicit
+fallback-font decision and multilingual rendering checks. Re-measure decoded and gzip
+savings on the current production bundle. Preserve namespaced font faces and the
+single-artifact embedding contract; serving fonts as extra files changes that contract.
 
 ### 10. Localize numeric and temporal validation
 
@@ -218,14 +218,21 @@ this leniency once the display and validation behavior is decided.
 ## CED
 
 Design Basic, Semantic and Modular as interfaces suited to their audiences.
-Together they must cover the production designer's capabilities. Settle field
-semantics and profile controls before adding lifecycle and persistence workflows.
+Together they must cover its authoring capabilities. Keep CED responsible for
+editing, rendering, local validation and host-facing UI contracts. The embedding
+host owns storage, authentication, permissions, server validation requests,
+publishing, version allocation and provenance.
 
-### 12. Validate CED templates before saving
+### 12. Display host-supplied validation findings in CED
 
-The schema server validates a template and returns what is wrong with it. Nothing
-in CED asks. The model library refuses to build some invalid artifacts, which
-covers less ground than the validator and is not the same answer.
+Define an input for validation findings supplied by the embedding host. Map artifact
+paths to fields and settings, show messages beside the affected controls, and offer
+navigation from a summary across nested elements. Keep local draft-validation
+findings distinguishable from host-supplied results.
+
+Specify when external findings become stale after an edit or artifact replacement.
+Preserve unsaved input and cover correction, clearing and replacement of reports.
+The host calls the schema server and decides whether an artifact may be saved.
 
 ### 13. Annotation and descriptive metadata authoring
 
@@ -235,8 +242,8 @@ labels, property name and annotations. Support adding, editing and removing
 literal and IRI-valued annotations, with unique names and validation of IRI values.
 
 Preserve imported annotations and property IRIs through unrelated edits, nesting,
-and JSON/YAML round trips. Cover published-field restrictions and cancellation or
-invalid drafts without losing the saved values.
+and JSON/YAML round trips. Respect host-supplied editing restrictions and preserve values when an edit is
+cancelled or invalid.
 
 ### 14. A palette entry for a date that carries a time
 
@@ -249,19 +256,7 @@ Either a third entry, or the datatype control has to be plain enough on a Date c
 that nobody needs the palette to find it. The palette already has twenty-six
 entries, which is the argument against a third.
 
-### 15. Expose paragraph length constraints in CED
-
-Adopt a published TypeScript model snapshot with paragraph length support, then
-enable paragraph length controls explicitly in CED's field descriptor and carry
-the values through its import, validation and writer paths. Preserve constraints
-on imported templates and keep regex unavailable for paragraphs.
-
-Separate length handling from regex handling: the current text-length writer also
-calls `withRegex`, and the import path reads text constraints only for
-`CedarFieldType.TEXT`. Test minimum/maximum validation, default values and CED
-JSON/YAML round trips, including nested and repeated paragraphs.
-
-### 16. The three profiles, and what each one holds
+### 15. The three profiles, and what each one holds
 
 Basic, Semantic and Modular are the product structure, and CED has their names
 already: three presets in the preferences modal, each a bundle of visibility
@@ -286,15 +281,15 @@ does not show.
 Every control on a card today is a decision this item has to absorb, and there are
 now a great many of them.
 
-### 17. Per-type capability rules
+### 16. Per-type capability rules
 
 Add `primaryField` to the per-type capability rules and authoring surface so an
 author can choose what a search result shows for a template.
 
-Validate controlled-term fields with no vocabulary chosen: reject the save and
-explain what is missing rather than silently writing the field as plain text.
+Mark controlled-term fields with no vocabulary as invalid and expose that finding
+to the host. Preserve the draft instead of silently serializing it as plain text.
 
-### 18. Guidance in the interface
+### 17. Guidance in the interface
 
 Tooltips, help messages and worked examples are part of what makes the Basic
 profile usable by someone who has never met a metadata standard, and the Semantic
@@ -309,76 +304,30 @@ The parameter work makes this larger rather than smaller. A datatype menu, a
 granularity menu and a regular-expression box are each a place an author needs to
 be told what the choice does.
 
-### 19. Say what a constraint resolves to
+### 18. Say what a constraint resolves to
 
 An author who has pinned DOID 2026-06-30 to a branch of 4,000 terms cannot see
 that from the panel. The terminology server can answer it and the picker already
 shows counts while choosing; the constraint, once chosen, shows a label.
 
-### 20. Freeze on publish
+### 19. Complete the CED embedding contract
 
-A draft template names a release or names latest; a published one must name a
-release, resolved at publish time. CED does not publish anything yet, so this
-follows publishing, but the constraint shape has to be right before then.
+Define inputs for read-only mode, language and allowed field types. Host restrictions
+bound what the author may edit or select; profile and preference settings can narrow
+those choices but must not broaden them. Preserve supplied artifact content when a
+restricted profile hides its controls.
 
-### 21. Open from and save to the artifact server
+Define how the host supplies reusable fields and preference state, and how CED
+reports user changes or requests back to it. The host chooses where and how to store
+that state. Support replacement of the supplied artifact when the host opens another
+artifact or creates an editable draft, without CED allocating identities or versions.
 
-CED reads a file and writes a download. The production designer opens from a
-folder, saves back to it, and knows about permissions. For an embeddable
-component the host may own that, which makes this a contract question before it
-is an implementation one: an event carrying the template a host is expected to
-store, or a REST client of CED's own.
+Add conformance and browser tests for these inputs and events, including read-only
+published content and transitions to a host-supplied editable document.
 
-### 22. Publish, and make a new version
-
-Implement the artifact server's lifecycle for `bibo:status`, `pav:version`,
-`pav:derivedFrom` and `pav:previousVersion`. Define creation and update provenance
-for editable drafts: who created an artifact and when, and who last modified it.
-Coordinate version allocation and publish operations with the embedding host.
-
-### 23. Edit published fields through an explicit draft workflow
-
-Define an explicit “Edit as draft” action for a published field, coordinated with
-its embedding host and the artifact server. Decide whether that action creates a
-new field identity or a new version of the existing field, and how the template
-replaces its reference. Carry forward provenance and source/version links; assign
-draft status and a version according to the server's lifecycle rules.
-
-Keep the published definition immutable. Cover permission failures, cancellation,
-saving the draft and publishing it, with tests proving that none of those paths
-silently rewrites the source published field.
-
-### 24. Settle and declare the rest of the contract
-
-`CedConfig` currently names terminology and bridge endpoints. A host embedding a designer will want at least a
-read-only mode, a language, and somewhere to say which field types to offer.
-That last one overlaps the profiles, and the overlap is the unsettled part: which
-types appear is a user setting today, chosen in a preferences modal, and a host
-embedding the designer for a particular purpose has no say in it. Both readings
-are legitimate — the host bounds what its authors may use, the author narrows a
-long palette down to what they are working with — so the contract has to say
-which one wins where they disagree. What each profile contains is settled with
-the profiles, not here. Every key added needs the conformance test that already
-asserts the contract and the implementation cannot drift apart.
-
-### 25. Give the field library somewhere to keep things
-
-An author can save any field they have built — its type, its parameters, its
-constraints, the whole definition — into a named library, and drop it into another
-template from the sidebar. The capability is worth having: most of what an author
-puts in a template is something they or a colleague has described once already.
-
-What it lacks is anywhere to put them. A custom field, a library and every
-preference are signals in memory, so all three are gone on reload, and nothing an
-author defines reaches a second author or a second browser. CEDAR's own unit of
-reuse is an artifact on the server, with an identifier, a version and
-permissions, which is what lets reuse outlive the tab it was created in. Whether
-a saved field becomes one of those, or stays local to the browser and is stored
-there, is the decision to make first.
-
-### 26. Keyboard and screen-reader access
+### 20. Keyboard and screen-reader access
 
 Verify keyboard focus order across cards, settings, palette actions and nested
 elements. Add live-region announcements for constraint changes and accepted or
-rejected Apply/save actions. Exercise those workflows with a screen reader and
+rejected local Apply actions and host-supplied validation results. Exercise those workflows with a screen reader and
 verify that focus returns to a useful control after each action.
