@@ -1,7 +1,7 @@
 # Terminology Versioning — Runbook
 
 Running the versioned terminology work: the local store, the terminology server that serves it, and
-`cedar-term-picker`, the Web Component an author picks a versioned constraint with. Open work and
+`cedar-embeddable-term-picker`, the Web Component an author picks a versioned constraint with. Open work and
 the decisions behind it are in [VERSIONING-ROADMAP.md](./VERSIONING-ROADMAP.md); what the model is and why, and the
 shapes of the endpoints the picker reads, are sections of that same roadmap —
 [The Model](./VERSIONING-ROADMAP.md#the-model) and
@@ -322,13 +322,99 @@ sqlite3 $CEDAR_HOME/cedar-term/prod/search-index.sqlite \
 
 A count in the millions is the query, not the server.
 
-## Running the Picker
+## Versioned Properties in Ontology Snapshots
 
-`$CEDAR_HOME/cedar-term-picker`, default branch `develop`. Node 24.19.0, the version `.nvmrc` pins.
+Classes and properties belong to the same ontology release and the same snapshot SQLite file.
+`ontology_property`, `property_literal` and `property_parent` hold object, datatype and annotation
+properties, their literal annotations (including language-tagged labels and definitions), and every
+asserted superproperty. Property hierarchy queries preserve multiple parents and terminate cycles.
+Extraction reads the retained source itself; imports are not fetched from the network.
+Turtle/NTriples inputs use two streaming passes to retain the property subgraph before OWLAPI
+interprets it. This avoids loading all class annotations (MEDGEN expands to about 2.9 GB).
+RDF/XML retains OWLAPI's native reader because the older Sesame RDF/XML reader trims literal
+whitespace; OBO and OWL/XML also use their native parsers. Those formats can still need a large
+heap. The corpus run uses `-Xmx24g` on a 64 GB workstation; smaller runs can use `-Xmx12g`.
+OWLAPI's automatic illegal-punning repair is disabled, retaining asserted property kinds and
+avoiding the expensive whole-signature repair encountered with DDSS.
+
+A snapshot's content hash includes its property content once extraction has been performed. An
+older snapshot without property extraction retains its original identifier and remains readable by
+class pins. The offline backfill copies its existing class data, adds properties, writes a new
+content-addressed snapshot, and registers it alongside the original. It moves `latest` only when
+`latest` still points at the snapshot being enriched. `snapshot_property_enrichment` in the catalog
+records the old-to-new relationship so reruns resume. This creates an enriched representation of a
+retained release, not a newly downloaded release. No separate property database or property-version
+namespace is used.
+
+Build the terminology ingest module before running the commands below. The classpath must be
+regenerated after a version change; an old `ingest-cp.txt` can name an older store library.
 
 ```bash
-npm --prefix $CEDAR_HOME/cedar-term-picker install
-npm --prefix $CEDAR_HOME/cedar-term-picker start
+cd $CEDAR_HOME/cedar-terminology-server
+mvn -pl cedar-terminology-server-ingest dependency:build-classpath \
+    -Dmdep.outputFile=$CEDAR_HOME/cedar-term/prod/ingest-cp.txt -DincludeScope=runtime
+CP="cedar-terminology-server-ingest/target/classes:cedar-terminology-server-store/target/classes:$(cat $CEDAR_HOME/cedar-term/prod/ingest-cp.txt)"
+# Report retained archives whose bytes match the catalog hash; no database writes.
+java -Xmx12g -cp "$CP" org.metadatacenter.terms.ingest.PropertyBackfillJob \
+    $CEDAR_HOME/cedar-term/prod/catalog.sqlite OBI RO
+# Apply to these sources. Omit the acronym arguments to process every catalog snapshot.
+java -Xmx12g -cp "$CP" org.metadatacenter.terms.ingest.PropertyBackfillJob \
+    $CEDAR_HOME/cedar-term/prod/catalog.sqlite --apply OBI RO
+```
+
+Back up the catalog before applying a corpus backfill. Preserve original snapshots: existing class
+pins still name them. The report distinguishes missing archives, successful enrichments, already
+processed versions and failures. A hash mismatch never substitutes the current BioPortal download.
+The catalog may have merged source submissions with identical class content before property
+extraction existed; the backfill can associate properties only with the retained source hash that
+catalog entry actually records.
+
+Rebuild the existing cross-snapshot index with `SearchIndexJob` after enrichment. Its property
+search tables live in the same `search-index.sqlite` as the class index; they are derived data.
+Future ingests extract properties before calculating the ontology version automatically.
+
+The local-only API is unauthenticated, like version-aware class search:
+
+- `POST /properties/search`: `query`, optional `sources: [{sourceAcronym, versionId}]`, optional
+  `kinds` (`object`, `datatype`, `annotation`), `page` and `pageSize`. Unscoped search uses the index;
+  a scoped request reads the requested ontology snapshot. Every hit reports the ontology version
+  that answered, including when the corpus index is behind the catalog.
+- `GET /properties?sourceAcronym=...&versionId=...&propertyIri=...&kind=...`: one property and its
+  literal annotations and parent IRIs. `versionId` is the same ontology version used for classes;
+  omitted means `latest`.
+- `GET /properties/hierarchy` with those parameters and optional `offset`: the selected property,
+  its ancestor graph's nodes and up to 50 direct children.
+- `GET /properties/roots?sourceAcronym=...&versionId=...&kind=...&offset=0`: up to 50 roots.
+- `GET /properties/versions?sourceAcronym=...`: ontology releases with `propertiesAvailable`, so
+  a pre-extraction version is distinguishable from one that contains zero properties.
+
+A missing release or property is 404; a release whose properties were not extracted, an unbuilt
+corpus property index, or an unconfigured local store is 503. None of these paths calls BioPortal.
+
+## Running the Picker
+
+CETP is one `<cedar-embeddable-term-picker>` element with five selectable types:
+`class`, `branch`, `ontology`, `valueSet`, and `property`. The `termTypes` JavaScript
+property accepts any subset as an array; omitted enables all five. The optional
+positive integer `maximumTerms` caps the combined selection table. Trying to add
+another entry at the cap displays an error until an entry is removed. Omitting it
+leaves the table unlimited. Done emits `constraintsSelected` with the whole draft.
+
+Properties use the local `/properties` API above, and their selected entries carry
+`sourceType: 'ontology-property'`, `propertyKind`, property IRI and an exact ontology
+`version.id`. The Properties tab supports parent/child navigation and release
+selection. CED's vocabulary constraint editor explicitly enables the original four
+types; property selections must not be serialized as class value constraints.
+The legacy `selectionMode = 'constraint'` and `selectionMode = 'term'` single-pick
+flows remain available. Explicit `termTypes` or `maximumTerms` selects the table
+workflow. The default is the table workflow with all types.
+
+
+`$CEDAR_HOME/cedar-embeddable-term-picker`, default branch `develop`. Node 24.19.0, the version `.nvmrc` pins.
+
+```bash
+npm --prefix $CEDAR_HOME/cedar-embeddable-term-picker install
+npm --prefix $CEDAR_HOME/cedar-embeddable-term-picker start
 ```
 
 That serves the development host on port 4500 — `src/index.html`, a page standing in for the
@@ -386,7 +472,7 @@ histories through the search response rather than calling the versions endpoint.
 
 | Command | What it does |
 |---|---|
-| `npm run build:production` | the custom-element bundle, into `dist/cedar-term-picker` |
+| `npm run build:production` | the custom-element bundle, into `dist/cedar-embeddable-term-picker` |
 | `npm test` | unit tests, through the Angular CLI's Vitest builder |
 | `npm run lint` | ESLint over TypeScript and templates, Prettier included |
 | `npm run typecheck` | `tsc` over every file under `src/`, including ones no build or test reaches |

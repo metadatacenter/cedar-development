@@ -237,6 +237,28 @@ git commit -m "Advance TypeScript model library to the next development version"
 git push origin develop
 ```
 
+**The version committed here is not the version published.** The publishing workflow derives its own
+`<base>-dev.<date>.<sha>` from the commit it builds, which is this advance commit — and that commit
+does not exist while `npm version` is running, so the string written above can only name the release
+merge before it. On 2026-09-14 `package.json` said `1.0.11-dev.20260914.2696f4a` while Nexus received
+`1.0.11-dev.20260914.35d400b`.
+
+Nothing there needs correcting. Every commit on `develop` gets a dev package of its own and none
+overwrites another, which is the property the workflow derives the version for. What it means is that
+the committed string is a placeholder rather than an address: a pin taken from `package.json` answers
+`E404`. Nor can the registry be asked — against Nexus, `npm view` answers only for an exact version,
+so `dist-tags` and `versions` both come back empty.
+
+Derive it instead, exactly as the workflow does, from the commit just pushed. The date is the commit
+date in UTC, which is not always the local one:
+
+```bash
+printf '%s-dev.%s.%s\n' \
+  "$(node -p "require('./package.json').version.split('-')[0]")" \
+  "$(TZ=UTC git show -s --format=%cd --date=format:%Y%m%d HEAD)" \
+  "$(git rev-parse --short=7 HEAD)"
+```
+
 ## Release CEE with an explicit model version
 
 The public model version is an input to the CEE release. It must already exist on npmjs and is
@@ -428,7 +450,12 @@ git push origin "release-${CEE_VERSION}"
 ### Restore CEE development state
 
 Fast-forward `develop` through the release merge. Choose an exact, already-published scoped model
-snapshot for development; do not invent or reference a Nexus version that was never published.
+snapshot for development; do not invent or reference a Nexus version that was never published. The
+model library's own `package.json` does not name it — derive the published version the way
+[Restore model development state](#restore-model-development-state) shows.
+
+CEE's advanced version has the same property: the string committed below names the release merge,
+while the push CI publishes one derived from the advance commit it builds.
 
 ```bash
 export MODEL_DEV_VERSION=<published-model-dev-version>

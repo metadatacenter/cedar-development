@@ -13,7 +13,7 @@ tiered profiles — Basic, Semantic and Modular — each showing one audience wh
 needs and hiding what it does not, and each building on the one before. CED also
 does two things the old designer cannot: it embeds in any page, and it authors
 constraints that name the ontology version an author chose, through
-[`<cedar-term-picker>`](VERSIONING-ROADMAP.md).
+[`<cedar-embeddable-term-picker>`](VERSIONING-ROADMAP.md).
 
 Capability equivalence with the old designer is the bar for the three profiles
 together, because a designer that authors most of a template is not a designer
@@ -53,14 +53,12 @@ rather than its number.
 
 ## The Fields
 
-### 1. Annotation and property IRI authoring
+### 1. Annotation and descriptive metadata authoring
 
-Provide a clear authoring surface for annotations and property IRIs, appropriate
+Provide a clear authoring surface for annotations, appropriate
 for the Semantic and Modular profiles. Replace the Field details placeholder with focused controls for language, alternate
-labels, property IRI/property name and annotations. Support adding, editing and removing
+labels, property name and annotations. Support adding, editing and removing
 literal and IRI-valued annotations, with unique names and validation of IRI values.
-Property IRI editing must apply to a dynamic field's placement in its containing
-template or element, with clear validation and no control on static fields.
 
 Preserve imported annotations and property IRIs through unrelated edits, nesting,
 and JSON/YAML round trips. Cover published-field restrictions and cancellation or

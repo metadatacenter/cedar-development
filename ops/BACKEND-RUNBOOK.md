@@ -1391,6 +1391,28 @@ address on read. TypeScript omits only a service URI its reader can reconstruct 
 allowance names template 029, and committed TypeScript fixtures pin its additional property; other
 differences, stale fixtures, or this difference disappearing fail the gate.
 
+Template and element instance-type constraints retain an ordered set of IRIs in
+both libraries. Java exposes `instanceJsonLdTypes()` and `withInstanceJsonLdTypes`;
+the singular accessor returns the first entry, and the singular builder replaces
+the set with one entry (or clears it for null). TypeScript exposes
+`instanceTypeSpecifications`, retaining its singular compatibility accessor.
+JSON writes the full set to the scalar and array `@type` enum branches. YAML
+`instanceType` stays a scalar for one IRI and becomes a sequence for multiple IRIs;
+no restriction omits the enum/key. The selected types are permitted alternatives,
+not a requirement that an instance declare every selected type.
+
+`InstanceTypesConformanceTest` checks Java's live JSON/full-YAML/compact-YAML output,
+template and standalone/nested element round trips, collection invariants, and
+CEDAR meta-schema validation for 0, 1, 2 and 64 types. It also tests actual instance
+type acceptance. `InstanceTypesConformance.spec.ts` reads the Java-generated fixture
+and checks TypeScript output and reconstruction against it in all three formats.
+The ordinary Maven/Jest suites include these checks. After a deliberate contract
+change, regenerate with `mvn -Dtest=InstanceTypesConformanceTest
+-DupdateInstanceTypesConformance=true test`, review
+`src/test/resources/concordance/instance-types.json`, and copy that file to the
+TypeScript library's `itest/resources/concordance/java-instance-types.json`.
+The TS test also checks that the two copies match when the Java checkout is present.
+
 Both comparisons live in the TypeScript library, which carries the corpus in-repo, so a plain clone
 runs them with nothing cloned or symlinked first:
 
@@ -3269,6 +3291,69 @@ Each invariant is built on an exhaustive walk of the two documents rather than o
 own traversal, so a change anywhere — at any depth, in a key neither rule expected to touch — is
 reported and has to be licensed before the write proceeds.
 
+`settle-instance-term-label` puts a controlled field's value behind the term its label names. A
+controlled-term field holds `@id` and a label, and an instance carrying the label alone — under
+`@value`, where the schema admits none — names a term without pointing at it. The term is supplied
+through `--terms`, never inferred: which IRI a label names is a fact about the ontology the field is
+constrained to, and the table is built by asking it. Send the field's own `_valueConstraints` to
+`POST /bioportal/integrated-search`, which is the lookup the authoring UI performs, so a term found
+is one the field would have offered; take only an exact label match, since a near one would put the
+instance behind a term nobody chose. A label the table maps to `null` empties the field instead,
+which is what a field holding `"NA"` says.
+
+`free-controlled-field` goes the other way, for when the terminology has no term for what people
+are actually writing and the template is what needs changing. It moves two things together, because
+either alone leaves the field incoherent: the value's shape loses `@id` and gains `@value`, and the
+constraint loses the ontologies, branches, classes and value sets it named. The fields to free are
+named through `--free-fields`, because whether a field was ever really controlled is a decision
+about what the template means.
+
+**Freeing a field forbids `@id`, so weigh it against every instance, not the invalid ones.** The
+invalid set is biased towards exactly the instances that hold a label rather than a term, which is
+the case for freeing; the instances that would break are in the valid set, which that sample does
+not contain. Ask two separate questions of each one — does it point at a term, and does it validate
+today — because a term-holding instance that is already invalid costs nothing. On CEDAR's `Cell`
+template one field had a single term-holder that was already invalid, so freeing it was free, while
+the other had 267 valid ones, so freeing it would have destroyed more than it repaired.
+
+`declare-instance-field` answers a third case: the instances carry a key the template never declared
+at all. A template's `additionalProperties` admits a plain literal and nothing else, so an
+undeclared key holding a term, or holding a list, cannot validate however the instance is written.
+Two quite different things produce such a key, and they need opposite repairs. Where a field was
+renamed, the value belongs under the new name and `rename-instance-keys` moves it; where a field was
+added to the instances and never to the template, the template is behind and declaring the field is
+the repair. Only the owner knows which applies, which is why the declarations come through
+`--declare-fields`.
+
+A declaration states the field's name, whether it holds a term or free text, whether it may repeat,
+and the two identifiers it will be written under — its own `@id` and the property IRI its
+`@context` entry will name. The identifiers are stated rather than minted so that the file says
+exactly what will be written and a second run changes nothing. The declaration's boilerplate is
+copied from a field the template already declares of the same kind, so the new field is consistent
+with the template it joins rather than with whatever the tool was written against; a template with
+no sibling of that kind is refused rather than guessed at.
+
+**A declared field is required to be present, so the change reaches every instance, including the
+ones that validate today.** Those hold the new field empty, which `complete-instance` writes, and
+they have to be repaired in the same campaign or the template change leaves them invalid. Measure
+both populations before writing anything: on CEDAR's `message template` the four new fields made all
+58 invalid instances valid and took all 28 valid ones down to zero until they were completed, so the
+job was 86 instance writes, not 58.
+
+Weigh a proposed declaration against the valid instances as carefully as a proposed freeing. The
+same template's `Visual display` had been answered as a rename into the declared `Default display`,
+and the valid instances refuted it: they hold plain text there — `line chart`, `text-only` — so
+`Default display` has to stay free text, and `Visual display` is a controlled field of its own.
+
+**The order a chain names its repairs in is part of the repair.** `drop-superseded-instance-keys`
+removes a key whose value the instance already carries under a name the template declares, and it can
+only see that duplicate once the value is under the declared name — which is what
+`rename-instance-keys` does. Naming the two the other way round finds nothing: NanoBRET's 74
+instances each carried `Repository` and `Data_repository` holding the same value, and the duplicate
+became visible only after the rename made the second one `Data_Repository`. Put the rename first.
+For the same reason `complete-instance` goes last: it fills what is absent, and what is absent is not
+settled until everything that moves a value has run.
+
 **Repairs compose, and for some artifacts they must.** A child identifier the server would otherwise
 mint makes it refuse a verbatim write outright, so an artifact carrying that defect alongside another
 cannot be fixed by either repair on its own: one leaves the artifact invalid and is skipped, the other
@@ -3284,6 +3369,10 @@ python3 ops/repairs/cedar_artifact_repair.py --from-records production-validatio
 
 `--condition` names the target set explicitly, which a chain needs whenever its repairs between them
 name more artifacts than the job does.
+
+Each run resolves the validation library's classpath through `cedar_validate.sh`, which builds it
+on first use and occasionally fails outright on a cold Maven cache. Passing `--classpath` with a
+resolved one skips that step, and is worth doing across a campaign of many runs.
 
 Two repair runs may overlap without coordinating. Updating an existing artifact requires the ETag the
 GET returned, and the server refuses a write carrying a stale one, so the second run to reach a shared

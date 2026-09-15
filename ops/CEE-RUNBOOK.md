@@ -1344,9 +1344,9 @@ instead, where the dev versions do not exist.
 `main` is owned by the release process. Work lands on `develop`.
 
 There is one stable publish target: the unscoped `cedar-embeddable-editor` on public npmjs, under the
-default `latest` tag. 2.0.3 is the latest stable release, published 2026-08-27. All seven embedding
-manifests pin 2.0.3 from npmjs; the propagation check confirms the matching manifest and lockfile
-resolution in every consumer.
+default `latest` tag, which `npm view cedar-embeddable-editor version` names. All seven embedding
+manifests pin one exact stable version from npmjs; the propagation check confirms the matching
+manifest and lockfile resolution in every consumer.
 The stable registry goes from 1.5.2 straight to 2.0.1: 1.6.0 was
 published on 2026-08-12 and unpublished from npmjs afterwards, so a manifest still naming 1.6.0
 cannot install, and the tarball it named cannot be fetched for comparison.
