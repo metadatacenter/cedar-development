@@ -117,8 +117,16 @@ together and polled as a set, so the wait costs the slowest one rather than the 
 each is reported as `ready <name>` when it arrives, and anything that never does is named with the
 last lines of its log and removed rather than left respawning. `CEDAR_START_READY_TIMEOUT` bounds
 the set, 240 seconds by default, and `CEDAR_HEALTH_PROBE_TIMEOUT` bounds one probe, 5 seconds by
-default — long enough for terminology, whose health report is cached and takes a couple of seconds
-to rebuild once it lapses.
+default.
+
+A probe that runs out of that bound is reported as `slow`, separately from `starting`. A `starting`
+service has begun listening and has not finished booting. A `slow` one is serving and could not
+answer for its own health in time, which one slow dependency inside its health report is enough to
+produce. Both count as not-healthy for `cedarcli native health`, and `cedarcli test e2e` waits
+either of them out before refusing. Reporting a timeout as `starting` told operators a healthy
+server was still booting, which is how a four-second BioPortal fetch inside terminology's
+`ontology-catalogue` check came to refuse a gate run. That check now takes its measurement off the
+request thread, so the endpoint answers within two seconds whatever BioPortal is doing.
 
 ## The containerized stack
 
@@ -2123,6 +2131,13 @@ establish a connection by default, while a container health check gives the whol
 unbounded probe would not report a slow dependency, it would hang `/healthcheck` itself, and the
 container would read as down for a reason no check names. At most one probe runs at a time per
 check, so a permanently blocked dependency costs one thread rather than one per poll.
+
+Only `ontology-catalogue` takes a measurement that leaves the host. Outside a local-only deployment
+it fetches the whole BioPortal registry, which took between 0.4 and 4.1 seconds when measured on a
+warm server. It therefore holds each measurement for thirty seconds and refreshes it on a probe
+thread, waiting two seconds before serving the measurement it already has with the pending refresh
+named in the message. A fetch that never answers still becomes an unhealthy result, because the
+BioPortal client's own response timeout is 30 seconds.
 
 Worker health is also work-aware. Its `queue-consumers` check fails when a processor thread stops,
 its latest processing attempt remains failed, a dead-letter list is nonempty, or Redis cannot report

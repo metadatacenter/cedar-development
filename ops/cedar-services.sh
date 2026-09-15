@@ -659,23 +659,37 @@ stop_one() {
 names() { if [ $# -gt 0 ]; then printf '%s\n' "$@"; else for s in "${SERVICES[@]}"; do set -- $s; echo "$1"; done; fi; }
 
 # Long enough for the slowest healthy answer rather than the typical one. Fourteen services answer
-# their admin check in 6-22ms, and terminology caches its report: three calls in a row take 4-7ms,
-# one after a quiet fifteen seconds takes 0.99s and one after longer takes 2.45s, because the first
-# probe after the cache lapses rebuilds it. At two seconds that read as `starting` on a healthy
-# server, which is what refused a gate run on 2026-09-10. A closed port still fails at once, so this
+# their admin check in 6-22ms. Terminology's answer is bounded at two seconds by the server itself,
+# because its ontology-catalogue check fetches the BioPortal registry, measured between 0.4s and
+# 4.1s, and that whole cost used to reach the endpoint. A closed port still fails at once, so this
 # bound is paid only by a service that accepts a connection and is slow to answer.
 HEALTH_PROBE_TIMEOUT=${CEDAR_HEALTH_PROBE_TIMEOUT:-5}
 
-health_of() {  # echoes healthy|UNHEALTHY|starting|down
+# A probe that ran out of time is reported as `slow`, not as `starting`. The two name different
+# conditions, and an operator acts on the difference. A starting server has not begun serving and
+# will. A slow one is serving and cannot answer for its own health inside the bound. Reporting a
+# timeout as `starting` said a healthy terminology server was still booting, which is how a
+# four-second BioPortal fetch came to refuse a gate run on 2026-09-10. curl separates the two in its
+# exit status, 28 for a timeout and anything else here for a connection that failed outright, while
+# `%{http_code}` reports 000 for both, so the status is what this reads.
+CURL_TIMEOUT_STATUS=28
+
+health_of() {  # echoes healthy|UNHEALTHY|slow|starting|down
   local name=$1 app admin; app=$(app_port "$name"); admin=$(admin_port "$name")
-  local code
+  local code probe
   if [ "$admin" = 0 ]; then
     code=$(curl -s -o /dev/null -m "$HEALTH_PROBE_TIMEOUT" -w '%{http_code}' "http://127.0.0.1:$app/" 2>/dev/null)
-    case "$code" in 2??|3??) echo healthy;; *) port_open "$app" && echo UNHEALTHY || echo down;; esac
+    probe=$?
+    case "$code" in 2??|3??) echo healthy; return;; esac
+    port_open "$app" || { echo down; return; }
+    [ "$probe" = "$CURL_TIMEOUT_STATUS" ] && echo slow || echo UNHEALTHY
     return
   fi
   code=$(curl -s -o /dev/null -m "$HEALTH_PROBE_TIMEOUT" -w '%{http_code}' "http://127.0.0.1:$admin/healthcheck" 2>/dev/null)
-  case "$code" in 200) echo healthy;; 500) echo UNHEALTHY;; *) port_open "$app" && echo starting || echo down;; esac
+  probe=$?
+  case "$code" in 200) echo healthy; return;; 500) echo UNHEALTHY; return;; esac
+  port_open "$app" || { echo down; return; }
+  [ "$probe" = "$CURL_TIMEOUT_STATUS" ] && echo slow || echo starting
 }
 
 # How long the whole set has to become healthy, not each service. Twenty-two JVMs started in
