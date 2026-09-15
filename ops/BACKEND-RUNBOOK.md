@@ -1507,13 +1507,16 @@ rather than documenting the loss.
 ### Comparing the two model libraries
 
 `cedar-artifact-library` (Java) and `cedar-model-typescript-library` (TypeScript) implement the same
-model. JSON matches over all 83 corpus artifacts. YAML is byte-identical for 82 of 83 artifacts,
-in full and compact form. Template 029 is the one recorded difference: TypeScript preserves
-`https://bioportal.bioontology.org/ontologies/MESH` as an explicit ontology `sourceUri`; the locked
-Java writer omits it and reconstructs the different `https://data.bioontology.org/ontologies/MESH`
-address on read. TypeScript omits only a service URI its reader can reconstruct exactly. The parity
-allowance names template 029, and committed TypeScript fixtures pin its additional property; other
-differences, stale fixtures, or this difference disappearing fail the gate.
+model. JSON and both full and compact YAML match over all 83 corpus artifacts.
+Template 029 uses the canonical ontology service URI
+`https://data.bioontology.org/ontologies/MESH`, which both YAML readers reconstruct
+from the MESH acronym. Both YAML writers omit an ontology's service URI; both readers derive
+`https://data.bioontology.org/ontologies/{ACRONYM}`, even if the input YAML carries
+an explicit legacy `sourceUri`. This also applies to noncanonical service addresses
+and entries naming another `sourceSystem`. JSON retains the supplied service URI;
+YAML preserves `sourceIri` as the separate canonical ontology identity.
+The parity gate permits no current differences and also verifies that the committed
+TypeScript fixtures match freshly generated output.
 
 Template and element instance-type constraints retain an ordered set of IRIs in
 both libraries. Java exposes `instanceJsonLdTypes()` and `withInstanceJsonLdTypes`;
