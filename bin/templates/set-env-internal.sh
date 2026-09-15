@@ -60,6 +60,15 @@ export CEDAR_LOG_PRUNE_ENABLED="false"
 #export CEDAR_LOG_PRUNE_PAUSE_MS="500"         # prod-conservative: 2000
 #export CEDAR_LOG_PRUNE_IDLE_MS="3600000"
 
+# Which Cypher queries are kept out of the application log. Unlike the three jobs above this is read
+# by every service, not just the worker, because it acts where the message is enqueued.
+# Default (unset): the two authentication lookups, which are one log message in four and the same
+# query every time. "none" logs every Cypher query; "*" logs none of them.
+#export CEDAR_LOG_CYPHER_EXCLUDED_METHODS="Neo4JProxyUser.findUserByApiKey,Neo4JProxyUser.findUserById"
+# On prod, set this to "none" until the API-key lookup is cached: the measurement that justifies that
+# work reads the very rows the default excludes. See LOG-PIPELINE-CAPACITY.md §5 item 2.
+#export CEDAR_LOG_CYPHER_EXCLUDED_METHODS="none"
+
 # Neo4j user data
 export CEDAR_NEO4J_USER_NAME="neo4j"
 export CEDAR_NEO4J_USER_PASSWORD="changeme"
