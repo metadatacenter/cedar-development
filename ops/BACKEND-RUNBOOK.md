@@ -1024,7 +1024,7 @@ a YAML or Java change also needs rebuilding the config library and consuming ser
 | `BATCH_MAX_PER_ROUTE`, `BATCH_MAX_TOTAL` | `10`, `20` | That class's pool |
 | `EXTERNAL_CONNECT_MS`, `EXTERNAL_LEASE_MS`, `EXTERNAL_RESPONSE_MS` | `5000`, `2000`, `20000` | The three bounds on a call that leaves the estate |
 | `EXTERNAL_MAX_PER_ROUTE`, `EXTERNAL_MAX_TOTAL` | `20`, `40` | That class's pool |
-| `ARTIFACT_RESPONSE_MS` | `20000` | The artifact hop's own response timeout, overriding the interactive class |
+| `ARTIFACT_RESPONSE_MS` | `20000` | The interactive artifact hop's response timeout; batch artifact calls retain the batch class timeout |
 | `AUTHORITIES_RESPONSE_MS` | `20000` | The external registries' own response timeout, overriding the external class |
 
 A hop or a registry can override only the connect and response timeouts, which are set on each
@@ -1076,9 +1076,22 @@ plausible outlier.
 An artifact update writes two stores in sequence: the artifact document, then the graph. When the
 second write fails the first has to be undone, and that compensation is durable rather than best
 effort. Before the graph update is attempted, `ArtifactRestoreCompletionService` records in Neo4j
-what putting the artifact back would take; the request then tries the restore itself, and removes the
-record when it succeeds. If it fails, or if the process stops between the two writes, a relay retries
-every five seconds for about five minutes and then parks the job.
+what putting the artifact back would take. The graph update locks that record and removes it in the
+same Neo4j transaction as the update. Both the request's restore and the relay take that same lock
+before sending the conditional PUT, so a fetched job cannot undo a committed graph update or race
+an update still in progress. The worker persists `restoreStarted` before sending HTTP; once it has
+started restoring, the original graph write is refused even if the HTTP result is uncertain. If the
+graph transaction rolls back, the record remains available.
+The relay starts after thirty seconds and retries with a five-second delay between passes, parking
+a job after sixty failed attempts or a permanent client error. HTTP duration and other pending jobs
+can make this longer than five minutes.
+
+Records created before this transaction protocol have no reliable graph-completion evidence. Startup
+parks them with `parkedReason: Legacy job: graph completion is unknown`; they are never replayed
+automatically. Inspect the graph and artifact together before repairing or removing such a record.
+New writes to an artifact with a legacy record retain that record and log that their compensation
+could not be recorded. Deploy the resource server with the matching workspace-operations library;
+the graph completion and relay must use the same transaction protocol.
 
 Every restore carries `If-Match` on the ETag of the replacement it is undoing, so repeating one is
 safe: a restore that already succeeded, or a document another writer has since changed, answers 412,
