@@ -2098,10 +2098,17 @@ Field settings start collapsed behind the grey chevron centered at the bottom
 of each card. Expanding it reveals underline tabs for the applicable values,
 display, constraints, details, occurrences and metadata controls. Switching tabs
 or collapsing the panel retains incomplete input; valid settings update immediately
-without Apply buttons. Identity and provenance appear under Field metadata. Field details contains placeholder text for planned language, alternate label,
-property name and annotation controls; imported labels, identifiers, annotations and property IRIs remain
+without Apply buttons. Identity and provenance appear under Field metadata. Field details contains placeholder text for planned language and alternate-label controls; imported labels, identifiers, annotations and property IRIs remain
 preserved in the model. Published fields allow tab
 navigation and inspection while their editing controls remain disabled.
+The **Annotations** tab is available on templates, standalone and nested elements,
+and fields. Its shared table adds, edits and removes named text or IRI values.
+Names must be nonempty and unique, and IRI values must be absolute identifiers.
+Invalid rows remain local and block saving through the draft-validation report;
+valid edits update the artifact immediately. Published field annotation controls
+are disabled. Annotation value types and other metadata survive unrelated edits
+and artifact round trips.
+
 The card-level Save field to library action has been removed; import and reuse
 remain available through Field Designer.
 

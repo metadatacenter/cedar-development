@@ -252,15 +252,12 @@ Specify when external findings become stale after an edit or artifact replacemen
 Preserve unsaved input and cover correction, clearing and replacement of reports.
 The host calls the schema server and decides whether an artifact may be saved.
 
-### 13. Annotation and descriptive metadata authoring
+### 13. Descriptive metadata authoring
 
-Provide a clear authoring surface for annotations, appropriate
-for the Semantic and Modular profiles. Replace the Field details placeholder with focused controls for language, alternate
-labels, property name and annotations. Support adding, editing and removing
-literal and IRI-valued annotations, with unique names and validation of IRI values.
-
-Preserve imported annotations and property IRIs through unrelated edits, nesting,
-and JSON/YAML round trips. Respect host-supplied editing restrictions and preserve values when an edit is
+Replace the Field details placeholder with focused controls for language and alternate
+labels, with availability appropriate to the Semantic and Modular profiles.
+Preserve imported values through unrelated edits, nesting and JSON/YAML round trips.
+Respect host-supplied editing restrictions and preserve values when an edit is
 cancelled or invalid.
 
 ### 14. The three profiles, and what each one holds
