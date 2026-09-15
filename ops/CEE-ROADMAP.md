@@ -7,23 +7,24 @@ libraries still answer differently, is in
 [BACKEND-ROADMAP.md](./BACKEND-ROADMAP.md). The reasoning behind an item is in the
 commit that opened it.
 
-1. **General appearance contract.** Extend the compact-control contract in CEE's
-   `STYLING.md` with whole-component roles for brand, surface, text, muted and border.
-   Keep Material internals private. A runtime role must reach every affected control
-   and overlay through the M3 adapter, with browser tests setting a sentinel and checking
-   rendered foregrounds, backgrounds and focus states. Define status-color invariants,
-   derive related tints from the brand, and document only the properties those tests prove.
+1. **Whole-component runtime theme overrides.** Define host-facing CSS properties for
+   brand, surface, text, muted and border roles beyond the compact-control API in
+   `STYLING.md`. Wire them through the M3 adapter to every affected control and overlay,
+   keeping Material internals private. Specify how related tints respond to a host's
+   brand override and which semantic status colors must remain invariant. Add browser
+   tests that set custom role values and check rendered foregrounds, backgrounds and
+   focus states before documenting the properties as supported.
 
-2. **Markup discoverability.** Make template authoring state or enforce what CEE will
-   render. Align the Workspace rich-text editor's `Source` mode and CED's authoring
-   surfaces with `template-markup-policy.ts`; warn when sanitization removes content
-   instead of letting a preview silently lose it.
+2. **Authoring feedback for unsupported markup.** Expose CEE's rendering policy to
+   authors in the Workspace/Template Editor rich-text `Source` mode and CED's markup
+   input. Configure those surfaces to produce supported markup and warn when CEE's
+   sanitization would remove content. Verify the authoring-to-CEE round trip for both
+   supported formatting and rejected markup.
 
-   Decide whether `TEMPLATE_MARKUP_POLICY` becomes public embedding API or remains
-   internal with a supported description of the policy. Use that decision to keep editor
-   configuration, tests and documentation in step. Account for rules beyond a tag and
-   attribute allowlist, including forbidden event handlers and non-raster data images.
-   Verify the authoring-to-CEE round trip with supported formatting and rejected markup.
+   Decide how authoring tools obtain the policy: a public `TEMPLATE_MARKUP_POLICY`
+   embedding API or a supported description kept in sync with editor configuration
+   and tests. Include rules beyond the tag and attribute allowlists, such as forbidden
+   event handlers and non-raster data images.
 
 3. **Consistent authority marks.** Decide whether all seven authority fields should use
    the organisations' genuine marks, then replace the approximations for ORCID, PFAS,
