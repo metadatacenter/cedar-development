@@ -254,8 +254,8 @@ The host calls the schema server and decides whether an artifact may be saved.
 
 ### 13. Descriptive metadata authoring
 
-Replace the Field details placeholder with focused controls for language and alternate
-labels, with availability appropriate to the Semantic and Modular profiles.
+Replace the Field details placeholder with focused controls for language,
+with availability appropriate to the Semantic and Modular profiles.
 Preserve imported values through unrelated edits, nesting and JSON/YAML round trips.
 Respect host-supplied editing restrictions and preserve values when an edit is
 cancelled or invalid.

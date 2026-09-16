@@ -2098,9 +2098,16 @@ Field settings start collapsed behind the grey chevron centered at the bottom
 of each card. Expanding it reveals underline tabs for the applicable values,
 display, constraints, details, occurrences and metadata controls. Switching tabs
 or collapsing the panel retains incomplete input; valid settings update immediately
-without Apply buttons. Identity and provenance appear under Field metadata. Field details contains placeholder text for planned language and alternate-label controls; imported labels, identifiers, annotations and property IRIs remain
+without Apply buttons. Identity and provenance appear under Field metadata. Field details contains placeholder text for planned language controls; imported labels, identifiers, annotations and property IRIs remain
 preserved in the model. Published fields allow tab
 navigation and inspection while their editing controls remain disabled.
+The bottom of **Display** on non-static fields contains **Alternate questions**.
+Enter a question and select **Add question** to save it as an alternate label.
+Blank or whitespace-only questions and duplicates (ignoring surrounding whitespace)
+are rejected only on Add. The table is read-only;
+its bin actions remove questions. Published field controls are disabled, and questions
+are preserved in JSON/YAML round trips.
+
 The **Annotations** tab is available on templates, standalone and nested elements,
 and fields. An entry row above the shared table accepts an annotation name, value
 type and value; **Add annotation** validates and inserts the entry, then clears the
