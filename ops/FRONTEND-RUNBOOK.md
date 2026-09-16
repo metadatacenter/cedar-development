@@ -2094,6 +2094,24 @@ CEF's `readOnlyMode: true` renders a supplied value, or the field's accepted-val
 specification when `value` is `{ kind: 'none' }`. CED uses this for the compact
 controlled-term summary; the term picker remains the constraint authoring surface.
 
+CED starts with the **Modular** profile. To test reusable artifact search as local
+`test1@test.com`, run `npm run demo:prepare` followed by `npm run demo:serve` in CED,
+then open `http://localhost:4599/`. This loopback-only host reads Keycloak on 8080
+and the resource server on 9007; credentials and renewable access tokens stay in
+the demo server. Its API exposes reads only. The published component has no default
+repository or account. The opt-in browser check is
+`CED_LOCAL_REPOSITORY=1 npm --prefix browser test -- --grep 'local test1'`.
+
+**Add Child** keeps the standard field palette and adds **Select existing fields and elements**.
+Its dialog stages multiple first-class artifacts above a searchable, paginated results table,
+with name, type, creation/modification dates, version and status. Bins remove staged rows;
+Done inserts the complete batch at the selected position and Cancel discards it.
+The embedding host supplies `childSource.search` and `childSource.load`; see CED's README
+and `CedChildSource` public type for the callback contract. The host owns authentication
+and permission filtering. Without that input, repository search reports unavailable.
+Imported definitions retain their identifiers, provenance and descendants; conflicting
+child names are resolved in their parent placements.
+
 Field settings start collapsed behind the grey chevron centered at the bottom
 of each card. Expanding it reveals underline tabs for the applicable values,
 display, constraints, details, occurrences and metadata controls. Switching tabs
@@ -2239,19 +2257,19 @@ the target of the shared field sidebar. `ContainerOutlineComponent` scrolls to a
 field or element and expands its ancestors. All CEDAR model reads, builds and writes
 remain in `core/model/cedar-template.ts`.
 
-Choose **File → New Element** for a standalone element. The **Modular** profile
-(or **Enable Elements** preference) offers **Add Element** and **Import Element**.
+The embedding host supplies standalone elements through the public artifact input.
+CED offers no file import/export controls or separate Add Element/Import Element buttons.
 Existing nested content remains visible under every profile. Elements start expanded;
 the chevron in their template-style header collapses or expands their children without
 discarding input or changing the artifact. **Element settings** edits the placement's
 property name, display labels, property IRI, requirement, cardinality and layout, and
-contains duplicate, remove and move actions. Add/import controls within each element
-target that container. The Element settings move selector transfers whole element subtrees;
+contains duplicate, remove and move actions. The reusable-child selector within each element
+targets that container. The Element settings move selector transfers whole element subtrees;
 cycles, duplicate property names and page breaks inside elements are refused. On
 narrow screens the outline is hidden; nested sections remain editable inline.
 
-**Import Element** creates an independent local copy retaining source artifact
-identity. Its destination is captured when the file chooser opens, so later navigation
+Selecting a reusable element creates an independent local copy retaining source artifact
+identity. Its destination is captured when the selector opens, so later navigation
 cannot redirect it. **Duplicate Element** creates new draft identities throughout
 the subtree, records each source with `pav:derivedFrom`, and clears publication and
 creation/update provenance. Neither operation creates a live server reference.
