@@ -39,7 +39,7 @@ CEE and the public npmjs CEE, and then runs the complete release gate. It must f
 ### Nothing May Land Between the Train and the Release
 
 A release stamps the exact commits its train captured and refuses any repository whose `develop`
-has moved off them. A single commit to any one of the forty-four therefore spends the train, and
+has moved off them. A single commit to any one of the forty-five therefore spends the train, and
 the release needs a new one, built and smoke-gated from scratch. Do CI, tooling and documentation
 work before the train rather than between the train and the release it backs.
 
@@ -115,7 +115,7 @@ build a train from that source. Where `develop` dropped the file deliberately an
 behind, `--accept-main-only <repository>` takes the replacement and records that it was asked for.
 The version files a release stamps onto each branch separately do not count as divergence.
 
-`cedarcli check main` asks the same question of all forty-four repositories at any time, which is
+`cedarcli check main` asks the same question of all forty-five repositories at any time, which is
 where it is cheap to answer. Asked during a release, it is already expensive.
 
 Neither a release nor a train needs `cedarcli check versions --strict`. A release stamps a train's
@@ -322,6 +322,16 @@ actually serving. A completed release reports `Release <VER> — COMPLETE` and s
 An accepted release advances `develop` in every repository it integrated and leaves the local
 checkouts on the commits before it, so it prints what the next train needs: `cedarcli git pull`,
 then `cedarcli check ci` and `cedarcli test e2e` at the new heads.
+
+Once the proof holds, acceptance retires the release branches earlier releases left behind. Each
+release writes `release/pre-<version>` to every repository it touches and `release/post-<next>` to
+the release repositories, and the preflight refuses a version whose refs already exist, so nothing
+removed them and they accumulated a pair per release per repository. The current pair stays — it is
+this release's evidence, and what a rollback would reach for — and every older one goes, superseded
+by the tag naming the same tree. The sweep runs only after the proof, so a failed acceptance still
+has the older refs to be read against, and it is housekeeping rather than proof: a remote that
+refuses a delete is recorded in the ledger under `branchRetirement` and does not fail a release that
+has already been accepted.
 
 Acceptance also marks the release concluded and frees the active slot. There is no separate
 `finish` command. If the process stops after writing the accepted ledger but before marking its

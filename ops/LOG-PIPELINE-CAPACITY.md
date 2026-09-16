@@ -45,8 +45,8 @@ All four share a `globalRequestId`:
 before their UPDATE.
 
 Message 2 is worth dwelling on: **every API-key-authenticated request writes a Cypher log row purely
-for authentication.** `AppLoggerQueueService.enqueueEvent` still carries the filter that would
-exclude it, commented out, with the original author's note:
+for authentication.** Until 2026-09-15 `AppLoggerQueueService.enqueueEvent` carried the filter that
+would exclude it, commented out, with the original author's note:
 
 ```java
 // We are disabling Cypher logging because of the large volume of logs generated - and the fact that
@@ -55,6 +55,43 @@ exclude it, commented out, with the original author's note:
 ```
 
 It shows in the table sizes: `log_cypher` holds **5.2M** rows against `log_request`'s **2.9M**.
+
+### Which Cypher queries are logged
+
+`CypherLogFilter` decides, at `enqueueEvent`. It excludes **named methods**, not the whole type: the
+note above was right about the volume and wrong to generalize from it, because `log_cypher` is also
+the input to `agg_cypher_hourly`, the query catalog and `agg_cypher_outlier`, which §8 of
+`PROD-LOG-AGGREGATION-ROLLOUT.md` reads.
+
+| `CEDAR_LOG_CYPHER_EXCLUDED_METHODS` | effect |
+|---|---|
+| unset | excludes `Neo4JProxyUser.findUserByApiKey` and `Neo4JProxyUser.findUserById` — the two authentication lookups, one log message in four |
+| `none` | logs every Cypher query |
+| `*` | logs none of them (the original commented-out filter) |
+| `A.b,c` | `SimpleClassName.methodName`, or a bare method name matching in any class |
+
+Read by **every service**, not just the worker, because it acts where the message is enqueued: set
+for the worker alone, the other fourteen still log the excluded queries. A message whose class and
+method were not resolved is always kept — the parked messages on both hosts are that shape, and an
+exclusion is no reason to stop seeing the queries that fail to be written. Suppressed messages are
+counted, and the running total is logged every 10,000.
+
+### 2.1 · Resolving the caller
+
+Before a request does anything it resolves the API key it arrived with to a user record, and the
+answer is the same every time. `ApiKeyLookupCache` (user-operations-library) remembers it for
+`CEDAR_API_KEY_CACHE_TTL_SECONDS`, **default 10, 0 to switch it off**.
+
+Ten seconds because the cost is a burst rather than a trickle: at the measured 9.4 lookups a second
+for one key it turns 5,666 lookups into about 60, and thirty seconds would reach 99.6% — not worth
+tripling the window in which a withdrawn credential still works.
+
+**It is per-JVM.** A key revoked through the user server is refused there at once, because
+`UserServiceNeo4j` clears its own cache on every write it performs, and refused by the other fourteen
+services once their entries lapse. There is no estate-wide invalidation, and the short window is why
+none is needed. Negative answers are cached on the same terms, so a client hammering a bad key is no
+cheaper than one using a good key. The disabled-key rule is still evaluated per call rather than
+remembered as a verdict, so caching cannot reinstate a disabled key inside the window.
 
 ---
 
@@ -126,8 +163,17 @@ happening.
 1. **The permission reindex is unbounded and unobservable.** No batching, no time limit, no progress
    reporting, no way to distinguish "advancing" from "wedged". This is the top fix — the 2026-09-14
    cascade ran two days undetected precisely because nothing could say how far along it was.
-2. **Cypher logging is on and was never meant to be.** Re-enable the filter in `enqueueEvent`, or make
-   it configurable. It is 1 message in 4.
+2. **Switch the Cypher filter on, now the API-key lookup is cached.** The 2026-09-15 prod profile
+   (`reindex-cypher-profile.sql`) found `Neo4JProxyUser.findUserByApiKey` resolved **5,666 times in
+   ten minutes for the same key** — identical query, identical parameters, identical answer, 50.0 s
+   of Neo4j time, avg 8.81 ms, the most expensive repeated query in the window. `ApiKeyLookupCache`
+   now answers it from memory for a few seconds at a time (§2.1), which removes the query rather
+   than only its log row.
+   **The order still matters, because only one direction is reversible.** That finding came out of
+   `log_cypher` rows for precisely the method `CypherLogFilter` excludes by default (§2), so the
+   filter should go live on prod **after** a run that confirms the cache is working, not before —
+   once no row is written, nobody can measure the thing the cache was built for. Re-running that
+   analysis later needs `CEDAR_LOG_CYPHER_EXCLUDED_METHODS=none` for the duration.
 3. **Batch the log consumer** — claim N messages, one session, one commit.
 4. **Drop the redundant SELECT.** `findByLocalRequestId` then update could be a single
    `UPDATE … WHERE localRequestId = ?`, removing a round-trip from two-thirds of messages.
@@ -135,6 +181,19 @@ happening.
 6. **`HANDLING_RETRY_DELAY_MILLIS = 1000` → ~50.** Not firing today, but a silent one-second stall per
    transient failure, with **no log line on non-final attempts**, is a landmine.
 7. **Investigate the 7.25 ms statement round-trip** (§3).
+8. **Give the consumer a retry budget that survives a restart.** `MAX_HANDLING_ATTEMPTS = 3` at
+   `HANDLING_RETRY_DELAY_MILLIS = 1000` is ~3 seconds. Prod's 54 dead-lettered messages on
+   2026-09-14 were that and nothing more: the log DB was unreachable 18:15-18:55 while
+   `cedr-prd-db-01` was resized, and everything consumed in the window parked. A restart takes
+   minutes, so today every message in flight during one is guaranteed to park. The fix is not a
+   shorter delay (the earlier plan) but a distinction — a message the DB rejects is bad and should
+   park at once; a message that could not reach the DB should wait and be retried. See
+   `LOG-QUEUE-RUNBOOK.md` §4b, which now records how this was established.
+9. **Health-check cards show `Error: 500` and no detail.** Dropwizard's admin endpoint names the
+   failing check and its message; the UI discards it. Every card also carries
+   `[routerLink]="'/health-checks'"` — the page it is already on — so cards look clickable, hover as
+   if clickable, and do nothing. Diagnosing a red card currently means curling an admin port by hand.
+   `cedar-monitoring-src/.../pages/health-checks/`.
 
 ### Already available, not yet used
 

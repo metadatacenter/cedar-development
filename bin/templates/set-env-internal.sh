@@ -60,6 +60,20 @@ export CEDAR_LOG_PRUNE_ENABLED="false"
 #export CEDAR_LOG_PRUNE_PAUSE_MS="500"         # prod-conservative: 2000
 #export CEDAR_LOG_PRUNE_IDLE_MS="3600000"
 
+# Which Cypher queries are kept out of the application log. Unlike the three jobs above this is read
+# by every service, not just the worker, because it acts where the message is enqueued.
+# Default (unset): the two authentication lookups, which are one log message in four and the same
+# query every time. "none" logs every Cypher query; "*" logs none of them.
+#export CEDAR_LOG_CYPHER_EXCLUDED_METHODS="Neo4JProxyUser.findUserByApiKey,Neo4JProxyUser.findUserById"
+# On prod, set this to "none" until the API-key lookup is cached: the measurement that justifies that
+# work reads the very rows the default excludes. See LOG-PIPELINE-CAPACITY.md §5 item 2.
+#export CEDAR_LOG_CYPHER_EXCLUDED_METHODS="none"
+
+# How long a service may reuse the user record an API key resolved to. Every service keeps its own
+# cache, so a key revoked through the user server is refused there at once and elsewhere once this
+# passes. Default 10s; 0 turns the cache off and every request resolves from the graph again.
+#export CEDAR_API_KEY_CACHE_TTL_SECONDS="10"
+
 # Neo4j user data
 export CEDAR_NEO4J_USER_NAME="neo4j"
 export CEDAR_NEO4J_USER_PASSWORD="changeme"
@@ -102,3 +116,28 @@ export CEDAR_TRUSTED_FOLDERS="{\\\"caDSR\\\":[\\\"https://repo.metadatacenter.or
 #export CEDAR_RATE_LIMIT_TOTAL_FAILURE_MODE="open"
 #export CEDAR_RATE_LIMIT_READS_FAILURE_MODE="open"
 #export CEDAR_RATE_LIMIT_WRITES_FAILURE_MODE="closed"
+
+# How far an outbound HTTP call is allowed to get, by the kind of call it is: a hop to the next
+# CEDAR service, a job nobody waits on, or a registry CEDAR does not operate. Leave unset to take
+# the defaults from cedar-main.yml. The response timeouts are the values the estate has always run
+# on rather than measured ones; set them from the p99s in log/<server>/access.log, whose lines now
+# end in the elapsed milliseconds.
+#export CEDAR_HTTP_INTERACTIVE_CONNECT_MS="1000"
+#export CEDAR_HTTP_INTERACTIVE_LEASE_MS="1000"
+#export CEDAR_HTTP_INTERACTIVE_RESPONSE_MS="20000"
+#export CEDAR_HTTP_INTERACTIVE_MAX_PER_ROUTE="100"
+#export CEDAR_HTTP_INTERACTIVE_MAX_TOTAL="200"
+#export CEDAR_HTTP_BATCH_CONNECT_MS="3000"
+#export CEDAR_HTTP_BATCH_LEASE_MS="5000"
+#export CEDAR_HTTP_BATCH_RESPONSE_MS="120000"
+#export CEDAR_HTTP_BATCH_MAX_PER_ROUTE="10"
+#export CEDAR_HTTP_BATCH_MAX_TOTAL="20"
+#export CEDAR_HTTP_EXTERNAL_CONNECT_MS="5000"
+#export CEDAR_HTTP_EXTERNAL_LEASE_MS="2000"
+#export CEDAR_HTTP_EXTERNAL_RESPONSE_MS="20000"
+#export CEDAR_HTTP_EXTERNAL_MAX_PER_ROUTE="20"
+#export CEDAR_HTTP_EXTERNAL_MAX_TOTAL="40"
+# One hop and the registries can narrow their own class. A large instance write with validation is
+# the plausible outlier among calls that are otherwise a lookup and a reply.
+#export CEDAR_HTTP_ARTIFACT_RESPONSE_MS="20000"
+#export CEDAR_HTTP_AUTHORITIES_RESPONSE_MS="20000"

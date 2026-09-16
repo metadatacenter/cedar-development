@@ -10,7 +10,7 @@ shapes of the endpoints the picker reads, are sections of that same roadmap —
 Sibling runbooks:
 - [BACKEND-RUNBOOK.md](./BACKEND-RUNBOOK.md) — running the CEDAR stack the terminology server sits
   in, and the port map.
-- [CEE-RUNBOOK.md](./CEE-RUNBOOK.md) — the CEDAR Embeddable Editor, the other Angular Web Component
+- [FRONTEND-RUNBOOK.md](./FRONTEND-RUNBOOK.md#cee) — the CEDAR Embeddable Editor, the other Angular Web Component
   in the estate and the setup the picker follows.
 
 ---
@@ -470,6 +470,15 @@ histories through the search response rather than calling the versions endpoint.
 
 ## Building and Testing the Picker
 
+The picker's font, type scale and colours are CEDAR's, published from `cedar-design-tokens` as
+`@org.metadatacenter/cedar-design-tokens`. `src/_cee-tokens.scss` and `src/_cedar-neutrals.scss`
+were the copies the package was extracted from, and they went on 2026-09-15 — including the advisory
+colour that had drifted, where the picker drew `#856404` against the editor's `#b45309`. The values
+now come from `@use '@org.metadatacenter/cedar-design-tokens/tokens' as tokens`, with `node_modules`
+on the Sass load path, and the variables carry no `cee-` prefix because the alias is what carries the
+scope. The small and lead steps go on being derived from the base a host may set, so
+`--cetp-font-size: 16px` still reads as a larger component rather than a broken one.
+
 | Command | What it does |
 |---|---|
 | `npm run build:production` | the custom-element bundle, into `dist/cedar-embeddable-term-picker` |
@@ -531,6 +540,19 @@ Verified in a browser rather than assumed — `document.fonts` carries `CEE Robo
 A global stylesheet in `angular.json` would be the ordinary way to reach the document, and it does
 not work here: the CLI emits it as a separate `styles.css` that a host page never loads.
 `"styles": []` is deliberate, in this repository and in CEE.
+
+## Internal boundaries
+
+Each picker provides its own `TerminologyClient`; its property-detail child uses
+that same instance. Multiple pickers can name different servers without sharing
+endpoint state. Destruction cancels the search timer and outstanding node-page
+requests.
+
+`search/constraint-table` owns the selected-constraints presentation and emits
+editing intents. The picker owns its draft, application and cancellation.
+`constraint-presentation.ts` names the kinds, labels and identifiers;
+`hierarchy-rows.ts` projects loaded hierarchy state into visible rows without
+Angular or HTTP. Keep those domain operations outside the component.
 
 ## Class Names Are a Shared Namespace
 

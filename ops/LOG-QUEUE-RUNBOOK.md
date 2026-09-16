@@ -23,6 +23,10 @@ Historical baseline traffic is ~0.76/s, so there is normally ~8x headroom and no
 
 Run these on the app host (`cedr-prd-app-05`). They take under a minute and they split every case.
 
+> The Monitor's **Queue Counts** page now shows pending, processing and dead-letter depths for every
+> queue, so (a), (c)'s two counts and §4b's depths are readable without an SSH session. Come here for
+> (b), for the in-flight message's own payload, and whenever the Monitor is itself unavailable.
+
 ```bash
 # a. Is the queue growing, and how fast?
 redis-cli LLEN CEDAR-QUEUE-app-log; sleep 60; redis-cli LLEN CEDAR-QUEUE-app-log
@@ -140,14 +144,138 @@ redis-cli LLEN CEDAR-QUEUE-app-log; sleep 60; redis-cli LLEN CEDAR-QUEUE-app-log
 it does not exit — it spins.
 
 ```bash
-grep -n 'log queue consumer failed' $CEDAR_HOME/log/cedar-worker-server/dropwizard.log | tail -5
+grep -n 'log queue consumer failed' $CEDAR_HOME/log/cedar-worker-server/dropwizard*.log | tail -5
 ```
 
 That line appears **only on the first failure**; later ones are collapsed to a count, so search the
-whole file, not the tail. Its absence means the consumer has not thrown.
+whole file, not the tail — and every file, not just the current one: the appender rotates daily
+(`dropwizard-%d.log`, five archives kept). Its absence means the consumer has not thrown.
 
 `AppLoggerQueueProcessor` logs nothing per message in normal operation, so **silence proves nothing
 either way.** Use `max_id` as the liveness signal, not the log.
+
+---
+
+## 4b · Dead-lettered log messages
+
+**Start on the Monitor's Queue Counts page.** It reports three depths per queue — pending,
+processing and dead-letter — so the whole of this section's triage is readable without shelling into
+the app host. The `redis-cli` equivalents below still work and are what to use when the Monitor is
+the thing that is down.
+
+```bash
+curl -s http://127.0.0.1:9111/healthcheck | python3 -m json.tool | grep -A3 queue-dead-letter
+
+for q in app-log search-permission cloneInstances valuerecommender ncbi-submission; do
+  printf '%-30s ' "$q"; redis-cli LLEN "CEDAR-QUEUE-$q-dead-letter"
+done
+```
+
+A message lands there after `handleWithRetries` fails **3 times** (`MAX_HANDLING_ATTEMPTS`, 1 s
+apart). The payload is parked rather than lost, and the depth is the alarm.
+
+> **Changed 2026-09-15: a parked message no longer makes the worker UNHEALTHY.** It used to —
+> `queue-consumers` failed on any non-empty dead-letter queue, which 500'd the admin endpoint, and
+> `cedar-services.sh` derives readiness from that endpoint and accepts only 200. So one parked
+> message made **every** `cedarcli native start microservices` wait out its full 240 s budget on a
+> worker that was listening and serving, then report the start as failed. Prod's 54 did exactly that
+> on 2026-09-15.
+>
+> The check is now split: **`queue-consumers`** still fails when a consumer has stopped or is failing,
+> and **`queue-dead-letter`** reports depths and stays healthy. A parked message is a backlog to look
+> at, not a server that cannot serve. **It still needs looking at** — the depth is on the health
+> message and on Queue Counts, and it is nobody's alarm if nobody reads either.
+
+**Read one before clearing** — they are usually all the same shape, and the shape is the diagnosis:
+
+```bash
+redis-cli LRANGE CEDAR-QUEUE-app-log-dead-letter 0 2
+```
+
+Clearing needs **no restart** — the check reads the depth live:
+
+```bash
+redis-cli LRANGE CEDAR-QUEUE-app-log-dead-letter 0 -1 > ~/app-log-dead-letter-$(date +%F).json
+redis-cli DEL CEDAR-QUEUE-app-log-dead-letter
+```
+
+### Why messages dead-letter, and it is not the message
+
+**Settled 2026-09-15 from prod's own logs.** The payload is not the cause. Both prod's 54 and
+staging's 26 shared a shape — `type: cypherQuery`, `methodName: findUserByApiKey` or
+`getResourceMaterializedPermission`, **both request IDs null** — and that shape reads as systematic.
+It is not. It is what happens to be in flight when a dependency goes away.
+
+Prod's `$CEDAR_HOME/log/cedar-worker-server/dropwizard-2026-09-14.log`, exception by minute:
+
+```
+26  2026-09-12 12:35  MISCONF                    <- Redis refusing writes
+44  2026-09-12 14:48  MISCONF
+26  2026-09-13 17:18  MISCONF
+12  2026-09-14 18:15  java.net.ConnectException  <- MySQL unreachable
+ 6  2026-09-14 18:52  java.net.ConnectException
+ 9  2026-09-14 18:53  java.net.ConnectException
+ 7  2026-09-14 18:54  java.net.ConnectException
+20  2026-09-14 18:55  java.net.ConnectException
+```
+
+**The 54 ConnectExceptions are the 54 parked messages, exactly.** The log DB was unreachable on the
+evening of 2026-09-14 while `cedr-prd-db-01` was resized and restarted. Three attempts a second apart
+is a ~3-second budget against a restart that takes minutes, so everything consumed in that window
+parked.
+
+The null request IDs are a consequence of the backlog, not of the message type. The payloads are
+stamped 17:21:59 and were not consumed until 18:15 — an hour behind, which is what a 6/s consumer
+with a backlog looks like. At 17:21 the only producer was the permission cascade, and background work
+has no HTTP request to take an ID from. Whatever had been running would have parked.
+
+**So: a dead-letter depth after a database or Redis outage is expected and needs no investigation
+beyond confirming the window.** Capture, read one, clear.
+
+### MISCONF: Redis refusing writes duplicates log rows
+
+The 96 MISCONF failures are a different and worse problem, and all three fall on flood days:
+
+```
+MISCONF Redis is configured to save RDB snapshots, but it is currently not able to persist on
+disk. Commands that may modify the data set are disabled
+```
+
+Redis could not write its snapshot, so it refused every write command. `handleWithRetries` writes the
+row to MySQL **first** and then calls `acknowledge()`, so with Redis refusing writes the row lands in
+the database and the acknowledge fails — the message is retried and **written again**, up to three
+times. Dead-lettering then also fails, so it stays in the processing list and is replayed on the next
+restart.
+
+**A MISCONF window therefore multiplies log rows rather than losing them.** `log_cypher` went 5.2M to
+17.0M across exactly these days. Some of that is the flood; some of it is this.
+
+Suspected cause: a Redis holding millions of queued messages cannot fork and snapshot on a host with
+limited free disk. That makes it a consequence of the flood as well as a contributor to it. Check the
+Redis host's disk and the Redis log's RDB errors; `stop-writes-on-bgsave-error` is what turns a failed
+snapshot into refused writes.
+
+### Reading the reason
+
+`AppLoggerQueueProcessor.deadLetter` writes the exception at ERROR, as does
+`QueueServiceWithBlockingQueue.deadLetter` on a failed move. Both have been there since `946802c`
+(2026-08-25, in every release from 2.9.3). **The appender rotates daily and keeps five archives**, so
+yesterday's errors are in `dropwizard-%d.log`, not `dropwizard.log`, and expire after five more days.
+
+```bash
+grep -h -A60 -E 'dead-letter|unprocessable' "$CEDAR_HOME"/log/cedar-worker-server/dropwizard*.log \
+  > ~/dl-$(hostname -s).txt
+
+# which dependency, and when
+awk '/^ERROR \[/{ts=substr($0,8,16)}
+     match($0,/java\.net\.ConnectException|CJCommunicationsException|MISCONF/){
+       print ts, substr($0,RSTART,RLENGTH)}' ~/dl-$(hostname -s).txt | sort | uniq -c
+```
+
+`$CEDAR_HOME` is **not set** in a non-interactive `ssh host '<cmd>'` shell — wrap it in `bash -lc`, or
+use the literal path (`/srv/cedar` on prod).
+
+If the depth climbs back after clearing with no outage to explain it, then it is worth investigating.
 
 ---
 

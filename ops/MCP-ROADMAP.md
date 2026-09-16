@@ -76,7 +76,7 @@ one server — a tool to add, a description to sharpen — belongs in that repos
 - **What each server does.** The tool surface, its wording and its behaviour are the repository's
   own concern, and each has a ROADMAP for it.
 - **The CEE itself.** Building, testing and releasing the web component is
-  [CEE-RUNBOOK.md](./CEE-RUNBOOK.md) and [CEE-ROADMAP.md](./CEE-ROADMAP.md); this pair covers only
+  [FRONTEND-RUNBOOK.md](./FRONTEND-RUNBOOK.md#cee) and [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee); this pair covers only
   how `cedar-cee-mcp` consumes a published bundle.
 - **The CEDAR server surface the REST MCP calls.** Endpoint behaviour, validation and content
   negotiation are backend work, in [BACKEND-ROADMAP.md](./BACKEND-ROADMAP.md).

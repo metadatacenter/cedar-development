@@ -479,8 +479,8 @@ class NativeProcessSafetyTest(unittest.TestCase):
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertNotIn("Waiting for", result.stdout)
 
-    def test_the_health_probe_outlasts_a_cached_report_being_rebuilt(self):
-        """Terminology answers in 4-7ms warm and up to 2.45s once its cached report has lapsed."""
+    def test_the_health_probe_outlasts_a_slow_dependency_inside_a_health_report(self):
+        """Terminology answers in milliseconds, and in up to two seconds while it refreshes."""
         result = self.run_library(
             'curl() { printf "%s\\n" "$*" > "$CEDAR_HOME/probe-arguments"; echo 200; }; '
             'health_of terminology; cat "$CEDAR_HOME/probe-arguments"'
@@ -490,6 +490,50 @@ class NativeProcessSafetyTest(unittest.TestCase):
         self.assertIn("healthy", result.stdout)
         timeout = result.stdout.split("-m ", 1)[1].split(" ", 1)[0]
         self.assertGreaterEqual(int(timeout), 3, result.stdout)
+
+    def test_a_probe_that_times_out_is_slow_rather_than_starting(self):
+        """A serving process that cannot answer in time has not been told it is booting.
+
+        Saying `starting` for a timeout read as a server on its way up, so an operator waited for
+        something that had already arrived, and the gate refused a stack that was serving.
+        """
+        result = self.run_library(
+            'curl() { echo 000; return 28; }; port_open() { return 0; }; '
+            'health_of terminology'
+        )
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual("slow", result.stdout.strip())
+
+    def test_an_admin_port_not_yet_bound_is_still_starting(self):
+        """A service whose application port is open before its admin connector binds is booting."""
+        result = self.run_library(
+            'curl() { echo 000; return 7; }; port_open() { return 0; }; '
+            'health_of terminology'
+        )
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual("starting", result.stdout.strip())
+
+    def test_a_timed_out_probe_against_a_closed_port_is_down(self):
+        result = self.run_library(
+            'curl() { echo 000; return 28; }; port_open() { return 1; }; '
+            'health_of terminology'
+        )
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual("down", result.stdout.strip())
+
+    def test_frontend_health_reports_a_compiler_that_never_answers_as_slow(self):
+        """A frontend compiling its bundle serves nothing yet and is not failing."""
+        result = self.run_library(
+            'app_port() { echo 4220; }; admin_port() { echo 0; }; '
+            'curl() { printf 000; return 28; }; port_open() { return 0; }; '
+            'health_of ui-openview'
+        )
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual("slow", result.stdout.strip())
 
     def test_logs_resolves_the_two_logs_a_service_writes(self):
         result = self.run_library(

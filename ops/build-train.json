@@ -36,6 +36,7 @@
     "cedar-docker-deploy",
     "cedar-development",
     "cedar-cli",
+    "cedar-design-tokens",
     "cedar-model-typescript-library",
     "cedar-model-typescript-library-demo",
     "cedar-embeddable-editor",
