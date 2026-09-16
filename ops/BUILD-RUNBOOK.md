@@ -75,7 +75,8 @@ Maven, TypeScript model → CEE → frontend, and 31-image Docker configuration 
 GitHub CLI authentication and the workflow on `develop`; checks CI for every exact remote
 `develop` SHA that defines a workflow; requires the train slot to be idle;
 rejects a colliding ID; rejects dirty or unpushed source; requires every checked-out source
-repository's `develop` to equal the live remote `develop`; and requires a passing whole-stack smoke
+repository's `develop` to equal the live remote `develop`; requires every source to be readable
+without credentials; and requires a passing whole-stack smoke
 run recorded against exactly those heads. It also runs the same read-only
 publication-target probe as hosted preflight: Nexus service and writable status, the
 `cedar-maven-dev` repository root, npm identity, and Docker Registry v2 authentication. Credentials
@@ -85,6 +86,15 @@ even after one has refused, so a single rehearsal reports every finding, each st
 and each red repository among them, rather than the first one met. It then prints the exact
 dispatch command. It does not start GitHub Actions, publish an artifact, alter Docker or npm
 client configuration, or write a manifest.
+
+That anonymous read closes a gap the operator's own shell would otherwise hide. The runner resolves
+every source with an unauthenticated `git ls-remote`, so a private repository, or one missing
+`develop`, stops the workflow before it records any state. A rehearsal inheriting the operator's
+credentials reaches a repository the runner cannot, and reports every source healthy. The check
+therefore strips the credential helpers, the askpass programs and the configuration an environment
+can inject, then asks the question the way the runner asks it. Nothing is published when the
+workflow fails this way, but the train ID is spent, so the recovery is a fresh train rather than a
+resume.
 
 Local preflight also reports CI environment drift as an advisory. Every Java repository's `ci.yml`
 carries a copy of `ops/ci-env-block.yml`, and a copy missing an entry breaks only the repositories
