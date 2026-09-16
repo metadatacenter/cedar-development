@@ -252,15 +252,7 @@ Specify when external findings become stale after an edit or artifact replacemen
 Preserve unsaved input and cover correction, clearing and replacement of reports.
 The host calls the schema server and decides whether an artifact may be saved.
 
-### 13. Descriptive metadata authoring
-
-Replace the Field details placeholder with focused controls for language,
-with availability appropriate to the Semantic and Modular profiles.
-Preserve imported values through unrelated edits, nesting and JSON/YAML round trips.
-Respect host-supplied editing restrictions and preserve values when an edit is
-cancelled or invalid.
-
-### 14. The three profiles, and what each one holds
+### 13. The three profiles, and what each one holds
 
 Basic, Semantic and Modular are the product structure, and CED has their names
 already: three presets in the preferences modal, each a bundle of visibility
@@ -285,7 +277,7 @@ does not show.
 Every control on a card today is a decision this item has to absorb, and there are
 now a great many of them.
 
-### 15. Complete the CED embedding contract
+### 14. Complete the CED embedding contract
 
 Define inputs for read-only mode, language and allowed field types. Host restrictions
 bound what the author may edit or select; profile and preference settings can narrow
@@ -300,7 +292,7 @@ artifact or creates an editable draft, without CED allocating identities or vers
 Add conformance and browser tests for these inputs and events, including read-only
 published content and transitions to a host-supplied editable document.
 
-### 16. Keyboard and screen-reader access
+### 15. Keyboard and screen-reader access
 
 Verify keyboard focus order across cards, settings, palette actions and nested
 elements. Add live-region announcements for constraint changes and accepted or

@@ -2098,9 +2098,16 @@ Field settings start collapsed behind the grey chevron centered at the bottom
 of each card. Expanding it reveals underline tabs for the applicable values,
 display, constraints, details, occurrences and metadata controls. Switching tabs
 or collapsing the panel retains incomplete input; valid settings update immediately
-without Apply buttons. Identity and provenance appear under Field metadata. Field details contains placeholder text for planned language controls; imported labels, identifiers, annotations and property IRIs remain
+without Apply buttons. Identity and provenance appear under Field metadata. Imported labels, identifiers, annotations and property IRIs remain
 preserved in the model. Published fields allow tab
 navigation and inspection while their editing controls remain disabled.
+**Display** includes a Language selector for templates, standalone and nested elements,
+and all fields (including static fields). Its default, **Not specified**, leaves language
+unset; clearing a choice removes the explicit language. The bundled fixed list uses
+ISO 639-1 codes and English names from the [Library of Congress](https://www.loc.gov/standards/iso639-2/ISO-639-2_utf-8.txt),
+retrieved 2026-09-15. Imported tags outside the list remain available as the current
+value, without rewriting them. Published field controls remain disabled.
+
 The bottom of **Display** on non-static fields contains **Alternate questions**.
 Enter a question and select **Add question** to save it as an alternate label.
 Blank or whitespace-only questions and duplicates (ignoring surrounding whitespace)
