@@ -1176,3 +1176,30 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
 
   Done when each of the two hosts has a stated role, an owner, and either a current caller that needs
   the process or a routing arrangement that keeps its URLs resolving without one.
+
+- **28. Revisit controlled-term result actions: define scalable semantics, narrow them, or delete
+  them.** Exclusion and `move` actions are stored beside a field's complete constraint set and apply
+  to the result after all ontology, branch, class and value-set constraints have been combined. They
+  are not customizations of one constraint row. Before the picker exposes authoring controls, state
+  what each action means for a single large ontology, multiple branches, multiple sources, pinned
+  releases and query-ranked results.
+
+  The current execution model cannot be that contract. Multi-source integrated search merges and
+  sorts one page and explicitly reports invalid pagination. Actions are then applied to that returned
+  page: a deletion can leave a hole, the server does not fetch a replacement, and a move is clamped
+  to the current page. Consequently, “move this term to position N” is neither a stable global order
+  over a 100,000-term ontology nor a well-defined position across different search queries.
+
+  Keep exclusion only if it can be pushed into result construction before pagination, with full
+  pages and correct totals regardless of which constraint admitted the term. For ordering, choose one
+  of two explicit products: replace arbitrary moves with a small ordered set of preferred terms whose
+  interaction with query matching is defined, or remove move actions from the supported authoring
+  model. Preserve imported actions while deciding, and provide a migration or compatibility rule for
+  existing actions before changing their stored shape or execution.
+
+  Prove the chosen contract with a large locally served ontology and with overlapping branches from
+  more than one source. Tests must cover paging beyond the first page, query and empty-query results,
+  pinned releases, duplicate terms admitted by multiple constraints, stale action targets, totals and
+  page filling. Only then should the terminology picker expose a table-level result-customization UI.
+  The compact picker presentation remains tracked in
+  [VERSIONING-ROADMAP.md](./VERSIONING-ROADMAP.md); this item owns the backend meaning and scale limit.
