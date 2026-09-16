@@ -64,9 +64,23 @@ export async function run({ user1, user2, folderId }) {
         `affected templates were ${Object.keys(preview.body?.templates ?? {}).join(', ') || '(none)'}`);
   }
 
-  // Applying the update propagates the change across that tree and answers 200.
-  checkStatus(await call(auth, 'POST', '/command/inclusions-subgraph-update', { '@id': eid }),
-      200, 'applying the inclusion-subgraph update succeeds');
+  // The selector sends the entire preview back with the selected node's operation changed.
+  // An id-only request misses response properties that the strict request reader cannot consume.
+  const changedDescription = `Updated inclusion ${RUN}`;
+  checkStatus(await mutate(auth, 'PUT', `/template-elements/${enc(eid)}`,
+      { ...elementObject, 'schema:description': changedDescription }), 200,
+      'the source element is changed after it was embedded');
+  if (preview.body?.templates?.[tid]) {
+    preview.body.templates[tid].operation = 'update';
+    const selected = await call(auth, 'POST', '/command/inclusions-subgraph-preview', preview.body);
+    if (checkStatus(selected, 200, 'the selector can submit the complete preview with a selection')) {
+      checkStatus(await call(auth, 'POST', '/command/inclusions-subgraph-update', selected.body),
+          200, 'applying the inclusion-subgraph update succeeds');
+      const stored = await call(auth, 'GET', `/templates/${enc(tid)}`);
+      check(stored.body?.properties?.embeddedElement?.['schema:description'] === changedDescription,
+          'the selected template contains the updated element', stored.text?.slice(0, 200));
+    }
+  }
 
   suite('inclusion: an artifact that nothing embeds has an empty affected tree');
 
