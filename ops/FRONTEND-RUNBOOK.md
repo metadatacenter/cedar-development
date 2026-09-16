@@ -25,6 +25,14 @@ and the main browser applications. Shared design values belong in
 
 <a id="cee"></a>
 
+## Browser metadata editing
+
+Workspace and the combined Template Editor use CEE exclusively for creating and editing
+metadata. Settings has no editor-selection toggle; older stored editor-selection preferences
+are ignored. Template Designer retains the AngularJS template-authoring controls, while metadata
+population is handled by CEE in Workspace. The legacy metadata widgets, pagination, spreadsheet
+view and their supporting modules are no longer part of any of these applications.
+
 ## Embeddable editor (CEE/CEF)
 
 Building, running and testing **CEE** (`cedar-embeddable-editor`) locally.
