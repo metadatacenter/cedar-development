@@ -255,14 +255,6 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   the opposite evidence: a named owner, current caller, supported contract and meaningful health and
   integration coverage.
 
-  **Archive `cedar-rest-library`.** It is unused, measured 2026-09-17: the repository carries no
-  build configuration, no POM in the estate names it, no workspace tooling lists it, and
-  `CedarHeaderParameters` and `CedarQueryParameters` now live in `cedar-model-library` under their
-  original package. One step is left and it is on GitHub rather than in a checkout. The repository
-  is still unarchived, so a clone is offered and the name sends a reader looking for shared REST code
-  somewhere other than `cedar-microservice-libraries/cedar-server-rest-library`, which is where that
-  code is.
-
 - **7. Move the build and runtime to Java 21.** The stack is locked to Java 17 — the zsh profile pins it
   and the build enforces it. 21 is the next LTS and the natural target, but the lock exists for a
   reason: newer JDKs (23/25) crash Keycloak (`getSubject … security manager`) and OpenSearch will not
