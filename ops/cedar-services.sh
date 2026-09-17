@@ -4,7 +4,7 @@
 #
 # Runs the 15 Dropwizard microservices + the 7 frontends, which are named ui-* to keep them
 # apart from the like-named microservices: ui-main (the AngularJS monolith) and the two previews
-# being split out of it start under gulp, the 4 Angular applications under `ng serve`,
+# being split out of it use Node (Workspace) and gulp (Designer); the other Angular applications use `ng serve`,
 # as detached background processes, each logging to $CEDAR_HOME/log/, PIDs in $CEDAR_HOME/log/run/.
 # macOS uses a non-restarting launchd submitted job so the services survive shells whose command
 # runner reaps its whole process group; other systems retain the nohup launcher. One `status` view
@@ -487,6 +487,9 @@ run_one_foreground() {
       export CEDAR_FRONTEND_PORT="$app"
       export CEDAR_WORKSPACE_FRONTEND_URL="${CEDAR_WORKSPACE_FRONTEND_URL:-https://workspace.${CEDAR_HOST}}"
       export CEDAR_TEMPLATE_DESIGNER_FRONTEND_URL="${CEDAR_TEMPLATE_DESIGNER_FRONTEND_URL:-https://designer.${CEDAR_HOST}}"
+      if [[ "$name" == ui-workspace ]]; then
+        exec node tools/workspace.mjs start
+      fi
       exec gulp ;;
     ui-openview|ui-content|ui-monitoring|ui-bridging)
       local dir ng; dir=$(fe_dir "$name")
@@ -773,7 +776,9 @@ status() {
     echo "WARNING:$cee_stale_names marked STALE — serving an Embeddable Editor other than the one package-lock.json names."
     for name in $cee_stale_names; do
       dir=$(fe_dir "$name")
-      echo "         Run: (cd \$CEDAR_HOME/${dir#"$CEDAR_HOME/"} && npm ci && npx gulp copy:cee)"
+      local copy_command="npx gulp copy:cee"
+      [[ "$name" == ui-workspace ]] && copy_command="npm run copy:cee"
+      echo "         Run: (cd \$CEDAR_HOME/${dir#"$CEDAR_HOME/"} && npm ci && $copy_command)"
     done
   }
   [ "$unmanaged" -gt 0 ] && echo "WARNING: $unmanaged service(s) marked ~pid — started outside this script. restart now adopts them."

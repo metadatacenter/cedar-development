@@ -528,7 +528,7 @@ browser: https://workspace.metadatacenter.orgx/
   -> Docker's published port 443
   -> infra-nginx workspace virtual host
   -> http://host.docker.internal:4201
-  -> native gulp-connect rooted at $CEDAR_HOME/cedar-workspace/app
+  -> native Node static server rooted at $CEDAR_HOME/cedar-workspace/app
   -> app/index.html, followed by the scripts, styles, fonts, and images under app/
 ```
 
@@ -542,7 +542,7 @@ Each frontend has its own Node.js process; there is no shared frontend server:
 | Public hostname | Controller name | Native source root | Development server | Port |
 | --- | --- | --- | --- | ---: |
 | `cedar.metadatacenter.orgx` | `frontend` | `cedar-template-editor/app` | Gulp / gulp-connect | 4200 |
-| `workspace.metadatacenter.orgx` | `workspace` | `cedar-workspace/app` | Gulp / gulp-connect | 4201 |
+| `workspace.metadatacenter.orgx` | `workspace` | `cedar-workspace/app` | Node static server | 4201 |
 | `designer.metadatacenter.orgx` | `designer` | `cedar-template-designer/app` | Gulp / gulp-connect | 4202 |
 | `openview.metadatacenter.orgx` | `ui-openview` | `cedar-openview/cedar-openview-src` | Angular CLI / `ng serve` | 4220 |
 | `content.metadatacenter.orgx` | `ui-content` | `cedar-content-distribution` | Angular CLI / `ng serve` | 4240 |

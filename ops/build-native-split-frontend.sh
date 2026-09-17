@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Build one split frontend for a native nginx host. The environment-specific Gulp
+# Build one split frontend for a native nginx host. The environment-specific frontend
 # build exits in server mode; nginx serves the resulting app tree directly. No Docker is involved.
 
 set -euo pipefail
@@ -29,6 +29,10 @@ fi
 
 cd "$root"
 npm ci
-CEDAR_SOURCE_COMMIT="$source_commit" npx gulp
+if [[ "$1" == workspace ]]; then
+  CEDAR_SOURCE_COMMIT="$source_commit" npm run build:deployment
+else
+  CEDAR_SOURCE_COMMIT="$source_commit" npx gulp
+fi
 node "$CEDAR_HOME/cedar-development/ops/write-native-frontend-build-info.mjs" \
   "$1" "$source_commit" false

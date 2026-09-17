@@ -56,8 +56,11 @@ The journeys remove their temporary keys/groups and restore the original date pr
 Groups includes a second user's restricted view and a real stale-write conflict.
 
 Start it with `cedarcli native start frontend workspace`. With the native profile sourced,
-run `npm run build` in `cedar-workspace` after changing `src/`. Gulp invokes the same build
-and staging path for native server payloads. Angular builds outside the served tree;
+run `npm run build` in `cedar-workspace` after changing `src/`. `npm run build:deployment` configures and assembles the native server payload.
+`npm start` performs that preparation and serves the app with a dependency-free Node server
+in develop mode; server mode exits after assembly. Workspace no longer uses Gulp or live reload.
+`cedarcli build frontends` runs its Angular build in an isolated checkout;
+`cedarcli build split-frontends` retains the explicit native deployment path. Angular builds outside the served tree;
 assets are copied before the entry document is atomically replaced. The root index loads
 `app/workspace-build/index.html` for every route. Unknown routes return to the dashboard.
 The AngularJS shell, controllers, services, templates, styles and Karma harness are removed.
@@ -74,6 +77,9 @@ not remount the editor. The combined Template Editor and its AngularJS smoke rem
 `npm test` runs Angular/Vitest tests and the Node tests for the retained plain-JavaScript
 Keycloak adapter, deployment configuration, atomic staging and npm package contents.
 Configuration and CEE assets finish writing before the development server starts.
+Use `npm run copy:cee` to refresh only the staged editor.
+Workspace participates in `cedarcli check design-tokens` and the shared CI adoption gate;
+its initial baseline records existing typography and layout debt.
 In `cedar-development/ops/e2e`, run
 `npm run smoke:workspace:modern:full` against the running native stack. It exercises the
 modern Workspace and split CED/CEFD hosts with real login, folder operations, authoring,
@@ -507,8 +513,8 @@ every consumer **copies** it into its own served output, so each needs a second
 step:
 
 ```bash
-# Extracted Workspace — needs the CEDAR profile sourced, or the gulpfile refuses to start
-cd $CEDAR_HOME/cedar-workspace && npx gulp copy:cee
+# Angular Workspace — copy the installed CEE bundle
+cd $CEDAR_HOME/cedar-workspace && npm run copy:cee
 
 # Production monolith while migration is in progress
 cd $CEDAR_HOME/cedar-template-editor && npx gulp copy:cee
@@ -594,7 +600,7 @@ needs. Install, then get the bundle into what each host serves:
 
 | Host | Install | Then |
 |---|---|---|
-| `cedar-workspace` | plain | `npx gulp copy:cee` (needs the profile sourced) |
+| `cedar-workspace` | plain | `npm run copy:cee` |
 | `cedar-template-editor` | plain | `npx gulp copy:cee` (needs the profile sourced) |
 | `cedar-bridging` | plain | restart the server |
 | `cedar-openview` | plain | restart the server; publication alone materializes `cedar-openview-dist` |
@@ -1993,7 +1999,7 @@ appear in each consumer's `node_modules`, and again wherever that consumer stage
 
 ```bash
 gobridging  && npm install && cd .. && cedarcli build this --wd "$PWD"
-cd $CEDAR_HOME/cedar-workspace && npx gulp copy:cee
+cd $CEDAR_HOME/cedar-workspace && npm run copy:cee
 cd $CEDAR_HOME/cedar-template-editor && npx gulp copy:cee
 ```
 

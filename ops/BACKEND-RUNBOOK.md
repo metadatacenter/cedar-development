@@ -228,7 +228,7 @@ nginx on the API hostnames and are proxied over `cedarnet` to the Java container
 | Public hostname | Native source root | Server | Port |
 | --- | --- | --- | ---: |
 | `cedar.metadatacenter.orgx` | `cedar-template-editor/app` | Gulp / gulp-connect | 4200 |
-| `workspace.metadatacenter.orgx` | `cedar-workspace/app` | Gulp / gulp-connect | 4201 |
+| `workspace.metadatacenter.orgx` | `cedar-workspace/app` | Node static server | 4201 |
 | `designer.metadatacenter.orgx` | `cedar-template-designer/app` | Gulp / gulp-connect | 4202 |
 | `openview.metadatacenter.orgx` | `cedar-openview/cedar-openview-src` | Angular CLI / `ng serve` | 4220 |
 | `content.metadatacenter.orgx` | `cedar-content-distribution` | Angular CLI / `ng serve` | 4240 |
@@ -643,7 +643,7 @@ and a recopy in its own checkout rather than a restart:
 
 ```bash
 (cd $CEDAR_HOME/cedar-template-editor && npm ci && npx gulp copy:cee)
-(cd $CEDAR_HOME/cedar-workspace && npm ci && npx gulp copy:cee)
+(cd $CEDAR_HOME/cedar-workspace && npm ci && npm run copy:cee)
 ```
 
 The other frontends read `-`: none of them depends on the Embeddable Editor. **PID** shows `~pid` (a leading tilde) only for a
@@ -678,7 +678,7 @@ status`, `cedarcli native watch`, `cedarcli native logs <name>`, or `cedarcli na
 | valuerecommender | 9006 | 9106 | | bridge | 9015 | 9115 |
 | resource | 9007 | 9107 | | | | |
 | group | 9009 | 9109 | | frontend (gulp) | 4200 | — |
-| impex | 9008 | 9108 | | workspace (gulp preview) | 4201 | — |
+| impex | 9008 | 9108 | | workspace (Angular) | 4201 | — |
 | | | | | designer (gulp preview) | 4202 | — |
 | | | | | Keycloak | 8080 / 8443 (https) | |
 
