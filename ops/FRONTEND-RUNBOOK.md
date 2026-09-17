@@ -2438,43 +2438,59 @@ instance must carry, including the provenance keys. The author's required flag i
 `_valueConstraints.requiredValue` on the field. Reading the first as the second is
 a mistake worth remembering.
 
-### Shared values and configuration audit (2026-09-16)
+### Shared component defaults and configuration
 
-Source audit of CEE, CEF, CED and CEFD, including their public contracts and
-styling adapters; this is not a new rendered-style or accessibility verification.
-CEE/CEF share one implementation family and CED/CEFD another. Both repositories
-pin `cedar-design-tokens` at `0.1.0-dev.20260915.4e0a0032`. CEFD loads the same
-stylesheet and field controls as CED; CEF uses CEE's widgets and compact adapter.
+CEE/CEF and CED/CEFD consume `cedar-design-tokens` at build time. The package owns
+the font stack and embedded Roboto sources, type scale, palettes, semantic error,
+advisory and authoring roles, compact/authoring control defaults, and the optional
+4/8/12/16/24px spacing scale. Material remains inside CEE's adapter; CED uses CSS
+properties and its native-control adapter. Geometry unique to one component stays
+local.
 
-Already centralized: the font family, five-step type scale, brand palettes,
-semantic warning colors and neutral roles. Adoption is incomplete: local literal
-colors remain, and a build-time token is not automatically a runtime host override.
+CEE/CEF default to 36px compact controls. `density="authoring"` selects 32px height,
+12px text, 18px line height and 2px corners. CED/CEFD native settings and embedded
+CEF use that authoring profile. Both profiles consult public `--cedar-control-*`
+host overrides first. Components must not assign those public properties internally;
+token defaults use separate names such as `--cedar-control-height-authoring`.
+The tokens package tests that its generated CSS cannot shadow the override names.
 
-| Finding | Evidence | Recommended ownership |
-| --- | --- | --- |
-| Compact control defaults are duplicated across repositories | CEE `src/_cedar-compact.scss` and CED `src/app/shared/_control-style.scss` repeat 36px height, 21px line height, 4px radius and the resting outline; invalid controls also repeat `#b42318`. | Put framework-neutral defaults in design tokens; retain the public `--cedar-control-*` overrides and each framework adapter. |
-| The authoring density overrides host properties | CED `field-settings.component.scss` declares public control properties on its host: 28px height, 12px text, 18px line height, 2px radius and `#ccc` border. These declarations take precedence over inherited host values and apply to embedded CEF too. `STYLING.md` describes a 36px default and advises at least 32px. | Decide whether authoring needs an explicit density profile. Share its defaults if so, but do not hard-assign public override properties internally. Verify native and embedded controls together. |
-| Status and neutral roles have parallel definitions | Design tokens retain Material warn `#f44336`; compact invalid controls use `#b42318`. CED settings retain literals such as `#444`, `#ccc`, `#f4f6f6`; published notices use `#fff8e5`. | Name error text/border, advisory surface and authoring surface roles deliberately. Map existing tokens where roles match; do not mechanically equate every red or gray. |
-| A spacing scale is already implicit | Literal stylesheet declarations use 4/8/12/16/24px in both repositories. Counts for those values respectively: CEE 11/14/20/6/2; CED 26/31/16/9/5. Counts include margin/padding/gap declarations, exclude utility classes, inline templates and generated files, and are occurrences rather than semantic matches. | A small optional spacing scale is justified. Keep card gutters, toolbar geometry and component-specific dimensions local. CEFD's 16px padding and 8px gap are reasonable first consumers once the scale exists. |
-| Font assets are copied | The seven embedded font payloads in each of the Roboto 300, 400 and 500 source files are byte-identical between repositories. | Source these from a shared build-time asset export. Bundles should remain self-contained; sharing source does not by itself reduce the bytes a page downloads. |
-| Service configuration has inconsistent normalization and validation | CEE/CEF `config-validation.ts` rejects missing trailing slashes and malformed value types. CED `TerminologyService.configure` appends a slash, while both CED and CEFD wrappers pass the original bases into `fieldEditorConfig`, which is forwarded to CEF. | Normalize/validate once at the designer boundary and forward the same accepted values to both services and CEF. Standardize behavior through shared contract tests or a small runtime utility, not the design-token package. |
+Error text and borders use `color-error` (#b42318), advisory text uses
+`color-warning`, and advisory backgrounds use `surface-advisory`. The old Material
+`color-warn` remains exported for compatibility. The shared `fonts` Sass export
+contains 21 embedded font faces and no selectors or external font requests.
+Font registrars import it outside shadow DOM; CEE separately retains its Material
+icon font. Sharing the source preserves self-contained bundles rather than
+introducing a runtime font download.
 
-The configuration mismatch can leave the designer's terminology search configured
-while an embedded CEF lookup is unconfigured. CED's configuration setter also lacks
-CEE's runtime diagnostics for unknown keys and wrong types. Both designer wrappers
-repeat the same set-once configuration logic, so they can first share a local helper.
+CED and CEFD use one set-once configuration coordinator per component. It diagnoses
+unknown keys and wrong types, normalizes both service bases, and hands the same
+accepted configuration to terminology and embedded CEF. Malformed non-object
+configurations do not consume the first assignment. CEE/CEF's existing direct-host
+contract still requires trailing slashes; the designer coordinator supplies them.
+Read-only and document lifecycle contracts remain component-specific.
 
-Keep read-only and lifecycle policies distinct: CEE/CEF use set-once
-`config.readOnlyMode`; CEFD has a replaceable host `readOnly` property and always
-locks published definitions; CED's host currently enforces read-only externally.
-Those are workflow contracts, not design values. Similarly, search throttles,
-preview debounce, document replacement and persistence should not be put in a
-universal configuration merely because they contain repeated numbers or names.
+#### Local verification before the shared-token release
 
-Recommended order: resolve service configuration consistency; define control
-roles/density and preserve host overrides; introduce the small spacing scale;
-centralize font sources. Verification should include host overrides across all
-four elements, nested CEF inside CED/CEFD, invalid/focused/read-only controls,
-small hosts, and a configuration matrix covering absent, valid, slashless and
-wrong-type URL values. Whole-component runtime theming remains separate work in
-the frontend roadmap.
+The new token exports require publishing a new Nexus snapshot and updating the
+consumer package and lockfile pins together. Until that release, use the packed
+local token sources for verification; do not overwrite the existing Nexus version.
+With the native profile sourced, run:
+
+```sh
+cd "$CEDAR_HOME/cedar-design-tokens"
+npm test
+npm pack --pack-destination /tmp
+# Use the exact tarball name npm pack printed, in each consumer:
+cd "$CEDAR_HOME/cedar-embeddable-editor"
+npm install --no-save --package-lock=false /tmp/<token-tarball>.tgz
+cd "$CEDAR_HOME/cedar-embeddable-designer"
+npm install --no-save --package-lock=false /tmp/<token-tarball>.tgz
+```
+
+Build CEE/CEF first, then use its built bundle as `CEF_BUNDLE` for the CED browser
+gate. Tests cover both profiles, inherited host overrides in all four elements,
+CEF nested in CED/CEFD, invalid/focused controls, narrow hosts, configuration
+normalization and malformed inputs. CEE screenshot checks use the pinned Linux
+container; macOS screenshots must not replace those baselines. Reinstalling with
+`npm ci` restores the published token pin, so repeat the local install until the
+new snapshot is published and pinned.
