@@ -113,10 +113,39 @@ rather than a dist-tag, and a semver range over these prereleases snaps back to 
 The lock is what makes a build reproducible, so the pin stays exact, and advancing it is a source
 change across several repositories.
 
-So `cedarcli build frontends` cannot close the gap and should not. A build that rewrote
-`package.json` and `package-lock.json` would mutate tracked files mid-build, which the isolated
-frontend workspace already refuses, and it would make a train's output depend on when it ran rather
-than on the commits it captured.
+Development does not pay that cost, because `cedarcli build frontends` is a reactor. What
+remains is advancing the pins that a release records, and that is what the command below is for.
+
+### The Reactor
+
+`cedarcli build java` never consults a pin: it builds the repositories in dependency order,
+installing each into `~/.m2`, so every consumer compiles against the sibling that came out of the
+working tree a moment earlier. `cedarcli build frontends` now does the same, with no flag to ask
+for it, because the pinned build belongs to the train rather than to a developer command.
+
+npm has no moving coordinate to borrow, so each CEDAR dependency is rewritten to a local path in
+the copy being built. That path is the sibling's published package, which is not its checkout: the
+model library builds a `dist/` whose package.json is `package-dist.json`, CEE and the two Web
+Components stage under `dist-npm/`, and the design tokens publish their root. Each repository
+declares which it is, and after it builds, that package is copied into a store at
+`$CEDAR_HOME/.reactor`. A consumer resolves from the store, which is what `~/.m2` is for.
+
+`npm ci` becomes `npm install` for the same build, since a rewritten manifest no longer matches the
+lock, and the copy's lock is discarded with the copy. A development build is therefore not
+lockfile-reproducible, which is why the pinned build stays the release path.
+
+A dependency the store has not seen is left alone, so an empty store builds exactly what the pins
+say and the walk fills the store as it goes. Nothing is published, committed, or deployed, and no
+tracked file changes: the rewrite happens in the throwaway copy. A server payload builds in place
+and still installs its locks, and the train resolves exact Nexus aliases in its own checkouts, so
+neither sees the reactor.
+
+Because development no longer exercises the locks, the pinned composition is checked elsewhere:
+each repository's CI runs `npm ci` on every push, and `cedarcli check components` with the release
+and train preflights judge the composition. A reactor build proves the sources compose, not that
+what ships does.
+
+### Recording a Pin
 
 ```shell
 cedarcli publish components                # report what would move

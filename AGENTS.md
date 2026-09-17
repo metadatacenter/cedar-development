@@ -29,6 +29,7 @@ cedarcli git status            # working-tree state across all repos
 cedarcli check versions        # version consistency; --strict also fails a checkout behind its remote or a stale fetch
 cedarcli check ci              # CI at every develop head a train would capture
 cedarcli check ci-env          # every Java repository's CI environment block; --apply repairs drift
+cedarcli build frontends       # reactor: every frontend against the siblings just built, not the pins
 cedarcli check components      # what each browser application serves against the component sources beside it
 cedarcli publish components    # publish each component's current source and advance the pins that follow it
 cedarcli test e2e              # both whole-stack smoke tiers; records the run the train and release gates require
