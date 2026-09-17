@@ -316,6 +316,122 @@ def only_dropped_static_demands(before: Any, after: Any) -> Optional[str]:
     return container(before, after, "")
 
 
+INSTANCE_ROOT_MEMBERS = frozenset({
+    "schema:isBasedOn", "schema:name", "schema:description", "pav:derivedFrom",
+    "pav:createdOn", "pav:createdBy", "pav:lastUpdatedOn", "oslc:modifiedBy",
+})
+
+
+def drop_instance_demands_from_element(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Stop an element declaration demanding the members only an instance root carries.
+
+    An element occurrence inside an instance carries ``@context``, ``@id`` and its own children.
+    The provenance block and ``schema:isBasedOn`` belong to the instance itself, and no CEDAR editor
+    has ever written them into an occurrence. A template whose element declaration lists them in
+    ``required`` therefore describes an occurrence nothing builds, and every instance of it fails.
+    The element meta-schema pins only the first two entries of that list, so such a template
+    validates while none of its instances can.
+
+    The template's own ``required`` is left alone: those members are exactly what an instance root
+    must carry, and demanding them there is correct. Only an element's demands are narrowed, and
+    only while ``@context`` and ``@id`` survive the narrowing, since the meta-schema requires both.
+    """
+    changes: list[dict[str, Any]] = []
+
+    def narrow(element: Any, path: str) -> None:
+        names = element.get("required")
+        if not isinstance(names, list):
+            return
+        kept = [n for n in names if n not in INSTANCE_ROOT_MEMBERS]
+        if kept == names:
+            return
+        if "@context" not in kept or "@id" not in kept:
+            raise TransformRefused(
+                f"{path or '/'} would keep neither @context nor @id, which the meta-schema requires")
+        for dropped in [n for n in names if n in INSTANCE_ROOT_MEMBERS]:
+            changes.append({"path": f"{path}/required", "replaced": dropped, "wrote": None})
+        element["required"] = kept
+
+    def walk(container: Any, path: str) -> Any:
+        if not isinstance(container, dict):
+            return container
+        result = copy.deepcopy(container)
+        for name, child, multiple in container_children(result):
+            declared = rest.child_path(path, name)
+            here = f"{declared}/items" if multiple else declared
+            repaired = walk(child, here)
+            if is_element(repaired):
+                narrow(repaired, here)
+            if multiple:
+                result["properties"][name]["items"] = repaired
+            else:
+                result["properties"][name] = repaired
+        return result
+
+    return walk(copy.deepcopy(artifact), ""), changes
+
+
+def only_dropped_instance_demands(before: Any, after: Any) -> Optional[str]:
+    """The invariant: the only differences drop instance-root members from an element's ``required``.
+
+    This walks containers the way the transform does. A name may leave a ``required`` list only where
+    that list belongs to an element declaration, so the artifact's own demands are compared
+    unchanged while an element's are compared against the narrowing.
+    """
+
+    def identical(old: Any, new: Any, path: str) -> Optional[str]:
+        return None if type(old) is type(new) and old == new else (path or "/")
+
+    def container(old: Any, new: Any, path: str, is_element_here: bool) -> Optional[str]:
+        if not isinstance(old, dict) or not isinstance(new, dict) or set(old) != set(new):
+            return path or "/"
+        children = {name for name, _child, _multiple in container_children(old)}
+        for name in old:
+            here = f"{path}/{rest.json_pointer_component(name)}"
+            if name == "required" and is_element_here and isinstance(old[name], list):
+                if [n for n in old[name] if n not in INSTANCE_ROOT_MEMBERS] != new[name]:
+                    return here
+                continue
+            if name == "properties" and isinstance(old[name], dict):
+                difference = properties(old[name], new[name], children, here)
+                if difference is not None:
+                    return difference
+                continue
+            difference = identical(old[name], new[name], here)
+            if difference is not None:
+                return difference
+        return None
+
+    def properties(old: dict, new: dict, children: set[str], path: str) -> Optional[str]:
+        if not isinstance(new, dict) or set(old) != set(new):
+            return path
+        for name in old:
+            here = f"{path}/{rest.json_pointer_component(name)}"
+            if name not in children:
+                difference = identical(old[name], new[name], here)
+                if difference is not None:
+                    return difference
+                continue
+            declared_old, declared_new = old[name], new[name]
+            if isinstance(declared_old, dict) and isinstance(declared_old.get("items"), dict):
+                if not isinstance(declared_new, dict) or set(declared_old) != set(declared_new):
+                    return here
+                for key in declared_old:
+                    inner = f"{here}/{rest.json_pointer_component(key)}"
+                    difference = (container(declared_old[key], declared_new[key], inner,
+                                            is_element(declared_old[key]))
+                                  if key == "items"
+                                  else identical(declared_old[key], declared_new[key], inner))
+                    if difference is not None:
+                        return difference
+                continue
+            difference = container(declared_old, declared_new, here, is_element(declared_old))
+            if difference is not None:
+                return difference
+        return None
+
+    return container(before, after, "", False)
+
 def mapped_serializing_children(container: Any) -> set[str]:
     """Children a container maps to a usable property IRI and whose values an instance carries.
 
@@ -4270,6 +4386,14 @@ REPAIRS = {
         summary="stop a container demanding a static field its instances never carry",
         transform=drop_static_field_demands,
         invariant=only_dropped_static_demands,
+    ),
+    "drop-instance-demands-from-element": Repair(
+        name="drop-instance-demands-from-element",
+        condition="",
+        summary="stop an element declaration demanding the members only an instance root carries",
+        transform=drop_instance_demands_from_element,
+        invariant=only_dropped_instance_demands,
+        error_pattern=MISSING_CHILD_ERROR,
     ),
     "complete-context-required": Repair(
         name="complete-context-required",
