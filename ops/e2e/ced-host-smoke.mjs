@@ -14,14 +14,15 @@ const created = [];
 const errors = [];
 const responseBodies = new Map();
 // Capture writes before fulfilling them: the host navigates immediately after success.
-await page.route(url => /^\/(templates|template-elements|command\/publish-create-draft-template)(?:\/|$)/.test(url.pathname), async intercepted => {
+await page.route(url => /^\/(templates|template-elements|template-fields|command\/publish-create-draft-template)(?:\/|$)/.test(url.pathname), async intercepted => {
   const req = intercepted.request();
   if (!['POST', 'PUT'].includes(req.method())) return intercepted.continue();
   const response = await intercepted.fetch();
   const data = await response.json();
   responseBodies.set(req.method() + ' ' + req.url(), data);
   if (req.method() === 'POST' && response.ok() && data['@id']) {
-    const collection = new URL(req.url()).pathname.startsWith('/template-elements') ? 'template-elements' : 'templates';
+    const path = new URL(req.url()).pathname;
+    const collection = path.startsWith('/template-fields') ? 'template-fields' : path.startsWith('/template-elements') ? 'template-elements' : 'templates';
     created.push({ collection, id: data['@id'] });
   }
   await intercepted.fulfill({ response });
@@ -30,21 +31,28 @@ page.on('pageerror', error => errors.push(error.message));
 page.on('dialog', dialog => dialog.accept());
 async function open(path) {
   await page.goto(designerBase + path);
-  await page.locator('#username, cedar-embeddable-designer, #message[data-error=true]').first().waitFor({ state: 'visible' });
+  await page.locator('#username, cedar-embeddable-designer, cedar-embeddable-field-designer, #message[data-error=true]').first().waitFor({ state: 'visible' });
   if (await page.locator('#username').isVisible().catch(() => false)) {
     await page.locator('#username').fill(process.env.CEDAR_FRONTEND_local_USER1_LOGIN || 'test1@test.com');
     await page.locator('#password').fill(process.env.CEDAR_FRONTEND_local_USER1_PASSWORD || 'test1');
     await page.locator('#kc-login').click();
   }
-  await page.waitForFunction(() => document.querySelector('cedar-embeddable-designer')?.shadowRoot?.querySelector('input'), { timeout: 30000 });
+  await page.waitForFunction(() => document.querySelector('cedar-embeddable-designer, cedar-embeddable-field-designer')?.shadowRoot?.querySelector('input, button'), { timeout: 30000 });
   await page.waitForFunction(() => ['Ready', 'Unsaved changes'].includes(document.getElementById('state').textContent));
+  if (path.startsWith('/fields/edit/')) {
+    await page.getByRole('button', { name: 'Expand field settings', exact: true }).click();
+    await page.getByRole('tab', { name: 'Constraints', exact: true }).click();
+  }
 }
 try {
-  for (const [kind, route, collection] of [['template', 'templates', 'templates'], ['element', 'elements', 'template-elements']]) {
+  for (const [kind, route, collection] of [['template', 'templates', 'templates'], ['element', 'elements', 'template-elements'], ['field', 'fields', 'template-fields']]) {
     const name = `CED host smoke ${kind} ${Date.now()}`;
     const params = new URLSearchParams({ folderId: user1.profile.homeFolderId, returnTo: workspaceBase + '/dashboard' });
     await open(`/${route}/create?${params}`);
-    await page.getByPlaceholder(kind === 'template' ? 'Template name' : 'Element name', { exact: true }).fill(name);
+    if (kind === 'field') await page.getByRole('button', { name: 'Number', exact: true }).click();
+    const nameInput = () => kind === 'field' ? page.getByRole('textbox', { name: 'Field name', exact: true }) : page.getByPlaceholder(kind === 'template' ? 'Template name' : 'Element name', { exact: true });
+    const descriptionInput = () => page.getByPlaceholder(kind === 'field' ? 'Add helper instructions for users...' : 'Add description...', { exact: true });
+    await nameInput().fill(name);
     await page.waitForFunction(() => !document.getElementById('save').disabled);
     const savedResponse = page.waitForResponse(response => response.request().method() === 'POST' && response.url().includes(`/${collection}?`));
     await page.locator('#save').click();
@@ -58,8 +66,8 @@ try {
     const id = body['@id'];
     await page.waitForURL(workspaceBase + '/dashboard');
     await open(`/${route}/edit/${enc(id)}?${params}`);
-    assert.equal(await page.getByPlaceholder(kind === 'template' ? 'Template name' : 'Element name', { exact: true }).inputValue(), name);
-    await page.getByPlaceholder('Add description...', { exact: true }).fill('Updated through CED');
+    assert.equal(await nameInput().inputValue(), name);
+    await descriptionInput().fill('Updated through CED');
     const updatedResponse = page.waitForResponse(res => res.request().method() === 'PUT' && res.url().includes(`/${collection}/`));
     await page.locator('#save').click();
     const update = await updatedResponse;
@@ -74,10 +82,10 @@ try {
     const external = { ...stored.body, 'schema:description': 'Concurrent editor' };
     const changed = await mutate(user1.auth, 'PUT', `/${collection}/${enc(id)}`, external);
     assert.equal(changed.status, 200, changed.text);
-    await page.getByPlaceholder('Add description...', { exact: true }).fill('My unsaved change');
+    await descriptionInput().fill('My unsaved change');
     await page.locator('#save').click();
     await page.waitForFunction(() => document.getElementById('message').textContent.includes('changed since'));
-    assert.equal(await page.getByPlaceholder('Add description...', { exact: true }).inputValue(), 'My unsaved change');
+    assert.equal(await descriptionInput().inputValue(), 'My unsaved change');
     console.log(`PASS: ${kind} stale save blocked and edits retained`);
     if (kind === 'template') {
       const instance = artifactBody('instance', name + ' metadata', { 'schema:isBasedOn': id });

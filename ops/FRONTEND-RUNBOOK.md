@@ -2086,8 +2086,12 @@ its other CEE consumers; CED and CETP remain explicit immutable package pins.
 
 The host owns SSO, repository child search, permission checks, dirty navigation,
 ETag saves and the instance-aware template version confirmation. Standalone
-field-document routes report unsupported; fields inside templates and elements
-use CED. Version creation requires the original ETag in `If-Match`; the resource
+field-document routes use CEFD from the same CED bundle; fields inside templates
+and elements use the same field controls. During development, explicitly stage
+the local CED bundle with `CEDAR_CED_BUNDLE` until a CEFD-containing Nexus snapshot
+is pinned. The host fails clearly if the pinned bundle lacks CEFD.
+
+Version creation requires the original ETag in `If-Match`; the resource
 server conditionally publishes that exact source snapshot before creating the draft.
 Missing validators return 428 and concurrent changes return 412 with no draft created.
 
