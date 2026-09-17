@@ -163,6 +163,14 @@
       "ceeConsumer": {
         "manifest": "package.json",
         "lock": "package-lock.json"
+      },
+      "preparedBuild": {
+        "directory": ".",
+        "commands": [
+          ["npm", "ci"],
+          ["npm", "run", "prepare:components"]
+        ],
+        "overlayPaths": ["app/components"]
       }
     },
     {

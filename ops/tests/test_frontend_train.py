@@ -621,6 +621,105 @@ class FrontendTrainTest(unittest.TestCase):
                 frontend_train.load_json(plan_path), workspace,
             )
 
+    def test_a_prepared_build_can_add_paths_to_a_package_that_is_its_repository(self):
+        """A frontend whose package is the repository stages into it rather than over it.
+
+        Replacing the package path would delete the repository, and the manifests the same run
+        wires are inside it, so the built paths join the overlays instead of displacing them.
+        """
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            workspace = root / "workspace"
+            state = root / "state"
+            repository = workspace / "designer"
+            dependency_files(repository, "cedar-embeddable-editor", CEE_NAME, "2.0.2-dev.old")
+            revision = commit(repository)
+            write(state / "trains" / f"{VERSION}.json", {
+                "version": VERSION, "repositories": {"designer": revision},
+            })
+            plan_path = state / "npm" / "trains" / f"{VERSION}.json"
+            write(plan_path, {
+                "version": VERSION, "registry": "https://registry.example/",
+                "cee": {"name": CEE_NAME, "version": CEE_VERSION, "revision": "b" * 40},
+                "ceeConsumers": [{
+                    "label": "designer", "repository": "designer", "revision": revision,
+                    "manifest": "package.json", "lock": "package-lock.json",
+                    "legacyPeerDeps": False, "publishedFrontend": "designer",
+                }],
+                "frontends": [{
+                    "id": "designer", "repository": "designer", "packagePath": ".",
+                    "preparedBuild": {
+                        "directory": ".",
+                        "commands": [["npm", "run", "prepare:components"]],
+                        "overlayPaths": ["app/components"],
+                    },
+                }],
+            })
+
+            def wire(directory, dependency, published, version, legacy_peer_deps=False):
+                dependency_files(directory, dependency, published, version)
+
+            def build(command, cwd, environment=None):
+                self.assertEqual(["npm", "run", "prepare:components"], command)
+                staged = cwd / "app" / "components"
+                staged.mkdir(parents=True)
+                (staged / "cedar-embeddable-editor.js").write_text("cee\n", encoding="utf-8")
+
+            with (
+                patch.object(frontend_train, "verify_record"),
+                patch.object(frontend_train, "install_exact_alias", side_effect=wire),
+                patch.object(frontend_train, "run_command", side_effect=build),
+            ):
+                frontend_train.prepare_frontends(argparse.Namespace(
+                    version=VERSION, workspace=workspace, state=state,
+                ))
+
+            # The wired manifests survive, and the built directory joins them.
+            self.assertTrue((repository / "package.json").exists())
+            preparation = frontend_train.load_json(plan_path)["frontendPreparation"]
+            self.assertEqual(
+                ["app/components", "package-lock.json", "package.json"],
+                preparation["overlays"]["designer"])
+            self.assertEqual(
+                ["app/components"],
+                [item["output"] for item in preparation["builds"]])
+
+    def test_a_prepared_build_that_produces_no_overlay_path_refuses(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            workspace = root / "workspace"
+            state = root / "state"
+            repository = workspace / "designer"
+            dependency_files(repository, "cedar-embeddable-editor", CEE_NAME, "2.0.2-dev.old")
+            revision = commit(repository)
+            write(state / "trains" / f"{VERSION}.json", {
+                "version": VERSION, "repositories": {"designer": revision},
+            })
+            plan_path = state / "npm" / "trains" / f"{VERSION}.json"
+            write(plan_path, {
+                "version": VERSION, "registry": "https://registry.example/",
+                "cee": {"name": CEE_NAME, "version": CEE_VERSION, "revision": "b" * 40},
+                "ceeConsumers": [],
+                "frontends": [{
+                    "id": "designer", "repository": "designer", "packagePath": ".",
+                    "preparedBuild": {
+                        "directory": ".",
+                        "commands": [["npm", "run", "prepare:components"]],
+                        "overlayPaths": ["app/components"],
+                    },
+                }],
+            })
+
+            with (
+                patch.object(frontend_train, "verify_record"),
+                patch.object(frontend_train, "run_command"),
+            ):
+                with self.assertRaises(RuntimeError) as refused:
+                    frontend_train.prepare_frontends(argparse.Namespace(
+                        version=VERSION, workspace=workspace, state=state,
+                    ))
+            self.assertIn("did not produce app/components", str(refused.exception))
+
     def test_workflow_exposes_model_cee_and_frontends_as_top_level_stages(self):
         workflow = (
             Path(frontend_train.__file__).parent.parent

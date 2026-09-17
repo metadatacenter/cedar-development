@@ -255,7 +255,23 @@ def validate_configuration(
                 for command in commands
             ):
                 raise RuntimeError(f"invalid prepared build commands for {repository}")
-            _safe_relative(prepared.get("output"), "prepared build output")
+            # A build either produces the package directory or contributes paths to it. The
+            # first suits a frontend whose package is a dist directory; the second a frontend
+            # whose package is the repository itself, where replacing the package path would
+            # take the repository with it.
+            output = prepared.get("output")
+            overlay_paths = prepared.get("overlayPaths")
+            if (output is None) == (overlay_paths is None):
+                raise RuntimeError(
+                    f"prepared build for {repository} must declare either output or overlayPaths")
+            if output is not None:
+                _safe_relative(output, "prepared build output")
+            else:
+                if not isinstance(overlay_paths, list) or not overlay_paths:
+                    raise RuntimeError(
+                        f"invalid prepared build overlay paths for {repository}")
+                for relative in overlay_paths:
+                    _safe_relative(relative, "prepared build overlay path")
     for consumer in frontend.get("additionalCeeConsumers", []):
         repository = consumer.get("repository")
         if repository not in repositories:
