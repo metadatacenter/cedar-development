@@ -15,14 +15,26 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
 
 ### Infrastructure
 
-- **1. Document the versioning model, then audit the implementation against it.** The user guide
-  says what an author sees and the YAML specification defines the keys, but no document states the
-  model: which artifact kinds are versioned, what publishing freezes, how a draft succeeds a published
-  version, how version numbers must order, what the three latest-version flags mean, and what deleting
-  a version does to the chain. Write that model in one place, beside the permission model. Then audit
-  the resource server, the graph and the search index against it, and record each divergence as a
-  decision to make or a defect to fix. `ArtifactLifecycleMatrixTest` pins the current rules until
-  then. Done when the model is published and every divergence is fixed or recorded.
+- **1. Audit the implementation against the published versioning model.** The model is now written
+  down beside the permission model, in the user guide's [CEDAR Versioning
+  Model](https://metadatacenter.readthedocs.io/en/latest/user-guide/advanced-topics/versioning-model/):
+  which artifact kinds are versioned, what publishing freezes, how a draft succeeds a published
+  version, how version numbers must order, what the latest filter shows, and what deleting a version
+  does to the chain. Hold the resource server, the graph and the search index to it, and record each
+  divergence as a decision to make or a defect to fix. `ArtifactLifecycleMatrixTest` pins the current
+  rules until then.
+
+  Two parts of the model are not stated firmly enough to audit against, and they come first. The
+  graph and the search index each carry three flags no page mentions: `isLatestVersion`,
+  `isLatestDraftVersion` and `isLatestPublishedVersion` (`NodeProperty.java:78`,
+  `ElasticsearchConstants.java:26`). The lifecycle page defines what "latest version" means to an
+  author, and the stored-version table lists the properties the artifact document itself carries, so
+  nothing states what each flag must hold or which operations maintain it across a publish, a draft
+  creation and a delete. Deleting a version from the middle of a series "can break the history
+  links", which describes the current behaviour rather than requiring anything of it. What the chain
+  must look like afterwards has to be decided before a divergence from it can be called a defect.
+
+  Done when every divergence is fixed or recorded.
 
 - **2. Protect `main` in every repository, and give the release an identity of its own.** `main` is
   unprotected in all forty-five repositories, so a commit can land there without ever reaching a
