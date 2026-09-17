@@ -946,9 +946,68 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Whichever way it goes, the three children and their generated fixtures move with it, and the Java
   library's corpus verifier reports them stale until they are regenerated.
 
+- **24. Decide what an ordinary write may change about the artifact it stores.** Every non-verbatim
+  write is normalized before it is validated, and two different things travel under that one name.
+  One is minting: a child identifier, a property IRI for an attribute the author named, an element
+  occurrence identifier, and the JSON Schema `title` and `description` derived from `schema:name`.
+  That is identity the repository owns rather than a client, and it stays. The other is
+  `LinkedDataUtil.repairInheritedDefects` in `cedar-config-library`, which removes a defect only
+  where the request carried it unchanged out of storage and leaves a newly introduced one for
+  validation to reject. That half was built for artifacts written before the rules hardened, so it
+  has a population and an end, and the population is nearly gone.
+
+  **Retire each compatibility branch as its population reaches zero.** On templates and elements
+  there is almost nothing left for it to do. The 2026-09-08 corpus audit found 8,402 artifacts
+  carrying an empty `pav:derivedFrom` and 418 an unusable child property IRI; the 2026-09-12 audit
+  of every template and element reports neither, and one artifact with a missing child `$schema`.
+  The instance branches are the live ones, measured over all 150,640 instances on 2026-09-16:
+  `occurrence-id-unusable` in 120 artifacts over 833 occurrences, `attribute-property-iri-missing`
+  in 58 over 1,029, `orphan-property-iri` in 7, and `attribute-name-blank` in 4. Delete a branch
+  once its count is zero, so that shape meets a refusal rather than a silent accommodation, and
+  record the change where the API is documented: a caller that has been relying on the
+  accommodation starts receiving a 400.
+
+  **A resave repairs almost nothing, so do not reach for it as an instrument.** The update path
+  normalizes and then validates, answering 400 when the result is invalid
+  (`TemplateInstancesResource.java:433`), so only an artifact that is already valid after
+  normalization can be written. Of the 1,047 invalid production instances, 2 have nothing wrong but
+  a missing occurrence identifier, which is the one defect this path does repair, by removing the
+  unusable inherited value and minting a replacement. The rest fail on what no normalizer touches:
+  799 carry a key their template does not declare, 715 lack a child it requires, and 166 carry a
+  property IRI their template replaced with a vocabulary term in a later edit. About 45 instances
+  are valid while carrying a repairable condition and would go through, but an ordinary write also
+  calls `stampProvenanceForPut` (`AbstractArtifactCrudResource.java:408`), so each would record a
+  modification nobody made. That is the reason `?verbatim=true` exists, and it is why the remaining
+  production work belongs to a verbatim rule rather than to a bulk resave.
+
+  **Separate the one step that tightens a contract rather than repairing a document.**
+  `addChildPropertyIris` calls `requireChild` for every mapped child of every template and element
+  it writes (`LinkedDataUtil.java:684`), adding the child to `@context.required` whether or not the
+  stored artifact ever declared it. That changes what an instance must carry, which is not a repair
+  of the artifact being saved but a new demand on documents nobody is looking at. Measured
+  2026-09-12, 2,218 artifacts are missing those entries across 29,087 child paths, 458 of them
+  templates rather than elements, so editing one of those templates through any client tightens its
+  contract silently. `ops/repairs/ctxreq_at_risk.py` exists to weigh exactly this before a repair
+  run, by validating every instance a template already has against the proposed body; the save path
+  performs the same tightening with nothing weighed. Decide whether the write should carry that
+  check, stop adding entries a stored artifact never had, or state the tightening as the contract
+  and accept that a template edit can invalidate instances.
+
+  Production shows what that costs. The *Cell* template's 170 invalid instances are mostly one 2021
+  edit: an author replaced the minted property IRIs of `Mouse_ID`, `Name` and `Knockout` with
+  `dc:identifier`, `dc:title` and a Bioschemas term, and the 166 instances written in 2019 still
+  carry the old IRIs and no longer validate. Nothing propagates a template change to the instances
+  that were filled from it, and nothing warns the author. Whatever is decided about `requireChild`,
+  the same question is open for any template edit that narrows what an instance may hold.
+
+  Done when the compatibility branches that have no population are gone, each remaining one names
+  the count that keeps it, an ordinary write no longer tightens a contract without the instance
+  check or an explicit decision to do so, and an author editing a template is told what it does to
+  the instances that already exist.
+
 ## Production Data
 
-- **24. Finish the production artifact repair, which is now a set of decisions rather than a run.**
+- **25. Finish the production artifact repair, which is now a set of decisions rather than a run.**
   The audit that opened this work on 2026-09-08 found 127,868 invalid instances of 150,164, along
   with invalid templates, elements and standalone fields. A full corpus pass on 2026-09-16 walked
   all 150,640 instances and found **1,047 invalid across 303 templates**, 99.30% of the corpus
@@ -1095,7 +1154,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
 
 ## Later Decisions
 
-- **25. Enforce the request-body classification, and decide what an open body requires.**
+- **26. Enforce the request-body classification, and decide what an open body requires.**
   `cedarcli check openapi` reads `additionalProperties` only when deciding whether a schema counts
   as a stub, so nothing across the estate fails when a new request schema states neither that it is
   closed nor that it is open. Only the resource server asks, in its own contract test. Add the rule,
@@ -1116,7 +1175,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   subtree outside the named mappers. Sixteen more across the servers and shared libraries read
   responses or build output, where the tolerant mapper is what they want.
 
-- **26. Address artifacts by bare identifier in REST paths, keeping the full IRI as stored
+- **27. Address artifacts by bare identifier in REST paths, keeping the full IRI as stored
   identity.** **Production consequence:** an addressing migration rather than a data one. Stored
   identifiers in MongoDB, Neo4j and OpenSearch do not change, and no reindex is required, but
   clients that build URLs in the current form need the legacy shape kept as an alias until traffic
@@ -1148,7 +1207,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Done when every resource-specific route takes the bare identifier, one parser owns the
   reconstruction, and staging's per-artifact blocks are gone.
 
-- **27. Decide what each compatibility adapter is for, now that neither reads artifacts itself.**
+- **28. Decide what each compatibility adapter is for, now that neither reads artifacts itself.**
   Repo and OpenView exist to preserve URLs rather than to do work: the runbook's account of artifact
   route ownership gives repo the identifier dereferencing URLs and OpenView the anonymous
   presentation and open-artifact URLs, and says neither adapter should own artifact storage or an
@@ -1193,7 +1252,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Done when each of the two hosts has a stated role, an owner, and either a current caller that needs
   the process or a routing arrangement that keeps its URLs resolving without one.
 
-- **28. Revisit controlled-term result actions: define scalable semantics, narrow them, or delete
+- **29. Revisit controlled-term result actions: define scalable semantics, narrow them, or delete
   them.** Exclusion and `move` actions are stored beside a field's complete constraint set and apply
   to the result after all ontology, branch, class and value-set constraints have been combined. They
   are not customizations of one constraint row. Before the picker exposes authoring controls, state
