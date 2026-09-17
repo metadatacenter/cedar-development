@@ -136,16 +136,27 @@ npm has no moving coordinate to borrow, so each CEDAR dependency is rewritten to
 the copy being built. That path is the sibling's published package, which is not its checkout: the
 model library builds a `dist/` whose package.json is `package-dist.json`, CEE and the two Web
 Components stage under `dist-npm/`, and the design tokens publish their root. Each repository
-declares which it is, and after it builds, that package is copied into a store at
-`$CEDAR_HOME/.reactor`. A consumer resolves from the store, which is what `~/.m2` is for.
+declares which it is. After it builds, `npm pack --ignore-scripts` packages that output using
+npm's published file selection. The tarball is stored under its SHA-256 in
+`$CEDAR_HOME/.reactor/artifacts`, with an atomically updated reference under `refs/`.
+Consumers install the immutable tarball; they do not link to a shared directory or rerun a
+producer's `prepare` script. Missing or invalid package output and packing or storage failures
+fail the producer task.
 
 `npm ci` becomes `npm install` for the same build, since a rewritten manifest no longer matches the
 lock, and the copy's lock is discarded with the copy. A development build is therefore not
 lockfile-reproducible, which is why the pinned build stays the release path.
 
-A dependency the store has not seen is left alone, so an empty store builds exactly what the pins
-say and the walk fills the store as it goes. Nothing is published, committed, or deployed, and no
-tracked file changes: the rewrite happens in the throwaway copy. A server payload builds in place
+Each build snapshots the available references once, then advances its own selection as its
+producers finish. A consumer cannot use an old artifact or a registry pin for a producer scheduled
+in that build that has not succeeded. A dependency outside that build's producers retains its pin
+when the store has no artifact for it. Concurrent builds can publish without changing another
+build's selection or installed bytes. Old directory entries from the earlier store format are
+ignored; rebuilding the producers populates the tarball store. Keep immutable artifacts while
+builds are active; removing the whole `.reactor` cache is safe when no build is using it.
+
+Nothing is published to a registry, committed, or deployed, and no tracked file changes: the
+rewrite happens in the throwaway copy. A server payload builds in place
 and still installs its locks, and the train resolves exact Nexus aliases in its own checkouts, so
 neither sees the reactor.
 
