@@ -2032,6 +2032,74 @@ see a body, and keep open JSON-LD artifacts open with `additionalProperties: tru
 a closed schema the server does not enforce. Focused `OpenApiContractTest` classes pin the high-value
 request and response schemas in resource, artifact, group, messaging, and worker server CI.
 
+## Artifact Versioning Contract
+
+Schema artifacts form linear version series. Normal creation starts an independent Draft `0.0.1`;
+normal editing cannot change `pav:version`, `bibo:status` or `pav:previousVersion`. Only the owner can
+publish or create the next draft. Publishing retains the identifier and cannot lower its numeric
+version; a successor draft gets a new identifier and must have a greater version. Editor access to
+the destination folder is required. Copying starts a separate series. Manager access alone does not
+confer publication or drafting authority, and instances are not versioned.
+
+The graph and search carry three series-wide flags. `isLatestVersion` selects the draft when one
+exists, otherwise the newest surviving published version; `isLatestDraftVersion` selects the sole
+draft; `isLatestPublishedVersion` selects the newest surviving published version. A status with no
+surviving version has no true flag. The UI's Latest selection uses `latest-by-status`, the union of
+the draft and published flags. Permissions and folder filters apply afterwards; they never promote
+an older accessible version. Numeric versions order each component, rather than comparing strings.
+
+Deletion reconnects each successor to the deleted version's surviving predecessor, or removes its
+pointer when there is none. Both the `pav_previousVersion` property and `PREVIOUSVERSION` relationship
+change together. Published successors receive the same history maintenance: only their document's
+`pav:previousVersion` changes, preserving every other field and provenance timestamp. Existing
+instances and embedded definitions remain untouched. Existing reference checks still prevent a
+template with stored instances from being deleted.
+
+Deleting the draft promotes the surviving release and permits it to produce a new draft. Deleting
+the newest release while a draft exists keeps that draft and promotes the preceding release.
+Deleting an older version changes only the history link. Deleting every version leaves no latest.
+
+`VersionChainTransaction` serializes lifecycle graph transitions using a shared Neo4j lock. A draft
+creation rechecks the source and successor under that lock and commits the new graph node, optional
+direct sharing grants and all series flags together. A losing concurrent request discards its
+new document. Publication commits its flags with the status/version graph update; its conditional
+compensation record is removed in the same transaction. Deletion uses the existing durable deletion
+outbox, and commits reconnection, removal and replacement flags together.
+
+Each transaction also records affected artifacts in `CedarVersionProjection`. The resource server's
+`VersionProjectionService` retries document-link and index updates every five seconds, including
+after restart. It reads current graph state and serializes projections with lifecycle transitions,
+so an older projection cannot overwrite newer lifecycle state. Link updates use the internal artifact
+service’s filesystem-administrator-only `PUT /{type}/{id}/version-predecessor` operation with a specific ETag.
+It accepts only the predecessor link and preserves all other content and provenance;
+an ETag conflict leaves work pending for a fresh read. Pending projections are retained on failure.
+This is eventual convergence across stores, not a cross-database transaction. A committed lifecycle
+transition is not repeated merely because indexing is temporarily unavailable.
+
+### Audit and Deployment
+
+Run `cedarcli check artifact-versioning` before rollout and retain its JSON report. It scans all graph
+schema artifacts, not only the current operator's accessible artifacts. It reports invalid versions
+or states, missing predecessors, branches, multiple drafts, a draft with a successor, non-increasing
+versions, property/relationship disagreements and incorrect flags. Credentials come from the CLI's
+selected profile and are never printed. Active and parked deletion jobs are counted separately;
+either keeps the check non-green until reviewed. The command does not change documents or the index.
+
+After deploying, use `cedarcli check artifact-versioning --apply` for unambiguous flag repairs. The
+flag writes and projection queue entries commit together under the lifecycle lock. Broken history
+requires evidence from documents or backups; do not invent predecessors or choose a branch. Report
+those artifacts separately before planning a repair. The source audit does not establish the state
+of a production deployment; run the inventory on that deployment as part of rollout.
+
+`VersionChainTransactionTest` covers deleting each chain position with a draft or published tail,
+whole-series deletion, rollback, deletion-in-progress and concurrent drafts. `VersionProjectionServiceTest`
+checks failed document/index updates and recovery with current state after restart.
+`ArtifactLifecycleMatrixTest` covers authorization and state predicates. The REST `versioning` suite
+covers all three schema types through real HTTP, verifies reconnecting a published successor changes
+only its history pointer, and checks graph Latest listings and indexed Latest search together.
+After changing this contract, run `cedarcli build java`, redeploy the affected native services and
+run `cedarcli test e2e`.
+
 ## Artifact Write and Diagnostic Contracts
 
 Artifact creation and replacement use different authorization checks even though both can arrive as
@@ -2314,7 +2382,7 @@ from, because they answer very different questions:
 | Matrices | 7 | Authorization, permission levels and artifact lifecycle, as tables |
 | Sharing and ownership | 1 | The `PUT .../permissions` round trip, including ownership transfer |
 | Content negotiation | 2 | YAML and JSON transcode both ways |
-| REST smoke | 1 | The real stack, no browser: 19 suites, 803 expected checks |
+| REST smoke | 1 | The real stack, no browser: 19 suites, 1,063 expected checks |
 | End-to-end smoke | 1 | The real stack, through a browser |
 
 **The browser smoke is green as of 2026-08-29 in both monolith and authenticated split-frontend
@@ -2352,7 +2420,7 @@ in the profile, so there are no API keys to keep. Run one suite with `npm run sm
 the suites are `apidocs`, `artifacts`, `authentication`, `categories`, `contract`, `download`,
 `finding`, `folders`, `freeze`, `group-sharing`, `groups`, `inclusion`, `negotiation`, `openness`,
 `pagination`, `search`, `sharing`, `validation` and `versioning`. The committed
-`rest/expected-checks.json` inventory holds 803 exact suite/section/check identities; a passing run
+`rest/expected-checks.json` inventory holds 1,063 exact suite/section/check identities; a passing run
 must execute that same ordered inventory, so an early return, removed loop or conditional omission is
 a failure even when every check that did run passed. Freeze keeps the inventory stable when the local
 terminology store is absent by recording its seven checks as skipped rather than silently omitting

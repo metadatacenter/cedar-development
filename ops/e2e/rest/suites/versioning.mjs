@@ -1,4 +1,5 @@
 // Publish and create-draft: two-service writes that no test exercised before these suites.
+import { isDeepStrictEqual } from 'node:util';
 import { suite, check, checkStatus, call, mutate, cleanup, artifactBody, enc, poll, RUN } from '../lib.mjs';
 
 export const name = 'versioning';
@@ -149,6 +150,94 @@ export async function run({ user1, user2, folderId, homeFolderId }) {
         newOwnerId: user1.profile['@id'],
       }, { etagPath: `${tat}/permissions` }), 200,
       'the new owner can transfer it back to the former owner');
+    }
+  }
+
+  suite('versioning: reconnect deleted versions and maintain graph/search flags');
+  for (const [kind, collection] of [['template', 'templates'], ['element', 'template-elements'], ['field', 'template-fields']]) {
+    const label = `VersionChain${kind}${RUN.replace(/[^0-9]/g, '')}`;
+    checkStatus(await call(auth, 'POST', `/${collection}?folder_id=${enc(folderId)}`,
+        {...artifactBody(kind, label), 'bibo:status': 'bibo:published'}), 400,
+        `${kind}: creation cannot bypass publication`);
+    const made = await call(auth, 'POST', `/${collection}?folder_id=${enc(folderId)}`, artifactBody(kind, label));
+    if (!checkStatus(made, 201, `${kind}: create chain root`)) continue;
+    const a = made.body['@id'];
+    const at = id => `/${collection}/${enc(id)}`;
+    cleanup(kind, at(a), label);
+    const original = await call(auth, 'GET', at(a));
+    for (const change of [{'bibo:status': 'bibo:published'}, {'pav:version': '4.0.0'}, {'pav:previousVersion': a}]) {
+      checkStatus(await call(auth, 'PUT', at(a), {...original.body, ...change},
+          {headers: {'If-Match': original.headers.get('etag')}}), 400, `${kind}: ordinary editing cannot change lifecycle metadata`);
+    }
+    if (!checkStatus(await call(auth, 'POST', '/command/publish-artifact', {'@id': a, newVersion: '1.0.0'}), 200,
+        `${kind}: publish root`)) continue;
+    const next = await call(auth, 'POST', '/command/create-draft-artifact',
+        {'@id': a, folderId, newVersion: '2.0.0', propagateSharing: false});
+    if (!checkStatus(next, 201, `${kind}: create second version`)) continue;
+    const b = next.body['@id']; cleanup(kind, at(b), `${label} B`);
+    checkStatus(await call(auth, 'POST', '/command/publish-artifact', {'@id': b, newVersion: '2.0.0'}), 200,
+        `${kind}: publish second version`);
+    const copied = await call(auth, 'POST', '/command/copy-artifact-to-folder',
+        {'@id': b, targetFolderId: folderId, nameTemplate: `Independent${kind}${RUN.replace(/[^0-9]/g, '')}`});
+    if (checkStatus(copied, 201, `${kind}: copy a later published version`)) {
+      const copyId = copied.body['@id']; cleanup(kind, at(copyId), `${label} independent copy`);
+      const copy = (await call(auth, 'GET', at(copyId))).body;
+      check(copy?.['pav:version'] === '0.0.1' && copy?.['bibo:status'] === 'bibo:draft'
+          && !Object.hasOwn(copy, 'pav:previousVersion') && copy?.['pav:derivedFrom'] === b,
+          `${kind}: copy starts a separate draft series and keeps derivation only`, JSON.stringify(copy));
+    }
+    const competing = await Promise.all([1, 2].map(() => call(auth, 'POST', '/command/create-draft-artifact',
+        {'@id': b, folderId, newVersion: '3.0.0', propagateSharing: false})));
+    const winners = competing.filter(r => r.status === 201);
+    for (const r of winners) cleanup(kind, at(r.body['@id']), `${label} C`);
+    if (!check(winners.length === 1, `${kind}: concurrent drafting creates exactly one successor`,
+        competing.map(r => r.status).join(', '))) continue;
+    const c = winners[0].body['@id'];
+    const before = (await call(auth, 'GET', at(c))).body;
+    checkStatus(await mutate(auth, 'DELETE', at(b)), [202, 204], `${kind}: delete the published middle version`);
+    const repaired = await poll(async () => {
+      const body = (await call(auth, 'GET', at(c))).body;
+      return {done: body?.['pav:previousVersion'] === a, body};
+    });
+    check(repaired.done, `${kind}: the draft document reconnects to the earlier release`, JSON.stringify(repaired.body));
+    const expected = structuredClone(before); expected['pav:previousVersion'] = a;
+    check(isDeepStrictEqual(repaired.body, expected),
+        `${kind}: reconnecting preserves all other document content and provenance`, 'unexpected document changes');
+    const root = (await call(auth, 'GET', `${at(a)}/details`)).body;
+    const draft = (await call(auth, 'GET', `${at(c)}/details`)).body;
+    check(root?.isLatestVersion === false && root?.isLatestPublishedVersion === true && root?.isLatestDraftVersion === false,
+        `${kind}: previous release is promoted without displacing the draft`, JSON.stringify(root));
+    check(draft?.isLatestVersion === true && draft?.isLatestDraftVersion === true && draft?.isLatestPublishedVersion === false,
+        `${kind}: the draft remains the latest version`, JSON.stringify(draft));
+    const listed = await call(auth, 'GET', `/folders/${enc(folderId)}/contents?version=latest-by-status&limit=500`);
+    const listedIds = (listed.body?.resources ?? []).filter(r => r['schema:name'] === label).map(r => r['@id']).sort();
+    check(isDeepStrictEqual(listedIds, [a,c].sort()), `${kind}: graph Latest listing agrees with the surviving series`, JSON.stringify(listedIds));
+    const results = await poll(async () => {
+      const result = await call(auth, 'GET', `/search?q=${enc(label)}&version=latest-by-status&limit=20`);
+      const ids = (result.body?.resources ?? []).filter(r => r['schema:name'] === label).map(r => r['@id']).sort();
+      return {done: JSON.stringify(ids) === JSON.stringify([a,c].sort()), ids};
+    });
+    check(results.done, `${kind}: Latest search contains exactly the surviving release and draft`, JSON.stringify(results.ids));
+    // Reconnecting a published successor is a system-maintained history update, not a content edit.
+    checkStatus(await call(auth, 'POST', '/command/publish-artifact', {'@id': c, newVersion: '3.0.0'}), 200,
+        `${kind}: publish the surviving draft`);
+    const publishedBefore = (await call(auth, 'GET', at(c))).body;
+    checkStatus(await mutate(auth, 'DELETE', at(a)), [202, 204], `${kind}: delete the first version`);
+    const detached = await poll(async () => {
+      const body = (await call(auth, 'GET', at(c))).body;
+      return {done: body && !Object.hasOwn(body, 'pav:previousVersion'), body};
+    });
+    const detachedExpected = structuredClone(publishedBefore); delete detachedExpected['pav:previousVersion'];
+    check(detached.done && isDeepStrictEqual(detached.body, detachedExpected),
+        `${kind}: published successor loses only its predecessor pointer`, JSON.stringify(detached.body));
+    const lastDraft = await call(auth, 'POST', '/command/create-draft-artifact',
+        {'@id': c, folderId, newVersion: '3.0.1', propagateSharing: false});
+    if (checkStatus(lastDraft, 201, `${kind}: surviving latest release can continue development`)) {
+      const d = lastDraft.body['@id']; cleanup(kind, at(d), `${label} D`);
+      checkStatus(await mutate(auth, 'DELETE', at(d)), [202, 204], `${kind}: delete the latest draft`);
+      const restored = (await call(auth, 'GET', `${at(c)}/details`)).body;
+      check(restored?.isLatestVersion === true && restored?.isLatestPublishedVersion === true && restored?.isLatestDraftVersion === false,
+          `${kind}: deleting the draft restores the latest release`, JSON.stringify(restored));
     }
   }
 
