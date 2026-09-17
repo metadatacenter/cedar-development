@@ -200,17 +200,50 @@ font-payload work if the added processor exceeds the packaging budget.
 
 ### 9. Reduce Embedded Font Payload
 
-Measure subsetting the Material Icons font to the
-ligatures CEE actually uses. Add a build guard that inventories template and descriptor
-ligatures and rejects a glyph absent from the shipped font; the menu glyph browser
-check alone does not cover every icon source.
+CEE, CED and the term picker all resolve one font source,
+`@org.metadatacenter/cedar-design-tokens/fonts`, so the Roboto question is a single edit that
+reaches three components. The icon font is CEE's alone, and the shared package does not carry it.
 
-Separately decide which Roboto scripts the single-file bundle must carry. Inlining all
-seven unicode-range subsets at three weights ships every subset, even for a Latin-only
-form. Retain latin-ext for Hungarian; dropping other scripts requires an explicit
-fallback-font decision and multilingual rendering checks. Re-measure decoded and gzip
-savings on the current production bundle. Preserve namespaced font faces and the
-single-artifact embedding contract; serving fonts as extra files changes that contract.
+**Roboto.** Twenty-one faces ship in each component: seven unicode-range subsets at three weights,
+134,499 decoded bytes measured on 2026-09-17.
+
+| subset | 300 | 400 | 500 | all three |
+| --- | ---: | ---: | ---: | ---: |
+| latin | 11,160 | 11,028 | 11,073 | 33,261 |
+| cyrillic-ext | 10,413 | 10,353 | 10,353 | 31,119 |
+| latin-ext | 7,842 | 7,737 | 7,677 | 23,256 |
+| cyrillic | 6,480 | 6,462 | 6,633 | 19,575 |
+| greek | 4,929 | 4,866 | 4,797 | 14,592 |
+| vietnamese | 3,450 | 3,498 | 3,474 | 10,422 |
+| greek-ext | 756 | 750 | 768 | 2,274 |
+
+latin and latin-ext together are 56,517 bytes, so dropping the other five saves 77,982, which is
+58% of the font payload in each of three components. Decide whether the components must render
+Cyrillic, Greek and Vietnamese, remembering that cyrillic-ext is the second-largest subset here;
+latin-ext stays for Hungarian. Decide the fallback explicitly rather than by accident: the shipped
+stack is `CEE Roboto, Helvetica Neue, sans-serif`, so a dropped script lands on the host's
+sans-serif. Re-measure gzip on the production bundles rather than assuming the decoded figure, and
+assert the face inventory in the tokens package's emitted-CSS test so the subsets cannot return.
+
+**Material Icons.** One face in CEE, about 58,005 decoded bytes, against the thirteen ligatures its
+templates and code name statically: `close`, `content_copy`, `delete`, `description`, `device_hub`,
+`file_download`, `help`, `list_alt`, `note_add`, `open_in_new`, `unfold_less`, `unfold_more` and
+`view_module`. A subset of that set is a few kilobytes, so nearly the whole face is recoverable.
+
+The build guard is the harder half and has to come first. Four `<mat-icon>{{ … }}` bindings resolve
+at runtime, in `download-menu`, `cedar-input-link` and twice in `authority-input`, so the glyph set
+cannot be read from the templates, and no inventory script exists. Either make those names
+enumerable from a declared lookup, or declare the glyph set and prove every usage resolves into it;
+then subset the font and fail the build on a glyph outside the set. A glyph missing from a subset
+font renders as its ligature text rather than as an icon, without erroring.
+
+Preserve namespaced font faces and the single-artifact embedding contract; serving fonts as extra
+files changes that contract. The shared package still names the family `CEE Roboto` while all three
+components consume it, and renaming it is coordinated across their stylesheets, so it belongs in
+this pass.
+
+The RDF instance export item's Turtle option adds 56,684 gzip bytes, which this work would more
+than cover, so this is worth taking first.
 
 ### 10. Localize Numeric and Temporal Validation
 
