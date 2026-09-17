@@ -2478,12 +2478,14 @@ configurations do not consume the first assignment. CEE/CEF's existing direct-ho
 contract still requires trailing slashes; the designer coordinator supplies them.
 Read-only and document lifecycle contracts remain component-specific.
 
-#### Local Verification Before the Shared-Token Release
+#### Local Verification of Unpublished Token Changes
 
-The new token exports require publishing a new Nexus snapshot and updating the
-consumer package and lockfile pins together. Until that release, use the packed
-local token sources for verification; do not overwrite the existing Nexus version.
-With the native profile sourced, run:
+CEE and CED install the shared control, spacing and font exports from their
+exact Nexus snapshot pins. For future unpublished token changes, use packed
+local sources for development verification. Before pushing consumers that need
+new exports, publish a new immutable token snapshot, update their package and
+lockfile pins, and prove a clean `npm ci` build. Never overwrite a published
+version. With the native profile sourced, the local development loop is:
 
 ```sh
 cd "$CEDAR_HOME/cedar-design-tokens"
@@ -2501,8 +2503,10 @@ gate. Tests cover both profiles, inherited host overrides in all four elements,
 CEF nested in CED/CEFD, invalid/focused controls, narrow hosts, configuration
 normalization and malformed inputs. CEE screenshot checks use the pinned Linux
 container; macOS screenshots must not replace those baselines. Reinstalling with
-`npm ci` restores the published token pin, so repeat the local install until the
-new snapshot is published and pinned.
+`npm ci` restores the published token pin. Local-tarball success is not a clean
+CI result: verify again after publishing and pinning the snapshot. CED's real-CEF
+integration workflow must pin a CEE source revision that implements the profiles
+its tests exercise.
 
 #### Monitoring token adoption
 
