@@ -22,6 +22,7 @@ and the main browser applications. Shared design values belong in
 | Main browser applications and local stack | [Backend runbook](BACKEND-RUNBOOK.md), [production deployment](PROD-DEPLOY-RUNBOOK.md), [Docker operation](DOCKER-RUNBOOK.md) |
 | Public npmjs releases | [Npmjs release runbook](NPMJS-RELEASE-RUNBOOK.md) |
 | Term-picker operation | [Versioning runbook](VERSIONING-RUNBOOK.md) |
+| What a host serves against its components | [Component staleness](#component-staleness) |
 
 <a id="cee"></a>
 
@@ -32,6 +33,38 @@ metadata. Settings has no editor-selection toggle; older stored editor-selection
 are ignored. Template Designer retains the AngularJS template-authoring controls, while metadata
 population is handled by CEE in Workspace. The legacy metadata widgets, pagination, spreadsheet
 view and their supporting modules are no longer part of any of these applications.
+
+<a id="component-staleness"></a>
+
+## Component Staleness
+
+A component's source and the bundle a host serves are separated by a publication and
+a pin, so a committed change reaches a host only once both have moved. Nothing in a
+host's own signals reports the gap: its CI, its suite and its browser tests all
+exercise whatever bundle sits on the disk they run on.
+
+```shell
+cedarcli check components            # report the gap
+cedarcli check components --strict   # also fail on it, for a payload or a release
+cedarcli check components --all      # every comparison, not only the findings
+```
+
+Three comparisons, none of which needs a judgement about versions. A pin names a
+source commit, so measuring it against the component's develop head gives the commits
+the host cannot see, by subject. A staged bundle carries bytes, so hashing them against
+the locked package says whether a clean install would serve the same thing. A host names
+the elements it creates, so looking for each one in the locked bundles says whether it
+exists at all.
+
+Serving bytes the lock does not name, creating an element no locked bundle defines, and
+pinning a build the component's history cannot account for each fail the check outright.
+A host sitting behind a published component, a local bundle staged over a locked one, and
+a version carrying no recoverable source commit are reported and fail only under
+`--strict`: each is true of an estate mid-cycle, and failing on them by default would
+train people past the three that matter.
+
+The check reads the workspace rather than the repository registry, so a component counts
+as one as soon as a sibling installs it.
 
 ## Embeddable editor (CEE/CEF)
 
@@ -2081,7 +2114,8 @@ The host verifies each installed bundle against its published SHA-256, and
 `npm run prepare:components` refreshes the served copies; `npm pack` includes
 them through its prepack hook. Explicit local bundle-path overrides remain
 available for development, but server payloads reject them. See the host README
-for the override names. The frontend train updates Designer's CEE pin alongside
+for the override names. [`cedarcli check components`](#component-staleness) measures
+what is served against what is pinned. The frontend train updates Designer's CEE pin alongside
 its other CEE consumers; CED and CETP remain explicit immutable package pins.
 
 The host owns SSO, repository child search, permission checks, dirty navigation,
@@ -2089,7 +2123,8 @@ ETag saves and the instance-aware template version confirmation. Standalone
 field-document routes use CEFD from the same CED bundle; fields inside templates
 and elements use the same field controls. During development, explicitly stage
 the local CED bundle with `CEDAR_CED_BUNDLE` until a CEFD-containing Nexus snapshot
-is pinned. The host fails clearly if the pinned bundle lacks CEFD.
+is pinned. The host fails clearly if the pinned bundle lacks CEFD, and
+[`cedarcli check components`](#component-staleness) reports the same condition before a build.
 
 Version creation requires the original ETag in `If-Match`; the resource
 server conditionally publishes that exact source snapshot before creating the draft.
@@ -2402,3 +2437,44 @@ anything else jsdom says still reaches the console.
 instance must carry, including the provenance keys. The author's required flag is
 `_valueConstraints.requiredValue` on the field. Reading the first as the second is
 a mistake worth remembering.
+
+### Shared values and configuration audit (2026-09-16)
+
+Source audit of CEE, CEF, CED and CEFD, including their public contracts and
+styling adapters; this is not a new rendered-style or accessibility verification.
+CEE/CEF share one implementation family and CED/CEFD another. Both repositories
+pin `cedar-design-tokens` at `0.1.0-dev.20260915.4e0a0032`. CEFD loads the same
+stylesheet and field controls as CED; CEF uses CEE's widgets and compact adapter.
+
+Already centralized: the font family, five-step type scale, brand palettes,
+semantic warning colors and neutral roles. Adoption is incomplete: local literal
+colors remain, and a build-time token is not automatically a runtime host override.
+
+| Finding | Evidence | Recommended ownership |
+| --- | --- | --- |
+| Compact control defaults are duplicated across repositories | CEE `src/_cedar-compact.scss` and CED `src/app/shared/_control-style.scss` repeat 36px height, 21px line height, 4px radius and the resting outline; invalid controls also repeat `#b42318`. | Put framework-neutral defaults in design tokens; retain the public `--cedar-control-*` overrides and each framework adapter. |
+| The authoring density overrides host properties | CED `field-settings.component.scss` declares public control properties on its host: 28px height, 12px text, 18px line height, 2px radius and `#ccc` border. These declarations take precedence over inherited host values and apply to embedded CEF too. `STYLING.md` describes a 36px default and advises at least 32px. | Decide whether authoring needs an explicit density profile. Share its defaults if so, but do not hard-assign public override properties internally. Verify native and embedded controls together. |
+| Status and neutral roles have parallel definitions | Design tokens retain Material warn `#f44336`; compact invalid controls use `#b42318`. CED settings retain literals such as `#444`, `#ccc`, `#f4f6f6`; published notices use `#fff8e5`. | Name error text/border, advisory surface and authoring surface roles deliberately. Map existing tokens where roles match; do not mechanically equate every red or gray. |
+| A spacing scale is already implicit | Literal stylesheet declarations use 4/8/12/16/24px in both repositories. Counts for those values respectively: CEE 11/14/20/6/2; CED 26/31/16/9/5. Counts include margin/padding/gap declarations, exclude utility classes, inline templates and generated files, and are occurrences rather than semantic matches. | A small optional spacing scale is justified. Keep card gutters, toolbar geometry and component-specific dimensions local. CEFD's 16px padding and 8px gap are reasonable first consumers once the scale exists. |
+| Font assets are copied | The seven embedded font payloads in each of the Roboto 300, 400 and 500 source files are byte-identical between repositories. | Source these from a shared build-time asset export. Bundles should remain self-contained; sharing source does not by itself reduce the bytes a page downloads. |
+| Service configuration has inconsistent normalization and validation | CEE/CEF `config-validation.ts` rejects missing trailing slashes and malformed value types. CED `TerminologyService.configure` appends a slash, while both CED and CEFD wrappers pass the original bases into `fieldEditorConfig`, which is forwarded to CEF. | Normalize/validate once at the designer boundary and forward the same accepted values to both services and CEF. Standardize behavior through shared contract tests or a small runtime utility, not the design-token package. |
+
+The configuration mismatch can leave the designer's terminology search configured
+while an embedded CEF lookup is unconfigured. CED's configuration setter also lacks
+CEE's runtime diagnostics for unknown keys and wrong types. Both designer wrappers
+repeat the same set-once configuration logic, so they can first share a local helper.
+
+Keep read-only and lifecycle policies distinct: CEE/CEF use set-once
+`config.readOnlyMode`; CEFD has a replaceable host `readOnly` property and always
+locks published definitions; CED's host currently enforces read-only externally.
+Those are workflow contracts, not design values. Similarly, search throttles,
+preview debounce, document replacement and persistence should not be put in a
+universal configuration merely because they contain repeated numbers or names.
+
+Recommended order: resolve service configuration consistency; define control
+roles/density and preserve host overrides; introduce the small spacing scale;
+centralize font sources. Verification should include host overrides across all
+four elements, nested CEF inside CED/CEFD, invalid/focused/read-only controls,
+small hosts, and a configuration matrix covering absent, valid, slashless and
+wrong-type URL values. Whole-component runtime theming remains separate work in
+the frontend roadmap.
