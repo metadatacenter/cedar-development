@@ -37,18 +37,23 @@ view and their supporting modules are no longer part of any of these application
 ## Modern Split Workspace
 
 `cedar-workspace` serves a standalone Angular 22 application on `/`, `/dashboard`,
-`/instances/create/:templateId`, `/instances/edit/:id`, `/profile`, `/settings` and `/groups`.
-Groups uses independent group and membership ETags, restricts administration to group
-administrators and protects the last administrator. `npm run smoke:account -- groups`
-checks the complete two-user journey and stale-write handling with an isolated group.
+`/instances/create/:templateId`, `/instances/edit/:id`, `/profile`, `/settings`, `/groups`
+and `/privacy`. These routes load no AngularJS; messaging/logout retain the temporary
+legacy entry.
+
+The Workspace uses shared design tokens, a table-only resource list, search, folder
+navigation, collapsible side panels and Info/Version tabs. Category, latest-version and
+type filters are intentionally absent. Artifact/folder menus use existing REST operations
+and server capabilities; lifecycle actions come from resource reports, not listing summaries.
+
 Profile provides account details and masked API-key create/regenerate/delete operations.
-Settings saves the account date preference and Workspace uses it for displayed dates.
-Run `npm run smoke:account -- settings` to verify save/reload (restoring the original preference).
-Run `npm run smoke:account -- profile` in `ops/e2e` to exercise it with an isolated key.
-It uses the shared design tokens, a table-only resource list, search, folder navigation,
-collapsible side panels and Info/Version tabs. Category, latest-version and type filters
-are intentionally absent. Artifact/folder menus use the existing REST operations and
-server capabilities; lifecycle actions come from resource reports, not listing summaries.
+Settings saves the account date preference used by Workspace. Groups uses independent
+group and membership ETags, restricts administration to group administrators and protects
+the last administrator. Privacy retains the existing policy wording in the Angular account
+shell. In `ops/e2e`, run `npm run smoke:account:all` for all four pages, or
+`npm run smoke:account -- profile` (also `settings`, `groups`, `privacy`) for one page.
+The journeys remove their temporary keys/groups and restore the original date preference.
+Groups includes a second user's restricted view and a real stale-write conflict.
 
 Start it with `cedarcli native start frontend workspace`. With the native profile sourced,
 run `npm run build` in `cedar-workspace` after changing `src/`. Gulp invokes the same build
@@ -73,7 +78,7 @@ sharing between two users, CEE metadata entry, downloads, versioning, OpenView a
 conditional writes. Its fixtures are removed after each run; the Workspace result and
 failure screenshot are written under `/tmp/cedar-modern-workspace-smoke/`.
 `npm run smoke:workspace:modern` runs just the Workspace journey; the full command also
-runs the CED host's stale-save and breaking-template-change scenarios.
+runs the CED host's stale-save and breaking-template-change scenarios and all account journeys.
 The existing `npm run smoke` remains the AngularJS journey for `cedar.metadatacenter.*`.
 Its script and legacy variants are retained unchanged; they are not the modern route's gate.
 See the Workspace README for the boundary, request contracts and direct build procedure.
