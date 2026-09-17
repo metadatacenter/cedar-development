@@ -37,8 +37,10 @@ view and their supporting modules are no longer part of any of these application
 ## Modern Split Workspace
 
 `cedar-workspace` serves a standalone Angular 22 application on `/`, `/dashboard`,
-`/instances/create/:templateId`, `/instances/edit/:id` and `/profile`.
+`/instances/create/:templateId`, `/instances/edit/:id`, `/profile` and `/settings`.
 Profile provides account details and masked API-key create/regenerate/delete operations.
+Settings saves the account date preference and Workspace uses it for displayed dates.
+Run `npm run smoke:account -- settings` to verify save/reload (restoring the original preference).
 Run `npm run smoke:account -- profile` in `ops/e2e` to exercise it with an isolated key.
 It uses the shared design tokens, a table-only resource list, search, folder navigation,
 collapsible side panels and Info/Version tabs. Category, latest-version and type filters
