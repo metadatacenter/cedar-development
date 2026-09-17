@@ -165,6 +165,16 @@ not execute the committed check inventory, or when a repository held uncommitted
 smoke ran. Unlike a red develop, nothing accepts a missing or failed run. The answer to a flaky run
 is to rerun it.
 
+**What a browser application serves is asked about too.** The frontends reach each other as
+published npm packages, so a host's pin and the bundle it serves each sit a step away from the
+component's own source, and a host can build and test green while serving something the component
+replaced. The preflight refuses a host that serves bytes its lock does not name, that creates a
+custom element no locked bundle defines, or that pins a build the component's `develop` cannot
+account for. It does not refuse a host merely sitting behind a published component, which is true
+of the estate for most of a cycle, and it does not ask about a locally staged bundle, because a
+release builds frontends in an isolated workspace from the lock and no override reaches it.
+`cedarcli check components` asks the same question on its own.
+
 **Frontend installs use the same policy in train and release.** `plan` reads `package.json` and
 `package-lock.json` from each train-captured commit, requires every `hasInstallScript` dependency to
 have an exact true/false `allowScripts` decision, and names any missing package/version before a

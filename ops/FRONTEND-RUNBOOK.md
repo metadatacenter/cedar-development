@@ -45,7 +45,7 @@ exercise whatever bundle sits on the disk they run on.
 
 ```shell
 cedarcli check components            # report the gap
-cedarcli check components --strict   # also fail on it, for a payload or a release
+cedarcli check components --strict   # also fail on a host behind a published component
 cedarcli check components --all      # every comparison, not only the findings
 ```
 
@@ -62,6 +62,15 @@ A host sitting behind a published component, a local bundle staged over a locked
 a version carrying no recoverable source commit are reported and fail only under
 `--strict`: each is true of an estate mid-cycle, and failing on them by default would
 train people past the three that matter.
+
+The release plan and the train dispatch preflights ask this check themselves, at its own
+severity rather than under `--strict`. A host sits on the last published component for as
+long as it takes to publish the next one, so refusing a release on that would refuse
+nearly every release, and a gate that always refuses earns an override flag. Both build
+frontends in an isolated workspace from the lock, so a locally staged bundle never reaches
+them and is not asked about; an element the locked bundle does not define still refuses,
+which is the case no clean install repairs. `--strict` belongs to a server payload, which
+serves whatever the lock resolves.
 
 The check reads the workspace rather than the repository registry, so a component counts
 as one as soon as a sibling installs it.
@@ -2494,3 +2503,31 @@ normalization and malformed inputs. CEE screenshot checks use the pinned Linux
 container; macOS screenshots must not replace those baselines. Reinstalling with
 `npm ci` restores the published token pin, so repeat the local install until the
 new snapshot is published and pinned.
+
+#### Monitoring token adoption
+
+Run `cedarcli check design-tokens` for the three embeddable component repositories (CEE/CEF, CED/CEFD and CETP),
+`--strict` to gate new color/typography drift, `--json` for an archived report,
+and `--repo <name> --prune-baseline` after removing existing findings. Spacing and
+geometry are advisory. The version comparison is against the local token package,
+not the latest Nexus publication. This complements `cedarcli check components`;
+it does not prove which bundle a host serves. The token repository's README owns
+the scanner scope, exact-declaration exceptions, CI base-revision comparison and
+rollout order. Review baseline changes as code; do not regenerate debt to pass CI.
+
+For a side-by-side manual comparison, build CEE and CED using the procedures above,
+stage the current CEE bundle beside CED's bundle, then start CED's fixture server
+with the native profile sourced:
+
+```sh
+cd "$CEDAR_HOME/cedar-embeddable-designer"
+cp ../cedar-embeddable-editor/visual/public/cedar-embeddable-editor.js dist-bundle/
+node browser/serve.mjs
+```
+
+Open `http://localhost:4598/style-comparison.html`. It renders all four real
+components and supports compact/authoring entry density, narrow hosts, inherited
+overrides and the supported read-only modes. Use keyboard focus and invalid
+field values to inspect those states. The page shows a missing-bundle message
+instead of substituting mock components. Its browser test joins the existing
+real-CEE/CEF gate when `CEF_BUNDLE` is supplied.

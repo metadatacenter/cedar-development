@@ -96,6 +96,14 @@ can inject, then asks the question the way the runner asks it. Nothing is publis
 workflow fails this way, but the train ID is spent, so the recovery is a fresh train rather than a
 resume.
 
+The dispatch preflight asks one more question of the frontends among the captured source. They
+reach each other as published npm packages, so a host whose pin predates the component commit it
+depends on builds and tests green and fails only when somebody opens the surface that needs the
+missing piece. The preflight refuses a host serving bytes its lock does not name, creating a custom
+element no locked bundle defines, or pinning a build the component's `develop` cannot account for,
+and reports without refusing a host that merely sits behind a published component.
+`cedarcli check components` asks it outside a dispatch.
+
 Local preflight also reports CI environment drift as an advisory. Every Java repository's `ci.yml`
 carries a copy of `ops/ci-env-block.yml`, and a copy missing an entry breaks only the repositories
 whose suites build that part of the configuration. That is not evidence a train would fail, so it
