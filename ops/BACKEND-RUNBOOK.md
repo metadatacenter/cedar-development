@@ -2102,6 +2102,80 @@ run `cedarcli test e2e`.
 
 ## Artifact Write and Diagnostic Contracts
 
+### Production artifact repair
+
+Use `ops/repairs/cedar_artifact_repair.py` in report mode first. An applied repair must validate its
+complete candidate, save a new durable preimage without overwriting earlier attempts, send the
+current strong ETag in `If-Match` with `PUT ?verbatim=true`, and compare the entire read-back body
+with the submitted candidate. Idempotence is not read-back verification. An artifact for which no
+transform proposes a change still needs validation before it can be called clean. Production apply
+mode rejects `--no-verify`.
+
+Schema validity alone does not establish preservation of meaning. Two equal field values are not
+equivalent assertions unless their explicit property IRIs also agree. The duplicate rule permits
+only matching simple property mappings and identical typed JSON values. Complex mappings require
+review. An IRI-only value is populated; do not mistake its `@id` for an empty element identity.
+Many-to-one renames refuse competing populated sources and preserve populated destinations.
+`rename_sheet.py` treats spelling and value overlap as proposals, never implicit owner answers.
+
+Changing an existing `@context` property IRI is a semantic migration. Applying
+`align-instance-context-iris` requires both `--allow-context-migration` and a reviewed `--only-ids`
+scope. Review the old/new predicates and the template history or recorded migration decision.
+Preserving provenance timestamps is appropriate for correcting a proven stored defect; it does not
+make a substantive migration meaning-preserving.
+
+`drop-empty-undeclared-instance-keys` removes only explicit empty top-level slots and their context
+entries. `complete-empty-literal` adds null only to otherwise empty literal slots whose declaration
+permits null. Neither supplies an entered term, date, number or other missing required value.
+Completion's invariant permits only declared empty shapes, required context additions and fresh
+element identities. Run the repair suites with
+`python3 -m unittest test_cedar_artifact_repair test_repair_safety` from `ops/repairs`.
+
+The independent review on 2026-09-17 fetched and revalidated the 957 IDs in the then-current residual,
+along with current bodies for the 652 instances touched by the duplicate rule. It repaired 26
+residual instances with full candidate equality and validation after writing. The remaining 931 is
+a count within that reviewed set, not a fresh full-corpus census. All 367 Repository → Dataset_ID
+cases from the initial review retain the original source assertion under Data_Repository and do not
+need restoration on that evidence. Review other semantic migrations separately from schema validity.
+The same review restored 11 historical `Event Date 1` values into the recorded destination
+`evento ha data`, where the current destination was empty and the saved bodies contained no
+competing source values. Those instances already validated before restoration: a valid artifact can
+still have lost meaning. Two populated `SCAA_posneg` values and a separate conflicting-date
+consolidation remain explicit semantic exceptions pending a destination decision.
+Local evidence, pinned inputs, per-write preimages and readbacks are under
+`$CEDAR_HOME/artifact-repair-review-2026-09-17/`.
+
+A subsequent triage pass repaired another 25 instances by removing accidental whitespace directly
+after `https://orcid.org/` and completing missing empty structure. The ORCID identifier characters
+are unchanged and must pass the MOD 11-2 checksum before the spacing rule applies; this is not a
+claim about registration or ownership. Every write passed full readback equality and validation.
+That pass left 906 known invalid instances; the scoped target list and unanswered questions are under
+`$CEDAR_HOME/artifact-repair-triage-2026-09-17/`. The rule is
+`normalize-instance-orcid-spacing`. Other malformed identifiers remain explicit defects.
+
+The subsequent owner-reviewed Cell repair updated its template and 166 instances. All 893 dependent
+instances were checked: 889 validate and four retain separate populated-field defects. The repair
+preserved the 723 previously valid instances, mapped verified species/gene terms, added the specific
+CRISP cell-line class to Type, emptied the agreed NA values, and merged repository URLs without
+conflicts. The four pending cases contain ontology assertions in text fields or malformed publication
+data. Evidence and preimages are in the triage directory's `cell/` subdirectory.
+
+One RSeq instance was repaired by replacing two literal `"null"` strings with JSON null. A further
+empty-value pass made eight instances valid across seven templates, with five template writes and
+two instance writes. The current renderer represents empty IRI fields as `{}` even when
+`_valueConstraints.requiredValue` is true; removing legacy field-level `required: ["@id", ...]`
+requirements must preserve that requiredValue setting and the ontology constraints. Literal absence
+is represented as `{"@value": null}` where permitted. Empty undeclared slots can be removed, but
+populated identifiers, labels and strings such as `"NA"`, `"None"` or `"null"` need a specific decision.
+All eleven dependent instances in that pass were checked and every write was backed up and verified.
+Evidence is in `single-instance-review/rseq-repair/` and `empty-values/` under the triage directory.
+
+The maintained residual is **731 invalid instances across 260 templates**, not a fresh whole-corpus
+inventory. `CURRENT-COUNTS.md` and `remaining-residual-records.jsonl` in the triage directory contain
+the per-template counts and target IDs. A fresh targeted MiAIRR V1.1.0 review found 13 invalid and
+29 valid instances among its 42 current instances; no MiAIRR migration was applied. Its field values,
+old/new mapping evidence and unresolved semantic decisions are in `miairr-v1.1.0/`.
+
 Artifact creation and replacement use different authorization checks even though both can arrive as
 `PUT /.../{id}`: an absent id requires that artifact type's `CREATE` permission, while an existing id
 requires `UPDATE`. Do not collapse this back to a route-level update check; custom roles need the

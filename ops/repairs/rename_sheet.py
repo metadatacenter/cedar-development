@@ -82,8 +82,7 @@ def supersedes(found, stale, carried):
 def shared_values(found, stale, name):
     """Whether the two names hold values in common.
 
-    A value carried under the old name and under the new one, in instances of the same template, is
-    the two names describing one field. It settles a pairing that wording alone only suggests.
+    Shared values may help rank a proposal but do not establish equivalent field meanings.
     """
     prefix = found["at"].get(stale, "")
     old = {v for v in (found["staleValues"].get(stale) or []) if len(v) > 2}
@@ -253,10 +252,9 @@ def walk_container(node, definition, prefix, found):
         shown = render(node[key])
         if shown:
             found["staleValues"][path].append(shown)
-            for name in declared:
-                if name in node and node[name] == node[key] and type(node[name]) is type(node[key]):
-                    found["superseded"][path][name] += 1
-                    break
+            twin = repair.superseded_keys(node, set(declared)).get(key)
+            if twin:
+                found["superseded"][path][twin] += 1
     for key in set(declared) - present:
         here["absent"][key] += 1
     for name, child in element_children(definition).items():
@@ -486,14 +484,9 @@ def main():
            "Dates are the template's own `pav:createdOn` and `pav:lastUpdatedOn`. Sampling is up to "
            f"{SAMPLE} invalid instances per template.",
            "",
-           "A key marked **superseded** needs no pairing at all: the instance already carries its "
-           "value under a name the template declares, so the old key is a duplicate and is simply "
-           "deleted. "
-           "A pairing is **settled** when the two names differ only in case or punctuation, or when "
-           "the same value appears under both names in instances of this template. Those need no "
-           "judgement from you. They may still read *waiting*: an instance is written only once it "
-           "fully validates, so one unsettled key in a template holds back every settled rename "
-           "beside it. Deciding the keys listed as unsettled is therefore what releases the rest. "
+           "A key marked **superseded** repeats the same value under the same explicit property "
+           "IRI. Other proposed pairings require a recorded decision, even when names differ only "
+           "in spelling or their values overlap. Such similarities do not establish a rename. "
            "Confidence combines how strongly the wording and spelling agree with how many instances "
            "carry the key, so a name used once does not outbid one used throughout. It is not a "
            "probability that the rename happened. "
@@ -556,10 +549,6 @@ def main():
             elif twin:
                 shown, basis, confidence = f"`{twin}` (already present)", "superseded", "settled"
                 settled.append(stale)
-            elif name and (shared_values(found, stale, name) or basis == "spelling"):
-                basis = "same values" if basis != "spelling" else "spelling"
-                confidence = "settled"
-                settled.append(stale)
             rows.append((stale, shown, basis, confidence, count))
         blocked = [s for s in found["stale"] if s not in settled]
         done = written.get(template_id, 0)
@@ -620,30 +609,12 @@ def main():
 
 
 def write_settled(studies):
-    """Record the pairings the sheet settles on its own, so a repair can carry them out.
-
-    A pairing the names or the values settle is never put to an owner, which is the point of
-    settling it. It still has to reach the repair, and nothing else writes it down: left here, the
-    sheet would quietly stop asking about a rename that then never happens, and the instance would
-    stay invalid with no question outstanding to explain why.
-    """
+    """Clear heuristic-only mappings; only recorded owner answers authorize a rename."""
     settled = {}
-    for _rank, template_id, found in studies:
-        proposals = proposals_for(found)
-        answered = ANSWERED.get(template_id) or {}
-        for stale in found["stale"]:
-            if stale in answered:
-                continue
-            name, basis, _value = proposals[stale]
-            twin = supersedes(found, stale, found["stale"][stale])
-            if twin:
-                continue          # the value is already under the declared name; dropping the old
-            if name and (shared_values(found, stale, name) or basis == "spelling"):
-                settled.setdefault(template_id, {})[stale] = name
     path = HOME / "settled-mapping.json"
     path.write_text(json.dumps(settled, indent=1, sort_keys=True) + "\n", encoding="utf-8")
     count = sum(len(m) for m in settled.values())
-    print(f"wrote {path}: {count} pairings settled without asking, across {len(settled)} templates")
+    print(f"wrote {path}: no automatically approved renames; proposals require recorded decisions")
 
 
 def write_decisions(studies, written):
@@ -662,8 +633,6 @@ def write_decisions(studies, written):
             if stale in answered:
                 continue
             name, basis, _value = proposals[stale]
-            if name and (shared_values(found, stale, name) or basis == "spelling"):
-                continue
             if supersedes(found, stale, found["stale"][stale]):
                 continue
             undecided.append((stale, name))

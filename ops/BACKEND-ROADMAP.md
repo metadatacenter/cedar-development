@@ -963,7 +963,8 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   **A resave repairs almost nothing, so do not reach for it as an instrument.** The update path
   normalizes and then validates, answering 400 when the result is invalid
   (`TemplateInstancesResource.java:433`), so only an artifact that is already valid after
-  normalization can be written. Of the 1,047 invalid production instances, 2 have nothing wrong but
+  normalization can be written. In the 2026-09-16 baseline, of 1,047 invalid production instances,
+  2 had nothing wrong but
   a missing occurrence identifier, which is the one defect this path does repair, by removing the
   unusable inherited value and minting a replacement. The rest fail on what no normalizer touches:
   799 carry a key their template does not declare, 715 lack a child it requires, and 166 carry a
@@ -986,12 +987,11 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   check, stop adding entries a stored artifact never had, or state the tightening as the contract
   and accept that a template edit can invalidate instances.
 
-  Production shows what that costs. The *Cell* template's 170 invalid instances are mostly one 2021
-  edit: an author replaced the minted property IRIs of `Mouse_ID`, `Name` and `Knockout` with
-  `dc:identifier`, `dc:title` and a Bioschemas term, and the 166 instances written in 2019 still
-  carry the old IRIs and no longer validate. Nothing propagates a template change to the instances
-  that were filled from it, and nothing warns the author. Whatever is decided about `requireChild`,
-  the same question is open for any template edit that narrows what an instance may hold.
+  **Warn authors before a template edit invalidates existing instances.** Changing a property's
+  IRI or narrowing a field's allowed representation can invalidate documents that were valid when
+  entered. Nothing propagates that change to existing instances or warns the author. Whatever is
+  decided about `requireChild`, check the dependent population for any template edit that narrows
+  what an instance may hold.
 
   Done when the compatibility branches that have no population are gone, each remaining one names
   the count that keeps it, an ordinary write no longer tightens a contract without the instance
@@ -1001,11 +1001,57 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
 ## Production Data
 
 - **24. Resolve the remaining production artifact defects and review semantic migrations.**
-  Classify the remaining 906 instances in the reviewed residual by their actual schema declarations,
+  Classify the remaining **731 invalid instances across 260 templates** in the reviewed residual
+  (2026-09-17, after verified repairs) by their actual schema declarations,
   then repair only transformations whose meaning is established. A missing `@id` in a controlled-term
   field is a missing entered term, not an element identity to mint. Multiple populated occurrences
   cannot be reduced to one without a decision. Empty representations and populated data need
   separate rules, each with a narrow invariant and validation of the complete candidate.
+
+  **Prioritize the largest remaining groups.** These are maintained residual counts, not a new
+  corpus-wide audit. Repeated names identify distinct templates; ID prefixes distinguish them.
+
+  | Template | Invalid instances |
+  | --- | ---: |
+  | CCP Digital Object | 65 |
+  | Migrant-Interviews | 34 |
+  | LINCS DSGC Dataset Submission (`70b010f2…`) | 26 |
+  | Adverse Events V2 | 25 |
+  | VODAN-COVID-Migrants-Tunisia (`1988902f…`) | 23 |
+  | causal pathway | 21 |
+  | DSGC Dataset Template 1.0 | 17 |
+  | PGHD_BP_template | 15 |
+  | Expression | 14 |
+  | VODAN-COVID-Migrants-Tunisia (`05ce128b…`) | 14 |
+  | MiAIRR V1.1.0 | 13 |
+  | DSGC Dataset Template 2.0 | 12 |
+  | GeoExposure_Data_1.5.1_Template (`ce1436c0…`) | 11 |
+  | LINCS DSGC Dataset Submission (`f4034b6f…`) | 11 |
+  | MyFirstTemplate | 10 |
+  | UPDATED HEAL Study Core Metadata | 9 |
+  | Updated week X | 8 |
+  | Citation | 7 |
+  | HEAL Study Core Metadata | 7 |
+  | Human Cognitive Neuroscience Data | 7 |
+  | COVID Project Content | 6 |
+  | COVID-19_Project-Admin_V4 (`337cb6f3…`) | 6 |
+  | File Metadata | 6 |
+  | INFO 663 — Datasets | 6 |
+  | ID-AMR_Project-Admin_V1 | 5 |
+  | LTER-LIFE (0.0.1) | 5 |
+
+  Another 234 templates have 1–4 invalid instances each: 163 templates have one, 40 have two,
+  19 have three, and 12 have four. These groups include *Cell*, with four remaining instances:
+  resolve ontology assertions in the text-only `Reporter_type`/`Mod_type` fields and the undeclared,
+  malformed `Publication_title` structure without discarding populated data.
+
+  **Resolve MiAIRR V1.1.0's legacy representations.** The targeted production review of all 42
+  instances finds 13 invalid and 29 valid. Review old BioSample field names and property mappings,
+  ontology-valued `Sex` against its text declaration, release dates containing `NA`, and unexplained
+  numeric strings or URI-shaped values in text fields. Matching property IRIs support several
+  renames; `Cell Processing Protocol` → `Processing Protocol` and `Related Subjects` →
+  `Relation to Other Subjects` also change the predicate and need a semantic decision. Do not infer
+  meanings for numbered values or treat `NA` as empty without an applicable owner decision.
 
   **Reconcile previous semantic changes with the saved bodies and recorded decisions.** Review
   removed fields against the assertions still present, not merely equal literal values; the property

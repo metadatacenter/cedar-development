@@ -2193,7 +2193,8 @@ class DropSupersededInstanceKeysTest(unittest.TestCase):
 
     def test_a_duplicate_of_a_declared_value_is_removed(self):
         tmpl = self.tmpl({"Data_Repository": child()})
-        before = {"schema:isBasedOn": self.TID, "@context": {},
+        before = {"schema:isBasedOn": self.TID, "@context": {"Repository": GOOD_IRI + "Data_Repository",
+                  "Data_Repository": GOOD_IRI + "Data_Repository"},
                   "Data_Repository": {"@value": "IMPC"}, "Repository": {"@value": "IMPC"}}
         after, changes = REPAIR.drop_superseded_instance_keys(before, tmpl)
         self.assertNotIn("Repository", after)
@@ -2233,7 +2234,7 @@ class DropSupersededInstanceKeysTest(unittest.TestCase):
     def test_the_context_entry_goes_with_the_key(self):
         tmpl = self.tmpl({"Data_Repository": child()})
         before = {"schema:isBasedOn": self.TID,
-                  "@context": {"Repository": "https://example.org/r",
+                  "@context": {"Repository": GOOD_IRI + "Data_Repository",
                                "Data_Repository": GOOD_IRI + "Data_Repository"},
                   "Data_Repository": {"@value": "IMPC"}, "Repository": {"@value": "IMPC"}}
         after, _changes = REPAIR.drop_superseded_instance_keys(before, tmpl)
@@ -2243,6 +2244,8 @@ class DropSupersededInstanceKeysTest(unittest.TestCase):
     def test_the_invariant_rejects_dropping_the_surviving_copy_too(self):
         tmpl = self.tmpl({"Data_Repository": child()})
         before = {"schema:isBasedOn": self.TID,
+                  "@context": {"Repository": GOOD_IRI + "Data_Repository",
+                               "Data_Repository": GOOD_IRI + "Data_Repository"},
                   "Data_Repository": {"@value": "IMPC"}, "Repository": {"@value": "IMPC"}}
         after, _changes = REPAIR.drop_superseded_instance_keys(before, tmpl)
         greedy = copy.deepcopy(after); del greedy["Data_Repository"]
@@ -2258,6 +2261,8 @@ class DropSupersededInstanceKeysTest(unittest.TestCase):
     def test_a_second_pass_changes_nothing(self):
         tmpl = self.tmpl({"Data_Repository": child()})
         before = {"schema:isBasedOn": self.TID,
+                  "@context": {"Repository": GOOD_IRI + "Data_Repository",
+                               "Data_Repository": GOOD_IRI + "Data_Repository"},
                   "Data_Repository": {"@value": "IMPC"}, "Repository": {"@value": "IMPC"}}
         once, first = REPAIR.drop_superseded_instance_keys(before, tmpl)
         _twice, second = REPAIR.drop_superseded_instance_keys(once, tmpl)
@@ -2424,9 +2429,8 @@ class RenameInstanceKeysTest(unittest.TestCase):
         REPAIR.RENAMES[self.TID] = {"Info 1": "Section", "Info 2": "Section"}
         tmpl = self.tmpl({"Section": child()})
         before = self.instance(**{"Info 1": {"@value": "Value 1"}, "Info 2": {"@value": "Value 2"}})
-        after, changes = REPAIR.rename_instance_keys(before, tmpl)
-        self.assertEqual(after["Section"], {"@value": "Value 1"})
-        self.assertEqual(changes[0]["discarded"], ["Info 2"])
+        with self.assertRaises(REPAIR.TransformRefused):
+            REPAIR.rename_instance_keys(before, tmpl)
 
     def test_an_element_value_moves_whole(self):
         REPAIR.RENAMES[self.TID] = {"SpatialCoverage": "Geospatial"}
