@@ -96,17 +96,34 @@ cedarcli publish components --apply        # stamp, publish, repoint, re-stage
 cedarcli publish components --component ced
 ```
 
-Each component is declared in `cedar-development/ops/frontend-train.json` under `components`, the
-way `model` is declared rather than the way `cee` is: CEE's pin is a public npmjs version handed in
-at release time, while these publish Nexus development snapshots on their own cadence. A
-declaration names the repository, the published package, the package it stages under `dist-npm/`,
-the command that builds it, and every consumer whose pin follows it.
+Each component is declared in `cedar-development/ops/frontend-train.json` under `components`. A
+declaration names the repository, the published package, the package it stages, the command that
+builds it, and every consumer whose pin follows it. The design tokens publish from their checkout
+root and declare `"."`; the term picker and the designer stage under `dist-npm/`.
+
+A component something else publishes is declared to be followed instead, with `publishedBy` and a
+`reference`. The TypeScript model library is the one: the build train publishes its development
+snapshots and advances CEE's pin, and nothing advanced the other consumers. Its target is the
+version the reference consumer already carries rather than a new stamp, because the library's own
+manifest names its last stamp and not always the newest snapshot the train published. A followed
+component is never stamped, built or published here; only the pins move.
 
 Applying it stamps the component's next development version from its `develop` head, runs its dist
 command, publishes the staged package under the `dev` tag, then repoints each consumer's manifest,
 moves its lock, and re-stages its served bundles. Reporting is the default because an npm version
 once taken cannot be republished. Every repository it would write to must be clean in its tracked
 files first, so the diffs left behind are its own, and nothing is committed.
+
+The train captures the term picker and the designer, so a train's recorded source names their
+`develop` heads and its preflight asks the same questions of them as of every other source
+repository.
+
+`cedarcli build frontends` builds both components with `npm ci && npm run dist`, which is what
+makes it produce a bundle and a staged package rather than only installed dependencies. Measured on
+a development workstation with the stack running, the dist runs cost 4s for the term picker and 6s
+for the designer, against 5s each for the `npm ci` that precedes them either way. A cold
+`.angular/cache` made no appreciable difference: these are web components of 435 kB and 1.37 MB, and
+Angular's own build reports 1.6s and 3.2s.
 
 The check reads the workspace rather than the repository registry, so a component counts
 as one as soon as a sibling installs it.

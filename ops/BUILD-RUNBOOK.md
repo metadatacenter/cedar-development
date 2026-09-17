@@ -96,6 +96,10 @@ can inject, then asks the question the way the runner asks it. Nothing is publis
 workflow fails this way, but the train ID is spent, so the recovery is a fresh train rather than a
 resume.
 
+The captured source includes the term picker and the designer, the two Web Components the split
+Designer host serves. Both are public, which the capture step requires, and neither carries a Maven
+phase, because phases are the reactor and every frontend is captured without one.
+
 The dispatch preflight asks one more question of the frontends among the captured source. They
 reach each other as published npm packages, so a host whose pin predates the component commit it
 depends on builds and tests green and fails only when somebody opens the surface that needs the

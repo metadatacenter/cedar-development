@@ -20,6 +20,39 @@
   },
   "components": [
     {
+      "id": "tokens",
+      "repository": "cedar-design-tokens",
+      "publishedName": "@org.metadatacenter/cedar-design-tokens",
+      "sourceManifest": "package.json",
+      "sourceLock": "package-lock.json",
+      "stagedPackage": ".",
+      "distCommand": [
+        "npm",
+        "run",
+        "build"
+      ],
+      "consumers": [
+        {
+          "repository": "cedar-embeddable-editor",
+          "dependency": "@org.metadatacenter/cedar-design-tokens",
+          "manifest": "package.json",
+          "lock": "package-lock.json"
+        },
+        {
+          "repository": "cedar-embeddable-term-picker",
+          "dependency": "@org.metadatacenter/cedar-design-tokens",
+          "manifest": "package.json",
+          "lock": "package-lock.json"
+        },
+        {
+          "repository": "cedar-embeddable-designer",
+          "dependency": "@org.metadatacenter/cedar-design-tokens",
+          "manifest": "package.json",
+          "lock": "package-lock.json"
+        }
+      ]
+    },
+    {
       "id": "cetp",
       "repository": "cedar-embeddable-term-picker",
       "publishedName": "@org.metadatacenter/cedar-embeddable-term-picker",
@@ -68,6 +101,26 @@
             "run",
             "prepare:components"
           ]
+        }
+      ]
+    },
+    {
+      "id": "model",
+      "repository": "cedar-model-typescript-library",
+      "publishedName": "@org.metadatacenter/cedar-model-typescript-library",
+      "sourceManifest": "package.json",
+      "publishedBy": "build train",
+      "reference": {
+        "repository": "cedar-embeddable-editor",
+        "manifest": "package.json",
+        "dependency": "cedar-model-typescript-library"
+      },
+      "consumers": [
+        {
+          "repository": "cedar-embeddable-designer",
+          "dependency": "cedar-model-typescript-library",
+          "manifest": "package.json",
+          "lock": "package-lock.json"
         }
       ]
     }
