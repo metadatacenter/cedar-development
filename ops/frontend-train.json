@@ -49,6 +49,12 @@
           "dependency": "@org.metadatacenter/cedar-design-tokens",
           "manifest": "package.json",
           "lock": "package-lock.json"
+        },
+        {
+          "repository": "cedar-workspace",
+          "dependency": "@org.metadatacenter/cedar-design-tokens",
+          "manifest": "package.json",
+          "lock": "package-lock.json"
         }
       ]
     },
