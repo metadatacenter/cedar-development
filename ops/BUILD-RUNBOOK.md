@@ -81,11 +81,20 @@ run recorded against exactly those heads. It also runs the same read-only
 publication-target probe as hosted preflight: Nexus service and writable status, the
 `cedar-maven-dev` repository root, npm identity, and Docker Registry v2 authentication. Credentials
 come from `BMIR_NEXUS_USERNAME`/`BMIR_NEXUS_PASSWORD` when present, otherwise from the
-`bmir-nexus-releases` server in `~/.m2/settings.xml`; no extra option is needed. Every check runs
-even after one has refused, so a single rehearsal reports every finding, each stale lock baseline
-and each red repository among them, rather than the first one met. It then prints the exact
-dispatch command. It does not start GitHub Actions, publish an artifact, alter Docker or npm
+`bmir-nexus-releases` server in `~/.m2/settings.xml`; no extra option is needed. It then prints the
+exact dispatch command. It does not start GitHub Actions, publish an artifact, alter Docker or npm
 client configuration, or write a manifest.
+
+The checks run in two phases, by what they cost. The local phase reads the workspace — the train
+configuration, the lock baselines, uncommitted work, the component comparisons, the npmrc key names
+— and settles in a few seconds. The remote phase asks GitHub once per source repository, reads the
+smoke record, and probes Nexus, npm and the Docker registry, which takes about a minute and a half.
+
+Within a phase every check runs even after one has refused, so a rehearsal reports every finding it
+can reach, each stale lock baseline and each red repository among them, rather than the first one
+met. The remote phase does not run at all once the local one has refused, and the report says so:
+a train the workspace already disqualifies cannot dispatch whatever GitHub would answer, so the
+wait buys nothing. Repair what the local phase names and rehearse again to reach the rest.
 
 That anonymous read closes a gap the operator's own shell would otherwise hide. The runner resolves
 every source with an unauthenticated `git ls-remote`, so a private repository, or one missing
