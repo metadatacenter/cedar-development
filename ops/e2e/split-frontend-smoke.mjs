@@ -155,11 +155,10 @@ async function expectCorsRejected(label, origin, method) {
 
 console.log('Split frontend preview contract');
 
-await expectText('Workspace dashboard shell', `${workspace}/dashboard`, '<div id="angular-views-entry"');
+await expectText('Workspace dashboard shell', `${workspace}/dashboard`, '/workspace-build/index.html');
 await expectText('Workspace CEE route shell', `${workspace}/instances/create/example`,
-  '<div id="angular-views-entry"');
-await expectText('Workspace bootstrap', `${workspace}/require-config.js`,
-  "angular.bootstrap(document, ['cedar.workspace'])");
+  '/workspace-build/index.html');
+await expectText('Workspace bootstrap', `${workspace}/workspace-build/index.html`, '<cedar-workspace');
 await expectText('Workspace pinned CEE bundle',
   `${workspace}/third_party_components/cedar-embeddable-editor/cedar-embeddable-editor.js`,
   'cedar-embeddable-editor', 1_000_000);

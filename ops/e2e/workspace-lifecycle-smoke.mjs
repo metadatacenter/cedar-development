@@ -8,9 +8,9 @@ const browser = await chromium.launch({headless: !process.env.HEADED});
 const context = await browser.newContext({ignoreHTTPSErrors: true});
 const page = await context.newPage();
 page.setDefaultTimeout(25000);
-const errors = [], messaging = [];
+const errors = [], messaging = [], legacy = [];
 page.on('pageerror', e => errors.push(e.message));
-page.on('request', r => {if(new URL(r.url()).hostname.startsWith('messaging.')) messaging.push(r.url());});
+page.on('request', r => {if(/\/(?:bower_components|legacy\.html|require-config\.js|css\/style-creator\.css)/.test(new URL(r.url()).pathname))legacy.push(r.url());if(new URL(r.url()).hostname.startsWith('messaging.')) messaging.push(r.url());});
 async function login() {
  await page.locator('#username, .destinations').first().waitFor();
  if(await page.locator('#username').isVisible()) {
@@ -27,6 +27,7 @@ try {
  assert.equal(await page.getByRole('link', {name: 'Messaging', exact: true}).count(), 0);
  assert.deepEqual(messaging, []);
  console.log('PASS: retired Messaging route returns to Angular Workspace without messaging requests');
+ if(mode==='all'){await page.goto(base+'/retired-workspace-route');await page.locator('.destinations').waitFor();assert.equal(new URL(page.url()).pathname,'/dashboard');assert.deepEqual(legacy,[]);console.log('PASS: unknown routes use Angular without the compatibility shell');}
  if(mode==='logout' || mode==='all') {
   await page.getByLabel('User menu',{exact:true}).click();
   await page.getByRole('link',{name:'Logout',exact:true}).click();

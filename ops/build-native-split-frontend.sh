@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Build one extracted AngularJS frontend for a native nginx host. The environment-specific Gulp
+# Build one split frontend for a native nginx host. The environment-specific Gulp
 # build exits in server mode; nginx serves the resulting app tree directly. No Docker is involved.
 
 set -euo pipefail

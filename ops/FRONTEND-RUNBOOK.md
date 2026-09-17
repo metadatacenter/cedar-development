@@ -59,19 +59,18 @@ Start it with `cedarcli native start frontend workspace`. With the native profil
 run `npm run build` in `cedar-workspace` after changing `src/`. Gulp invokes the same build
 and staging path for native server payloads. Angular builds outside the served tree;
 assets are copied before the entry document is atomically replaced. The root index loads
-`app/workspace-build/index.html` for workspace routes and `app/legacy.html` for ancillary
-routes. The latter remains temporary compatibility code; it is not loaded by the dashboard.
+`app/workspace-build/index.html` for every route. Unknown routes return to the dashboard.
+The AngularJS shell, controllers, services, templates, styles and Karma harness are removed.
 
 The metadata routes use a modern Angular CEE host. It loads the staged CEE bundle
 on demand, settles read-only permissions before configuration, saves with content
 ETags and preserves the editor across saves. Its dirty guard covers field/name edits,
 exact reverts, browser unload and edits made during a pending save. Quality reports
 are advisory. First save replaces the create URL through Angular routing; it does
-not remount the editor. Legacy ancillary pages hand metadata navigation to this host
-by reloading. The combined Template Editor and its AngularJS smoke remain unchanged.
+not remount the editor. The combined Template Editor and its AngularJS smoke remain unchanged.
 
-`npm test` runs the modern Angular/Vitest tests; `npm run test:legacy` runs the retained
-Karma services suite. In `cedar-development/ops/e2e`, run
+`npm test` runs Angular/Vitest tests and the Node tests for the retained plain-JavaScript
+Keycloak adapter. In `cedar-development/ops/e2e`, run
 `npm run smoke:workspace:modern:full` against the running native stack. It exercises the
 modern Workspace and split CED/CEFD hosts with real login, folder operations, authoring,
 sharing between two users, CEE metadata entry, downloads, versioning, OpenView and

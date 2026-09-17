@@ -59,13 +59,13 @@ console.log(`Split frontend routing rehearsal (${mode})`);
 
 if (mode === 'split') {
   await expectText('Canonical gateway serves Workspace bootstrap',
-    `${canonical}/require-config.js`, "angular.bootstrap(document, ['cedar.workspace'])", 'split');
+    `${canonical}/workspace-build/index.html`, '<cedar-workspace', 'split');
   await expectText('Canonical dashboard stays in Workspace',
-    `${canonical}/dashboard`, '<div id="angular-views-entry"', 'split');
+    `${canonical}/dashboard`, '/workspace-build/index.html', 'split');
   await expectText('Canonical instance creation stays in Workspace',
-    `${canonical}/instances/create/example`, '<div id="angular-views-entry"', 'split');
+    `${canonical}/instances/create/example`, '/workspace-build/index.html', 'split');
   await expectText('Designer gateway serves Designer bootstrap',
-    `${designer}/require-config.js`, "angular.bootstrap(document, ['cedar.templateDesigner'])", 'designer');
+    `${designer}/scripts/host.mjs`, 'cedar-embeddable-designer', 'designer');
 
   await expectRedirect('/templates/create?folderId=urn%3Auuid%3Aroute-test&returnTo=%2Fdashboard%3Ftab%3Dmine');
   await expectRedirect('/elements/edit/urn%3Auuid%3Aelement-test?returnTo=%2Fdashboard');
