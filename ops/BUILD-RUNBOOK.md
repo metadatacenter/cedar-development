@@ -48,7 +48,7 @@ Keep the three identities distinct:
 Operators never type the timestamp for a new train. `cedarcli` allocates it. The only train ID an
 operator supplies is an existing one passed to `--resume` or `--train`.
 
-## One-time administration
+## One-Time Administration
 
 The Nexus hosted Maven repository must be named `cedar-maven-dev`, use the **Release** version
 policy, and have **Disable redeploy** selected. The two Docker hosted repositories are
@@ -61,7 +61,7 @@ The `cedar-development` repository needs access to the existing organization sec
 write repository contents. The workflow uses that permission only for the dedicated
 `build-trains` state branch.
 
-## Create a train
+## Create a Train
 
 Optionally rehearse the side-effect-free local preflight from a configured CEDAR shell:
 
@@ -169,7 +169,7 @@ repository that consumes it. CEDAR's font stack, type scale, brand palettes and 
 published from there as `@org.metadatacenter/cedar-design-tokens`, and a consumer's styles resolve
 that package from Nexus when its own build starts: a frontend built before the tokens publish reads
 the previous snapshot and renders the previous values. The order lives in the CLI's repository
-registry rather than in this document, and `tests/test_design_tokens_registration.py` holds it
+registry rather than in prose, and `tests/test_design_tokens_registration.py` holds it
 there.
 
 The workflow first captures the exact `develop` commit of every Java, npm, frontend, Docker, CLI,
@@ -302,7 +302,7 @@ five for the 31 images, and eight and a half to pull every image back and verify
 the image matrix runs serially. The local dispatch preflight takes about a minute, most of it the
 CI probe across the 45 captured repositories, and a `--dry-run` rehearsal pays it a second time.
 
-## Resume a failed train
+## Resume a Failed Train
 
 Start with the status command. It names the failed job and step when GitHub exposes one, links the
 workflow, reports which publication completions are recorded, and prints the recovery decision:
@@ -354,7 +354,7 @@ failure.
 Use a new train rather than resume when you want to include a source change. A train ID always means
 one fixed commit set.
 
-## Publication-target canary
+## Publication-Target Canary
 
 `publication-preflight-canary.yml` runs the same read-only Nexus, Maven, npm, and Docker probe every
 day and on manual dispatch. A failure opens or updates the issue **Build-train publication preflight
@@ -370,7 +370,7 @@ configuration cross into the UBI runtime. The 15 server builds therefore do not 
 post-quantum signing key; the two UBI base builds may still show the upstream warning while Red Hat's
 multisignature plugin is unavailable in the minimal UBI repositories. Do not remove that key.
 
-## What the state branch contains
+## What the State Branch Contains
 
 The `build-trains` branch is machine-owned operational state, separate from normal development:
 
@@ -395,7 +395,7 @@ Inspect a train without opening the state branch manually:
 cedarcli publish train-status <TRAIN_ID>
 ```
 
-## Use a train for Docker
+## Use a Train for Docker
 
 Image builds are topology-independent and may run without a configured deployment mode; this is
 how the isolated train jobs build from only their pinned CLI and Docker-builder checkouts. Starting,
@@ -447,7 +447,7 @@ cedarcli docker start all --local --pull never
 Local images keep the development tag declared in `cedar-docker-build`; they are not evidence that
 the corresponding published train was reproduced.
 
-## Failure diagnosis
+## Failure Diagnosis
 
 Follow the dispatched job with:
 
@@ -461,7 +461,7 @@ A credentials preflight failure means the organization secrets have not been sha
 pushing the state branch means Actions does not have write permission. Maven compilation failures
 need a source fix and a new train; transient upload failures can use `--resume`.
 
-### CEE source CI cannot install its pinned model package
+### CEE Source CI Cannot Install Its Pinned Model Package
 
 A CEE source check can fail before a train with an npm 404 for an exact
 `@org.metadatacenter/cedar-model-typescript-library` development tarball. A valid lockfile does not

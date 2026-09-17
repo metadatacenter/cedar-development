@@ -9,7 +9,7 @@ analysis: `LOG-PIPELINE-CAPACITY.md`.
 
 ---
 
-## 0 · The one thing to understand first
+## 0 · The One Thing to Understand First
 
 **The consumer drains at ~6 rows/s and always has.** It cannot be tuned into keeping up. So queue
 growth always means *something upstream is producing more than 6/s*, and the fix is always to find
@@ -19,7 +19,7 @@ Historical baseline traffic is ~0.76/s, so there is normally ~8x headroom and no
 
 ---
 
-## 1 · Triage in four commands
+## 1 · Triage in Four Commands
 
 Run these on the app host (`cedr-prd-app-05`). They take under a minute and they split every case.
 
@@ -62,7 +62,7 @@ redis-cli LRANGE CEDAR-QUEUE-app-log -3 -1
 
 ---
 
-## 2 · Most likely cause: an unbounded permission cascade
+## 2 · Most Likely Cause: An Unbounded Permission Cascade
 
 `GROUP_MEMBERS_UPDATED`, `GROUP_DELETED` and `FOLDER_PERMISSION_CHANGED` each enqueue a ~200-byte
 pointer, but the work is derived: the consumer walks **every resource that group or folder can
@@ -89,7 +89,7 @@ curl -s -H "Authorization: apiKey $CEDAR_ADMIN_USER_API_KEY" \
   "https://group.${CEDAR_HOST}/groups/<url-encoded group id>" | python3 -m json.tool
 ```
 
-### Stopping one
+### Stopping One
 
 **Order matters.** The worker holds the in-flight message, and `recoverInFlightMessages()` restores
 it from `-processing` on restart — so you must stop the worker and clear **both** keys.
@@ -115,7 +115,7 @@ correctness trade, not a cleanup.
 
 ---
 
-## 3 · Draining the backlog
+## 3 · Draining the Backlog
 
 Once inbound stops, the backlog clears at roughly 5/s net — **about 60 hours per million messages.**
 
@@ -138,7 +138,7 @@ redis-cli LLEN CEDAR-QUEUE-app-log; sleep 60; redis-cli LLEN CEDAR-QUEUE-app-log
 
 ---
 
-## 4 · If the consumer really is dead
+## 4 · If the Consumer Really Is Dead
 
 `max_id` not moving at all. The consumer catches every exception and retries every 10 s forever, so
 it does not exit — it spins.
@@ -156,7 +156,7 @@ either way.** Use `max_id` as the liveness signal, not the log.
 
 ---
 
-## 4b · Dead-lettered log messages
+## 4B · Dead-Lettered Log Messages
 
 **Start on the Monitor's Queue Counts page.** It reports three depths per queue — pending,
 processing and dead-letter — so the whole of this section's triage is readable without shelling into
@@ -199,7 +199,7 @@ redis-cli LRANGE CEDAR-QUEUE-app-log-dead-letter 0 -1 > ~/app-log-dead-letter-$(
 redis-cli DEL CEDAR-QUEUE-app-log-dead-letter
 ```
 
-### Why messages dead-letter, and it is not the message
+### Why Messages Dead-Letter, and It Is Not the Message
 
 **Settled 2026-09-15 from prod's own logs.** The payload is not the cause. Both prod's 54 and
 staging's 26 shared a shape — `type: cypherQuery`, `methodName: findUserByApiKey` or
@@ -232,7 +232,7 @@ has no HTTP request to take an ID from. Whatever had been running would have par
 **So: a dead-letter depth after a database or Redis outage is expected and needs no investigation
 beyond confirming the window.** Capture, read one, clear.
 
-### MISCONF: Redis refusing writes duplicates log rows
+### MISCONF: Redis Refusing Writes Duplicates Log Rows
 
 The 96 MISCONF failures are a different and worse problem, and all three fall on flood days:
 
@@ -255,7 +255,7 @@ limited free disk. That makes it a consequence of the flood as well as a contrib
 Redis host's disk and the Redis log's RDB errors; `stop-writes-on-bgsave-error` is what turns a failed
 snapshot into refused writes.
 
-### Reading the reason
+### Reading the Reason
 
 `AppLoggerQueueProcessor.deadLetter` writes the exception at ERROR, as does
 `QueueServiceWithBlockingQueue.deadLetter` on a failed move. Both have been there since `946802c`
@@ -279,7 +279,7 @@ If the depth climbs back after clearing with no outage to explain it, then it is
 
 ---
 
-## 5 · Dead ends — measured 2026-09-14, do not re-try
+## 5 · Dead Ends — Measured 2026-09-14, Do Not Re-Try
 
 | hypothesis | result |
 |---|---|
@@ -298,7 +298,7 @@ mattered.
 
 ---
 
-## 6 · Escalation facts worth having to hand
+## 6 · Escalation Facts Worth Having to Hand
 
 - **Redis has no `maxmemory`** (`maxmemory_policy: noeviction`). It grows until the host runs out —
   roughly 1.1 KB per message, ~37 GB available, so ~32M messages. There is no hard cliff at a

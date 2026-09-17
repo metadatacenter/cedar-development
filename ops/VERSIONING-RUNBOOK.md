@@ -541,7 +541,7 @@ A global stylesheet in `angular.json` would be the ordinary way to reach the doc
 not work here: the CLI emits it as a separate `styles.css` that a host page never loads.
 `"styles": []` is deliberate, in this repository and in CEE.
 
-## Internal boundaries
+## Internal Boundaries
 
 Each picker provides its own `TerminologyClient`; its property-detail child uses
 that same instance. Multiple pickers can name different servers without sharing

@@ -9,7 +9,7 @@ This is the operational release procedure. For development, architecture, and th
 surfaces, see [FRONTEND-RUNBOOK.md](./FRONTEND-RUNBOOK.md#cee). For the platform release that consumes a public
 CEE package, see [RELEASE-RUNBOOK.md](./RELEASE-RUNBOOK.md).
 
-## Release contract
+## Release Contract
 
 The model library and CEE have independent public versions. Do not infer one from the other and do
 not automatically substitute the newest public model into a CEE release.
@@ -36,7 +36,7 @@ as a runtime dependency for the embedding application to resolve. Consequently:
 The releases completed on 2026-08-27 demonstrate the distinction: model library 1.0.4 was public,
 while CEE 2.0.2 deliberately embedded model library 1.0.3.
 
-### The design tokens are a build-time dependency
+### The Design Tokens Are a Build-Time Dependency
 
 CEDAR's design values — the font stack, the type scale, the brand palettes and the neutrals — are
 published from `cedar-design-tokens` as `@org.metadatacenter/cedar-design-tokens`, under the scope
@@ -63,7 +63,7 @@ raise CEE's dependency to that version before building, or the bundle carries th
 previous snapshot — the same ordering `cedarcli` enforces for a build train by registering the
 package ahead of every npm repository that consumes it.
 
-## Shared prerequisites
+## Shared Prerequisites
 
 Use Node 24.19.0 for both repositories. On the CEDAR development machine it is installed by
 Homebrew but is not the shell default:
@@ -101,7 +101,7 @@ npm view "cedar-embeddable-editor@${CEE_VERSION}" version \
 An `E404` is expected for a new version. An authentication failure can also appear as `E404`, which
 is why `npm whoami` comes first.
 
-## Release the TypeScript model library
+## Release the TypeScript Model Library
 
 Skip this section when CEE will embed an already-published model version. A model release is not a
 required preamble to every CEE release.
@@ -175,7 +175,7 @@ The dry run must name `cedar-model-typescript-library@${MODEL_VERSION}`, public 
 `main`, `index.esm.js` as `module`, and the expected README. Always write `./dist`; bare `dist` is
 interpreted as an unrelated registry package name by npm 11.
 
-### Commit, merge, and publish from `main`
+### Commit, Merge, and Publish from `main`
 
 Commit only the release preparation files, push `develop`, and open a pull request to `main`:
 
@@ -235,7 +235,7 @@ git tag "release-${MODEL_VERSION}"
 git push origin "release-${MODEL_VERSION}"
 ```
 
-### Restore model development state
+### Restore Model Development State
 
 Fast-forward `develop` through the release merge, then derive the next dev identity from that exact
 merge commit. The dev package is scoped so npm routes it to the CEDAR Nexus registry.
@@ -286,7 +286,7 @@ printf '%s-dev.%s.%s\n' \
   "$(git rev-parse --short=7 HEAD)"
 ```
 
-## Release CEE with an explicit model version
+## Release CEE with an Explicit Model Version
 
 The public model version is an input to the CEE release. It must already exist on npmjs and is
 pinned exactly in both CEE dependency graphs.
@@ -414,7 +414,7 @@ CEE deliberately has no `package-dist.json`. `scripts/npm-package.mjs` derives t
 identity from a stable version and the scoped Nexus identity from a `-dev.` version. Do not add a
 second hand-maintained manifest.
 
-### Commit, merge, and publish from `main`
+### Commit, Merge, and Publish from `main`
 
 Stage only the release files that actually changed. They normally include the two manifests, two
 lockfiles, changelog, and load-trace stamp; package-gate or README improvements may add more.
@@ -474,7 +474,7 @@ git tag "release-${CEE_VERSION}"
 git push origin "release-${CEE_VERSION}"
 ```
 
-### Restore CEE development state
+### Restore CEE Development State
 
 Fast-forward `develop` through the release merge. Choose an exact, already-published scoped model
 snapshot for development; do not invent or reference a Nexus version that was never published. The
@@ -522,7 +522,7 @@ That is CEE's own baseline alone. Pinning the release into its consumers moves s
 straight on to [Propagate a stable CEE release](#propagate-a-stable-cee-release) means refreshing
 all eight together there instead of committing the same file twice.
 
-## Propagate a stable CEE release
+## Propagate a Stable CEE Release
 
 Publishing CEE does not update a frontend or an environment. Pin the exact stable version in all
 seven consumer manifests and lockfiles with the maintained inventory helper:
@@ -557,7 +557,7 @@ second time, with `no passing whole-stack smoke run covers this source`. The ord
 propagate, commit each consumer, refresh and commit the baselines, rebuild the deployed frontends,
 then `cedarcli check ci` and `cedarcli test e2e`.
 
-## Use the public CEE in a train-backed CEDAR release
+## Use the Public CEE in a Train-Backed CEDAR Release
 
 The CEDAR release inputs are explicit. The CEDAR version is not parsed from the dev train string,
 and the operator does not track or pass a manifest path:
@@ -604,7 +604,7 @@ and verifies their downloaded registry tarballs. Workspace receives the same Git
 its independent package publication path. Operational details and resume rules are in
 [RELEASE-RUNBOOK.md](./RELEASE-RUNBOOK.md#the-route).
 
-## Failure rules
+## Failure Rules
 
 - A version already on npmjs is immutable. Stop and choose a new version; never try to overwrite it.
 - A wrong package name or registry in a dry run is a stop condition, not a warning.

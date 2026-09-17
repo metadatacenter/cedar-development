@@ -15,7 +15,7 @@ This is the **prod-deploy** counterpart to:
 > `<MODIFIER>` with the deploy's version modifier (see step 3). Never commit real hostnames,
 > credentials, or the raw migration SQL into this file.
 
-## What a prod deploy actually is
+## What a Prod Deploy Actually Is
 
 Prod runs the released code from **`main`** at `$CEDAR_HOME`, built in place. A deploy:
 
@@ -39,7 +39,7 @@ Prod runs the released code from **`main`** at `$CEDAR_HOME`, built in place. A 
 > the log DB is written only by the worker draining Redis, asynchronously, so it can be migrated while
 > the rest of the system is up (or even before the window).
 
-## The sequence
+## The Sequence
 
 Run everything in an interactive `cedar` shell inside `tmux` (survives a disconnect). `cedarcli`,
 `gocedar`, and `goeditor` are shell aliases/functions from the CEDAR profile — they only work in a
@@ -61,7 +61,7 @@ verification, selects served frontend payloads, and refuses placeholder server s
 the existing mode reports `docker` or `hybrid`; do not change a production topology until the
 deployment using that mode has been identified and stopped through its own command surface.
 
-### 1 · Reconcile local state — revert any hot-patches
+### 1 · Reconcile Local State — Revert Any Hot-Patches
 Prod can drift from git when someone live-patches the box. Check, and discard working-tree edits so
 the pull can't conflict.
 ```bash
@@ -75,7 +75,7 @@ gocedar
 > known hot-patch being folded into this release. If it's an unexplained edit, stop and investigate
 > — discarding it loses it.
 
-### 2 · Pull the release onto `main`
+### 2 · Pull the Release onto `main`
 ```bash
 cedarcli git branch                       # see where each repo sits
 cedarcli git checkout main                # prod deploys from main
@@ -83,7 +83,7 @@ cedarcli git pull
 cedarcli git status                        # expect clean; "prod data is now on main"
 ```
 
-### 3 · Choose the environment modifier, then re-source the env
+### 3 · Choose the Environment Modifier, Then Re-Source the Env
 The frontend build automatically incorporates its Git source commit into AngularJS module URLs;
 modern Angular production builds use content-hashed filenames. `CEDAR_VERSION_MODIFIER` is an
 additional discriminator for payloads that use the same commit but differ because of runtime or
@@ -103,7 +103,7 @@ gocedar
 test "${CEDAR_KEYCLOAK_ALLOW_INSECURE_TLS:-false}" = false
 ```
 
-### Provision the artifact service key before the backend deployment
+### Provision the Artifact Service Key Before the Backend Deployment
 
 On the production application host, in the same `cedar` shell used above, run:
 
@@ -130,7 +130,7 @@ provider; this command does not copy files over SSH. Do not initialize a differe
 The separate log database host needs no artifact key. Later rotation follows
 [the rotation and rollback procedure](BACKEND-RUNBOOK.md#deploying-and-rotating-the-artifact-service-key).
 
-### Next staging/production rollout: artifact authentication, compatibility reads and monitor counts
+### Next Staging/Production Rollout: Artifact Authentication, Compatibility Reads and Monitor Counts
 
 Rehearse on staging, then deploy the same tested release to production. These instructions assume
 native mode with the **server** profile and the `cedar` service account. Check `cedarcli env status`
@@ -218,14 +218,14 @@ monitor binaries need their previous document-store configuration/connectivity. 
 previous set, then repeat health and read checks. No artifact data needs restoring for this rollout.
 Do not rotate or delete the new key merely because a binary rollout is being rolled back.
 
-### 4 · Build (Java still running — keep the downtime window short)
+### 4 · Build (Java Still Running — Keep the Downtime Window Short)
 ```bash
 cedarcli check versions --strict   # expected version and modifier, and no checkout behind its remote
 cedarcli build maven clean all
 cedarcli build all             # this deploy: ~0:11:24
 ```
 
-### 5 · Redeploy backend + configure frontends (Java goes down here)
+### 5 · Redeploy Backend + Configure Frontends (Java Goes Down Here)
 ```bash
 cedarcli native stop microservices
 cedarcli native status                 # confirm Java services are down
@@ -234,7 +234,7 @@ cedarcli prod configure-frontends      # rewrite window.cedarDomain + content do
 cedarcli git status                    # all green; release is on main
 ```
 
-### 6 · Verify and rebuild every CEE host to the intended version
+### 6 · Verify and Rebuild Every CEE Host to the Intended Version
 
 CEE propagation belongs in source control before deployment; do not hand-edit a package manifest on
 the production host. The release's consumer commits must have been produced by the checked helper,
@@ -261,7 +261,7 @@ staging or production payload, omitting the native build is a deployment failure
 serves the two generated `app` trees directly. It uses no Docker. Compare the Workspace-served CEE
 bundle hash with the package staged by the CEE release before changing routes.
 
-### 7 · Database migrations
+### 7 · Database Migrations
 **App MySQL — as root, on the app host:**
 ```bash
 # in a root shell: start MySQL if needed, then run the release's migration queries.
@@ -275,7 +275,7 @@ ssh youruser@<prod-log-db-host>        # if refused from prod, hop from the stag
 # run the release's log-DB migration queries here.
 ```
 
-### 8 · Start Java, then bounce nginx
+### 8 · Start Java, Then Bounce nginx
 ```bash
 cedarcli native start microservices    # end of the downtime window
 ```
@@ -340,7 +340,7 @@ service nginx start
 - **Keep the downtime window tight:** `build all` *before* `stop java`; DB migrations and the editor
   rebuild can overlap the window, but don't `start java` until the app-DB migration is done.
 
-## What each non-obvious command does
+## What Each Non-Obvious Command Does
 
 | Command | What it does |
 |---------|--------------|
@@ -354,7 +354,7 @@ service nginx start
 | `cedarcli build split-frontends --server-payload` | On a native host, refuses dirty split checkouts, runs `npm ci` + Gulp, and writes the static payload identities nginx serves. |
 | `gulp` (in template-editor or Workspace) | Copies the pinned CEE bundle and builds that AngularJS host. |
 
-## Split frontend cutover and rollback (migration only)
+## Split Frontend Cutover and Rollback (Migration Only)
 
 This section applies only while `cedar-workspace` and `cedar-template-designer` are replacing the
 production monolith. It does not authorize a cutover. Final hostnames, TLS, Keycloak clients, and the
@@ -362,7 +362,7 @@ deployment window must be approved first. The invariant is that **routing is the
 action**: both extracted applications and the known monolith rollback target are already running,
 and neither cutover nor rollback rebuilds an application or changes stored data.
 
-### Local route-only rehearsal
+### Local Route-Only Rehearsal
 
 Run the automated routing rehearsal before preparing a staging change. It requires the monolith,
 Workspace, and Designer to be listening locally on ports 4200-4202; they can be native Gulp servers
@@ -383,7 +383,7 @@ application container ID or native PID must remain unchanged. The gateways are r
 This is a route-mechanics and rollback gate, not staging acceptance: it has no TLS or authentication
 and makes no realm, hostname, production Compose, or data change.
 
-### Evidence required before routing changes
+### Evidence Required Before Routing Changes
 
 - Record the monolith commit, version modifier, deployed bundle identity, and current nginx
   configuration as the rollback target.
@@ -400,7 +400,7 @@ and makes no realm, hostname, production Compose, or data change.
 - Keep the monolith process or static payload, its bundle, and its nginx include in place. A deployment
   that deletes or overwrites them is not cutover-ready.
 
-### Route-only cutover
+### Route-Only Cutover
 
 1. Generate the accepted native Workspace and Designer static trees and install their nginx virtual
    hosts without changing canonical public routing.
@@ -415,7 +415,7 @@ and makes no realm, hostname, production Compose, or data change.
 7. Purge the CDN entries listed below, then run the public smoke and old-bookmark checks. Record the
    resulting deployment ID and response headers with the window evidence.
 
-### One-step rollback
+### One-Step Rollback
 
 Rollback immediately on authentication failure, an unavailable create/open/save path, incorrect
 permissions, a broken exact return, missing production fixes, or any high-impact Workspace resource
@@ -429,7 +429,7 @@ operation defect.
 5. Leave the split payloads and evidence intact for diagnosis. Rollback is a routing reversal, not a
    destructive cleanup.
 
-### Cache invalidation for cutover and rollback
+### Cache Invalidation for Cutover and Rollback
 
 The split images serve `/index.html`, every `/config/` response, and
 `/config/build-info.json` with `Cache-Control: no-store`; content-hashed JavaScript/CSS is immutable,

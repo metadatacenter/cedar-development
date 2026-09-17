@@ -946,7 +946,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Whichever way it goes, the three children and their generated fixtures move with it, and the Java
   library's corpus verifier reports them stale until they are regenerated.
 
-## Production data
+## Production Data
 
 - **24. Finish the production artifact repair, which is now a set of decisions rather than a run.**
   The audit that opened this work on 2026-09-08 found 127,868 invalid instances of 150,164, along
@@ -1077,7 +1077,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   version comparison is restored, and no constraint lacks a `sourceSystem` the sweep could have
   written.
 
-## Later decisions
+## Later Decisions
 
 - **25. Enforce the request-body classification, and decide what an open body requires.**
   `cedarcli check openapi` reads `additionalProperties` only when deciding whether a schema counts

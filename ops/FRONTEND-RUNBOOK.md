@@ -8,7 +8,7 @@ Use [FRONTEND-ROADMAP.md](FRONTEND-ROADMAP.md) for open work across these compon
 and the main browser applications. Shared design values belong in
 [`cedar-design-tokens`](../../cedar-design-tokens/README.md).
 
-## Find the procedure
+## Find the Procedure
 
 | Area | Start here |
 | --- | --- |
@@ -26,7 +26,7 @@ and the main browser applications. Shared design values belong in
 
 <a id="cee"></a>
 
-## Browser metadata editing
+## Browser Metadata Editing
 
 Workspace and the combined Template Editor use CEE exclusively for creating and editing
 metadata. Settings has no editor-selection toggle; older stored editor-selection preferences
@@ -66,7 +66,7 @@ train people past the three that matter.
 The check reads the workspace rather than the repository registry, so a component counts
 as one as soon as a sibling installs it.
 
-## Embeddable editor (CEE/CEF)
+## Embeddable Editor (CEE/CEF)
 
 Building, running and testing **CEE** (`cedar-embeddable-editor`) locally.
 Everything here has been run on macOS (Apple silicon), against Angular 22. The latest
@@ -88,7 +88,7 @@ Sibling runbooks:
 
 <a id="cee-node-versions--read-this-first"></a>
 
-### Node versions — read this first
+### Node Versions — Read This First
 
 CEE builds, runs and tests on one Node version, and `.github/workflows/test.yml`
 is the source of truth for which.
@@ -129,7 +129,7 @@ needs **JDK 17** specifically — see
 
 <a id="cee-running-the-app"></a>
 
-### Running the app
+### Running the App
 
 CEE's standalone dev mode serves everything it needs from this repository, so
 one command runs it.
@@ -169,7 +169,7 @@ It is TypeScript, not JSON, and is compiled in.
 
 <a id="cee-the-two-elements"></a>
 
-### The two elements
+### The Two Elements
 
 The bundle registers two custom elements from one bootstrap.
 `cedar-embeddable-editor` renders a template as a form, and `cedar-embeddable-field`
@@ -207,7 +207,7 @@ divides a form and this element has none.
 
 <a id="cee-where-the-design-values-come-from"></a>
 
-### Where the design values come from
+### Where the Design Values Come From
 
 CEDAR's font stack, type scale, brand palettes and neutrals are published from
 `cedar-design-tokens` as `@org.metadatacenter/cedar-design-tokens`, and its README is the reference
@@ -236,7 +236,7 @@ checks sentinel host overrides and overlays under a host root-font reset.
 
 <a id="cee-building-the-web-component"></a>
 
-### Building the web component
+### Building the Web Component
 
 This is the real deliverable — a single JS file embeddable in any page.
 
@@ -282,7 +282,7 @@ esbuild instead.
 
 <a id="cee-running-the-complete-test-gate"></a>
 
-### Running the complete test gate
+### Running the Complete Test Gate
 
 The canonical, non-interactive verification command is run from the CEE
 repository root:
@@ -335,7 +335,7 @@ checked out.
 
 <a id="cee-getting-a-local-build-into-the-frontends"></a>
 
-#### Getting a Local Build Into the Frontends
+#### Getting a Local Build into the Frontends
 
 Two routes. A **symlink** covers a tight edit loop, where the point is to see a
 change without publishing anything. A **dev release to Nexus** covers the other
@@ -510,7 +510,7 @@ shasum -a 256 $CEDAR_HOME/cedar-bridging/cedar-bridging-dist/node_modules/cedar-
 
 <a id="cee-first-time-setup"></a>
 
-#### First-time setup
+#### First-Time Setup
 
 CEE resolves the model library from
 `@org.metadatacenter/cedar-model-typescript-library` on the BMIR Nexus, so no
@@ -536,7 +536,7 @@ so what matters is the order of magnitude, and a count well below one of these i
 worth explaining before it is written down as the new figure. A count *above* it
 needs no explanation and is not a reason to edit this line.
 
-Three warnings about doing that anyway are already in this document's history. It
+The Git history already carries three warnings about doing that anyway. It
 once carried a Karma figure years after the move to Vitest; the numbers above
 replaced a set that had drifted in both directions at once, low on unit and
 Playwright and high on domain, because removing four snapshot recordings that
@@ -550,7 +550,7 @@ commands below are faster feedback while working on one layer.
 
 <a id="cee-auditing-what-ships"></a>
 
-#### Auditing what ships
+#### Auditing What Ships
 
 ```bash
 npm run audit:prod
@@ -610,7 +610,7 @@ on reflex.
 
 <a id="cee-what-ci-runs"></a>
 
-#### What CI runs
+#### What CI Runs
 
 `.github/workflows/test.yml` runs the same release gate on every pull request and
 on pushes to `main`, `develop` and the `cee-angular-**` branches. It is split for
@@ -681,7 +681,7 @@ procedure — see [Release](#cee-release) below.
 
 <a id="cee-running-the-domain-test-harness"></a>
 
-### Running the domain test harness
+### Running the Domain Test Harness
 
 The harness depends on the published model library, resolved from Nexus like
 CEE's own dependency, so no local build of it is needed.
@@ -746,7 +746,7 @@ npm --prefix harness run test -- harness/test/controlled-terms.spec.ts
 
 <a id="cee-reading-a-template-from-yaml"></a>
 
-#### Reading a template from YAML
+#### Reading a Template from YAML
 
 CEE parses templates through the CEDAR Model TypeScript Library, which reads
 YAML into the same model it reads JSON into — so a template written either way
@@ -759,7 +759,7 @@ question to ask is which of the two formats the new code is quietly assuming.
 
 <a id="cee-opening-a-legacy-production-instance"></a>
 
-#### Opening a legacy production instance
+#### Opening a Legacy Production Instance
 
 Some stored instances predate repository minting for element occurrences and
 carry `"@id": ""` on an occurrence. CEE deliberately gives only that legacy
@@ -882,7 +882,7 @@ treated containers and nodes as interchangeable.
 
 <a id="cee-running-against-the-old-template-parser"></a>
 
-#### Running against the old template parser
+#### Running Against the Old Template Parser
 
 **Historical.** The hand-written JSON walk was kept alongside the
 library-backed parser during the migration so the whole suite could be run
@@ -904,7 +904,7 @@ new one. Run this before and after anything that touches
 
 <a id="cee-checking-output-against-the-cedar-model"></a>
 
-### Checking output against the CEDAR model
+### Checking Output Against the CEDAR Model
 
 Everything above checks CEE against itself. This checks it against the model.
 
@@ -916,7 +916,7 @@ each other. None of them asked the model.
 
 <a id="cee-why-a-template-can-validate-its-own-instances"></a>
 
-#### Why a template can validate its own instances
+#### Why a Template Can Validate Its Own Instances
 
 A CEDAR template *is* a JSON Schema (draft-04) for its instances. Not a
 description of one — the document itself, `properties` and `required` and all.
@@ -929,7 +929,7 @@ can answer the question.
 
 <a id="cee-the-canonical-check--cedar-model-validation-library"></a>
 
-#### The canonical check — cedar-model-validation-library
+#### The Canonical Check — cedar-model-validation-library
 
 `cedar-model-validation-library` is the arbiter. When it and anything else
 disagree, it wins.
@@ -956,7 +956,7 @@ point at a `template-schema.json` that is generated rather than committed.
 
 <a id="cee-running-the-gate-on-one-artifact"></a>
 
-#### Running the gate on one artifact
+#### Running the Gate on One Artifact
 
 **This is the gate production artifacts have to pass**, so being able to point it
 at an arbitrary file matters more than the test suite passing. You do not need to
@@ -995,7 +995,7 @@ Instance is invalid. Found 1 error(s)
 
 <a id="cee-the-same-check-in-the-harness"></a>
 
-#### The same check, in the harness
+#### The Same Check, in the Harness
 
 Running Maven is not something to do per-edit, so the domain harness runs the
 corresponding checks on every `npm run test:domain` and `npm run test:ci`.
@@ -1036,7 +1036,7 @@ or `multipleChoice: true` list field not declared as an array.
 
 <a id="cee-where-the-java-tie-break-is-recorded"></a>
 
-#### Where the Java tie-break is recorded
+#### Where the Java Tie-Break Is Recorded
 
 The harness does not mirror the Java library's fixtures or maintain an ajv/Java
 agreement suite. When the two TypeScript-side checks leave a model question in
@@ -1052,7 +1052,7 @@ an independent server-facing check, not a substitute for the canonical validator
 
 <a id="cee-when-to-run-which"></a>
 
-#### When to run which
+#### When to Run Which
 
 Change the emitter, the envelope, or `data-object-builder.handler.ts` →
 run both conformance specs above, which the domain and unified gates run anyway.
@@ -1071,7 +1071,7 @@ diverged before.
 
 <a id="cee-running-the-visual-baseline"></a>
 
-### Running the visual baseline
+### Running the Visual Baseline
 
 Screenshot and browser-behaviour regression against the production bundle. The
 focused root command builds a fresh `dist/`, prepares the visual fixtures and
@@ -1180,7 +1180,7 @@ into it.
 
 <a id="cee-running-the-angular-unit-tests"></a>
 
-### Running the Angular unit tests
+### Running the Angular Unit Tests
 
 ```bash
 npm run test:unit:ci
@@ -1209,7 +1209,7 @@ a configuration error rather than an accidentally half-working test.
 
 <a id="cee-which-stage-sees-a-widget-defect"></a>
 
-#### Which stage sees a widget defect
+#### Which Stage Sees a Widget Defect
 
 The stages divide by what they can observe, and a defect is only caught by a
 stage that can see the layer it lives in. A read-write audit in September 2026
@@ -1363,7 +1363,7 @@ Those assert what CEE *does*, deliberately. [FRONTEND-ROADMAP.md](./FRONTEND-ROA
 
 <a id="cee-building-the-model-library"></a>
 
-### Building the model library
+### Building the Model Library
 
 CEE consumes `@org.metadatacenter/cedar-model-typescript-library` as a published
 package, so this is only needed when working on the library itself.
@@ -1413,7 +1413,7 @@ artifact from the BMIR Nexus npm registry
 
 <a id="cee-the-two-channels-and-the-name-that-selects-them"></a>
 
-#### The two channels, and the name that selects them
+#### The Two Channels, and the Name That Selects Them
 
 The library publishes to two places, and **the package name is what decides
 which**. npm routes by scope, so this is not a flag or a registry setting on the
@@ -1444,7 +1444,7 @@ same reason, so it exercises whichever tarball the build is set to ship.
 
 <a id="cee-publishing-a-model-library-dev-build"></a>
 
-#### Publishing a model library dev build
+#### Publishing a Model Library Dev Build
 
 For a complete CEDAR build, prefer `cedarcli publish train`; the train publishes and records the
 model itself, then wires that exact artifact into CEE. The manual procedure below remains useful for
@@ -1556,7 +1556,7 @@ Version is surfaced at runtime as `window.cedarEmbeddableEditorVersion`.
 
 <a id="cee-prerequisites--registry-auth"></a>
 
-#### Prerequisites — registry auth
+#### Prerequisites — Registry Auth
 
 Publishing needs rights on `cedar-embeddable-editor` at npmjs, and npm requires a second factor:
 pass `--otp=<code>`, or hold a granular access token with "Bypass 2FA" in `~/.npmrc`. An `E404` on
@@ -1571,7 +1571,7 @@ A token is a credential — keep it in `~/.npmrc` only, never in a repo or these
 
 <a id="cee-1--bump-the-version"></a>
 
-#### 1 · Bump the version
+#### 1 · Bump the Version
 
 A release version is plain semver — for example, `2.0.3`. Only **two** files hold it by hand:
 
@@ -1620,7 +1620,7 @@ npm version X.Y.Z --no-git-tag-version
 
 <a id="cee-2--test-and-stage-the-package"></a>
 
-#### 2 · Test and stage the package
+#### 2 · Test and Stage the Package
 
 The operator command now has the same shape as the model library's:
 
@@ -1679,7 +1679,7 @@ curl -s "https://nexus.bmir.stanford.edu/repository/npm-cedar/@org.metadatacente
 
 <a id="cee-4--commit-tag-the-release-and-draft-its-notes"></a>
 
-#### 4 · Commit, tag the release, and draft its notes
+#### 4 · Commit, Tag the Release, and Draft Its Notes
 
 Nothing in the publish records which commit was staged, and `npm publish` will happily ship a dirty
 working tree. Commit the release preparation immediately after the publish, then tag that commit
@@ -1712,7 +1712,7 @@ gh release create "release-${CEE_VERSION}" --draft --title "CEE ${CEE_VERSION}" 
 
 <a id="cee-5--advance-development"></a>
 
-#### 5 · Advance development
+#### 5 · Advance Development
 
 Back on `develop`, advance to the next development base. The version itself selects the scoped
 Nexus channel, so there is no package name to restore:
@@ -1772,7 +1772,7 @@ version resolved from npmjs:
 
 Its lockfiles record the npmjs tarball and integrity hash, so what installs is reproducible.
 Installing needs no credential; only publishing does. A development snapshot instead uses the
-scoped Nexus alias described above.
+scoped `@org.metadatacenter` Nexus alias.
 
 Each repo carries an `.npmrc` holding `@org.metadatacenter:registry` against Nexus, which is required
 while a development snapshot is pinned and harmless for a stable npmjs release.
@@ -1862,7 +1862,7 @@ and during migration builds both ([PROD-DEPLOY-RUNBOOK.md](./PROD-DEPLOY-RUNBOOK
 
 <a id="ced"></a>
 
-## Embeddable designer (CED)
+## Embeddable Designer (CED)
 
 CED is a UI component. The embedding host owns artifact persistence, authentication,
 permissions, server validation requests, publishing, version allocation and provenance.
@@ -1882,7 +1882,7 @@ What CED still needs before it can stand in for that designer is in
 
 <a id="ced-where-the-design-values-come-from"></a>
 
-### Where the design values come from
+### Where the Design Values Come From
 
 The designer's type scale and palette are CEDAR's, published from `cedar-design-tokens` as
 `@org.metadatacenter/cedar-design-tokens`. `src/styles.css` imported them on 2026-09-15 —
@@ -1964,7 +1964,7 @@ would suddenly be sharing one.
 
 <a id="ced-internal-boundaries"></a>
 
-### Internal boundaries
+### Internal Boundaries
 
 `EditorSession` owns the authoring document and active container. `TemplateService`
 coordinates commands and UI navigation; `core/model/document-validation.ts`
@@ -2097,7 +2097,7 @@ and the panel says which key is missing, because an embedder should reach a CEDA
 service because it asked to rather than because a component it loaded had an
 address compiled into it.
 
-### CED in the split Designer host
+### CED in the Split Designer Host
 
 Workspace's template and element links open `cedar-template-designer` on the
 Designer hostname. That repository is a thin authenticated CED host; the combined
@@ -2137,7 +2137,7 @@ the combined editor's authoring UI; its legacy selectors do not exercise CED.
 
 <a id="ced-running-it-with-its-siblings"></a>
 
-### Running It With Its Siblings
+### Running It with Its Siblings
 
 The designer uses sibling web components the host loads, and none is bundled.
 A field's constraint set is assembled with
@@ -2438,7 +2438,7 @@ instance must carry, including the provenance keys. The author's required flag i
 `_valueConstraints.requiredValue` on the field. Reading the first as the second is
 a mistake worth remembering.
 
-### Shared component defaults and configuration
+### Shared Component Defaults and Configuration
 
 CEE/CEF and CED/CEFD consume `cedar-design-tokens` at build time. The package owns
 the font stack and embedded Roboto sources, type scale, palettes, semantic error,
@@ -2469,7 +2469,7 @@ configurations do not consume the first assignment. CEE/CEF's existing direct-ho
 contract still requires trailing slashes; the designer coordinator supplies them.
 Read-only and document lifecycle contracts remain component-specific.
 
-#### Local verification before the shared-token release
+#### Local Verification Before the Shared-Token Release
 
 The new token exports require publishing a new Nexus snapshot and updating the
 consumer package and lockfile pins together. Until that release, use the packed

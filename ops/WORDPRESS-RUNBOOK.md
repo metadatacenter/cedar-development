@@ -239,7 +239,7 @@ curl -s "https://metadatacenter.org/happenings/news/cedar-now-supports-yaml-meta
 
 Drafts are not exposed through the public API. Use the preview URL for those.
 
-## Driving the Admin From an Agent
+## Driving the Admin from an Agent
 
 Browser automation against this admin has a few sharp edges that cost real time to rediscover.
 

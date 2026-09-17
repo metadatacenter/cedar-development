@@ -8,7 +8,7 @@ rehearses), `PROD-DEPLOY-RUNBOOK.md` (deploy mechanics — staging variant noted
 
 ---
 
-## 0 · Why this run matters more than a normal staging deploy
+## 0 · Why This Run Matters More Than a Normal Staging Deploy
 
 Two things are different from every previous staging deploy, and they point in opposite directions.
 
@@ -48,12 +48,12 @@ for same-version redeploys.
 
 ---
 
-## 1 · Gather the connection facts
+## 1 · Gather the Connection Facts
 
 You need six values before anything else. **None of them are invented — five come from the staging
 box, one comes from whoever took the MySQL copy.** Here is where each lives.
 
-### Where to put them
+### Where to Put Them
 
 Make a scratch file **on the staging app host**, in the `cedar` user's home — *not* in the repo, it
 holds a password, and `$CEDAR_HOME` is a git checkout:
@@ -78,7 +78,7 @@ export COPY_TAKEN_ON=
 Then `source ~/logagg-vars.sh` in every shell where you run the SQL. Delete it when the rollout is
 done.
 
-### Where each value comes from
+### Where Each Value Comes From
 
 **`LOG_DB_HOST` / `LOG_DB_PORT` / `LOG_DB_NAME` / `LOG_DB_USER`** — staging already runs a log DB
 (2.9.1 has been writing to it for weeks), so these are already configured. Read the effective values:
@@ -137,7 +137,7 @@ SELECT MAX(requestTime) FROM log_request;   -- the copy can be no older than its
 
 ---
 
-## 2 · Pre-flight — measure before you change anything
+## 2 · Pre-Flight — Measure Before You Change Anything
 
 One script, read-only, changes nothing. Run it **before** deploying. It establishes the baseline every
 later check compares against, and it is the data that sizes next week's prod run.
@@ -155,7 +155,7 @@ mysql -h "$LOG_DB_HOST" -P "$LOG_DB_PORT" -u "$LOG_DB_USER" -p "$LOG_DB_NAME" \
 
 **Keep that output file.** §6 and §8 compare against it, and §10 copies numbers out of it.
 
-### How to read the output
+### How to Read the Output
 
 The script prints eight numbered sections. What each one decides:
 
@@ -178,7 +178,7 @@ Then, on the DB host itself (the script prints `@@datadir` for you):
 df -h "$(mysql -N -u "$LOG_DB_USER" -p -e 'SELECT @@datadir')"
 ```
 
-### Fill this in from the output before moving on
+### Fill This in from the Output Before Moving On
 
 ```
 LOG_DB_NAME confirmed correct (prod-sized counts)  [ ]
@@ -195,7 +195,7 @@ shares instance with staging app schemas ........  [ ] yes -> throttle hard  [ ]
 
 ---
 
-## 3 · Deploy 2.9.7 to staging
+## 3 · Deploy 2.9.7 to Staging
 
 Staging variant of `PROD-DEPLOY-RUNBOOK.md` §A–§6. Everything in an interactive `cedar` login shell
 inside `tmux` (`cedarcli`/`gocedar`/`goeditor` are profile functions — they do not exist in a bare
@@ -236,14 +236,14 @@ cedarcli native status                     # confirm 9011 and 9014 are down
 
 ---
 
-## 4 · Log-DB migration — by hand, timed, in tmux
+## 4 · Log-DB Migration — by Hand, Timed, in Tmux
 
 Source: `cedar-microservice-libraries/cedar-logging-operations-library/db-migrations/2026-07-29-log-capture-phase1.sql`.
 
 Run it against `$LOG_DB_NAME`. **Skip any section §2.5 showed is already applied.** Time every
 statement — these numbers are next week's prod estimates.
 
-### 4a · Columns (INSTANT — seconds even on huge tables)
+### 4A · Columns (INSTANT — Seconds Even on Huge Tables)
 
 ```sql
 SET @t0 = NOW(6);
@@ -264,7 +264,7 @@ SELECT TIMESTAMPDIFF(SECOND, @t0, NOW(6)) AS seconds;
 Naming `ALGORITHM=INSTANT` explicitly is the point: MySQL **errors out** rather than silently doing a
 rebuild. Never drop the clause to "make it work".
 
-### 4b · Indexes (INPLACE — this is the one that takes real time)
+### 4B · Indexes (INPLACE — This Is the One That Takes Real Time)
 
 Prod's `log_request`/`log_cypher` were small when this ran on 2026-07-29. On the restored copy they
 are not. Expect minutes to hours. **This measurement is the main deliverable of the staging run.**
@@ -289,7 +289,7 @@ FROM performance_schema.events_stages_current;
 SHOW PROCESSLIST;
 ```
 
-### 4c · Only if §2.5 showed `queryParameters` is still `varchar`
+### 4C · Only If §2.5 Showed `queryParameters` Is Still `varchar`
 
 ```sql
 -- Confirm the algorithm rather than assuming — expect this to FAIL:
@@ -305,7 +305,7 @@ When it fails, `COPY` is the only path. Options, in order of preference:
    create a fresh empty table (metadata-only, instant). This is what brought prod back in minutes
    instead of ~13h. On staging it is also a legitimate rehearsal of that recovery.
 
-### 4d · Verify before restarting anything
+### 4D · Verify Before Restarting Anything
 
 ```sql
 SHOW CREATE TABLE log_request\G   -- 3 new columns + 3 new indexes, queryParameters LONGTEXT
@@ -317,7 +317,7 @@ them in milliseconds at boot. That is the one piece of DDL it is safe to delegat
 
 ---
 
-## 5 · Environment — all three jobs stay OFF for the first boot
+## 5 · Environment — All Three Jobs Stay OFF for the First Boot
 
 Edit `$CEDAR_HOME/set-env-internal.sh` on the staging app host — the same file you read the password
 out of in §1. (Its committed skeleton, with every variable named below, is
@@ -380,7 +380,7 @@ gocedar
 
 ---
 
-## 6 · First boot on 2.9.7 — the moment of truth
+## 6 · First Boot on 2.9.7 — the Moment of Truth
 
 ```bash
 cedarcli dev copy-keycloak-listener
@@ -397,7 +397,7 @@ sudo su -
 service nginx stop && service nginx start
 ```
 
-### What to check, in this order
+### What to Check, in This Order
 
 **1 · Did monitor and worker actually bind?** This is the boot-stall test — a *fast* 502 (connection
 refused) means the JVM is alive but sitting inside a schema update.
@@ -455,7 +455,7 @@ point; the jobs are all still off and nothing has been written or deleted.
 
 ---
 
-## 7 · Phase 1 — live aggregator (recent data, small, easy to eyeball)
+## 7 · Phase 1 — Live Aggregator (Recent Data, Small, Easy to Eyeball)
 
 Deliberately first. Live covers post-2026-07-28 days, backfill covers pre-2026-07-28 history —
 **disjoint hour buckets**, so order is correctness-neutral. Live-first is an *operational* choice: it
@@ -492,7 +492,7 @@ SELECT COUNT(*) FROM agg_cypher_query_catalog;
 SELECT COUNT(*) AS unaggregated FROM log_request WHERE aggregatedAt IS NULL;
 ```
 
-### Correctness check — pick one settled day and reconcile by hand
+### Correctness Check — Pick One Settled Day and Reconcile by Hand
 
 This is the check that actually proves the pipeline, and it is worth doing carefully once:
 
@@ -514,7 +514,7 @@ consistently, and **that is intentional**: forcing `hibernate.jdbc.time_zone=UTC
 reverted as a prod landmine (it would misread years of LA-stored rows by +7/8h). See the comment
 block in `cedar-main.yml:78-82`. Reconcile using the same connection settings, not `UTC`.
 
-### Read path
+### Read Path
 
 ```bash
 curl -H "Authorization: Bearer <token with MONITOR_READ>" \
@@ -526,7 +526,7 @@ And in the browser: cedar-monitoring → Usage & Patterns, and the Log Explorer 
 reads raw `log_request`/`log_cypher` directly, so it should show data immediately regardless of
 aggregation state — a useful independent cross-check on the rollups.
 
-### When to stop
+### When to Stop
 
 Catch-up takes minutes to hours, then settles into one day per day. **Let it run at least overnight
 before starting §8.** You are looking for: every settled day `AGGREGATED`/`COMPLETE`, no `FAILED` rows
@@ -535,7 +535,7 @@ matching.
 
 ---
 
-## 8 · Phase 2 — historical backfill (the expensive one)
+## 8 · Phase 2 — Historical Backfill (the Expensive One)
 
 Only after §7 has run clean overnight.
 
@@ -572,7 +572,7 @@ WHERE sourceTable LIKE '%_pre284';
 **Record the rows/hour rate.** Multiplied by prod's `COUNT(*)`, that is how many nights next week's
 prod backfill needs — the number `PROD-LOG-AGGREGATION-ROLLOUT.md` §10.2 asks for and nobody has yet.
 
-### Watch the DB while it drains (this is the §0a concern)
+### Watch the DB While It Drains (This Is the §0a Concern)
 
 ```bash
 # On the DB host:
@@ -585,7 +585,7 @@ If staging's UI gets sluggish while the backfill runs, that is exactly the share
 from §0a — **raise `CEDAR_LOG_BACKFILL_PAUSE_MS` and lower `_BATCH`**, then restart the worker. It
 resumes from the cursor; nothing is lost. Note what values it took to stay quiet.
 
-### Stop condition
+### Stop Condition
 
 Both `*_pre284` rows at `READY_TO_DROP`, `HistoricalBackfillJob finished.` in the log. Then:
 
@@ -595,7 +595,7 @@ exit; tmux; gocedar
 cedarcli native stop microservices && cedarcli native start microservices
 ```
 
-### Parity check, then reclaim the disk
+### Parity Check, Then Reclaim the Disk
 
 ```sql
 -- Total folded rows vs the baseline you recorded in §2.2
@@ -620,7 +620,7 @@ disk. Re-check `df -h` after.
 
 ---
 
-## 9 · Phase 3 — prune (test it HERE, not on prod)
+## 9 · Phase 3 — Prune (Test It HERE, Not on Prod)
 
 Prune is the only destructive job. Staging holding a *copy* makes it the correct place to exercise it
 — worst case you re-restore the dump. **Do not carry prune to prod next week**; per
@@ -654,7 +654,7 @@ Then turn it back off and record what it cost.
 
 ---
 
-## 10 · Carry-over to prod (next week)
+## 10 · Carry-Over to Prod (Next Week)
 
 Fill this table in as you go — it *is* the prod plan.
 

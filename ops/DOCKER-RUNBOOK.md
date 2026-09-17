@@ -10,7 +10,7 @@ The broader native and hybrid guide remains in [BACKEND-RUNBOOK.md](./BACKEND-RU
 needed to make this a registry-driven, production-ready deployment is tracked in
 [DOCKER-ROADMAP.md](./DOCKER-ROADMAP.md).
 
-## Current verdict
+## Current Verdict
 
 The complete application **can be deployed locally with Docker today**. Images can be pulled as a
 completed immutable development train or built directly from checked-out source. A clean pull and
@@ -37,7 +37,7 @@ The builder, Compose projects, CLI validation, and cleanup use `CEDAR_IMAGE_PREF
 runtime images. `CEDAR_BASE_IMAGE_PREFIX` can place the two Java bases in a separate internal
 repository and otherwise defaults to the runtime prefix.
 
-## What runs
+## What Runs
 
 | Tier | Containers | Host ports |
 | --- | ---: | --- |
@@ -150,7 +150,7 @@ docker start frontend-main frontend-workspace frontend-template-designer fronten
 
 Each stage needs the one before it healthy.
 
-## Configure the deployment mode
+## Configure the Deployment Mode
 
 `cedarcli mode` selects one persistent topology before any native or Docker operation is allowed.
 It starts nothing. It loads and validates the required profile internally, validates all four
@@ -198,7 +198,7 @@ first, Compose cannot confirm or perform teardown. In that recovery case only, u
 --clear --force` to discard the inactive Docker deployment record. It does not stop containers and
 is refused when the daemon reports any running CEDAR Compose project.
 
-### Select the image registries and namespaces
+### Select the Image Registries and Namespaces
 
 The default image prefix is `metadatacenter`. To build and run images in another registry, set the
 runtime repository prefix before configuring `docker` or `hybrid`. The mode record retains both
@@ -231,7 +231,7 @@ export CEDAR_HOME=$HOME/CEDAR
 cedarcli mode docker
 ```
 
-## Validate configuration
+## Validate Configuration
 
 ```bash
 cedarcli docker validate
@@ -241,7 +241,7 @@ This validates all four Compose projects. Infrastructure, microservices, and fro
 for the complete all-Docker runtime. Admin must also parse cleanly even though starting that stack
 is optional.
 
-## Build or obtain the images
+## Build or Obtain the Images
 
 There are two supported build paths today. Train creation, state, and recovery are described in
 [BUILD-RUNBOOK.md](./BUILD-RUNBOOK.md).
@@ -273,7 +273,7 @@ publication with the train ID printed by the original command:
 cedarcli publish train --resume <TRAIN_ID>
 ```
 
-### Completed build train: normal published-artifact build
+### Completed Build Train: Normal Published-Artifact Build
 
 An ordinary Docker build reads the completed Maven-train pointer recorded by `cedar-development`.
 The infrastructure and Java images receive that train's version as their image tag, and the Java
@@ -296,7 +296,7 @@ Select a particular completed train instead of the current pointer when reproduc
 cedarcli docker build microservices --train <TRAIN_ID>
 ```
 
-### Checked-out Java source: explicit local build
+### Checked-Out Java Source: Explicit Local Build
 
 This is the path used for the 2026-08-21 deployment proof. The Java build installs the parent,
 shared libraries, the 70-module server reactor, and clients in dependency order, running the unit
@@ -316,7 +316,7 @@ The local path keeps the development version declared by the Docker build manife
 claim to reproduce a published train. Both paths tag images locally under `CEDAR_IMAGE_PREFIX`; do
 not assume that a local tag means the image was published.
 
-### Frontend images
+### Frontend Images
 
 All seven frontend images are part of the normal build group. A published train derives an
 immutable package version from each captured frontend commit, verifies the corresponding Nexus
@@ -346,7 +346,7 @@ The full core build inventory is 31 images: seven infrastructure images, two Jav
 microservices, and seven frontends. `cedarcli docker build all` additionally builds the four
 optional admin images, for 35 total.
 
-## One-time Docker setup
+## One-Time Docker Setup
 
 Run this before the first deployment, or after intentionally recreating the CEDAR network and
 certificate volumes. It creates `cedarnet` at `192.168.17.0/24`, creates a local CA and any missing
@@ -370,7 +370,7 @@ docker network inspect cedarnet >/dev/null
 docker volume inspect cedar_cert cedar_ca >/dev/null
 ```
 
-## Start the Docker deployment
+## Start the Docker Deployment
 
 The configured `docker` mode runs all 29 core containers. Configured `hybrid` mode runs the
 22-container backend and routes Docker nginx to the seven frontend development servers on the host.
@@ -425,7 +425,7 @@ Individual stack commands remain available for troubleshooting. Published-train 
 same digest and volume-ownership gates. They preserve the recorded mode when recreating nginx, but
 they do not perform the aggregate preflight or readiness sequence.
 
-## Health gate
+## Health Gate
 
 The Docker-aware status command reads the configured CEDAR mode, checks the appropriate Compose
 inventory and acceptance probes, and exits nonzero when a required container or route is not ready.
@@ -460,7 +460,7 @@ Artifact's unexposed port `internal`, and points back to `cedarcli docker status
 which runtime owns the service; only the Docker-aware command reads Compose health and acceptance
 probes.
 
-## Keycloak signing keys
+## Keycloak Signing Keys
 
 The development realm seed contains realm settings and test accounts, but no signing, encryption,
 HMAC, or AES key provider material. Keycloak generates a unique set of providers when it imports the
@@ -513,7 +513,7 @@ docker compose logs --tail 200 <service>
 Treat `healthy` as a readiness check, not the deployment acceptance test. It does not prove that a
 valid token can be verified or that a Resource write reaches MongoDB, Neo4j, Redis, and OpenSearch.
 
-## Optional hybrid: native frontends through Docker nginx
+## Optional Hybrid: Native Frontends Through Docker nginx
 
 The currently proven interactive development topology keeps the full backend and nginx in Docker,
 but runs all frontend development servers directly from their source checkouts on macOS. This does
@@ -609,7 +609,7 @@ Compose stack now contains Template Editor, Workspace, Designer, OpenView, Conte
 Bridging. Each application has its own image and private nginx; infrastructure nginx remains the
 single public TLS and routing layer.
 
-### All-Docker frontend deployment
+### All-Docker Frontend Deployment
 
 The frontend source repositories remain Docker-agnostic. All Dockerfiles, entrypoints, and private
 nginx configurations are in `cedar-docker-build`; Compose topology is in `cedar-docker-deploy`.
@@ -672,7 +672,7 @@ seven native frontends and the Docker aggregate. Backend data volumes are untouc
 switch. The concise Compose routing contract is also in
 `cedar-docker-deploy/cedar-frontend/README.md`.
 
-## REST acceptance gate
+## REST Acceptance Gate
 
 The repository's REST suites create and clean up their own fixtures. Run them from an ephemeral Node
 container on `cedarnet`; this reaches the deliberately unexposed Artifact service and tests the
@@ -729,7 +729,7 @@ On the current Compose topology, the host run cannot reach Artifact on port 9001
 `contract` and `freeze` suites end in `fetch failed` even though their public API work passed. Do not
 publish Artifact merely to satisfy the harness; use the in-network gate above.
 
-## Browser acceptance gate
+## Browser Acceptance Gate
 
 Run the authenticated browser journey from the host after the REST gate:
 
@@ -748,7 +748,7 @@ The journey logs in, creates and constrains a template, populates and re-edits a
 CEE, verifies JSON and YAML getters, opens it anonymously through OpenView, and removes everything
 created by that run.
 
-## Stop, restart, and preserve data
+## Stop, Restart, and Preserve Data
 
 Stop the core Docker deployment in reverse dependency order:
 
@@ -783,7 +783,7 @@ cedarcli mode native --profile develop
 The CLI supplies the selected profile internally; do not mix native and Docker profile values in the
 calling shell.
 
-## Known limitations
+## Known Limitations
 
 - Published build-train images currently target `linux/amd64`. Docker Desktop runs them through
   emulation on Apple Silicon; native multi-architecture publication remains roadmap work.
