@@ -446,6 +446,19 @@ try {
   await menu(page, names.template, "Populate");
   const cee = page.locator("cedar-embeddable-editor");
   await cee.getByLabel("Notes", { exact: false }).first().fill("First notes");
+  assert.equal(await page.evaluate(() => typeof window.angular), "undefined");
+  assert.deepEqual(
+    await page.evaluate(() =>
+      performance
+        .getEntriesByType("resource")
+        .map((r) => new URL(r.name).pathname)
+        .filter((path) => /bower_components\/angular\//.test(path)),
+    ),
+    [],
+  );
+  await page.evaluate(() => {
+    window.journeyEditor = document.querySelector("cedar-embeddable-editor");
+  });
   await page.locator("#instance-name").fill(names.instance);
   await write(
     page,
@@ -455,6 +468,15 @@ try {
     201,
   );
   await page.waitForURL(/\/instances\/edit\//);
+  assert.equal(
+    await page.evaluate(
+      () =>
+        window.journeyEditor ===
+        document.querySelector("cedar-embeddable-editor"),
+    ),
+    true,
+  );
+  const metadataUrl = page.url();
   const instanceId = decodeURIComponent(
     new URL(page.url()).pathname.split("/instances/edit/")[1],
   );
@@ -472,7 +494,102 @@ try {
       .body.Notes["@value"],
     "Updated notes",
   );
+  await page
+    .locator(".metadata-toolbar [role=status]")
+    .filter({ hasText: /^Saved$/ })
+    .waitFor();
+  await cee
+    .getByLabel("Notes", { exact: false })
+    .first()
+    .fill("Unsaved navigation");
+  await page
+    .locator(".metadata-toolbar [role=status]")
+    .filter({ hasText: "Unsaved changes" })
+    .waitFor();
+  page.removeAllListeners("dialog");
+  page.once("dialog", (dialog) => dialog.dismiss());
+  await page.getByRole("button", { name: "← Workspace", exact: true }).click();
+  assert.equal(page.url(), metadataUrl);
+  page.on("dialog", (dialog) => dialog.accept());
+  await cee.getByLabel("Notes", { exact: false }).first().fill("Updated notes");
+  await page
+    .locator(".metadata-toolbar [role=status]")
+    .filter({ hasText: /^Saved$/ })
+    .waitFor();
+  await page.getByRole("button", { name: "← Workspace", exact: true }).click();
+  await ready(page);
+  pass(
+    "CEE host loads no AngularJS, saves without remounting, guards navigation and recognizes exact reverts",
+  );
+  await page.goto(metadataUrl);
+  await cee.getByLabel("Notes", { exact: false }).first().waitFor();
+  const instancePath = "/template-instances/" + enc(instanceId);
+  const beforeConflict = await call(user1.auth, "GET", instancePath);
+  assert.equal(
+    (
+      await mutate(user1.auth, "PUT", instancePath, {
+        ...beforeConflict.body,
+        Notes: { "@value": "Concurrent metadata" },
+      })
+    ).status,
+    200,
+  );
+  await cee
+    .getByLabel("Notes", { exact: false })
+    .first()
+    .fill("My unsaved metadata");
+  await write(
+    page,
+    "PUT",
+    "/template-instances/",
+    () => page.locator("#button-save-metadata").click(),
+    412,
+    true,
+  );
+  await page.getByRole("alert").filter({ hasText: "changed since" }).waitFor();
+  assert.equal(
+    await cee.getByLabel("Notes", { exact: false }).first().inputValue(),
+    "My unsaved metadata",
+  );
+  assert.equal(
+    (await call(user1.auth, "GET", instancePath)).body.Notes["@value"],
+    "Concurrent metadata",
+  );
+  pass(
+    "CEE host rejects stale saves and preserves local edits and the concurrent server update",
+  );
+  await grant(page, "viewer");
   await listed(page, names.instance);
+  await menu(page, names.instance, "Share");
+  await modal(page)
+    .getByLabel("Add person or group")
+    .selectOption({ label: "Test User 2 (user)" });
+  await modal(page)
+    .getByRole("combobox", { name: "New access role", exact: true })
+    .selectOption("viewer");
+  await modal(page).getByRole("button", { name: "Add", exact: true }).click();
+  await save(page, "PUT", "/template-instances/", 200, true);
+  await reader.goto(metadataUrl);
+  await reader
+    .locator(".metadata-toolbar [role=status]")
+    .filter({ hasText: "Read only" })
+    .waitFor();
+  assert.equal(await reader.evaluate(() => typeof window.angular), "undefined");
+  assert.equal(await reader.locator("#button-save-metadata").count(), 0);
+  assert.equal(
+    await reader.locator("#instance-name").getAttribute("readonly"),
+    "",
+  );
+  await menu(page, names.instance, "Share");
+  await modal(page)
+    .locator(".grant")
+    .filter({ hasText: "Test User 2" })
+    .getByRole("button", { name: "Remove access", exact: true })
+    .click();
+  await save(page, "PUT", "/template-instances/", 200, true);
+  pass(
+    "CEE host settles viewer permissions before configuring its read-only editor",
+  );
   pass(
     "Populate → CEE create, redirect, re-edit, conditional save and Workspace listing",
   );
@@ -685,6 +802,17 @@ try {
     ["element", "template-elements"],
   ]) {
     await listed(page, names[kind]);
+    let deletedEditor;
+    if (kind === "instance") {
+      deletedEditor = await page.context().newPage();
+      deletedEditor.on("pageerror", (error) => errors.push(error.message));
+      await deletedEditor.goto(metadataUrl);
+      await deletedEditor
+        .locator("cedar-embeddable-editor")
+        .getByLabel("Notes", { exact: false })
+        .first()
+        .waitFor();
+    }
     await menu(page, names[kind], "Delete");
     await write(
       page,
@@ -698,6 +826,31 @@ try {
       true,
     );
     await modal(page).waitFor({ state: "hidden" });
+    if (deletedEditor) {
+      const notes = deletedEditor
+        .locator("cedar-embeddable-editor")
+        .getByLabel("Notes", { exact: false })
+        .first();
+      await notes.fill("Edits after metadata deletion");
+      await write(
+        deletedEditor,
+        "PUT",
+        "/template-instances/",
+        () => deletedEditor.locator("#button-save-metadata").click(),
+        412,
+        true,
+      );
+      await deletedEditor
+        .getByRole("alert")
+        .filter({ hasText: "was deleted" })
+        .waitFor();
+      assert.equal(await notes.inputValue(), "Edits after metadata deletion");
+      assert.equal((await call(user1.auth, "GET", instancePath)).status, 404);
+      await deletedEditor.close();
+      pass(
+        "CEE save after deletion retains edits and cannot recreate metadata",
+      );
+    }
   }
   pass("Conditional deletion through Workspace");
   assert.deepEqual(errors, []);
