@@ -2623,6 +2623,23 @@ Font registrars import it outside shadow DOM; CEE separately retains its Materia
 icon font. Sharing the source preserves self-contained bundles rather than
 introducing a runtime font download.
 
+Interface typography uses regular 400 and medium 500, with a 12px minimum for
+small labels and count badges. OpenView retains a distinct 34px artifact title.
+The token source defines regular/medium weights, the display role and a shared
+system monospace stack. New CSS roles use fallback values so older pinned token
+packages remain buildable; advance pins after publishing a new immutable snapshot.
+
+CEE's production build also emits `cedar-embeddable-editor.host-fonts.js` and
+`bundle-manifest.host-fonts.json`. This entry point retains Material Icons and
+expects the host to register `CEE Roboto` 400/500 globally. The default bundle
+continues to embed its fonts for standalone CEE/CEF use. Workspace copies and
+selects the host-font variant when its installed CEE package includes it, falling
+back to the default entry point for older package pins. The shared token source
+exports `fonts/regular` and `fonts/medium`; Workspace's existing snapshot uses the
+same partials via Sass's configured include path. Verify both bundle variants and
+publish CEE before advancing Workspace's pin; source changes alone do not change
+what an older installed CEE package contains.
+
 CED and CEFD use one set-once configuration coordinator per component. It diagnoses
 unknown keys and wrong types, normalizes both service bases, and hands the same
 accepted configuration to terminology and embedded CEF. Malformed non-object
