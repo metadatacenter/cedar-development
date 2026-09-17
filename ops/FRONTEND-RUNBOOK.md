@@ -2056,6 +2056,32 @@ and the panel says which key is missing, because an embedder should reach a CEDA
 service because it asked to rather than because a component it loaded had an
 address compiled into it.
 
+### CED in the split Designer host
+
+Workspace's template and element links open `cedar-template-designer` on the
+Designer hostname. That repository is a thin authenticated CED host; the combined
+`cedar-template-editor` retains its separate authoring implementation.
+
+Build CED with `npm run dist`, CEE with `npm run build:production` plus
+`npm --prefix visual run bundle`, and CETP with `npm run dist`. Then run
+`cedarcli native restart frontend designer`. The host stages the three sibling
+bundles at startup; `npm run prepare:components` in `cedar-template-designer`
+refreshes them without restarting. Its README documents explicit bundle-path
+overrides for local builds or future Nexus package payloads. CED is not pulled
+from npmjs. All three bundles must exist; startup fails if any is missing.
+
+The host owns SSO, repository child search, permission checks, dirty navigation,
+ETag saves and the instance-aware template version confirmation. Standalone
+field-document routes report unsupported; fields inside templates and elements
+use CED. The version command's conditional-write race remains a backend limitation:
+the host compares a fresh ETag before invoking it, but atomic enforcement belongs
+in the command itself.
+
+Run `npm test` in the host repository for the host contract suite, and
+`npm run smoke:ced-host` in `ops/e2e` for real browser create/update, stale-save
+rejection, instance-aware versioning and Workspace return. The older `login-smoke-test.mjs` still targets
+the combined editor's authoring UI; its legacy selectors do not exercise CED.
+
 <a id="ced-running-it-with-its-siblings"></a>
 
 ### Running It With Its Siblings

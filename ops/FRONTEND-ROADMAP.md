@@ -298,3 +298,18 @@ Verify keyboard focus order across cards, settings, palette actions and nested
 elements. Add live-region announcements for constraint changes and accepted or
 rejected local Apply actions and host-supplied validation results. Exercise those workflows with a screen reader and
 verify that focus returns to a useful control after each action.
+
+### 16. Complete split CED host integration
+
+Add standalone field-document authoring to CED and connect the Designer's
+`/fields/*` routes. Replace the host's inert read-only surface with the component's
+read-only contract so inspection, navigation and preview remain available.
+
+Publish and pin immutable CED and CETP Nexus bundles for host payload builds,
+replacing the local sibling paths. Carry component identities into train manifests.
+Migrate the full split authoring/lifecycle smoke away from legacy Designer selectors;
+retain Workspace sharing, population, terminology and two-user coverage.
+
+Make `publish-create-draft-template` enforce the loaded artifact's `If-Match`
+atomically so a concurrent edit between the host's final read and version creation
+cannot be overwritten. Exercise this alongside in-place save conflicts.
