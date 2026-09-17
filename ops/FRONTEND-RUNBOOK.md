@@ -72,6 +72,42 @@ them and is not asked about; an element the locked bundle does not define still 
 which is the case no clean install repairs. `--strict` belongs to a server payload, which
 serves whatever the lock resolves.
 
+### Advancing a Pin
+
+The Java estate never asks this question. `cedar-parent` names `cedar.version` once, child poms
+name dependencies without a version, and the coordinate is a `-SNAPSHOT` that Maven re-resolves
+from Nexus on every build, so a merge to `develop` reaches every downstream build with no source
+edit anywhere.
+
+npm has neither half of that. Each consumer declares an exact immutable version in its own
+`package.json` and again in its lock, and nothing stands in for a snapshot: `npm ci` reads the lock
+rather than a dist-tag, and a semver range over these prereleases snaps back to release-time builds.
+The lock is what makes a build reproducible, so the pin stays exact, and advancing it is a source
+change across several repositories.
+
+So `cedarcli build frontends` cannot close the gap and should not. A build that rewrote
+`package.json` and `package-lock.json` would mutate tracked files mid-build, which the isolated
+frontend workspace already refuses, and it would make a train's output depend on when it ran rather
+than on the commits it captured.
+
+```shell
+cedarcli publish components                # report what would move
+cedarcli publish components --apply        # stamp, publish, repoint, re-stage
+cedarcli publish components --component ced
+```
+
+Each component is declared in `cedar-development/ops/frontend-train.json` under `components`, the
+way `model` is declared rather than the way `cee` is: CEE's pin is a public npmjs version handed in
+at release time, while these publish Nexus development snapshots on their own cadence. A
+declaration names the repository, the published package, the package it stages under `dist-npm/`,
+the command that builds it, and every consumer whose pin follows it.
+
+Applying it stamps the component's next development version from its `develop` head, runs its dist
+command, publishes the staged package under the `dev` tag, then repoints each consumer's manifest,
+moves its lock, and re-stages its served bundles. Reporting is the default because an npm version
+once taken cannot be republished. Every repository it would write to must be clean in its tracked
+files first, so the diffs left behind are its own, and nothing is committed.
+
 The check reads the workspace rather than the repository registry, so a component counts
 as one as soon as a sibling installs it.
 

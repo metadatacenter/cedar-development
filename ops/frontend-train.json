@@ -18,6 +18,60 @@
       }
     ]
   },
+  "components": [
+    {
+      "id": "cetp",
+      "repository": "cedar-embeddable-term-picker",
+      "publishedName": "@org.metadatacenter/cedar-embeddable-term-picker",
+      "sourceManifest": "package.json",
+      "sourceLock": "package-lock.json",
+      "stagedPackage": "dist-npm/cedar-embeddable-term-picker",
+      "distCommand": [
+        "npm",
+        "run",
+        "dist"
+      ],
+      "consumers": [
+        {
+          "repository": "cedar-template-designer",
+          "dependency": "cedar-embeddable-term-picker",
+          "manifest": "package.json",
+          "lock": "package-lock.json",
+          "restageCommand": [
+            "npm",
+            "run",
+            "prepare:components"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ced",
+      "repository": "cedar-embeddable-designer",
+      "publishedName": "@org.metadatacenter/cedar-embeddable-designer",
+      "sourceManifest": "package.json",
+      "sourceLock": "package-lock.json",
+      "stagedPackage": "dist-npm/cedar-embeddable-designer",
+      "distCommand": [
+        "npm",
+        "run",
+        "dist"
+      ],
+      "consumers": [
+        {
+          "repository": "cedar-template-designer",
+          "dependency": "cedar-embeddable-designer",
+          "manifest": "package.json",
+          "lock": "package-lock.json",
+          "restageCommand": [
+            "npm",
+            "run",
+            "prepare:components"
+          ]
+        }
+      ]
+    }
+  ],
   "frontends": [
     {
       "id": "main",
