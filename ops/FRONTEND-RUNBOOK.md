@@ -61,6 +61,8 @@ and staging path for native server payloads. Angular builds outside the served t
 assets are copied before the entry document is atomically replaced. The root index loads
 `app/workspace-build/index.html` for every route. Unknown routes return to the dashboard.
 The AngularJS shell, controllers, services, templates, styles and Karma harness are removed.
+Bower vendors, legacy icon fonts, RequireJS and obsolete npm build/test dependencies are
+also removed. The Keycloak adapter and bundle are plain JavaScript used by Angular.
 
 The metadata routes use a modern Angular CEE host. It loads the staged CEE bundle
 on demand, settles read-only permissions before configuration, saves with content
@@ -70,14 +72,17 @@ are advisory. First save replaces the create URL through Angular routing; it doe
 not remount the editor. The combined Template Editor and its AngularJS smoke remain unchanged.
 
 `npm test` runs Angular/Vitest tests and the Node tests for the retained plain-JavaScript
-Keycloak adapter. In `cedar-development/ops/e2e`, run
+Keycloak adapter, deployment configuration, atomic staging and npm package contents.
+Configuration and CEE assets finish writing before the development server starts.
+In `cedar-development/ops/e2e`, run
 `npm run smoke:workspace:modern:full` against the running native stack. It exercises the
 modern Workspace and split CED/CEFD hosts with real login, folder operations, authoring,
 sharing between two users, CEE metadata entry, downloads, versioning, OpenView and
 conditional writes. Its fixtures are removed after each run; the Workspace result and
 failure screenshot are written under `/tmp/cedar-modern-workspace-smoke/`.
 `npm run smoke:workspace:modern` runs just the Workspace journey; the full command also
-runs the CED host's stale-save and breaking-template-change scenarios and all account journeys.
+runs the CED host's stale-save and breaking-template-change scenarios, all account journeys,
+and logout/retired-route checks (`npm run smoke:workspace:lifecycle`).
 The existing `npm run smoke` remains the AngularJS journey for `cedar.metadatacenter.*`.
 Its script and legacy variants are retained unchanged; they are not the modern route's gate.
 See the Workspace README for the boundary, request contracts and direct build procedure.
