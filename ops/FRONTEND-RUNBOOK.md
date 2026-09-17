@@ -38,8 +38,8 @@ view and their supporting modules are no longer part of any of these application
 
 `cedar-workspace` serves a standalone Angular 22 application on `/`, `/dashboard`,
 `/instances/create/:templateId`, `/instances/edit/:id`, `/profile`, `/settings`, `/groups`
-and `/privacy`. These routes load no AngularJS; messaging/logout retain the temporary
-legacy entry.
+and `/privacy`. These routes load no AngularJS; logout retains the temporary legacy entry. Messaging has been removed;
+its retired URL returns to the dashboard.
 
 The Workspace uses shared design tokens, a table-only resource list, search, folder
 navigation, collapsible side panels and Info/Version tabs. Category, latest-version and
