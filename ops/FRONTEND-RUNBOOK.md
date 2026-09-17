@@ -30,9 +30,29 @@ and the main browser applications. Shared design values belong in
 
 Workspace and the combined Template Editor use CEE exclusively for creating and editing
 metadata. Settings has no editor-selection toggle; older stored editor-selection preferences
-are ignored. Template Designer retains the AngularJS template-authoring controls, while metadata
-population is handled by CEE in Workspace. The legacy metadata widgets, pagination, spreadsheet
+are ignored. The split Template Designer hosts CED/CEFD for template, element and field
+authoring, while metadata population is handled by CEE in Workspace. The legacy metadata widgets, pagination, spreadsheet
 view and their supporting modules are no longer part of any of these applications.
+
+## Modern Split Workspace
+
+`cedar-workspace` serves a standalone Angular 22 application on `/` and `/dashboard`.
+It uses the shared design tokens, a table-only resource list, search, folder navigation,
+collapsible side panels and Info/Version tabs. Category, latest-version and type filters
+are intentionally absent. Artifact/folder menus use the existing REST operations and
+server capabilities; lifecycle actions come from resource reports, not listing summaries.
+
+Start it with `cedarcli native start frontend workspace`. With the native profile sourced,
+run `npm run build` in `cedar-workspace` after changing `src/`. Gulp invokes the same build
+and staging path for native server payloads. Angular builds outside the served tree;
+assets are copied before the entry document is atomically replaced. The root index loads
+`app/workspace-build/index.html` for workspace routes and `app/legacy.html` for ancillary
+routes. The latter remains temporary compatibility code; it is not loaded by the dashboard.
+
+`npm test` runs the modern Angular/Vitest tests; `npm run test:legacy` runs the retained
+Karma services suite. The older authenticated split smoke contains AngularJS injector and
+dashboard-selector probes, which need migration before it can validate this modern route.
+See the Workspace README for the boundary, request contracts and direct build procedure.
 
 <a id="component-staleness"></a>
 
