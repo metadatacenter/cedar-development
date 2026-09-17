@@ -1009,9 +1009,10 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
 
 - **25. Finish the production artifact repair, which is now a set of decisions rather than a run.**
   The audit that opened this work on 2026-09-08 found 127,868 invalid instances of 150,164, along
-  with invalid templates, elements and standalone fields. A full corpus pass on 2026-09-16 walked
-  all 150,640 instances and found **1,047 invalid across 303 templates**, 99.30% of the corpus
-  valid. The automated phase is over: chaining every
+  with invalid templates, elements and standalone fields. Production now holds **991 invalid
+  instances across 285 templates**: a full corpus pass on 2026-09-16 walked all 150,640 and found
+  1,047, and the 56 carrying no filled value anywhere were deleted the next day, which cleared 18
+  templates outright. The automated phase is over: chaining every
   repair that exists onto what remains gains almost nothing, because each residual artifact waits on
   a rule nobody has written or an answer only its owner can give. Treat the rest as data repair
   rather than authored modification, preserving root identifiers, version and publication state, and
@@ -1031,23 +1032,22 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   carries a key its template no longer declares, and where that value belongs cannot be read out of
   the store: matching names and matching values settle some, and the rest are a choice between a
   field, a deletion, and a template that should change instead. `ops/repairs/rename_sheet.py` drafts
-  the sheet that asks. It stands at **255 questions across 44 templates**, the templates that still
-  hold an unanswered question out of the 59 studied, and those 59 — the ones with the most instances
-  waiting on a rename — hold 626 of the 1,016. Answers are recorded for 62 templates so far. A
+  the sheet that asks. Drafted 2026-09-14, it stands at **255 questions across 44 templates**, the
+  templates that still hold an unanswered question out of the 59 studied, and those 59 are the ones
+  with the most instances waiting on a rename. Answers are recorded for 62 templates so far. A
   template releases nothing until every question under it is answered, so progress is counted in
   templates rather than in questions, and a key naming an element makes that element's own children
   answerable too.
 
-  **Decide where to stop asking.** 188 of the 303 templates hold a single invalid instance each, so
+  **Decide where to stop asking.** 181 of the 285 templates hold a single invalid instance each, so
   the yield per question falls away sharply below the studied set. An owner's attention is the
   scarce resource, and a residual that is measured, recorded and understood is a legitimate end state
   for that tail.
 
-  Emptiness does not thin that tail either, which is worth knowing before anyone proposes deleting
-  it. Of the 1,016 swept on 2026-09-16, only 56 carry no filled value anywhere, and 10 of those are
-  the single instance of their template. The other 959 hold real metadata, one of them 2,610 filled
-  values. The questions are about data people entered, so the answer to a rename is a decision and
-  not a formality.
+  Nothing is left to thin it with. Every one of the 991 carries entered metadata, one of them 2,610
+  filled values, because the instances that held nothing have been deleted. So each remaining
+  question is about data a person typed, and the answer to a rename is a decision rather than a
+  formality.
 
   **What is not a rename needs new rules, measured before they are built.** The residual error
   families are a value carrying no `@type` where the model requires one, one value where a list is
