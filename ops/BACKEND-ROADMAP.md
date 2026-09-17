@@ -216,19 +216,26 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   DDL, no application startup can request it, each owned schema has an auditable migration history,
   and both CI and the release controller enforce the migration contract.
 
-- **6. Decide whether four narrowly used servers should be retired.** Treat each as an explicit
-  product and operations decision: confirm its real callers and production state, preserve or move any
-  capability that remains required, then either retain it with a stated role or remove it completely.
+- **6. Decide which of four narrowly used servers to retire, and support the one that stays.** Treat
+  each as an explicit product and operations decision: confirm its real callers and production state,
+  preserve or move any capability that remains required, then either retain it with a stated role or
+  remove it completely. Schema and value recommender are open questions, impex is retained, and
+  submission is expected to go once its inventory is done.
 
   **Schema server.** Its entire HTTP surface is an index page, but it still inherits the full
   microservice bootstrap: a Neo4j user service, Keycloak token verification, and the persistent Redis
   application-log queue. Either retire it or record the role it is reserved for and give it a
   deliberately minimal bootstrap that does not initialize dependencies its index page never uses.
 
-  **Impex server.** Its public work is the caDSR form-import command and status endpoint. Determine
-  whether any current workflow still imports those forms, whether unfinished import state has value,
-  and whether a retained one-off importer belongs in an application server; otherwise retire the
-  service rather than carrying a permanent deployment for a historical migration path.
+  **Impex server.** It stays, so the work is the evidence a retained service needs rather than an
+  inventory of whether anyone still calls it. Its public surface is two routes, `POST
+  /command/import-cadsr-forms` and `GET /command/import-cadsr-forms-status`, and two gaps in what
+  supports them are concrete. Import status is process-local: `CadsrImportStatusManager` is a
+  singleton holding a `ConcurrentHashMap` keyed by upload identifier, so a redeploy during an import
+  leaves a caller asking about work the server no longer remembers. And no test imports anything.
+  The suite proves both routes reject an unauthenticated request (`ImpexRoutesRespondTest`) and
+  stops there. Name the owner, state the supported contract for both routes, decide whether
+  in-flight import state has to survive a restart, and cover an import end to end.
 
   **Value Recommender server.** It serves recommendation and rule-generation/status commands and
   consumes the persistent value-recommender queue. Establish whether the Workbench or any external
@@ -236,10 +243,11 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   function to an active service, or retire it after draining or deliberately discarding its queue and
   removing its producers.
 
-  **Submission server.** It contains the NCBI, CAIRR, ImmPort, LINCS and AMIA/BioSample submission
-  paths and consumes the persistent NCBI submission queue. Inventory actual production submissions,
-  credentials, pending/dead-letter work and external commitments; preserve any live adapter elsewhere
-  before retiring the collection of legacy integrations.
+  **Submission server.** Retirement is the expected answer, and the inventory that has to precede it
+  is what remains. It contains the NCBI, CAIRR, ImmPort, LINCS and AMIA/BioSample submission paths
+  and consumes the persistent NCBI submission queue. Inventory actual production submissions,
+  credentials, pending and dead-letter work and external commitments. Should one path turn out to be
+  live, where that single adapter goes is the decision rather than whether the service stays.
 
   Any retirement must remove the service from the native and Docker estates, nginx and DNS routing,
   configuration, credentials, queues and producers, service inventory, health and smoke expectations,
@@ -247,11 +255,13 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   the opposite evidence: a named owner, current caller, supported contract and meaningful health and
   integration coverage.
 
-  **Archive `cedar-rest-library`.** Everything inside the repository is done; what remains is
-  outside it. Archive it on GitHub so a clone stops being offered, and drop it from any workspace
-  tooling that still lists it. Until it is archived its name sends a reader looking for shared REST
-  code somewhere other than `cedar-microservice-libraries/cedar-server-rest-library`, which is where
-  that code is.
+  **Archive `cedar-rest-library`.** It is unused, measured 2026-09-17: the repository carries no
+  build configuration, no POM in the estate names it, no workspace tooling lists it, and
+  `CedarHeaderParameters` and `CedarQueryParameters` now live in `cedar-model-library` under their
+  original package. One step is left and it is on GitHub rather than in a checkout. The repository
+  is still unarchived, so a clone is offered and the name sends a reader looking for shared REST code
+  somewhere other than `cedar-microservice-libraries/cedar-server-rest-library`, which is where that
+  code is.
 
 - **7. Move the build and runtime to Java 21.** The stack is locked to Java 17 — the zsh profile pins it
   and the build enforces it. 21 is the next LTS and the natural target, but the lock exists for a
@@ -1019,82 +1029,34 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
 
 ## Production Data
 
-- **25. Finish the production artifact repair, which is now a set of decisions rather than a run.**
-  The audit that opened this work on 2026-09-08 found 127,868 invalid instances of 150,164, along
-  with invalid templates, elements and standalone fields. Production now holds **957 invalid
-  instances across 279 templates**: a full corpus pass on 2026-09-16 walked all 150,640 and found
-  1,047, and the next day the 56 that carried no filled value anywhere were deleted and the 34 a
-  repair could reach were repaired. The automated phase is over, and now measured against
-  every one of the 957: fourteen instance repairs chained into one write take none of them, because
-  each waits on
-  a rule nobody has written or an answer only its owner can give. Treat the rest as data repair
-  rather than authored modification, preserving root identifiers, version and publication state, and
-  provenance timestamps. Keep it a narrow store repair rather than an edit through the legacy
-  Template Designer or a blanket REST resave.
+- **25. Resolve the remaining production artifact defects and review semantic migrations.**
+  Classify the remaining 906 instances in the reviewed residual by their actual schema declarations,
+  then repair only transformations whose meaning is established. A missing `@id` in a controlled-term
+  field is a missing entered term, not an element identity to mint. Multiple populated occurrences
+  cannot be reduced to one without a decision. Empty representations and populated data need
+  separate rules, each with a narrow invariant and validation of the complete candidate.
 
-  **Measure the residual by walking the corpus, not by subtracting repairs from a baseline.** The
-  list the repair runs maintained held 1,016 instances; the corpus pass found 31 more it had never
-  enumerated, every one created between 2017 and 2024 and so invalid on the day the baseline ran.
-  What became of them is the argument for the pass. All 31 were repaired by rules that already
-  existed and in under twenty seconds of writes: 26 wanted completion, four wanted a `@context`
-  alignment or completion, one wanted an occurrence wrapped. Nothing about them was hard. They had
-  simply never been handed to a repair, because a list assembled from what a repair touched cannot
-  contain what it never saw. So the next measurement is a pass and not a subtraction, at a cost of
-  about three hours of GET traffic and no writes.
+  **Reconcile previous semantic changes with the saved bodies and recorded decisions.** Review
+  removed fields against the assertions still present, not merely equal literal values; the property
+  IRI matters. Review historical context alignment as a semantic migration. Use the existing
+  preimages to recover a proven lost value into its established destination, preserving subsequent
+  edits. Where the template no longer declares a destination, obtain a schema decision rather than
+  inventing a field, moving the value to an unrelated equal-valued field, or replacing the entire
+  artifact with an old body. The `SCAA_posneg` values removed from the *Updated week X* template
+  need this decision. Recorded mappings to null must remain distinguishable from heuristic renames.
 
-  **The renames are the larger half, and each one is a question for an owner.** A residual instance
-  carries a key its template no longer declares, and where that value belongs cannot be read out of
-  the store: matching names and matching values settle some, and the rest are a choice between a
-  field, a deletion, and a template that should change instead. `ops/repairs/rename_sheet.py` drafts
-  the sheet that asks. Drafted 2026-09-14, it stands at **255 questions across 44 templates**, the
-  templates that still hold an unanswered question out of the 59 studied, and those 59 are the ones
-  with the most instances waiting on a rename. Answers are recorded for 62 templates so far. A
-  template releases nothing until every question under it is answered, so progress is counted in
-  templates rather than in questions, and a key naming an element makes that element's own children
-  answerable too.
+  **Regenerate the decision sheet under the conservative rules.** Similar spelling and shared values
+  can suggest a pairing but cannot settle it. `ops/repairs/rename_sheet.py` must present unconfirmed
+  proposals for review, and a many-to-one mapping must resolve competing populated values explicitly.
+  Keep named exceptions for cases where the historical template or an owner's meaning cannot be
+  recovered. The rules and current measured scope are in the backend runbook's production repair
+  section; old residual counts and inferred mappings are not a fresh inventory.
 
-  How large that block is, is now measured rather than estimated. 280 of the 533 hold exactly one
-  undeclared key carrying a value found nowhere else in the document, 62 hold two, and the tail runs
-  to nine. So most of the block is a single question about a single field, and the sheet's shape
-  follows from that. The largest case is *Cell*, `4531fee7-e9d5-4097-ba00-0f1348ac21e9`, whose 170
-  instances each carry five such keys: `Data page link` is empty wherever it appears and
-  `Disease_ID` duplicates the declared `Disease_name`, so both go mechanically, while
-  `Repository page link` against a declared `Repository_page_link` and `CLO` and `CLO_ID` against a
-  single declared `CLO_Name` are three questions its owner has to answer.
-
-  **Decide where to stop asking.** 178 of the 279 templates hold a single invalid instance each, so
-  the yield per question falls away sharply below the studied set. An owner's attention is the
-  scarce resource, and a residual that is measured, recorded and understood is a legitimate end state
-  for that tail.
-
-  Nothing is left to thin it with. Every one of the 957 carries entered metadata, one of them 2,610
-  filled values, because the instances that held nothing have been deleted. So each remaining
-  question is about data a person typed, and the answer to a rename is a decision rather than a
-  formality.
-
-  **What is not a rename needs new rules, and the chain says which.** Running all fourteen instance
-  repairs over the residual as one write leaves 808 artifacts invalid, and their remaining errors
-  name the candidates. 533 fail on nothing but a property their template does not declare, which is
-  the rename block below rather than a rule. Two families are close enough to be worth reading
-  before writing anything. 47 instances across 24 templates fail only on a missing required
-  property, and the one sampled wants `@id` on an element occurrence, which completion does not mint
-  because it builds a child that is absent rather than giving identity to one already there. 27
-  across 9 templates, 19 of them one template, fail only on a list where one value is declared,
-  which `unwrap-instance-occurrence` declined: read why its guard excludes them before widening it.
-  A dozen more sit in groups of ten and under.
-
-  One candidate has been measured and is worth what it is worth. No rule drops an undeclared
-  instance key that holds no value, because `superseded_keys` skips a key carrying nothing, and
-  dropping every such key with its `@context` term before completing the instance finishes 10 of the
-  533. Whether that justifies a transform, an invariant and a test class is a judgement rather than
-  a calculation.
-
-  Count what a candidate rule would finish rather than what it would clear, because a family
-  appearing in hundreds of instances finishes far fewer: most of them carry a second defect as well.
-  Measure it locally rather than through an audit run. Driving `ValidationBridge` from
-  `cedar_artifact_validation_audit.py` against a cached corpus validates at roughly 450 artifacts a
-  second against 7 over REST, so the whole residual validates in seconds and costs production
-  nothing.
+  **Rerun the full inventory before claiming a corpus-wide result.** Targeted revalidation measures
+  the reviewed IDs only. Reconcile the four search-enumerated 404 instances and the unresolved
+  template against the authoritative stores, without deleting artifacts on search evidence, and
+  include creations and edits since the last complete walk. Record validator, script and template
+  inputs so a verdict is reproducible.
 
   **The schema artifacts that remain cannot be repaired, only decided.** The last full
   template and element audit, 2026-09-12, left 8 templates and 1 element invalid. They are
@@ -1106,17 +1068,10 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   go through the ordinary update, an owner's edit, or a recorded exception. The enforcement below
   waits on that answer, because those artifacts are why three classes cannot reach zero by repair.
 
-  **Find the templates that describe an instance nothing can build, because nothing else will.** A
-  template can satisfy every meta-schema and still demand of its instances something no CEDAR editor
-  writes, and then every instance it has fails while the template itself reports valid. Nine
-  templates demanded `schema:isBasedOn` and the whole provenance block of their element occurrences,
-  which carry `@context`, `@id` and their own children and nothing else;
-  `drop-instance-demands-from-element` repairs that shape and their 32 element declarations are
-  clear. The element meta-schema is what let it stand: `templateElementRequiredContent` pins the
-  first two entries of `required` as a tuple and forbids nothing after them. So decide whether the
-  meta-schema should close that, and look for the same kind of unsatisfiable demand elsewhere, since
-  no audit condition covers it today. Repairing those nine finished 3 of their 75 instances, which
-  is the measure of it as an instance repair and not the reason to do it.
+  **Find templates that demand instance shapes the editors cannot produce.** Decide whether the
+  element meta-schema should restrict the remaining entries of `required` after its first two tuple
+  entries, so an element occurrence cannot demand root-instance provenance or `schema:isBasedOn`.
+  Audit other contradictory demands and distinguish missing required data from malformed schemas.
 
   **The `title`/`internalName` contract is settled and the stored population is repaired. The
   libraries are not.** Title is derived metadata composed from `schema:name` in the canonical
