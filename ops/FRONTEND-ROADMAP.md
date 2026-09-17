@@ -301,9 +301,8 @@ verify that focus returns to a useful control after each action.
 
 ### 16. Complete Split CED Host Integration
 
-Publish and pin a CED Nexus snapshot containing CEFD for standalone `/fields/*`
-authoring. Replace the host's inert read-only surface with the component's
-read-only contract so inspection, navigation and preview remain available.
+Replace the host's inert read-only surface with the component's read-only contract so
+inspection, navigation and preview remain available.
 
 Migrate the full split authoring/lifecycle smoke away from legacy Designer selectors;
 retain Workspace sharing, population, terminology and two-user coverage.
