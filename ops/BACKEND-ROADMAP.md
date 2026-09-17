@@ -950,13 +950,23 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
 
 - **24. Finish the production artifact repair, which is now a set of decisions rather than a run.**
   The audit that opened this work on 2026-09-08 found 127,868 invalid instances of 150,164, along
-  with invalid templates, elements and standalone fields. Production now holds **1,016 invalid
-  instances across 298 templates**, measured 2026-09-14. The automated phase is over: chaining every
+  with invalid templates, elements and standalone fields. A full corpus pass on 2026-09-16 walked
+  all 150,640 instances and found **1,047 invalid across 303 templates**, 99.30% of the corpus
+  valid. The automated phase is over: chaining every
   repair that exists onto what remains gains almost nothing, because each residual artifact waits on
   a rule nobody has written or an answer only its owner can give. Treat the rest as data repair
   rather than authored modification, preserving root identifiers, version and publication state, and
   provenance timestamps. Keep it a narrow store repair rather than an edit through the legacy
   Template Designer or a blanket REST resave.
+
+  **Measure the residual by walking the corpus, not by subtracting repairs from a baseline.** The
+  list the repair runs maintained held 1,016 instances; the corpus pass found 31 more it had never
+  enumerated, every one of them created between 2017 and 2024 and so invalid on the day the baseline
+  ran. Twenty-six are one template, *message template*, whose instances all fail on the same four
+  required children, and two belong to templates that cannot validate themselves. A list assembled
+  from what a repair touched says what the repair did, never what the store holds, so the next
+  measurement is a pass and not a subtraction. Each pass costs about three hours of GET traffic and
+  writes nothing.
 
   **The renames are the larger half, and each one is a question for an owner.** A residual instance
   carries a key its template no longer declares, and where that value belongs cannot be read out of
@@ -969,10 +979,16 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   templates rather than in questions, and a key naming an element makes that element's own children
   answerable too.
 
-  **Decide where to stop asking.** 185 of the 298 templates hold a single invalid instance each, so
+  **Decide where to stop asking.** 188 of the 303 templates hold a single invalid instance each, so
   the yield per question falls away sharply below the studied set. An owner's attention is the
   scarce resource, and a residual that is measured, recorded and understood is a legitimate end state
   for that tail.
+
+  Emptiness does not thin that tail either, which is worth knowing before anyone proposes deleting
+  it. Of the 1,016 swept on 2026-09-16, only 56 carry no filled value anywhere, and 10 of those are
+  the single instance of their template. The other 959 hold real metadata, one of them 2,610 filled
+  values. The questions are about data people entered, so the answer to a rename is a decision and
+  not a formality.
 
   **What is not a rename needs new rules, measured before they are built.** The residual error
   families are a value carrying no `@type` where the model requires one, one value where a list is
@@ -1065,12 +1081,12 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Background work with no deadline of its own. Its value lands at the terminology cutover, which
   means it has to be finished before a second source system is served, not before anything else.
 
-  **Reconcile the inventory boundary.** The 2026-09-08 run could not read 16 artifacts that search
-  enumerated, ten of them answering 404, and one template the typed resource endpoint could not
-  resolve at all; no duplicate search rows remained. Determine whether each is a stale search or
-  workspace projection or a missing artifact before changing anything, repair the projection from the
-  authoritative stores, and rerun the audit to `COMPLETE_FOR_KEY`. Never delete a store artifact
-  merely because its search entry is inconsistent.
+  **Reconcile the inventory boundary.** It persists across every pass and is what keeps a run from
+  reporting `COMPLETE_FOR_KEY`. On 2026-09-16 four instances that search enumerated answered 404
+  from the typed resource endpoint and one template would not resolve at all; no duplicate search
+  rows remained. Determine whether each is a stale search or workspace projection or a missing
+  artifact before changing anything, repair the projection from the authoritative stores, and rerun
+  the audit. Never delete a store artifact merely because its search entry is inconsistent.
 
   Done when every enumerable artifact is valid or recorded as a named exception, the rename sheet is
   answered or explicitly abandoned for its tail, both model libraries derive `title`, the model
