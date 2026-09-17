@@ -50,8 +50,16 @@ assets are copied before the entry document is atomically replaced. The root ind
 routes. The latter remains temporary compatibility code; it is not loaded by the dashboard.
 
 `npm test` runs the modern Angular/Vitest tests; `npm run test:legacy` runs the retained
-Karma services suite. The older authenticated split smoke contains AngularJS injector and
-dashboard-selector probes, which need migration before it can validate this modern route.
+Karma services suite. In `cedar-development/ops/e2e`, run
+`npm run smoke:workspace:modern:full` against the running native stack. It exercises the
+modern Workspace and split CED/CEFD hosts with real login, folder operations, authoring,
+sharing between two users, CEE metadata entry, downloads, versioning, OpenView and
+conditional writes. Its fixtures are removed after each run; the Workspace result and
+failure screenshot are written under `/tmp/cedar-modern-workspace-smoke/`.
+`npm run smoke:workspace:modern` runs just the Workspace journey; the full command also
+runs the CED host's stale-save and breaking-template-change scenarios.
+The existing `npm run smoke` remains the AngularJS journey for `cedar.metadatacenter.*`.
+Its script and legacy variants are retained unchanged; they are not the modern route's gate.
 See the Workspace README for the boundary, request contracts and direct build procedure.
 
 <a id="component-staleness"></a>
