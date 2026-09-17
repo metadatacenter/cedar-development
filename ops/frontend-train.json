@@ -46,7 +46,11 @@
       "image": "cedar-frontend-template-designer",
       "repository": "cedar-template-designer",
       "packagePath": ".",
-      "npmVersionVariable": "CEDAR_TEMPLATE_DESIGNER_NPM_VERSION"
+      "npmVersionVariable": "CEDAR_TEMPLATE_DESIGNER_NPM_VERSION",
+      "ceeConsumer": {
+        "manifest": "package.json",
+        "lock": "package-lock.json"
+      }
     },
     {
       "id": "openview",
@@ -211,12 +215,12 @@
       "repository": "cedar-template-designer",
       "lock": "package-lock.json",
       "strictInstallScripts": true,
-      "sha256": "046119a4d7a4c1da155d32a334554090cd16f937c18c7091d4c8701771a6c51c",
+      "sha256": "aa34876b356ad81d8477bb2a987852f9e88e079b820a2b749d42a4d0ebf22483",
       "vulnerabilities": {
-        "low": 5,
-        "moderate": 15,
-        "high": 34,
-        "critical": 9
+        "low": 4,
+        "moderate": 9,
+        "high": 8,
+        "critical": 1
       }
     },
     {

@@ -99,6 +99,26 @@ try {
       assert.equal(await page.getByPlaceholder('Template name', { exact: true }).inputValue(), name + ' revised');
       await page.locator('#save').click();
       await page.locator('#version-dialog').waitFor({ state: 'visible' });
+      const latest = await call(user1.auth, 'GET', `/${collection}/${enc(id)}`);
+      const concurrent = await mutate(user1.auth, 'PUT', `/${collection}/${enc(id)}`,
+        { ...latest.body, 'schema:description': 'Changed while version confirmation was open' });
+      assert.equal(concurrent.status, 200, concurrent.text);
+      const rejectedResponse = page.waitForResponse(res => res.request().method() === 'POST' && res.url().includes('/command/publish-create-draft-template/'));
+      await page.getByRole('button', { name: 'Create new draft', exact: true }).click();
+      assert.equal((await rejectedResponse).status(), 412);
+      await page.waitForFunction(() => document.getElementById('message').textContent.includes('changed since'));
+      const unchanged = await call(user1.auth, 'GET', `/${collection}/${enc(id)}`);
+      assert.equal(unchanged.body['bibo:status'], 'bibo:draft');
+      assert.equal(unchanged.body['schema:description'], 'Changed while version confirmation was open');
+      assert.equal(await page.getByRole('textbox', { name: 'Field name', exact: true }).inputValue(), 'Added after metadata');
+      console.log('PASS: stale version confirmation rejected without publishing, edits retained');
+      await open(`/${route}/edit/${enc(id)}?${params}`);
+      await page.getByPlaceholder('Template name', { exact: true }).fill(name + ' revised');
+      await page.getByRole('button', { name: /Add Child/ }).click();
+      await page.locator('app-field-type-picker').getByRole('button', { name: 'Text', exact: true }).click();
+      await page.getByRole('textbox', { name: 'Field name', exact: true }).fill('Added after metadata');
+      await page.locator('#save').click();
+      await page.locator('#version-dialog').waitFor({ state: 'visible' });
       const versionResponse = page.waitForResponse(res => res.request().method() === 'POST' && res.url().includes('/command/publish-create-draft-template/'));
       await page.getByRole('button', { name: 'Create new draft', exact: true }).click();
       const version = await versionResponse;

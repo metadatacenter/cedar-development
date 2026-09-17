@@ -2021,8 +2021,16 @@ npmjs, unscoped. A snapshot therefore cannot reach npmjs by forgetting a flag,
 and the rule has tests of its own because publishing to npmjs is not an action
 anyone can take back.
 
-Nothing has been published on either channel. When it is, the procedure is CEE's,
-in [NPMJS-RELEASE-RUNBOOK.md](NPMJS-RELEASE-RUNBOOK.md).
+The first Nexus snapshot is
+`@org.metadatacenter/cedar-embeddable-designer@0.1.0-dev.20260916.2593d382`.
+CED is not released on npmjs. The component is outside `cedarcli`'s current
+publication plan: version the snapshot against its source commit, run
+`npm run test:ci` (set `CEF_BUNDLE` to a pinned CEE bundle), then verify the staged
+package with `npm publish ./dist-npm/cedar-embeddable-designer --tag dev --dry-run`
+and publish the same directory with `--tag dev`. Its `publishConfig` fixes Nexus
+as the destination. Never rebuild between the browser gate and publication.
+The general credential and tarball procedures are in
+[NPMJS-RELEASE-RUNBOOK.md](NPMJS-RELEASE-RUNBOOK.md).
 
 The published declaration is emitted from `src/app/ced-public-api.ts` alone,
 which is written without imports so its declarations stand alone. Adding an
@@ -2062,20 +2070,26 @@ Workspace's template and element links open `cedar-template-designer` on the
 Designer hostname. That repository is a thin authenticated CED host; the combined
 `cedar-template-editor` retains its separate authoring implementation.
 
-Build CED with `npm run dist`, CEE with `npm run build:production` plus
-`npm --prefix visual run bundle`, and CETP with `npm run dist`. Then run
-`cedarcli native restart frontend designer`. The host stages the three sibling
-bundles at startup; `npm run prepare:components` in `cedar-template-designer`
-refreshes them without restarting. Its README documents explicit bundle-path
-overrides for local builds or future Nexus package payloads. CED is not pulled
-from npmjs. All three bundles must exist; startup fails if any is missing.
+Run `npm ci` in `cedar-template-designer`, then
+`cedarcli native restart frontend designer`. Its lock pins CED and CETP from
+Nexus and CEE/CEF 2.0.15 from npmjs. No sibling checkout is required. The first
+component snapshots are CED `0.1.0-dev.20260916.2593d382` and CETP
+`0.1.0-dev.20260915.0ec47d9c` under `@org.metadatacenter`.
+
+The host verifies each installed bundle against its published SHA-256, and
+`app/components/manifest.json` records each package's name, version and digest.
+`npm run prepare:components` refreshes the served copies; `npm pack` includes
+them through its prepack hook. Explicit local bundle-path overrides remain
+available for development, but server payloads reject them. See the host README
+for the override names. The frontend train updates Designer's CEE pin alongside
+its other CEE consumers; CED and CETP remain explicit immutable package pins.
 
 The host owns SSO, repository child search, permission checks, dirty navigation,
 ETag saves and the instance-aware template version confirmation. Standalone
 field-document routes report unsupported; fields inside templates and elements
-use CED. The version command's conditional-write race remains a backend limitation:
-the host compares a fresh ETag before invoking it, but atomic enforcement belongs
-in the command itself.
+use CED. Version creation requires the original ETag in `If-Match`; the resource
+server conditionally publishes that exact source snapshot before creating the draft.
+Missing validators return 428 and concurrent changes return 412 with no draft created.
 
 Run `npm test` in the host repository for the host contract suite, and
 `npm run smoke:ced-host` in `ops/e2e` for real browser create/update, stale-save

@@ -193,8 +193,12 @@ export async function run({ user1, user2, folderId, homeFolderId }) {
   if (checkStatus(pcd, 201, 'a template is created to publish-and-draft')) {
     const pcdId = pcd.body['@id'];
     cleanup('template', `/templates/${enc(pcdId)}`, pcdName);  // the source, which becomes published
-    const body = (await call(auth, 'GET', `/templates/${enc(pcdId)}`)).body;
-    const res = await call(auth, 'POST', `/command/publish-create-draft-template/${enc(pcdId)}`, body);
+    const loaded = await call(auth, 'GET', `/templates/${enc(pcdId)}`);
+    const body = loaded.body;
+    checkStatus(await call(auth, 'POST', `/command/publish-create-draft-template/${enc(pcdId)}`, body),
+      428, 'publish-create-draft requires the loaded source ETag');
+    const res = await call(auth, 'POST', `/command/publish-create-draft-template/${enc(pcdId)}`, body,
+      { headers: { 'If-Match': loaded.headers.get('etag') } });
     if (checkStatus(res, [200, 201], 'publish-create-draft-template returns')) {
       const draftId = res.body?.['@id'];
       if (draftId && draftId !== pcdId) cleanup('template', `/templates/${enc(draftId)}`, `${pcdName} draft`);

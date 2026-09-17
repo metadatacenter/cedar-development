@@ -305,11 +305,5 @@ Add standalone field-document authoring to CED and connect the Designer's
 `/fields/*` routes. Replace the host's inert read-only surface with the component's
 read-only contract so inspection, navigation and preview remain available.
 
-Publish and pin immutable CED and CETP Nexus bundles for host payload builds,
-replacing the local sibling paths. Carry component identities into train manifests.
 Migrate the full split authoring/lifecycle smoke away from legacy Designer selectors;
 retain Workspace sharing, population, terminology and two-user coverage.
-
-Make `publish-create-draft-template` enforce the loaded artifact's `If-Match`
-atomically so a concurrent edit between the host's final read and version creation
-cannot be overwritten. Exercise this alongside in-place save conflicts.

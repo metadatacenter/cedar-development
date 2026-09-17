@@ -214,6 +214,7 @@
     "versioning\u001fversioning: check-update-template\u001fcheck-update answers with an instance present",
     "versioning\u001fversioning: check-update-template\u001fthe unchanged definition reports one instance and no changes",
     "versioning\u001fversioning: publish-create-draft-template\u001fa template is created to publish-and-draft",
+    "versioning\u001fversioning: publish-create-draft-template\u001fpublish-create-draft requires the loaded source ETag",
     "versioning\u001fversioning: publish-create-draft-template\u001fpublish-create-draft-template returns",
     "versioning\u001fversioning: publish-create-draft-template\u001fthe source template is now published",
     "versioning\u001fversioning: publish-create-draft-template\u001fand the returned artifact is a new draft",
