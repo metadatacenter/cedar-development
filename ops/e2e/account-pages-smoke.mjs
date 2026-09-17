@@ -1,13 +1,13 @@
 // Modern account pages; fixtures are isolated and removed, secrets are never logged.
 import assert from 'node:assert/strict';
 import {chromium} from 'playwright';
-import {actors, call, USER_SERVER, enc} from './rest/lib.mjs';
+import {actors, call, USER_SERVER, GROUP_SERVER, mutateGroup, enc} from './rest/lib.mjs';
 const area=process.argv[2] || 'profile';
 const base=process.env.CEDAR_BASE || 'https://workspace.metadatacenter.orgx';
-const {user1}=await actors();
+const {user1,user2}=await actors();
 const userId=JSON.parse(Buffer.from(user1.auth.split('.')[1],'base64url').toString()).sub;
 const userPath='/users/'+enc(userId);
-let originalDate;
+let originalDate;let groupId;
 const fixture='Workspace account smoke '+Date.now();
 const browser=await chromium.launch({headless:!process.env.HEADED});
 const context=await browser.newContext({ignoreHTTPSErrors:true});
@@ -43,9 +43,44 @@ try {
   assert.equal(await page.getByLabel('Date format',{exact:true}).inputValue(),next);
   console.log('PASS: Settings is Angular-only; date format saves and survives reload');
  }
+ if(area==='groups'){
+  await open('/groups');await page.getByLabel('New group name',{exact:true}).fill(fixture);
+  const created=await mutation('POST','/groups',()=>page.getByRole('button',{name:'Create group',exact:true}).click(),201);
+  groupId=(await created.json())['@id'];const path='/groups/'+enc(groupId);
+  await page.getByRole('button',{name:'Save details',exact:true}).waitFor();
+  const me=page.getByRole('listitem',{name:[user1.profile.firstName,user1.profile.lastName].filter(Boolean).join(' '),exact:true});
+  assert.equal(await me.getByRole('button',{name:'Remove administrator',exact:true}).isDisabled(),true);
+  assert.equal(await me.getByRole('button',{name:'Remove member',exact:true}).isDisabled(),true);
+  await page.getByLabel('Description',{exact:true}).fill('Smoke description');
+  await mutation('PUT',path,()=>page.getByRole('button',{name:'Save details',exact:true}).click(),200);
+  await page.getByLabel('Add a member',{exact:true}).selectOption(user2.profile['@id']);
+  await mutation('PUT',path+'/users',()=>page.getByRole('button',{name:'Add member',exact:true}).click(),200);
+  const other=page.getByRole('listitem',{name:[user2.profile.firstName,user2.profile.lastName].filter(Boolean).join(' '),exact:true});await other.waitFor();
+  const viewer=await browser.newContext({ignoreHTTPSErrors:true});const vp=await viewer.newPage();
+  await vp.goto(base+'/groups');await vp.locator('#username').waitFor();await vp.locator('#username').fill(process.env.CEDAR_FRONTEND_local_USER2_LOGIN||'test2@test.com');await vp.locator('#password').fill(process.env.CEDAR_FRONTEND_local_USER2_PASSWORD||'test2');await vp.locator('#kc-login').click();
+  await vp.getByRole('button',{name:fixture,exact:true}).click();await vp.getByText('Only group administrators can view and manage membership.').waitFor();
+  assert.equal(await vp.getByRole('button',{name:'Save details',exact:true}).count(),0);assert.equal(await vp.evaluate(()=>typeof window.angular),'undefined');await viewer.close();
+  await mutation('PUT',path+'/users',()=>other.getByRole('button',{name:'Make administrator',exact:true}).click(),200);
+  await other.getByRole('button',{name:'Remove administrator',exact:true}).waitFor();
+  await mutation('PUT',path+'/users',()=>other.getByRole('button',{name:'Remove administrator',exact:true}).click(),200);
+  await other.getByRole('button',{name:'Make administrator',exact:true}).waitFor();
+  await mutation('PUT',path+'/users',()=>other.getByRole('button',{name:'Remove member',exact:true}).click(),200);await other.waitFor({state:'detached'});
+  const external=await mutateGroup(user1.auth,'PUT',path,{'schema:name':fixture,'schema:description':'Concurrent update'});assert.equal(external.status,200);
+  await page.getByLabel('Description',{exact:true}).fill('Local edit retained');
+  await mutation('PUT',path,()=>page.getByRole('button',{name:'Save details',exact:true}).click(),412);
+  await page.getByRole('alert').filter({hasText:'changed since'}).waitFor();assert.equal(await page.getByLabel('Description',{exact:true}).inputValue(),'Local edit retained');
+  await page.getByRole('button',{name:'Reload group',exact:true}).click();
+  await page.getByRole('button',{name:'Save details',exact:true}).waitFor();
+  await page.waitForFunction(()=>document.querySelector('#group-description')?.value==='Concurrent update');
+  await page.screenshot({path:'/tmp/cedar-modern-groups.png',fullPage:true});
+  await mutation('DELETE',path,()=>page.getByRole('button',{name:'Delete group',exact:true}).click(),204);groupId=undefined;
+  await page.getByRole('status').filter({hasText:'Group deleted.'}).waitFor();
+  console.log('PASS: Groups is Angular-only; CRUD, membership, administrator changes, restricted viewer, last administrator, and stale-write conflict');
+ }
  assert.deepEqual(errors,[]);
 } catch (error) { console.error('Account alerts:', await page.getByRole('alert').allTextContents()); console.error('Browser errors:', errors); throw error; } finally {
  await browser.close();
+ if(groupId){const removed=await mutateGroup(user1.auth,'DELETE','/groups/'+enc(groupId));assert.ok([204,404].includes(removed.status),'Temporary group cleanup failed');}
  if(originalDate!==undefined){const restored=await call(user1.auth,'PUT',userPath,{'uiPreferences.preferredDateFormat':originalDate},{base:USER_SERVER});assert.equal(restored.status,200,'Date preference restore failed');}
  const current=await call(user1.auth,'GET',userPath,undefined,{base:USER_SERVER});
  assert.equal(current.status,200);
