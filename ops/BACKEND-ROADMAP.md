@@ -1009,11 +1009,12 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
 
 - **25. Finish the production artifact repair, which is now a set of decisions rather than a run.**
   The audit that opened this work on 2026-09-08 found 127,868 invalid instances of 150,164, along
-  with invalid templates, elements and standalone fields. Production now holds **991 invalid
-  instances across 285 templates**: a full corpus pass on 2026-09-16 walked all 150,640 and found
-  1,047, and the 56 carrying no filled value anywhere were deleted the next day, which cleared 18
-  templates outright. The automated phase is over: chaining every
-  repair that exists onto what remains gains almost nothing, because each residual artifact waits on
+  with invalid templates, elements and standalone fields. Production now holds **960 invalid
+  instances across 280 templates**: a full corpus pass on 2026-09-16 walked all 150,640 and found
+  1,047, and the next day the 56 that carried no filled value anywhere were deleted and the 31 no
+  repair run had ever seen were repaired. The automated phase is over, and now measured against
+  every one of the 960: fourteen instance repairs chained into one write take none of them, because
+  each waits on
   a rule nobody has written or an answer only its owner can give. Treat the rest as data repair
   rather than authored modification, preserving root identifiers, version and publication state, and
   provenance timestamps. Keep it a narrow store repair rather than an edit through the legacy
@@ -1021,12 +1022,13 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
 
   **Measure the residual by walking the corpus, not by subtracting repairs from a baseline.** The
   list the repair runs maintained held 1,016 instances; the corpus pass found 31 more it had never
-  enumerated, every one of them created between 2017 and 2024 and so invalid on the day the baseline
-  ran. Twenty-six are one template, *message template*, whose instances all fail on the same four
-  required children, and two belong to templates that cannot validate themselves. A list assembled
-  from what a repair touched says what the repair did, never what the store holds, so the next
-  measurement is a pass and not a subtraction. Each pass costs about three hours of GET traffic and
-  writes nothing.
+  enumerated, every one created between 2017 and 2024 and so invalid on the day the baseline ran.
+  What became of them is the argument for the pass. All 31 were repaired by rules that already
+  existed and in under twenty seconds of writes: 26 wanted completion, four wanted a `@context`
+  alignment or completion, one wanted an occurrence wrapped. Nothing about them was hard. They had
+  simply never been handed to a repair, because a list assembled from what a repair touched cannot
+  contain what it never saw. So the next measurement is a pass and not a subtraction, at a cost of
+  about three hours of GET traffic and no writes.
 
   **The renames are the larger half, and each one is a question for an owner.** A residual instance
   carries a key its template no longer declares, and where that value belongs cannot be read out of
@@ -1039,21 +1041,27 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   templates rather than in questions, and a key naming an element makes that element's own children
   answerable too.
 
-  **Decide where to stop asking.** 181 of the 285 templates hold a single invalid instance each, so
+  **Decide where to stop asking.** 178 of the 280 templates hold a single invalid instance each, so
   the yield per question falls away sharply below the studied set. An owner's attention is the
   scarce resource, and a residual that is measured, recorded and understood is a legitimate end state
   for that tail.
 
-  Nothing is left to thin it with. Every one of the 991 carries entered metadata, one of them 2,610
+  Nothing is left to thin it with. Every one of the 960 carries entered metadata, one of them 2,610
   filled values, because the instances that held nothing have been deleted. So each remaining
   question is about data a person typed, and the answer to a rename is a decision rather than a
   formality.
 
-  **What is not a rename needs new rules, measured before they are built.** The residual error
-  families are a value carrying no `@type` where the model requires one, one value where a list is
-  declared and a list where one value is, the wrong empty shape (`{}` where a literal is declared,
-  `{"@value": null}` where an IRI is), a declared child that completion never reached, and a string
-  where a number is declared. Some of the last, such as `"LSJDK=1213"`, cannot be coerced at all.
+  **What is not a rename needs new rules, and the chain says which.** Running all fourteen instance
+  repairs over the residual as one write leaves 808 artifacts invalid, and their remaining errors
+  name the candidates. 533 fail on nothing but a property their template does not declare, which is
+  the rename block below rather than a rule. Two families are close enough to be worth reading
+  before writing anything. 48 instances across 24 templates fail only on a missing required
+  property, and the one sampled wants `@id` on an element occurrence, which completion does not mint
+  because it builds a child that is absent rather than giving identity to one already there. 27
+  across 9 templates, 19 of them one template, fail only on a list where one value is declared,
+  which `unwrap-instance-occurrence` declined: read why its guard excludes them before widening it.
+  A dozen more sit in groups of ten and under.
+
   Count what a candidate rule would finish rather than what it would clear, because a family
   appearing in hundreds of instances finishes far fewer: most of them carry a second defect as well.
   Measure it locally rather than through an audit run. Driving `ValidationBridge` from
