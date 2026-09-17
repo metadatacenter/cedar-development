@@ -310,7 +310,7 @@
       "repository": "cedar-workspace",
       "lock": "package-lock.json",
       "strictInstallScripts": true,
-      "sha256": "de2e8f6fc81f82613d5cce7d9f88dbda2b41462e21c9e993a8f9d7ada46424e8",
+      "sha256": "49b49291289ea1595969350b8f75559da92b4ca632f8e5bee249205a662a3992",
       "vulnerabilities": {
         "low": 0,
         "moderate": 0,
@@ -322,7 +322,7 @@
       "repository": "cedar-template-designer",
       "lock": "package-lock.json",
       "strictInstallScripts": true,
-      "sha256": "9ac70b141006db60bb31de1008e62c9cf99ac0e54835154b18831cc4540529ae",
+      "sha256": "3ba0d6558e80e8680a872a44afd0d8359bfc55f8268dac3e6b44ec4fe1eec1e9",
       "vulnerabilities": {
         "low": 4,
         "moderate": 9,
