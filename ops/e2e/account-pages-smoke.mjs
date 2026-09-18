@@ -214,7 +214,12 @@ try {
       .fill(process.env.CEDAR_FRONTEND_local_USER2_PASSWORD || "test2");
     await vp.locator("#kc-login").click();
     await vp.getByRole("combobox", { name: "Find a group" }).fill(fixture);
-    await vp.getByRole("option", { name: fixture, exact: true }).click();
+    await vp
+      .getByRole("option", {
+        name: fixture + " - Smoke description",
+        exact: true,
+      })
+      .click();
     await vp
       .getByText("Only a Group Administrator can see who is in this group.")
       .waitFor();

@@ -46,6 +46,16 @@ navigation, collapsible side panels and Info/Version tabs. Category, latest-vers
 type filters are intentionally absent. Artifact/folder menus use existing REST operations
 and server capabilities; lifecycle actions come from resource reports, not listing summaries.
 
+The artifact and folder menu's **Permissions…** dialog follows the legacy access layout.
+It shows the owner and direct user/group grants to any reader, with searchable principals
+and immediately saved Viewer/Editor/Manager roles for callers with `manageGrants`.
+Everyone is Viewer-only. Ownership transfer is a separate, confirmed user-only action,
+gated by `transferOwnership`. Each write uses the permissions ETag; a stale write displays
+the failed change and requires an explicit reload. Capabilities refresh after each successful
+write, including self-demotion; a successful ownership transfer closes the dialog and refreshes
+the workspace, since the former owner may lose access. The modern Workspace smoke covers
+read-only viewing, role changes, Everyone, stale permissions, and two-user revocation.
+
 Profile provides account details and masked API-key create/regenerate/delete operations.
 Settings saves the account date preference used by Workspace. Groups has a standalone
 legacy-style Manage/Create layout with searchable group and member selectors, using shared
@@ -78,6 +88,14 @@ not remount the editor. The combined Template Editor and its AngularJS smoke rem
 
 `npm test` runs Angular/Vitest tests and the Node tests for the retained plain-JavaScript
 Keycloak adapter, deployment configuration, atomic staging and npm package contents.
+`groups.spec.ts`, `permissions-dialog.spec.ts`, `access-views.spec.ts` and the Workspace
+action tests carry forward the legacy group/share controller, directive, permission-model
+and conditional-request contracts. They exercise rendered controls as well as request
+shapes, independent revisions, pending-write guards, failed/cancelled changes, late reads,
+last-administrator protection, direct-user ownership transfer and read-only access.
+Bootstrap visibility and asynchronous confirmation mechanics are replaced by native-dialog
+and confirmation-event tests. Failed writes retain the last saved state and the failed
+intent; stale revisions block further writes until an explicit recovery read completes.
 Configuration and CEE assets finish writing before the development server starts.
 Use `npm run copy:cee` to refresh only the staged editor.
 Workspace participates in `cedarcli check design-tokens` and the shared CI adoption gate;
