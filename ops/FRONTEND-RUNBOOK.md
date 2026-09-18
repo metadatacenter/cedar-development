@@ -47,7 +47,9 @@ type filters are intentionally absent. Artifact/folder menus use existing REST o
 and server capabilities; lifecycle actions come from resource reports, not listing summaries.
 
 Profile provides account details and masked API-key create/regenerate/delete operations.
-Settings saves the account date preference used by Workspace. Groups uses independent
+Settings saves the account date preference used by Workspace. Groups has a standalone
+legacy-style Manage/Create layout with searchable group and member selectors, using shared
+design tokens instead of the account-page navigation. It uses independent
 group and membership ETags, restricts administration to group administrators and protects
 the last administrator. Privacy retains the existing policy wording in the Angular account
 shell. In `ops/e2e`, run `npm run smoke:account:all` for all four pages, or
