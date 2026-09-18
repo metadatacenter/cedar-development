@@ -285,6 +285,32 @@ try {
   await save(page, "POST", "/command/rename-resource", 200, true);
   names.destination += " renamed";
   pass("Create folder and conditional rename");
+  step = "artifact-menu-visibility";
+  for (const height of [1000, 480]) {
+    await page.setViewportSize({ width: 1500, height });
+    await row(page, names.destination)
+      .getByRole("button", { name: "Actions for " + names.destination, exact: true }).click();
+    const resourceMenu = page.locator(".resource-menu");
+    await resourceMenu.waitFor();
+    assert.equal(await resourceMenu.getByRole("button").count(), 18);
+    await page.waitForFunction(() => {
+      const menu = document.querySelector(".resource-menu");
+      const rect = menu?.getBoundingClientRect();
+      return rect && rect.top >= 0 && rect.bottom <= innerHeight;
+    });
+    if (height === 1000) {
+      assert.equal(await resourceMenu.evaluate((m) => m.scrollHeight <= m.clientHeight), true,
+        "All legacy menu actions should fit without scrolling on a tall viewport");
+    }
+    const last = resourceMenu.getByRole("button", { name: "Open in OpenView", exact: true });
+    await last.scrollIntoViewIfNeeded();
+    const bounds = await last.boundingBox();
+    assert.ok(bounds && bounds.y >= 0 && bounds.y + bounds.height <= height,
+      "The final menu action must remain reachable on short viewports");
+    await page.keyboard.press("Escape");
+  }
+  await page.setViewportSize({ width: 1500, height: 1000 });
+  pass("All legacy artifact menu actions fit tall screens and remain reachable on short screens");
   step = "session-retry";
   await ready(page);
   // Inject one expired-access-token response, then let the real refresh and
