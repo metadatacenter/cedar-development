@@ -13,9 +13,9 @@ Term-picker and terminology-versioning work remains in
 Item numbers are contiguous across the document and change as work leaves it.
 Refer to the concrete change by name in commits.
 
-## Workspace and browser workflows
+## Workspace and Browser Workflows
 
-### 1. Retire routine `CEDAR_VERSION_MODIFIER` cache busting
+### 1. Retire Routine `CEDAR_VERSION_MODIFIER` Cache Busting
 
 A deployment should not need a hand-edited modifier
 merely to make a new code revision visible. Keep the variable temporarily as a compatibility
@@ -42,7 +42,7 @@ dashboard renders. The item is complete after two consecutive code deployments r
 cache token, the cache-delivery smoke passes in staging and production, and rollback works by
 restoring payloads and routing without inventing a new modifier.
 
-### 2. Finish the DataCite DOI minting lifecycle
+### 2. Finish the DataCite DOI Minting Lifecycle
 
 The durable lifecycle is what makes the operation
 recovery-safe, and none of it exists yet. Minting persists no state of its own: draft/reserved,
@@ -57,7 +57,7 @@ create-versus-update, retry after timeout, and repeated publish, each of which n
 states before it can be written. Keep normal tests offline; add only an opt-in DataCite sandbox
 smoke test for the final wire contract and credential/configuration check.
 
-### 3. Provide the category user interface in the Workspace
+### 3. Provide the Category User Interface in the Workspace
 
 Add browser workflows for category maintenance, artifact classification, category access and
 ownership transfer, using the existing category tree and artifact search.
@@ -109,7 +109,7 @@ that user. Transfer ownership and delete the now-empty category as its new owner
 also prove that a stale category ETag and a stale permission ETag are rejected without losing the
 user's proposed input.
 
-### 4. Complete Workspace validation and save feedback
+### 4. Complete Workspace Validation and Save Feedback
 
 Extend Workspace's validation display
 to render a rejected create/update's structured server `validationReport`, instead of
@@ -131,9 +131,9 @@ workflow checks rather than recreating its report subscription.
 
 <a id="cee"></a>
 
-## Embeddable editor and model library
+## Embeddable Editor and Model Library
 
-### 5. Whole-component runtime theme overrides
+### 5. Whole-Component Runtime Theme Overrides
 
 Define host-facing CSS properties for
 brand, surface, text, muted and border roles beyond the compact-control API in
@@ -143,7 +143,7 @@ brand override and which semantic status colors must remain invariant. Add brows
 tests that set custom role values and check rendered foregrounds, backgrounds and
 focus states before documenting the properties as supported.
 
-### 6. Authoring feedback for unsupported markup
+### 6. Authoring Feedback for Unsupported Markup
 
 Expose CEE's rendering policy to
 authors in the Workspace/Template Editor rich-text `Source` mode and CED's markup
@@ -156,7 +156,7 @@ embedding API or a supported description kept in sync with editor configuration
 and tests. Include rules beyond the tag and attribute allowlists, such as forbidden
 event handlers and non-raster data images.
 
-### 7. Consistent authority marks
+### 7. Consistent Authority Marks
 
 Decide whether all seven authority fields should use
 the organisations' genuine marks, then replace the approximations for ORCID, PFAS,
@@ -165,7 +165,7 @@ available. Keep assets inline, preserve their accessible labels, and check appea
 at field-icon size. ROR provides the existing inline-vector pattern. Record asset
 provenance and usage terms with the assets.
 
-### 8. RDF instance export
+### 8. RDF Instance Export
 
 Add an RDF serialization to the download contract, using a
 JSON-LD processor rather than a handwritten serializer. Decide first whether the
@@ -198,21 +198,54 @@ against a reference processor. Measure the production bundle with `check:size` b
 choosing dependencies; do not use old bundle-headroom estimates. Coordinate with the
 font-payload work if the added processor exceeds the packaging budget.
 
-### 9. Reduce embedded font payload
+### 9. Reduce Embedded Font Payload
 
-Measure subsetting the Material Icons font to the
-ligatures CEE actually uses. Add a build guard that inventories template and descriptor
-ligatures and rejects a glyph absent from the shipped font; the menu glyph browser
-check alone does not cover every icon source.
+CEE, CED and the term picker all resolve one font source,
+`@org.metadatacenter/cedar-design-tokens/fonts`, so the Roboto question is a single edit that
+reaches three components. The icon font is CEE's alone, and the shared package does not carry it.
 
-Separately decide which Roboto scripts the single-file bundle must carry. Inlining all
-seven unicode-range subsets at three weights ships every subset, even for a Latin-only
-form. Retain latin-ext for Hungarian; dropping other scripts requires an explicit
-fallback-font decision and multilingual rendering checks. Re-measure decoded and gzip
-savings on the current production bundle. Preserve namespaced font faces and the
-single-artifact embedding contract; serving fonts as extra files changes that contract.
+**Roboto.** Twenty-one faces ship in each component: seven unicode-range subsets at three weights,
+134,499 decoded bytes measured on 2026-09-17.
 
-### 10. Localize numeric and temporal validation
+| subset | 300 | 400 | 500 | all three |
+| --- | ---: | ---: | ---: | ---: |
+| latin | 11,160 | 11,028 | 11,073 | 33,261 |
+| cyrillic-ext | 10,413 | 10,353 | 10,353 | 31,119 |
+| latin-ext | 7,842 | 7,737 | 7,677 | 23,256 |
+| cyrillic | 6,480 | 6,462 | 6,633 | 19,575 |
+| greek | 4,929 | 4,866 | 4,797 | 14,592 |
+| vietnamese | 3,450 | 3,498 | 3,474 | 10,422 |
+| greek-ext | 756 | 750 | 768 | 2,274 |
+
+latin and latin-ext together are 56,517 bytes, so dropping the other five saves 77,982, which is
+58% of the font payload in each of three components. Decide whether the components must render
+Cyrillic, Greek and Vietnamese, remembering that cyrillic-ext is the second-largest subset here;
+latin-ext stays for Hungarian. Decide the fallback explicitly rather than by accident: the shipped
+stack is `CEE Roboto, Helvetica Neue, sans-serif`, so a dropped script lands on the host's
+sans-serif. Re-measure gzip on the production bundles rather than assuming the decoded figure, and
+assert the face inventory in the tokens package's emitted-CSS test so the subsets cannot return.
+
+**Material Icons.** One face in CEE, about 58,005 decoded bytes, against the thirteen ligatures its
+templates and code name statically: `close`, `content_copy`, `delete`, `description`, `device_hub`,
+`file_download`, `help`, `list_alt`, `note_add`, `open_in_new`, `unfold_less`, `unfold_more` and
+`view_module`. A subset of that set is a few kilobytes, so nearly the whole face is recoverable.
+
+The build guard is the harder half and has to come first. Four `<mat-icon>{{ … }}` bindings resolve
+at runtime, in `download-menu`, `cedar-input-link` and twice in `authority-input`, so the glyph set
+cannot be read from the templates, and no inventory script exists. Either make those names
+enumerable from a declared lookup, or declare the glyph set and prove every usage resolves into it;
+then subset the font and fail the build on a glyph outside the set. A glyph missing from a subset
+font renders as its ligature text rather than as an icon, without erroring.
+
+Preserve namespaced font faces and the single-artifact embedding contract; serving fonts as extra
+files changes that contract. The shared package still names the family `CEE Roboto` while all three
+components consume it, and renaming it is coordinated across their stylesheets, so it belongs in
+this pass.
+
+The RDF instance export item's Turtle option adds 56,684 gzip bytes, which this work would more
+than cover, so this is worth taking first.
+
+### 10. Localize Numeric and Temporal Validation
 
 Replace the numeric widget's
 `describeNumberType` sentence and the temporal widget's validator message / English
@@ -222,7 +255,7 @@ preserve each problem's machine-readable `code`. Check Hungarian and English for
 required values, numeric type/precision failures and temporal errors, including
 language changes while an error is visible.
 
-### 11. Define handling of out-of-range stored UTC offsets
+### 11. Define Handling of Out-of-Range Stored UTC Offsets
 
 Decide what to show and report
 when a host supplies offsets such as `-13:00` or `-13:45`, which
@@ -241,7 +274,7 @@ editing, rendering, local validation and host-facing UI contracts. The embedding
 host owns storage, authentication, permissions, server validation requests,
 publishing, version allocation and provenance.
 
-### 12. Display host-supplied validation findings in CED
+### 12. Display Host-Supplied Validation Findings in CED
 
 Define an input for validation findings supplied by the embedding host. Map artifact
 paths to fields and settings, show messages beside the affected controls, and offer
@@ -252,7 +285,7 @@ Specify when external findings become stale after an edit or artifact replacemen
 Preserve unsaved input and cover correction, clearing and replacement of reports.
 The host calls the schema server and decides whether an artifact may be saved.
 
-### 13. The three profiles, and what each one holds
+### 13. The Three Profiles, and What Each One Holds
 
 Basic, Semantic and Modular are the product structure, and CED has their names
 already: three presets in the preferences modal, each a bundle of visibility
@@ -277,7 +310,7 @@ does not show.
 Every control on a card today is a decision this item has to absorb, and there are
 now a great many of them.
 
-### 14. Complete the CED embedding contract
+### 14. Complete the CED Embedding Contract
 
 Define inputs for read-only mode, language and allowed field types. Host restrictions
 bound what the author may edit or select; profile and preference settings can narrow
@@ -292,9 +325,17 @@ artifact or creates an editable draft, without CED allocating identities or vers
 Add conformance and browser tests for these inputs and events, including read-only
 published content and transitions to a host-supplied editable document.
 
-### 15. Keyboard and screen-reader access
+### 15. Keyboard and Screen-Reader Access
 
 Verify keyboard focus order across cards, settings, palette actions and nested
 elements. Add live-region announcements for constraint changes and accepted or
 rejected local Apply actions and host-supplied validation results. Exercise those workflows with a screen reader and
 verify that focus returns to a useful control after each action.
+
+### 16. Complete Split CED Host Integration
+
+Replace the host's inert read-only surface with the component's read-only contract so
+inspection, navigation and preview remain available.
+
+Migrate the full split authoring/lifecycle smoke away from legacy Designer selectors;
+retain Workspace sharing, population, terminology and two-user coverage.

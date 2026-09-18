@@ -195,8 +195,7 @@ retention window. At the plateau only **84** cypher rows remained prunable. Prod
 behave the same way — they only go back to the 2026-07-28 rename, about seven weeks, so with 30-day
 retention roughly the older half is eligible and cypher will plateau sooner than request.
 
-**Ordering, and it is not stated elsewhere in this document: prune can do nothing until the live
-aggregator has run.** It only deletes rows that are *aggregated* **and** past retention. With all
+**Ordering: prune can do nothing until the live aggregator has run.** It only deletes rows that are *aggregated* **and** past retention. With all
 three jobs off on prod, `aggregatedAt` is NULL everywhere, so enabling prune first would delete
 exactly zero rows and look broken. Phase 1 (live) is a hard prerequisite for phase 3 (prune), not
 merely a sensible order.

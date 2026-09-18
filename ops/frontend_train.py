@@ -643,16 +643,34 @@ def prepare_frontends(args: argparse.Namespace) -> None:
         build_root = root / build["directory"]
         for command in build["commands"]:
             run_command(command, build_root)
-        output = root / build["output"]
-        destination = root / frontend["packagePath"]
-        replace_prepared_dist(output, destination)
-        by_frontend[frontend["id"]] = [frontend["packagePath"]]
-        builds.append({
-            "frontend": frontend["id"],
-            "repository": frontend["repository"],
-            "output": frontend["packagePath"],
-            "sha256": path_sha256(destination),
-        })
+        if build.get("output"):
+            output = root / build["output"]
+            destination = root / frontend["packagePath"]
+            replace_prepared_dist(output, destination)
+            by_frontend[frontend["id"]] = [frontend["packagePath"]]
+            builds.append({
+                "frontend": frontend["id"],
+                "repository": frontend["repository"],
+                "output": frontend["packagePath"],
+                "sha256": path_sha256(destination),
+            })
+            continue
+        # The package is the repository, so the build adds directories to what the archive
+        # already carries. Replacing the package path would delete the repository, and the
+        # manifests this run just wired are among the paths that have to survive, so these
+        # join the overlays rather than displacing them.
+        for relative in build["overlayPaths"]:
+            staged = root / relative
+            if not staged.is_dir():
+                raise RuntimeError(
+                    f"prepared build for {frontend['id']} did not produce {relative}")
+            by_frontend.setdefault(frontend["id"], []).append(relative)
+            builds.append({
+                "frontend": frontend["id"],
+                "repository": frontend["repository"],
+                "output": relative,
+                "sha256": path_sha256(staged),
+            })
 
     overlays = {
         frontend["id"]: sorted(set(by_frontend.get(frontend["id"], [])))

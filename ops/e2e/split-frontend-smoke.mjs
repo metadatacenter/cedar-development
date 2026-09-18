@@ -55,8 +55,8 @@ async function expectText(label, url, marker, minimumBytes = 0) {
   console.log(`  ok  ${label}`);
 }
 
-async function readConfig(label, base) {
-  const response = await fetchOk(label, `${base}/config/url-service.conf.json`);
+async function readConfig(label, base, file = 'url-service.conf.json') {
+  const response = await fetchOk(label, `${base}/config/${file}`);
   let config;
   try {
     config = await response.json();
@@ -113,21 +113,20 @@ async function expectCors(label, origin, method) {
     headers: {
       Origin: origin,
       'Access-Control-Request-Method': method,
-      'Access-Control-Request-Headers': 'Authorization,Content-Type',
+      'Access-Control-Request-Headers': 'Authorization,Content-Type,If-Match,CEDAR-Client-Session-Id',
     },
   });
 
   const allowedOrigin = response.headers.get('access-control-allow-origin');
-  const allowedCredentials = response.headers.get('access-control-allow-credentials');
   const allowedMethods = (response.headers.get('access-control-allow-methods') ?? '').split(',');
   const allowedHeaders = (response.headers.get('access-control-allow-headers') ?? '')
-    .toLowerCase().split(',');
+    .toLowerCase().split(',').map(value => value.trim());
 
   if (allowedOrigin !== origin) fail(`${label}: allowed origin is ${allowedOrigin}, expected ${origin}`);
-  if (allowedCredentials !== 'true') fail(`${label}: credentials are not allowed`);
+  // Both hosts send bearer tokens, not cross-origin cookies; allow-credentials is unnecessary.
   if (!allowedMethods.includes(method)) fail(`${label}: ${method} is not allowed`);
-  if (!allowedHeaders.includes('authorization') || !allowedHeaders.includes('content-type')) {
-    fail(`${label}: Authorization and Content-Type are not both allowed`);
+  for (const header of ['authorization', 'content-type', 'if-match', 'cedar-client-session-id']) {
+    if (!allowedHeaders.includes(header)) fail(`${label}: ${header} is not allowed`);
   }
   console.log(`  ok  ${label}`);
 }
@@ -141,7 +140,7 @@ async function expectCorsRejected(label, origin, method) {
       headers: {
         Origin: origin,
         'Access-Control-Request-Method': method,
-        'Access-Control-Request-Headers': 'Authorization,Content-Type',
+        'Access-Control-Request-Headers': 'Authorization,Content-Type,If-Match,CEDAR-Client-Session-Id',
       },
     });
   } catch (error) {
@@ -156,28 +155,28 @@ async function expectCorsRejected(label, origin, method) {
 
 console.log('Split frontend preview contract');
 
-await expectText('Workspace dashboard shell', `${workspace}/dashboard`, '<div id="angular-views-entry"');
+await expectText('Workspace dashboard shell', `${workspace}/dashboard`, '/workspace-build/index.html');
 await expectText('Workspace CEE route shell', `${workspace}/instances/create/example`,
-  '<div id="angular-views-entry"');
-await expectText('Workspace bootstrap', `${workspace}/require-config.js`,
-  "angular.bootstrap(document, ['cedar.workspace'])");
+  '/workspace-build/index.html');
+await expectText('Workspace bootstrap', `${workspace}/workspace-build/index.html`, '<cedar-workspace');
 await expectText('Workspace pinned CEE bundle',
   `${workspace}/third_party_components/cedar-embeddable-editor/cedar-embeddable-editor.js`,
   'cedar-embeddable-editor', 1_000_000);
 await expectText('Workspace auth origin', `${workspace}/config/version.js`,
   `window.cedarAuthUrl = "${auth}"`);
 
-await expectText('Designer create shell', `${designer}/templates/create`,
-  '<div id="angular-views-entry"');
-await expectText('Designer bootstrap', `${designer}/require-config.js`,
-  "angular.bootstrap(document, ['cedar.templateDesigner'])");
+await expectText('Designer create shell', `${designer}/templates/create`, '<main id="editor"');
+await expectText('Designer CED host', `${designer}/scripts/host.mjs`, 'cedar-embeddable-designer');
+for (const name of ['cedar-embeddable-designer', 'cedar-embeddable-editor', 'cedar-embeddable-term-picker']) {
+  await expectText(`Designer ${name} bundle`, `${designer}/components/${name}.js`, name, 100_000);
+}
 await expectText('Designer auth origin', `${designer}/config/version.js`,
   `window.cedarAuthUrl = "${auth}"`);
 
 assertNavigationConfig('Workspace navigation origins',
   await readConfig('Workspace navigation config', workspace), true);
 assertNavigationConfig('Designer navigation origins',
-  await readConfig('Designer navigation config', designer));
+  await readConfig('Designer navigation config', designer, 'host.json'));
 
 await expectCors('Workspace REST preflight', workspaceOrigin, 'GET');
 await expectCors('Designer REST preflight', designerOrigin, 'POST');

@@ -48,7 +48,7 @@ Keep the three identities distinct:
 Operators never type the timestamp for a new train. `cedarcli` allocates it. The only train ID an
 operator supplies is an existing one passed to `--resume` or `--train`.
 
-## One-time administration
+## One-Time Administration
 
 The Nexus hosted Maven repository must be named `cedar-maven-dev`, use the **Release** version
 policy, and have **Disable redeploy** selected. The two Docker hosted repositories are
@@ -61,7 +61,7 @@ The `cedar-development` repository needs access to the existing organization sec
 write repository contents. The workflow uses that permission only for the dedicated
 `build-trains` state branch.
 
-## Create a train
+## Create a Train
 
 Optionally rehearse the side-effect-free local preflight from a configured CEDAR shell:
 
@@ -75,16 +75,47 @@ Maven, TypeScript model → CEE → frontend, and 31-image Docker configuration 
 GitHub CLI authentication and the workflow on `develop`; checks CI for every exact remote
 `develop` SHA that defines a workflow; requires the train slot to be idle;
 rejects a colliding ID; rejects dirty or unpushed source; requires every checked-out source
-repository's `develop` to equal the live remote `develop`; and requires a passing whole-stack smoke
+repository's `develop` to equal the live remote `develop`; requires every source to be readable
+without credentials; and requires a passing whole-stack smoke
 run recorded against exactly those heads. It also runs the same read-only
 publication-target probe as hosted preflight: Nexus service and writable status, the
 `cedar-maven-dev` repository root, npm identity, and Docker Registry v2 authentication. Credentials
 come from `BMIR_NEXUS_USERNAME`/`BMIR_NEXUS_PASSWORD` when present, otherwise from the
-`bmir-nexus-releases` server in `~/.m2/settings.xml`; no extra option is needed. Every check runs
-even after one has refused, so a single rehearsal reports every finding, each stale lock baseline
-and each red repository among them, rather than the first one met. It then prints the exact
-dispatch command. It does not start GitHub Actions, publish an artifact, alter Docker or npm
+`bmir-nexus-releases` server in `~/.m2/settings.xml`; no extra option is needed. It then prints the
+exact dispatch command. It does not start GitHub Actions, publish an artifact, alter Docker or npm
 client configuration, or write a manifest.
+
+The checks run in two phases, by what they cost. The local phase reads the workspace — the train
+configuration, the lock baselines, uncommitted work, the component comparisons, the npmrc key names
+— and settles in a few seconds. The remote phase asks GitHub once per source repository, reads the
+smoke record, and probes Nexus, npm and the Docker registry, which takes about a minute and a half.
+
+Within a phase every check runs even after one has refused, so a rehearsal reports every finding it
+can reach, each stale lock baseline and each red repository among them, rather than the first one
+met. The remote phase does not run at all once the local one has refused, and the report says so:
+a train the workspace already disqualifies cannot dispatch whatever GitHub would answer, so the
+wait buys nothing. Repair what the local phase names and rehearse again to reach the rest.
+
+That anonymous read closes a gap the operator's own shell would otherwise hide. The runner resolves
+every source with an unauthenticated `git ls-remote`, so a private repository, or one missing
+`develop`, stops the workflow before it records any state. A rehearsal inheriting the operator's
+credentials reaches a repository the runner cannot, and reports every source healthy. The check
+therefore strips the credential helpers, the askpass programs and the configuration an environment
+can inject, then asks the question the way the runner asks it. Nothing is published when the
+workflow fails this way, but the train ID is spent, so the recovery is a fresh train rather than a
+resume.
+
+The captured source includes the term picker and the designer, the two Web Components the split
+Designer host serves. Both are public, which the capture step requires, and neither carries a Maven
+phase, because phases are the reactor and every frontend is captured without one.
+
+The dispatch preflight asks one more question of the frontends among the captured source. They
+reach each other as published npm packages, so a host whose pin predates the component commit it
+depends on builds and tests green and fails only when somebody opens the surface that needs the
+missing piece. The preflight refuses a host serving bytes its lock does not name, creating a custom
+element no locked bundle defines, or pinning a build the component's `develop` cannot account for,
+and reports without refusing a host that merely sits behind a published component.
+`cedarcli check components` asks it outside a dispatch.
 
 Local preflight also reports CI environment drift as an advisory. Every Java repository's `ci.yml`
 carries a copy of `ops/ci-env-block.yml`, and a copy missing an entry breaks only the repositories
@@ -159,7 +190,7 @@ repository that consumes it. CEDAR's font stack, type scale, brand palettes and 
 published from there as `@org.metadatacenter/cedar-design-tokens`, and a consumer's styles resolve
 that package from Nexus when its own build starts: a frontend built before the tokens publish reads
 the previous snapshot and renders the previous values. The order lives in the CLI's repository
-registry rather than in this document, and `tests/test_design_tokens_registration.py` holds it
+registry rather than in prose, and `tests/test_design_tokens_registration.py` holds it
 there.
 
 The workflow first captures the exact `develop` commit of every Java, npm, frontend, Docker, CLI,
@@ -292,7 +323,7 @@ five for the 31 images, and eight and a half to pull every image back and verify
 the image matrix runs serially. The local dispatch preflight takes about a minute, most of it the
 CI probe across the 45 captured repositories, and a `--dry-run` rehearsal pays it a second time.
 
-## Resume a failed train
+## Resume a Failed Train
 
 Start with the status command. It names the failed job and step when GitHub exposes one, links the
 workflow, reports which publication completions are recorded, and prints the recovery decision:
@@ -344,7 +375,7 @@ failure.
 Use a new train rather than resume when you want to include a source change. A train ID always means
 one fixed commit set.
 
-## Publication-target canary
+## Publication-Target Canary
 
 `publication-preflight-canary.yml` runs the same read-only Nexus, Maven, npm, and Docker probe every
 day and on manual dispatch. A failure opens or updates the issue **Build-train publication preflight
@@ -360,7 +391,7 @@ configuration cross into the UBI runtime. The 15 server builds therefore do not 
 post-quantum signing key; the two UBI base builds may still show the upstream warning while Red Hat's
 multisignature plugin is unavailable in the minimal UBI repositories. Do not remove that key.
 
-## What the state branch contains
+## What the State Branch Contains
 
 The `build-trains` branch is machine-owned operational state, separate from normal development:
 
@@ -385,7 +416,7 @@ Inspect a train without opening the state branch manually:
 cedarcli publish train-status <TRAIN_ID>
 ```
 
-## Use a train for Docker
+## Use a Train for Docker
 
 Image builds are topology-independent and may run without a configured deployment mode; this is
 how the isolated train jobs build from only their pinned CLI and Docker-builder checkouts. Starting,
@@ -437,7 +468,7 @@ cedarcli docker start all --local --pull never
 Local images keep the development tag declared in `cedar-docker-build`; they are not evidence that
 the corresponding published train was reproduced.
 
-## Failure diagnosis
+## Failure Diagnosis
 
 Follow the dispatched job with:
 
@@ -451,7 +482,7 @@ A credentials preflight failure means the organization secrets have not been sha
 pushing the state branch means Actions does not have write permission. Maven compilation failures
 need a source fix and a new train; transient upload failures can use `--resume`.
 
-### CEE source CI cannot install its pinned model package
+### CEE Source CI Cannot Install Its Pinned Model Package
 
 A CEE source check can fail before a train with an npm 404 for an exact
 `@org.metadatacenter/cedar-model-typescript-library` development tarball. A valid lockfile does not

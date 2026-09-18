@@ -71,7 +71,7 @@ one server — a tool to add, a description to sharpen — belongs in that repos
   Consider whether the shared half belongs here, in the runbook, with each repository keeping only
   what is true of itself.
 
-## Out of scope
+## Out of Scope
 
 - **What each server does.** The tool surface, its wording and its behaviour are the repository's
   own concern, and each has a ROADMAP for it.

@@ -2193,7 +2193,8 @@ class DropSupersededInstanceKeysTest(unittest.TestCase):
 
     def test_a_duplicate_of_a_declared_value_is_removed(self):
         tmpl = self.tmpl({"Data_Repository": child()})
-        before = {"schema:isBasedOn": self.TID, "@context": {},
+        before = {"schema:isBasedOn": self.TID, "@context": {"Repository": GOOD_IRI + "Data_Repository",
+                  "Data_Repository": GOOD_IRI + "Data_Repository"},
                   "Data_Repository": {"@value": "IMPC"}, "Repository": {"@value": "IMPC"}}
         after, changes = REPAIR.drop_superseded_instance_keys(before, tmpl)
         self.assertNotIn("Repository", after)
@@ -2233,7 +2234,7 @@ class DropSupersededInstanceKeysTest(unittest.TestCase):
     def test_the_context_entry_goes_with_the_key(self):
         tmpl = self.tmpl({"Data_Repository": child()})
         before = {"schema:isBasedOn": self.TID,
-                  "@context": {"Repository": "https://example.org/r",
+                  "@context": {"Repository": GOOD_IRI + "Data_Repository",
                                "Data_Repository": GOOD_IRI + "Data_Repository"},
                   "Data_Repository": {"@value": "IMPC"}, "Repository": {"@value": "IMPC"}}
         after, _changes = REPAIR.drop_superseded_instance_keys(before, tmpl)
@@ -2243,6 +2244,8 @@ class DropSupersededInstanceKeysTest(unittest.TestCase):
     def test_the_invariant_rejects_dropping_the_surviving_copy_too(self):
         tmpl = self.tmpl({"Data_Repository": child()})
         before = {"schema:isBasedOn": self.TID,
+                  "@context": {"Repository": GOOD_IRI + "Data_Repository",
+                               "Data_Repository": GOOD_IRI + "Data_Repository"},
                   "Data_Repository": {"@value": "IMPC"}, "Repository": {"@value": "IMPC"}}
         after, _changes = REPAIR.drop_superseded_instance_keys(before, tmpl)
         greedy = copy.deepcopy(after); del greedy["Data_Repository"]
@@ -2258,6 +2261,8 @@ class DropSupersededInstanceKeysTest(unittest.TestCase):
     def test_a_second_pass_changes_nothing(self):
         tmpl = self.tmpl({"Data_Repository": child()})
         before = {"schema:isBasedOn": self.TID,
+                  "@context": {"Repository": GOOD_IRI + "Data_Repository",
+                               "Data_Repository": GOOD_IRI + "Data_Repository"},
                   "Data_Repository": {"@value": "IMPC"}, "Repository": {"@value": "IMPC"}}
         once, first = REPAIR.drop_superseded_instance_keys(before, tmpl)
         _twice, second = REPAIR.drop_superseded_instance_keys(once, tmpl)
@@ -2424,9 +2429,8 @@ class RenameInstanceKeysTest(unittest.TestCase):
         REPAIR.RENAMES[self.TID] = {"Info 1": "Section", "Info 2": "Section"}
         tmpl = self.tmpl({"Section": child()})
         before = self.instance(**{"Info 1": {"@value": "Value 1"}, "Info 2": {"@value": "Value 2"}})
-        after, changes = REPAIR.rename_instance_keys(before, tmpl)
-        self.assertEqual(after["Section"], {"@value": "Value 1"})
-        self.assertEqual(changes[0]["discarded"], ["Info 2"])
+        with self.assertRaises(REPAIR.TransformRefused):
+            REPAIR.rename_instance_keys(before, tmpl)
 
     def test_an_element_value_moves_whole(self):
         REPAIR.RENAMES[self.TID] = {"SpatialCoverage": "Geospatial"}
@@ -3781,3 +3785,93 @@ class WorkerArgumentTest(unittest.TestCase):
         self.assertEqual(args.workers, 8)
         serial = REPAIR.build_parser().parse_args(["--from-records", "x", "--workers", "1"])
         self.assertEqual(serial.workers, 1)
+
+
+INSTANCE_DEMANDS = ["schema:isBasedOn", "schema:name", "schema:description",
+                    "pav:createdOn", "pav:createdBy", "pav:lastUpdatedOn", "oslc:modifiedBy"]
+
+
+def demanding_element(name="Address", children=("Street",), extra_demands=INSTANCE_DEMANDS):
+    node = child(ELEMENT_TYPE, identifier=BASE + "template-elements/11111111-2222-3333-4444-555555555555")
+    node["properties"] = {"@context": {"properties": {}, "required": []},
+                          **{c: child() for c in children}}
+    node["required"] = ["@context", "@id", *children, *extra_demands]
+    node["_ui"] = {"order": list(children)}
+    return node
+
+
+class InstanceDemandsOnElementTest(unittest.TestCase):
+    """A template that demands the instance's own provenance of an element occurrence describes an
+    occurrence no CEDAR editor writes, so every one of its instances fails while it validates."""
+
+    def polluted(self):
+        doc = template({"Address": demanding_element(), "Name": child()})
+        doc["required"] = ["@context", "@id", "schema:isBasedOn", "schema:name", "Address", "Name"]
+        return doc
+
+    def test_the_instance_members_leave_the_element_and_the_children_stay(self):
+        after, changes = REPAIR.drop_instance_demands_from_element(self.polluted())
+        self.assertEqual(after["properties"]["Address"]["required"], ["@context", "@id", "Street"])
+        self.assertEqual(sorted(c["replaced"] for c in changes), sorted(INSTANCE_DEMANDS))
+        self.assertTrue(all(c["path"] == "/properties/Address/required" for c in changes))
+
+    def test_the_template_keeps_its_own_demands(self):
+        # They are exactly what an instance root must carry; only an occurrence never carries them.
+        after, _changes = REPAIR.drop_instance_demands_from_element(self.polluted())
+        self.assertEqual(after["required"],
+                         ["@context", "@id", "schema:isBasedOn", "schema:name", "Address", "Name"])
+
+    def test_an_element_inside_an_element_is_reached(self):
+        inner = demanding_element("Region", ("Code",))
+        outer = demanding_element("Address", ("Street",))
+        outer["properties"]["Region"] = inner
+        outer["required"].insert(2, "Region")
+        after, _changes = REPAIR.drop_instance_demands_from_element(template({"Address": outer}))
+        reached = after["properties"]["Address"]["properties"]["Region"]["required"]
+        self.assertEqual(reached, ["@context", "@id", "Code"])
+
+    def test_a_multi_instance_element_is_reached_through_items(self):
+        declared = {"type": "array", "minItems": 1, "items": demanding_element()}
+        after, _changes = REPAIR.drop_instance_demands_from_element(template({"Address": declared}))
+        self.assertEqual(after["properties"]["Address"]["items"]["required"],
+                         ["@context", "@id", "Street"])
+        self.assertEqual(after["properties"]["Address"]["minItems"], 1)
+
+    def test_an_element_without_the_demands_is_untouched(self):
+        doc = template({"Address": demanding_element(extra_demands=[])})
+        after, changes = REPAIR.drop_instance_demands_from_element(doc)
+        self.assertEqual(changes, [])
+        self.assertEqual(after, doc)
+
+    def test_it_refuses_where_the_meta_schema_floor_would_be_lost(self):
+        element = demanding_element()
+        element["required"] = ["schema:name", "pav:createdOn"]
+        with self.assertRaises(REPAIR.TransformRefused):
+            REPAIR.drop_instance_demands_from_element(template({"Address": element}))
+
+    def test_a_second_run_changes_nothing(self):
+        once, first = REPAIR.drop_instance_demands_from_element(self.polluted())
+        twice, second = REPAIR.drop_instance_demands_from_element(once)
+        self.assertTrue(first)
+        self.assertEqual(second, [])
+        self.assertEqual(twice, once)
+
+    def test_the_invariant_accepts_the_repair_and_rejects_anything_else(self):
+        before = self.polluted()
+        after, _changes = REPAIR.drop_instance_demands_from_element(before)
+        self.assertIsNone(REPAIR.only_dropped_instance_demands(before, after))
+        meddled = copy.deepcopy(after)
+        meddled["properties"]["Address"]["required"].remove("Street")
+        self.assertEqual(REPAIR.only_dropped_instance_demands(before, meddled),
+                         "/properties/Address/required")
+        renamed = copy.deepcopy(after)
+        renamed["schema:name"] = "Something else"
+        self.assertEqual(REPAIR.only_dropped_instance_demands(before, renamed), "/schema:name")
+
+    def test_the_invariant_rejects_dropping_them_from_the_template_itself(self):
+        # The element is narrowed as the repair would, so the template's own list is the one
+        # difference left to judge.
+        before = self.polluted()
+        after, _changes = REPAIR.drop_instance_demands_from_element(before)
+        after["required"] = ["@context", "@id", "Address", "Name"]
+        self.assertEqual(REPAIR.only_dropped_instance_demands(before, after), "/required")

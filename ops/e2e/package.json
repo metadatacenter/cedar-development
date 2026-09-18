@@ -35,7 +35,13 @@
     "smoke:split:deployment": "CEDAR_REQUIRE_BUILD_INFO=1 node split-frontend-smoke.mjs",
     "smoke:routing:split": "CEDAR_ROUTING_MODE=split node split-routing-rehearsal-smoke.mjs",
     "smoke:routing:rollback": "CEDAR_ROUTING_MODE=rollback node split-routing-rehearsal-smoke.mjs",
-    "record:split:deployment": "node record-split-frontend-deployment.mjs"
+    "record:split:deployment": "node record-split-frontend-deployment.mjs",
+    "smoke:ced-host": "node ced-host-smoke.mjs",
+    "smoke:workspace:modern": "node modern-workspace-smoke.mjs",
+    "smoke:workspace:modern:full": "npm run smoke:workspace:modern && npm run smoke:ced-host && npm run smoke:account:all && npm run smoke:workspace:lifecycle",
+    "smoke:account": "node account-pages-smoke.mjs",
+    "smoke:account:all": "npm run smoke:account -- profile && npm run smoke:account -- settings && npm run smoke:account -- groups && npm run smoke:account -- privacy",
+    "smoke:workspace:lifecycle": "node workspace-lifecycle-smoke.mjs all"
   },
   "dependencies": {
     "playwright": "^1.48.0"

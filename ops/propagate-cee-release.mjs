@@ -2,18 +2,47 @@
 
 import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
-import { resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
-export const CEE_CONSUMERS = Object.freeze([
-  { label: 'Workspace', directory: 'cedar-workspace', legacyPeerDeps: false },
-  { label: 'Production monolith', directory: 'cedar-template-editor', legacyPeerDeps: false },
-  { label: 'Bridging', directory: 'cedar-bridging/cedar-bridging-src', legacyPeerDeps: false },
-  { label: 'OpenView', directory: 'cedar-openview/cedar-openview-src', legacyPeerDeps: false },
-  { label: 'Angular demo', directory: 'cedar-component-demo/cedar-cee-demo-angular-src', legacyPeerDeps: false },
-  { label: 'Ember demo', directory: 'cedar-component-demo/cedar-cee-demo-ember-src', legacyPeerDeps: false },
-  { label: 'React demo', directory: 'cedar-component-demo/cedar-cee-demo-react', legacyPeerDeps: false },
-]);
+const OPS = dirname(fileURLToPath(import.meta.url));
+
+/**
+ * The consumers, read from the train configuration beside this script.
+ *
+ * This list used to be written out here, and it drifted: `frontend-train.json` declared a
+ * `ceeConsumer` for the Designer host and this array did not, so a release pinned seven of the
+ * eight and the Designer went on serving the previous editor. Nothing said so — the propagation
+ * reported every consumer it knew about as `ok`. Reading the configuration removes the second
+ * copy that could disagree with it rather than correcting this one to match today.
+ */
+function consumerFrom(repository, label, entry) {
+  const within = dirname(entry.manifest);
+  return Object.freeze({
+    label,
+    directory: within === '.' ? repository : `${repository}/${within}`,
+    legacyPeerDeps: entry.legacyPeerDeps === true,
+  });
+}
+
+export function ceeConsumers(configPath = resolve(OPS, 'frontend-train.json')) {
+  const config = readJson(configPath);
+  const consumers = [];
+  for (const frontend of config.frontends ?? []) {
+    if (frontend.ceeConsumer) {
+      consumers.push(consumerFrom(frontend.repository, frontend.id, frontend.ceeConsumer));
+    }
+  }
+  for (const extra of config.additionalCeeConsumers ?? []) {
+    consumers.push(consumerFrom(extra.repository, extra.label, extra));
+  }
+  if (!consumers.length) {
+    throw new Error(`no CEE consumers are declared in ${configPath}`);
+  }
+  return Object.freeze(consumers);
+}
+
+export const CEE_CONSUMERS = ceeConsumers();
 
 const DEPENDENCY = 'cedar-embeddable-editor';
 const DEV_PREFIX = 'npm:@org.metadatacenter/cedar-embeddable-editor@';

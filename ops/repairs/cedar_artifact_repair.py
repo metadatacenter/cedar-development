@@ -316,6 +316,122 @@ def only_dropped_static_demands(before: Any, after: Any) -> Optional[str]:
     return container(before, after, "")
 
 
+INSTANCE_ROOT_MEMBERS = frozenset({
+    "schema:isBasedOn", "schema:name", "schema:description", "pav:derivedFrom",
+    "pav:createdOn", "pav:createdBy", "pav:lastUpdatedOn", "oslc:modifiedBy",
+})
+
+
+def drop_instance_demands_from_element(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Stop an element declaration demanding the members only an instance root carries.
+
+    An element occurrence inside an instance carries ``@context``, ``@id`` and its own children.
+    The provenance block and ``schema:isBasedOn`` belong to the instance itself, and no CEDAR editor
+    has ever written them into an occurrence. A template whose element declaration lists them in
+    ``required`` therefore describes an occurrence nothing builds, and every instance of it fails.
+    The element meta-schema pins only the first two entries of that list, so such a template
+    validates while none of its instances can.
+
+    The template's own ``required`` is left alone: those members are exactly what an instance root
+    must carry, and demanding them there is correct. Only an element's demands are narrowed, and
+    only while ``@context`` and ``@id`` survive the narrowing, since the meta-schema requires both.
+    """
+    changes: list[dict[str, Any]] = []
+
+    def narrow(element: Any, path: str) -> None:
+        names = element.get("required")
+        if not isinstance(names, list):
+            return
+        kept = [n for n in names if n not in INSTANCE_ROOT_MEMBERS]
+        if kept == names:
+            return
+        if "@context" not in kept or "@id" not in kept:
+            raise TransformRefused(
+                f"{path or '/'} would keep neither @context nor @id, which the meta-schema requires")
+        for dropped in [n for n in names if n in INSTANCE_ROOT_MEMBERS]:
+            changes.append({"path": f"{path}/required", "replaced": dropped, "wrote": None})
+        element["required"] = kept
+
+    def walk(container: Any, path: str) -> Any:
+        if not isinstance(container, dict):
+            return container
+        result = copy.deepcopy(container)
+        for name, child, multiple in container_children(result):
+            declared = rest.child_path(path, name)
+            here = f"{declared}/items" if multiple else declared
+            repaired = walk(child, here)
+            if is_element(repaired):
+                narrow(repaired, here)
+            if multiple:
+                result["properties"][name]["items"] = repaired
+            else:
+                result["properties"][name] = repaired
+        return result
+
+    return walk(copy.deepcopy(artifact), ""), changes
+
+
+def only_dropped_instance_demands(before: Any, after: Any) -> Optional[str]:
+    """The invariant: the only differences drop instance-root members from an element's ``required``.
+
+    This walks containers the way the transform does. A name may leave a ``required`` list only where
+    that list belongs to an element declaration, so the artifact's own demands are compared
+    unchanged while an element's are compared against the narrowing.
+    """
+
+    def identical(old: Any, new: Any, path: str) -> Optional[str]:
+        return None if type(old) is type(new) and old == new else (path or "/")
+
+    def container(old: Any, new: Any, path: str, is_element_here: bool) -> Optional[str]:
+        if not isinstance(old, dict) or not isinstance(new, dict) or set(old) != set(new):
+            return path or "/"
+        children = {name for name, _child, _multiple in container_children(old)}
+        for name in old:
+            here = f"{path}/{rest.json_pointer_component(name)}"
+            if name == "required" and is_element_here and isinstance(old[name], list):
+                if [n for n in old[name] if n not in INSTANCE_ROOT_MEMBERS] != new[name]:
+                    return here
+                continue
+            if name == "properties" and isinstance(old[name], dict):
+                difference = properties(old[name], new[name], children, here)
+                if difference is not None:
+                    return difference
+                continue
+            difference = identical(old[name], new[name], here)
+            if difference is not None:
+                return difference
+        return None
+
+    def properties(old: dict, new: dict, children: set[str], path: str) -> Optional[str]:
+        if not isinstance(new, dict) or set(old) != set(new):
+            return path
+        for name in old:
+            here = f"{path}/{rest.json_pointer_component(name)}"
+            if name not in children:
+                difference = identical(old[name], new[name], here)
+                if difference is not None:
+                    return difference
+                continue
+            declared_old, declared_new = old[name], new[name]
+            if isinstance(declared_old, dict) and isinstance(declared_old.get("items"), dict):
+                if not isinstance(declared_new, dict) or set(declared_old) != set(declared_new):
+                    return here
+                for key in declared_old:
+                    inner = f"{here}/{rest.json_pointer_component(key)}"
+                    difference = (container(declared_old[key], declared_new[key], inner,
+                                            is_element(declared_old[key]))
+                                  if key == "items"
+                                  else identical(declared_old[key], declared_new[key], inner))
+                    if difference is not None:
+                        return difference
+                continue
+            difference = container(declared_old, declared_new, here, is_element(declared_old))
+            if difference is not None:
+                return difference
+        return None
+
+    return container(before, after, "", False)
+
 def mapped_serializing_children(container: Any) -> set[str]:
     """Children a container maps to a usable property IRI and whose values an instance carries.
 
@@ -2272,46 +2388,172 @@ TYPE_EXPECTED_ERROR = r".*expected"
 
 
 def carries_a_value(value: Any) -> bool:
-    """Whether an instance value says anything, as distinct from stating that it says nothing."""
+    """Conservatively recognize content, including IRI-only values and structural identities.
+
+    Without a declaration an @id cannot safely be classified as merely structural.
+    Datatype metadata alone does not make a null literal populated.
+    """
     if value in (None, "", [], {}):
         return False
     if isinstance(value, dict):
-        return any(carries_a_value(inner) for key, inner in value.items() if key != "@id")
+        return any(carries_a_value(inner) for key, inner in value.items()
+                   if key not in {"@type", "@context"})
     if isinstance(value, list):
         return any(carries_a_value(inner) for inner in value)
     return True
 
 
 def superseded_keys(instance: Any, declared: set[str]) -> dict[str, str]:
-    """Undeclared keys whose value the instance already carries under a name the template declares.
+    """Duplicate assertions: the same explicit property IRI and the same typed JSON value.
 
-    A field renamed by copying rather than moving leaves the old key behind holding a duplicate. The
-    duplicate is what stops the instance validating, and removing it discards nothing, because the
-    value it holds is still there under the declared name — the same value, compared whole and by
-    type, not merely a similar one.
+    Equal values under different predicates are independent facts, not evidence of a rename.
+    Complex context definitions are deliberately left for an explicit migration.
     """
     if not isinstance(instance, dict):
         return {}
     superseded = {}
+    context = instance.get("@context")
+    if not isinstance(context, dict):
+        return superseded
     for key, value in instance.items():
         if key in declared or key.startswith("@") or ":" in key or not carries_a_value(value):
             continue
-        for name in declared:
-            if name in instance and instance[name] == value \
-                    and type(instance[name]) is type(value):
+        predicate = context.get(key)
+        if not rest.is_absolute_iri(predicate):
+            continue
+        for name in sorted(declared):
+            if name in instance and context.get(name) == predicate \
+                    and json_equal(instance[name], value):
                 superseded[key] = name
                 break
     return superseded
 
 
+def explicitly_empty(value: Any) -> bool:
+    """Only shapes that assert no value; never identities, labels or unknown metadata."""
+    return value == {} or value == [] or (isinstance(value, dict)
+        and set(value) <= {"@value", "@type"} and "@value" in value
+        and value["@value"] is None
+        and ("@type" not in value or isinstance(value["@type"], str)))
+
+
+def drop_empty_undeclared_keys(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Remove empty undeclared top-level slots, never an entered value or identifier."""
+    if not isinstance(instance, dict) or not isinstance(template, dict):
+        raise TransformRefused("instance and template must be objects")
+    declared = set(template.get("properties", {}))
+    result = copy.deepcopy(instance)
+    changes = []
+    for key, value in instance.items():
+        if key in declared or key.startswith("@") or ":" in key or not explicitly_empty(value):
+            continue
+        del result[key]
+        if isinstance(result.get("@context"), dict):
+            result["@context"].pop(key, None)
+        changes.append({"path": f"/{rest.json_pointer_component(key)}", "replaced": value,
+                        "wrote": None})
+    return result, changes
+
+
+def only_dropped_empty_undeclared_keys(before: Any, after: Any, template: Any) -> Optional[str]:
+    if not all(isinstance(x, dict) for x in (before, after, template)):
+        return "/"
+    removed = set(before) - set(after)
+    for key in removed:
+        if key in template.get("properties", {}) or key.startswith("@") or ":" in key \
+                or not explicitly_empty(before[key]):
+            return f"/{rest.json_pointer_component(key)}"
+    restored = copy.deepcopy(after)
+    for key in removed:
+        restored[key] = before[key]
+    if isinstance(before.get("@context"), dict) and isinstance(restored.get("@context"), dict):
+        for key in removed:
+            if key in before["@context"]:
+                if key in restored["@context"]:
+                    return "/@context"
+                restored["@context"][key] = before["@context"][key]
+    difference = next(differences(before, restored), None)
+    return difference[0] if difference else None
+
+
+def complete_empty_literal(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Add explicit null only to an otherwise empty literal slot whose schema permits null."""
+    result = copy.deepcopy(instance)
+    changes = []
+    def fill(value: Any, definition: dict, path: str) -> Any:
+        allowed = definition.get("properties", {}).get("@value", {}).get("type")
+        if isinstance(value, dict) and set(value) <= {"@type"} \
+                and (allowed == "null" or isinstance(allowed, list) and "null" in allowed):
+            value["@value"] = None
+            changes.append({"path": path + "/@value", "replaced": None, "wrote": None})
+        return value
+    return walk_instance(result, template, "", fill), changes
+
+
+def normalized_spaced_orcid(value: Any) -> Optional[str]:
+    """Remove accidental space after the ORCID host only when the unchanged iD checksums.
+
+    Checksum: https://support.orcid.org/hc/en-us/articles/360006897674
+    This checks format, not registration or ownership. No identifier characters are altered.
+    """
+    if not isinstance(value, str):
+        return None
+    match = re.fullmatch(r"https://orcid\.org/[ \t]+([0-9]{4}-[0-9]{4}-[0-9]{4}-[0-9]{3}[0-9X])", value)
+    if not match:
+        return None
+    identifier = match.group(1)
+    digits = identifier.replace("-", "")
+    total = 0
+    for digit in digits[:-1]:
+        total = (total + int(digit)) * 2
+    check = (12 - total % 11) % 11
+    if digits[-1] != ("X" if check == 10 else str(check)):
+        return None
+    return "https://orcid.org/" + identifier
+
+
+def normalize_instance_orcid_spacing(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    changes = []
+    def visit(value: Any, definition: dict, path: str) -> Any:
+        if not isinstance(value, dict) or "@id" not in definition.get("properties", {}):
+            return value
+        wanted = normalized_spaced_orcid(value.get("@id"))
+        if wanted is None:
+            return value
+        changes.append({"path": path + "/@id", "replaced": value["@id"], "wrote": wanted})
+        return {**value, "@id": wanted}
+    return walk_instance(instance, template, "", visit), changes
+
+
+def only_normalized_orcid_spacing(before: Any, after: Any, template: Any) -> Optional[str]:
+    for path, was, now in differences(before, after):
+        definition = declaration_at(template, path.rsplit("/", 1)[0])
+        if not path.endswith("/@id") or not definition \
+                or "@id" not in definition.get("properties", {}) \
+                or normalized_spaced_orcid(was) is None or normalized_spaced_orcid(was) != now:
+            return path
+    return None
+
+
+def only_completed_empty_literals(before: Any, after: Any, template: Any) -> Optional[str]:
+    for path, was, now in differences(before, after):
+        if not path.endswith("/@value") or was is not ABSENT or now is not None:
+            return path
+        parent = path.rsplit("/", 1)[0]
+        previous = value_at(before, parent)
+        definition = declaration_at(template, parent)
+        allowed = (definition or {}).get("properties", {}).get("@value", {}).get("type")
+        if not isinstance(previous, dict) or not set(previous) <= {"@type"} \
+                or not (allowed == "null" or isinstance(allowed, list) and "null" in allowed):
+            return path
+    return None
+
+
 def drop_superseded_instance_keys(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
     """Remove an instance key the template no longer declares and whose value it carries elsewhere.
 
-    This is the one rename that needs no mapping. Where the old key and a declared one hold the same
-    value, the template's history is written in the instance itself: the field was renamed, the value
-    was copied across, and the old key stayed. Nothing has to be inferred and nothing can be lost,
-    because the repair refuses to touch a key unless the value survives under a name the template
-    declares.
+    Both names must map explicitly to the same property IRI and carry identical values.
+    Value equality alone cannot establish the history or meaning of a field.
     """
     if not isinstance(template, dict):
         raise TransformRefused("the template this instance names could not be read")
@@ -2345,21 +2587,21 @@ def only_dropped_superseded_keys(before: Any, after: Any, template: Any) -> Opti
             if key not in droppable:
                 return here
             twin = droppable[key]
-            if after.get(twin) != before[key]:
+            if not json_equal(after.get(twin), before[key]):
                 return here          # the value did not in fact survive
             continue
         if (key in before) != (key in after):
             return here
-        if before[key] != after[key] or type(before[key]) is not type(after[key]):
+        if not json_equal(before[key], after[key]):
             return here
     old_context = before.get("@context")
     new_context = after.get("@context")
     if isinstance(old_context, dict) and isinstance(new_context, dict):
         expected = {k: v for k, v in old_context.items()
                     if not (k in droppable and k not in after)}
-        if new_context != expected:
+        if not json_equal(new_context, expected):
             return "/@context"
-    elif old_context != new_context:
+    elif not json_equal(old_context, new_context):
         return "/@context"
     return None
 # Confirmed renames, keyed by template IRI then by the key an instance carries. Supplied by the
@@ -2442,14 +2684,15 @@ def declared_multiplicity(template: Any) -> dict[str, bool]:
 def chosen_source(instance: Any, sources: list[str]) -> Optional[str]:
     """Which of several old keys mapped to one field supplies the value.
 
-    Where a template consolidated fields, only one of the old keys usually carries anything and the
-    rest are empty. The first that carries a value wins, in the order the mapping states them, so the
-    choice is the operator's rather than the instance's ordering.
+    Exactly one source may carry content. A rename mapping does not authorize choosing
+    between competing values, even when those values compare equal.
     """
-    for source in sources:
-        if source in instance and carries_a_value(instance[source]):
-            return source
-    return None
+    populated = [source for source in sources
+                 if source in instance and carries_a_value(instance[source])]
+    if len(populated) > 1:
+        raise TransformRefused("multiple populated rename sources require an explicit value decision: "
+                               + ", ".join(populated))
+    return populated[0] if populated else None
 
 
 def path_head(path: str) -> tuple[str, Optional[str]]:
@@ -2586,8 +2829,7 @@ def rename_instance_keys(instance: Any, template: Any) -> tuple[Any, list[dict[s
     moving into one is wrapped. A field that used to repeat and now holds one value has its list
     unwrapped, but only where the list holds nought or one: a longer one is refused, since which
     element survives is not this repair's to decide. And where several old keys map to one
-    field the template consolidated them: the first that carries a value supplies it, the rest go,
-    and the record says which were discarded so the loss is visible rather than silent.
+    field, at most one source may be populated. Competing populated sources are refused.
     """
     if not isinstance(template, dict):
         raise TransformRefused("the template this instance names could not be read")
@@ -2649,7 +2891,12 @@ def renamed_container_fault(before: Any, after: Any, definition: Any, mapping: d
     # A key that moved carries its supplier's value, settled inside by whatever sub-mapping the
     # supplier's own path names, and wrapped or unwrapped to the arity the target declares.
     for new, present in moved.items():
-        supplier = chosen_source(before, present) or present[0]
+        if new in before and carries_a_value(before[new]):
+            return f"{path}/{rest.json_pointer_component(new)}"
+        try:
+            supplier = chosen_source(before, present) or present[0]
+        except TransformRefused:
+            return f"{path}/{rest.json_pointer_component(new)}"
         submapping = deeper.get(new, {})
         child_definition = declarations.get(new, ({}, False))[0]
         expected = before[supplier]
@@ -2703,9 +2950,8 @@ def renamed_container_fault(before: Any, after: Any, definition: Any, mapping: d
 def only_renamed_instance_keys(before: Any, after: Any, template: Any) -> Optional[str]:
     """The invariant: the mapped keys went, one of their values survives under the declared name.
 
-    The repair is allowed to discard, but only a value belonging to a key the mapping names and only
-    where another of that group's values lands under the target. Nothing outside the mapping moves,
-    at any depth the mapping reaches.
+    A mapping may explicitly delete a key with null. A many-to-one rename must not discard
+    competing populated sources or overwrite a populated destination.
     """
     if not isinstance(before, dict) or not isinstance(after, dict):
         return "/"
@@ -2862,31 +3108,86 @@ def added_paths(old: Any, new: Any, path: str) -> Iterator[str]:
 
 
 def only_completed_absences(before: Any, after: Any, template: Any) -> Optional[str]:
-    """The invariant: every difference is a key that was absent, and no stated value moved."""
+    """Permit only declared empty children, missing context terms and fresh element identities."""
+    def same(old: Any, new: Any, path: str) -> Optional[str]:
+        difference = next(differences(old, new, path), None)
+        return difference[0] if difference is not None else None
 
-    def walk(old: Any, new: Any, path: str) -> Optional[str]:
-        if isinstance(old, dict):
-            if not isinstance(new, dict):
-                return path or "/"
-            for key in old:
-                here = f"{path}/{rest.json_pointer_component(key)}"
-                if key not in new:
-                    return here
-                difference = walk(old[key], new[key], here)
-                if difference is not None:
-                    return difference
+    def empty(value: Any, definition: dict, multiple: bool, minimum: int,
+              path: str) -> Optional[str]:
+        if multiple:
+            if not isinstance(value, list) or len(value) != max(0, minimum):
+                return path
+            for index, item in enumerate(value):
+                fault = empty(item, definition, False, 0, f"{path}/{index}")
+                if fault is not None:
+                    return fault
             return None
-        if isinstance(old, list):
-            if not isinstance(new, list) or len(old) != len(new):
-                return path or "/"
-            for index, value in enumerate(old):
-                difference = walk(value, new[index], f"{path}/{index}")
-                if difference is not None:
-                    return difference
-            return None
-        return None if type(old) is type(new) and old == new else (path or "/")
+        if is_element(definition):
+            return container({}, value, definition, path, False)
+        properties = definition.get("properties", {})
+        expected = {"@value": None} if "@value" in properties else {}
+        if "@value" in properties and demands_value_type(definition):
+            datatype = declared_value_type(definition)
+            if datatype is not None:
+                expected["@type"] = datatype
+        return same(expected, value, path)
 
-    return walk(before, after, "")
+    def container(old: Any, new: Any, definition: dict, path: str, root: bool) -> Optional[str]:
+        if not isinstance(old, dict) or not isinstance(new, dict):
+            return same(old, new, path)
+        children = {name: (child, multiple) for name, child, multiple in container_children(definition)
+                    if child.get(AT_TYPE) != STATIC_AT_TYPE}
+        iris = declared_context_iris(definition)
+        for name in set(old) | set(new):
+            here = f"{path}/{rest.json_pointer_component(name)}"
+            if name not in new:
+                return here
+            if name == "@context":
+                previous = old.get(name, {})
+                current = new[name]
+                if not isinstance(previous, dict) or not isinstance(current, dict):
+                    fault = same(previous, current, here)
+                else:
+                    expected = {**{k: v for k, v in iris.items() if k in children}, **previous}
+                    fault = same(expected, current, here)
+            elif name not in old:
+                if name == "@id" and not root:
+                    ident = new[name]
+                    fault = None if isinstance(ident, str) and ident.startswith(ELEMENT_INSTANCE_BASE) \
+                        and UUID_PATTERN.fullmatch(ident[len(ELEMENT_INSTANCE_BASE):]) else here
+                elif name in children:
+                    child, multiple = children[name]
+                    declaration = definition.get("properties", {}).get(name, {})
+                    minimum = declaration.get("minItems", 0)
+                    fault = empty(new[name], child, multiple,
+                                  minimum if isinstance(minimum, int) else 0, here)
+                else:
+                    fault = here
+            elif name in children and is_element(children[name][0]):
+                child, multiple = children[name]
+                was, now = old[name], new[name]
+                if multiple and isinstance(was, list):
+                    if not isinstance(now, list) or len(was) != len(now):
+                        return here
+                    fault = None
+                    for index, (a, b) in enumerate(zip(was, now)):
+                        fault = container(a, b, child, f"{here}/{index}", False)
+                        if fault is not None:
+                            break
+                elif not multiple and isinstance(was, dict):
+                    fault = container(was, now, child, here, False)
+                else:
+                    fault = same(was, now, here)
+            else:
+                fault = same(old[name], new[name], here)
+            if fault is not None:
+                return fault
+        return None
+
+    if not isinstance(template, dict):
+        return "/"
+    return container(before, after, template, "", True)
 
 
 def align_instance_context_iris(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
@@ -3048,6 +3349,11 @@ def differences(before: Any, after: Any, path: str = "") -> Iterator[tuple[str, 
                 yield from differences(was, now, f"{path}/{index}")
     elif before != after or type(before) is not type(after):
         yield path, before, after
+
+
+def json_equal(before: Any, after: Any) -> bool:
+    """JSON equality that does not equate nested booleans and numbers."""
+    return next(differences(before, after), None) is None
 
 
 def declaration_at(template: Any, pointer: str) -> Optional[dict]:
@@ -4115,6 +4421,24 @@ def only_declared_fields(before: Any, after: Any) -> Optional[str]:
 
 
 REPAIRS = {
+    "normalize-instance-orcid-spacing": Repair(
+        name="normalize-instance-orcid-spacing", condition="",
+        summary="remove accidental ORCID host-path whitespace without changing the identifier",
+        transform=normalize_instance_orcid_spacing, invariant=only_normalized_orcid_spacing,
+        needs_template=True, error_pattern=r".*valid URI.*",
+    ),
+    "drop-empty-undeclared-instance-keys": Repair(
+        name="drop-empty-undeclared-instance-keys", condition="",
+        summary="remove undeclared empty slots without deleting entered values",
+        transform=drop_empty_undeclared_keys, invariant=only_dropped_empty_undeclared_keys,
+        needs_template=True, error_pattern=UNDECLARED_KEY_ERROR,
+    ),
+    "complete-empty-literal": Repair(
+        name="complete-empty-literal", condition="",
+        summary="state explicit null in otherwise empty nullable literal slots",
+        transform=complete_empty_literal, invariant=only_completed_empty_literals,
+        needs_template=True, error_pattern=MISSING_CHILD_ERROR,
+    ),
     "empty-derived-from": Repair(
         name="empty-derived-from",
         condition="derived-from-empty",
@@ -4271,6 +4595,14 @@ REPAIRS = {
         transform=drop_static_field_demands,
         invariant=only_dropped_static_demands,
     ),
+    "drop-instance-demands-from-element": Repair(
+        name="drop-instance-demands-from-element",
+        condition="",
+        summary="stop an element declaration demanding the members only an instance root carries",
+        transform=drop_instance_demands_from_element,
+        invariant=only_dropped_instance_demands,
+        error_pattern=MISSING_CHILD_ERROR,
+    ),
     "complete-context-required": Repair(
         name="complete-context-required",
         condition="child-context-required-missing",
@@ -4414,6 +4746,8 @@ class RepairClient(rest.GetOnlyClient):
     """
 
     def put_verbatim(self, path: str, body: Any, etag: Optional[str]) -> tuple[int, Optional[str]]:
+        if not etag or etag.startswith("W/"):
+            raise ValueError("a strong ETag from the current stored body is required")
         if not path.startswith("/"):
             raise ValueError("request path must start with /")
         url = self.server + path + "?verbatim=true"
@@ -4549,7 +4883,14 @@ def save_preimage(folder: Path, ref: rest.ArtifactRef, artifact: Any, etag: Opti
     path.parent.mkdir(parents=True, exist_ok=True)
     document = {"artifactType": ref.artifact_type, "artifactId": ref.artifact_id,
                 "etag": etag, "capturedAt": audit.utc_now(), "artifact": artifact}
-    rest.atomic_write_json(path, document)
+    # Never overwrite the recovery body from a previous attempt, including a timed-out PUT.
+    if path.exists():
+        path = path.with_name(f"{path.stem}-{uuid.uuid4()}.json")
+    with path.open("x", encoding="utf-8") as stream:
+        json.dump(document, stream, ensure_ascii=False, indent=2)
+        stream.write("\n")
+        stream.flush()
+        os.fsync(stream.fileno())
     return path
 
 
@@ -4681,7 +5022,10 @@ def repair_one(arguments: argparse.Namespace, repairs: list[Repair], client: Rep
     record["changes"] = changes
     record["pathsRemoved"] = [change["path"] for change in changes]
     if not changes:
-        record.update(outcome="already-clean")
+        valid, explanation = validate(bridge, resolver, ref, stored)
+        record.update(outcome="already-clean" if valid else "still-invalid")
+        if not valid:
+            record["detail"] = explanation
         return record
 
     valid, explanation = validate(bridge, resolver, ref, repaired)
@@ -4704,10 +5048,13 @@ def repair_one(arguments: argparse.Namespace, repairs: list[Repair], client: Rep
     if arguments.verify:
         try:
             back, _ = client.get_with_etag(path)
-            still = apply_repairs(repairs, back, template)[1]  # a repaired artifact offers nothing
-            record["verified"] = not still
-            if still:
-                record["detail"] = f"{len(still)} path(s) still present after the write"
+            difference = next(differences(repaired, back), None)
+            valid_back, explanation = validate(bridge, resolver, ref, back)
+            record["verified"] = difference is None and valid_back
+            if difference is not None:
+                record["detail"] = f"stored body differs from the submitted candidate at {difference[0]}"
+            elif not valid_back:
+                record["detail"] = f"stored body does not validate: {explanation}"
         except Exception as error:  # noqa: BLE001
             record["verified"] = False
             record["detail"] = f"read-back failed: {error}"
@@ -4760,6 +5107,8 @@ def build_parser() -> argparse.ArgumentParser:
                         help=f"resource server origin (default: {rest.DEFAULT_SERVER})")
     parser.add_argument("--api-key-file", help="read the API key from this one-line file")
     parser.add_argument("--apply", action="store_true", help="write; otherwise report what would change")
+    parser.add_argument("--allow-context-migration", action="store_true",
+                        help="approve property-IRI migration for the explicit --only-ids scope")
     parser.add_argument("--limit", type=int, help="stop after this many artifacts")
     parser.add_argument("--types", help="restrict to these artifact types, comma separated")
     parser.add_argument("--exclude-ids",
@@ -4808,6 +5157,12 @@ def main(argv: Optional[list[str]] = None) -> int:
     if len(set(names)) != len(names):
         parser.error("each repair may appear only once in a chain")
     repairs = [REPAIRS[name] for name in names]
+    if arguments.apply and not arguments.verify:
+        parser.error("production writes require read-back verification; --no-verify is dry-run only")
+    if arguments.apply and "align-instance-context-iris" in names \
+            and not (arguments.allow_context_migration and arguments.only_ids):
+        parser.error("context alignment changes meaning; applying it requires "
+                     "--allow-context-migration and an explicit --only-ids scope")
     conditions = [arguments.condition] if arguments.condition \
         else [c for r in repairs for c in r.conditions]
     patterns = [] if arguments.condition else [r.error_pattern for r in repairs if r.error_pattern]

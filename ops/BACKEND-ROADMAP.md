@@ -15,16 +15,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
 
 ### Infrastructure
 
-- **1. Document the versioning model, then audit the implementation against it.** The user guide
-  says what an author sees and the YAML specification defines the keys, but no document states the
-  model: which artifact kinds are versioned, what publishing freezes, how a draft succeeds a published
-  version, how version numbers must order, what the three latest-version flags mean, and what deleting
-  a version does to the chain. Write that model in one place, beside the permission model. Then audit
-  the resource server, the graph and the search index against it, and record each divergence as a
-  decision to make or a defect to fix. `ArtifactLifecycleMatrixTest` pins the current rules until
-  then. Done when the model is published and every divergence is fixed or recorded.
-
-- **2. Protect `main` in every repository, and give the release an identity of its own.** `main` is
+- **1. Protect `main` in every repository, and give the release an identity of its own.** `main` is
   unprotected in all forty-five repositories, so a commit can land there without ever reaching a
   train, which captures `develop`. The next release then replaces it: the work leaves the branch
   that held it and nothing says so afterwards. A hotfix and the unit test guarding it came within
@@ -57,14 +48,14 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   recorded.
 
   The npm releases are the working example of route two and need nothing, but they are driven by an
-  operator who is already there for the twenty-five commands item 22 exists to remove. Automating
+  operator who is already there for the twenty-five commands item 21 exists to remove. Automating
   that route puts the identity question back.
 
   Prove whichever ruleset is chosen against one repository before it reaches all forty-five. Until
   the release has an identity, run `cedarcli check main` on a schedule, so divergence is found the
   next morning rather than mid-release.
 
-- **3. Rename the legacy role relationships in production Neo4j.** The application currently
+- **2. Rename the legacy role relationships in production Neo4j.** The application currently
   interprets `CANREAD` as Viewer and `CANWRITE` as Manager, so the new permission model can be
   deployed without changing the stored graph. The category permission model follows the same initial
   approach: `CANATTACHCATEGORY` stores Classifier grants and `CANWRITECATEGORY` stores Manager grants.
@@ -88,7 +79,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Remove the compatibility interpretation of `CANREAD`, `CANWRITE`, `CANATTACHCATEGORY` and
   `CANWRITECATEGORY` only after every deployed environment has been patched and verified.
 
-- **4. Upgrade the persistence and infrastructure servers.** These versions are pinned in the Docker
+- **3. Upgrade the persistence and infrastructure servers.** These versions are pinned in the Docker
   build manifest, while the client libraries have moved on. The
   [Docker roadmap](./DOCKER-ROADMAP.md) owns the shared build and deployment lock; this item owns the
   remaining server upgrades. Order them by risk, lowest first. **Keycloak is still at 22**, held
@@ -151,7 +142,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   production data and gated on the end-to-end smoke. Where the order above and the Docker roadmap
   disagree, the Docker roadmap governs, since it sequences the remaining work.
 
-- **5. Make database schema evolution an explicit, privileged release operation.** Application
+- **4. Make database schema evolution an explicit, privileged release operation.** Application
   startup can change CEDAR's relational schemas today. Monitor, worker and messaging each carry a
   byte-identical `hibernate.properties` under `src/main/resources` that sets
   `hibernate.hbm2ddl.auto=update`, nothing in `cedar-main.yml` overrides it, and monitor and worker
@@ -204,19 +195,26 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   DDL, no application startup can request it, each owned schema has an auditable migration history,
   and both CI and the release controller enforce the migration contract.
 
-- **6. Decide whether four narrowly used servers should be retired.** Treat each as an explicit
-  product and operations decision: confirm its real callers and production state, preserve or move any
-  capability that remains required, then either retain it with a stated role or remove it completely.
+- **5. Decide which of four narrowly used servers to retire, and support the one that stays.** Treat
+  each as an explicit product and operations decision: confirm its real callers and production state,
+  preserve or move any capability that remains required, then either retain it with a stated role or
+  remove it completely. Schema and value recommender are open questions, impex is retained, and
+  submission is expected to go once its inventory is done.
 
   **Schema server.** Its entire HTTP surface is an index page, but it still inherits the full
   microservice bootstrap: a Neo4j user service, Keycloak token verification, and the persistent Redis
   application-log queue. Either retire it or record the role it is reserved for and give it a
   deliberately minimal bootstrap that does not initialize dependencies its index page never uses.
 
-  **Impex server.** Its public work is the caDSR form-import command and status endpoint. Determine
-  whether any current workflow still imports those forms, whether unfinished import state has value,
-  and whether a retained one-off importer belongs in an application server; otherwise retire the
-  service rather than carrying a permanent deployment for a historical migration path.
+  **Impex server.** It stays, so the work is the evidence a retained service needs rather than an
+  inventory of whether anyone still calls it. Its public surface is two routes, `POST
+  /command/import-cadsr-forms` and `GET /command/import-cadsr-forms-status`, and two gaps in what
+  supports them are concrete. Import status is process-local: `CadsrImportStatusManager` is a
+  singleton holding a `ConcurrentHashMap` keyed by upload identifier, so a redeploy during an import
+  leaves a caller asking about work the server no longer remembers. And no test imports anything.
+  The suite proves both routes reject an unauthenticated request (`ImpexRoutesRespondTest`) and
+  stops there. Name the owner, state the supported contract for both routes, decide whether
+  in-flight import state has to survive a restart, and cover an import end to end.
 
   **Value Recommender server.** It serves recommendation and rule-generation/status commands and
   consumes the persistent value-recommender queue. Establish whether the Workbench or any external
@@ -224,10 +222,11 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   function to an active service, or retire it after draining or deliberately discarding its queue and
   removing its producers.
 
-  **Submission server.** It contains the NCBI, CAIRR, ImmPort, LINCS and AMIA/BioSample submission
-  paths and consumes the persistent NCBI submission queue. Inventory actual production submissions,
-  credentials, pending/dead-letter work and external commitments; preserve any live adapter elsewhere
-  before retiring the collection of legacy integrations.
+  **Submission server.** Retirement is the expected answer, and the inventory that has to precede it
+  is what remains. It contains the NCBI, CAIRR, ImmPort, LINCS and AMIA/BioSample submission paths
+  and consumes the persistent NCBI submission queue. Inventory actual production submissions,
+  credentials, pending and dead-letter work and external commitments. Should one path turn out to be
+  live, where that single adapter goes is the decision rather than whether the service stays.
 
   Any retirement must remove the service from the native and Docker estates, nginx and DNS routing,
   configuration, credentials, queues and producers, service inventory, health and smoke expectations,
@@ -235,13 +234,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   the opposite evidence: a named owner, current caller, supported contract and meaningful health and
   integration coverage.
 
-  **Archive `cedar-rest-library`.** Everything inside the repository is done; what remains is
-  outside it. Archive it on GitHub so a clone stops being offered, and drop it from any workspace
-  tooling that still lists it. Until it is archived its name sends a reader looking for shared REST
-  code somewhere other than `cedar-microservice-libraries/cedar-server-rest-library`, which is where
-  that code is.
-
-- **7. Move the build and runtime to Java 21.** The stack is locked to Java 17 — the zsh profile pins it
+- **6. Move the build and runtime to Java 21.** The stack is locked to Java 17 — the zsh profile pins it
   and the build enforces it. 21 is the next LTS and the natural target, but the lock exists for a
   reason: newer JDKs (23/25) crash Keycloak (`getSubject … security manager`) and OpenSearch will not
   start under them. So this is not a blind bump — verify Keycloak and OpenSearch run on 21 first, then
@@ -270,18 +263,18 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   repository builds use the wrapper, while container jar-fetch stages use a separately pinned Maven
   builder image that never enters the runtime.
 
-- **8. Complete the remaining backend trust-boundary, transport and credential security work.**
+- **7. Complete the remaining backend trust-boundary, transport and credential security work.**
 
   **Two terminology routes answer an anonymous caller, and that stays.** `POST
   /bioportal/integrated-retrieve` and `POST /bioportal/integrated-search` resolve no user. Measured
   2026-08-31: a request with no `Authorization` header returns `200`. Both reach BioPortal on the
   server's own `apiKey`, so an anonymous caller spends the deployment's BioPortal quota.
 
-  Requiring a credential is not the remedy, for the reason item 9 gives: third-party deployments of
+  Requiring a credential is not the remedy, for the reason item 8 gives: third-party deployments of
   the embeddable editor call these routes from a browser with nothing to send, so a gate would break
   every host that embeds it. Both methods now carry that reasoning where the check is disabled, and
   the OpenAPI no longer promises a `401` neither route sends. What bounds the cost is the edge rate
-  limit in item 9, which covers `/ext-auth/*` and should cover these two on the same terms.
+  limit in item 8, which covers `/ext-auth/*` and should cover these two on the same terms.
 
   `TerminologyServerApplicationSmokeTest.theIntegratedRetrieveRouteIsReachable` asserts reachability
   rather than a status, which matches the decision; it should keep doing so.
@@ -319,7 +312,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   rate-limits per key, and a burnt quota surfaces to users as controlled terms silently not existing,
   because the picker latches its empty cache for the life of the page.
 
-- **9. Rate limit the edge in every environment, and turn the authenticated user quotas on.** An
+- **8. Rate limit the edge in every environment, and turn the authenticated user quotas on.** An
   anonymous caller can spend the deployment's third-party quota, and only the development host
   bounds how fast. The `/ext-auth/*` routes are the clearest case: they proxy seven registries,
   three of them on credentials the deployment holds, and they carry none of their own. `POST
@@ -398,7 +391,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   environment states the mode and rates its authenticated quotas run at, both are recorded where the
   deployment is documented rather than only in the config, and a probe shows each taking effect.
 
-- **10. Put the MySQL connections on TLS, and make the timezone a setting rather than a constant.**
+- **9. Put the MySQL connections on TLS, and make the timezone a setting rather than a constant.**
   **Production consequence:** server certificates and client trust have to exist before rollout, and
   messaging, monitor and worker restart into the change. No schema migration.
 
@@ -418,7 +411,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   no deployment reads the hardcoded values, a non-development stack refuses an untrusted server
   certificate, and the timezone is set by the profile that owns the data it was chosen for.
 
-- **11. Decide the CORS contract per deployment instead of defaulting to `*`.** **Production
+- **10. Decide the CORS contract per deployment instead of defaulting to `*`.** **Production
   consequence:** a browser application fails cross-origin unless its exact origins are configured
   first, so every environment needs its list before the default changes.
 
@@ -430,7 +423,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
 
   **The decision is which origins each deployment serves, and whether a wildcard pattern may ever
   carry credentials.** It has one complication worth settling with it. The embeddable editor is
-  hosted by third parties, and item 8 keeps `POST /bioportal/integrated-search` and
+  hosted by third parties, and item 7 keeps `POST /bioportal/integrated-search` and
   `/bioportal/integrated-retrieve` anonymous for exactly that reason, so those two are called from
   origins CEDAR does not know. A deny-by-default list closes them unless the policy names them.
 
@@ -440,7 +433,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   fallback, each environment's origins are recorded where it is documented, and tests cover blank,
   exact, multiple and wildcard configurations.
 
-- **12. Take stored API keys out of cleartext, and retire the keys minted before random minting.**
+- **11. Take stored API keys out of cleartext, and retire the keys minted before random minting.**
   **Production consequence:** this is a production credential migration. It rewrites stored Neo4j
   data and invalidates keys people and integrations hold, so it needs a rotation plan,
   rollback and operator communication. A backup taken before it still contains usable keys and has
@@ -467,7 +460,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   a key that can be read, authentication verifies without reversing one, and the rotation is
   recorded against the deployments it covered.
 
-- **13. Validate and encode the DOI the DataCite metadata route resolves.** **Production
+- **12. Validate and encode the DOI the DataCite metadata route resolves.** **Production
   consequence:** some path values accepted today answer 400. No data migration.
 
   `getDOIMetadata` takes the path segment as a URL, keeps `new URI(doiIdUrl).getPath()`,
@@ -486,7 +479,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   concatenation, and tests cover traversal, an injected query delimiter and both accepted input
   forms.
 
-- **14. Bound the application-log queue, and let its consumer keep up.** Application logging can
+- **13. Bound the application-log queue, and let its consumer keep up.** Application logging can
   consume the host it runs on. The Redis queue has no ceiling and the consumer drains far below what
   the stack produces under load, so a busy period grows memory without limit and degrades every
   service while it does. Old rows have a way out, in the prune job the log aggregation work brought
@@ -560,7 +553,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   migration and rollback procedure above; a green Java build is not evidence that a live-table DDL
   change is safe.
 
-- **15. Ship INFO as the default log level, and bound what a log file can grow to.** **Production
+- **14. Ship INFO as the default log level, and bound what a log file can grow to.** **Production
   consequence:** diagnostic detail drops after rollout, so choose the size limits against production
   capacity before deploying. Nothing migrates.
 
@@ -572,7 +565,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   2026-09-10: twelve services keep `archivedFileCount: 30`, and messaging, monitor and worker keep
   5.
 
-  Nothing connects these files to the Redis queue of item 14. `AppLogger` hands every message to
+  Nothing connects these files to the Redis queue of item 13. `AppLogger` hands every message to
   `AppLoggerQueueService.enqueueEvent`, which pushes it to Redis without consulting a log level, so
   shipping INFO takes nothing off that queue and a ceiling on the queue takes nothing off these
   files. What bounds each differs as well: a queue is bounded by what its consumer can keep up with,
@@ -584,7 +577,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   a whole package, every file appender carries both limits, and the retention policy is recorded
   where the deployment is documented.
 
-- **16. Separate CEDAR dependency convergence from the Keycloak provider platform lock.** The eleven
+- **15. Separate CEDAR dependency convergence from the Keycloak provider platform lock.** The eleven
   apparent test-classpath splits are not eleven candidates for one global version. Re-measuring all
   thirty Maven roots divides them into three different problems, and blindly managing the newer side
   in `cedar-parent` would make the Keycloak event listener compile against libraries its server does
@@ -631,7 +624,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   prove that Keycloak loads the packaged provider or that a deployed admin operation reaches the
   configured realm.
 
-- **17. Converge on one pagination encoding.** Ten paging shapes are in service across seven
+- **16. Converge on one pagination encoding.** Ten paging shapes are in service across seven
   applications. The artifact, resource and OpenView listings all build on the same `PagedQuery` and
   `LinkHeaderUtil`, so nothing in the code forces even the split between those three. The shapes
   differ on three independent axes: the request parameters, the page base, and where the response
@@ -728,7 +721,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   covers the two `limit`/`offset` shapes today (`rest/suites/pagination.mjs`). Every superseded shape
   is then either withdrawn or carries a recorded date for withdrawal.
 
-- **18. Choose the response timeouts from the durations the request log now carries, and give a
+- **17. Choose the response timeouts from the durations the request log now carries, and give a
   user-facing call a deadline.** Outbound calls are bounded by what the call is: an interactive
   class for a hop to the next CEDAR service, a batch class for a job nobody waits on, and an
   external class for a registry CEDAR does not operate, each with its own three timeouts and pool,
@@ -758,7 +751,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   doubles the wait the call site was promised. With a budget to come out of it becomes safe, and the
   rule can be revisited then.
 
-- **19. Run the whole-stack tiers in CI, and gate the workflow train the way the CLI is gated.**
+- **18. Run the whole-stack tiers in CI, and gate the workflow train the way the CLI is gated.**
   **Production consequence:** none at runtime. CI needs a deployable environment, credentials, time
   and somewhere to keep the reports.
 
@@ -780,7 +773,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   when both tiers run unattended on a cadence, their reports are retained, and a train dispatched
   through Actions is refused on the same evidence that refuses one dispatched from `cedarcli`.
 
-- **20. Let the artifact server own the uniqueness of `@id`.** No two documents in an artifact
+- **19. Let the artifact server own the uniqueness of `@id`.** No two documents in an artifact
   collection may share an `@id`. The server relies on a unique index on that field to enforce it. A
   create is a read that finds the identifier absent followed by an insert, and
   `GenericLDDaoMongoDB.create` answers a duplicate-key rejection with the same 412 the update path
@@ -816,7 +809,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Done when a fresh, unprovisioned Mongo refuses the second insert, the suites prove it, a store with
   duplicates still boots and reports why its index is missing, and the runbook carries the preflight.
 
-- **21. Take the dependency upgrades that need code changes.** The versions that could move without
+- **20. Take the dependency upgrades that need code changes.** The versions that could move without
   consequence have moved. What stayed behind stayed deliberately, and it separates into work to do,
   versions that follow something else, and versions whose newest release is not a final.
 
@@ -835,11 +828,11 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   6.2.1, MySQL Connector/J 8.4.0 to 26.7.0, the Mongo driver 5.1.2 to 5.11.1, the OpenSearch client
   2.19.2 to 3.8.0, the Lucene pin 9.12.1 to 10.5.1, and the Neo4j test harness 5.3.0 to 2026.07.1.
   Client libraries are free to move in general, but a driver crossing a major has to be proven
-  against the pinned server it talks to, so these are sequenced behind item 4 rather than taken on
+  against the pinned server it talks to, so these are sequenced behind item 3 rather than taken on
   their own. The Mongo driver is the exception: 5.11.1 stays inside major 5, so nothing about it
   needs proving against the pinned server, and it is grouped here only to move with that server's
-  own upgrade. Keycloak 22.0.4 to 25.0.3 is item 4's own, and RESTEasy 6.2.4 to 7.0.4 is held by the Keycloak
-  client stack, which items 4 and 16 own.
+  own upgrade. Keycloak 22.0.4 to 25.0.3 is item 3's own, and RESTEasy 6.2.4 to 7.0.4 is held by the Keycloak
+  client stack, which items 3 and 15 own.
 
   Embedded Mongo 4.20.0 to 5.0.0 belongs here too, and it is the deployed Mongo it follows rather
   than a framework. The code cost is one import, since flapdoodle moved `de.flapdoodle.reverse` to
@@ -849,7 +842,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   V5_0:Platform{operatingSystem=OS_X, architecture=ARM_64}`, while 6.0, 7.0 and 8.0 all start.
   MongoDB published no macOS ARM build before 6.0 and 4.20.0 resolves one anyway; 5.0.0 does not.
   Taking the upgrade therefore means running the suites against a different major from the deployed
-  5.0.31, which is the one thing `EmbeddedCedarMongo` exists to avoid. It moves with item 4.
+  5.0.31, which is the one thing `EmbeddedCedarMongo` exists to avoid. It moves with item 3.
 
   Logback 1.6 belongs here rather than among the upgrades to make, and SLF4J is not what holds it:
   every 1.6 release builds against slf4j 2.0.18, which the estate already carries. Dropwizard does.
@@ -900,7 +893,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Done when each upgrade above has either landed or been recorded as refused with its reason, and
   the estate no longer carries a dependency held back only because nobody looked at it.
 
-- **22. Give the public CEE release a CLI route.** Publishing `cedar-embeddable-editor` to npmjs is a
+- **21. Give the public CEE release a CLI route.** Publishing `cedar-embeddable-editor` to npmjs is a
   runbook of about twenty-five commands across `develop`, a pull request, `main`, the registry, a
   tag, the development-state restore and the train baseline refresh. Release 2.0.6 took an hour of
   operator attention for two minutes of gate time, and CEE has shipped four public versions in a
@@ -913,7 +906,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   the command exists, rewrite the npmjs runbook into a description of what it does and where it
   stops.
 
-- **23. Decide whether an attribute-value child keeps its declared property IRI.** Both model
+- **22. Decide whether an attribute-value child keeps its declared property IRI.** Both model
   libraries read such a child's property IRI out of a template's `@context` and then decline to write
   it back as JSON, so a read-and-write cycle over `template-022.json` loses
   `https://schema.metadatacenter.org/properties/d01cb533-265c-474a-95f3-9afb4616a6e1` from the
@@ -946,45 +939,141 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Whichever way it goes, the three children and their generated fixtures move with it, and the Java
   library's corpus verifier reports them stale until they are regenerated.
 
-## Production data
+- **23. Decide what an ordinary write may change about the artifact it stores.** Every non-verbatim
+  write is normalized before it is validated, and two different things travel under that one name.
+  One is minting: a child identifier, a property IRI for an attribute the author named, an element
+  occurrence identifier, and the JSON Schema `title` and `description` derived from `schema:name`.
+  That is identity the repository owns rather than a client, and it stays. The other is
+  `LinkedDataUtil.repairInheritedDefects` in `cedar-config-library`, which removes a defect only
+  where the request carried it unchanged out of storage and leaves a newly introduced one for
+  validation to reject. That half was built for artifacts written before the rules hardened, so it
+  has a population and an end, and the population is nearly gone.
 
-- **24. Finish the production artifact repair, which is now a set of decisions rather than a run.**
-  The audit that opened this work on 2026-09-08 found 127,868 invalid instances of 150,164, along
-  with invalid templates, elements and standalone fields. Production now holds **1,016 invalid
-  instances across 298 templates**, measured 2026-09-14. The automated phase is over: chaining every
-  repair that exists onto what remains gains almost nothing, because each residual artifact waits on
-  a rule nobody has written or an answer only its owner can give. Treat the rest as data repair
-  rather than authored modification, preserving root identifiers, version and publication state, and
-  provenance timestamps. Keep it a narrow store repair rather than an edit through the legacy
-  Template Designer or a blanket REST resave.
+  **Retire each compatibility branch as its population reaches zero.** On templates and elements
+  there is almost nothing left for it to do. The 2026-09-08 corpus audit found 8,402 artifacts
+  carrying an empty `pav:derivedFrom` and 418 an unusable child property IRI; the 2026-09-12 audit
+  of every template and element reports neither, and one artifact with a missing child `$schema`.
+  The instance branches are the live ones, measured over all 150,640 instances on 2026-09-16:
+  `occurrence-id-unusable` in 120 artifacts over 833 occurrences, `attribute-property-iri-missing`
+  in 58 over 1,029, `orphan-property-iri` in 7, and `attribute-name-blank` in 4. Delete a branch
+  once its count is zero, so that shape meets a refusal rather than a silent accommodation, and
+  record the change where the API is documented: a caller that has been relying on the
+  accommodation starts receiving a 400.
 
-  **The renames are the larger half, and each one is a question for an owner.** A residual instance
-  carries a key its template no longer declares, and where that value belongs cannot be read out of
-  the store: matching names and matching values settle some, and the rest are a choice between a
-  field, a deletion, and a template that should change instead. `ops/repairs/rename_sheet.py` drafts
-  the sheet that asks. It stands at **255 questions across 44 templates**, the templates that still
-  hold an unanswered question out of the 59 studied, and those 59 — the ones with the most instances
-  waiting on a rename — hold 626 of the 1,016. Answers are recorded for 62 templates so far. A
-  template releases nothing until every question under it is answered, so progress is counted in
-  templates rather than in questions, and a key naming an element makes that element's own children
-  answerable too.
+  **A resave repairs almost nothing, so do not reach for it as an instrument.** The update path
+  normalizes and then validates, answering 400 when the result is invalid
+  (`TemplateInstancesResource.java:433`), so only an artifact that is already valid after
+  normalization can be written. In the 2026-09-16 baseline, of 1,047 invalid production instances,
+  2 had nothing wrong but
+  a missing occurrence identifier, which is the one defect this path does repair, by removing the
+  unusable inherited value and minting a replacement. The rest fail on what no normalizer touches:
+  799 carry a key their template does not declare, 715 lack a child it requires, and 166 carry a
+  property IRI their template replaced with a vocabulary term in a later edit. About 45 instances
+  are valid while carrying a repairable condition and would go through, but an ordinary write also
+  calls `stampProvenanceForPut` (`AbstractArtifactCrudResource.java:408`), so each would record a
+  modification nobody made. That is the reason `?verbatim=true` exists, and it is why the remaining
+  production work belongs to a verbatim rule rather than to a bulk resave.
 
-  **Decide where to stop asking.** 185 of the 298 templates hold a single invalid instance each, so
-  the yield per question falls away sharply below the studied set. An owner's attention is the
-  scarce resource, and a residual that is measured, recorded and understood is a legitimate end state
-  for that tail.
+  **Separate the one step that tightens a contract rather than repairing a document.**
+  `addChildPropertyIris` calls `requireChild` for every mapped child of every template and element
+  it writes (`LinkedDataUtil.java:684`), adding the child to `@context.required` whether or not the
+  stored artifact ever declared it. That changes what an instance must carry, which is not a repair
+  of the artifact being saved but a new demand on documents nobody is looking at. Measured
+  2026-09-12, 2,218 artifacts are missing those entries across 29,087 child paths, 458 of them
+  templates rather than elements, so editing one of those templates through any client tightens its
+  contract silently. `ops/repairs/ctxreq_at_risk.py` exists to weigh exactly this before a repair
+  run, by validating every instance a template already has against the proposed body; the save path
+  performs the same tightening with nothing weighed. Decide whether the write should carry that
+  check, stop adding entries a stored artifact never had, or state the tightening as the contract
+  and accept that a template edit can invalidate instances.
 
-  **What is not a rename needs new rules, measured before they are built.** The residual error
-  families are a value carrying no `@type` where the model requires one, one value where a list is
-  declared and a list where one value is, the wrong empty shape (`{}` where a literal is declared,
-  `{"@value": null}` where an IRI is), a declared child that completion never reached, and a string
-  where a number is declared. Some of the last, such as `"LSJDK=1213"`, cannot be coerced at all.
-  Count what a candidate rule would finish rather than what it would clear, because a family
-  appearing in hundreds of instances finishes far fewer: most of them carry a second defect as well.
-  Measure it locally rather than through an audit run. Driving `ValidationBridge` from
-  `cedar_artifact_validation_audit.py` against a cached corpus validates at roughly 450 artifacts a
-  second against 7 over REST, so the whole residual validates in seconds and costs production
-  nothing.
+  **Warn authors before a template edit invalidates existing instances.** Changing a property's
+  IRI or narrowing a field's allowed representation can invalidate documents that were valid when
+  entered. Nothing propagates that change to existing instances or warns the author. Whatever is
+  decided about `requireChild`, check the dependent population for any template edit that narrows
+  what an instance may hold.
+
+  Done when the compatibility branches that have no population are gone, each remaining one names
+  the count that keeps it, an ordinary write no longer tightens a contract without the instance
+  check or an explicit decision to do so, and an author editing a template is told what it does to
+  the instances that already exist.
+
+## Production Data
+
+- **24. Resolve the remaining production artifact defects and review semantic migrations.**
+  Classify the remaining **731 invalid instances across 260 templates** in the reviewed residual
+  (2026-09-17, after verified repairs) by their actual schema declarations,
+  then repair only transformations whose meaning is established. A missing `@id` in a controlled-term
+  field is a missing entered term, not an element identity to mint. Multiple populated occurrences
+  cannot be reduced to one without a decision. Empty representations and populated data need
+  separate rules, each with a narrow invariant and validation of the complete candidate.
+
+  **Prioritize the largest remaining groups.** These are maintained residual counts, not a new
+  corpus-wide audit. Repeated names identify distinct templates; ID prefixes distinguish them.
+
+  | Template | Invalid instances |
+  | --- | ---: |
+  | CCP Digital Object | 65 |
+  | Migrant-Interviews | 34 |
+  | LINCS DSGC Dataset Submission (`70b010f2…`) | 26 |
+  | Adverse Events V2 | 25 |
+  | VODAN-COVID-Migrants-Tunisia (`1988902f…`) | 23 |
+  | causal pathway | 21 |
+  | DSGC Dataset Template 1.0 | 17 |
+  | PGHD_BP_template | 15 |
+  | Expression | 14 |
+  | VODAN-COVID-Migrants-Tunisia (`05ce128b…`) | 14 |
+  | MiAIRR V1.1.0 | 13 |
+  | DSGC Dataset Template 2.0 | 12 |
+  | GeoExposure_Data_1.5.1_Template (`ce1436c0…`) | 11 |
+  | LINCS DSGC Dataset Submission (`f4034b6f…`) | 11 |
+  | MyFirstTemplate | 10 |
+  | UPDATED HEAL Study Core Metadata | 9 |
+  | Updated week X | 8 |
+  | Citation | 7 |
+  | HEAL Study Core Metadata | 7 |
+  | Human Cognitive Neuroscience Data | 7 |
+  | COVID Project Content | 6 |
+  | COVID-19_Project-Admin_V4 (`337cb6f3…`) | 6 |
+  | File Metadata | 6 |
+  | INFO 663 — Datasets | 6 |
+  | ID-AMR_Project-Admin_V1 | 5 |
+  | LTER-LIFE (0.0.1) | 5 |
+
+  Another 234 templates have 1–4 invalid instances each: 163 templates have one, 40 have two,
+  19 have three, and 12 have four. These groups include *Cell*, with four remaining instances:
+  resolve ontology assertions in the text-only `Reporter_type`/`Mod_type` fields and the undeclared,
+  malformed `Publication_title` structure without discarding populated data.
+
+  **Resolve MiAIRR V1.1.0's legacy representations.** The targeted production review of all 42
+  instances finds 13 invalid and 29 valid. Review old BioSample field names and property mappings,
+  ontology-valued `Sex` against its text declaration, release dates containing `NA`, and unexplained
+  numeric strings or URI-shaped values in text fields. Matching property IRIs support several
+  renames; `Cell Processing Protocol` → `Processing Protocol` and `Related Subjects` →
+  `Relation to Other Subjects` also change the predicate and need a semantic decision. Do not infer
+  meanings for numbered values or treat `NA` as empty without an applicable owner decision.
+
+  **Reconcile previous semantic changes with the saved bodies and recorded decisions.** Review
+  removed fields against the assertions still present, not merely equal literal values; the property
+  IRI matters. Review historical context alignment as a semantic migration. Use the existing
+  preimages to recover a proven lost value into its established destination, preserving subsequent
+  edits. Where the template no longer declares a destination, obtain a schema decision rather than
+  inventing a field, moving the value to an unrelated equal-valued field, or replacing the entire
+  artifact with an old body. The `SCAA_posneg` values removed from the *Updated week X* template
+  need this decision. Recorded mappings to null must remain distinguishable from heuristic renames.
+
+  **Regenerate the decision sheet under the conservative rules.** Similar spelling and shared values
+  can suggest a pairing but cannot settle it. `ops/repairs/rename_sheet.py` must present unconfirmed
+  proposals for review, and a many-to-one mapping must resolve competing populated values explicitly.
+  Keep named exceptions for cases where the historical template or an owner's meaning cannot be
+  recovered. The rules and current measured scope are in the backend runbook's production repair
+  section; old residual counts and inferred mappings are not a fresh inventory.
+
+  **Rerun the full inventory before claiming a corpus-wide result.** Targeted revalidation measures
+  the reviewed IDs only. Reconcile the four search-enumerated 404 instances and the unresolved
+  template against the authoritative stores, without deleting artifacts on search evidence, and
+  include creations and edits since the last complete walk. Record validator, script and template
+  inputs so a verdict is reproducible.
 
   **The schema artifacts that remain cannot be repaired, only decided.** The last full
   template and element audit, 2026-09-12, left 8 templates and 1 element invalid. They are
@@ -995,6 +1084,11 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   model-version and object-shape findings. Decide what each group gets: a repair path that does not
   go through the ordinary update, an owner's edit, or a recorded exception. The enforcement below
   waits on that answer, because those artifacts are why three classes cannot reach zero by repair.
+
+  **Find templates that demand instance shapes the editors cannot produce.** Decide whether the
+  element meta-schema should restrict the remaining entries of `required` after its first two tuple
+  entries, so an element occurrence cannot demand root-instance provenance or `schema:isBasedOn`.
+  Audit other contradictory demands and distinguish missing required data from malformed schemas.
 
   **The `title`/`internalName` contract is settled and the stored population is repaired. The
   libraries are not.** Title is derived metadata composed from `schema:name` in the canonical
@@ -1065,19 +1159,19 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Background work with no deadline of its own. Its value lands at the terminology cutover, which
   means it has to be finished before a second source system is served, not before anything else.
 
-  **Reconcile the inventory boundary.** The 2026-09-08 run could not read 16 artifacts that search
-  enumerated, ten of them answering 404, and one template the typed resource endpoint could not
-  resolve at all; no duplicate search rows remained. Determine whether each is a stale search or
-  workspace projection or a missing artifact before changing anything, repair the projection from the
-  authoritative stores, and rerun the audit to `COMPLETE_FOR_KEY`. Never delete a store artifact
-  merely because its search entry is inconsistent.
+  **Reconcile the inventory boundary.** It persists across every pass and is what keeps a run from
+  reporting `COMPLETE_FOR_KEY`. On 2026-09-16 four instances that search enumerated answered 404
+  from the typed resource endpoint and one template would not resolve at all; no duplicate search
+  rows remained. Determine whether each is a stale search or workspace projection or a missing
+  artifact before changing anything, repair the projection from the authoritative stores, and rerun
+  the audit. Never delete a store artifact merely because its search entry is inconsistent.
 
   Done when every enumerable artifact is valid or recorded as a named exception, the rename sheet is
   answered or explicitly abandoned for its tail, both model libraries derive `title`, the model
   version comparison is restored, and no constraint lacks a `sourceSystem` the sweep could have
   written.
 
-## Later decisions
+## Later Decisions
 
 - **25. Enforce the request-body classification, and decide what an open body requires.**
   `cedarcli check openapi` reads `additionalProperties` only when deciding whether a schema counts
@@ -1141,7 +1235,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   delegate to resource, and both services' artifact Mongo initialization is gone — so each one's
   artifact surface differs from resource's only by a hostname and a path convention.
 
-  That makes the question live rather than answered. It is not the retirement question item 6 asks
+  That makes the question live rather than answered. It is not the retirement question item 5 asks
   of four narrowly used servers: these two are neither narrowly used nor removable on the same terms,
   because what they preserve is addressing that other people's data depends on.
 
@@ -1161,7 +1255,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   So the decision is per host, and there are three honest answers for each: retain the service with a
   stated role, reduce it to the part that is not duplicated, or serve the URL contract some other way
   — nginx routing plus something that still resolves a bare identifier — and retire the process. A
-  retirement takes the whole checklist item 6 states, and a reduction takes the part of it that
+  retirement takes the whole checklist item 5 states, and a reduction takes the part of it that
   applies.
 
   The prerequisite is already written down. The runbook's repo rollout asks for repo and resource
@@ -1176,3 +1270,30 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
 
   Done when each of the two hosts has a stated role, an owner, and either a current caller that needs
   the process or a routing arrangement that keeps its URLs resolving without one.
+
+- **28. Revisit controlled-term result actions: define scalable semantics, narrow them, or delete
+  them.** Exclusion and `move` actions are stored beside a field's complete constraint set and apply
+  to the result after all ontology, branch, class and value-set constraints have been combined. They
+  are not customizations of one constraint row. Before the picker exposes authoring controls, state
+  what each action means for a single large ontology, multiple branches, multiple sources, pinned
+  releases and query-ranked results.
+
+  The current execution model cannot be that contract. Multi-source integrated search merges and
+  sorts one page and explicitly reports invalid pagination. Actions are then applied to that returned
+  page: a deletion can leave a hole, the server does not fetch a replacement, and a move is clamped
+  to the current page. Consequently, “move this term to position N” is neither a stable global order
+  over a 100,000-term ontology nor a well-defined position across different search queries.
+
+  Keep exclusion only if it can be pushed into result construction before pagination, with full
+  pages and correct totals regardless of which constraint admitted the term. For ordering, choose one
+  of two explicit products: replace arbitrary moves with a small ordered set of preferred terms whose
+  interaction with query matching is defined, or remove move actions from the supported authoring
+  model. Preserve imported actions while deciding, and provide a migration or compatibility rule for
+  existing actions before changing their stored shape or execution.
+
+  Prove the chosen contract with a large locally served ontology and with overlapping branches from
+  more than one source. Tests must cover paging beyond the first page, query and empty-query results,
+  pinned releases, duplicate terms admitted by multiple constraints, stale action targets, totals and
+  page filling. Only then should the terminology picker expose a table-level result-customization UI.
+  The compact picker presentation remains tracked in
+  [VERSIONING-ROADMAP.md](./VERSIONING-ROADMAP.md); this item owns the backend meaning and scale limit.

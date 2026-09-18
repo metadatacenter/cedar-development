@@ -541,7 +541,7 @@ A global stylesheet in `angular.json` would be the ordinary way to reach the doc
 not work here: the CLI emits it as a separate `styles.css` that a host page never loads.
 `"styles": []` is deliberate, in this repository and in CEE.
 
-## Internal boundaries
+## Internal Boundaries
 
 Each picker provides its own `TerminologyClient`; its property-detail child uses
 that same instance. Multiple pickers can name different servers without sharing
@@ -565,7 +565,18 @@ what a name already means before reusing it.
 
 ## Releasing the Picker
 
-Nothing has been released. The repository will publish itself to npm rather than moving with the
-platform release run, and `cedar-cli` has no entry for it — `skip_from_release` filters repositories
-that are already registered, so one the CLI does not know is excluded already. This section gets its
-commands when the first release is cut.
+The first development snapshot is
+`@org.metadatacenter/cedar-embeddable-term-picker@0.1.0-dev.20260915.0ec47d9c`
+on CEDAR Nexus. The split Designer host pins it through an npm alias. There is
+no public npmjs release yet, and `cedarcli` does not currently publish this
+component. After choosing a commit-derived `-dev.` version, run:
+
+```sh
+PORT=4607 npm run test:ci
+npm publish ./dist-npm/cedar-embeddable-term-picker --tag dev --dry-run
+npm publish ./dist-npm/cedar-embeddable-term-picker --tag dev
+```
+
+The package's `publishConfig` selects Nexus. The gate tests the production build,
+then stages its single-file bundle and declarations; publish those exact bytes.
+`PORT` isolates browser tests from the CED demo, which also defaults to 4599.

@@ -29,7 +29,7 @@ Three tiers:
   extraction, `cedar-workspace` (4201) and `cedar-template-designer` (4202) run beside it as preview
   frontends. The active auxiliary UIs are openview, monitoring, bridging, and content.
 
-## Environment: select the native mode first
+## Environment: Select the Native Mode First
 
 Begin by checking which topology owns the machine. If no mode is selected, select `native` once.
 That loads and validates the native profile internally, pins Java 17 for its child processes, and
@@ -88,7 +88,7 @@ CA and therefore leave the flag unset. Never set it in staging or production; en
 truststore contains the Keycloak issuer CA, leave the flag absent or `false`, and exercise both token
 verification and one admin operation after deployment.
 
-## Bring-up sequence
+## Bring-Up Sequence
 
 ```bash
 # cedarcli loads the native profile and starts infrastructure, services, and frontends.
@@ -128,7 +128,7 @@ server was still booting, which is how a four-second BioPortal fetch inside term
 `ontology-catalogue` check came to refuse a gate run. That check now takes its measurement off the
 request thread, so the endpoint answers within two seconds whatever BioPortal is doing.
 
-## The containerized stack
+## The Containerized Stack
 
 An alternative to the native bring-up: the same fifteen microservices and the same infrastructure,
 as containers. It is the `cedar-docker-build` images driven by the `cedar-docker-deploy` compose
@@ -211,7 +211,7 @@ cedarcli mode native --profile develop
 cedarcli native start all
 ```
 
-### Running the native frontends against the containerized backend
+### Running the Native Frontends Against the Containerized Backend
 
 This is the current interactive development mode for a full Docker backend. Docker nginx serves the
 public hostnames and proxies to native frontend development servers on the Mac. This was proven on
@@ -228,7 +228,7 @@ nginx on the API hostnames and are proxied over `cedarnet` to the Java container
 | Public hostname | Native source root | Server | Port |
 | --- | --- | --- | ---: |
 | `cedar.metadatacenter.orgx` | `cedar-template-editor/app` | Gulp / gulp-connect | 4200 |
-| `workspace.metadatacenter.orgx` | `cedar-workspace/app` | Gulp / gulp-connect | 4201 |
+| `workspace.metadatacenter.orgx` | `cedar-workspace/app` | Node static server | 4201 |
 | `designer.metadatacenter.orgx` | `cedar-template-designer/app` | Gulp / gulp-connect | 4202 |
 | `openview.metadatacenter.orgx` | `cedar-openview/cedar-openview-src` | Angular CLI / `ng serve` | 4220 |
 | `content.metadatacenter.orgx` | `cedar-content-distribution` | Angular CLI / `ng serve` | 4240 |
@@ -275,7 +275,7 @@ nginx and the backend remain responsive. The template carries the branch constra
 containerized terminology server answers the query. Compare the same browser smoke against the
 native backend to decide whether this is a frontend defect or a mixed-topology artifact.
 
-### Legacy diagnostic split: native servers against containerized infrastructure
+### Legacy Diagnostic Split: Native Servers Against Containerized Infrastructure
 
 This older diagnostic arrangement puts selected data stores in containers while the JVMs remain
 native. It is not one of the three CLI modes and is not a supported aggregate deployment. The
@@ -452,7 +452,7 @@ smoke:rest` passes at 641 assertions against all six containerized servers, with
 resuming into the new MySQL — confirm that by checking `SELECT VERSION()` on 3306 reports the
 container's, not by trusting a green run.
 
-### The local terminology store, and the two levers that govern it
+### The Local Terminology Store, and the Two Levers That Govern It
 
 The store is a read-mostly SQLite catalog of about 31 GB at `$CEDAR_HOME/cedar-term`. It is shared
 rather than copied — a read-only bind mount, the same shape as the static content nginx already
@@ -499,7 +499,7 @@ filesystem path and the host's is not the container's.
 **Currently: off.** The containerized terminology server serves everything through BioPortal, with
 the mount left in place so turning it back on is the one profile line.
 
-### Building an image against your own code
+### Building an Image Against Your Own Code
 
 By default every image fetches its jar from Nexus while it builds, so an image can only run code
 that has already been published. `--local` builds against the checkout instead:
@@ -531,7 +531,7 @@ success: staging copies the jar faithfully, the image hash matches, and the cont
 code. If you changed a shared library, `./mvnw clean install` in the consuming server before staging.
 
 
-## The controller: `cedarcli native`
+## The Controller: `cedarcli native`
 
 Manages the 15 microservices + three AngularJS/Gulp frontends + the 4 auxiliary Angular frontends as
 background processes: non-restarting submitted `launchd` jobs on macOS and `nohup` children on other
@@ -643,7 +643,7 @@ and a recopy in its own checkout rather than a restart:
 
 ```bash
 (cd $CEDAR_HOME/cedar-template-editor && npm ci && npx gulp copy:cee)
-(cd $CEDAR_HOME/cedar-workspace && npm ci && npx gulp copy:cee)
+(cd $CEDAR_HOME/cedar-workspace && npm ci && npm run copy:cee)
 ```
 
 The other frontends read `-`: none of them depends on the Embeddable Editor. **PID** shows `~pid` (a leading tilde) only for a
@@ -658,7 +658,7 @@ owner. Stale pidfiles are likewise ignored unless the live PID still matches the
 For a native deployment, always confirm `status` shows every service `current`, not merely `healthy`,
 before trusting a verification gate.
 
-## How native processes are managed
+## How Native Processes Are Managed
 
 `cedarcli native start microservices` and `cedarcli native start frontends` delegate to
 `cedar-services.sh`.
@@ -666,7 +666,7 @@ Applications run in the background; the CLI never opens iTerm or Terminal. Use `
 status`, `cedarcli native watch`, `cedarcli native logs <name>`, or `cedarcli native restart
 [name...]` instead of keeping a console open for each process.
 
-## Port map
+## Port Map
 
 | Service | app | admin | | Service | app | admin |
 |---|---|---|---|---|---|---|
@@ -678,7 +678,7 @@ status`, `cedarcli native watch`, `cedarcli native logs <name>`, or `cedarcli na
 | valuerecommender | 9006 | 9106 | | bridge | 9015 | 9115 |
 | resource | 9007 | 9107 | | | | |
 | group | 9009 | 9109 | | frontend (gulp) | 4200 | — |
-| impex | 9008 | 9108 | | workspace (gulp preview) | 4201 | — |
+| impex | 9008 | 9108 | | workspace (Angular) | 4201 | — |
 | | | | | designer (gulp preview) | 4202 | — |
 | | | | | Keycloak | 8080 / 8443 (https) | |
 
@@ -694,7 +694,7 @@ Frontends (HTTP-root health): `ui-main` 4200, `ui-workspace` 4201 and `ui-design
 gulp; `ui-openview` 4220, `ui-content` 4240, `ui-monitoring` 4300 and `ui-bridging` 4340 under
 `ng serve`.
 
-## API-key credentials and management identifiers
+## API-Key Credentials and Management Identifiers
 
 An API key has two identifiers with deliberately different jobs. Its `key` is the credential sent
 in `Authorization: apiKey <key>` and must be handled as a secret. Its `id` is a stable, non-secret
@@ -713,7 +713,7 @@ stored before IDs were introduced is exposed with a deterministic `legacy-<sha25
 this keeps it addressable without revealing the credential, and the ID is persisted on the next
 profile write. Authentication itself is unchanged and still looks up the secret `key` value.
 
-## Artifact route ownership
+## Artifact Route Ownership
 
 The target architecture assigns artifact document storage, validation, serialization and revisions to
 **artifact**, and public artifact operations and access decisions to **resource**, using the existing
@@ -812,7 +812,7 @@ resource/worker jobs. Bridge, repo and OpenView call resource and receive no art
 startup fails when artifact, resource or worker lacks a valid key; an invalid previous key also stops
 artifact startup. No permissive fallback is available.
 
-### Deploying and rotating the artifact service key
+### Deploying and Rotating the Artifact Service Key
 
 Use `cedarcli env artifact-key init` once per environment. It generates a random 256-bit key in
 `$CEDAR_HOME/.cedar/secrets/artifact-service.sh`, with file mode 0600, and never displays its value.
@@ -862,7 +862,7 @@ and missing identifiers and downstream outages must not produce successful reads
 repo jar available for rollback; no database rollback accompanies this routing change. Existing
 identifier hosts must remain resolvable even if their service processes are eventually retired.
 
-## Artifact and folder permissions
+## Artifact and Folder Permissions
 
 Authorization for artifacts and folders uses three cumulative roles. Viewer permits reading a
 resource and listing a folder. Editor adds content and metadata updates, creation and copying within
@@ -919,7 +919,7 @@ The main conformance gates are `ResourcePermissionModelTest`,
 user and group grants, folder inheritance and precedence, the **Everyone** restriction, REST
 authorization for all artifact types and folders, and ownership-transfer authority and concurrency.
 
-## Authenticated user rate limits
+## Authenticated User Rate Limits
 
 Every authenticated request through `CedarMicroserviceResource.buildRequestContext` checks a user
 quota after resolving its credential and before entering business logic. The shared Jersey feature
@@ -983,7 +983,7 @@ Redis allowances are shared and survive a service restart. Inspect all participa
 including errors, before enabling enforcement. No new app-log event is emitted per quota decision.
 The normal backend-free suites select `MODE=off`; dedicated tests use an isolated embedded Redis.
 
-## Bounding outbound calls
+## Bounding Outbound Calls
 
 Every call a CEDAR service makes to something else is bounded by three timeouts and runs in a
 connection pool, and which three depends on what kind of call it is. `HttpTimeouts` in
@@ -1031,7 +1031,7 @@ A hop or a registry can override only the connect and response timeouts, which a
 request. The lease timeout and the pool belong to the class, so a per-hop value for either would
 mean a pool per hop; a hop that genuinely needs its own pool belongs in its own class.
 
-### What is retried, and what is not
+### What Is Retried, and What Is Not
 
 A response is never repeated, whatever its status. A 503 is a real answer, so the dependency read
 the request and may have acted on it. A response timeout is the same case: the request arrived, and
@@ -1047,7 +1047,7 @@ A lease timeout is not treated as answerless even though nothing was answered. I
 saturated, so an immediate repeat queues against the same full pool and doubles the wait a call site
 was promised. Repeating it wants a request deadline to come out of, and there is none.
 
-### The registries that stop answering
+### The Registries That Stop Answering
 
 Each external authority in the bridge server sits behind its own `AuthorityCircuitBreaker`. A
 registry that is down does not refuse a connection; it accepts one and never replies, so every
@@ -1061,7 +1061,7 @@ Nothing guards a call to another CEDAR service. The artifact server is not optio
 front of it would turn a timeout followed by 503 into an immediate 503 and nothing else, and it
 would open during a rolling restart.
 
-### Where the durations are recorded
+### Where the Durations Are Recorded
 
 Every server's `config.yml` configures `server.requestLog` with a file appender whose format ends in
 `%D`, the elapsed milliseconds, so access lines land in `$CEDAR_HOME/log/<server>/access.log`
@@ -1071,7 +1071,7 @@ measured p99. A week of these logs is what a chosen response timeout can come fr
 server's is the one most likely to be wrong, since a large instance write with validation is the
 plausible outlier.
 
-### When a graph update does not commit
+### When a Graph Update Does Not Commit
 
 An artifact update writes two stores in sequence: the artifact document, then the graph. When the
 second write fails the first has to be undone, and that compensation is durable rather than best
@@ -1099,7 +1099,7 @@ and the relay stops rather than overwriting newer content. A parked job stays in
 an artifact that could not be put back is one the two stores still disagree about and someone has to
 be able to find it. `CedarArtifactRestoreOutbox` nodes are those records.
 
-## The Redis queues, and where failed permission events go
+## The Redis Queues, and Where Failed Permission Events Go
 
 Five persistent queues carry work between services. Their names are set in
 `cedar-config-library/src/main/resources/cedar-main.yml` under `queueNames`, and all five live in
@@ -1211,7 +1211,7 @@ job this command started rather than whichever job ran last over the index, so a
 started after yours cannot be mistaken for it, and a `FAILED` carries the reason — which the resource
 server log has in full.
 
-### A rebuild that answers 409, and taking the index back
+### A Rebuild That Answers 409, and Taking the Index Back
 
 Only one rebuild runs at a time over an index, because each one ends by deleting every index for its
 alias but its own: two together leave the alias naming an index that no longer exists. A second
@@ -1245,7 +1245,7 @@ held, whatever age that claim has reached, so an abandoned one blocks every rebu
 resets it. Nothing expires a claim on a timer, and waiting out the six hours changes only what the
 status calls it. The value sets import behaves the same way.
 
-## Identifiers: what a client sends, and what the server fills
+## Identifiers: What a Client Sends, and What the Server Fills
 
 Only the repository assigns an identity. A client says which identifiers it wants assigned rather
 than inventing them, and there are two spellings, chosen by what the schema demands rather than by
@@ -1355,7 +1355,7 @@ generated that piece, and it is left as sent. A verbatim write stores the pair a
 everything else in the document, and what is already stored keeps a stale pair until something
 rewrites it.
 
-## Patching stored artifacts: `ops/cedar_artifact_patch.py`
+## Patching Stored Artifacts: `ops/cedar_artifact_patch.py`
 
 The rules above govern what the server accepts from now on. They say nothing about what a store
 already holds, and several defects are in circulation there: an empty `pav:derivedFrom`, an empty
@@ -1437,7 +1437,7 @@ resolves one — by `schema:isBasedOn` against the store, or by the sibling `tem
 tree — and reports rather than rewrites when it cannot. Run template-blind, the corpus yields four
 findings and all four are false positives.
 
-## YAML is a native artifact format
+## YAML Is a Native Artifact Format
 
 YAML is a first-class CEDAR representation, not a side format you convert to. Both the resource
 server and the artifact server negotiate it on the wire, so reading and writing artifacts as YAML
@@ -1504,7 +1504,7 @@ nested static field. `YamlAsymmetryProbeTest` in `cedar-artifact-library` and `Y
 in `cedar-artifact-server` both pin it. If a round trip ever loses a setting again, add a probe there
 rather than documenting the loss.
 
-### Comparing the two model libraries
+### Comparing the Two Model Libraries
 
 `cedar-artifact-library` (Java) and `cedar-model-typescript-library` (TypeScript) implement the same
 model. JSON and both full and compact YAML match over all 83 corpus artifacts.
@@ -1644,7 +1644,7 @@ emits, because authoring form is compact throughout and stored form is full thro
 inside an instance is classified as an empty multi-instance field by Java and an empty list by
 TypeScript, while both emit the same bytes for it.
 
-## Known gotchas and fixes (the expensive ones)
+## Known Gotchas and Fixes (the Expensive Ones)
 
 - **Browser blocks login with a cert error, but `curl` works** → the local TLS **leaf certs
   expired**. The `*.metadatacenter.orgx` sites are served by nginx with self-signed leaves issued by
@@ -1714,7 +1714,7 @@ TypeScript, while both emit the same bytes for it.
   test-bearing Maven command run by `cedarcli`, including release Maven builds, refuses to start
   while one remains and checks again after the command finishes.
 
-- **Keycloak won't start** → wrong JDK. Pin `JAVA_HOME` to 17 (see above). Symptom: `Failed to start
+- **Keycloak won't start** → wrong JDK. Pin `JAVA_HOME` to 17 with `export JAVA_HOME=$(/usr/libexec/java_home -v 17)`. Symptom: `Failed to start
   caches … getSubject is supported only if a security manager is allowed`.
 
 - **`startinfra.sh` seems to hang for minutes, and Keycloak is dead once it returns** → the script
@@ -1867,7 +1867,7 @@ TypeScript, while both emit the same bytes for it.
   service does not have that code. A terminology-server relay path was reported broken on this,
   having been read in source that already handled the case while the running jar predated it.
 
-## cedarcli (headless invocation)
+## Cedarcli (Headless Invocation)
 
 `cedarcli` is normally a shell alias (`source $CEDAR_HOME/cedar-cli/cli.sh`) that activates a venv
 and runs `cedar.py`. To drive it non-interactively, invoke the same Python entry point. The selected
@@ -1900,7 +1900,7 @@ JDK 17 for these child processes.
 to 3.9.14, CI invokes it, and `cedarcli` does too, so the build tool is the same everywhere instead
 of whatever each developer and each runner happens to have installed. It is script-only — no jar is
 committed — and fetches its distribution into `~/.m2/wrapper` on first use. Run `./mvnw` rather than
-`mvn` from inside a repository; the exceptions in this document are the commands that pass `-f` with
+`mvn` from inside a repository; the exceptions are the commands that pass `-f` with
 an absolute path from outside one, where a wrapper cannot be resolved. Container jar-fetch stages
 use the `MAVEN_BUILDER_VERSION` pinned in `cedar-images-base.sh`; Maven and its JDK never enter a
 served runtime image.
@@ -1996,7 +1996,7 @@ or another CEDAR library out of whichever jar its classpath reached first. Keep 
 pom should declare what it uses and publish that, so every consumer resolves each dependency from the
 artifact that owns it.
 
-## How the REST API changes
+## How the REST API Changes
 
 CEDAR ships one version of its REST API. There is no path segment, no media-type parameter and no
 version header, and none is planned: a correction to a status code, an error body or a route replaces
@@ -2032,7 +2032,149 @@ see a body, and keep open JSON-LD artifacts open with `additionalProperties: tru
 a closed schema the server does not enforce. Focused `OpenApiContractTest` classes pin the high-value
 request and response schemas in resource, artifact, group, messaging, and worker server CI.
 
-## Artifact write and diagnostic contracts
+## Artifact Versioning Contract
+
+Schema artifacts form linear version series. Normal creation starts an independent Draft `0.0.1`;
+normal editing cannot change `pav:version`, `bibo:status` or `pav:previousVersion`. Only the owner can
+publish or create the next draft. Publishing retains the identifier and cannot lower its numeric
+version; a successor draft gets a new identifier and must have a greater version. Editor access to
+the destination folder is required. Copying starts a separate series. Manager access alone does not
+confer publication or drafting authority, and instances are not versioned.
+
+The graph and search carry three series-wide flags. `isLatestVersion` selects the draft when one
+exists, otherwise the newest surviving published version; `isLatestDraftVersion` selects the sole
+draft; `isLatestPublishedVersion` selects the newest surviving published version. A status with no
+surviving version has no true flag. The UI's Latest selection uses `latest-by-status`, the union of
+the draft and published flags. Permissions and folder filters apply afterwards; they never promote
+an older accessible version. Numeric versions order each component, rather than comparing strings.
+
+Deletion reconnects each successor to the deleted version's surviving predecessor, or removes its
+pointer when there is none. Both the `pav_previousVersion` property and `PREVIOUSVERSION` relationship
+change together. Published successors receive the same history maintenance: only their document's
+`pav:previousVersion` changes, preserving every other field and provenance timestamp. Existing
+instances and embedded definitions remain untouched. Existing reference checks still prevent a
+template with stored instances from being deleted.
+
+Deleting the draft promotes the surviving release and permits it to produce a new draft. Deleting
+the newest release while a draft exists keeps that draft and promotes the preceding release.
+Deleting an older version changes only the history link. Deleting every version leaves no latest.
+
+`VersionChainTransaction` serializes lifecycle graph transitions using a shared Neo4j lock. A draft
+creation rechecks the source and successor under that lock and commits the new graph node, optional
+direct sharing grants and all series flags together. A losing concurrent request discards its
+new document. Publication commits its flags with the status/version graph update; its conditional
+compensation record is removed in the same transaction. Deletion uses the existing durable deletion
+outbox, and commits reconnection, removal and replacement flags together.
+
+Each transaction also records affected artifacts in `CedarVersionProjection`. The resource server's
+`VersionProjectionService` retries document-link and index updates every five seconds, including
+after restart. It reads current graph state and serializes projections with lifecycle transitions,
+so an older projection cannot overwrite newer lifecycle state. Link updates use the internal artifact
+service’s filesystem-administrator-only `PUT /{type}/{id}/version-predecessor` operation with a specific ETag.
+It accepts only the predecessor link and preserves all other content and provenance;
+an ETag conflict leaves work pending for a fresh read. Pending projections are retained on failure.
+This is eventual convergence across stores, not a cross-database transaction. A committed lifecycle
+transition is not repeated merely because indexing is temporarily unavailable.
+
+### Audit and Deployment
+
+Run `cedarcli check artifact-versioning` before rollout and retain its JSON report. It scans all graph
+schema artifacts, not only the current operator's accessible artifacts. It reports invalid versions
+or states, missing predecessors, branches, multiple drafts, a draft with a successor, non-increasing
+versions, property/relationship disagreements and incorrect flags. Credentials come from the CLI's
+selected profile and are never printed. Active and parked deletion jobs are counted separately;
+either keeps the check non-green until reviewed. The command does not change documents or the index.
+
+After deploying, use `cedarcli check artifact-versioning --apply` for unambiguous flag repairs. The
+flag writes and projection queue entries commit together under the lifecycle lock. Broken history
+requires evidence from documents or backups; do not invent predecessors or choose a branch. Report
+those artifacts separately before planning a repair. The source audit does not establish the state
+of a production deployment; run the inventory on that deployment as part of rollout.
+
+`VersionChainTransactionTest` covers deleting each chain position with a draft or published tail,
+whole-series deletion, rollback, deletion-in-progress and concurrent drafts. `VersionProjectionServiceTest`
+checks failed document/index updates and recovery with current state after restart.
+`ArtifactLifecycleMatrixTest` covers authorization and state predicates. The REST `versioning` suite
+covers all three schema types through real HTTP, verifies reconnecting a published successor changes
+only its history pointer, and checks graph Latest listings and indexed Latest search together.
+After changing this contract, run `cedarcli build java`, redeploy the affected native services and
+run `cedarcli test e2e`.
+
+## Artifact Write and Diagnostic Contracts
+
+### Production artifact repair
+
+Use `ops/repairs/cedar_artifact_repair.py` in report mode first. An applied repair must validate its
+complete candidate, save a new durable preimage without overwriting earlier attempts, send the
+current strong ETag in `If-Match` with `PUT ?verbatim=true`, and compare the entire read-back body
+with the submitted candidate. Idempotence is not read-back verification. An artifact for which no
+transform proposes a change still needs validation before it can be called clean. Production apply
+mode rejects `--no-verify`.
+
+Schema validity alone does not establish preservation of meaning. Two equal field values are not
+equivalent assertions unless their explicit property IRIs also agree. The duplicate rule permits
+only matching simple property mappings and identical typed JSON values. Complex mappings require
+review. An IRI-only value is populated; do not mistake its `@id` for an empty element identity.
+Many-to-one renames refuse competing populated sources and preserve populated destinations.
+`rename_sheet.py` treats spelling and value overlap as proposals, never implicit owner answers.
+
+Changing an existing `@context` property IRI is a semantic migration. Applying
+`align-instance-context-iris` requires both `--allow-context-migration` and a reviewed `--only-ids`
+scope. Review the old/new predicates and the template history or recorded migration decision.
+Preserving provenance timestamps is appropriate for correcting a proven stored defect; it does not
+make a substantive migration meaning-preserving.
+
+`drop-empty-undeclared-instance-keys` removes only explicit empty top-level slots and their context
+entries. `complete-empty-literal` adds null only to otherwise empty literal slots whose declaration
+permits null. Neither supplies an entered term, date, number or other missing required value.
+Completion's invariant permits only declared empty shapes, required context additions and fresh
+element identities. Run the repair suites with
+`python3 -m unittest test_cedar_artifact_repair test_repair_safety` from `ops/repairs`.
+
+The independent review on 2026-09-17 fetched and revalidated the 957 IDs in the then-current residual,
+along with current bodies for the 652 instances touched by the duplicate rule. It repaired 26
+residual instances with full candidate equality and validation after writing. The remaining 931 is
+a count within that reviewed set, not a fresh full-corpus census. All 367 Repository → Dataset_ID
+cases from the initial review retain the original source assertion under Data_Repository and do not
+need restoration on that evidence. Review other semantic migrations separately from schema validity.
+The same review restored 11 historical `Event Date 1` values into the recorded destination
+`evento ha data`, where the current destination was empty and the saved bodies contained no
+competing source values. Those instances already validated before restoration: a valid artifact can
+still have lost meaning. Two populated `SCAA_posneg` values and a separate conflicting-date
+consolidation remain explicit semantic exceptions pending a destination decision.
+Local evidence, pinned inputs, per-write preimages and readbacks are under
+`$CEDAR_HOME/artifact-repair-review-2026-09-17/`.
+
+A subsequent triage pass repaired another 25 instances by removing accidental whitespace directly
+after `https://orcid.org/` and completing missing empty structure. The ORCID identifier characters
+are unchanged and must pass the MOD 11-2 checksum before the spacing rule applies; this is not a
+claim about registration or ownership. Every write passed full readback equality and validation.
+That pass left 906 known invalid instances; the scoped target list and unanswered questions are under
+`$CEDAR_HOME/artifact-repair-triage-2026-09-17/`. The rule is
+`normalize-instance-orcid-spacing`. Other malformed identifiers remain explicit defects.
+
+The subsequent owner-reviewed Cell repair updated its template and 166 instances. All 893 dependent
+instances were checked: 889 validate and four retain separate populated-field defects. The repair
+preserved the 723 previously valid instances, mapped verified species/gene terms, added the specific
+CRISP cell-line class to Type, emptied the agreed NA values, and merged repository URLs without
+conflicts. The four pending cases contain ontology assertions in text fields or malformed publication
+data. Evidence and preimages are in the triage directory's `cell/` subdirectory.
+
+One RSeq instance was repaired by replacing two literal `"null"` strings with JSON null. A further
+empty-value pass made eight instances valid across seven templates, with five template writes and
+two instance writes. The current renderer represents empty IRI fields as `{}` even when
+`_valueConstraints.requiredValue` is true; removing legacy field-level `required: ["@id", ...]`
+requirements must preserve that requiredValue setting and the ontology constraints. Literal absence
+is represented as `{"@value": null}` where permitted. Empty undeclared slots can be removed, but
+populated identifiers, labels and strings such as `"NA"`, `"None"` or `"null"` need a specific decision.
+All eleven dependent instances in that pass were checked and every write was backed up and verified.
+Evidence is in `single-instance-review/rseq-repair/` and `empty-values/` under the triage directory.
+
+The maintained residual is **731 invalid instances across 260 templates**, not a fresh whole-corpus
+inventory. `CURRENT-COUNTS.md` and `remaining-residual-records.jsonl` in the triage directory contain
+the per-template counts and target IDs. A fresh targeted MiAIRR V1.1.0 review found 13 invalid and
+29 valid instances among its 42 current instances; no MiAIRR migration was applied. Its field values,
+old/new mapping evidence and unresolved semantic decisions are in `miairr-v1.1.0/`.
 
 Artifact creation and replacement use different authorization checks even though both can arrive as
 `PUT /.../{id}`: an absent id requires that artifact type's `CREATE` permission, while an existing id
@@ -2298,7 +2440,7 @@ double-quoted scalar, so an unescaped quote closes that scalar early. Dropwizard
 error that follows as `Could not read the CEDAR configuration file cedar-main.yml`, which reads like
 a missing file.
 
-### What the suites actually cover
+### What the Suites Actually Cover
 
 Roughly 113 test classes. They fall into layers, and it is worth knowing which layer a failure comes
 from, because they answer very different questions:
@@ -2314,7 +2456,7 @@ from, because they answer very different questions:
 | Matrices | 7 | Authorization, permission levels and artifact lifecycle, as tables |
 | Sharing and ownership | 1 | The `PUT .../permissions` round trip, including ownership transfer |
 | Content negotiation | 2 | YAML and JSON transcode both ways |
-| REST smoke | 1 | The real stack, no browser: 19 suites, 803 expected checks |
+| REST smoke | 1 | The real stack, no browser: 19 suites, 1,063 expected checks |
 | End-to-end smoke | 1 | The real stack, through a browser |
 
 **The browser smoke is green as of 2026-08-29 in both monolith and authenticated split-frontend
@@ -2352,7 +2494,7 @@ in the profile, so there are no API keys to keep. Run one suite with `npm run sm
 the suites are `apidocs`, `artifacts`, `authentication`, `categories`, `contract`, `download`,
 `finding`, `folders`, `freeze`, `group-sharing`, `groups`, `inclusion`, `negotiation`, `openness`,
 `pagination`, `search`, `sharing`, `validation` and `versioning`. The committed
-`rest/expected-checks.json` inventory holds 803 exact suite/section/check identities; a passing run
+`rest/expected-checks.json` inventory holds 1,063 exact suite/section/check identities; a passing run
 must execute that same ordered inventory, so an early return, removed loop or conditional omission is
 a failure even when every check that did run passed. Freeze keeps the inventory stable when the local
 terminology store is absent by recording its seven checks as skipped rather than silently omitting
@@ -2422,7 +2564,7 @@ Anything younger than fifteen minutes is reported and skipped, because a run sti
 its working folder exactly as a dead one did and two sessions share this stack. `--min-age=0`
 includes it, which is what to pass when the run is known to be over.
 
-### REST performance testing
+### REST Performance Testing
 
 `ops/e2e/rest-perf` is the k6 load harness for the real REST stack. It is deliberately separate from
 the REST smoke: the smoke proves the complete contract once, while this harness repeats a bounded
@@ -2745,7 +2887,7 @@ stragglers by name — `cedarcli native restart <name...>` — and re-check. A `
 will not catch this: a stale service is still healthy. This bit more than once during a fix-and-
 redeploy pass, where a truncated `restart` left the group and messaging servers a build behind.
 
-### Integration coverage matrix
+### Integration Coverage Matrix
 
 Which integration baseline each CEDAR microservice meets. The baseline is one suite per application
 module that boots the real service wiring, exercises a request over HTTP, and pins both a success and
@@ -2854,7 +2996,7 @@ Tests that need something external are tagged and excluded by default: `datacite
 server, `bioportal` in the terminology server. Both services keep untagged coverage of their
 authenticated surface, so excluding the tagged tests does not silently drop a row to nothing.
 
-## Continuous integration
+## Continuous Integration
 
 Every Java repository builds in GitHub Actions from `.github/workflows/ci.yml`, on each push and
 pull request to `develop` and on manual dispatch. The workflow is the same everywhere: Java 17 from
@@ -2900,7 +3042,7 @@ that job installs `libssl1.1` on the runner first; without it `mongod` cannot st
 resource test errors out. Moving the tests onto a newer MongoDB would drop that step, at the cost of
 testing against a different engine than production runs.
 
-### Snapshot freshness
+### Snapshot Freshness
 
 A merge to `develop` publishes that repository's snapshot to Nexus, and every downstream build
 resolves CEDAR artifacts from Nexus rather than from a checkout. A repository whose commit is on
@@ -2934,7 +3076,7 @@ repair, when it was finally found, was to re-run the failed deploy.
 When the check reports a repository, re-run that repository's failed CI run. If its deploy step is
 what failed, the publication needs repeating rather than the source.
 
-### Automated dependency updates
+### Automated Dependency Updates
 
 The Mend-hosted Renovate GitHub App runs for `cedar-parent` and `cedar-docker-build`. Both
 repositories keep `renovate.json` on `main`, because the hosted app reads configuration from the
@@ -2968,7 +3110,7 @@ client versions from the parent POM against the locked server images in the Dock
 check is the invariant Renovate cannot infer: a syntactically valid update is not safe when it moves
 only one half of a client/server pair.
 
-### Mutable development snapshots and immutable build trains
+### Mutable Development Snapshots and Immutable Build Trains
 
 Twenty-seven of the repositories deploy their snapshot to Nexus at the end of a successful build.
 The step is gated on a real push to `develop`, so a pull request verifies and stops, and a build
@@ -3094,7 +3236,7 @@ content; all fifteen services booted healthy with `BINARY` = `current`; and `ops
 real-stack smoke through login, live terminology, publication/versioning and instance
 create/update/delete.
 
-## Auditing production artifacts through REST
+## Auditing Production Artifacts Through REST
 
 `ops/cedar_artifact_rest_audit.py` is the read-only counterpart to the Mongo/tree patch tool. Its
 default, intentionally short safety pass enumerates every template and element visible to an API key
@@ -3195,7 +3337,7 @@ one snapshot, so artifacts created or deleted while it runs no longer move a lat
 earlier one already returned; a changed total is then a fact about the deployment rather than about
 the walk.
 
-## Validating every stored artifact with the library
+## Validating Every Stored Artifact with the Library
 
 `ops/cedar_artifact_validation_audit.py` answers two questions about a deployment in one read-only
 pass. The first is whether each stored template, element, field and instance passes
@@ -3302,7 +3444,7 @@ reported rather than repaired: typed GETs that return 404 for a search row, dupl
 a search total that changed during the walk. As with the REST audit, `COMPLETE_FOR_KEY` means
 complete for what this key can enumerate and read.
 
-## Repairing a defect across the stored population
+## Repairing a Defect Across the Stored Population
 
 `ops/repairs/cedar_artifact_repair.py` carries out a repair the audit has already measured. A repair
 qualifies only when it can be stated as an invariant, meaning it changes the thing it names and
@@ -3548,7 +3690,7 @@ python3 ops/cedar_ontology_usage.py --limit 50          # quick sample
 Caveat: `/search` is permission-scoped, so it inventories what the key can see. For a complete,
 instance-wide picture a MongoDB aggregate over the template collection's `_valueConstraints` is faster.
 
-### Terminology differential-testing corpus
+### Terminology Differential-Testing Corpus
 
 `--emit-constraints PATH` makes the same walk also write, as JSONL, every controlled-term field's
 `_valueConstraints` — trimmed to the shape the terminology server's `POST /bioportal/integrated-search`
@@ -3598,7 +3740,7 @@ enumeration is not a browse test). `verify` emits a per-ontology readiness repor
 100% set-equal with no errors is safe to add to `localOntologies`. The migration plan this feeds is
 `cedar-terminology-server/ROADMAP.md`.
 
-### Running the gate, and the current cutover state
+### Running the Gate, and the Current Cutover State
 
 `ops/cedar_term_gate.sh verify` is the one-command gate: it stands up a throwaway local-store instance
 (all ingested ontologies, strict `localOnly`) on the 19xxx test ports, verifies it against the goldens
@@ -3623,7 +3765,7 @@ to revert to a pure BioPortal proxy):
   while its local roots still diverge (roots divergence is dominated by BioPortal-endpoint quirks:
   import orphans we drop, Protégé/upper-ontology artifacts BioPortal lists that we drop — not our bug).
 
-### Multilingual labels & synonyms (`lang=`)
+### Multilingual Labels & Synonyms (`lang=`)
 
 For locally-served ontologies the store keeps every language variant of every name and every synonym
 (captured at ingest, backfilled across the served catalog — see
@@ -3651,7 +3793,7 @@ curl -s -X POST 'http://localhost:9004/bioportal/integrated-search?lang=fr' \
 # -> professionnel / accident du travail / ergothérapie  (English by default)
 ```
 
-### Building the cross-snapshot search index
+### Building the Cross-Snapshot Search Index
 
 A corpus-wide term search — a query naming no ontology — is answered from one index rather than by
 opening every snapshot in the catalog. `SearchIndexJob` builds it, and the terminology server reads
@@ -3682,7 +3824,7 @@ search cannot be pinned — there is no one version to pin it to — so it searc
 and a pinned search names its sources and reads their snapshots. Full design in
 [The Search API](VERSIONING-ROADMAP.md#the-search-api).
 
-### Re-ingesting an ontology
+### Re-Ingesting an Ontology
 
 Ingest is `IngestJob <catalogPath> <snapshotDir> <ACRONYM>…`, `BIOPORTAL_API_KEY` in the env. OWLAPI
 4.5.9 resolves http imports via Apache HttpClient and parses with JAXB, neither of which it declares
@@ -3850,7 +3992,7 @@ browser-local AngularJS state remains origin-specific and cross-application retu
 the validated `returnTo` URL. Starting or stopping the frontend Compose project changes neither the
 backend containers nor stored CEDAR data.
 
-### Native staging payloads (no Docker)
+### Native Staging Payloads (No Docker)
 
 Staging follows the existing monolith deployment model. Publish the npm artifacts on the release
 host with the explicit command above, but deploy from approved Git commits on the staging host. The
