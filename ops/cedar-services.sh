@@ -280,6 +280,18 @@ listener_root() {
   esac
 }
 
+# A pid that has exited, or exited without being reaped, is the process we meant to stop seen one
+# snapshot later. `is_service_process` cannot recognise it: identity is read from the command line,
+# and an exiting process no longer has one. So ask about its state rather than its identity.
+process_exiting() {  # true when the pid is gone or is a zombie
+  local pid=$1 state
+  kill -0 "$pid" 2>/dev/null || return 0
+  state=$(ps -o stat= -p "$pid" 2>/dev/null | tr -d ' ')
+  [ -n "$state" ] || return 0
+  case "$state" in Z*) return 0 ;; esac
+  return 1
+}
+
 verified_listener_root() {
   local name=$1 owner=$2 root
   root=$(listener_root "$owner")
@@ -335,7 +347,21 @@ stop_auxiliary_processes() {
     if ! is_service_process "$name" "$owner"; then
       # lsof and ps are separate snapshots. The JVM may have exited between them after the
       # application-port stop, leaving an empty command or a zombie. A closed port needs no kill.
+      #
+      # Wait for it the way the matched path below does. The single snapshot this used to take was
+      # read before any wait, so a port closing a moment later was still reported as a refusal --
+      # and the refusal named the pid stopped one line earlier, described as "not the expected CEDAR
+      # process" while being exactly that process, already dead. That is noise on every stop, and
+      # noise on every stop is how a real refusal goes unread.
+      attempt=0
+      while port_open "$port" && process_exiting "$owner" && [ "$attempt" -lt 10 ]; do
+        sleep 0.2; attempt=$((attempt+1))
+      done
       port_open "$port" || continue
+      if process_exiting "$owner"; then
+        echo "  $name: auxiliary port $port owner pid $owner has exited; its port is closing."
+        continue
+      fi
       echo "  $name: REFUSED TO STOP auxiliary port $port owner pid $owner — it is not the expected CEDAR process: $(process_summary "$owner")" >&2
       result=1
       continue
