@@ -3971,6 +3971,21 @@ line. For release acceptance, make the required identity an assertion:
 CEDAR_EXPECT_CEE_VERSION=<CEE_VERSION> npm run smoke
 ```
 
+The Template Editor's Update Bubbling window has a suite of its own, because the guarantee it makes
+is only half backend. Propagation refuses a published target and fails the whole request, and the
+window has to say so before a tick is offered rather than after it is refused:
+
+```bash
+cd $CEDAR_HOME/cedar-development/ops/e2e
+npm run smoke:inclusion:bubbling
+```
+
+It builds one element reused by a published template and a draft one, edits the element through the
+real editor, and holds the window to three things: the published row cannot be ticked and reads as
+greyed rather than merely inert, a click on it never reaches the tree that gets posted, and the draft
+beside it still propagates. It then reads both templates back, so a pass means the change landed in
+exactly one of them. Fixtures are created and deleted by the run.
+
 The extracted Workspace and Template Designer also have a fast, credential-free contract smoke.
 It proves that both preview route shells and independent AngularJS bootstraps are being served, the
 Workspace carries its pinned CEE bundle, both applications agree on their navigation and Keycloak
