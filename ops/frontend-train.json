@@ -55,6 +55,35 @@
           "dependency": "@org.metadatacenter/cedar-design-tokens",
           "manifest": "package.json",
           "lock": "package-lock.json"
+        },
+        {
+          "repository": "cedar-monitoring",
+          "dependency": "@org.metadatacenter/cedar-design-tokens",
+          "manifest": "cedar-monitoring-src/package.json",
+          "lock": "cedar-monitoring-src/package-lock.json"
+        },
+        {
+          "repository": "cedar-bridging",
+          "dependency": "@org.metadatacenter/cedar-design-tokens",
+          "manifest": "cedar-bridging-src/package.json",
+          "lock": "cedar-bridging-src/package-lock.json"
+        },
+        {
+          "repository": "cedar-openview",
+          "dependency": "@org.metadatacenter/cedar-design-tokens",
+          "manifest": "cedar-openview-src/package.json",
+          "lock": "cedar-openview-src/package-lock.json"
+        },
+        {
+          "repository": "cedar-template-designer",
+          "dependency": "@org.metadatacenter/cedar-design-tokens",
+          "manifest": "package.json",
+          "lock": "package-lock.json",
+          "restageCommand": [
+            "npm",
+            "run",
+            "prepare:components"
+          ]
         }
       ]
     },

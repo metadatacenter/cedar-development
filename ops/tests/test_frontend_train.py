@@ -55,6 +55,22 @@ def commit(repository: Path, timestamp: str = "2026-08-25T22:04:26Z") -> str:
 
 
 class FrontendTrainTest(unittest.TestCase):
+    def test_shared_tokens_follow_every_modern_ui_consumer(self):
+        config = json.loads((Path(__file__).resolve().parents[1] / "frontend-train.json").read_text())
+        tokens = next(c for c in config['components'] if c['id'] == 'tokens')
+        consumers = {c['repository']: c for c in tokens['consumers']}
+        self.assertEqual(set(consumers), {
+            'cedar-embeddable-editor', 'cedar-embeddable-designer',
+            'cedar-embeddable-term-picker', 'cedar-workspace', 'cedar-openview',
+            'cedar-monitoring', 'cedar-bridging', 'cedar-template-designer',
+        })
+        for repo, consumer in consumers.items():
+            prefix = repo + '-src/' if repo in ('cedar-openview', 'cedar-monitoring', 'cedar-bridging') else ''
+            self.assertEqual(prefix + 'package.json', consumer['manifest'])
+            self.assertEqual(prefix + 'package-lock.json', consumer['lock'])
+        self.assertEqual(['npm', 'run', 'prepare:components'],
+                         consumers['cedar-template-designer']['restageCommand'])
+
     def test_build_commands_disable_angular_disk_cache_and_decode_signals(self):
         completed = subprocess.CompletedProcess([], -6)
         with patch.object(frontend_train.subprocess, "run", return_value=completed) as run:
