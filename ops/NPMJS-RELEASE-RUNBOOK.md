@@ -74,6 +74,16 @@ node --version                    # must print v24.19.0
 npm whoami                        # must print metadatacenter
 ```
 
+Trust the version the binary prints, not the path it came from. Homebrew's `node@NN` opt
+directories on this machine are symlinks into whichever single `node` keg is installed, so
+`node@25/bin/node` can report v26.
+
+`npm whoami` must answer `metadatacenter`. Two-factor authentication makes an interactive login
+awkward at publish time, so the working route is a granular access token from the
+`metadatacenter` account with read and write permission on all packages, placed in `~/.npmrc` as
+`//registry.npmjs.org/:_authToken=`. A token bypasses the OTP prompt that `npm publish` would
+otherwise raise.
+
 Keep npm credentials only in `~/.npmrc`. Never put a token, password, or OTP in a repository,
 command transcript, release note, or runbook. The repeated warnings about obsolete `always-auth`,
 `email`, and `init.author` keys do not change the package being built; clean them up separately,
@@ -106,8 +116,7 @@ is why `npm whoami` comes first.
 Skip this section when CEE will embed an already-published model version. A model release is not a
 required preamble to every CEE release.
 
-The repository's own [RELEASING.md](https://github.com/metadatacenter/cedar-model-typescript-library/blob/main/RELEASING.md)
-contains its package-specific history. The sequence below is the cross-repository operator view.
+This runbook is the whole procedure. The repository carries no release document of its own.
 
 ### Prepare on `develop`
 
@@ -161,6 +170,11 @@ npm run parity:json
 npm run test:package
 ```
 
+A YAML parity failure that shows the fixture quoted (`type: "text-field"`) against plain output
+(`type: text-field`) is a half-updated working tree, with `src/` from one branch and
+`itest/resources/` fixtures from another. Let the checkout or merge finish and run it again
+rather than reading it as a real failure.
+
 `test:package` builds `dist/`, packs it, installs it into an isolated consumer, and exercises its
 CommonJS, ESM, and TypeScript declaration entry points. It also copies the repository `README.md`
 into the distributable. Confirm the exact identity and README before committing:
@@ -180,7 +194,7 @@ interpreted as an unrelated registry package name by npm 11.
 Commit only the release preparation files, push `develop`, and open a pull request to `main`:
 
 ```bash
-git add package.json package-lock.json package-dist.json README.md RELEASING.md
+git add package.json package-lock.json package-dist.json README.md
 git commit -m "Prepare TypeScript model library release ${MODEL_VERSION}"
 git push origin develop
 export MODEL_PREP_COMMIT=$(git rev-parse HEAD)
