@@ -48,7 +48,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   recorded.
 
   The npm releases are the working example of route two and need nothing, but they are driven by an
-  operator who is already there for the twenty-five commands item 21 exists to remove. Automating
+  operator who is already there for the twenty-five commands item 20 exists to remove. Automating
   that route puts the identity question back.
 
   Prove whichever ruleset is chosen against one repository before it reaches all forty-five. Until
@@ -169,6 +169,14 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   messaging, monitor and worker suite. Production application accounts must have no
   `ALTER`, `CREATE`, `DROP` or `INDEX` grants; a separate migration identity holds DDL authority, so a
   configuration regression fails at startup rather than rebuilding a live table.
+
+  **Widen it past the relational schemas.** Mongo's unique `@id` indexes and Neo4j's index and
+  constraint declarations are the same kind of statement: something that has to be true of a store
+  before the code depending on it runs. Each is written down twice today, in a container's
+  first-boot script and in an admin-tool task a person runs, and neither copy is applied again once
+  a store is up, so a changed definition reaches no existing installation. `cedarcli check stores`
+  reports the artifact collections' indexes and the artifact server logs them at startup, which
+  makes a gap visible but leaves the definition in two places the release does not own.
 
   Introduce one versioned, forward-only migration mechanism for each CEDAR-owned relational schema.
   `dropwizard-migrations` sits on the Dropwizard line `cedar-parent` already manages. Baseline
@@ -773,43 +781,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   when both tiers run unattended on a cadence, their reports are retained, and a train dispatched
   through Actions is refused on the same evidence that refuses one dispatched from `cedarcli`.
 
-- **19. Let the artifact server own the uniqueness of `@id`.** No two documents in an artifact
-  collection may share an `@id`. The server relies on a unique index on that field to enforce it. A
-  create is a read that finds the identifier absent followed by an insert, and
-  `GenericLDDaoMongoDB.create` answers a duplicate-key rejection with the same 412 the update path
-  gives a stale writer. Nothing in the application creates that index. The Docker image's Mongo init
-  script does, and natively the admin tool's `artifactServer-initDB` task does, which `SystemReset`
-  runs as its second step, so a store that has been reset carries it and the development workstation's
-  does. Neither `cedarcli native start` nor the backend runbook names the task, so a native store
-  that never saw it has no index. There two concurrent creates of one identifier both succeed,
-  `findWithRevision` reads only the first, and a conditional delete removes one document and leaves
-  the other unreachable through the API. The embedded Mongo the server suites run against creates
-  no index either, so no suite exercises the rejection the DAO translates. The DAO test mocks it.
-
-  Ensure the four indexes at artifact-server startup, so the invariant stops depending on a step an
-  operator remembers. Creating an index that already exists with the same options is a no-op, so a
-  deployment whose collections were provisioned pays nothing, and only a store that was never
-  provisioned builds one on first boot. On the pinned Mongo 5.0 that build keeps the collection
-  readable and writable and takes seconds to a few minutes over 400,000 documents, once. Give
-  `EmbeddedCedarMongo` the same indexes, so the suites run against the constraint the store actually
-  has, and add a resource test that inserts the same identifier twice through the real store rather
-  than through a proxied service.
-
-  **This can take production down if it is done carelessly.** A unique index cannot be built over a
-  collection that already holds two documents with the same `@id`, and a store that ever ran without
-  the index may hold exactly that. If the startup ensure treats a failed build as fatal, the first
-  release carrying it turns a latent data defect into an artifact server that refuses to boot, and
-  every retry fails the same way. Two rules follow. The ensure never stops the server: a failed build
-  is logged at error and reported through the health check, and the server keeps serving as it does
-  today. And the production deploy runbook gains a preflight, run before the release that carries the
-  ensure, which lists the indexes each of the four collections holds and counts identifiers that occur
-  more than once. Production is expected to pass both, because `artifactServer-initDB` has provisioned
-  every CEDAR store since before 2019, but the expectation is verified, not assumed. Duplicates found
-  are repaired first, with `cedar_artifact_patch.py` or by hand, and only then can a build succeed.
-  Done when a fresh, unprovisioned Mongo refuses the second insert, the suites prove it, a store with
-  duplicates still boots and reports why its index is missing, and the runbook carries the preflight.
-
-- **20. Take the dependency upgrades that need code changes.** The versions that could move without
+- **19. Take the dependency upgrades that need code changes.** The versions that could move without
   consequence have moved. What stayed behind stayed deliberately, and it separates into work to do,
   versions that follow something else, and versions whose newest release is not a final.
 
@@ -893,7 +865,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Done when each upgrade above has either landed or been recorded as refused with its reason, and
   the estate no longer carries a dependency held back only because nobody looked at it.
 
-- **21. Give the public CEE release a CLI route.** Publishing `cedar-embeddable-editor` to npmjs is a
+- **20. Give the public CEE release a CLI route.** Publishing `cedar-embeddable-editor` to npmjs is a
   runbook of about twenty-five commands across `develop`, a pull request, `main`, the registry, a
   tag, the development-state restore and the train baseline refresh. Release 2.0.6 took an hour of
   operator attention for two minutes of gate time, and CEE has shipped four public versions in a
@@ -906,7 +878,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   the command exists, rewrite the npmjs runbook into a description of what it does and where it
   stops.
 
-- **22. Decide whether an attribute-value child keeps its declared property IRI.** Both model
+- **21. Decide whether an attribute-value child keeps its declared property IRI.** Both model
   libraries read such a child's property IRI out of a template's `@context` and then decline to write
   it back as JSON, so a read-and-write cycle over `template-022.json` loses
   `https://schema.metadatacenter.org/properties/d01cb533-265c-474a-95f3-9afb4616a6e1` from the
@@ -939,7 +911,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Whichever way it goes, the three children and their generated fixtures move with it, and the Java
   library's corpus verifier reports them stale until they are regenerated.
 
-- **23. Decide what an ordinary write may change about the artifact it stores.** Every non-verbatim
+- **22. Decide what an ordinary write may change about the artifact it stores.** Every non-verbatim
   write is normalized before it is validated, and two different things travel under that one name.
   One is minting: a child identifier, a property IRI for an attribute the author named, an element
   occurrence identifier, and the JSON Schema `title` and `description` derived from `schema:name`.
@@ -1000,7 +972,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
 
 ## Production Data
 
-- **24. Resolve the remaining production artifact defects and review semantic migrations.**
+- **23. Resolve the remaining production artifact defects and review semantic migrations.**
   Classify the remaining **731 invalid instances across 260 templates** in the reviewed residual
   (2026-09-17, after verified repairs) by their actual schema declarations,
   then repair only transformations whose meaning is established. A missing `@id` in a controlled-term
@@ -1173,7 +1145,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
 
 ## Later Decisions
 
-- **25. Enforce the request-body classification, and decide what an open body requires.**
+- **24. Enforce the request-body classification, and decide what an open body requires.**
   `cedarcli check openapi` reads `additionalProperties` only when deciding whether a schema counts
   as a stub, so nothing across the estate fails when a new request schema states neither that it is
   closed nor that it is open. Only the resource server asks, in its own contract test. Add the rule,
@@ -1194,7 +1166,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   subtree outside the named mappers. Sixteen more across the servers and shared libraries read
   responses or build output, where the tolerant mapper is what they want.
 
-- **26. Address artifacts by bare identifier in REST paths, keeping the full IRI as stored
+- **25. Address artifacts by bare identifier in REST paths, keeping the full IRI as stored
   identity.** **Production consequence:** an addressing migration rather than a data one. Stored
   identifiers in MongoDB, Neo4j and OpenSearch do not change, and no reindex is required, but
   clients that build URLs in the current form need the legacy shape kept as an alias until traffic
@@ -1226,7 +1198,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Done when every resource-specific route takes the bare identifier, one parser owns the
   reconstruction, and staging's per-artifact blocks are gone.
 
-- **27. Decide what each compatibility adapter is for, now that neither reads artifacts itself.**
+- **26. Decide what each compatibility adapter is for, now that neither reads artifacts itself.**
   Repo and OpenView exist to preserve URLs rather than to do work: the runbook's account of artifact
   route ownership gives repo the identifier dereferencing URLs and OpenView the anonymous
   presentation and open-artifact URLs, and says neither adapter should own artifact storage or an
@@ -1264,14 +1236,14 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   outage producing a successful read. That comparison is what proving routing compatibility means,
   and no adapter should be reduced before it passes on the deployed topology.
 
-  Item 26 settles a different question about the same two services — which path shape a route takes —
+  Item 25 settles a different question about the same two services — which path shape a route takes —
   and the two interact: retiring repo's routes would retire the bare-identifier convention that item
   26 proposes to generalize, so whichever is decided first constrains the other.
 
   Done when each of the two hosts has a stated role, an owner, and either a current caller that needs
   the process or a routing arrangement that keeps its URLs resolving without one.
 
-- **28. Revisit controlled-term result actions: define scalable semantics, narrow them, or delete
+- **27. Revisit controlled-term result actions: define scalable semantics, narrow them, or delete
   them.** Exclusion and `move` actions are stored beside a field's complete constraint set and apply
   to the result after all ontology, branch, class and value-set constraints have been combined. They
   are not customizations of one constraint row. Before the picker exposes authoring controls, state
