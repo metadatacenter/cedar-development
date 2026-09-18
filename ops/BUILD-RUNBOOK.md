@@ -90,6 +90,11 @@ configuration, the lock baselines, uncommitted work, the component comparisons, 
 — and settles in a few seconds. The remote phase asks GitHub once per source repository, reads the
 smoke record, and probes Nexus, npm and the Docker registry, which takes about a minute and a half.
 
+The local phase also packs every published npm surface from a clean archive of its commit, the way
+the train's last npm stage packs it. npm runs a package's `prepack` during that pack, so a prepack
+that reads `node_modules` cannot succeed there however green the repository is locally — and the
+train would otherwise meet it twenty minutes in, at a stage a resume cannot pass.
+
 Within a phase every check runs even after one has refused, so a rehearsal reports every finding it
 can reach, each stale lock baseline and each red repository among them, rather than the first one
 met. The remote phase does not run at all once the local one has refused, and the report says so:

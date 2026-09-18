@@ -18,9 +18,36 @@ source state, so the release takes its exact commits, stamps versions onto them,
 what it publishes matches what the train built. Creating a train is covered in
 [BUILD-RUNBOOK.md](./BUILD-RUNBOOK.md).
 
-The route begins with one read-only plan and four explicit inputs. Nothing is inferred from the
-train identifier and no manifest path is accepted. The CLI owns the immutable manifest under
-`~/.cedar/train-releases/`.
+### Ask What the Workspace Can Answer First
+
+`plan` needs a completed train, so every check it makes that only reads the workspace is
+unreachable until one has been built. That order is expensive in one direction: repairing what
+those checks find spends the train, because a release stamps the exact commits its train
+captured, and the commit that fixes a consumer inventory or a packaging script is a commit to a
+captured repository.
+
+Run them before building anything:
+
+```bash
+cedarcli release readiness --version <VER> --next-version <NEXT>
+```
+
+It settles the consumer inventories against the checkouts, the required Maven artifacts against
+the modules that build them, the published npm surfaces against the manifests the release packs,
+and the version arithmetic against the version the workspace is actually on. It also packs each
+published surface from a clean archive of its commit, which is how the publisher packs it — a
+`prepack` that reads `node_modules` cannot succeed there, and the train otherwise learns that at
+its last npm stage. The versions are optional; without them the rest still runs, and
+`--skip-packaging` omits the slowest check. About ten seconds.
+
+What remains for `plan` is what genuinely needs the built train: the tarball inventories, the
+registry digests, and the byte proof between the train's CEE and the public package.
+
+### The Plan
+
+The route proper begins with one read-only plan and four explicit inputs. Nothing is inferred
+from the train identifier and no manifest path is accepted. The CLI owns the immutable manifest
+under `~/.cedar/train-releases/`.
 
 ```bash
 cedarcli release plan \
