@@ -5,8 +5,8 @@ test and ops tooling. Items live here when they span repositories or when the fi
 shared library rather than to one server.
 
 For how to run and build the system see [BACKEND-RUNBOOK.md](./BACKEND-RUNBOOK.md), whose "Dependency and Framework
-State" section records what the stack currently sits on. Library-internal items belong in that
-library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact-library/ROADMAP.md).
+State" section records what the stack currently sits on. A shared library's internal items are
+here as well, rather than in that library's own repository.
 Work on the main browser applications is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md), work on
 the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), and work on the MCP servers is in
 [MCP-ROADMAP.md](./MCP-ROADMAP.md).
@@ -970,9 +970,71 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   check or an explicit decision to do so, and an author editing a template is told what it does to
   the instances that already exist.
 
+### Shared Libraries
+
+- **23. Render a sparse instance to JSON against its template.** A CEDAR JSON instance must carry
+  an entry for every field its template defines, unset ones included, because the template's JSON
+  Schema marks those properties `required`; an unset literal renders as `{"@value": null}` and an
+  unset IRI as `{}`. The YAML instance form is the opposite, and correct as it stands — it omits an
+  unset field entirely. Rendering a sparse instance model to JSON therefore produces an incomplete
+  JSON instance, and a YAML-to-JSON translation that is to produce a valid one must re-add the
+  empty placeholders, which takes the template, since only it says which fields exist. The
+  asymmetry is an old model decision the group is not fond of, and it stays until the next model
+  iteration.
+
+  `cedar-artifact-library` already has the template-driven traversal in `InstanceInflater` and
+  `EmptyFieldInstances`, recursive elements included, and MCP callers compose it with rendering
+  themselves. What is missing is the rendering API that does both, such as
+  `renderTemplateInstanceArtifact(template, sparseInstance)`. The existing one-argument renderer
+  cannot inflate, because an instance alone does not carry the schema that says which fields are
+  absent.
+
+  Done when a YAML-to-JSON caller renders a valid CEDAR instance through one call, and no caller
+  composes inflation and rendering by hand.
+
+- **24. Take the parse-library tree type out of the public reader and renderer API.** This is a
+  major-version change. `JsonArtifactReader` and `JsonArtifactRenderer` take and return Jackson's
+  `ObjectNode`, and `YamlArtifactReader` and `YamlArtifactRenderer` take and return JDK
+  `LinkedHashMap<String, Object>` trees, so the tree representation is part of the public contract
+  and leaks even into the shared `ArtifactReader<N>` type parameter. A caller must obtain or build
+  one of those trees before it can call the library at all.
+
+  Move the boundary to the wire format itself. `readTemplate(String)` and
+  `renderTemplate(artifact)` returning `String`, with the element, field and instance
+  counterparts, parse and serialize internally. That hides both parse libraries, gives JSON and
+  YAML one symmetric `read(String)` and `render(Artifact)` contract, and matches what callers
+  actually hold, which is text from a file or an HTTP body. The internals do not change: the
+  String methods prepend a parse and append a serialize. A bespoke `JsonNode`-style abstraction
+  interface would trade one library coupling for a hand-rolled tree API plus adapters that callers
+  must still populate, so it is not the answer.
+
+  Migrate additively. Add the String methods, mark the node-typed ones
+  `@Deprecated(forRemoval = true)` delegating to them, and remove those at the next major version.
+  Two cleanups fall out: the keyed, tree-returning render overloads such as
+  `renderElementSchemaArtifact(key, artifact)` are internal child-composition helpers and can
+  become package-private, and the `ArtifactReader<N>` type parameter disappears. A caller that
+  wants the rendered artifact as a tree, to embed in a larger document or to validate it without
+  re-parsing, loses direct access. If that need proves real, keep one explicitly
+  parse-library-typed opt-in method, so the coupling exists only where it is consciously chosen.
+
+- **25. Translate between an instance and RDF.** The model is designed so an instance maps to RDF:
+  the schema's `instanceType` gives each instance or element its `rdf:type`, each child's
+  `propertyIri` gives the predicate, the instance `id` is the subject, and field values are the
+  objects, a controlled term or link contributing its IRI and a literal contributing a plain or
+  typed literal. The library implements neither direction. Its renderers are JSON, JSON-LD
+  `@context`, JSON Schema, YAML, Excel and UBKG, and none produces a triple graph.
+
+  The JSON instance form is already JSON-LD, carrying `@context`, `@type` and `@id`, so an
+  external JSON-LD processor can serialize it as RDF. A model-level translator would drop that
+  dependency and, more to the point, work from the sparse YAML instance form, which relies on its
+  template for the predicates and types the instance itself does not carry. Add a template-driven
+  RDF renderer taking an instance model and its template and, if round-tripping is wanted, an RDF
+  reader taking RDF and a template. The "Mapping to RDF" section of the CEDAR YAML specification
+  documents the intended mapping.
+
 ## Production Data
 
-- **23. Resolve the remaining production artifact defects and review semantic migrations.**
+- **26. Resolve the remaining production artifact defects and review semantic migrations.**
   Classify the remaining **731 invalid instances across 260 templates** in the reviewed residual
   (2026-09-17, after verified repairs) by their actual schema declarations,
   then repair only transformations whose meaning is established. A missing `@id` in a controlled-term
@@ -1145,7 +1207,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
 
 ## Later Decisions
 
-- **24. Enforce the request-body classification, and decide what an open body requires.**
+- **27. Enforce the request-body classification, and decide what an open body requires.**
   `cedarcli check openapi` reads `additionalProperties` only when deciding whether a schema counts
   as a stub, so nothing across the estate fails when a new request schema states neither that it is
   closed nor that it is open. Only the resource server asks, in its own contract test. Add the rule,
@@ -1166,7 +1228,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   subtree outside the named mappers. Sixteen more across the servers and shared libraries read
   responses or build output, where the tolerant mapper is what they want.
 
-- **25. Address artifacts by bare identifier in REST paths, keeping the full IRI as stored
+- **28. Address artifacts by bare identifier in REST paths, keeping the full IRI as stored
   identity.** **Production consequence:** an addressing migration rather than a data one. Stored
   identifiers in MongoDB, Neo4j and OpenSearch do not change, and no reindex is required, but
   clients that build URLs in the current form need the legacy shape kept as an alias until traffic
@@ -1198,7 +1260,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Done when every resource-specific route takes the bare identifier, one parser owns the
   reconstruction, and staging's per-artifact blocks are gone.
 
-- **26. Decide what each compatibility adapter is for, now that neither reads artifacts itself.**
+- **29. Decide what each compatibility adapter is for, now that neither reads artifacts itself.**
   Repo and OpenView exist to preserve URLs rather than to do work: the runbook's account of artifact
   route ownership gives repo the identifier dereferencing URLs and OpenView the anonymous
   presentation and open-artifact URLs, and says neither adapter should own artifact storage or an
@@ -1243,7 +1305,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Done when each of the two hosts has a stated role, an owner, and either a current caller that needs
   the process or a routing arrangement that keeps its URLs resolving without one.
 
-- **27. Revisit controlled-term result actions: define scalable semantics, narrow them, or delete
+- **30. Revisit controlled-term result actions: define scalable semantics, narrow them, or delete
   them.** Exclusion and `move` actions are stored beside a field's complete constraint set and apply
   to the result after all ontology, branch, class and value-set constraints have been combined. They
   are not customizations of one constraint row. Before the picker exposes authoring controls, state
