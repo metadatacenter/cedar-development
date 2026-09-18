@@ -8,6 +8,7 @@ import { pathToFileURL } from 'node:url';
 const TARGETS = Object.freeze({
   workspace: { application: 'cedar-workspace', directory: 'cedar-workspace' },
   designer: { application: 'cedar-template-designer', directory: 'cedar-template-designer' },
+  editor: { application: 'cedar-template-editor', directory: 'cedar-template-editor' },
 });
 
 function sha256(value) {
