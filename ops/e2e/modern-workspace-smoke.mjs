@@ -692,7 +692,7 @@ try {
     .waitFor();
   page.removeAllListeners("dialog");
   page.once("dialog", (dialog) => dialog.dismiss());
-  await page.getByRole("button", { name: "← Workspace", exact: true }).click();
+  await page.getByRole("button", { name: "Workspace", exact: true }).click();
   assert.equal(page.url(), metadataUrl);
   page.on("dialog", (dialog) => dialog.accept());
   await cee.getByLabel("Notes", { exact: false }).first().fill("Updated notes");
@@ -700,7 +700,7 @@ try {
     .locator(".metadata-toolbar [role=status]")
     .filter({ hasText: /^Saved$/ })
     .waitFor();
-  await page.getByRole("button", { name: "← Workspace", exact: true }).click();
+  await page.getByRole("button", { name: "Workspace", exact: true }).click();
   await ready(page);
   pass(
     "CEE host loads no AngularJS, saves without remounting, guards navigation and recognizes exact reverts",

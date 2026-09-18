@@ -2639,9 +2639,20 @@ Error text and borders use `color-error` (#b42318), advisory text uses
 `color-warning`, and advisory backgrounds use `surface-advisory`. The old Material
 `color-warn` remains exported for compatibility. The shared `fonts` Sass export
 contains 21 embedded font faces and no selectors or external font requests.
-Font registrars import it outside shadow DOM; CEE separately retains its Material
-icon font. Sharing the source preserves self-contained bundles rather than
-introducing a runtime font download.
+Font registrars import it outside shadow DOM. Sharing the source preserves
+self-contained bundles rather than introducing a runtime font download.
+
+Modern Workspace, CEE/CEF, CED/CEFD and CETP use the tokens package's `icons`
+export: curated Lucide SVGs behind CEDAR semantic names, shared 16/20/24px sizes
+and a 2-unit stroke. Thin Angular adapters render that registry; CEE uses a
+`cedarIcon` directive on Material hosts and no longer ships an icon font.
+Icon-only controls retain accessible names while SVGs are decorative.
+Brand assets and authored content are separate. The legacy AngularJS shells
+are excluded. `cedarcli check design-tokens --strict` also rejects local icon
+geometry, icon-font markup and unknown static names; icon findings cannot be
+waived with baseline allowances. Consumer unit tests exercise the registry
+adapters, browser tests check meanings and dimensions, and CEE/CED screenshot
+baselines use their pinned Linux ARM containers with zero pixel tolerance.
 
 Interface typography uses regular 400 and medium 500, with a 12px minimum for
 small labels and count badges. OpenView retains a distinct 34px artifact title.
