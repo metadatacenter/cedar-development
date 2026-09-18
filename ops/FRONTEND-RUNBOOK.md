@@ -2661,7 +2661,7 @@ system monospace stack. New CSS roles use fallback values so older pinned token
 packages remain buildable; advance pins after publishing a new immutable snapshot.
 
 CEE's production build also emits `cedar-embeddable-editor.host-fonts.js` and
-`bundle-manifest.host-fonts.json`. This entry point retains Material Icons and
+`bundle-manifest.host-fonts.json`. This entry point uses the shared Lucide registry and
 expects the host to register `CEE Roboto` 400/500 globally. The default bundle
 continues to embed its fonts for standalone CEE/CEF use. Workspace copies and
 selects the host-font variant when its installed CEE package includes it, falling
@@ -2677,6 +2677,23 @@ accepted configuration to terminology and embedded CEF. Malformed non-object
 configurations do not consume the first assignment. CEE/CEF's existing direct-host
 contract still requires trailing slashes; the designer coordinator supplies them.
 Read-only and document lifecycle contracts remain component-specific.
+
+#### Shared interaction and layout roles
+
+The tokens package also owns keyboard focus geometry, enabled hover/pressed and
+disabled states, paired semantic status colors, dialog/menu surfaces, form rhythm,
+table density, motion durations and overlay layers. Use its opt-in Sass recipes
+through thin adapters; keep component behavior, host override contracts and unique
+layout local. Semantic status text/surface pairs have automated contrast checks.
+Default table rows accommodate 36px controls with 8px vertical gutters; authoring
+rows accommodate 32px controls with 4px gutters. Row heights can grow for content.
+
+Include the shared reduced-motion recipe once per document or shadow root.
+JavaScript-driven animation must honor the preference separately. Layer roles
+are ordered within the host stacking context; they do not supersede native dialog
+top layers. CED browser checks exercise menu/modal layers and both motion modes.
+The read-only live `ops/e2e` command `npm run smoke:ui-unification` checks Groups
+keyboard focus and disabled, hover and pressed states against the served Workspace.
 
 #### Local Verification of Unpublished Token Changes
 
@@ -2710,7 +2727,8 @@ its tests exercise.
 
 #### Monitoring token adoption
 
-Run `cedarcli check design-tokens` for the three embeddable component repositories (CEE/CEF, CED/CEFD and CETP),
+Run `cedarcli check design-tokens` for Workspace, CEE/CEF, CED/CEFD, CETP,
+OpenView, Monitoring, Bridging and the Template Designer host,
 `--strict` to gate new color/typography drift, `--json` for an archived report,
 and `--repo <name> --prune-baseline` after removing existing findings. Spacing and
 geometry are advisory. The version comparison is against the local token package,
@@ -2730,7 +2748,8 @@ node browser/serve.mjs
 ```
 
 Open `http://localhost:4598/style-comparison.html`. It renders all four real
-components and supports compact/authoring entry density, narrow hosts, inherited
+components, displays the shared semantic status pairs, and supports
+compact/authoring entry density, narrow hosts, inherited
 overrides and the supported read-only modes. Use keyboard focus and invalid
 field values to inspect those states. The page shows a missing-bundle message
 instead of substituting mock components. Its browser test joins the existing
