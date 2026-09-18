@@ -569,8 +569,31 @@ start_one() {
       local dir; dir=$(fe_dir "$name")
       [ -d "$dir" ] || { echo "  $name: SRC MISSING ($dir) — skip"; return 1; }
       if deps_stale "$name"; then
-        echo "  $name: node_modules is older than package-lock.json — run (cd $dir && npm ci)"
-        return 1
+        # The condition is exact and its repair is the same command every time, so the start can
+        # carry it out rather than hand it back. A release rewrites every frontend lockfile at
+        # once, and refusing seven starts in a row for seven identical reasons leaves the
+        # operator running the same command seven times to learn nothing.
+        #
+        # Still opt-in: `npm ci` deletes node_modules and reinstalls it, which takes minutes per
+        # checkout, and a start is not where somebody expects to wait for that unless they asked.
+        if [ "${CEDAR_REFRESH_STALE_DEPENDENCIES:-}" = 1 ]; then
+          echo "  $name: installing the dependencies its moved lockfile left behind"
+          : > "$log"
+          # CEDAR_HOME is unset for the install: a checkout that resolves a sibling through it
+          # picks up the workspace clone rather than its own dependency.
+          if ! (cd "$dir" && env -u CEDAR_HOME npm ci --no-audit --no-fund >> "$log" 2>&1); then
+            echo "  $name: REFUSED TO START — npm ci failed; see $log" >&2
+            return 1
+          fi
+          if deps_stale "$name"; then
+            echo "  $name: REFUSED TO START — npm ci left node_modules older than the lockfile" >&2
+            return 1
+          fi
+        else
+          echo "  $name: node_modules is older than package-lock.json — start again with" \
+               "--refresh-dependencies, or run (cd $dir && npm ci)"
+          return 1
+        fi
       fi ;;
     *)
       local jar; jar=$(jar_of "$name")

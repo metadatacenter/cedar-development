@@ -583,6 +583,21 @@ matters when an ordinary frontend build ran `npm ci` while the old development s
 server may otherwise persist a module graph observed while `node_modules` was being replaced, then
 reuse the invalid graph after a restart even though the completed lock install builds correctly.
 
+A start refuses a frontend whose `node_modules` predates its `package-lock.json`, because that
+checkout launches with an error naming a missing builder rather than npm, after which the launcher
+waits out its whole readiness budget for a process that died at once. `--refresh-dependencies`
+installs past it instead of handing the command back:
+
+```bash
+cedarcli native start --refresh-dependencies frontends
+cedarcli native restart --refresh-dependencies all
+```
+
+It stays opt-in because `npm ci` reinstalls each checkout from scratch, which takes minutes, and a
+start is not where anyone expects to wait for that unless they asked. Reach for it after a release:
+a release rewrites every frontend lockfile at once, so all seven refuse together, and the reactor
+build that precedes the restart installs into an isolated workspace rather than the checkouts.
+
 ```bash
 cedarcli native start all             # infra + microservices + frontends
 cedarcli native start infra           # or: backends, microservices, frontends
