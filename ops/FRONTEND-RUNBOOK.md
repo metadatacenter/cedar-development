@@ -2693,7 +2693,16 @@ JavaScript-driven animation must honor the preference separately. Layer roles
 are ordered within the host stacking context; they do not supersede native dialog
 top layers. CED browser checks exercise menu/modal layers and both motion modes.
 The read-only live `ops/e2e` command `npm run smoke:ui-unification` checks Groups
-keyboard focus and disabled, hover and pressed states against the served Workspace.
+keyboard focus and disabled, hover and pressed states, plus the CEE-derived white
+surfaces and title roles across Workspace, account pages and resource dialogs at
+desktop and phone widths. `CEDAR_UI_SCREENSHOTS=/tmp/cedar-ui` saves review captures.
+The full `npm run smoke:workspace:modern` journey also checks editable and read-only
+Permissions dialogs, including visible role/ownership controls on phones; it accepts
+the same screenshot directory. These live checks need the authenticated local stack.
+CETP's `npm run test:visual` compares two zero-tolerance desktop/phone baselines in
+Playwright 1.63.0's ARM Linux container, matching its CI runner. Build first; update
+with `npm run test:visual -- --update-snapshots` only after reviewing the render.
+CEE's existing read-only and editable visual baselines remain the design reference.
 
 #### Local Verification of Unpublished Token Changes
 

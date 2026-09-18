@@ -190,6 +190,25 @@ async function editorSave(p, method, collection, status = 200) {
   await ready(p);
   return data;
 }
+async function permissionAppearance(p, name) {
+  const heading = modal(p).locator('h2');
+  assert.equal(await heading.evaluate(e => getComputedStyle(e).color), 'rgb(23, 63, 62)');
+  assert.equal(await modal(p).evaluate(e => getComputedStyle(e).backgroundColor), 'rgb(255, 255, 255)');
+  const previous = p.viewportSize();
+  for (const width of [1440, 375]) {
+    await p.setViewportSize({width, height: 950});
+    const bounds = await modal(p).boundingBox();
+    assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= width, 'permissions stays within viewport');
+    assert.equal(await modal(p).locator('.access-list').evaluate(e => e.scrollWidth <= e.clientWidth), true, 'permission controls require no horizontal scrolling');
+    const done = await modal(p).getByRole('button', {name: 'Done', exact: true}).boundingBox();
+    assert.ok(done.y + done.height <= 950, 'Done stays reachable on narrow screens');
+    if (process.env.CEDAR_UI_SCREENSHOTS) {
+      await mkdir(process.env.CEDAR_UI_SCREENSHOTS, {recursive: true});
+      await p.screenshot({path: `${process.env.CEDAR_UI_SCREENSHOTS}/permissions-${name}-${width}.png`});
+    }
+  }
+  await p.setViewportSize(previous);
+}
 async function permissionDone(p) {
   await modal(p).getByRole("button", { name: "Done", exact: true }).click();
   await modal(p).waitFor({ state: "hidden" });
@@ -507,6 +526,7 @@ try {
       .isDisabled(),
     true,
   );
+  await permissionAppearance(reader, "readonly");
   await permissionDone(reader);
   await grant(page, "editor");
   await reader.reload();
@@ -526,6 +546,8 @@ try {
   await permissionDone(reader);
   await listed(page, names.template);
   await menu(page, names.template, "Permissions…");
+  await modal(page).getByRole("heading", {name: "Access on this resource", exact: true}).waitFor();
+  await permissionAppearance(page, "editable");
   // Special groups remain Viewer-only and cannot be made owners.
   await modal(page)
     .getByRole("combobox", { name: "User or group", exact: true })
