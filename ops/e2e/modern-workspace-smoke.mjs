@@ -194,6 +194,9 @@ async function permissionAppearance(p, name) {
   const heading = modal(p).locator('h2');
   assert.equal(await heading.evaluate(e => getComputedStyle(e).color), 'rgb(23, 63, 62)');
   assert.equal(await modal(p).evaluate(e => getComputedStyle(e).backgroundColor), 'rgb(255, 255, 255)');
+  if (name === 'readonly') {
+    assert.equal(await modal(p).locator('select.readonly-role').first().evaluate(e => getComputedStyle(e).opacity), '1', 'read-only values remain legible rather than appearing unavailable');
+  }
   const previous = p.viewportSize();
   for (const width of [1440, 375]) {
     await p.setViewportSize({width, height: 950});
