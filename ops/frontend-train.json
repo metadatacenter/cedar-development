@@ -127,6 +127,12 @@
           "dependency": "cedar-model-typescript-library",
           "manifest": "package.json",
           "lock": "package-lock.json"
+        },
+        {
+          "repository": "cedar-model-typescript-library-demo",
+          "dependency": "cedar-model-typescript-library",
+          "manifest": "package.json",
+          "lock": "package-lock.json"
         }
       ]
     }
@@ -167,10 +173,19 @@
       "preparedBuild": {
         "directory": ".",
         "commands": [
-          ["npm", "ci"],
-          ["npm", "run", "prepare:components"]
+          [
+            "npm",
+            "ci"
+          ],
+          [
+            "npm",
+            "run",
+            "prepare:components"
+          ]
         ],
-        "overlayPaths": ["app/components"]
+        "overlayPaths": [
+          "app/components"
+        ]
       }
     },
     {
@@ -252,7 +267,7 @@
       "repository": "cedar-model-typescript-library-demo",
       "lock": "package-lock.json",
       "strictInstallScripts": true,
-      "sha256": "0e851d4e9ab5886e3393d6f9d39618d8228e0458c757c5ebf0fe2c266afb2644",
+      "sha256": "e737b4450990ace1b79bd83cacdf52d5936608f0c6710dbcdad836c7ed48f01e",
       "vulnerabilities": {
         "low": 0,
         "moderate": 0,
