@@ -1370,6 +1370,75 @@ generated that piece, and it is left as sent. A verbatim write stores the pair a
 everything else in the document, and what is already stored keeps a stale pair until something
 rewrites it.
 
+### One Document per Identifier, Which the Store Enforces
+
+No two documents in an artifact collection may share an `@id`, and every artifact operation
+addresses its document by that field: the DAO reads with `find(eq("@id", id))`, replaces with that
+filter plus a revision, and deletes the same way. Both properties rest on a unique index on `@id` in
+each of the four collections — `templates`, `template-elements`, `template-fields` and
+`template-instances`. The server does not create it, and until it exists the server has no way to
+hold the invariant: a create is a read that finds the identifier absent followed by an insert, so two
+concurrent creates of one identifier both succeed, a read returns the first document, and a
+conditional delete removes one and leaves the other unreachable through the API. Lookups pay for it
+as well, because an unindexed collection answers each one with a full scan.
+
+Two provisioning paths create the index, and each applies once. Natively the admin tool's
+`artifactServer-initDB` task does, which `SystemReset` also runs after wiping a store. In Docker the
+Mongo image's `create-indices.js` does, on a container's first boot against an empty state volume,
+after which the image writes `cedar-mongo-init.done` and consults that flag forever. So a definition
+changed in either place reaches no installation that is already up, and a store created outside both
+paths — installed by hand, or filled by copying documents, which carry no indexes with them — has
+no index at all.
+
+Ask any store which it carries:
+
+```bash
+cedarcli check stores
+```
+
+It reads index metadata through whichever Mongo shell the host has, prints a row per collection, and
+exits non-zero when one lacks the index. It creates nothing. On a host without the CLI:
+
+```bash
+mongosh "mongodb://$CEDAR_MONGO_APP_USER_NAME:$CEDAR_MONGO_APP_USER_PASSWORD@$CEDAR_MONGO_HOST:$CEDAR_MONGO_PORT/cedar" --quiet --eval 'for (const n of ["templates","template-elements","template-fields","template-instances"]) { const u = db[n].getIndexes().filter(i => i.key["@id"] && i.unique); print(n, u.length ? "unique index present" : "NO UNIQUE INDEX"); }'
+```
+
+**Provisioning a store that has none is two steps, in order.** Count repeated identifiers first,
+because a unique build over a collection that already holds one fails:
+
+```bash
+mongosh "mongodb://$CEDAR_MONGO_APP_USER_NAME:$CEDAR_MONGO_APP_USER_PASSWORD@$CEDAR_MONGO_HOST:$CEDAR_MONGO_PORT/cedar" --quiet --eval 'for (const n of ["templates","template-elements","template-fields","template-instances"]) { const r = db[n].aggregate([{$group:{_id:"$@id",c:{$sum:1}}},{$match:{c:{$gt:1}}},{$group:{_id:null,ids:{$sum:1},docs:{$sum:"$c"}}}],{allowDiskUse:true}).toArray(); print(n, r.length ? r[0].ids + " duplicated ids across " + r[0].docs + " documents" : "no duplicates"); }'
+```
+
+Two documents sharing an identifier are two different artifacts sharing an address, so which one
+survives is the owner's decision rather than a repair. With a clean count, build the index:
+
+```bash
+mongosh "mongodb://$CEDAR_MONGO_APP_USER_NAME:$CEDAR_MONGO_APP_USER_PASSWORD@$CEDAR_MONGO_HOST:$CEDAR_MONGO_PORT/cedar" --quiet --eval 'for (const n of ["templates","template-elements","template-fields","template-instances"]) { print(n, db[n].createIndex({"@id":1},{unique:true})); }'
+```
+
+On the pinned Mongo 5.0 the build runs online, taking an exclusive lock only briefly at each end, and
+a collection of 150,000 small documents takes seconds. `createIndex` returns the index name on
+success and raises on a duplicate-key violation, so its output is the proof.
+
+**What the server says about it.** The artifact server reads the four collections' indexes once at
+startup and logs the result — `INFO` when every collection carries one, `ERROR` naming the
+collections when not — and publishes the same reading as the `artifactIdIndex` health check. The
+probe is bounded off the startup thread, so a slow or unreachable store leaves the server starting
+normally, and it creates nothing: building an index is a provisioning decision with a failure mode of
+its own, and a server that refused to boot over it would turn a latent data defect into an outage.
+The health check stays **green** on a missing index and carries the detail, because a missing index is
+a provisioning gap rather than a sick process; failing it would stop `cedarcli native health`, and
+with it the smoke gate, on a workstation whose store was never provisioned.
+
+**Current state.** Production was measured on 2026-09-18 carrying only the default `_id_` index on
+all four collections, having run that way for years: an instance lookup examined all 150,583
+documents and took 229 ms, and the store enforced no uniqueness. A duplicate count came back clean
+and the four unique indexes were built the same day, after which the same lookup is an `IXSCAN`
+examining 0 documents in 1 ms. Staging carries them and always did. The embedded MongoDB the server
+suites run against creates them too, so a suite runs against the constraint the deployed stores
+enforce.
+
 ## Patching Stored Artifacts: `ops/cedar_artifact_patch.py`
 
 The rules above govern what the server accepts from now on. They say nothing about what a store

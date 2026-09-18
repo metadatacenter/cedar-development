@@ -198,6 +198,11 @@ cedarcli native health
 - Verify an authenticated workspace read/save and a repo identifier URL. On staging, exercise the
   bridge DOI workflow against its test destination and a worker indexing job. These callers must
   continue to work after artifact starts enforcing its key.
+- Run `cedarcli check stores`. Every artifact collection must carry a unique `@id` index: without
+  one the store enforces no uniqueness and answers each lookup by identifier with a collection
+  scan. A store that has none is provisioned by counting repeated identifiers and then building the
+  index, in that order, as the backend runbook sets out; do not build one from a deploy step,
+  because a unique build over a collection already holding a repeated identifier fails.
 - Open the monitoring application's **Counts** page as a monitor-authorized user. All four Mongo
   totals must appear alongside Neo4j, OpenSearch and Keycloak. The totals are actual document-store
   counts; differences from graph/search counts are diagnostic information, not automatically errors.
