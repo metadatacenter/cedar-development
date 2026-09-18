@@ -101,6 +101,23 @@ async function openApplication(page, app) {
     ok(`${app.name} draws its header`);
   }
 
+  const icons = await page.locator('mat-icon').evaluateAll(elements => elements.map(element => {
+    const svg = element.querySelector('svg');
+    const box = element.getBoundingClientRect();
+    return {shared: element.classList.contains('cedar-icon'), svg: !!svg,
+      viewBox: svg?.getAttribute('viewBox'), stroke: svg?.getAttribute('stroke-width'),
+      width: box.width, height: box.height, text: element.textContent.trim()};
+  }));
+  if (!icons.length || icons.some(icon => !icon.shared || !icon.svg || icon.text ||
+      icon.viewBox !== '0 0 24 24' || icon.stroke !== '2' || icon.width !== icon.height)) {
+    fail(`${app.name}: icons must render shared, square SVGs without font ligatures`);
+  } else {
+    ok(`${app.name} renders ${icons.length} shared SVG icons`);
+  }
+  if (process.env.CEDAR_ICON_SCREENSHOTS) {
+    await page.screenshot({path: `${process.env.CEDAR_ICON_SCREENSHOTS}/${app.name.toLowerCase()}-icons.png`, fullPage: true});
+  }
+
   if (app.customElement) {
     const registered = await page.evaluate(
       name => !!customElements.get(name), app.customElement);
