@@ -41,7 +41,8 @@
     "smoke:workspace:modern:full": "npm run smoke:workspace:modern && npm run smoke:ced-host && npm run smoke:account:all && npm run smoke:workspace:lifecycle",
     "smoke:account": "node account-pages-smoke.mjs",
     "smoke:account:all": "npm run smoke:account -- profile && npm run smoke:account -- settings && npm run smoke:account -- groups && npm run smoke:account -- privacy",
-    "smoke:workspace:lifecycle": "node workspace-lifecycle-smoke.mjs all"
+    "smoke:workspace:lifecycle": "node workspace-lifecycle-smoke.mjs all",
+    "smoke:ui-unification": "node ui-unification-smoke.mjs"
   },
   "dependencies": {
     "playwright": "^1.48.0"
