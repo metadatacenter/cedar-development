@@ -127,12 +127,6 @@
           "dependency": "cedar-model-typescript-library",
           "manifest": "package.json",
           "lock": "package-lock.json"
-        },
-        {
-          "repository": "cedar-model-typescript-library-demo",
-          "dependency": "cedar-model-typescript-library",
-          "manifest": "package.json",
-          "lock": "package-lock.json"
         }
       ]
     }
@@ -263,18 +257,6 @@
     }
   ],
   "auditBaselines": [
-    {
-      "repository": "cedar-model-typescript-library-demo",
-      "lock": "package-lock.json",
-      "strictInstallScripts": true,
-      "sha256": "008afac2c27b35c53c397e86c1ca9787e7df1e6189876b3f3bd86b48a9fc5aaa",
-      "vulnerabilities": {
-        "low": 0,
-        "moderate": 0,
-        "high": 0,
-        "critical": 0
-      }
-    },
     {
       "repository": "cedar-model-typescript-library",
       "lock": "package-lock.json",
