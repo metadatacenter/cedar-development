@@ -2738,13 +2738,37 @@ its tests exercise.
 
 Run `cedarcli check design-tokens` for Workspace, CEE/CEF, CED/CEFD, CETP,
 OpenView, Monitoring, Bridging and the Template Designer host,
-`--strict` to gate new color/typography drift, `--json` for an archived report,
-and `--repo <name> --prune-baseline` after removing existing findings. Spacing and
-geometry are advisory. The version comparison is against the local token package,
+`--strict` to gate new color/typography, spacing, control geometry, layers and
+motion drift, `--json` for an archived report, and `--repo <name> --prune-baseline`
+after removing existing findings. Policy 2 includes Angular styles, inline templates,
+style bindings and utility classes. Unknown shared properties cannot be baselined.
+CI rejects increased allowances against the trusted base revision, including unused
+allowances. The offline scanner reads versioned sources and needs no npm build. The version comparison is against the local token package,
 not the latest Nexus publication. This complements `cedarcli check components`;
 it does not prove which bundle a host serves. The token repository's README owns
 the scanner scope, exact-declaration exceptions, CI base-revision comparison and
 rollout order. Review baseline changes as code; do not regenerate debt to pass CI.
+
+The tokens package exports opt-in `patterns` Sass recipes for titles, menus, dialogs,
+forms, toolbars, tabs, table cells and empty states. Its `UI-CONTRACTS.md` records
+required behavior and the suites that verify it. Workspace, Groups and Permissions
+consume these recipes; CEE remains the visual reference.
+
+Token pull requests and develop pushes run `Consumer contracts` across all eight
+consumers. Each job records both source SHAs and the packed candidate hash, installs
+the consumer's locked graph, and replaces only the dependency-free token package.
+Every packed file is compared byte for byte. All eight consumers build; CEE, CED,
+CETP and Workspace run their existing pinned Linux ARM64 visual suites without
+updating baselines. This complements each consumer's own CI and catches shared
+changes before publication. It does not install repository approval rules.
+
+Workspace's `npm run test:visual` runs its built Angular application in the pinned
+Playwright container, covering desktop/375px screenshots, Axe accessibility, keyboard
+menus, modal focus/return, nested Escape handling, stale/duplicate saves, field errors,
+unsaved edits, destructive cancellation and URL navigation state. Fixtures mock HTTP,
+authentication and the CEE SDK boundary; the real-component and live-stack suites
+remain necessary. `npm run smoke:workspace:modern` in `ops/e2e` exercises the live
+services and actual CEE/CED components. See `cedar-workspace/browser/README.md`.
 
 For a side-by-side manual comparison, build CEE and CED using the procedures above,
 stage the current CEE bundle beside CED's bundle, then start CED's fixture server
