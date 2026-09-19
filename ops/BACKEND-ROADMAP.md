@@ -1032,34 +1032,9 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   reader taking RDF and a template. The "Mapping to RDF" section of the CEDAR YAML specification
   documents the intended mapping.
 
-- **26. Write `selectedByDefault` on a literal even when it is false.** Both model libraries turn
-  a valid stored template into an invalid one, and they do it identically, so this is one defect in
-  a shape they share rather than a divergence between them.
-
-  A literal option is written as `{"label": "Meteorology"}` when nothing is selected by default and
-  `{"label": "Meteorology", "selectedByDefault": true}` when something is. An option stored as
-  `{"label": "Meteorology", "selectedByDefault": false}` therefore comes back as
-  `{"label": "Meteorology"}` — and where the same list also holds a bare entry for that label, the
-  two collapse into one repeated value. The meta-schema declares the literals array
-  `uniqueItems: true`, so the duplicate fails it, the field fails the branch it belongs to, and the
-  template answers with 239 errors from that one collapse.
-
-  Two production templates carry such a list. Restoring the literals alone makes each rendering
-  valid; restoring anything else changes nothing. It reaches past those two because the resource
-  server transcodes YAML with this library, so a YAML write of either would store the invalid form.
-
-  The stored artifacts are arguably at fault too: a list holding one label twice, once with an
-  explicit `false` and once without, is a duplicate option however it is written. Decide whether
-  the libraries state the flag whenever the source did, or whether the two artifacts are repaired
-  and the writers left alone — but the libraries should not turn a valid template into an invalid
-  one either way.
-
-  Done when a literal that states `selectedByDefault: false` survives a round trip, and
-  `cedar_yaml_conversion_audit.py` finds no artifact that is valid stored and invalid rendered.
-
 ## Production Data
 
-- **27. Resolve the remaining production artifact defects and review semantic migrations.**
+- **26. Resolve the remaining production artifact defects and review semantic migrations.**
   Classify the remaining **731 invalid instances across 260 templates** in the reviewed residual
   (2026-09-17, after verified repairs) by their actual schema declarations,
   then repair only transformations whose meaning is established. A missing `@id` in a controlled-term
@@ -1230,7 +1205,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   version comparison is restored, and no constraint lacks a `sourceSystem` the sweep could have
   written.
 
-- **28. Repair the versions production stores, then let the meta-schema say what a version is.**
+- **27. Repair the versions production stores, then let the meta-schema say what a version is.**
   1,672 schema artifacts — 103 templates, 557 elements, 1,012 fields — answer 500 to an `Accept`
   of `application/yaml` and 200 to JSON. A JSON read returns the stored bytes unexamined; the YAML
   read parses them with `cedar-artifact-library`, whose `Version` record takes three integer parts
@@ -1258,7 +1233,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
 
 ## Later Decisions
 
-- **29. Enforce the request-body classification, and decide what an open body requires.**
+- **28. Enforce the request-body classification, and decide what an open body requires.**
   `cedarcli check openapi` reads `additionalProperties` only when deciding whether a schema counts
   as a stub, so nothing across the estate fails when a new request schema states neither that it is
   closed nor that it is open. Only the resource server asks, in its own contract test. Add the rule,
@@ -1279,7 +1254,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   subtree outside the named mappers. Sixteen more across the servers and shared libraries read
   responses or build output, where the tolerant mapper is what they want.
 
-- **30. Address artifacts by bare identifier in REST paths, keeping the full IRI as stored
+- **29. Address artifacts by bare identifier in REST paths, keeping the full IRI as stored
   identity.** **Production consequence:** an addressing migration rather than a data one. Stored
   identifiers in MongoDB, Neo4j and OpenSearch do not change, and no reindex is required, but
   clients that build URLs in the current form need the legacy shape kept as an alias until traffic
@@ -1311,7 +1286,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Done when every resource-specific route takes the bare identifier, one parser owns the
   reconstruction, and staging's per-artifact blocks are gone.
 
-- **31. Decide what each compatibility adapter is for, now that neither reads artifacts itself.**
+- **30. Decide what each compatibility adapter is for, now that neither reads artifacts itself.**
   Repo and OpenView exist to preserve URLs rather than to do work: the runbook's account of artifact
   route ownership gives repo the identifier dereferencing URLs and OpenView the anonymous
   presentation and open-artifact URLs, and says neither adapter should own artifact storage or an
@@ -1356,7 +1331,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Done when each of the two hosts has a stated role, an owner, and either a current caller that needs
   the process or a routing arrangement that keeps its URLs resolving without one.
 
-- **32. Revisit controlled-term result actions: define scalable semantics, narrow them, or delete
+- **31. Revisit controlled-term result actions: define scalable semantics, narrow them, or delete
   them.** Exclusion and `move` actions are stored beside a field's complete constraint set and apply
   to the result after all ontology, branch, class and value-set constraints have been combined. They
   are not customizations of one constraint row. Before the picker exposes authoring controls, state
@@ -1383,7 +1358,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   The compact picker presentation remains tracked in
   [VERSIONING-ROADMAP.md](./VERSIONING-ROADMAP.md); this item owns the backend meaning and scale limit.
 
-- **33. Agree one lower bound for a multi-instance child that states none.** The two model
+- **32. Agree one lower bound for a multi-instance child that states none.** The two model
   libraries disagree, and each is internally consistent, so neither is simply wrong.
   `cedar-artifact-library` renders `0`. `cedar-model-typescript-library` renders `1` where the
   child demands a value and `0` where it does not, under a test that names the rule. What
@@ -1397,7 +1372,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Decide the rule, then land it everywhere at once. An attribute-value field keeps its structural
   zero either way: requiring one of those would mean requiring an attribute nobody has named yet.
 
-- **34. Decide whether a text field may carry an option list.** Six production elements hold a
+- **33. Decide whether a text field may carry an option list.** Six production elements hold a
   `text-field` child whose `_valueConstraints.literals` names up to 26 options. The Java library
   keeps them and the meta-schema accepts them; the TypeScript library has nowhere to put them,
   since literals belong to its checkbox, radio and list fields, so it drops them from JSON as well
