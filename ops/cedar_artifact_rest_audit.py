@@ -789,6 +789,24 @@ def audit_instance(ref: ArtifactRef, artifact: Any,
         yield from audit_instance_with_shape(ref, artifact, template_shape)
 
 
+def is_considered_rejection(status: int, body: str) -> bool:
+    """Whether a 500 is the server's considered answer rather than it falling over.
+
+    A CEDAR service that refuses an artifact answers with its own error document, naming what it
+    objected to; it will answer the same way however many times it is asked. Retrying that costs
+    the whole retry budget per artifact and finds nothing — on a deployment holding artifacts the
+    YAML endpoint cannot render, it turned a two-hour pass into a twelve-hour one. A server that
+    has actually fallen over returns something else, and is still retried.
+    """
+    if status != 500:
+        return False
+    try:
+        document = json.loads(body)
+    except (json.JSONDecodeError, ValueError):
+        return False
+    return isinstance(document, dict) and bool(document.get("message")) and "errorId" in document
+
+
 class GetOnlyClient:
     """Small stdlib JSON client whose only public operation is GET."""
 
@@ -858,7 +876,9 @@ class GetOnlyClient:
                     raise ResponseError(
                         f"refusing redirect from {url}; configure the final resource-server origin"
                     ) from None
-                if error.code in {429, 500, 502, 503, 504} and attempt < self.retries - 1:
+                body = error.read(4000).decode("utf-8", errors="replace")
+                if (error.code in {429, 500, 502, 503, 504} and attempt < self.retries - 1
+                        and not is_considered_rejection(error.code, body)):
                     retry_after = error.headers.get("Retry-After")
                     try:
                         wait = min(60.0, float(retry_after)) if retry_after else min(30.0, 2 ** attempt)
@@ -866,8 +886,7 @@ class GetOnlyClient:
                         wait = min(30.0, 2 ** attempt)
                     time.sleep(wait)
                     continue
-                body = error.read(300).decode("utf-8", errors="replace")
-                raise ResponseError(f"GET {url} returned {error.code}: {body}") from None
+                raise ResponseError(f"GET {url} returned {error.code}: {body[:300]}") from None
             except (urllib.error.URLError, TimeoutError, json.JSONDecodeError,
                     UnicodeDecodeError) as error:
                 if attempt < self.retries - 1:

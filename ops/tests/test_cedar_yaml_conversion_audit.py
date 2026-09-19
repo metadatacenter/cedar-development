@@ -347,3 +347,66 @@ class FirstErrorLine(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ResumeCounting(unittest.TestCase):
+    """A resumed run counts each artifact once, however many times it was tried."""
+
+    def test_a_record_that_failed_to_fetch_is_not_counted_until_it_is_retried(self):
+        aggregate = conversion.Aggregate()
+        failed = {
+            "artifactType": "template", "artifactId": "https://example.org/t/1", "artifactName": "t",
+            "fetched": False, "fetch": {"reason": "fetch-failed", "error": "boom"},
+            "outcome": {lane: "skipped" for lane in conversion.LANES},
+        }
+        # What the resume path now does: only a fetched record contributes before the pass starts.
+        self.assertFalse(failed.get("fetched"))
+        aggregate.add(failed)
+        self.assertEqual(aggregate.processed, 1)
+        # Counting it a second time, as the pass does when the retry is emitted, is what the old
+        # resume produced for every retried artifact.
+        aggregate.add(failed)
+        self.assertEqual(aggregate.processed, 2)
+
+
+class ConsideredRejections(unittest.TestCase):
+    """A 500 the server means is not retried; one it did not is."""
+
+    def test_a_cedar_error_document_is_not_retried(self):
+        body = json.dumps({"status": "INTERNAL_SERVER_ERROR", "statusCode": 500,
+                           "message": "Invalid version 0.1 for field pav:version at ",
+                           "errorId": "83a11f9d-5292-4201-92a2-bd9648fddfd8"})
+        self.assertTrue(conversion.rest.is_considered_rejection(500, body))
+
+    def test_a_server_that_fell_over_is_retried(self):
+        self.assertFalse(conversion.rest.is_considered_rejection(500, "<html>502 Bad Gateway</html>"))
+        self.assertFalse(conversion.rest.is_considered_rejection(500, ""))
+        self.assertFalse(conversion.rest.is_considered_rejection(500, json.dumps({"errorId": "x"})))
+
+    def test_only_a_500_counts(self):
+        body = json.dumps({"message": "slow down", "errorId": "x"})
+        self.assertFalse(conversion.rest.is_considered_rejection(503, body))
+
+
+class StuckWorker(unittest.TestCase):
+    """A fetch that never answers costs its artifact, not the run."""
+
+    def test_the_pass_goes_on_and_records_the_artifact_as_unread(self):
+        refs = [conversion.rest.ArtifactRef("field", f"https://example.org/f/{n}") for n in range(3)]
+        # The worker is released at the end of the test rather than left hanging: a pool thread is
+        # not a daemon, and the interpreter joins it on the way out.
+        released = threading.Event()
+        self.addCleanup(released.set)
+
+        def fetch(_client, ref):
+            if ref.artifact_id.endswith("1"):
+                released.wait(30)  # answers no sooner than the pass gives up, as a hung lookup does
+            return {"@id": ref.artifact_id}, None
+
+        seen = list(conversion.audit.fetch_in_order(None, refs, workers=3, fetch=fetch,
+                                                    worker_timeout=0.5))
+        self.assertEqual([ref.artifact_id for ref, _, _ in seen], [r.artifact_id for r in refs])
+        stuck = [error for ref, _, error in seen if ref.artifact_id.endswith("1")][0]
+        self.assertIsInstance(stuck, TimeoutError)
+        self.assertEqual([error for ref, _, error in seen if not ref.artifact_id.endswith("1")],
+                         [None, None])

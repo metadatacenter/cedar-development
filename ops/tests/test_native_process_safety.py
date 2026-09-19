@@ -556,9 +556,18 @@ class NativeProcessSafetyTest(unittest.TestCase):
                   / "src/main/resources/config.yml")
         if not config.is_file():
             self.skipTest("cedar-terminology-server is not checked out beside cedar-development")
+        # The application log, which is the one the controller offers. A service config declares
+        # more than one file appender — the request log above `logging:` has a
+        # `currentLogFilename` of its own — so the block has to be chosen rather than the first
+        # match taken, or the assertion quietly compares against the access log.
+        lines = config.read_text().splitlines()
+        logging_at = next((number for number, line in enumerate(lines) if line.startswith("logging:")), None)
+        self.assertIsNotNone(logging_at, f"{config} declares no top-level logging block")
         declared = [line.split("currentLogFilename:")[1].strip()
-                    for line in config.read_text().splitlines()
+                    for line in lines[logging_at:]
                     if "currentLogFilename:" in line]
+        self.assertEqual(1, len(declared),
+                         f"expected one application log appender, found {declared}")
 
         result = self.run_library('dropwizard_logfile terminology')
 

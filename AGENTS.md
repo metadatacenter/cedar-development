@@ -94,6 +94,13 @@ below have no CLI front end yet, so call them directly:
   two converters render the same document identically. Streams one record per artifact, reports
   progress every 200, resumes, and writes the identifiers of everything that failed to a file of
   their own.
+- `cedar_content_constraint_survey.py` — what production holds in the fields the meta-schema
+  constrains only as strings. Roughly half the string-typed properties it describes carry no
+  pattern, format or enumeration, so a rule only one component enforces produces stored data
+  nothing rejects until something downstream refuses to read it. Walks a deployment and reports,
+  per property, how many artifacts carry it, how many distinct values it takes and how many fail
+  the shape the model expects. Its expectations are its own reading and are printed beside each
+  row, so a disagreement about one is visible rather than buried. GET-only.
 - `repairs/cedar_artifact_repair.py` — carry out a repair the audit has measured, one `PUT ?verbatim=true` at
   a time, so each artifact keeps its identifier, provenance, version and child identifiers. A repair
   is a transform plus an invariant proving nothing else changed; the library validates every body

@@ -40,6 +40,7 @@ import subprocess
 import sys
 import time
 from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeoutError
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterator, Optional
@@ -60,6 +61,9 @@ DEFAULT_PAGE_SIZE = 500
 ENUMERATION_REPORT_SECONDS = 30
 DEFAULT_TEMPLATE_CACHE = 500
 DEFAULT_FETCH_WORKERS = 4
+# Beyond the client's own socket timeout, the longest a single fetch may occupy its worker before
+# the pass gives up on it. Generous, since a slow artifact is not a stuck one.
+DEFAULT_WORKER_TIMEOUT = 600
 DEFAULT_BRIDGE_TIMEOUT = 120
 DEFAULT_BRIDGE_MAX_RESTARTS = 5
 BRIDGE_SOURCE = Path(__file__).with_name("cedar_validation_bridge.java")
@@ -1105,11 +1109,19 @@ def fetch_artifact(client: rest.GetOnlyClient, ref: rest.ArtifactRef) -> tuple[A
 
 
 def fetch_in_order(client: rest.GetOnlyClient, refs: list[rest.ArtifactRef], workers: int,
-                   fetch=None) -> Iterator[tuple[rest.ArtifactRef, Any, Optional[Exception]]]:
+                   fetch=None, worker_timeout: float = DEFAULT_WORKER_TIMEOUT
+                   ) -> Iterator[tuple[rest.ArtifactRef, Any, Optional[Exception]]]:
     """Fetch a few artifacts ahead of the consumer, and hand them over in enumeration order.
 
     ``fetch`` reads one artifact and returns what it read with whatever failure it met; the default
     reads the typed JSON body. A caller wanting another representation supplies its own.
+
+    A worker is given ``worker_timeout`` to answer, beyond the socket timeout the client applies to
+    each request. The two are not the same: a name lookup that hangs is covered by neither the
+    socket timeout nor the retry budget, and waiting on such a worker forever stopped the run
+    without stopping the process — a state a keyboard interrupt cannot break either, since the
+    main thread is blocked acquiring a lock. The artifact is recorded as unread and the pass goes
+    on; the worker it left behind is not reused.
     """
     fetch = fetch or fetch_artifact
     window = max(1, workers * 2)
@@ -1123,7 +1135,11 @@ def fetch_in_order(client: rest.GetOnlyClient, refs: list[rest.ArtifactRef], wor
             pending.append((ref, executor.submit(fetch, client, ref)))
         while pending:
             ref, future = pending.popleft()
-            artifact, error = future.result()
+            try:
+                artifact, error = future.result(timeout=worker_timeout)
+            except FuturesTimeoutError:
+                artifact = None
+                error = TimeoutError(f"no answer within {worker_timeout:.0f}s; the worker is stuck")
             if position < len(refs):
                 next_ref = refs[position]
                 position += 1

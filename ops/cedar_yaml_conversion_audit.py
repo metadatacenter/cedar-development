@@ -715,8 +715,11 @@ def run_audit(arguments: argparse.Namespace, client: rest.GetOnlyClient, bridges
         enumeration = arguments.resume_enumeration
         refs = arguments.resume_refs
         for key, record in arguments.resume_records.items():
-            aggregate.add(record)
+            # Only a fetched artifact is finished. One that failed is retried below and counted
+            # then, so counting it here as well made the summary report more artifacts than the
+            # deployment holds — every retried artifact twice.
             if record.get("fetched"):
+                aggregate.add(record)
                 completed.add(key)
         print(f"Resuming from {refs_path}: {len(completed)}/{len(refs)} artifacts already complete",
               flush=True)
