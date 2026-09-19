@@ -1358,21 +1358,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   The compact picker presentation remains tracked in
   [VERSIONING-ROADMAP.md](./VERSIONING-ROADMAP.md); this item owns the backend meaning and scale limit.
 
-- **32. Agree one lower bound for a multi-instance child that states none.** The two model
-  libraries disagree, and each is internally consistent, so neither is simply wrong.
-  `cedar-artifact-library` renders `0`. `cedar-model-typescript-library` renders `1` where the
-  child demands a value and `0` where it does not, under a test that names the rule. What
-  production stores is `1` throughout, including for children that demand nothing.
-
-  263 artifacts render differently because of it. Changing the Java default alone was tried and
-  reverted: it makes Java/TypeScript YAML parity fail, since the corpus fixtures and the parity
-  gate compare the two libraries against each other. The rule has to change in both libraries, in
-  the shared corpus, and in the vendored copy and lock the TypeScript library carries, in one pass.
-
-  Decide the rule, then land it everywhere at once. An attribute-value field keeps its structural
-  zero either way: requiring one of those would mean requiring an attribute nobody has named yet.
-
-- **33. Decide whether a text field may carry an option list.** Six production elements hold a
+- **32. Decide whether a text field may carry an option list.** Six production elements hold a
   `text-field` child whose `_valueConstraints.literals` names up to 26 options. The Java library
   keeps them and the meta-schema accepts them; the TypeScript library has nowhere to put them,
   since literals belong to its checkbox, radio and list fields, so it drops them from JSON as well
