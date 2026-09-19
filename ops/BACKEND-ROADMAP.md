@@ -1032,20 +1032,29 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   reader taking RDF and a template. The "Mapping to RDF" section of the CEDAR YAML specification
   documents the intended mapping.
 
-- **26. Keep a multi-instance child's `@type` through a YAML round trip.** Both model libraries
-  turn a valid stored template into an invalid one. A stored multi-instance child declares its
-  `@type` as a `oneOf` — a URI or an array of them — and each library renders it flat as
-  `{"type": "string", "format": "uri"}`, adding an `@language` the stored artifact does not carry.
-  The rendering then matches no branch of the meta-schema, and the validator answers with hundreds
-  of errors from the one root cause.
+- **26. Write `selectedByDefault` on a literal even when it is false.** Both model libraries turn
+  a valid stored template into an invalid one, and they do it identically, so this is one defect in
+  a shape they share rather than a divergence between them.
 
-  Measured across every schema artifact in production: two templates, both valid as stored and
-  both invalid once rendered. The two libraries agree exactly, so this is one defect in a shape
-  they share rather than a divergence between them. It reaches past those two because the Java
-  library is what the resource server uses, so re-saving either template would store the invalid
-  form.
+  A literal option is written as `{"label": "Meteorology"}` when nothing is selected by default and
+  `{"label": "Meteorology", "selectedByDefault": true}` when something is. An option stored as
+  `{"label": "Meteorology", "selectedByDefault": false}` therefore comes back as
+  `{"label": "Meteorology"}` — and where the same list also holds a bare entry for that label, the
+  two collapse into one repeated value. The meta-schema declares the literals array
+  `uniqueItems: true`, so the duplicate fails it, the field fails the branch it belongs to, and the
+  template answers with 239 errors from that one collapse.
 
-  Done when a template carrying a multi-instance child renders the `@type` it was stored with, and
+  Two production templates carry such a list. Restoring the literals alone makes each rendering
+  valid; restoring anything else changes nothing. It reaches past those two because the resource
+  server transcodes YAML with this library, so a YAML write of either would store the invalid form.
+
+  The stored artifacts are arguably at fault too: a list holding one label twice, once with an
+  explicit `false` and once without, is a duplicate option however it is written. Decide whether
+  the libraries state the flag whenever the source did, or whether the two artifacts are repaired
+  and the writers left alone — but the libraries should not turn a valid template into an invalid
+  one either way.
+
+  Done when a literal that states `selectedByDefault: false` survives a round trip, and
   `cedar_yaml_conversion_audit.py` finds no artifact that is valid stored and invalid rendered.
 
 ## Production Data
