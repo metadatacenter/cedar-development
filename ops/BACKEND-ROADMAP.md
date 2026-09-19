@@ -1032,9 +1032,25 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   reader taking RDF and a template. The "Mapping to RDF" section of the CEDAR YAML specification
   documents the intended mapping.
 
+- **26. Keep a multi-instance child's `@type` through a YAML round trip.** Both model libraries
+  turn a valid stored template into an invalid one. A stored multi-instance child declares its
+  `@type` as a `oneOf` — a URI or an array of them — and each library renders it flat as
+  `{"type": "string", "format": "uri"}`, adding an `@language` the stored artifact does not carry.
+  The rendering then matches no branch of the meta-schema, and the validator answers with hundreds
+  of errors from the one root cause.
+
+  Measured across every schema artifact in production: two templates, both valid as stored and
+  both invalid once rendered. The two libraries agree exactly, so this is one defect in a shape
+  they share rather than a divergence between them. It reaches past those two because the Java
+  library is what the resource server uses, so re-saving either template would store the invalid
+  form.
+
+  Done when a template carrying a multi-instance child renders the `@type` it was stored with, and
+  `cedar_yaml_conversion_audit.py` finds no artifact that is valid stored and invalid rendered.
+
 ## Production Data
 
-- **26. Resolve the remaining production artifact defects and review semantic migrations.**
+- **27. Resolve the remaining production artifact defects and review semantic migrations.**
   Classify the remaining **731 invalid instances across 260 templates** in the reviewed residual
   (2026-09-17, after verified repairs) by their actual schema declarations,
   then repair only transformations whose meaning is established. A missing `@id` in a controlled-term
@@ -1205,9 +1221,35 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   version comparison is restored, and no constraint lacks a `sourceSystem` the sweep could have
   written.
 
+- **28. Repair the versions production stores, then let the meta-schema say what a version is.**
+  1,672 schema artifacts — 103 templates, 557 elements, 1,012 fields — answer 500 to an `Accept`
+  of `application/yaml` and 200 to JSON. A JSON read returns the stored bytes unexamined; the YAML
+  read parses them with `cedar-artifact-library`, whose `Version` record takes three integer parts
+  and refuses everything else. These artifacts have no YAML representation at all, and nothing
+  reported it, because the meta-schema asks only that `pav:version` be a non-empty string.
+
+  Of the 655 containers probed in full, 642 carry a version that is not three-part semver: `0.9`
+  and `0.1` dominate, `1.0.0-rc1`, `1.0.0-rc2` and `1.0.0-RC2` follow, and a tail holds
+  `requestJson`, `123`, `asd`, `1`, `1.2`, `1.0` and `01`. A survey of 3,594 artifacts puts the
+  rate at 8.7%.
+
+  The prerelease values are a question of their own. `1.0.0-rc1` is valid semver that `Version`,
+  being `record Version(int major, int minor, int patch)`, cannot hold — a library limitation
+  rather than bad data, and ruling it invalid would put 686 more occurrences into the repair.
+
+  Order matters. The artifact server validates on write, so tightening `pav:version` before
+  repairing makes every one of those artifacts unsaveable through the API: repair first, or land
+  the two together. `cedar_content_constraint_survey.py` sizes the rest of the surface.
+  `schema:schemaVersion` has 30 rule sites and production is already clean there, so that one is
+  free to tighten today; `acronym`, `schema:identifier`, `unitOfMeasure` and `pav:previousVersion`
+  are clean too, and three artifacts hold a constraint `type` of `Value`.
+
+  Done when no schema artifact answers 500 to a YAML read, and a version that is not one is
+  refused on write rather than discovered on read.
+
 ## Later Decisions
 
-- **27. Enforce the request-body classification, and decide what an open body requires.**
+- **29. Enforce the request-body classification, and decide what an open body requires.**
   `cedarcli check openapi` reads `additionalProperties` only when deciding whether a schema counts
   as a stub, so nothing across the estate fails when a new request schema states neither that it is
   closed nor that it is open. Only the resource server asks, in its own contract test. Add the rule,
@@ -1228,7 +1270,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   subtree outside the named mappers. Sixteen more across the servers and shared libraries read
   responses or build output, where the tolerant mapper is what they want.
 
-- **28. Address artifacts by bare identifier in REST paths, keeping the full IRI as stored
+- **30. Address artifacts by bare identifier in REST paths, keeping the full IRI as stored
   identity.** **Production consequence:** an addressing migration rather than a data one. Stored
   identifiers in MongoDB, Neo4j and OpenSearch do not change, and no reindex is required, but
   clients that build URLs in the current form need the legacy shape kept as an alias until traffic
@@ -1260,7 +1302,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Done when every resource-specific route takes the bare identifier, one parser owns the
   reconstruction, and staging's per-artifact blocks are gone.
 
-- **29. Decide what each compatibility adapter is for, now that neither reads artifacts itself.**
+- **31. Decide what each compatibility adapter is for, now that neither reads artifacts itself.**
   Repo and OpenView exist to preserve URLs rather than to do work: the runbook's account of artifact
   route ownership gives repo the identifier dereferencing URLs and OpenView the anonymous
   presentation and open-artifact URLs, and says neither adapter should own artifact storage or an
@@ -1305,7 +1347,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Done when each of the two hosts has a stated role, an owner, and either a current caller that needs
   the process or a routing arrangement that keeps its URLs resolving without one.
 
-- **30. Revisit controlled-term result actions: define scalable semantics, narrow them, or delete
+- **32. Revisit controlled-term result actions: define scalable semantics, narrow them, or delete
   them.** Exclusion and `move` actions are stored beside a field's complete constraint set and apply
   to the result after all ontology, branch, class and value-set constraints have been combined. They
   are not customizations of one constraint row. Before the picker exposes authoring controls, state
@@ -1331,3 +1373,28 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   page filling. Only then should the terminology picker expose a table-level result-customization UI.
   The compact picker presentation remains tracked in
   [VERSIONING-ROADMAP.md](./VERSIONING-ROADMAP.md); this item owns the backend meaning and scale limit.
+
+- **33. Agree one lower bound for a multi-instance child that states none.** The two model
+  libraries disagree, and each is internally consistent, so neither is simply wrong.
+  `cedar-artifact-library` renders `0`. `cedar-model-typescript-library` renders `1` where the
+  child demands a value and `0` where it does not, under a test that names the rule. What
+  production stores is `1` throughout, including for children that demand nothing.
+
+  263 artifacts render differently because of it. Changing the Java default alone was tried and
+  reverted: it makes Java/TypeScript YAML parity fail, since the corpus fixtures and the parity
+  gate compare the two libraries against each other. The rule has to change in both libraries, in
+  the shared corpus, and in the vendored copy and lock the TypeScript library carries, in one pass.
+
+  Decide the rule, then land it everywhere at once. An attribute-value field keeps its structural
+  zero either way: requiring one of those would mean requiring an attribute nobody has named yet.
+
+- **34. Decide whether a text field may carry an option list.** Six production elements hold a
+  `text-field` child whose `_valueConstraints.literals` names up to 26 options. The Java library
+  keeps them and the meta-schema accepts them; the TypeScript library has nowhere to put them,
+  since literals belong to its checkbox, radio and list fields, so it drops them from JSON as well
+  as from YAML — silently, because what it produces still validates.
+
+  Either the shape is legitimate and the TypeScript model grows to hold it, or it is a field that
+  should have been a list field and the six artifacts are repaired. The second reading is the more
+  likely one, which is why this is a decision and not a defect: fixing the library would assert
+  that a text field with an option list is something CEDAR means to support.
