@@ -813,6 +813,23 @@ class GetOnlyClient:
         self.opener = urllib.request.build_opener(*handlers)
 
     def get_json(self, path: str, query: Optional[dict[str, Any]] = None) -> Any:
+        """The response body parsed as JSON."""
+        return self._get(path, query, "application/json", json.load)
+
+    def get_representation(self, path: str, accept: str,
+                           query: Optional[dict[str, Any]] = None) -> tuple[str, str]:
+        """The response body as text, with the media type the server chose.
+
+        An Accept-negotiated read needs both: a server that does not serve the representation asked
+        for may answer in another one rather than refusing, and only the media type says so.
+        """
+        def read(response) -> tuple[str, str]:
+            charset = response.headers.get_content_charset() or "utf-8"
+            return response.read().decode(charset), response.headers.get_content_type()
+
+        return self._get(path, query, accept, read)
+
+    def _get(self, path: str, query: Optional[dict[str, Any]], accept: str, read) -> Any:
         if not path.startswith("/"):
             raise ValueError("request path must start with /")
         url = self.server + path
@@ -823,7 +840,7 @@ class GetOnlyClient:
             raise ValueError("refusing to send the API key outside the configured origin")
         request = urllib.request.Request(
             url,
-            headers={"Authorization": f"apiKey {self.api_key}", "Accept": "application/json"},
+            headers={"Authorization": f"apiKey {self.api_key}", "Accept": accept},
             method="GET",
         )
         for attempt in range(self.retries):
@@ -831,7 +848,7 @@ class GetOnlyClient:
                 time.sleep(self.delay)
             try:
                 with self.opener.open(request, timeout=self.timeout) as response:
-                    return json.load(response)
+                    return read(response)
             except urllib.error.HTTPError as error:
                 if error.code == 401:
                     raise AuthenticationError(
@@ -851,7 +868,8 @@ class GetOnlyClient:
                     continue
                 body = error.read(300).decode("utf-8", errors="replace")
                 raise ResponseError(f"GET {url} returned {error.code}: {body}") from None
-            except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as error:
+            except (urllib.error.URLError, TimeoutError, json.JSONDecodeError,
+                    UnicodeDecodeError) as error:
                 if attempt < self.retries - 1:
                     time.sleep(min(30.0, 2 ** attempt))
                     continue

@@ -84,6 +84,16 @@ below have no CLI front end yet, so call them directly:
   splits each count by verdict, since a valid artifact may still carry one. Streams one record per
   artifact, reports progress every 200 artifacts, resumes. `--recheck` re-validates exactly the
   artifacts a repair run reports having written, which is how a repair is proved.
+- `cedar_yaml_conversion_audit.py` — the same GET-only walk over the schema artifacts alone,
+  requesting each one as YAML through the resource server's Accept negotiation and converting it
+  back to JSON Schema twice: once with `cedar-artifact-library`, once with
+  `cedar-model-typescript-library`. Both renderings are validated by
+  `cedar-model-validation-library`, so a lane that fails on its own is the converter's doing and
+  not the validator's. Two co-processes stay up for the whole pass,
+  `cedar_yaml_convert_bridge.java` and `cedar_yaml_convert_bridge.cjs`. It also says how often the
+  two converters render the same document identically. Streams one record per artifact, reports
+  progress every 200, resumes, and writes the identifiers of everything that failed to a file of
+  their own.
 - `repairs/cedar_artifact_repair.py` — carry out a repair the audit has measured, one `PUT ?verbatim=true` at
   a time, so each artifact keeps its identifier, provenance, version and child identifiers. A repair
   is a transform plus an invariant proving nothing else changed; the library validates every body

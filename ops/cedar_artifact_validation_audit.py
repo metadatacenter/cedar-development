@@ -518,13 +518,18 @@ class _TimedLineReader:
             self.buffer += chunk
 
 
-class ValidationBridge:
-    """Drive cedar_validation_bridge.java over its stdin and stdout."""
+class LineBridge:
+    """Drive a co-process that answers one JSON line per JSON request line.
 
-    def __init__(self, java: str, classpath: str, source: Path, template_cache: int, heap: str,
-                 log_path: Path, timeout: float, startup_timeout: float = 180):
-        self.command = [java, f"-Xmx{heap}", "-cp", classpath, str(source),
-                        "--template-cache", str(template_cache)]
+    The protocol is the one ``cedar_validation_bridge.java`` documents: a request carries an ``op``
+    and a ``seq`` the answer echoes, ``hello`` opens the conversation and ``shutdown`` closes it.
+    Nothing here is particular to validation, or to Java, so a second co-process speaking the same
+    protocol needs only its own command.
+    """
+
+    def __init__(self, command: list[str], log_path: Path, timeout: float,
+                 startup_timeout: float = 180):
+        self.command = command
         self.log_path = log_path
         self.timeout = timeout
         self.startup_timeout = startup_timeout
@@ -584,15 +589,6 @@ class ValidationBridge:
             self.kill()
             raise
 
-    def cache_template(self, template_id: str, template: dict) -> dict[str, Any]:
-        return self.request({"op": "cache-template", "id": template_id, "template": template})
-
-    def validate(self, kind: str, artifact: Any, template_id: Optional[str] = None) -> dict[str, Any]:
-        payload: dict[str, Any] = {"op": "validate", "kind": kind, "artifact": artifact}
-        if template_id is not None:
-            payload["templateId"] = template_id
-        return self.request(payload)
-
     def kill(self) -> None:
         process, self.process, self.reader = self.process, None, None
         if process is not None and process.poll() is None:
@@ -619,6 +615,25 @@ class ValidationBridge:
             except (BridgeError, TimeoutError, subprocess.TimeoutExpired, OSError):
                 pass
         self.kill()
+
+
+class ValidationBridge(LineBridge):
+    """Drive cedar_validation_bridge.java over its stdin and stdout."""
+
+    def __init__(self, java: str, classpath: str, source: Path, template_cache: int, heap: str,
+                 log_path: Path, timeout: float, startup_timeout: float = 180):
+        super().__init__([java, f"-Xmx{heap}", "-cp", classpath, str(source),
+                          "--template-cache", str(template_cache)],
+                         log_path, timeout, startup_timeout)
+
+    def cache_template(self, template_id: str, template: dict) -> dict[str, Any]:
+        return self.request({"op": "cache-template", "id": template_id, "template": template})
+
+    def validate(self, kind: str, artifact: Any, template_id: Optional[str] = None) -> dict[str, Any]:
+        payload: dict[str, Any] = {"op": "validate", "kind": kind, "artifact": artifact}
+        if template_id is not None:
+            payload["templateId"] = template_id
+        return self.request(payload)
 
 
 def run_validate_sh(subcommand: str, timeout: float) -> str:
@@ -1089,9 +1104,14 @@ def fetch_artifact(client: rest.GetOnlyClient, ref: rest.ArtifactRef) -> tuple[A
         return None, error
 
 
-def fetch_in_order(client: rest.GetOnlyClient, refs: list[rest.ArtifactRef], workers: int
-                   ) -> Iterator[tuple[rest.ArtifactRef, Any, Optional[Exception]]]:
-    """Fetch a few artifacts ahead of the consumer, and hand them over in enumeration order."""
+def fetch_in_order(client: rest.GetOnlyClient, refs: list[rest.ArtifactRef], workers: int,
+                   fetch=None) -> Iterator[tuple[rest.ArtifactRef, Any, Optional[Exception]]]:
+    """Fetch a few artifacts ahead of the consumer, and hand them over in enumeration order.
+
+    ``fetch`` reads one artifact and returns what it read with whatever failure it met; the default
+    reads the typed JSON body. A caller wanting another representation supplies its own.
+    """
+    fetch = fetch or fetch_artifact
     window = max(1, workers * 2)
     pending: collections.deque[tuple[rest.ArtifactRef, Future]] = collections.deque()
     position = 0
@@ -1100,14 +1120,14 @@ def fetch_in_order(client: rest.GetOnlyClient, refs: list[rest.ArtifactRef], wor
         while position < len(refs) and len(pending) < window:
             ref = refs[position]
             position += 1
-            pending.append((ref, executor.submit(fetch_artifact, client, ref)))
+            pending.append((ref, executor.submit(fetch, client, ref)))
         while pending:
             ref, future = pending.popleft()
             artifact, error = future.result()
             if position < len(refs):
                 next_ref = refs[position]
                 position += 1
-                pending.append((next_ref, executor.submit(fetch_artifact, client, next_ref)))
+                pending.append((next_ref, executor.submit(fetch, client, next_ref)))
             yield ref, artifact, error
     finally:
         executor.shutdown(wait=False, cancel_futures=True)
