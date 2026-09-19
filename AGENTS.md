@@ -29,7 +29,7 @@ cedarcli git status            # working-tree state across all repos
 cedarcli check versions        # version consistency; --strict also fails a checkout behind its remote or a stale fetch
 cedarcli check ci              # CI at every develop head a train would capture
 cedarcli check ci-env          # every Java repository's CI environment block; --apply repairs drift
-cedarcli build frontends       # reactor: every frontend against the siblings just built, not the pins
+cedarcli build frontends       # full frontend reactor; completion contract below
 cedarcli check components      # what each browser application serves against the component sources beside it
 cedarcli publish components    # publish each component's current source and advance the pins that follow it
 cedarcli test e2e              # both whole-stack smoke tiers; records the run the train and release gates require
@@ -255,6 +255,20 @@ suggestion, ~30 s): `cd cedar-development/ops/e2e && npm run smoke` — details 
   source no passing run covers, and no option skips that gate.
 - Full operational, build, test, and dependency-state detail lives in the runbook
   (`cedar-development/ops/BACKEND-RUNBOOK.md`).
+
+### Frontend reactor completion contract
+
+“Full frontend reactor” means `cedarcli build frontends`: current local library and component
+sources flow into every frontend, followed by applicable integration/visual checks, local
+redeployment, served-bundle verification and whole-stack smoke. Fresh dev package publication
+to Nexus and consumer development-pin/lockfile updates are allowed when needed; npm pins must
+not be presented as a blocker to using the sources just built. Release-version changes and
+Git commit/push are separate from this contract.
+
+The command currently builds and records the runtime selection but does not yet automate every
+remaining stage. Until it does, complete those stages with the existing CLI commands without
+waiting for another request, and do not call compilation alone a completed reactor. See
+[The Reactor](ops/FRONTEND-RUNBOOK.md#the-reactor) for the contract and current implementation.
 
 ## Version locks and framework state
 

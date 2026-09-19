@@ -277,7 +277,11 @@ asks the equivalent question of the Embeddable Editor, which each of those front
 and a gulp task copies out of `node_modules` into the tree gulp serves. Those two hops are invisible
 to git, because the served copy is ignored, so moving the pin without `npm ci`, or running `npm ci`
 without `copy:cee`, keeps the previous editor on screen while `package.json`, the lock and the
-release ledger all name the new one. `STALE` there means the served bundle is not the one
+release ledger all name the new one. In the develop profile, an installed local reactor artifact also counts as current when its
+SHA-256 matches the reactor reference, npm records that exact tarball as its source, and both
+the installed and served bundle match the tarball byte for byte. This lets local reactor
+deployments pass the same smoke gate without publishing packages or changing release pins.
+Otherwise, `STALE` means the served bundle is not the one
 `package-lock.json` names, and the remedy the footer prints for each stale frontend is a reinstall
 and a recopy in its own checkout rather than a restart:
 

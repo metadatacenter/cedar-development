@@ -442,6 +442,12 @@ cee_of() {  # echoes current|STALE|- for the Embeddable Editor frontend $1 serve
   command -v python3 >/dev/null 2>&1 || { echo '-'; return; }
   [ -f "$lock" ] || { echo '-'; return; }          # not an npm-managed checkout; nothing to compare
   [ -f "$manifest" ] && [ -f "$installed" ] && [ -f "$servedjs" ] || { echo STALE; return; }
+  # Development reactor artifacts are an alternative to release pins, not stale packages.
+  # Verify the immutable tarball, npm's install provenance and both copies of the bundle.
+  if [ "${CEDAR_PROFILE:-}" = develop ] && python3 "$CEDAR_DEVELOP_HOME/ops/frontend_reactor_runtime.py" "$CEDAR_HOME" "$root"; then
+    echo current
+    return
+  fi
   want=$(cee_version "$lock" node_modules/cedar-embeddable-editor)
   have=$(cee_version "$manifest" '')
   [ -n "$want" ] && [ -n "$have" ] || { echo '-'; return; }
@@ -592,6 +598,12 @@ start_one() {
         else
           echo "  $name: node_modules is older than package-lock.json — start again with" \
                "--refresh-dependencies, or run (cd $dir && npm ci)"
+          return 1
+        fi
+      fi
+      if [ "${CEDAR_PROFILE:-}" = develop ]; then
+        if ! python3 "$CEDAR_DEVELOP_HOME/ops/frontend_reactor_runtime.py" sync "$CEDAR_HOME" "$dir"; then
+          echo "  $name: REFUSED TO START — installing reactor components failed" >&2
           return 1
         fi
       fi ;;

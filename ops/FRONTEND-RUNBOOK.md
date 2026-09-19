@@ -164,10 +164,43 @@ rather than a dist-tag, and a semver range over these prereleases snaps back to 
 The lock is what makes a build reproducible, so the pin stays exact, and advancing it is a source
 change across several repositories.
 
-Development does not pay that cost, because `cedarcli build frontends` is a reactor. What
-remains is advancing the pins that a release records, and that is what the command below is for.
+The frontend reactor must handle this dependency propagation as part of the requested work.
+Publishing development packages to Nexus and advancing consumers’ development manifests and
+lockfiles are valid ways to do it; npm’s immutable versions are not a reason to leave consumers
+on older components. Release preparation remains a separate operation.
 
 ### The Reactor
+
+**“Full frontend reactor” means `cedarcli build frontends`.** The agreed completion contract is:
+
+1. Build all frontend libraries, embeddable components and browser applications from their
+   current local sources in dependency order, including the working-tree changes being tested.
+2. Make every downstream consumer use the components produced by that build. This is the
+   development equivalent of Maven SNAPSHOT resolution. It may publish fresh immutable **dev**
+   packages to Nexus and advance development pins in `package.json` and lockfiles as needed.
+   Registry publication and development-pin changes are allowed parts of the reactor, not
+   blockers or separate work the user must request again.
+3. Run the applicable component, integration and visual regression checks. Review intentional
+   visual changes before updating baselines; do not accept failed screenshots automatically.
+4. Redeploy all local frontends, verify the bundles actually served match the selected build,
+   and run the whole-stack smoke tests. Preserve that selection across restarts and dependency
+   reinstalls so old pins cannot silently restore an earlier component.
+5. Report completion only when the full sequence passes. Identify any unfinished stage precisely;
+   compilation alone does not fulfill a request for a full frontend reactor.
+
+This contract does not require a release, a production deployment, or a Git commit/push.
+Development package publication and development-pin updates are distinct from release-version
+changes. Commit/push remains subject to the user’s instruction.
+
+**Current implementation boundary:** the command currently builds the sources and records the
+runtime selection described below. It does not yet orchestrate every verification step, frontend
+restart and smoke test itself. Until that orchestration is implemented, the operator or agent
+fulfilling a frontend reactor request must also run the applicable visual/integration checks,
+`cedarcli native restart frontends`, served-bundle verification and `cedarcli test e2e` before
+calling the request complete. This is an implementation gap, not a narrower meaning of “reactor”.
+No additional user request is needed to complete those stages.
+
+#### Current artifact transport
 
 `cedarcli build java` never consults a pin: it builds the repositories in dependency order,
 installing each into `~/.m2`, so every consumer compiles against the sibling that came out of the
@@ -197,15 +230,27 @@ build's selection or installed bytes. Old directory entries from the earlier sto
 ignored; rebuilding the producers populates the tarball store. Keep immutable artifacts while
 builds are active; removing the whole `.reactor` cache is safe when no build is using it.
 
-Nothing is published to a registry, committed, or deployed, and no tracked file changes: the
-rewrite happens in the throwaway copy. A server payload builds in place
+A successful `cedarcli build frontends` records its exact component selection in
+`.reactor/runtime.json`. Local `cedarcli native start|restart` in the develop profile installs
+those tarballs with `npm install --no-save` before starting each frontend, retaining the
+application lock for other dependencies. Existing verified installs are reused. A failed full
+build leaves the previous selection intact, and concurrent producer refs cannot change a
+completed selection. The runtime checker verifies the selected tarball hash, install provenance
+and served bytes, so no publication is needed for local smoke tests.
+
+The current build stage does not interrupt running frontends; run
+`cedarcli native restart frontends` after it to serve the new build. Its local-tarball transport
+does not publish to a registry or modify tracked manifests or locks: the build rewrite happens
+in the throwaway copy. This describes the current transport, not a prohibition on Nexus dev
+publication or development-pin updates when needed to fulfill the reactor contract. A server payload builds in place
 and still installs its locks, and the train resolves exact Nexus aliases in its own checkouts, so
 neither sees the reactor.
 
 Because development no longer exercises the locks, the pinned composition is checked elsewhere:
 each repository's CI runs `npm ci` on every push, and `cedarcli check components` with the release
-and train preflights judge the composition. A reactor build proves the sources compose, not that
-what ships does.
+and train preflights judge the composition. The isolated compilation stage proves the sources compose. Completing the local reactor
+contract also requires runtime verification and smoke; release and train gates still verify
+the separately pinned shipping composition.
 
 ### Recording a Pin
 
