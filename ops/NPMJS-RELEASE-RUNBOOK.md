@@ -33,9 +33,6 @@ as a runtime dependency for the embedding application to resolve. Consequently:
 - proving the public CEE executable byte-equivalent to the train CEE after the declared provenance
   substitutions also proves the bundled model code.
 
-The releases completed on 2026-08-27 demonstrate the distinction: model library 1.0.4 was public,
-while CEE 2.0.2 deliberately embedded model library 1.0.3.
-
 ### The Design Tokens Are a Build-Time Dependency
 
 CEDAR's design values — the font stack, the type scale, the brand palettes and the neutrals — are
@@ -43,13 +40,10 @@ published from `cedar-design-tokens` as `@org.metadatacenter/cedar-design-tokens
 `.npmrc` routes to the CEDAR Nexus registry. Sass reads those values and compiles them away, so a
 built bundle carries the numbers and colours and no reference to the package.
 
-CEE's stylesheets still hold their own copy of the values, so a release made today is unaffected.
-Two rules apply from the moment CEE takes the dependency.
-
 The package stays a `devDependency`, and the published manifest may not name it at all. A scoped
 name resolves only from Nexus, and an embedding application installing public CEE from npmjs cannot
 reach that registry: the install fails with a 404 against a host it holds no credentials for. Check
-the staged `package-dist.json`, which is what ships, rather than the repository's own manifest:
+the staged `dist-npm/cedar-embeddable-editor/package.json`, rather than the repository's manifest:
 
 ```bash
 node -e "const p=require('./dist-npm/cedar-embeddable-editor/package.json');
@@ -547,8 +541,10 @@ node "$CEDAR_HOME/cedar-development/ops/propagate-cee-release.mjs" --check "$CEE
 ```
 
 Review and commit each owning repository separately. Rebuild every deployed CEE host and verify the
-served bundle hash; a manifest edit alone does not change a running frontend. The complete consumer
-inventory and rebuild paths are in [FRONTEND-RUNBOOK.md](./FRONTEND-RUNBOOK.md#cee-release).
+served bundle hash; a manifest edit alone does not change a running frontend. The helper owns the consumer inventory; do not substitute a remembered list. Consumer installs
+and lock regeneration must use the same peer-dependency mode as their CI (currently plain installs).
+Local rebuild paths are in [FRONTEND-RUNBOOK.md](./FRONTEND-RUNBOOK.md#cee-getting-a-local-build-into-the-frontends);
+served payloads and cache invalidation are in [PROD-DEPLOY-RUNBOOK.md](PROD-DEPLOY-RUNBOOK.md#6--verify-and-rebuild-every-cee-host-to-the-intended-version).
 
 Pinning the release rewrites every one of those lockfiles, so all seven dependency-graph digests the
 train's dispatch preflight reads go stale at once and the next `cedarcli publish train` refuses with
@@ -596,14 +592,18 @@ and normalizes only this closed release-provenance list:
 
 - package name, version, publish channel, and root lock identity;
 - the one embedded CEE version, model-package identity, and load trace in the browser bundle;
-- the bundle manifest derived from those browser-bundle bytes; and
+- the bundle manifest derived from those browser-bundle bytes;
+- CEE's exact `allowScripts` install policy if embedded from root `package.json`: the planner reads
+  it from the train's captured CEE commit and permits its minified literal exactly once; and
 - one dated changelog entry for the public CEE version, which must name one exact public model
   version. If the train predates that entry, removing it must reproduce the train changelog byte for
   byte; if the train already contains it, the two changelogs must already be byte-identical.
 
 After those substitutions every remaining packaged byte must be identical, and the browser bundle
 must be identical too, except for a consistent renaming of short minified identifiers, which
-esbuild's frequency-ordered name alphabet can produce from the provenance strings alone. A second
+esbuild's frequency-ordered name alphabet can produce from the provenance strings alone. Renaming
+must be consistent in both directions; properties, reserved words and longer identifiers cannot
+change. An undeclared or malformed install policy, adjacent JavaScript changes, a second
 occurrence of a provenance literal, a changed older changelog entry, an extra file, or any other
 JavaScript difference is a hard failure. This normalized byte proof is also the
 proof for the model-library code compiled into CEE. The train development base may be newer than
@@ -617,6 +617,15 @@ integrates those exact trees into `main` and `develop`, publishes the stable fro
 and verifies their downloaded registry tarballs. Workspace receives the same Git wiring but keeps
 its independent package publication path. Operational details and resume rules are in
 [RELEASE-RUNBOOK.md](./RELEASE-RUNBOOK.md#the-route).
+
+## Release Notes
+
+CEE release notes address embedders. Open with the version and npm package link, then a short
+paragraph describing the main change. Use the changelog's Added, Changed, Removed, Fixed and
+Security headings as applicable; lead bullets with the concrete change. Keep bullets to one or two
+sentences (normally 20–30 words), selecting changes embedders need to know about rather than copying
+the full changelog. Close with the prerelease-build information and full changelog link. Review the
+GitHub release draft before publishing it.
 
 ## Failure Rules
 

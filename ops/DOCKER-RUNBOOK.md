@@ -6,36 +6,19 @@ all-Docker runtime. The 22-container backend can also run with seven native fron
 servers as a supported hybrid. Four admin-tool containers are optional and excluded from both core
 counts.
 
-The broader native and hybrid guide remains in [BACKEND-RUNBOOK.md](./BACKEND-RUNBOOK.md). Work
-needed to make this a registry-driven, production-ready deployment is tracked in
+Native operation is covered in [BACKEND-RUNBOOK.md](./BACKEND-RUNBOOK.md). Remaining Docker
+delivery work is tracked in
 [DOCKER-ROADMAP.md](./DOCKER-ROADMAP.md).
 
 ## Current Verdict
 
-The complete application **can be deployed locally with Docker today**. Images can be pulled as a
-completed immutable development train or built directly from checked-out source. A clean pull and
-runtime acceptance of a completed train was re-proven on 2026-08-24 on Apple Silicon with Docker
-Engine 29.6.2 and Compose 5.3.1:
+Local Docker and hybrid deployments support completed immutable trains and explicit builds from
+checked-out source. Use the health, REST and browser gates in this guide to verify each deployment;
+a prior successful run does not establish the current deployment's readiness.
 
-- all 70 Java reactor modules built successfully on JDK 17 with `-DskipTests`;
-- all 24 backend images built: seven infrastructure, two Java bases, and fifteen microservices;
-- all 22 backend runtime containers became healthy;
-- all 19 REST suites passed in one in-network run: 683 assertions, 0 failures;
-- all seven frontend images built from exact immutable npm artifacts;
-- all 29 core runtime containers became healthy and all seven public UI hostnames returned 200;
-  and
-- the authenticated browser smoke created a template in Workspace, edited and populated it,
-  exercised BioPortal suggestions, saved and re-edited an instance, downloaded JSON and YAML, and
-  rendered it anonymously through OpenView before cleaning up.
-
-The complete Maven → npm → Docker publication chain also completed successfully on 2026-08-26.
-That run recorded and verified the TypeScript model, CEE, and seven frontend package inputs before
-building the images. It then pulled all 31 images back from Nexus and verified their source and
-frontend-manifest provenance before advancing the deployable Docker pointer.
-
-The builder, Compose projects, CLI validation, and cleanup use `CEDAR_IMAGE_PREFIX` for the 29
-runtime images. `CEDAR_BASE_IMAGE_PREFIX` can place the two Java bases in a separate internal
-repository and otherwise defaults to the runtime prefix.
+`CEDAR_IMAGE_PREFIX` selects the 29 runtime images. `CEDAR_BASE_IMAGE_PREFIX` selects the two
+Java base images and defaults to the runtime prefix. Published trains verify all 31 images before
+advancing the deployable pointer.
 
 ## What Runs
 
@@ -298,7 +281,7 @@ cedarcli docker build microservices --train <TRAIN_ID>
 
 ### Checked-Out Java Source: Explicit Local Build
 
-This is the path used for the 2026-08-21 deployment proof. The Java build installs the parent,
+The Java build installs the parent,
 shared libraries, the 70-module server reactor, and clients in dependency order, running the unit
 and embedded integration suites by default. Use `--skip-tests` explicitly only for a previously
 verified compile/install loop; the REST gate below remains the deployment acceptance test. `--local`
@@ -315,6 +298,24 @@ cedarcli docker build frontends --local
 The local path keeps the development version declared by the Docker build manifest. It does not
 claim to reproduce a published train. Both paths tag images locally under `CEDAR_IMAGE_PREFIX`; do
 not assume that a local tag means the image was published.
+
+`cedarcli docker build` is the only supported builder: it builds required CEDAR base images
+first and supplies the locked versions from `cedar-docker-build/bin/cedar-images-base.sh`.
+Compose has no `build:` entries. Infrastructure Dockerfiles intentionally have no version defaults;
+`ops/check_version_pairing.py` checks server/client compatibility.
+
+For one server, build it before staging its image:
+
+```bash
+cd "$CEDAR_HOME/cedar-artifact-server"
+cedarcli build this --wd "$PWD"
+cedarcli docker build artifact-server --local
+```
+
+After changing a shared library, clean-build consuming servers before staging: Maven can otherwise
+re-shade a cached assembly containing old dependency classes even when the JAR timestamp is new.
+Image targets use the repository name without `cedar-`; groups include `infra`, `microservices`,
+`frontends` and `admin`.
 
 ### Frontend Images
 
@@ -515,6 +516,9 @@ valid token can be verified or that a Resource write reaches MongoDB, Neo4j, Red
 
 ## Optional Hybrid: Native Frontends Through Docker nginx
 
+Docker nginx sets `proxy_read_timeout` and `proxy_send_timeout` to 180 seconds; the default
+60-second timeout can return 504 while a slower upstream is still working.
+
 The currently proven interactive development topology keeps the full backend and nginx in Docker,
 but runs all frontend development servers directly from their source checkouts on macOS. This does
 not copy HTML, JavaScript, CSS, fonts, or images into the nginx container. Docker nginx terminates
@@ -587,8 +591,8 @@ npm run smoke:split:hostnames:keycloak
 npm run smoke:split:hostnames
 ```
 
-Expected: all seven hostnames return 200 and both split smoke commands pass. The 2026-08-21 proof
-met those expectations while all 22 backend containers remained healthy.
+Expected: all seven hostnames return 200, both split smoke commands pass, and all 22 backend
+containers remain healthy.
 
 Stop only the native frontends without touching the Docker backend:
 
@@ -644,8 +648,7 @@ cedarcli docker start all --pull missing
 ```
 
 The mode switch removes captured `host.docker.internal` upstream values before checking all seven
-frontend containers and public routes. The 2026-08-21 browser acceptance then opened the Smoke
-Tests folder in Workspace and opened its template in Designer without console errors.
+frontend containers and public routes. Run the browser acceptance gate after switching.
 
 For a one-off image experiment using the compatibility package pins in the checked-out Docker
 manifest, use the explicit local path:
@@ -671,6 +674,176 @@ To return to hybrid, stop the Docker deployment, clear and reconfigure the mode,
 seven native frontends and the Docker aggregate. Backend data volumes are untouched by either mode
 switch. The concise Compose routing contract is also in
 `cedar-docker-deploy/cedar-frontend/README.md`.
+
+## Legacy Diagnostic Split: Native Servers Against Containerized Infrastructure
+
+This older diagnostic arrangement puts selected data stores in containers while the JVMs remain
+native. It is not one of the three CLI modes and is not a supported aggregate deployment. The
+procedures below use direct Homebrew, Docker, and maintenance commands intentionally; do not infer
+that `native` or `hybrid` mode owns this mixed runtime.
+
+`set-env-generic.sh` derives every infrastructure host from `CEDAR_NET_GATEWAY`, the native profile
+sets it to `127.0.0.1`, and the containers publish the selected stores on the same host ports the
+servers already read.
+
+**Redis.** Swap it with the native stack running, from a second shell — the stack needs
+the Docker profile for the container's pinned address, and the servers keep running under the
+native one:
+
+```bash
+brew services stop redis                      # frees 6379
+export CEDAR_HOME=$HOME/CEDAR
+source $CEDAR_HOME/cedar-development/bin/templates/cedar-profile-docker.sh
+cd $CEDAR_HOME/cedar-docker-deploy/cedar-infrastructure
+docker compose up -d redis-persistent
+```
+
+To go back, `docker stop infra-redis-persistent && brew services start redis`. `brew services stop`
+unloads the launch agent, and the container carries `restart: unless-stopped`, so after the swap
+Redis returns on reboot as a container rather than as a Homebrew service.
+
+**Expect about ten seconds of queue errors, then silence.** Three servers poll Redis and log the
+outage: the worker's value-recommender reindex, the messaging server's pool validation, and the
+submission server's NCBI queue consumer. All three recover on their own retry interval once the
+container answers. No restart is needed, and a server that is still logging Redis failures a minute
+later is a real problem rather than the swap.
+
+Verify with `cd "$CEDAR_HOME/cedar-development/ops/e2e" && npm run smoke`, then `redis-cli -p 6379 info stats`. The smoke run drives
+a few thousand commands through the store, so a counter still near zero means the servers are
+talking to something else. `redis-cli -p 6379 info server` should report `redis_version:7.2.7`.
+
+**OpenSearch.** Use 2.19.1, the version already running natively. Same shape:
+
+```bash
+brew services stop opensearch                 # frees 9200
+docker compose up -d opensearch               # from cedar-infrastructure, Docker profile
+cedarat search-regenerateIndex                # native profile; rebuilds from Mongo + Neo4j
+cedarat rules-regenerateIndex
+```
+
+Rolling back is `docker stop infra-opensearch && brew services start opensearch`. The native data
+directory under `/opt/homebrew/var/opensearch` is never touched by any of this, so the native index
+is still there when you go back.
+
+**Regenerate rather than migrate.** The index is derived from Mongo and Neo4j, so rebuilding it is
+both the cheapest migration and a correctness check on the store you just stood up. `IndexUtils`
+deletes the indices it owns and leaves everything else alone, which matters on 2.x: that image ships
+plugins 1.3.6 did not, and they create `.plugins-ml-config` and a `top_queries-*` index of their own.
+Expect to see them, and expect the regenerate log to say it is not touching them.
+
+**Do not read `docs.count` as a resource count.** CEDAR indexes nested documents, so `_cat/indices`
+inflates. Count root documents with a `match_all` search instead, and compare that against the
+`FileSystemResource` nodes in Neo4j.
+
+**Mongo and Neo4j.** Use 5.0.31 and 5.26.0, the versions running natively. These
+are the two that carry the source of truth, so each is a real migration rather than a rebuild.
+
+Mongo goes through `mongodump` and `mongorestore`. Restore only the `cedar` database: the container
+creates its own users in `admin` on first start, native runs without auth, and restoring native's
+`admin` over the container's would take those users away.
+
+```bash
+mongodump --db cedar --out /tmp/cedardump                    # while native is still up
+# stop native (see the note below), then start the container
+docker compose up -d mongo
+mongorestore --uri "mongodb://${CEDAR_MONGO_ROOT_USER_NAME}:${CEDAR_MONGO_ROOT_USER_PASSWORD}@127.0.0.1:27017/?authSource=admin" \
+  --drop --db cedar /tmp/cedardump/cedar
+```
+
+Neo4j goes through `neo4j-admin`, which dumps offline, so the database has to be stopped first. Load
+into the volume with a one-off container before starting the service:
+
+```bash
+$CEDAR_HOME/neo4j/bin/neo4j stop
+$CEDAR_HOME/neo4j/bin/neo4j-admin database dump neo4j --to-path=/tmp/neodump
+docker run --rm -v neo4j_data:/data -v /tmp/neodump:/dump --entrypoint sh \
+  ${CEDAR_IMAGE_PREFIX}/cedar-infra-neo4j:${CEDAR_DOCKER_VERSION} \
+  -c 'neo4j-admin database load neo4j --from-path=/dump --overwrite-destination=true'
+docker compose up -d neo4j
+```
+
+Load only the `neo4j` database. Neo4j 5 keeps authentication in `system`, so the container's own
+credentials survive, which is what you want since both sides use the same ones.
+
+**MySQL and Keycloak migrate together** because the realm is the `cedar_keycloak` schema.
+The container uses Docker Official MySQL 8.4 LTS. Rehearse any restore from a newer native
+version in a throwaway container and strip `GTID_PURGED` if required by the destination.
+Back up every database first. The example migrates Keycloak and messaging and saves the log
+schema separately; it does not migrate historical log rows. Retain or migrate those rows according
+to the deployment's retention decision, and restore the log schema before resuming logging.
+
+```bash
+mysqldump -u root -p --databases cedar_keycloak cedar_messaging --single-transaction > cedar.sql
+mysqldump -u root -p --no-data --databases cedar_log | grep -v GTID_PURGED > log-schema.sql
+brew services stop mysql            # see the warning below — mysqladmin shutdown is not enough
+docker compose up -d mysql keycloak
+docker exec -i infra-mysql mysql -u root -p"$CEDAR_MYSQL_ROOT_PASSWORD" < cedar.sql
+docker exec -i infra-mysql mysql -u root -p"$CEDAR_MYSQL_ROOT_PASSWORD" < log-schema.sql
+```
+
+**Provision the databases and users by hand in this hybrid.** The containerized estate provisions
+itself: `cedar-microservice` carries a `wait-and-init-mysql.py` that creates each server's database
+and user from `CEDAR_SERVER_NAME`, and the Keycloak image has its own for the realm database. Native
+servers never run either. So a containerized MySQL under native servers gets only what Keycloak's
+container creates, and `cedar_log` and `cedar_messaging` need their databases, users and grants
+created explicitly — at `@'%'`, since the connection now arrives from outside the container rather
+than from `localhost` as it did natively.
+
+**Stopping native MySQL needs `brew services stop mysql`.** `mysqladmin shutdown` is not enough:
+launchd restarts `mysqld_safe`, which restarts `mysqld`, within seconds. Combined with the port trap
+below this is genuinely dangerous — native rebinds `127.0.0.1:3306`, wins every connection back from
+the container, and nothing reports it. Two full REST runs passed against native MySQL while the
+container sat idle and healthy before this was noticed. Check `lsof` and `SELECT VERSION()` after
+stopping, not just that the container says healthy.
+
+**Which nginx serves 443 decides what the containers must resolve `auth.<host>` to.** Every server
+verifies bearer tokens against the realm behind that name, so `extra_hosts` has to point at whichever
+nginx is actually listening — and that is not the same thing as the nginx container's address on
+cedarnet. They have separate variables for that reason:
+
+| serving 443 | `CEDAR_AUTH_HOST_TARGET` |
+|---|---|
+| native nginx (the resting state here) | `host-gateway` |
+| the `infra-nginx` container | `${CEDAR_NGINX_HOST}` |
+
+Getting it wrong is silent until a token is verified. The request reaches the server, the server
+cannot fetch the realm's signing keys, and a **valid** token comes back `500` while an invalid one
+still correctly returns `401` — so the failure looks like a server bug rather than a routing one.
+The log says `java.net.NoRouteToHostException`.
+
+**The Keycloak container cannot reach a native resource server.** Its event listener posts user
+lifecycle events to `CEDAR_RESOURCE_SERVER_HOST`, which under the Docker profile is a
+`192.168.17.x` container address that does not exist when the servers are native, so the log fills
+with `NoRouteToHostException`. Login, token verification and the whole REST estate are unaffected —
+only event propagation is, so new-user provisioning is the thing to watch. Point it at
+`host.docker.internal` if that matters to you. The callback runs on a matching
+`cedar-angular-app` `LOGIN`, not on Keycloak registration itself, so a later login is the retry. A
+transport failure is logged with its cause; a non-2xx response is logged with status, URL, event
+type and user id. Treat either message as a provisioning failure rather than accepting a healthy
+login as proof that the CEDAR account exists.
+
+**Stopping native Mongo needs `db.shutdownServer()`, not the Homebrew service.** Two things bite
+here. `brew services start mongodb-community@5.0` now fails: Homebrew refuses the `mongodb/brew` tap
+as untrusted, cannot read the formula, and writes a launch agent with no `ProgramArguments`. Run
+native Mongo directly instead, and shut it down through the shell:
+
+```bash
+/opt/homebrew/opt/mongodb-community@5.0/bin/mongod --config /opt/homebrew/etc/mongod.conf --fork
+mongosh --quiet --eval 'db.getSiblingDB("admin").shutdownServer()'
+```
+
+`brew trust mongodb/brew` followed by `brew services start` restores the launchd path, at the cost of
+trusting that tap. `mongod --shutdown` is not available in this build.
+
+**A native store and its container can both hold port 27017 and nothing warns you.** Native binds
+`127.0.0.1` specifically while Docker binds the wildcard, so both listen, the more specific bind wins,
+and every client silently keeps talking to the native server. `docker ps` says healthy throughout.
+Check with `lsof -nP -iTCP:27017 -sTCP:LISTEN` and confirm only Docker is there before believing a
+swap took.
+
+Verify migrated collection, node, relationship, user and message counts against the source.
+Confirm `SELECT VERSION()` identifies the container, then run the REST and browser acceptance
+gates below. Container health alone does not prove clients are using the migrated stores.
 
 ## REST Acceptance Gate
 

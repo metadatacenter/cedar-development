@@ -3,11 +3,8 @@
 Building, configuring, testing and upgrading the four MCP servers under `$CEDAR_HOME/mcp`. What is
 still to do with them is in [MCP-ROADMAP.md](./MCP-ROADMAP.md).
 
-An MCP server hands a language model a set of tools backed by real services. These four let a model
-author a CEDAR template by conversation, resolve its ontology terms against BioPortal, see the form
-it becomes, and store the result on a CEDAR server. The
-[CEDAR MCPs Tutorial](https://metadatacenter.readthedocs.io/en/latest/tutorials/cedar_mcps_tutorial/)
-walks that end to end.
+The [CEDAR MCPs Tutorial](https://metadatacenter.readthedocs.io/en/latest/tutorials/cedar_mcps_tutorial/)
+covers conversational authoring, terminology lookup, form rendering and persistence end to end.
 
 ## The Four Servers
 
@@ -37,10 +34,8 @@ Two of the three Maven servers depend on released `cedar-artifact-library` 2.9.8
 the anonymous-read BMIR Nexus releases repository, so no sibling checkout or local install is
 needed. `cedar-artifact-rest-mcp` does not use the library and resolves from Maven Central alone.
 
-**The jar is the documentation.** A tool's description is the only thing the calling model ever
-reads about it, and descriptions ship inside the jar. A stale MCP jar is therefore worse than a
-stale service jar — the model does not ignore a description that disagrees with behaviour, it
-follows it.
+Tool descriptions ship inside the jar. Rebuild and restart the client after changing them so the
+model receives descriptions matching the running implementation.
 
 ## Configure
 
@@ -71,17 +66,11 @@ Point it at `https://resource.metadatacenter.orgx` for the local stack.
 
 ### A Rebuilt Jar Does Not Take Effect Until the Server Restarts
 
-The client spawns each server as a child process at startup and holds it. Overwriting the jar
-underneath a running process changes nothing: it goes on serving the code it loaded, tool
-descriptions included. Restart the client, or kill the server processes and let the client respawn
-them.
-
-That combination has bitten before in a worse form. The target server is read from the environment
-when the process spawns, so editing `CEDAR_BASE_URL` in a client's configuration also changes
-nothing until the restart — and a server can go on writing to whatever it was started against long
-after its configuration says otherwise. When one of the two is production, check before assuming.
-`ping` reports the server name and version but deliberately contacts nothing, so it does not answer
-the question of which CEDAR is on the other end.
+The MCP client holds a child process for each server. Replacing its jar or editing
+`CEDAR_BASE_URL` does not change that process. Restart the client, or stop the server and let the
+client respawn it, after either change. Verify the destination before writing: the default is
+production. `ping` reports the MCP server's name/version without contacting CEDAR and therefore
+cannot verify the destination deployment.
 
 ## Test
 

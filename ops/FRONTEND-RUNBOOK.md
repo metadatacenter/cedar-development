@@ -591,6 +591,11 @@ distinguishes them.
 
 #### Releasing a Dev Snapshot Locally
 
+Publish snapshots scoped to `@org.metadatacenter` on Nexus, never unscoped: Nexus's old unscoped
+CEE lineage can outrank current releases in semver ranges. `scripts/npm-package.mjs` selects the
+channel from `-dev.` in the version. Pass `--tag dev` explicitly because npm 11 ignores
+`publishConfig.tag`; dry-run the same command first and verify the registry's dist-tags afterwards.
+
 A snapshot is a real published version, so every frontend can name it and install
 it, and anyone can fetch it later. Reads from Nexus are anonymous; only publishing
 needs the credential already in `~/.npmrc`.
@@ -1692,354 +1697,36 @@ instead, where the dev versions do not exist.
 
 <a id="cee-release"></a>
 
-### Release
-
-`main` is owned by the release process. Work lands on `develop`.
-
-There is one stable publish target: the unscoped `cedar-embeddable-editor` on public npmjs, under the
-default `latest` tag, which `npm view cedar-embeddable-editor version` names. All seven embedding
-manifests pin one exact stable version from npmjs; the propagation check confirms the matching
-manifest and lockfile resolution in every consumer.
-The stable registry goes from 1.5.2 straight to 2.0.1: 1.6.0 was
-published on 2026-08-12 and unpublished from npmjs afterwards, so a manifest still naming 1.6.0
-cannot install, and the tarball it named cannot be fetched for comparison.
-`scripts/npm-package.mjs` generates the published manifest, hardcoding the stable package name and
-writing no `publishConfig`, so a stable package goes to `registry.npmjs.org`; the root manifest's
-own `name` and `publishConfig` are not what publishes.
-
-Dev snapshots are a second channel: the scoped `@org.metadatacenter/cedar-embeddable-editor` on
-Stanford Nexus under a `dev` tag, versioned `<next>-dev.<date>.<sha>`. It was retired for a while and
-is live again. Query the registry before relying on the mutable `dev` tag; pin an exact version in
-an embedding app through an npm alias, since npm routes by scope and this is the only package taken
-from Nexus.
-Train-owned snapshots use the more specific
-`<next>-dev.<train-date><train-minute>.g<sha12>` identity, tying the package to both the train and
-the captured CEE commit without rewriting CEE source history.
-
-`scripts/npm-package.mjs` derives the channel from the version rather than taking it as a flag: a
-version containing `-dev.` is published scoped, with a `publishConfig` naming the Nexus registry;
-anything else is published unscoped to npmjs. So a snapshot cannot reach npmjs by a forgotten flag.
-
-The **tag** is not covered by that. npm 11 ignores `publishConfig.tag` — a dry run of the snapshot
-manifest reports `tag latest` — so `--tag dev` has to be passed on the command line. Without it the
-scoped package gains a `latest` pointing at a prerelease, a tag it does not otherwise have.
-
-Do not publish CEE unscoped to Nexus. That name exists there already, carrying a 2023 lineage:
-`2.6.20`–`2.6.24` from early 2023 and `1.0.3` as `latest`. Any 2.x published now sorts below
-`2.6.24`, so a range like `^2.0.0` would resolve to a three-year-old build. `npm-cedar` is a hosted
-repository and proxies nothing, so an unscoped package cannot be reached selectively anyway: npm
-routes by scope, and pointing a whole app at Nexus would break every dependency it does not hold.
-
-Version is surfaced at runtime as `window.cedarEmbeddableEditorVersion`.
-
-> `gocee`, `gocedar` and `gobridging` are CEDAR profile aliases (cd to the respective
-> repo). **Never commit npm tokens, passwords, or OTPs.**
-
 <a id="cee-prerequisites--registry-auth"></a>
-
-#### Prerequisites — Registry Auth
-
-Publishing needs rights on `cedar-embeddable-editor` at npmjs, and npm requires a second factor:
-pass `--otp=<code>`, or hold a granular access token with "Bypass 2FA" in `~/.npmrc`. An `E404` on
-publish means unauthenticated rather than missing — check `npm whoami` before believing the package
-disappeared. Confirm the account without printing any credential:
-
-```bash
-npm whoami
-```
-
-A token is a credential — keep it in `~/.npmrc` only, never in a repo or these notes.
-
 <a id="cee-1--bump-the-version"></a>
-
-#### 1 · Bump the Version
-
-A release version is plain semver — for example, `2.0.3`. Only **two** files hold it by hand:
-
-| File | Occurrences |
-|---|---|
-| `package.json` | 1 (`"version"`) |
-| `package-lock.json` | 2 (top-level `"version"` + the root `""` package entry) |
-
-Everything under `dist-npm/cedar-embeddable-editor/` is **generated** and git-ignored —
-`scripts/npm-package.mjs` derives the manifests from the root `package.json`, `types:public` emits
-the declarations, and the README and changelog are copied from the root. Do not hand-edit any of
-them; staging overwrites them. (Older notes describing "six version spots", or the directory as a
-committed artifact, predate that script and the ignore.)
-
-CEE deliberately has no `package-dist.json`. The model library needs that second source manifest
-because its root and published packages have different names. CEE's staging script already performs
-the same translation: a plain version produces `cedar-embeddable-editor` for npmjs, while a version
-containing `-dev.` produces `@org.metadatacenter/cedar-embeddable-editor` for Nexus. Copying the
-model library's manifest into CEE would create a second manual version and channel switch that could
-disagree with the tested package; `.gitignore` rejects that accidental file.
-
-Then add a `## [X.Y.Z] - <date>` section to `CHANGELOG.md`, and bump the load-trace stamp in
-`src/app/modules/shared/components/cedar-embeddable-metadata-editor/cedar-embeddable-metadata-editor.component.ts`
-→ `private static INNER_VERSION = '<YYYY-MM-DD HH:MM>';`, the time the bump was written. 2.0.1 stamps
-`'2026-08-21 15:09'`.
-
-> `ceeVersion` derives from `package.json` and is exposed as `window.cedarEmbeddableEditorVersion`,
-> so bumping `package.json` is what drives the visible version. `INNER_VERSION` is only the stamp
-> logged at load. `README.md` and `CHANGELOG.md` are copied into the package by staging — no manual
-> `cp` step.
-
-The stamp is the only version spot nothing derives — every other copy is generated from
-`package.json`, so a forgotten stamp used to ship a bundle that passed everything and then reported
-the previous release to anyone reading the console. `check:npm-package` guards that only for a dev
-version, where the version's trailing sha and the stamp's must name the same commit; a stable version
-carries no commit, so the check reports `(stable, no load-trace commit to check)` and passes whatever
-the stamp says. Read it yourself before publishing a release.
-
-If the root already reports the requested release version, do not rerun `npm version`: npm rejects
-an idempotent version request as `Version not changed`. Check first, then bump only when needed:
-
-```bash
-node -p "require('./package.json').version"
-npm version X.Y.Z --no-git-tag-version
-```
-
 <a id="cee-2--test-and-stage-the-package"></a>
-
-#### 2 · Test and Stage the Package
-
-The operator command now has the same shape as the model library's:
-
-```bash
-npm run test:package
-node -p "require('./dist-npm/cedar-embeddable-editor/package.json').name + '@' + require('./dist-npm/cedar-embeddable-editor/package.json').version"
-```
-
-For a stable `X.Y.Z`, the second command must print
-`cedar-embeddable-editor@X.Y.Z`. For a dev version it must print the scoped
-`@org.metadatacenter/cedar-embeddable-editor@<DEV_VERSION>` identity.
-
-`test:package` builds production, runs the Playwright baseline, checks the bundle size, emits the
-public declarations and compiles the README examples against them, then writes and verifies
-`dist-npm/cedar-embeddable-editor/`. Staging publishes
-`visual/public/cedar-embeddable-editor.js` and refuses to run unless that file's SHA-256 and byte
-count match `visual/public/bundle-manifest.json`. The published artifact is therefore the exact
-bundle a browser exercised.
-
 <a id="cee-3--publish"></a>
-
-#### 3 · Publish
-
-A release goes to npmjs, unscoped, under `latest`:
-
-```bash
-cd dist-npm/cedar-embeddable-editor && npm publish
-```
-
-A dev snapshot goes to Nexus, scoped. The registry comes from the staged manifest; the tag does not,
-so pass it:
-
-```bash
-cd dist-npm/cedar-embeddable-editor && npm publish --tag dev
-```
-
-> Dry-run it first. A published version cannot be replaced, and the dry run names the registry and
-> the tag it would use — the cheapest way to catch a wrong target while it is still reversible:
->
-> ```bash
-> npm publish --dry-run
-> ```
-
-Then confirm what moved. For a release:
-
-```bash
-npm dist-tag ls cedar-embeddable-editor
-```
-
-`latest` should point at the version just published, and it should be the only tag. For a snapshot,
-read the tags off Nexus, where `dev` should be the only one:
-
-```bash
-curl -s "https://nexus.bmir.stanford.edu/repository/npm-cedar/@org.metadatacenter%2fcedar-embeddable-editor" | python3 -c "import json,sys; print(json.load(sys.stdin)['dist-tags'])"
-```
-
 <a id="cee-4--commit-tag-the-release-and-draft-its-notes"></a>
-
-#### 4 · Commit, Tag the Release, and Draft Its Notes
-
-Nothing in the publish records which commit was staged, and `npm publish` will happily ship a dirty
-working tree. Commit the release preparation immediately after the publish, then tag that commit
-rather than a later merge:
-
-```bash
-git add package.json package-lock.json CHANGELOG.md \
-  src/app/modules/shared/components/cedar-embeddable-metadata-editor/cedar-embeddable-metadata-editor.component.ts
-git commit -m "Prepare CEE release X.Y.Z"
-git push
-RELEASE_COMMIT=$(git rev-parse HEAD)
-git checkout main
-git pull
-git tag -a release-X.Y.Z "$RELEASE_COMMIT" -m "CEE X.Y.Z"
-git push origin release-X.Y.Z
-git checkout develop
-```
-
-If the tag is added later and the commit is no longer obvious, the published package identifies it.
-Three of its files are copied rather than generated — `README.md`, `CHANGELOG.md` and
-`license.txt` — so `npm pack cedar-embeddable-editor@<version>` and a hash of those three against
-each candidate commit settles which tree was staged. That is what distinguishes the bump commit on
-`develop` from the merge on `main`, which can differ in nothing else.
-
-Then draft the release notes against the tag:
-
-```bash
-gh release create "release-${CEE_VERSION}" --draft --title "CEE ${CEE_VERSION}" --notes-file <notes.md>
-```
-
 <a id="cee-5--advance-development"></a>
-
-#### 5 · Advance Development
-
-Back on `develop`, advance to the next development base. The version itself selects the scoped
-Nexus channel, so there is no package name to restore:
-
-```bash
-DEV_SHA=$(git rev-parse --short HEAD)
-DEV_DATE=$(git show -s --format=%cd --date=format:%Y%m%d HEAD)
-npm version "<NEXT>-dev.${DEV_DATE}.${DEV_SHA}" --no-git-tag-version
-```
-
-Update `INNER_VERSION` to name the same date and SHA, then verify the generated identity without
-publishing it:
-
-```bash
-npm run test:package
-node -p "require('./dist-npm/cedar-embeddable-editor/package.json').name + '@' + require('./dist-npm/cedar-embeddable-editor/package.json').version"
-# Must print @org.metadatacenter/cedar-embeddable-editor@<DEV_VERSION>
-git add package.json package-lock.json \
-  src/app/modules/shared/components/cedar-embeddable-metadata-editor/cedar-embeddable-metadata-editor.component.ts
-git commit -m "Advance CEE to next development version"
-git push
-```
-
-CEE's notes follow the shape 2.0.3's carry, which is not the one
-[cedar-project's releases](https://github.com/metadatacenter/cedar-project/releases) use — those
-announce a platform deployment to the people who use the Workbench, and CEE ships a package to the
-people who embed it. One opening line names the release and links the npm package. One paragraph
-says what most of the release is, in specifics. Then the changelog's own headings — Added, Changed,
-Removed, Fixed, Security — each bullet led by a bold clause naming the thing that changed, with
-`Fixed` grouped under bold labels once it runs long. The pre-release-builds note and the link to
-the full changelog close it.
-
-A bullet is one or two sentences — 20 to 30 words, 45 at the outside. It says what changed and, if
-it is not obvious, what was wrong before; the reasoning behind it stays in `CHANGELOG.md`, which is
-where a reader who wants it will look. Lead with the concrete subject: "A `change` event naming the
-field that changed" is a bullet, while "a host is told what changed rather than that something did"
-is a riddle whose answer is the bullet.
-
-`CHANGELOG.md` is the source for the notes and not their shape. It records every change; the notes
-select the ones an embedder has to act on or would want to know about, and say what each is for.
-Publish the draft once someone has read it.
-
-Releases before 2.0.1 carry tags but no GitHub release; 1.6.0's tag was added retroactively, at
-`8a9e3693`.
-
 <a id="cee-6--propagate"></a>
-
-#### 6 · Propagate
-
-Seven manifests across five repos depend on CEE. Workspace is a required consumer alongside the
-production monolith and the existing auxiliary/demo frontends. A stable release names one exact
-version resolved from npmjs:
-
-```json
-"cedar-embeddable-editor": "2.0.3"
-```
-
-Its lockfiles record the npmjs tarball and integrity hash, so what installs is reproducible.
-Installing needs no credential; only publishing does. A development snapshot instead uses the
-scoped `@org.metadatacenter` Nexus alias.
-
-Each repo carries an `.npmrc` holding `@org.metadatacenter:registry` against Nexus, which is required
-while a development snapshot is pinned and harmless for a stable npmjs release.
-
-| Repo | Manifest | Install |
-|---|---|---|
-| `cedar-workspace` | `package.json` | plain |
-| `cedar-template-editor` | `package.json` | plain |
-| `cedar-bridging` | `cedar-bridging-src/package.json` | plain |
-| `cedar-openview` | `cedar-openview-src/package.json` | plain |
-| `cedar-component-demo` | `cedar-cee-demo-angular-src` | plain |
-| `cedar-component-demo` | `cedar-cee-demo-ember-src`, `cedar-cee-demo-react` | plain |
-
-Every consumer installs in plain mode. OpenView needed `--legacy-peer-deps` while it carried
-`ngx-youtube-player-14`, which demanded `@angular/common@^14.1.3` from a project on Angular 16; that
-package left with the unreachable dependencies, and a plain install now resolves. The Angular demo
-needed the flag until it moved to Angular 22, for a different reason: it declared
-`@angular/material`, which wants `@angular/forms`, and used neither.
-
-The mode reaches further than the install. The train and the release regenerate each consumer's
-lock when they pin a CEE version, and a lock written under `--legacy-peer-deps` omits the peer
-packages a plain install records, which that repository's plain `npm ci` then refuses as out of
-sync with its manifest. The mode a consumer's own CI uses is therefore the mode
-`frontend-train.json` and `propagate-cee-release.mjs` must name for it.
-
-Propagate all seven pins with the checked cross-repository helper. It updates each manifest and
-lockfile using the appropriate npm peer-dependency mode, then fails unless Workspace and every
-existing consumer resolve the exact version from the correct registry:
-
-```bash
-export CEDAR_HOME=/path/to/CEDAR
-node $CEDAR_HOME/cedar-development/ops/propagate-cee-release.mjs --apply <CEE_VERSION>
-node $CEDAR_HOME/cedar-development/ops/propagate-cee-release.mjs --check <CEE_VERSION>
-```
-
-Never replace the helper with a remembered consumer list: its tested inventory is the guard that
-keeps Workspace wired into every CEE release. Review and commit the resulting manifest and lockfile
-changes in each owning repository separately.
-
-There are two deliberately different propagation paths. A stable CEE release still uses this helper
-to make reviewable changes in the owning source repositories. An immutable development build train
-does not modify those repositories: in disposable exact-commit checkouts it publishes the captured
-model after its full gate, wires it into CEE, runs CEE's full ARM gate, publishes that CEE, and then
-wires the verified CEE into all seven consumers. The train records hashes of those transformed
-manifests, locks and rebuilt payloads before publishing the frontend artifacts. See
-[BUILD-RUNBOOK.md](./BUILD-RUNBOOK.md) for `npm/model/completed`, `npm/cee/completed`, and the final
-`npm/completed` record.
-
-The train-backed CEDAR release then requires an explicit public CEE version. It verifies both
-tarballs and accepts the npmjs package only when its executable bundle is byte-identical after
-normalizing the single embedded CEE version, model-package identity and load trace. It also permits
-only the package channel metadata, the manifest derived from those bundle bytes, and one dated
-current-release changelog entry; every other packaged byte must match. This proves the public model
-substitution did not change the model code compiled into CEE and prevents an independently changed
-CEE from being substituted into the CEDAR release. The closed normalization list and its failure
-rules are in [NPMJS-RELEASE-RUNBOOK.md](./NPMJS-RELEASE-RUNBOOK.md#use-the-public-cee-in-a-train-backed-cedar-release).
-
-Propagating a release also means rebuilding each deployed consumer.
-Confirm the bytes rather than the version string: the sha256 that `package:npm:prebuilt` prints should
-appear in each consumer's `node_modules`, and again wherever that consumer stages the bundle —
-`app/third_party_components/` for both Workspace and the monolith,
-`dist/cedar-openview/node_modules/` for OpenView.
-
-```bash
-gobridging  && npm install && cd .. && cedarcli build this --wd "$PWD"
-cd $CEDAR_HOME/cedar-workspace && npm run copy:cee
-cd $CEDAR_HOME/cedar-template-editor && npx gulp copy:cee
-```
-
-A rebuild is what reaches a running frontend; the manifest edit and the install only change what
-resolves. Both Workspace and `cedar-template-editor` copy the installed bundle during Gulp. The
-production deployment procedure must build whichever of those two payloads the environment serves,
-and during migration builds both ([PROD-DEPLOY-RUNBOOK.md](./PROD-DEPLOY-RUNBOOK.md) step 6).
-
 <a id="cee-gotchas"></a>
 
-#### Gotchas
+### Release
 
-- **Publish only from `dist-npm/cedar-embeddable-editor/`.** From the repo root, `npm publish` uses
-  the root manifest and packs the whole source tree.
-- **Staging refuses a stale bundle** rather than shipping one. `browser bundle does not match its
-  manifest` means run `npm run test:visual` again; it is the guard working, not a fault.
-- **Reaching an environment is a separate step.** Publishing does nothing there until every served
-  CEE host—including Workspace and the monolith during migration—is rebuilt against the new version,
-  its served hash is verified, and the environment cache-buster/CDN entries are changed or purged
-  (PROD-DEPLOY-RUNBOOK + frontend-caching).
+The [npmjs release runbook](NPMJS-RELEASE-RUNBOOK.md) owns stable CEE and model-library releases:
+prepare and test on `develop`, merge through green CI, rebuild and publish from `main`, tag the
+published commit, then restore development state. Never publish from the repository root.
+
+| Task | Authoritative procedure |
+| --- | --- |
+| Credentials and version availability | [Shared prerequisites](NPMJS-RELEASE-RUNBOOK.md#shared-prerequisites) |
+| CEE version, model pin, tests and publication | [Release CEE](NPMJS-RELEASE-RUNBOOK.md#release-cee-with-an-explicit-model-version) |
+| Advance CEE after release | [Restore development state](NPMJS-RELEASE-RUNBOOK.md#restore-cee-development-state) |
+| Update consumer pins and train baselines | [Propagate CEE](NPMJS-RELEASE-RUNBOOK.md#propagate-a-stable-cee-release) |
+| Adopt public CEE in a CEDAR release | [Train-backed release](NPMJS-RELEASE-RUNBOOK.md#use-the-public-cee-in-a-train-backed-cedar-release) |
+| Write the announcement | [Release notes](NPMJS-RELEASE-RUNBOOK.md#release-notes) |
+| Publish a development snapshot | [Local dev snapshots](#cee-releasing-a-dev-snapshot-locally) |
+
+
+
+Publishing alone changes no running frontend. Rebuild each served host, verify bundle hashes,
+and invalidate its caches using [production deployment](PROD-DEPLOY-RUNBOOK.md#6--verify-and-rebuild-every-cee-host-to-the-intended-version).
+For local bundle staging, see [Getting a Local Build into the Frontends](#cee-getting-a-local-build-into-the-frontends).
 
 <a id="ced"></a>
 

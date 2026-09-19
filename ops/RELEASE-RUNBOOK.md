@@ -1,12 +1,9 @@
 # CEDAR Release Runbook
 
-How to cut a CEDAR release from an immutable development build train. Written to be followed by a
-human with no tooling beyond a terminal, or read by an LLM agent. This is the **release**
-counterpart to [BACKEND-RUNBOOK.md](./BACKEND-RUNBOOK.md), which covers running CEDAR locally.
-
-A companion visual, showing a live phase timeline alongside this command sequence, is
-[cedar-release-monitor.html](./cedar-release-monitor.html). Open it in a browser; there is no build
-step.
+Cut a CEDAR release from a completed [build train](BUILD-RUNBOOK.md). For deployment use
+[PROD-DEPLOY-RUNBOOK.md](PROD-DEPLOY-RUNBOOK.md); for local operation use
+[BACKEND-RUNBOOK.md](BACKEND-RUNBOOK.md). The optional
+[release monitor](cedar-release-monitor.html) opens directly in a browser.
 
 > Replace `<VER>` and `<NEXT>` with the release version and the next development version, for
 > example `2.9.4` and `2.9.5-SNAPSHOT`.
@@ -20,28 +17,17 @@ what it publishes matches what the train built. Creating a train is covered in
 
 ### Ask What the Workspace Can Answer First
 
-`plan` needs a completed train, so every check it makes that only reads the workspace is
-unreachable until one has been built. That order is expensive in one direction: repairing what
-those checks find spends the train, because a release stamps the exact commits its train
-captured, and the commit that fixes a consumer inventory or a packaging script is a commit to a
-captured repository.
-
-Run them before building anything:
+Run workspace readiness before creating a train, so fixes do not invalidate its captured source:
 
 ```bash
 cedarcli release readiness --version <VER> --next-version <NEXT>
 ```
 
-It settles the consumer inventories against the checkouts, the required Maven artifacts against
-the modules that build them, the published npm surfaces against the manifests the release packs,
-and the version arithmetic against the version the workspace is actually on. It also packs each
-published surface from a clean archive of its commit, which is how the publisher packs it — a
-`prepack` that reads `node_modules` cannot succeed there, and the train otherwise learns that at
-its last npm stage. The versions are optional; without them the rest still runs, and
-`--skip-packaging` omits the slowest check. About ten seconds.
-
-What remains for `plan` is what genuinely needs the built train: the tarball inventories, the
-registry digests, and the byte proof between the train's CEE and the public package.
+It checks consumer inventories, Maven modules/artifacts, npm publication surfaces and version
+arithmetic, and packs each surface from a clean commit archive. A `prepack` depending on checkout
+`node_modules` fails here. Versions are optional; `--skip-packaging` omits packing. Allow about ten
+seconds. Registry inventories, digests and CEE equivalence require the completed train and remain
+in `plan`.
 
 ### The Plan
 
@@ -65,38 +51,14 @@ CEE and the public npmjs CEE, and then runs the complete release gate. It must f
 
 ### Nothing May Land Between the Train and the Release
 
-A release stamps the exact commits its train captured and refuses any repository whose `develop`
-has moved off them. A single commit to any one of the forty-five therefore spends the train, and
-the release needs a new one, built and smoke-gated from scratch. Do CI, tooling and documentation
-work before the train rather than between the train and the release it backs.
+A release stamps the train's exact commits and refuses any captured repository whose `develop`
+has moved. Finish CI, tooling and documentation changes before creating the train. A later source
+change requires a new smoke-gated train.
 
-`cedarcli publish train-status` reports whether a complete train can still back a release, which
-is the cheap way to learn this while it can still change what you do. The refusal itself names
-every repository that moved and counts them against what the train captured, because one
-repository that can be explained and an estate that has moved on call for different remedies.
-
-The CEE version bases need not match. A train may already have advanced to the next development
-base after the public package was cut, so eligibility comes from the tarball proof rather than from
-version-name similarity.
-
-The proof permits only named, source-bound non-executable differences. Besides package channel
-metadata and the declared version, model identity, load trace, and release changelog entry, this
-includes CEE's exact `allowScripts` install policy when Angular has embedded the root `package.json`
-into the bundle. The planner reads that policy from `package.json` at the CEE commit captured by the
-train, requires its minified literal exactly once in the development bundle, and removes only those
-bytes before comparison. An undeclared policy, a malformed entry, a second occurrence, or any
-adjacent JavaScript change still fails the byte proof. This keeps npm's build/install allowlist from
-forcing a new public CEE release while preserving the rule that executable changes do.
-
-The proof also accepts one difference that is not a change at all. esbuild draws the short names it
-gives minified identifiers from an alphabet ordered by how often each character occurs in the
-output, and the provenance strings a train stamps into its bundle move those counts, so two builds
-of the same code can disagree in every name at one rank of that alphabet. The planner therefore
-compares the two bundles outside identifiers byte for byte and requires every identifier that
-differs to be a short minified name, renamed the same way at every differing position in both
-directions. A property, a reserved word, a longer name, or a name renamed two ways is still a
-refusal. Train 2.9.9-dev.20260906.2244 was the first to need this: its stamps carried enough of the
-digit 8 to swap its rank with the letter B.
+Use `cedarcli publish train-status` to check eligibility and identify moved repositories.
+CEE's public and development version bases need not match: eligibility depends on the
+[package equivalence proof](NPMJS-RELEASE-RUNBOOK.md#use-the-public-cee-in-a-train-backed-cedar-release),
+whose permitted normalizations are defined in the npmjs runbook.
 
 ## What Plan Checks
 

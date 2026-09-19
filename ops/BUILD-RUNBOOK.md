@@ -1,41 +1,28 @@
 # CEDAR Build Runbook
 
-A build train is one immutable, internally consistent set of development artifacts and container
-images. It solves the failure mode where one repository publishes a new Maven `SNAPSHOT` while
-another repository—or a Docker build—still sees an older member of the same nominal version.
+A build train publishes an immutable set of Maven, npm and Docker artifacts from exact source
+commits. Versions are changed only in disposable checkouts; native `develop` keeps its ordinary
+`<NEXT>-SNAPSHOT` versions. Maven train artifacts use `<NEXT>-dev.YYYYMMDD.HHMM` in
+Nexus `cedar-maven-dev`.
 
-Native development does not change. The `develop` branches and checked-out POMs continue to use a
-normal Maven snapshot such as `<NEXT>-SNAPSHOT`. A train job checks out exact commits into a
-disposable workspace, changes their CEDAR versions only there, and publishes a version such as
-`<NEXT>-dev.YYYYMMDD.HHMM` to the immutable `cedar-maven-dev` Nexus repository.
+Local frontend builds (`cedarcli build frontends`, `build all`, `build this`) are compile-only: disposable source
+copies, private npm caches, `CI=true`, and `npm ci` with each repository's declared peer mode.
+They discard output and do not share a live development server's `node_modules` or Angular cache.
+Manifest/lock disagreements fail rather than rewriting locks.
 
-Local frontend builds are compile-only. `cedarcli build frontends`, `cedarcli build all`, and
-`cedarcli build this` copy each frontend into a disposable workspace, use a private npm cache, set
-`CI=true` so Angular disables its persistent disk cache, and discard the generated output. An
-interactive `ng serve` can therefore keep using the developer checkout without sharing
-`node_modules`, build output, or `.angular/cache` with the build. Every TypeScript project installs
-its committed dependency graph with `npm ci` inside the disposable source copy.
+Ordinary builds compare tracked state across the estate before and after, even on failure.
+Pre-existing edits are the baseline; changes made during the build fail the guard, including edits
+from another session. Keep concurrent writers idle during this verification window. Publishing owns
+tracked distributions. `split-frontends --server-payload` is an explicit in-place exception and
+refuses to run while a development runtime owns the checkout.
 
-An ordinary build snapshots tracked state across every repository before it starts and compares
-the estate after it ends, including when a task fails. Pre-existing tracked edits are the baseline;
-only a difference from that baseline fails the invariant. This catches any cross-repository build
-side effect such as regenerating `cedar-monitoring-dist`. Explicit publish remains the owner of
-materializing tracked distributions. The `split-frontends --server-payload` path is also explicitly
-in-place because it creates native nginx payloads, and it refuses to run while a dev runtime owns
-the same checkout. Ordinary installs use committed lockfiles with `npm ci` and the repository's
-declared peer-dependency mode, so a manifest/lock disagreement fails rather than rewriting the lock.
+The `Angular build isolation canary` checks this boundary on Linux and macOS weekly, on dispatch
+and when its implementation changes. It keeps Monitoring's real development server running with
+Angular caching enabled, runs `cedarcli build this`, and verifies health, cache, output and tracked
+state. Logs and machine-readable evidence are retained even on failure.
 
-A negative Python subprocess status is a Unix signal, not an exit code. The CLI and standalone
-train controllers report `SIGABRT`, `SIGKILL`, or `SIGSEGV` by name and point to macOS Diagnostic
-Reports or Linux coredumps when that is the only crash evidence.
-
-`Angular build isolation canary` is the live regression proof for that boundary. On a weekly
-schedule, on manual dispatch, and whenever its implementation changes, it runs on both Linux and
-macOS. The job starts Monitoring's real development server with persistent Angular disk caching
-forced on, runs `cedarcli build this`, and requires the CLI to discover the live runtime and isolate
-the build. It then proves the server is still healthy and that its cache, source output,
-`cedar-monitoring-dist`, and repository state did not change. Development-server and build logs plus
-machine-readable evidence are retained as workflow artifacts even on failure.
+Negative subprocess statuses are Unix signals. The controllers report `SIGABRT`, `SIGKILL` or
+`SIGSEGV` and point to macOS Diagnostic Reports or Linux coredumps.
 
 Keep the three identities distinct:
 
@@ -69,64 +56,33 @@ Optionally rehearse the side-effect-free local preflight from a configured CEDAR
 cedarcli publish train --dry-run
 ```
 
-This displays a prospective, non-reserved ID and runs the same local gate as a real dispatch. A
-later real dispatch allocates again and can therefore receive the next minute's ID. It validates the
-Maven, TypeScript model → CEE → frontend, and 31-image Docker configuration as one contract; checks
-GitHub CLI authentication and the workflow on `develop`; checks CI for every exact remote
-`develop` SHA that defines a workflow; requires the train slot to be idle;
-rejects a colliding ID; rejects dirty or unpushed source; requires every checked-out source
-repository's `develop` to equal the live remote `develop`; requires every source to be readable
-without credentials; and requires a passing whole-stack smoke
-run recorded against exactly those heads. It also runs the same read-only
-publication-target probe as hosted preflight: Nexus service and writable status, the
-`cedar-maven-dev` repository root, npm identity, and Docker Registry v2 authentication. Credentials
-come from `BMIR_NEXUS_USERNAME`/`BMIR_NEXUS_PASSWORD` when present, otherwise from the
-`bmir-nexus-releases` server in `~/.m2/settings.xml`; no extra option is needed. It then prints the
-exact dispatch command. It does not start GitHub Actions, publish an artifact, alter Docker or npm
-client configuration, or write a manifest.
+The dry run uses the real local dispatch gate, prints the dispatch command and a prospective ID,
+and changes nothing. The ID is not reserved; a real dispatch allocates again. It neither starts
+Actions nor publishes artifacts, changes client configuration or writes a manifest.
 
-The checks run in two phases, by what they cost. The local phase reads the workspace — the train
-configuration, the lock baselines, uncommitted work, the component comparisons, the npmrc key names
-— and settles in a few seconds. The remote phase asks GitHub once per source repository, reads the
-smoke record, and probes Nexus, npm and the Docker registry, which takes about a minute and a half.
+Preflight runs two phases, collecting all findings within each. Fix local failures and rerun before
+remote checks become available:
 
-The local phase also packs every published npm surface from a clean archive of its commit, the way
-the train's last npm stage packs it. npm runs a package's `prepack` during that pack, so a prepack
-that reads `node_modules` cannot succeed there however green the repository is locally — and the
-train would otherwise meet it twenty minutes in, at a stage a resume cannot pass.
+| Phase | Required checks |
+| --- | --- |
+| Local (seconds) | Maven/npm/31-image configuration; lock baselines; clean, pushed source; component consistency; npmrc key names; clean-archive packing of every published npm surface. A `prepack` must work without checkout `node_modules`. |
+| Remote (roughly 90 seconds) | GitHub authentication and workflow; exact remote `develop` CI; matching local/remote heads; idle train slot and unused ID; anonymous source access; passing smoke record for those heads; publication-target availability. |
 
-Within a phase every check runs even after one has refused, so a rehearsal reports every finding it
-can reach, each stale lock baseline and each red repository among them, rather than the first one
-met. The remote phase does not run at all once the local one has refused, and the report says so:
-a train the workspace already disqualifies cannot dispatch whatever GitHub would answer, so the
-wait buys nothing. Repair what the local phase names and rehearse again to reach the rest.
+The publication probe checks Nexus service/writable status, `cedar-maven-dev`, npm identity and
+Docker Registry v2 authentication. Credentials come from `BMIR_NEXUS_USERNAME` /
+`BMIR_NEXUS_PASSWORD`, falling back to `bmir-nexus-releases` in `~/.m2/settings.xml`.
 
-That anonymous read closes a gap the operator's own shell would otherwise hide. The runner resolves
-every source with an unauthenticated `git ls-remote`, so a private repository, or one missing
-`develop`, stops the workflow before it records any state. A rehearsal inheriting the operator's
-credentials reaches a repository the runner cannot, and reports every source healthy. The check
-therefore strips the credential helpers, the askpass programs and the configuration an environment
-can inject, then asks the question the way the runner asks it. Nothing is published when the
-workflow fails this way, but the train ID is spent, so the recovery is a fresh train rather than a
-resume.
+Source access is tested with unauthenticated `git ls-remote`, stripping credential helpers,
+askpass and injected Git configuration. A private repository or missing `develop` fails before
+hosted state is recorded; if discovered after dispatch, the ID is spent and recovery needs a new
+train. The source inventory includes the term picker and designer without Maven phases.
 
-The captured source includes the term picker and the designer, the two Web Components the split
-Designer host serves. Both are public, which the capture step requires, and neither carries a Maven
-phase, because phases are the reactor and every frontend is captured without one.
+`cedarcli check components` also runs independently. Preflight refuses served bytes absent from a
+host's lock, custom elements absent from locked bundles, or component pins unexplained by source
+history. Merely lagging a published component is advisory.
 
-The dispatch preflight asks one more question of the frontends among the captured source. They
-reach each other as published npm packages, so a host whose pin predates the component commit it
-depends on builds and tests green and fails only when somebody opens the surface that needs the
-missing piece. The preflight refuses a host serving bytes its lock does not name, creating a custom
-element no locked bundle defines, or pinning a build the component's `develop` cannot account for,
-and reports without refusing a host that merely sits behind a published component.
-`cedarcli check components` asks it outside a dispatch.
-
-Local preflight also reports CI environment drift as an advisory. Every Java repository's `ci.yml`
-carries a copy of `ops/ci-env-block.yml`, and a copy missing an entry breaks only the repositories
-whose suites build that part of the configuration. That is not evidence a train would fail, so it
-advises rather than refuses; `cedarcli check ci-env` asks the same question on its own, and
-`--apply` rewrites the drifted copies for review and one commit per repository.
+CI environment drift is also advisory: `cedarcli check ci-env` compares Java workflows with
+`ops/ci-env-block.yml`; `--apply` repairs copies for review and a separate commit in each repository.
 
 The CI question is also answered on its own by `cedarcli check ci`. It lists every captured
 `develop` head whose CI is not green, with the run to look at and, for a red run, the `gh run
