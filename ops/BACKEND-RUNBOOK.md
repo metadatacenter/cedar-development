@@ -1498,8 +1498,9 @@ not replace the deployment's ordinary database backup and restore procedure.
 Check 32 is the multi-select incident repair. It inspects only field deployments inside templates and
 elements; a standalone field artifact is the reusable inner definition and is intentionally left
 object-shaped. The rewrite preserves the complete inner schema, moves any settled positive bounds to
-the array envelope, derives an absent `minItems` from `requiredValue`, and reports without rewriting
-when existing bounds contradict each other. The Template Designer deliberately does not perform this
+the array envelope, supplies an absent `minItems` as one — zero for an attribute-value field, which
+both model libraries read that way — and reports without rewriting when existing bounds contradict
+each other. The Template Designer deliberately does not perform this
 repair on load: opening an artifact must not silently change what its next save writes. Audit it alone
 before considering a write:
 

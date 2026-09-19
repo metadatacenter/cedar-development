@@ -436,11 +436,12 @@ def detect_inherently_multiple_shapes(document: JsonNode, source: str) -> Iterat
 
             if inherent(field):
                 if declared.get("type") != "array":
-                    constraints = field.get("_valueConstraints")
-                    required = isinstance(constraints, dict) and constraints.get("requiredValue") is True
                     min_items = declared.get("minItems")
                     if not isinstance(min_items, int) or isinstance(min_items, bool):
-                        min_items = 1 if required else 0
+                        # The bound both model libraries read a silent child with. An
+                        # attribute-value field takes zero, since requiring one would mean
+                        # requiring an attribute nobody has named yet.
+                        min_items = 0 if field.get("_ui", {}).get("inputType") == "attribute-value" else 1
                     max_items = declared.get("maxItems")
                     bounded_max = (max_items if isinstance(max_items, int)
                                    and not isinstance(max_items, bool) and max_items > 0 else None)
