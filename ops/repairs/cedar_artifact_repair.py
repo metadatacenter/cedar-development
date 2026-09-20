@@ -819,6 +819,101 @@ LIST_INPUT_TYPE = "list"
 MULTIPLE_CHOICE_KEY = "multipleChoice"
 
 
+TEMPORAL_INPUT_TYPE = "temporal"
+GRANULARITY_KEY = "temporalGranularity"
+TEMPORAL_TYPE_KEY = "temporalType"
+# What the Template Editor's own settings panel writes for a plain date, and what 23 of the 26
+# configured temporal fields in production carry.
+DEFAULT_GRANULARITY = "day"
+DEFAULT_TEMPORAL_TYPE = "xsd:date"
+
+
+def state_temporal_precision(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Say what precision a temporal field is read at, where it says nothing.
+
+    A date with no ``temporalGranularity`` and no ``temporalType`` cannot be read by
+    ``cedar-artifact-library`` at all, so the artifact has no YAML representation. The editor wrote
+    the pair only when an author opened the field's settings, and the meta-schema never asked for
+    it, so a date added and saved reached the store without one.
+
+    Day precision on an ``xsd:date`` is what the editor itself picks for a plain date, so this
+    states what the field would have carried had its settings been opened. A field that already
+    states either half is left alone: a partial statement is an author's, and completing it would
+    mean deciding which half is right.
+    """
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def walk(node: Any, path: str) -> Any:
+        if isinstance(node, dict):
+            result = {}
+            for name, value in node.items():
+                result[name] = walk(value, f"{path}/{rest.json_pointer_component(name)}")
+            ui = result.get(UI_KEY)
+            if isinstance(ui, dict) and ui.get(INPUT_TYPE_KEY) == TEMPORAL_INPUT_TYPE:
+                constraints = result.get(VALUE_CONSTRAINTS_KEY)
+                constraints = constraints if isinstance(constraints, dict) else None
+                states_granularity = isinstance(ui.get(GRANULARITY_KEY), str)
+                states_type = isinstance((constraints or {}).get(TEMPORAL_TYPE_KEY), str)
+                if constraints is not None and not states_granularity and not states_type:
+                    result[UI_KEY] = {**ui, GRANULARITY_KEY: DEFAULT_GRANULARITY}
+                    result[VALUE_CONSTRAINTS_KEY] = {**constraints,
+                                                     TEMPORAL_TYPE_KEY: DEFAULT_TEMPORAL_TYPE}
+                    changes.append({"path": f"{path}/{rest.json_pointer_component(UI_KEY)}/{GRANULARITY_KEY}",
+                                    "replaced": None, "wrote": DEFAULT_GRANULARITY})
+                    changes.append({"path": f"{path}/{rest.json_pointer_component(VALUE_CONSTRAINTS_KEY)}"
+                                            f"/{TEMPORAL_TYPE_KEY}",
+                                    "replaced": None, "wrote": DEFAULT_TEMPORAL_TYPE})
+            return result
+        if isinstance(node, list):
+            return [walk(value, f"{path}/{index}") for index, value in enumerate(node)]
+        return node
+
+    repaired = walk(copy.deepcopy(artifact), "")
+    if artifact.get(STATUS_KEY) != DRAFT_STATUS:
+        raise TransformRefused(
+            f"a field's precision is only stated on a draft; this artifact is "
+            f"{artifact.get(STATUS_KEY)!r}")
+    return repaired, changes
+
+
+def only_stated_temporal_precision(before: Any, after: Any) -> Optional[str]:
+    """The invariant: the only changes are the two keys a temporal field was missing."""
+
+    def walk(old: Any, new: Any, path: str) -> Optional[str]:
+        if isinstance(old, dict):
+            if not isinstance(new, dict):
+                return path or "/"
+            added = set(new) - set(old)
+            if set(old) - set(new) or added:
+                # Only the two keys may appear, and only inside the nodes that hold them.
+                if added - {GRANULARITY_KEY, TEMPORAL_TYPE_KEY} or set(old) - set(new):
+                    return path or "/"
+                if GRANULARITY_KEY in added and (
+                        old.get(INPUT_TYPE_KEY) != TEMPORAL_INPUT_TYPE
+                        or new[GRANULARITY_KEY] != DEFAULT_GRANULARITY):
+                    return f"{path}/{GRANULARITY_KEY}"
+                if TEMPORAL_TYPE_KEY in added and new[TEMPORAL_TYPE_KEY] != DEFAULT_TEMPORAL_TYPE:
+                    return f"{path}/{TEMPORAL_TYPE_KEY}"
+            for name in old:
+                difference = walk(old[name], new[name], f"{path}/{rest.json_pointer_component(name)}")
+                if difference is not None:
+                    return difference
+            return None
+        if isinstance(old, list):
+            if not isinstance(new, list) or len(old) != len(new):
+                return path or "/"
+            for index, value in enumerate(old):
+                difference = walk(value, new[index], f"{path}/{index}")
+                if difference is not None:
+                    return difference
+            return None
+        return None if type(old) is type(new) and old == new else (path or "/")
+
+    return walk(before, after, "")
+
+
 def present_choices_as_a_list(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
     """Make a field that lists permitted values the kind of field that offers them.
 
@@ -5265,6 +5360,13 @@ REPAIRS = {
         summary="deploy an inherently multiple child as the array it always serializes to",
         transform=wrap_inherently_multiple,
         invariant=only_wrapped_inherently_multiple,
+    ),
+    "state-temporal-precision": Repair(
+        name="state-temporal-precision",
+        condition="temporal-precision-absent",
+        summary="say what precision a temporal field is read at, where it says nothing",
+        transform=state_temporal_precision,
+        invariant=only_stated_temporal_precision,
     ),
     "present-choices-as-a-list": Repair(
         name="present-choices-as-a-list",

@@ -1854,6 +1854,83 @@ class WrapInherentlyMultipleTest(unittest.TestCase):
         self.assertIsNotNone(REPAIR.only_wrapped_inherently_multiple(before, after))
 
 
+class StateTemporalPrecisionTest(unittest.TestCase):
+    """A date that does not say what precision it is read at cannot be read at all."""
+
+    def temporal(self, ui_extra=None, vc_extra=None):
+        node = child()
+        node["_ui"] = {"inputType": "temporal", **(ui_extra or {})}
+        node["_valueConstraints"] = {"requiredValue": False, **(vc_extra or {})}
+        return node
+
+    def draft(self, field, key="date"):
+        doc = template({key: field})
+        doc["bibo:status"] = "bibo:draft"
+        return doc
+
+    def test_a_bare_temporal_field_gains_day_precision(self):
+        doc = self.draft(self.temporal())
+        after, changes = REPAIR.state_temporal_precision(doc)
+        self.assertEqual(after["properties"]["date"]["_ui"]["temporalGranularity"], "day")
+        self.assertEqual(after["properties"]["date"]["_valueConstraints"]["temporalType"], "xsd:date")
+        self.assertEqual([c["path"] for c in changes],
+                         ["/properties/date/_ui/temporalGranularity",
+                          "/properties/date/_valueConstraints/temporalType"])
+        self.assertIsNone(REPAIR.only_stated_temporal_precision(doc, after))
+
+    def test_a_field_stating_either_half_is_left_to_its_author(self):
+        """A partial statement is a decision about which half is right, not a completion."""
+        for ui_extra, vc_extra in (({"temporalGranularity": "minute"}, None),
+                                   (None, {"temporalType": "xsd:dateTime"})):
+            with self.subTest(ui=ui_extra, vc=vc_extra):
+                doc = self.draft(self.temporal(ui_extra, vc_extra))
+                _after, changes = REPAIR.state_temporal_precision(doc)
+                self.assertEqual(changes, [])
+
+    def test_other_ui_settings_survive(self):
+        doc = self.draft(self.temporal({"hidden": True}, {"requiredValue": True}))
+        after, _changes = REPAIR.state_temporal_precision(doc)
+        ui = after["properties"]["date"]["_ui"]
+        self.assertEqual(ui["hidden"], True)
+        self.assertEqual(ui["inputType"], "temporal")
+        self.assertEqual(after["properties"]["date"]["_valueConstraints"]["requiredValue"], True)
+
+    def test_no_other_field_type_is_touched(self):
+        node = child()
+        node["_ui"] = {"inputType": "textfield"}
+        _after, changes = REPAIR.state_temporal_precision(self.draft(node))
+        self.assertEqual(changes, [])
+
+    def test_a_published_artifact_is_refused(self):
+        doc = self.draft(self.temporal())
+        doc["bibo:status"] = "bibo:published"
+        with self.assertRaises(REPAIR.TransformRefused):
+            REPAIR.state_temporal_precision(doc)
+
+    def test_a_standalone_temporal_field_is_reached(self):
+        field = self.temporal()
+        field["bibo:status"] = "bibo:draft"
+        after, changes = REPAIR.state_temporal_precision(field)
+        self.assertEqual(len(changes), 2)
+        self.assertEqual(after["_ui"]["temporalGranularity"], "day")
+
+    def test_a_second_run_finds_nothing(self):
+        after, _changes = REPAIR.state_temporal_precision(self.draft(self.temporal()))
+        _again, changes = REPAIR.state_temporal_precision(after)
+        self.assertEqual(changes, [])
+
+    def test_the_invariant_rejects_another_value_or_another_change(self):
+        doc = self.draft(self.temporal())
+        after, _changes = REPAIR.state_temporal_precision(doc)
+        wrong = copy.deepcopy(after)
+        wrong["properties"]["date"]["_ui"]["temporalGranularity"] = "second"
+        self.assertEqual(REPAIR.only_stated_temporal_precision(doc, wrong),
+                         "/properties/date/_ui/temporalGranularity")
+        renamed = copy.deepcopy(after)
+        renamed["schema:name"] = "Renamed"
+        self.assertEqual(REPAIR.only_stated_temporal_precision(doc, renamed), "/schema:name")
+
+
 class PresentChoicesAsAListTest(unittest.TestCase):
     """Only a radio, checkbox or list field presents a closed set of permitted values."""
 
