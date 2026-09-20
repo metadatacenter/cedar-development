@@ -1358,13 +1358,46 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   The compact picker presentation remains tracked in
   [VERSIONING-ROADMAP.md](./VERSIONING-ROADMAP.md); this item owns the backend meaning and scale limit.
 
-- **32. Decide whether a text field may carry an option list.** Six production elements hold a
-  `text-field` child whose `_valueConstraints.literals` names up to 26 options. The Java library
-  keeps them and the meta-schema accepts them; the TypeScript library has nowhere to put them,
-  since literals belong to its checkbox, radio and list fields, so it drops them from JSON as well
-  as from YAML — silently, because what it produces still validates.
+- **32. Validate a write with `cedar-artifact-library`, not the meta-schema alone.** Nothing but
+  `cedar-model-validation-library` stands between a caller and the store: the artifact server's
+  `validateTemplate` calls `newModelValidator()`, and the resource classes never mention
+  `org.metadatacenter.artifacts.model` at all. The artifact library reads a stored artifact only
+  later, when something asks for YAML — which is why defects sat in production for years before a
+  read found them.
 
-  Either the shape is legitimate and the TypeScript model grows to hold it, or it is a field that
-  should have been a list field and the six artifacts are repaired. The second reading is the more
-  likely one, which is why this is a decision and not a defect: fixing the library would assert
-  that a text field with an option list is something CEDAR means to support.
+  The two disagree, and the meta-schema is always the more permissive. It asks every literal field
+  for an `inputType` and nothing more, so a temporal field with no granularity is accepted and then
+  unreadable. It types `pav:version` as a non-empty string, so `0.9` is accepted and has no YAML
+  form. It shares one value-constraints shape across all ten literal input types, so a text field
+  may carry an option list and a numeric field may carry one too. Every artifact repaired in
+  September 2026 entered through that gap.
+
+  The library is also the cheaper check. Measured warm over 100 runs: a 343 KB template costs it
+  2.70 ms to read and render against 17.14 ms to validate; 163 KB, 1.83 ms against 11.77 ms;
+  42 KB, 0.29 ms against 3.05 ms. Across all 151,806 production schema artifacts the library sits
+  at 0 ms through the 99th percentile where the validator reaches 7 ms, and on the largest
+  artifacts the gap is widest — 271 KB cost 5 ms to convert and 88 ms to validate. Adding the
+  library to a path that already pays for the validator costs roughly a sixth again.
+
+  And it says what is wrong. Draft-04 `oneOf` reports every failed branch, so one duplicated
+  literal produced 242 errors whose first named `/properties/theme/items/properties/@value/type:
+  array found, string expected` — a path with nothing wrong with it. The library answers `No text
+  value present for field temporalGranularity at /properties/Analysis Complete / Release date/_ui`.
+
+  **Instances are unmeasured and have to be settled before any of this lands.** The September 2026
+  work covered the 151,831 schema artifacts and left the 150,579 instances alone. An instance is
+  validated against the template it names rather than a fixed meta-schema, the library reads one
+  through `readTemplateInstanceArtifact`, and neither the cost nor the disagreement is known for
+  them. Measure both before deciding, since instances outnumber schema artifacts and a write gate
+  that doubles their cost is a different proposition.
+
+  Order is forced, as it was for `pav:version`. Refusing on write what the library cannot read
+  makes every stored artifact carrying such a shape unsaveable, including through the repair that
+  would fix it, so the corpus has to be clean first. `cedar_artifact_rest_audit.py` now reports the
+  shapes found so far — `temporal-precision-absent`, `field-offers-choices-it-cannot-present`,
+  `literal-label-blank`, `class-constraint-unresolved`, the three `artifact-version-*` rules — and a
+  pass over instances would say what else is waiting.
+
+  Decide, too, whether the library gates or advises. Gating refuses the write; running it ahead of
+  the validator and surfacing its message keeps the meta-schema authoritative while giving the
+  author something they can act on. The second is reversible and the first is not.
