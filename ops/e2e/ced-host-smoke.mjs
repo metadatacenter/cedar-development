@@ -41,7 +41,7 @@ async function open(path) {
   await page.waitForFunction(() => ['Ready', 'Unsaved changes'].includes(document.getElementById('state').textContent));
   if (path.startsWith('/fields/edit/')) {
     await page.getByRole('button', { name: 'Expand field settings', exact: true }).click();
-    await page.getByRole('tab', { name: 'Constraints', exact: true }).click();
+    await page.getByRole('tab', { name: 'Display', exact: true }).click();
   }
 }
 try {
@@ -50,7 +50,7 @@ try {
     const params = new URLSearchParams({ folderId: user1.profile.homeFolderId, returnTo: workspaceBase + '/dashboard' });
     await open(`/${route}/create?${params}`);
     if (kind === 'field') await page.getByRole('button', { name: 'Number', exact: true }).click();
-    const nameInput = () => kind === 'field' ? page.getByRole('textbox', { name: 'Field name', exact: true }) : page.getByPlaceholder(kind === 'template' ? 'Template name' : 'Element name', { exact: true });
+    const nameInput = () => kind === 'template' ? page.getByPlaceholder('Template name', { exact: true }) : page.getByRole('textbox', { name: kind === 'field' ? 'Field name' : 'Element name', exact: true });
     const descriptionInput = () => page.getByPlaceholder(kind === 'field' ? 'Add helper instructions for users...' : 'Add description...', { exact: true });
     await nameInput().fill(name);
     await page.waitForFunction(() => !document.getElementById('save').disabled);

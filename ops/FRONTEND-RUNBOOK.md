@@ -188,6 +188,12 @@ on older components. Release preparation remains a separate operation.
 5. Report completion only when the full sequence passes. Identify any unfinished stage precisely;
    compilation alone does not fulfill a request for a full frontend reactor.
 
+The frontend build guard checks the frontend source repositories and CLI tooling. Within
+`cedar-development`, it checks `bin/`, `ops/frontend-train.json` and `ops/cedar-services.sh`:
+profiles and frontend build/runtime configuration. Concurrent edits or commits to backend audits,
+repairs and documentation do not invalidate a frontend build. A guard failure means tracked inputs
+changed during the run; it does not establish that the build itself changed them.
+
 This contract does not require a release, a production deployment, or a Git commit/push.
 Development package publication and development-pin updates are distinct from release-version
 changes. Commit/push remains subject to the user’s instruction.

@@ -84,6 +84,12 @@
             "run",
             "prepare:components"
           ]
+        },
+        {
+          "repository": "cedar-template-editor",
+          "dependency": "@org.metadatacenter/cedar-design-tokens",
+          "manifest": "package.json",
+          "lock": "package-lock.json"
         }
       ]
     },
