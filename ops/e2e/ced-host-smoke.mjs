@@ -98,7 +98,7 @@ try {
       created.push({ collection: 'template-instances', id: seeded.body['@id'] });
       await open(`/${route}/edit/${enc(id)}?${params}`);
       await page.getByPlaceholder('Template name', { exact: true }).fill(name + ' revised');
-      await page.getByRole('button', { name: /Add Child/ }).click();
+      await page.getByRole('button', { name: /^Add field$/ }).click();
       await page.locator('app-field-type-picker').getByRole('button', { name: 'Text', exact: true }).click();
       await page.getByRole('textbox', { name: 'Field name', exact: true }).fill('Added after metadata');
       await page.locator('#save').click();
@@ -122,7 +122,7 @@ try {
       console.log('PASS: stale version confirmation rejected without publishing, edits retained');
       await open(`/${route}/edit/${enc(id)}?${params}`);
       await page.getByPlaceholder('Template name', { exact: true }).fill(name + ' revised');
-      await page.getByRole('button', { name: /Add Child/ }).click();
+      await page.getByRole('button', { name: /^Add field$/ }).click();
       await page.locator('app-field-type-picker').getByRole('button', { name: 'Text', exact: true }).click();
       await page.getByRole('textbox', { name: 'Field name', exact: true }).fill('Added after metadata');
       await page.locator('#save').click();

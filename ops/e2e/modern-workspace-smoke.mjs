@@ -430,7 +430,7 @@ try {
           );
     await input.fill(names[kind]);
     if (kind === "template") {
-      await page.getByRole("button", { name: /Add Child/ }).click();
+      await page.getByRole("button", { name: /^Add field$/ }).click();
       await page
         .locator("app-field-type-picker")
         .getByRole("button", { name: "Text", exact: true })
