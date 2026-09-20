@@ -603,6 +603,30 @@ def audit_class_constraints(ref: ArtifactRef, node: Any, path: str) -> Iterator[
 CHOICE_INPUT_TYPES = frozenset({"radio", "checkbox", "list"})
 
 
+# What an artifact records about its own making. The meta-schema requires all four keys and lets
+# every one of them be null, so an artifact that says nothing about who made it or when is valid.
+CREATED_ON, CREATED_BY = "pav:createdOn", "pav:createdBy"
+UPDATED_ON, MODIFIED_BY = "pav:lastUpdatedOn", "oslc:modifiedBy"
+
+
+def audit_provenance(ref: ArtifactRef, node: Any, path: str) -> Iterator[Finding]:
+    """An artifact that does not say when it was made, or by whom.
+
+    Reported only where the artifact does say when it was last touched and by whom, since that is
+    the difference between provenance that can be recovered and provenance that is simply gone.
+    """
+    if not isinstance(node, dict):
+        return
+    for absent, source in ((CREATED_ON, UPDATED_ON), (CREATED_BY, MODIFIED_BY)):
+        if node.get(absent) is not None:
+            continue
+        if not isinstance(node.get(source), str) or not node[source]:
+            continue
+        yield finding(ref, "provenance-absent", "manual-review", f"{path}/{absent}",
+                      f"the artifact does not record this, and {source} is the only evidence left "
+                      f"of its making", node.get(source))
+
+
 def audit_temporal_precision(ref: ArtifactRef, node: Any, path: str) -> Iterator[Finding]:
     """A temporal field that does not say what precision it is read at.
 
@@ -754,6 +778,7 @@ def audit_schema(ref: ArtifactRef, artifact: Any) -> Iterator[Finding]:
     yield from audit_literal_labels(ref, artifact, "")
     yield from audit_field_offers_choices(ref, artifact, "")
     yield from audit_temporal_precision(ref, artifact, "")
+    yield from audit_provenance(ref, artifact, "")
 
     def walk(container: dict, path: str) -> Iterator[Finding]:
         properties = container.get("properties")
@@ -793,6 +818,7 @@ def audit_schema(ref: ArtifactRef, artifact: Any) -> Iterator[Finding]:
             yield from audit_literal_labels(ref, child, actual_path)
             yield from audit_field_offers_choices(ref, child, actual_path)
             yield from audit_temporal_precision(ref, child, actual_path)
+            yield from audit_provenance(ref, child, actual_path)
 
             identifier = child.get("@id")
             if not server_considers_child_id_usable(identifier):
@@ -1727,6 +1753,7 @@ def run_audit(arguments: argparse.Namespace, client: GetOnlyClient,
                     findings.extend(audit_literal_labels(ref, artifact, ""))
                     findings.extend(audit_field_offers_choices(ref, artifact, ""))
                     findings.extend(audit_temporal_precision(ref, artifact, ""))
+                    findings.extend(audit_provenance(ref, artifact, ""))
                 if artifact_type in {"template", "element"}:
                     findings.extend(audit_schema(ref, artifact))
                     if artifact_type == "template" and isinstance(artifact, dict):

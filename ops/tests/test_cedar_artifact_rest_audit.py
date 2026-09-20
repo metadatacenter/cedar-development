@@ -124,6 +124,29 @@ class RuleTests(unittest.TestCase):
         self.assertEqual("save-rejected", findings["/properties/field/schema:schemaVersion"].risk)
         self.assertTrue(all(item.rule == "model-version-absent" for item in findings.values()))
 
+    def test_an_artifact_saying_nothing_about_its_making_is_reported(self):
+        node = {"pav:createdOn": None, "pav:createdBy": None,
+                "pav:lastUpdatedOn": "2026-03-04T17:46:50-08:00",
+                "oslc:modifiedBy": "https://repo.example/users/u1"}
+        findings = list(audit.audit_provenance(self.ref(), node, ""))
+        self.assertEqual(["provenance-absent"] * 2, [f.rule for f in findings])
+        self.assertEqual(["/pav:createdOn", "/pav:createdBy"], [f.path for f in findings])
+        self.assertEqual(["2026-03-04T17:46:50-08:00", "https://repo.example/users/u1"],
+                         [f.value for f in findings])
+
+    def test_provenance_that_is_simply_gone_is_not_reported(self):
+        """Nothing to recover it from is a different thing from something to recover it from."""
+        node = {"pav:createdOn": None, "pav:createdBy": None,
+                "pav:lastUpdatedOn": None, "oslc:modifiedBy": None}
+        self.assertEqual([], list(audit.audit_provenance(self.ref(), node, "")))
+
+    def test_a_recorded_provenance_is_not_reported(self):
+        node = {"pav:createdOn": "2020-01-01T00:00:00-08:00",
+                "pav:createdBy": "https://repo.example/users/u1",
+                "pav:lastUpdatedOn": "2026-03-04T17:46:50-08:00",
+                "oslc:modifiedBy": "https://repo.example/users/u2"}
+        self.assertEqual([], list(audit.audit_provenance(self.ref(), node, "")))
+
     def test_a_temporal_field_saying_no_precision_is_reported(self):
         node = {"_ui": {"inputType": "temporal"}, "_valueConstraints": {"requiredValue": False}}
         findings = list(audit.audit_temporal_precision(self.ref(), node, "/properties/date"))
