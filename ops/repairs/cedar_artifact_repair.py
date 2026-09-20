@@ -152,6 +152,7 @@ def only_removed_empty_derived_from(before: Any, after: Any, path: str = "") -> 
 
 STATIC_AT_TYPE = "https://schema.metadatacenter.org/core/StaticTemplateField"
 MODEL_VERSION_KEY = "schema:schemaVersion"
+ARTIFACT_VERSION_KEY = "pav:version"
 # What a container's own title is composed from, by the same rule the artifact server applies on every
 # ordinary write. A static field is a field here, as it is everywhere identifiers and titles are formed.
 KIND_WORD = {
@@ -770,6 +771,538 @@ def only_stamped_model_version(before: Any, after: Any) -> Optional[str]:
                         return here
                     continue
                 difference = walk(old[name], new[name], here)
+                if difference is not None:
+                    return difference
+            return None
+        if isinstance(old, list):
+            if not isinstance(new, list) or len(old) != len(new):
+                return path or "/"
+            for index, value in enumerate(old):
+                difference = walk(value, new[index], f"{path}/{index}")
+                if difference is not None:
+                    return difference
+            return None
+        return None if type(old) is type(new) and old == new else (path or "/")
+
+    return walk(before, after, "")
+
+
+DRAFT_STATUS = "bibo:draft"
+STATUS_KEY = "bibo:status"
+
+
+# What `cedar-artifact-library` assigns a freshly created artifact: Version.DEFAULT.
+DEFAULT_ARTIFACT_VERSION = "0.0.1"
+
+
+def unreadable_version(value: Any) -> bool:
+    """Whether a stated version says nothing any rule can turn into a version.
+
+    Not merely unparseable: a short numeric value is completed by padding and a prerelease tag is
+    dropped by settling, each of which derives its answer from what is written. This is what is
+    left — a string that carries no version at all.
+    """
+    return (isinstance(value, str) and not audit.VERSION_PATTERN.match(value)
+            and rest.padded_version(value) is None and rest.release_version(value) is None)
+
+
+VALUE_CONSTRAINTS_KEY = "_valueConstraints"
+CLASSES_KEY = "classes"
+
+
+LITERALS_KEY = "literals"
+
+
+def has_a_label(entry: Any) -> bool:
+    """Whether a permitted value names itself."""
+    return isinstance(entry, dict) and isinstance(entry.get("label"), str) and entry["label"] != ""
+
+
+def drop_blank_literal(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Remove a permitted value that has no label.
+
+    A literal's label is the value an instance stores, so a blank entry offers a choice whose
+    answer cannot be told from no answer. What it is reaching for — that the field may be left
+    alone — is already what ``requiredValue: false`` says, so removing the entry takes away a
+    second, lossier way of saying it rather than taking away a choice.
+
+    Refused where it would empty a list, since a list field with no permitted values is a
+    different change, and on anything that is not a draft.
+    """
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+    refusals: list[str] = []
+
+    def walk(node: Any, path: str) -> Any:
+        if isinstance(node, dict):
+            result = {}
+            for name, value in node.items():
+                here = f"{path}/{rest.json_pointer_component(name)}"
+                if (name == VALUE_CONSTRAINTS_KEY and isinstance(value, dict)
+                        and isinstance(value.get(LITERALS_KEY), list)):
+                    entries = value[LITERALS_KEY]
+                    kept = [entry for entry in entries if has_a_label(entry)]
+                    if len(kept) != len(entries):
+                        literals_path = f"{here}/{LITERALS_KEY}"
+                        if not kept:
+                            refusals.append(f"{literals_path} would be left with no permitted value")
+                        else:
+                            for index, entry in enumerate(entries):
+                                if not has_a_label(entry):
+                                    changes.append({"path": f"{literals_path}/{index}",
+                                                    "replaced": entry.get("label"), "wrote": None})
+                            value = {**value, LITERALS_KEY: kept}
+                result[name] = walk(value, here)
+            return result
+        if isinstance(node, list):
+            return [walk(value, f"{path}/{index}") for index, value in enumerate(node)]
+        return node
+
+    repaired = walk(copy.deepcopy(artifact), "")
+    if artifact.get(STATUS_KEY) != DRAFT_STATUS:
+        raise TransformRefused(
+            f"a permitted value is only dropped on a draft; this artifact is {artifact.get(STATUS_KEY)!r}")
+    if refusals:
+        raise TransformRefused(refusals[0] + (f" ({len(refusals)} in all)" if len(refusals) > 1 else ""))
+    return repaired, changes
+
+
+def only_dropped_blank_literals(before: Any, after: Any) -> Optional[str]:
+    """The invariant: the only change is unlabelled permitted values, removed in place."""
+
+    def walk(old: Any, new: Any, path: str) -> Optional[str]:
+        if isinstance(old, dict):
+            if not isinstance(new, dict) or set(old) != set(new):
+                return path or "/"
+            for name in old:
+                here = f"{path}/{rest.json_pointer_component(name)}"
+                if (name == LITERALS_KEY and isinstance(old[name], list)
+                        and isinstance(new[name], list) and len(old[name]) != len(new[name])):
+                    if new[name] != [e for e in old[name] if has_a_label(e)]:
+                        return here
+                    continue
+                difference = walk(old[name], new[name], here)
+                if difference is not None:
+                    return difference
+            return None
+        if isinstance(old, list):
+            if not isinstance(new, list) or len(old) != len(new):
+                return path or "/"
+            for index, value in enumerate(old):
+                difference = walk(value, new[index], f"{path}/{index}")
+                if difference is not None:
+                    return difference
+            return None
+        return None if type(old) is type(new) and old == new else (path or "/")
+
+    return walk(before, after, "")
+
+
+
+
+def resolves_to_a_term(entry: Any) -> bool:
+    """Whether a class constraint points at anything."""
+    return isinstance(entry, dict) and isinstance(entry.get("uri"), str) and entry["uri"] != ""
+
+
+def drop_unresolved_class_constraint(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Remove a class constraint whose URI is the empty string.
+
+    A class constraint is a pointer to a term, so one pointing at ``""`` offers a choice that
+    cannot be resolved: both model libraries refuse to read it, which leaves the template with no
+    YAML representation. The entry carries a label and nothing else, and no term exists to give it
+    — the converter that wrote these had an empty ``conceptURI`` in its own input, meaning the
+    harmonisation upstream had already concluded there was none.
+
+    Removing the entry loses the fact that the label was once offered as a choice. That is the
+    point of the repair rather than an oversight: what it offered was unusable, and the alternative
+    readings — inventing a near-miss term, or leaving the template unreadable — are both worse.
+
+    Refused where it would empty a list, since a controlled-term field left with no constraint at
+    all is a different change, and on anything that is not a draft, since dropping a choice a
+    published template offered is not a repair.
+    """
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+    refusals: list[str] = []
+
+    def walk(node: Any, path: str) -> Any:
+        if isinstance(node, dict):
+            result = {}
+            for name, value in node.items():
+                here = f"{path}/{rest.json_pointer_component(name)}"
+                if (name == VALUE_CONSTRAINTS_KEY and isinstance(value, dict)
+                        and isinstance(value.get(CLASSES_KEY), list)):
+                    entries = value[CLASSES_KEY]
+                    kept = [entry for entry in entries if resolves_to_a_term(entry)]
+                    if len(kept) != len(entries):
+                        classes_path = f"{here}/{CLASSES_KEY}"
+                        if not kept:
+                            refusals.append(f"{classes_path} would be left with no constraint at all")
+                        elif node.get(STATUS_KEY) is not None and node.get(STATUS_KEY) != DRAFT_STATUS:
+                            refusals.append(f"{classes_path} is on a {node.get(STATUS_KEY)!r} artifact")
+                        else:
+                            for index, entry in enumerate(entries):
+                                if not resolves_to_a_term(entry):
+                                    changes.append({
+                                        "path": f"{classes_path}/{index}",
+                                        "replaced": entry.get("prefLabel"), "wrote": None})
+                            value = {**value, CLASSES_KEY: kept}
+                result[name] = walk(value, here)
+            return result
+        if isinstance(node, list):
+            return [walk(value, f"{path}/{index}") for index, value in enumerate(node)]
+        return node
+
+    repaired = walk(copy.deepcopy(artifact), "")
+    if artifact.get(STATUS_KEY) != DRAFT_STATUS:
+        raise TransformRefused(
+            f"a class constraint is only dropped on a draft; this artifact is "
+            f"{artifact.get(STATUS_KEY)!r}")
+    if refusals:
+        raise TransformRefused(refusals[0] + (f" ({len(refusals)} in all)" if len(refusals) > 1 else ""))
+    return repaired, changes
+
+
+def only_dropped_unresolved_class_constraints(before: Any, after: Any) -> Optional[str]:
+    """The invariant: the only change is class constraints pointing at nothing, removed in place.
+
+    A list that shrank is checked against the filter itself, so the survivors have to be exactly
+    the entries that resolve, in the order they were already in. Every other list must keep its
+    length, and every other value must be identical.
+    """
+
+    def walk(old: Any, new: Any, path: str) -> Optional[str]:
+        if isinstance(old, dict):
+            if not isinstance(new, dict) or set(old) != set(new):
+                return path or "/"
+            for name in old:
+                here = f"{path}/{rest.json_pointer_component(name)}"
+                if (name == CLASSES_KEY and isinstance(old[name], list)
+                        and isinstance(new[name], list) and len(old[name]) != len(new[name])):
+                    if new[name] != [e for e in old[name] if resolves_to_a_term(e)]:
+                        return here
+                    continue
+                difference = walk(old[name], new[name], here)
+                if difference is not None:
+                    return difference
+            return None
+        if isinstance(old, list):
+            if not isinstance(new, list) or len(old) != len(new):
+                return path or "/"
+            for index, value in enumerate(old):
+                difference = walk(value, new[index], f"{path}/{index}")
+                if difference is not None:
+                    return difference
+            return None
+        return None if type(old) is type(new) and old == new else (path or "/")
+
+    return walk(before, after, "")
+
+
+def default_unreadable_version(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Give a draft whose stated version carries no version the one a new artifact gets.
+
+    ``0.0.1`` is not a guess at what the author meant: nothing in ``requestJson`` or ``asd`` means
+    anything, and the alternative to writing the default is leaving the artifact with no YAML
+    representation for good. It is what the library would have assigned had the caller supplied
+    nothing at all, which is the honest reading of a field that was filled by accident.
+
+    Deliberately last of the three version repairs, and never a fallback for the other two: a value
+    padding or settling can read is theirs, because those recover what was written rather than
+    replacing it.
+    """
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+    published: list[str] = []
+
+    def walk(definition: Any, path: str) -> Any:
+        if not isinstance(definition, dict):
+            return definition
+        result = copy.deepcopy(definition)
+        stored = definition.get(ARTIFACT_VERSION_KEY)
+        if unreadable_version(stored):
+            here = f"{path}/{rest.json_pointer_component(ARTIFACT_VERSION_KEY)}"
+            if definition.get(STATUS_KEY) != DRAFT_STATUS:
+                published.append(f"{here} is {definition.get(STATUS_KEY)!r}")
+            else:
+                result[ARTIFACT_VERSION_KEY] = DEFAULT_ARTIFACT_VERSION
+                changes.append({"path": here, "replaced": stored,
+                                "wrote": DEFAULT_ARTIFACT_VERSION})
+        for name, child, multiple in container_children(definition):
+            declared = rest.child_path(path, name)
+            repaired = walk(child, f"{declared}/items" if multiple else declared)
+            if multiple:
+                result["properties"][name]["items"] = repaired
+            else:
+                result["properties"][name] = repaired
+        return result
+
+    defaulted = walk(artifact, "")
+    if published:
+        raise TransformRefused(
+            "a version is only defaulted on a draft, and " + published[0]
+            + (f" ({len(published)} in all)" if len(published) > 1 else ""))
+    return defaulted, changes
+
+
+def only_defaulted_unreadable_version(before: Any, after: Any) -> Optional[str]:
+    """The invariant: every change is an unreadable version on a draft becoming the default."""
+
+    def walk(old: Any, new: Any, path: str) -> Optional[str]:
+        if isinstance(old, dict):
+            if not isinstance(new, dict) or set(old) != set(new):
+                return path or "/"
+            for name in old:
+                here = f"{path}/{rest.json_pointer_component(name)}"
+                if name == ARTIFACT_VERSION_KEY and new[name] != old[name]:
+                    if not unreadable_version(old[name]) or new[name] != DEFAULT_ARTIFACT_VERSION:
+                        return here
+                    if old.get(STATUS_KEY) != DRAFT_STATUS:
+                        return here
+                    continue
+                difference = walk(old[name], new[name], here)
+                if difference is not None:
+                    return difference
+            return None
+        if isinstance(old, list):
+            if not isinstance(new, list) or len(old) != len(new):
+                return path or "/"
+            for index, value in enumerate(old):
+                difference = walk(value, new[index], f"{path}/{index}")
+                if difference is not None:
+                    return difference
+            return None
+        return None if type(old) is type(new) and old == new else (path or "/")
+
+    return walk(before, after, "")
+
+
+
+
+def settle_prerelease_version(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Write a version carrying a prerelease tag as its release.
+
+    ``1.0.0-rc1`` is correct semver whose tag the model's three integers cannot hold, so the
+    artifact has no YAML representation until the tag goes. Dropping it is a reading of what was
+    meant rather than a completion of what was written — unlike padding, something is discarded —
+    so this is a separate repair an owner asks for, not one the tool applies on its own.
+
+    Refused unless every definition carrying such a version is a draft. On a published artifact the
+    version is what other things cite, and changing which release it claims is not a repair.
+    """
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+    published: list[str] = []
+
+    def walk(definition: Any, path: str) -> Any:
+        if not isinstance(definition, dict):
+            return definition
+        result = copy.deepcopy(definition)
+        stored = definition.get(ARTIFACT_VERSION_KEY)
+        release = rest.release_version(stored) if isinstance(stored, str) else None
+        if release is not None:
+            here = f"{path}/{rest.json_pointer_component(ARTIFACT_VERSION_KEY)}"
+            if definition.get(STATUS_KEY) != DRAFT_STATUS:
+                published.append(f"{here} is {definition.get(STATUS_KEY)!r}")
+            else:
+                result[ARTIFACT_VERSION_KEY] = release
+                changes.append({"path": here, "replaced": stored, "wrote": release})
+        for name, child, multiple in container_children(definition):
+            declared = rest.child_path(path, name)
+            repaired = walk(child, f"{declared}/items" if multiple else declared)
+            if multiple:
+                result["properties"][name]["items"] = repaired
+            else:
+                result["properties"][name] = repaired
+        return result
+
+    settled = walk(artifact, "")
+    if published:
+        raise TransformRefused(
+            "a prerelease version is only settled on a draft, and " + published[0]
+            + (f" ({len(published)} in all)" if len(published) > 1 else ""))
+    return settled, changes
+
+
+def only_settled_prerelease_version(before: Any, after: Any) -> Optional[str]:
+    """The invariant: every change is a prerelease version becoming its own release, nothing else.
+
+    The release is re-derived from the stored value rather than trusted, and the status is compared
+    like any other value, so a repair that moved a draft to published would be caught here.
+    """
+
+    def walk(old: Any, new: Any, path: str) -> Optional[str]:
+        if isinstance(old, dict):
+            if not isinstance(new, dict) or set(old) != set(new):
+                return path or "/"
+            for name in old:
+                here = f"{path}/{rest.json_pointer_component(name)}"
+                if name == ARTIFACT_VERSION_KEY and new[name] != old[name]:
+                    if not isinstance(old[name], str) or new[name] != rest.release_version(old[name]):
+                        return here
+                    if old.get(STATUS_KEY) != DRAFT_STATUS:
+                        return here
+                    continue
+                difference = walk(old[name], new[name], here)
+                if difference is not None:
+                    return difference
+            return None
+        if isinstance(old, list):
+            if not isinstance(new, list) or len(old) != len(new):
+                return path or "/"
+            for index, value in enumerate(old):
+                difference = walk(value, new[index], f"{path}/{index}")
+                if difference is not None:
+                    return difference
+            return None
+        return None if type(old) is type(new) and old == new else (path or "/")
+
+    return walk(before, after, "")
+
+
+def pad_artifact_version(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Write a short numeric ``pav:version`` as the three-part version it means.
+
+    ``0.9`` is ``0.9.0`` and ``1`` is ``1.0.0``: the missing parts are zero, which is the only
+    reading available and the one the library assumes the moment it can parse the value at all.
+    Until it can, the artifact has no YAML representation — a JSON read returns the stored bytes
+    unexamined while a YAML read transcodes them and fails — so this is what restores one.
+
+    A version carrying a prerelease tag is left alone: ``1.0.0-rc1`` is correct semver that the
+    model's three integers cannot hold, which is a limitation to decide about rather than a value
+    to rewrite. So is anything a rule cannot read, such as ``asd``; inventing a version for it
+    would replace a visible defect with an invisible one. Both go on being reported.
+
+    A template states a version on each nested definition as well as at its root, and the two drift
+    apart, so the walk covers both.
+    """
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def walk(definition: Any, path: str) -> Any:
+        if not isinstance(definition, dict):
+            return definition
+        result = copy.deepcopy(definition)
+        stored = definition.get(ARTIFACT_VERSION_KEY)
+        if isinstance(stored, str) and not audit.VERSION_PATTERN.match(stored):
+            padded = rest.padded_version(stored)
+            if padded is not None:
+                result[ARTIFACT_VERSION_KEY] = padded
+                changes.append({"path": f"{path}/{rest.json_pointer_component(ARTIFACT_VERSION_KEY)}",
+                                "replaced": stored, "wrote": padded})
+        for name, child, multiple in container_children(definition):
+            declared = rest.child_path(path, name)
+            repaired = walk(child, f"{declared}/items" if multiple else declared)
+            if multiple:
+                result["properties"][name]["items"] = repaired
+            else:
+                result["properties"][name] = repaired
+        return result
+
+    return walk(artifact, ""), changes
+
+
+def only_padded_artifact_version(before: Any, after: Any) -> Optional[str]:
+    """The invariant: every change is a short numeric version becoming the one it means.
+
+    The padding has to be re-derived from the stored value rather than trusted, so a transform that
+    wrote some other version would be caught here rather than shipped.
+    """
+
+    def walk(old: Any, new: Any, path: str) -> Optional[str]:
+        if isinstance(old, dict):
+            if not isinstance(new, dict) or set(old) != set(new):
+                return path or "/"
+            for name in old:
+                here = f"{path}/{rest.json_pointer_component(name)}"
+                if name == ARTIFACT_VERSION_KEY and new[name] != old[name]:
+                    if not isinstance(old[name], str) or new[name] != rest.padded_version(old[name]):
+                        return here
+                    continue
+                difference = walk(old[name], new[name], here)
+                if difference is not None:
+                    return difference
+            return None
+        if isinstance(old, list):
+            if not isinstance(new, list) or len(old) != len(new):
+                return path or "/"
+            for index, value in enumerate(old):
+                difference = walk(value, new[index], f"{path}/{index}")
+                if difference is not None:
+                    return difference
+            return None
+        return None if type(old) is type(new) and old == new else (path or "/")
+
+    return walk(before, after, "")
+
+
+def stamp_static_field_model_version(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Declare the current model version on a static field that states none.
+
+    A static field is a model specification like any other definition, and the model gives it a
+    version. ``static-field-meta-schema.json`` omits the property, which is why an absence there is
+    accepted on write while the library writes one on every render; the omission is a defect in the
+    meta-schema rather than a decision, and this fills the artifacts ahead of closing it.
+
+    Narrower than :func:`stamp_model_version` on purpose. That one moves a version that is merely
+    behind and refuses to guess at one that is absent or unparseable, which is the right answer
+    wherever the model already demands a version. Here the demand is the thing being added, so the
+    absence is the defect. A static field stating a version, current or not, is left to the other
+    repair, and nothing but a static field is touched.
+    """
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def walk(definition: Any, path: str) -> Any:
+        if not isinstance(definition, dict):
+            return definition
+        result = copy.deepcopy(definition)
+        if definition.get("@type") == STATIC_AT_TYPE and MODEL_VERSION_KEY not in definition:
+            result[MODEL_VERSION_KEY] = audit.MODEL_VERSION
+            changes.append({"path": f"{path}/{rest.json_pointer_component(MODEL_VERSION_KEY)}",
+                            "replaced": None, "wrote": audit.MODEL_VERSION})
+        for name, child, multiple in container_children(definition):
+            declared = rest.child_path(path, name)
+            repaired = walk(child, f"{declared}/items" if multiple else declared)
+            if multiple:
+                result["properties"][name]["items"] = repaired
+            else:
+                result["properties"][name] = repaired
+        return result
+
+    return walk(artifact, ""), changes
+
+
+def only_stamped_static_field_model_version(before: Any, after: Any) -> Optional[str]:
+    """The invariant: the only change is a static field gaining the current model version.
+
+    An addition is what this repair makes, so unlike its sibling the walk has to admit one key
+    appearing — and admit exactly that one, on exactly that kind of node, with exactly that value.
+    Nothing may be removed and no other value may move.
+    """
+
+    def walk(old: Any, new: Any, path: str) -> Optional[str]:
+        if isinstance(old, dict):
+            if not isinstance(new, dict):
+                return path or "/"
+            if set(old) - set(new):
+                return path or "/"
+            added = set(new) - set(old)
+            if added - {MODEL_VERSION_KEY}:
+                return path or "/"
+            if added:
+                here = f"{path}/{rest.json_pointer_component(MODEL_VERSION_KEY)}"
+                if old.get("@type") != STATIC_AT_TYPE or new[MODEL_VERSION_KEY] != audit.MODEL_VERSION:
+                    return here
+            for name in old:
+                difference = walk(old[name], new[name], f"{path}/{rest.json_pointer_component(name)}")
                 if difference is not None:
                     return difference
             return None
@@ -4617,6 +5150,48 @@ REPAIRS = {
         transform=wrap_inherently_multiple,
         invariant=only_wrapped_inherently_multiple,
     ),
+    "drop-blank-literal": Repair(
+        name="drop-blank-literal",
+        condition="literal-label-blank",
+        summary="remove a permitted value that has no label",
+        transform=drop_blank_literal,
+        invariant=only_dropped_blank_literals,
+    ),
+    "drop-unresolved-class-constraint": Repair(
+        name="drop-unresolved-class-constraint",
+        condition="class-constraint-unresolved",
+        summary="remove a class constraint whose URI is the empty string",
+        transform=drop_unresolved_class_constraint,
+        invariant=only_dropped_unresolved_class_constraints,
+    ),
+    "default-unreadable-version": Repair(
+        name="default-unreadable-version",
+        condition="artifact-version-unreadable",
+        summary="give a draft whose version carries no version the default a new artifact gets",
+        transform=default_unreadable_version,
+        invariant=only_defaulted_unreadable_version,
+    ),
+    "settle-prerelease-version": Repair(
+        name="settle-prerelease-version",
+        condition="artifact-version-prerelease",
+        summary="write a draft's prerelease version as its release, discarding the tag",
+        transform=settle_prerelease_version,
+        invariant=only_settled_prerelease_version,
+    ),
+    "pad-artifact-version": Repair(
+        name="pad-artifact-version",
+        condition="artifact-version-unpadded",
+        summary="write a short numeric pav:version as the three-part version it means",
+        transform=pad_artifact_version,
+        invariant=only_padded_artifact_version,
+    ),
+    "stamp-static-field-model-version": Repair(
+        name="stamp-static-field-model-version",
+        condition="model-version-absent",
+        summary="declare the current model version on a static field that states none",
+        transform=stamp_static_field_model_version,
+        invariant=only_stamped_static_field_model_version,
+    ),
     "stamp-model-version": Repair(
         name="stamp-model-version",
         condition="schema-version-stale",
@@ -4814,12 +5389,32 @@ def conditions_named_by(path: Path, sample: int = 5000) -> list[str]:
                 if number >= sample:
                     break
                 try:
-                    found.update(json.loads(line).get("conditionRules") or {})
+                    found.update(normalized_target_record(json.loads(line)).get("conditionRules") or {})
                 except (ValueError, AttributeError):
                     continue
     except OSError:
         return []
     return sorted(found)
+
+
+def normalized_target_record(record: Any) -> dict:
+    """One target row, whichever inventory wrote it.
+
+    ``cedar_artifact_validation_audit.py`` writes a record per artifact carrying every condition it
+    met; ``cedar_artifact_rest_audit.py`` writes a finding per defect naming one rule. Both are
+    inventories a repair draws targets from, so a finding is read as the single-condition record it
+    already is rather than needing a conversion step between the two tools.
+    """
+    if not isinstance(record, dict) or "conditionRules" in record or "artifactId" in record:
+        return record if isinstance(record, dict) else {}
+    if not {"rule", "artifact_id", "artifact_type"} <= set(record):
+        return record
+    return {
+        "artifactType": record["artifact_type"],
+        "artifactId": record["artifact_id"],
+        "artifactName": record.get("artifact_name", ""),
+        "conditionRules": {record["rule"]: 1},
+    }
 
 
 def targets_from_records(path: Path, conditions: list[str], patterns: list[str],
@@ -4838,7 +5433,7 @@ def targets_from_records(path: Path, conditions: list[str], patterns: list[str],
             for line in stream:
                 if wanted and not any(condition in line for condition in wanted) and not expressions:
                     continue
-                record = json.loads(line)
+                record = normalized_target_record(json.loads(line))
                 matched = bool(wanted & set(record.get("conditionRules") or {}))
                 if not matched and expressions:
                     errors = ((record.get("validation") or {}).get("errors") or [])

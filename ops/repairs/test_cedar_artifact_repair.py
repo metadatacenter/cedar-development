@@ -1854,6 +1854,465 @@ class WrapInherentlyMultipleTest(unittest.TestCase):
         self.assertIsNotNone(REPAIR.only_wrapped_inherently_multiple(before, after))
 
 
+class DropBlankLiteralTest(unittest.TestCase):
+    """A permitted value with no label offers a choice indistinguishable from no answer."""
+
+    def field_with(self, literals, required=False):
+        node = child()
+        node["_valueConstraints"] = {"requiredValue": required, "multipleChoice": False,
+                                     "literals": literals}
+        return node
+
+    def draft(self, literals, required=False):
+        doc = template({"Status": self.field_with(literals, required)})
+        doc["bibo:status"] = "bibo:draft"
+        return doc
+
+    def test_the_blank_option_is_removed_and_the_rest_keep_their_order(self):
+        doc = self.draft([{"label": ""}, {"label": "In progress"}, {"label": "Complete"}])
+        after, changes = REPAIR.drop_blank_literal(doc)
+        kept = after["properties"]["Status"]["_valueConstraints"]["literals"]
+        self.assertEqual([l["label"] for l in kept], ["In progress", "Complete"])
+        self.assertEqual(changes, [{"path": "/properties/Status/_valueConstraints/literals/0",
+                                    "replaced": "", "wrote": None}])
+        self.assertIsNone(REPAIR.only_dropped_blank_literals(doc, after))
+
+    def test_selected_by_default_travels_with_the_entry_it_belongs_to(self):
+        doc = self.draft([{"label": ""}, {"label": "Complete", "selectedByDefault": True}])
+        after, _changes = REPAIR.drop_blank_literal(doc)
+        self.assertEqual(after["properties"]["Status"]["_valueConstraints"]["literals"],
+                         [{"label": "Complete", "selectedByDefault": True}])
+
+    def test_a_list_that_would_be_emptied_is_refused(self):
+        with self.assertRaises(REPAIR.TransformRefused):
+            REPAIR.drop_blank_literal(self.draft([{"label": ""}]))
+
+    def test_a_published_artifact_is_refused(self):
+        doc = self.draft([{"label": ""}, {"label": "Complete"}])
+        doc["bibo:status"] = "bibo:published"
+        with self.assertRaises(REPAIR.TransformRefused):
+            REPAIR.drop_blank_literal(doc)
+
+    def test_labelled_values_are_untouched(self):
+        doc = self.draft([{"label": "In progress"}, {"label": "Complete"}])
+        after, changes = REPAIR.drop_blank_literal(doc)
+        self.assertEqual(changes, [])
+        self.assertEqual(after, doc)
+
+    def test_class_constraints_are_left_to_their_own_repair(self):
+        doc = self.draft([{"label": ""}, {"label": "Complete"}])
+        doc["properties"]["Status"]["_valueConstraints"]["classes"] = [{"uri": "", "prefLabel": "x"}]
+        after, _changes = REPAIR.drop_blank_literal(doc)
+        self.assertEqual(after["properties"]["Status"]["_valueConstraints"]["classes"],
+                         [{"uri": "", "prefLabel": "x"}])
+
+    def test_a_second_run_finds_nothing(self):
+        after, _changes = REPAIR.drop_blank_literal(self.draft([{"label": ""}, {"label": "Complete"}]))
+        _again, changes = REPAIR.drop_blank_literal(after)
+        self.assertEqual(changes, [])
+
+    def test_the_invariant_rejects_dropping_a_labelled_value_or_any_other_change(self):
+        doc = self.draft([{"label": ""}, {"label": "Complete"}])
+        after, _changes = REPAIR.drop_blank_literal(doc)
+        overzealous = copy.deepcopy(after)
+        overzealous["properties"]["Status"]["_valueConstraints"]["literals"] = []
+        self.assertEqual(REPAIR.only_dropped_blank_literals(doc, overzealous),
+                         "/properties/Status/_valueConstraints/literals")
+        renamed = copy.deepcopy(after)
+        renamed["schema:name"] = "Renamed"
+        self.assertEqual(REPAIR.only_dropped_blank_literals(doc, renamed), "/schema:name")
+
+
+class DropUnresolvedClassConstraintTest(unittest.TestCase):
+    """A class constraint is a pointer to a term; one pointing at nothing offers an unusable choice."""
+
+    def klass(self, uri, label):
+        return {"uri": uri, "prefLabel": label, "type": "OntologyClass", "label": label, "source": "NCIT"}
+
+    def field_with(self, classes):
+        node = child()
+        node["_valueConstraints"] = {"requiredValue": False, "classes": classes,
+                                     "ontologies": [], "valueSets": [], "branches": []}
+        return node
+
+    def draft(self, classes):
+        doc = template({"race_id": self.field_with(classes)})
+        doc["bibo:status"] = "bibo:draft"
+        return doc
+
+    def test_an_entry_pointing_at_nothing_is_removed(self):
+        classes = [self.klass("http://x/C1", "White"), self.klass("", "Mixed"),
+                   self.klass("http://x/C2", "Asian")]
+        doc = self.draft(classes)
+        after, changes = REPAIR.drop_unresolved_class_constraint(doc)
+        kept = after["properties"]["race_id"]["_valueConstraints"]["classes"]
+        self.assertEqual([c["prefLabel"] for c in kept], ["White", "Asian"])
+        self.assertEqual(changes, [{"path": "/properties/race_id/_valueConstraints/classes/1",
+                                    "replaced": "Mixed", "wrote": None}])
+        self.assertIsNone(REPAIR.only_dropped_unresolved_class_constraints(doc, after))
+
+    def test_the_surviving_order_is_the_original_order(self):
+        classes = [self.klass("", "a"), self.klass("http://x/1", "b"),
+                   self.klass("", "c"), self.klass("http://x/2", "d")]
+        after, changes = REPAIR.drop_unresolved_class_constraint(self.draft(classes))
+        kept = after["properties"]["race_id"]["_valueConstraints"]["classes"]
+        self.assertEqual([c["prefLabel"] for c in kept], ["b", "d"])
+        self.assertEqual([c["replaced"] for c in changes], ["a", "c"])
+
+    def test_a_missing_uri_counts_as_pointing_at_nothing(self):
+        entry = {"prefLabel": "Mixed", "type": "OntologyClass", "source": "NCIT"}
+        after, changes = REPAIR.drop_unresolved_class_constraint(
+            self.draft([self.klass("http://x/1", "White"), entry]))
+        self.assertEqual(len(changes), 1)
+        self.assertEqual(len(after["properties"]["race_id"]["_valueConstraints"]["classes"]), 1)
+
+    def test_a_list_that_would_be_emptied_is_refused(self):
+        """A controlled-term field left with no constraint at all is a different change."""
+        with self.assertRaises(REPAIR.TransformRefused):
+            REPAIR.drop_unresolved_class_constraint(self.draft([self.klass("", "Mixed")]))
+
+    def test_a_published_artifact_is_refused(self):
+        doc = self.draft([self.klass("http://x/1", "White"), self.klass("", "Mixed")])
+        doc["bibo:status"] = "bibo:published"
+        with self.assertRaises(REPAIR.TransformRefused):
+            REPAIR.drop_unresolved_class_constraint(doc)
+
+    def test_fully_resolved_constraints_are_untouched(self):
+        doc = self.draft([self.klass("http://x/1", "White"), self.klass("http://x/2", "Asian")])
+        after, changes = REPAIR.drop_unresolved_class_constraint(doc)
+        self.assertEqual(changes, [])
+        self.assertEqual(after, doc)
+
+    def test_other_constraint_kinds_are_left_alone(self):
+        doc = self.draft([self.klass("http://x/1", "White"), self.klass("", "Mixed")])
+        doc["properties"]["race_id"]["_valueConstraints"]["ontologies"] = [{"uri": "", "name": "n"}]
+        after, _changes = REPAIR.drop_unresolved_class_constraint(doc)
+        self.assertEqual(after["properties"]["race_id"]["_valueConstraints"]["ontologies"],
+                         [{"uri": "", "name": "n"}])
+
+    def test_a_second_run_finds_nothing(self):
+        doc = self.draft([self.klass("http://x/1", "White"), self.klass("", "Mixed")])
+        after, _changes = REPAIR.drop_unresolved_class_constraint(doc)
+        _again, changes = REPAIR.drop_unresolved_class_constraint(after)
+        self.assertEqual(changes, [])
+
+    def test_the_invariant_rejects_dropping_a_resolved_entry_or_any_other_change(self):
+        classes = [self.klass("http://x/1", "White"), self.klass("", "Mixed")]
+        doc = self.draft(classes)
+        after, _changes = REPAIR.drop_unresolved_class_constraint(doc)
+        overzealous = copy.deepcopy(after)
+        overzealous["properties"]["race_id"]["_valueConstraints"]["classes"] = []
+        self.assertEqual(
+            REPAIR.only_dropped_unresolved_class_constraints(doc, overzealous),
+            "/properties/race_id/_valueConstraints/classes")
+        renamed = copy.deepcopy(after)
+        renamed["schema:name"] = "Renamed"
+        self.assertEqual(REPAIR.only_dropped_unresolved_class_constraints(doc, renamed), "/schema:name")
+
+
+class DefaultUnreadableVersionTest(unittest.TestCase):
+    """A field filled by accident, given what the library assigns when nothing is supplied."""
+
+    def draft(self, version):
+        doc = template({"Name": child()})
+        doc["pav:version"] = version
+        doc["bibo:status"] = "bibo:draft"
+        return doc
+
+    def test_a_version_carrying_no_version_becomes_the_default(self):
+        for value in ("requestJson", "asd", "v1.0", "1.", "latest", ""):
+            with self.subTest(value=value):
+                doc = self.draft(value)
+                after, changes = REPAIR.default_unreadable_version(doc)
+                self.assertEqual(after["pav:version"], "0.0.1")
+                self.assertEqual(changes, [{"path": "/pav:version", "replaced": value, "wrote": "0.0.1"}])
+                self.assertIsNone(REPAIR.only_defaulted_unreadable_version(doc, after))
+
+    def test_it_never_takes_a_value_the_other_repairs_can_read(self):
+        """Padding and settling recover what was written; this one replaces it, so it goes last."""
+        for value in ("0.9", "1", "01", "1.0.0-rc1", "1.0.0+build.5", "2.3.4"):
+            with self.subTest(value=value):
+                _after, changes = REPAIR.default_unreadable_version(self.draft(value))
+                self.assertEqual(changes, [])
+
+    def test_a_published_artifact_is_refused(self):
+        doc = self.draft("requestJson")
+        doc["bibo:status"] = "bibo:published"
+        with self.assertRaises(REPAIR.TransformRefused):
+            REPAIR.default_unreadable_version(doc)
+
+    def test_the_status_is_not_touched(self):
+        after, _changes = REPAIR.default_unreadable_version(self.draft("asd"))
+        self.assertEqual(after["bibo:status"], "bibo:draft")
+
+    def test_a_nested_definition_is_reached(self):
+        doc = self.draft("0.0.1")
+        doc["properties"]["Name"]["pav:version"] = "asd"
+        doc["properties"]["Name"]["bibo:status"] = "bibo:draft"
+        after, changes = REPAIR.default_unreadable_version(doc)
+        self.assertEqual([c["path"] for c in changes], ["/properties/Name/pav:version"])
+        self.assertEqual(after["properties"]["Name"]["pav:version"], "0.0.1")
+
+    def test_a_second_run_finds_nothing(self):
+        after, _changes = REPAIR.default_unreadable_version(self.draft("asd"))
+        _again, changes = REPAIR.default_unreadable_version(after)
+        self.assertEqual(changes, [])
+
+    def test_the_invariant_rejects_another_change_and_another_value(self):
+        doc = self.draft("asd")
+        after, _changes = REPAIR.default_unreadable_version(doc)
+        renamed = copy.deepcopy(after)
+        renamed["schema:name"] = "Renamed"
+        self.assertEqual(REPAIR.only_defaulted_unreadable_version(doc, renamed), "/schema:name")
+        invented = copy.deepcopy(doc)
+        invented["pav:version"] = "1.0.0"
+        self.assertEqual(REPAIR.only_defaulted_unreadable_version(doc, invented), "/pav:version")
+
+
+class SettlePrereleaseVersionTest(unittest.TestCase):
+    """A prerelease tag the model cannot hold, dropped only where an owner agreed and only on a draft."""
+
+    def draft(self, version, children=None):
+        doc = template(children if children is not None else {"Name": child()})
+        doc["pav:version"] = version
+        doc["bibo:status"] = "bibo:draft"
+        return doc
+
+    def test_a_draft_prerelease_becomes_its_release(self):
+        doc = self.draft("1.0.0-rc1")
+        after, changes = REPAIR.settle_prerelease_version(doc)
+        self.assertEqual(after["pav:version"], "1.0.0")
+        self.assertEqual(changes, [{"path": "/pav:version", "replaced": "1.0.0-rc1", "wrote": "1.0.0"}])
+        self.assertIsNone(REPAIR.only_settled_prerelease_version(doc, after))
+
+    def test_capitalisation_and_build_tags_settle_the_same_way(self):
+        for stated in ("1.0.0-rc2", "1.0.0-RC2", "1.0.0+build.5", "2.1.3-alpha.1"):
+            with self.subTest(stated=stated):
+                after, _changes = REPAIR.settle_prerelease_version(self.draft(stated))
+                self.assertEqual(after["pav:version"], stated.split("-")[0].split("+")[0])
+
+    def test_the_status_is_not_touched(self):
+        doc = self.draft("1.0.0-rc1")
+        after, _changes = REPAIR.settle_prerelease_version(doc)
+        self.assertEqual(after["bibo:status"], "bibo:draft")
+
+    def test_a_published_artifact_is_refused(self):
+        """A published version is what other things cite; changing which release it claims is not a repair."""
+        doc = self.draft("1.0.0-rc1")
+        doc["bibo:status"] = "bibo:published"
+        with self.assertRaises(REPAIR.TransformRefused):
+            REPAIR.settle_prerelease_version(doc)
+
+    def test_one_published_definition_refuses_the_whole_artifact(self):
+        doc = self.draft("1.0.0-rc1")
+        doc["properties"]["Name"]["pav:version"] = "1.0.0-rc1"
+        doc["properties"]["Name"]["bibo:status"] = "bibo:published"
+        with self.assertRaises(REPAIR.TransformRefused):
+            REPAIR.settle_prerelease_version(doc)
+
+    def test_nested_definitions_settle_with_the_root(self):
+        doc = self.draft("1.0.0-rc1", {"Name": child(), "Address": child(ELEMENT_TYPE)})
+        for name in ("Name", "Address"):
+            doc["properties"][name]["pav:version"] = "1.0.0-rc1"
+            doc["properties"][name]["bibo:status"] = "bibo:draft"
+        after, changes = REPAIR.settle_prerelease_version(doc)
+        self.assertEqual(len(changes), 3)
+        self.assertEqual(after["properties"]["Name"]["pav:version"], "1.0.0")
+        self.assertEqual(after["properties"]["Address"]["pav:version"], "1.0.0")
+
+    def test_a_plain_version_and_a_short_one_are_left_to_other_repairs(self):
+        for stated in ("1.0.0", "0.9", "asd"):
+            with self.subTest(stated=stated):
+                _after, changes = REPAIR.settle_prerelease_version(self.draft(stated))
+                self.assertEqual(changes, [])
+
+    def test_a_second_run_finds_nothing(self):
+        after, _changes = REPAIR.settle_prerelease_version(self.draft("1.0.0-rc1"))
+        _again, changes = REPAIR.settle_prerelease_version(after)
+        self.assertEqual(changes, [])
+
+    def test_the_invariant_rejects_another_change_and_a_status_move(self):
+        doc = self.draft("1.0.0-rc1")
+        after, _changes = REPAIR.settle_prerelease_version(doc)
+        renamed = copy.deepcopy(after)
+        renamed["schema:name"] = "Renamed"
+        self.assertEqual(REPAIR.only_settled_prerelease_version(doc, renamed), "/schema:name")
+        promoted = copy.deepcopy(after)
+        promoted["bibo:status"] = "bibo:published"
+        self.assertEqual(REPAIR.only_settled_prerelease_version(doc, promoted), "/bibo:status")
+
+
+class PadArtifactVersionTest(unittest.TestCase):
+    """A version the library cannot parse leaves the artifact with no YAML representation at all."""
+
+    def test_a_two_part_version_gains_its_patch(self):
+        doc = template({"Name": child()})
+        doc["pav:version"] = "0.9"
+        after, changes = REPAIR.pad_artifact_version(doc)
+        self.assertEqual(after["pav:version"], "0.9.0")
+        self.assertEqual(changes, [{"path": "/pav:version", "replaced": "0.9", "wrote": "0.9.0"}])
+        self.assertIsNone(REPAIR.only_padded_artifact_version(doc, after))
+
+    def test_a_bare_major_gains_both(self):
+        doc = template({"Name": child()})
+        doc["pav:version"] = "1"
+        after, _changes = REPAIR.pad_artifact_version(doc)
+        self.assertEqual(after["pav:version"], "1.0.0")
+
+    def test_a_leading_zero_does_not_survive(self):
+        """The library renders 01.0.0 as 1.0.0, so storing the padded form keeps the two in step."""
+        doc = template({"Name": child()})
+        doc["pav:version"] = "01"
+        after, _changes = REPAIR.pad_artifact_version(doc)
+        self.assertEqual(after["pav:version"], "1.0.0")
+
+    def test_a_nested_definition_is_padded_with_the_root(self):
+        doc = template({"Name": child(), "Address": child(ELEMENT_TYPE)})
+        doc["pav:version"] = "0.0.1"
+        doc["properties"]["Name"]["pav:version"] = "0.1"
+        doc["properties"]["Address"]["pav:version"] = "1.2"
+        after, changes = REPAIR.pad_artifact_version(doc)
+        self.assertEqual([c["path"] for c in changes],
+                         ["/properties/Name/pav:version", "/properties/Address/pav:version"])
+        self.assertEqual(after["properties"]["Name"]["pav:version"], "0.1.0")
+        self.assertEqual(after["properties"]["Address"]["pav:version"], "1.2.0")
+        self.assertEqual(after["pav:version"], "0.0.1")
+
+    def test_a_prerelease_is_left_for_a_decision(self):
+        """Correct semver the model's three integers cannot hold is a limitation, not a defect."""
+        doc = template({"Name": child()})
+        doc["pav:version"] = "1.0.0-rc1"
+        after, changes = REPAIR.pad_artifact_version(doc)
+        self.assertEqual(changes, [])
+        self.assertEqual(after["pav:version"], "1.0.0-rc1")
+
+    def test_a_version_no_rule_can_read_is_left_alone(self):
+        for value in ("requestJson", "asd", "v1.0", "1.", ""):
+            with self.subTest(value=value):
+                doc = template({"Name": child()})
+                doc["pav:version"] = value
+                _after, changes = REPAIR.pad_artifact_version(doc)
+                self.assertEqual(changes, [])
+
+    def test_a_parseable_version_is_untouched(self):
+        doc = template({"Name": child()})
+        doc["pav:version"] = "2.3.4"
+        _after, changes = REPAIR.pad_artifact_version(doc)
+        self.assertEqual(changes, [])
+
+    def test_a_second_run_finds_nothing(self):
+        doc = template({"Name": child()})
+        doc["pav:version"] = "0.9"
+        after, _changes = REPAIR.pad_artifact_version(doc)
+        _again, changes = REPAIR.pad_artifact_version(after)
+        self.assertEqual(changes, [])
+
+    def test_the_invariant_rejects_any_other_change_and_any_other_version(self):
+        doc = template({"Name": child()})
+        doc["pav:version"] = "0.9"
+        after, _changes = REPAIR.pad_artifact_version(doc)
+        self.assertIsNone(REPAIR.only_padded_artifact_version(doc, after))
+        renamed = copy.deepcopy(after)
+        renamed["schema:name"] = "Renamed"
+        self.assertEqual(REPAIR.only_padded_artifact_version(doc, renamed), "/schema:name")
+        invented = copy.deepcopy(doc)
+        invented["pav:version"] = "9.9.9"
+        self.assertEqual(REPAIR.only_padded_artifact_version(doc, invented), "/pav:version")
+
+
+class StampStaticFieldModelVersionTest(unittest.TestCase):
+    """A static field is a model specification too, and the model gives it a version."""
+
+    def static(self, **extra):
+        node = child(STATIC_TYPE, **extra)
+        node["_ui"] = {"inputType": "section-break"}
+        del node["schema:schemaVersion"]
+        return node
+
+    def test_a_static_field_with_no_version_gains_the_current_one(self):
+        doc = template({"Break": self.static()})
+        after, changes = REPAIR.stamp_static_field_model_version(doc)
+        self.assertEqual([c["path"] for c in changes], ["/properties/Break/schema:schemaVersion"])
+        self.assertEqual(changes[0]["replaced"], None)
+        self.assertEqual(after["properties"]["Break"]["schema:schemaVersion"], AUDIT_MODEL_VERSION)
+        self.assertIsNone(REPAIR.only_stamped_static_field_model_version(doc, after))
+
+    def test_a_static_field_that_already_states_one_is_left_to_the_other_repair(self):
+        doc = template({"Break": child(STATIC_TYPE)})
+        doc["properties"]["Break"]["schema:schemaVersion"] = "1.5.0"
+        _after, changes = REPAIR.stamp_static_field_model_version(doc)
+        self.assertEqual(changes, [])
+
+    def test_an_ordinary_field_with_no_version_is_not_touched(self):
+        """That absence is what stamp-model-version refuses to guess at, and this does not overrule it."""
+        ordinary = child()
+        del ordinary["schema:schemaVersion"]
+        doc = template({"Name": ordinary})
+        after, changes = REPAIR.stamp_static_field_model_version(doc)
+        self.assertEqual(changes, [])
+        self.assertNotIn("schema:schemaVersion", after["properties"]["Name"])
+
+    def test_a_static_field_nested_in_an_element_is_reached(self):
+        element = child(ELEMENT_TYPE)
+        element["properties"]["Break"] = self.static()
+        element["_ui"] = {"order": ["Break"]}
+        doc = template({"Section": element})
+        after, changes = REPAIR.stamp_static_field_model_version(doc)
+        self.assertEqual([c["path"] for c in changes],
+                         ["/properties/Section/properties/Break/schema:schemaVersion"])
+        self.assertIsNone(REPAIR.only_stamped_static_field_model_version(doc, after))
+
+    def test_the_invariant_rejects_the_same_key_added_to_anything_else(self):
+        ordinary = child()
+        del ordinary["schema:schemaVersion"]
+        doc = template({"Name": ordinary})
+        after = copy.deepcopy(doc)
+        after["properties"]["Name"]["schema:schemaVersion"] = AUDIT_MODEL_VERSION
+        self.assertEqual(REPAIR.only_stamped_static_field_model_version(doc, after),
+                         "/properties/Name/schema:schemaVersion")
+
+    def test_the_invariant_rejects_any_other_change(self):
+        doc = template({"Break": self.static()})
+        after, _changes = REPAIR.stamp_static_field_model_version(doc)
+        after["schema:name"] = "Renamed"
+        self.assertEqual(REPAIR.only_stamped_static_field_model_version(doc, after), "/schema:name")
+
+    def test_the_invariant_rejects_a_removal_and_a_wrong_version(self):
+        doc = template({"Break": self.static()})
+        stripped = copy.deepcopy(doc)
+        del stripped["schema:name"]
+        self.assertEqual(REPAIR.only_stamped_static_field_model_version(doc, stripped), "/")
+        wrong = copy.deepcopy(doc)
+        wrong["properties"]["Break"]["schema:schemaVersion"] = "9.9.9"
+        self.assertEqual(REPAIR.only_stamped_static_field_model_version(doc, wrong),
+                         "/properties/Break/schema:schemaVersion")
+
+    def test_a_second_run_over_a_repaired_artifact_finds_nothing(self):
+        doc = template({"Break": self.static()})
+        after, _changes = REPAIR.stamp_static_field_model_version(doc)
+        _again, changes = REPAIR.stamp_static_field_model_version(after)
+        self.assertEqual(changes, [])
+
+
+class RestAuditFindingsAsTargetsTest(unittest.TestCase):
+    """The REST audit is an inventory too, so its findings name targets without a conversion step."""
+
+    def test_a_finding_is_read_as_a_single_condition_record(self):
+        record = REPAIR.normalized_target_record({
+            "rule": "model-version-absent", "risk": "manual-review",
+            "artifact_type": "template", "artifact_id": BASE + "templates/abc",
+            "artifact_name": "Study", "path": "/properties/Break/schema:schemaVersion",
+        })
+        self.assertEqual("template", record["artifactType"])
+        self.assertEqual(BASE + "templates/abc", record["artifactId"])
+        self.assertEqual({"model-version-absent": 1}, record["conditionRules"])
+
+    def test_a_validation_audit_record_is_returned_untouched(self):
+        original = {"artifactType": "template", "artifactId": BASE + "templates/abc",
+                    "conditionRules": {"derived-from-empty": 2}}
+        self.assertIs(original, REPAIR.normalized_target_record(original))
+
+
 class StampModelVersionTest(unittest.TestCase):
 
     def test_a_stale_version_is_written_forward(self):
