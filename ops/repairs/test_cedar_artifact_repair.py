@@ -1854,6 +1854,144 @@ class WrapInherentlyMultipleTest(unittest.TestCase):
         self.assertIsNotNone(REPAIR.only_wrapped_inherently_multiple(before, after))
 
 
+class NameControlledTermFieldTest(unittest.TestCase):
+    """CEDAR has no controlled-term input type: a controlled term is a text field with constraints."""
+
+    def field(self, input_type="controlled-term", **vc):
+        node = child()
+        node["_ui"] = {"inputType": input_type}
+        node["_valueConstraints"] = {"requiredValue": False, "classes": [], "branches": [],
+                                     "valueSets": [], "ontologies": [], **vc}
+        return node
+
+    def draft(self, field, key="term"):
+        doc = template({key: field})
+        doc["bibo:status"] = "bibo:draft"
+        return doc
+
+    def test_a_field_naming_a_term_source_becomes_a_textfield(self):
+        for source in ("classes", "branches", "valueSets", "ontologies"):
+            with self.subTest(source=source):
+                doc = self.draft(self.field(**{source: [{"uri": "http://x/1"}]}))
+                after, changes = REPAIR.name_a_controlled_term_field_as_it_is_modelled(doc)
+                self.assertEqual(after["properties"]["term"]["_ui"]["inputType"], "textfield")
+                self.assertEqual(changes, [{"path": "/properties/term/_ui/inputType",
+                                            "replaced": "controlled-term", "wrote": "textfield"}])
+                self.assertIsNone(REPAIR.only_named_controlled_term_fields(doc, after))
+
+    def test_the_constraints_are_untouched(self):
+        doc = self.draft(self.field(classes=[{"uri": "http://x/1", "prefLabel": "A"}]))
+        after, _changes = REPAIR.name_a_controlled_term_field_as_it_is_modelled(doc)
+        self.assertEqual(after["properties"]["term"]["_valueConstraints"],
+                         doc["properties"]["term"]["_valueConstraints"])
+
+    def test_a_field_naming_no_term_source_is_refused(self):
+        """A text field with no constraints collects something different, which is the author's call."""
+        with self.assertRaises(REPAIR.TransformRefused):
+            REPAIR.name_a_controlled_term_field_as_it_is_modelled(self.draft(self.field()))
+
+    def test_a_known_input_type_is_untouched(self):
+        doc = self.draft(self.field("textfield", classes=[{"uri": "http://x/1"}]))
+        _after, changes = REPAIR.name_a_controlled_term_field_as_it_is_modelled(doc)
+        self.assertEqual(changes, [])
+
+    def test_a_published_artifact_is_refused(self):
+        doc = self.draft(self.field(classes=[{"uri": "http://x/1"}]))
+        doc["bibo:status"] = "bibo:published"
+        with self.assertRaises(REPAIR.TransformRefused):
+            REPAIR.name_a_controlled_term_field_as_it_is_modelled(doc)
+
+    def test_a_second_run_finds_nothing(self):
+        doc = self.draft(self.field(classes=[{"uri": "http://x/1"}]))
+        after, _c = REPAIR.name_a_controlled_term_field_as_it_is_modelled(doc)
+        _again, changes = REPAIR.name_a_controlled_term_field_as_it_is_modelled(after)
+        self.assertEqual(changes, [])
+
+    def test_the_invariant_rejects_another_target_or_an_unconstrained_field(self):
+        doc = self.draft(self.field(classes=[{"uri": "http://x/1"}]))
+        after, _c = REPAIR.name_a_controlled_term_field_as_it_is_modelled(doc)
+        other = copy.deepcopy(doc)
+        other["properties"]["term"]["_ui"]["inputType"] = "list"
+        self.assertEqual(REPAIR.only_named_controlled_term_fields(doc, other),
+                         "/properties/term/_ui/inputType")
+        bare = self.draft(self.field())
+        promoted = copy.deepcopy(bare)
+        promoted["properties"]["term"]["_ui"]["inputType"] = "textfield"
+        self.assertEqual(REPAIR.only_named_controlled_term_fields(bare, promoted),
+                         "/properties/term/_ui/inputType")
+        renamed = copy.deepcopy(after)
+        renamed["schema:name"] = "Renamed"
+        self.assertEqual(REPAIR.only_named_controlled_term_fields(doc, renamed), "/schema:name")
+
+
+class DropUnresolvableDefaultTest(unittest.TestCase):
+    """A default naming a term the field offers no way to reach."""
+
+    TERM = {"termUri": "https://data.bioontology.org/provisional_classes/671ba040",
+            "rdfs:label": "Mixed-use"}
+
+    def field(self, default=None, **vc):
+        node = child()
+        node["_ui"] = {"inputType": "textfield"}
+        node["_valueConstraints"] = {"requiredValue": False, "classes": [], "branches": [],
+                                     "valueSets": [], "ontologies": [], **vc}
+        if default is not None:
+            node["_valueConstraints"]["defaultValue"] = default
+        return node
+
+    def draft(self, field, key="landUseTypes"):
+        doc = template({key: field})
+        doc["bibo:status"] = "bibo:draft"
+        return doc
+
+    def test_an_unreachable_term_default_is_removed(self):
+        doc = self.draft(self.field(self.TERM))
+        after, changes = REPAIR.drop_unresolvable_default(doc)
+        self.assertNotIn("defaultValue", after["properties"]["landUseTypes"]["_valueConstraints"])
+        self.assertEqual(changes, [{"path": "/properties/landUseTypes/_valueConstraints/defaultValue",
+                                    "replaced": "Mixed-use", "wrote": None}])
+        self.assertIsNone(REPAIR.only_dropped_unresolvable_defaults(doc, after))
+
+    def test_a_field_that_does_name_a_term_source_keeps_its_default(self):
+        doc = self.draft(self.field(self.TERM, classes=[{"uri": "http://x/1"}]))
+        _after, changes = REPAIR.drop_unresolvable_default(doc)
+        self.assertEqual(changes, [])
+
+    def test_a_literal_default_is_untouched(self):
+        doc = self.draft(self.field({"@value": "Mixed-use"}))
+        _after, changes = REPAIR.drop_unresolvable_default(doc)
+        self.assertEqual(changes, [])
+
+    def test_the_other_constraints_survive(self):
+        doc = self.draft(self.field(self.TERM, requiredValue=True))
+        after, _changes = REPAIR.drop_unresolvable_default(doc)
+        vc = after["properties"]["landUseTypes"]["_valueConstraints"]
+        self.assertEqual(vc["requiredValue"], True)
+        self.assertEqual(vc["classes"], [])
+
+    def test_a_published_artifact_is_refused(self):
+        doc = self.draft(self.field(self.TERM))
+        doc["bibo:status"] = "bibo:published"
+        with self.assertRaises(REPAIR.TransformRefused):
+            REPAIR.drop_unresolvable_default(doc)
+
+    def test_a_second_run_finds_nothing(self):
+        after, _c = REPAIR.drop_unresolvable_default(self.draft(self.field(self.TERM)))
+        _again, changes = REPAIR.drop_unresolvable_default(after)
+        self.assertEqual(changes, [])
+
+    def test_the_invariant_rejects_removing_anything_else(self):
+        doc = self.draft(self.field(self.TERM))
+        after, _c = REPAIR.drop_unresolvable_default(doc)
+        overzealous = copy.deepcopy(after)
+        del overzealous["properties"]["landUseTypes"]["_valueConstraints"]["classes"]
+        self.assertEqual(REPAIR.only_dropped_unresolvable_defaults(doc, overzealous),
+                         "/properties/landUseTypes/_valueConstraints")
+        renamed = copy.deepcopy(after)
+        renamed["schema:name"] = "Renamed"
+        self.assertEqual(REPAIR.only_dropped_unresolvable_defaults(doc, renamed), "/schema:name")
+
+
 class DeriveAbsentProvenanceTest(unittest.TestCase):
     """An artifact that says nothing about its own making, read from what it says about its last."""
 

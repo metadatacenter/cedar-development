@@ -900,6 +900,187 @@ def only_derived_absent_provenance(before: Any, after: Any) -> Optional[str]:
     return walk(before, after, "")
 
 
+CONTROLLED_TERM_INPUT_TYPE = "controlled-term"
+TEXTFIELD_INPUT_TYPE = "textfield"
+DEFAULT_VALUE_KEY = "defaultValue"
+
+
+def name_a_controlled_term_field_as_it_is_modelled(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Write ``controlled-term`` as the input type the model actually has.
+
+    CEDAR has no ``controlled-term`` input type. A controlled term is a text field carrying term
+    constraints — classes, branches, value sets or ontologies — so a field naming that type is
+    describing itself with a word the model never defined, and no reader can take it: the artifact
+    has no YAML representation at all.
+
+    Only a field that carries at least one term constraint is renamed, because that is what makes
+    ``textfield`` the same field said properly rather than a different field. One carrying none
+    would become a plain text box, which is a change to what it collects and an author's to make.
+    """
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+    refusals: list[str] = []
+
+    def walk(node: Any, path: str) -> Any:
+        if isinstance(node, dict):
+            result = {name: walk(value, f"{path}/{rest.json_pointer_component(name)}")
+                      for name, value in node.items()}
+            ui = result.get(UI_KEY)
+            if isinstance(ui, dict) and ui.get(INPUT_TYPE_KEY) == CONTROLLED_TERM_INPUT_TYPE:
+                here = f"{path}/{rest.json_pointer_component(UI_KEY)}/{INPUT_TYPE_KEY}"
+                constraints = result.get(VALUE_CONSTRAINTS_KEY)
+                constraints = constraints if isinstance(constraints, dict) else {}
+                terms = sum(len(constraints.get(k) or []) for k in rest.TERM_CONSTRAINT_KEYS)
+                if not terms:
+                    refusals.append(f"{here} names no term source, so a text field would collect "
+                                    "something different")
+                else:
+                    result[UI_KEY] = {**ui, INPUT_TYPE_KEY: TEXTFIELD_INPUT_TYPE}
+                    changes.append({"path": here, "replaced": CONTROLLED_TERM_INPUT_TYPE,
+                                    "wrote": TEXTFIELD_INPUT_TYPE})
+            return result
+        if isinstance(node, list):
+            return [walk(value, f"{path}/{index}") for index, value in enumerate(node)]
+        return node
+
+    repaired = walk(copy.deepcopy(artifact), "")
+    if artifact.get(STATUS_KEY) != DRAFT_STATUS:
+        raise TransformRefused(
+            f"an input type is only rewritten on a draft; this artifact is {artifact.get(STATUS_KEY)!r}")
+    if refusals:
+        raise TransformRefused(refusals[0] + (f" ({len(refusals)} in all)" if len(refusals) > 1 else ""))
+    return repaired, changes
+
+
+def only_named_controlled_term_fields(before: Any, after: Any) -> Optional[str]:
+    """The invariant: the only change is controlled-term becoming textfield, where terms are named."""
+
+    def walk(old: Any, new: Any, path: str) -> Optional[str]:
+        if isinstance(old, dict):
+            if not isinstance(new, dict) or set(old) != set(new):
+                return path or "/"
+            oldUi, newUi = old.get(UI_KEY), new.get(UI_KEY)
+            if (isinstance(oldUi, dict) and isinstance(newUi, dict)
+                    and oldUi.get(INPUT_TYPE_KEY) != newUi.get(INPUT_TYPE_KEY)):
+                here = f"{path}/{rest.json_pointer_component(UI_KEY)}/{INPUT_TYPE_KEY}"
+                constraints = old.get(VALUE_CONSTRAINTS_KEY)
+                constraints = constraints if isinstance(constraints, dict) else {}
+                if (oldUi.get(INPUT_TYPE_KEY) != CONTROLLED_TERM_INPUT_TYPE
+                        or newUi.get(INPUT_TYPE_KEY) != TEXTFIELD_INPUT_TYPE
+                        or not sum(len(constraints.get(k) or []) for k in rest.TERM_CONSTRAINT_KEYS)):
+                    return here
+            for name in old:
+                here = f"{path}/{rest.json_pointer_component(name)}"
+                if name == UI_KEY and isinstance(oldUi, dict) and isinstance(newUi, dict):
+                    if set(oldUi) != set(newUi):
+                        return here
+                    for key in oldUi:
+                        if key == INPUT_TYPE_KEY:
+                            continue
+                        difference = walk(oldUi[key], newUi[key],
+                                          f"{here}/{rest.json_pointer_component(key)}")
+                        if difference is not None:
+                            return difference
+                    continue
+                difference = walk(old[name], new[name], here)
+                if difference is not None:
+                    return difference
+            return None
+        if isinstance(old, list):
+            if not isinstance(new, list) or len(old) != len(new):
+                return path or "/"
+            for index, value in enumerate(old):
+                difference = walk(value, new[index], f"{path}/{index}")
+                if difference is not None:
+                    return difference
+            return None
+        return None if type(old) is type(new) and old == new else (path or "/")
+
+    return walk(before, after, "")
+
+
+def drop_unresolvable_default(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Remove a default that points at a term the field offers no way to reach.
+
+    A controlled-term default is ``{termUri, rdfs:label}``. On a field with no ontology, value set,
+    class or branch, nothing can resolve it, and the library refuses to read the artifact at all
+    because the field's kind and its default's kind disagree.
+
+    The default goes rather than being rewritten as text: the author chose a term, and a label is
+    what that term is called rather than the value they meant to store. A field that does name a
+    term source is left alone, since there the default may well be legitimate.
+    """
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def walk(node: Any, path: str) -> Any:
+        if isinstance(node, dict):
+            result = {name: walk(value, f"{path}/{rest.json_pointer_component(name)}")
+                      for name, value in node.items()}
+            constraints = result.get(VALUE_CONSTRAINTS_KEY)
+            if isinstance(constraints, dict):
+                default = constraints.get(DEFAULT_VALUE_KEY)
+                terms = sum(len(constraints.get(k) or []) for k in rest.TERM_CONSTRAINT_KEYS)
+                if (isinstance(default, dict) and not terms
+                        and rest.CONTROLLED_TERM_DEFAULT_KEYS <= set(default)):
+                    without = {k: v for k, v in constraints.items() if k != DEFAULT_VALUE_KEY}
+                    result[VALUE_CONSTRAINTS_KEY] = without
+                    changes.append({
+                        "path": f"{path}/{rest.json_pointer_component(VALUE_CONSTRAINTS_KEY)}"
+                                f"/{DEFAULT_VALUE_KEY}",
+                        "replaced": default.get("rdfs:label"), "wrote": None})
+            return result
+        if isinstance(node, list):
+            return [walk(value, f"{path}/{index}") for index, value in enumerate(node)]
+        return node
+
+    repaired = walk(copy.deepcopy(artifact), "")
+    if artifact.get(STATUS_KEY) != DRAFT_STATUS:
+        raise TransformRefused(
+            f"a default is only dropped on a draft; this artifact is {artifact.get(STATUS_KEY)!r}")
+    return repaired, changes
+
+
+def only_dropped_unresolvable_defaults(before: Any, after: Any) -> Optional[str]:
+    """The invariant: the only change is an unreachable term default being removed."""
+
+    def walk(old: Any, new: Any, path: str) -> Optional[str]:
+        if isinstance(old, dict):
+            if not isinstance(new, dict):
+                return path or "/"
+            removed = set(old) - set(new)
+            if set(new) - set(old):
+                return path or "/"
+            if removed:
+                if removed != {DEFAULT_VALUE_KEY}:
+                    return path or "/"
+                default = old.get(DEFAULT_VALUE_KEY)
+                terms = sum(len(old.get(k) or []) for k in rest.TERM_CONSTRAINT_KEYS)
+                if (not isinstance(default, dict) or terms
+                        or not rest.CONTROLLED_TERM_DEFAULT_KEYS <= set(default)):
+                    return f"{path}/{DEFAULT_VALUE_KEY}"
+            for name in old:
+                if name in removed:
+                    continue
+                difference = walk(old[name], new[name], f"{path}/{rest.json_pointer_component(name)}")
+                if difference is not None:
+                    return difference
+            return None
+        if isinstance(old, list):
+            if not isinstance(new, list) or len(old) != len(new):
+                return path or "/"
+            for index, value in enumerate(old):
+                difference = walk(value, new[index], f"{path}/{index}")
+                if difference is not None:
+                    return difference
+            return None
+        return None if type(old) is type(new) and old == new else (path or "/")
+
+    return walk(before, after, "")
+
+
 TEMPORAL_INPUT_TYPE = "temporal"
 GRANULARITY_KEY = "temporalGranularity"
 TEMPORAL_TYPE_KEY = "temporalType"
@@ -5441,6 +5622,20 @@ REPAIRS = {
         summary="deploy an inherently multiple child as the array it always serializes to",
         transform=wrap_inherently_multiple,
         invariant=only_wrapped_inherently_multiple,
+    ),
+    "name-controlled-term-field": Repair(
+        name="name-controlled-term-field",
+        condition="input-type-unknown",
+        summary="write controlled-term as the textfield the model actually has",
+        transform=name_a_controlled_term_field_as_it_is_modelled,
+        invariant=only_named_controlled_term_fields,
+    ),
+    "drop-unresolvable-default": Repair(
+        name="drop-unresolvable-default",
+        condition="default-value-kind-mismatch",
+        summary="remove a default naming a term the field offers no way to reach",
+        transform=drop_unresolvable_default,
+        invariant=only_dropped_unresolvable_defaults,
     ),
     "derive-absent-provenance": Repair(
         name="derive-absent-provenance",
