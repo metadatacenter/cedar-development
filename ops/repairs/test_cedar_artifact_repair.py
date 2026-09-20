@@ -1854,6 +1854,78 @@ class WrapInherentlyMultipleTest(unittest.TestCase):
         self.assertIsNotNone(REPAIR.only_wrapped_inherently_multiple(before, after))
 
 
+class DeriveAbsentProvenanceTest(unittest.TestCase):
+    """An artifact that says nothing about its own making, read from what it says about its last."""
+
+    STAMP = "2026-03-04T17:46:50-08:00"
+    USER = "https://metadatacenter.org/users/f58a18a0-78bd-4d15-9c0b-f9a66738824f"
+
+    def draft(self, **overrides):
+        doc = template({"Name": child()})
+        doc["bibo:status"] = "bibo:draft"
+        doc.update({"pav:createdOn": None, "pav:createdBy": None,
+                    "pav:lastUpdatedOn": self.STAMP, "oslc:modifiedBy": self.USER})
+        doc.update(overrides)
+        return doc
+
+    def test_both_are_filled_from_the_last_change(self):
+        doc = self.draft()
+        after, changes = REPAIR.derive_absent_provenance(doc)
+        self.assertEqual(after["pav:createdOn"], self.STAMP)
+        self.assertEqual(after["pav:createdBy"], self.USER)
+        self.assertEqual([(c["path"], c["derivedFrom"]) for c in changes],
+                         [("/pav:createdOn", "pav:lastUpdatedOn"),
+                          ("/pav:createdBy", "oslc:modifiedBy")])
+        self.assertIsNone(REPAIR.only_derived_absent_provenance(doc, after))
+
+    def test_the_derivation_is_recorded_rather_than_presented_as_fact(self):
+        _after, changes = REPAIR.derive_absent_provenance(self.draft())
+        self.assertTrue(all(c["replaced"] is None and c["derivedFrom"] for c in changes))
+
+    def test_a_value_already_present_is_never_overwritten(self):
+        doc = self.draft(**{"pav:createdOn": "2020-01-01T00:00:00-08:00"})
+        after, changes = REPAIR.derive_absent_provenance(doc)
+        self.assertEqual(after["pav:createdOn"], "2020-01-01T00:00:00-08:00")
+        self.assertEqual([c["path"] for c in changes], ["/pav:createdBy"])
+
+    def test_a_null_with_nothing_to_derive_from_is_left_alone(self):
+        doc = self.draft(**{"pav:lastUpdatedOn": None, "oslc:modifiedBy": None})
+        _after, changes = REPAIR.derive_absent_provenance(doc)
+        self.assertEqual(changes, [])
+
+    def test_a_nested_definition_is_filled_from_its_own_last_change(self):
+        doc = self.draft()
+        other = "https://metadatacenter.org/users/aaaaaaaa-0000-0000-0000-000000000000"
+        doc["properties"]["Name"].update({"pav:createdOn": None, "pav:createdBy": None,
+                                          "pav:lastUpdatedOn": "2021-01-01T00:00:00-08:00",
+                                          "oslc:modifiedBy": other})
+        after, _changes = REPAIR.derive_absent_provenance(doc)
+        self.assertEqual(after["properties"]["Name"]["pav:createdBy"], other)
+        self.assertEqual(after["properties"]["Name"]["pav:createdOn"], "2021-01-01T00:00:00-08:00")
+        self.assertEqual(after["pav:createdBy"], self.USER)
+
+    def test_a_published_artifact_is_refused(self):
+        doc = self.draft()
+        doc["bibo:status"] = "bibo:published"
+        with self.assertRaises(REPAIR.TransformRefused):
+            REPAIR.derive_absent_provenance(doc)
+
+    def test_a_second_run_finds_nothing(self):
+        after, _changes = REPAIR.derive_absent_provenance(self.draft())
+        _again, changes = REPAIR.derive_absent_provenance(after)
+        self.assertEqual(changes, [])
+
+    def test_the_invariant_rejects_another_value_or_another_change(self):
+        doc = self.draft()
+        after, _changes = REPAIR.derive_absent_provenance(doc)
+        invented = copy.deepcopy(doc)
+        invented["pav:createdBy"] = "https://metadatacenter.org/users/somebody-else"
+        self.assertEqual(REPAIR.only_derived_absent_provenance(doc, invented), "/pav:createdBy")
+        overwritten = copy.deepcopy(after)
+        overwritten["pav:lastUpdatedOn"] = "2026-01-01T00:00:00-08:00"
+        self.assertEqual(REPAIR.only_derived_absent_provenance(doc, overwritten), "/pav:lastUpdatedOn")
+
+
 class StateTemporalPrecisionTest(unittest.TestCase):
     """A date that does not say what precision it is read at cannot be read at all."""
 

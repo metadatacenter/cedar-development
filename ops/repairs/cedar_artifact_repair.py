@@ -819,6 +819,87 @@ LIST_INPUT_TYPE = "list"
 MULTIPLE_CHOICE_KEY = "multipleChoice"
 
 
+# Where an artifact says nothing about its own making, what it says about its last change is the
+# only evidence left. Each derivation is recorded in the change so the substitution stays visible.
+DERIVED_PROVENANCE = ((rest.CREATED_ON, rest.UPDATED_ON), (rest.CREATED_BY, rest.MODIFIED_BY))
+
+
+def derive_absent_provenance(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Fill a null creation date or author from what the artifact records about its last change.
+
+    The meta-schema requires both keys and lets both be null, so an artifact that says nothing
+    about who made it or when is valid, and five standalone fields in production say exactly that
+    while naming who last touched them.
+
+    The date is a lower bound: an artifact created earlier than it records is understated, not
+    misdescribed. The author is an inference and the weaker of the two — it asserts that the last
+    person to touch the artifact is the one who made it, which is likely for a draft written once
+    and never edited, and wrong if someone else edited it since. Both derivations are named in the
+    change record rather than presented as recovered fact.
+
+    A value already present is never overwritten, and a null with no counterpart to derive from is
+    left alone: there is nothing to say.
+    """
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def walk(node: Any, path: str) -> Any:
+        if isinstance(node, dict):
+            result = {name: walk(value, f"{path}/{rest.json_pointer_component(name)}")
+                      for name, value in node.items()}
+            for absent, source in DERIVED_PROVENANCE:
+                if absent not in result or result[absent] is not None:
+                    continue
+                derived = result.get(source)
+                if not isinstance(derived, str) or not derived:
+                    continue
+                result[absent] = derived
+                changes.append({"path": f"{path}/{rest.json_pointer_component(absent)}",
+                                "replaced": None, "wrote": derived, "derivedFrom": source})
+            return result
+        if isinstance(node, list):
+            return [walk(value, f"{path}/{index}") for index, value in enumerate(node)]
+        return node
+
+    repaired = walk(copy.deepcopy(artifact), "")
+    if artifact.get(STATUS_KEY) != DRAFT_STATUS:
+        raise TransformRefused(
+            f"provenance is only derived on a draft; this artifact is {artifact.get(STATUS_KEY)!r}")
+    return repaired, changes
+
+
+def only_derived_absent_provenance(before: Any, after: Any) -> Optional[str]:
+    """The invariant: the only changes are null provenance taking the value it was derived from."""
+
+    def walk(old: Any, new: Any, path: str) -> Optional[str]:
+        if isinstance(old, dict):
+            if not isinstance(new, dict) or set(old) != set(new):
+                return path or "/"
+            derived = dict(DERIVED_PROVENANCE)
+            for name in old:
+                here = f"{path}/{rest.json_pointer_component(name)}"
+                if name in derived and new[name] != old[name]:
+                    if old[name] is not None or new[name] != old.get(derived[name]):
+                        return here
+                    continue
+                difference = walk(old[name], new[name], here)
+                if difference is not None:
+                    return difference
+            return None
+        if isinstance(old, list):
+            if not isinstance(new, list) or len(old) != len(new):
+                return path or "/"
+            for index, value in enumerate(old):
+                difference = walk(value, new[index], f"{path}/{index}")
+                if difference is not None:
+                    return difference
+            return None
+        return None if type(old) is type(new) and old == new else (path or "/")
+
+    return walk(before, after, "")
+
+
 TEMPORAL_INPUT_TYPE = "temporal"
 GRANULARITY_KEY = "temporalGranularity"
 TEMPORAL_TYPE_KEY = "temporalType"
@@ -5360,6 +5441,13 @@ REPAIRS = {
         summary="deploy an inherently multiple child as the array it always serializes to",
         transform=wrap_inherently_multiple,
         invariant=only_wrapped_inherently_multiple,
+    ),
+    "derive-absent-provenance": Repair(
+        name="derive-absent-provenance",
+        condition="provenance-absent",
+        summary="fill a null creation date or author from what the last change records",
+        transform=derive_absent_provenance,
+        invariant=only_derived_absent_provenance,
     ),
     "state-temporal-precision": Repair(
         name="state-temporal-precision",
