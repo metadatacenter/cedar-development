@@ -1218,6 +1218,36 @@ nested static field. `YamlAsymmetryProbeTest` in `cedar-artifact-library` and `Y
 in `cedar-artifact-server` both pin it. If a round trip ever loses a setting again, add a probe there
 rather than documenting the loss.
 
+### The Meta-Schemas Are Generated
+
+`cedar-model-validation-library/src/main/resources/*-meta-schema.json` are **build output**. Each is
+merged by `scripts/generate-meta-schemas.sh` from the fragments in `schema/`, following the manifest
+named after it — `schema/template-schemas.yml` for the template meta-schema, and so on. A fragment is
+reused across several meta-schemas, so one edit lands in more than one generated file: declaring a
+property on `staticTemplateField.json` added it to the static-field, template and element
+meta-schemas at once.
+
+**Edit the fragment and regenerate. Never edit the generated file.** A hand edit survives until the
+next person runs the generator, which then silently reinstates what the edit removed — that is not
+hypothetical. Commit `21bafa6` took the boolean field's value constraints out of the generated
+meta-schemas and left them in `schema/literalFieldValueConstraintsContent.json`, so for two weeks
+regenerating would have put `nullEnabled`, `labels` and two `defaultValue` branches back for a field
+type nothing can author.
+
+Before changing anything, run the generator on a clean tree and confirm it produces no diff. That
+proves the fragments and the committed output still agree, so whatever the generator writes
+afterwards is your change alone:
+
+```bash
+cd cedar-model-validation-library/scripts && bash generate-meta-schemas.sh
+cd .. && git status --short src/main/resources/   # must be empty before you start
+```
+
+Tightening a rule is subject to the same order as any other: the artifact server validates on write,
+and `?verbatim=true` validates too, so a rule that refuses what production already stores makes
+those artifacts unsaveable — including through the repair that would fix them. Measure the corpus
+with `ops/cedar_artifact_rest_audit.py`, repair, and only then tighten.
+
 ### Comparing the Two Model Libraries
 
 `cedar-artifact-library` (Java) and `cedar-model-typescript-library` (TypeScript) implement the same
