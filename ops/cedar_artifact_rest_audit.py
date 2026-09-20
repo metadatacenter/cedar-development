@@ -597,6 +597,41 @@ def audit_class_constraints(ref: ArtifactRef, node: Any, path: str) -> Iterator[
                 "artifact and it has no YAML representation", entry.get("prefLabel"))
 
 
+# The literal-valued field types that offer a closed set of permitted values. The meta-schema gives
+# all ten literal types one shape, so `literals` is accepted on any of them — a text field with an
+# option list validates, and the two model libraries then disagree about whether it has options.
+CHOICE_INPUT_TYPES = frozenset({"radio", "checkbox", "list"})
+
+
+def audit_field_offers_choices(ref: ArtifactRef, node: Any, path: str) -> Iterator[Finding]:
+    """A field that lists permitted values without being a field that offers them.
+
+    `_valueConstraints.literals` is a closed set of choices, which radio, checkbox and list fields
+    present and no other field type can. `literalFieldValueConstraintsContent.json` is shared by all
+    ten literal input types, so nothing refuses the combination: `cedar-artifact-library` keeps the
+    options, `cedar-model-typescript-library` has nowhere to put them and drops them, and what it
+    writes still validates.
+    """
+    if not isinstance(node, dict):
+        return
+    ui = node.get("_ui")
+    constraints = node.get("_valueConstraints")
+    if not isinstance(ui, dict) or not isinstance(constraints, dict):
+        return
+    literals = constraints.get("literals")
+    input_type = ui.get("inputType")
+    if not isinstance(literals, list) or not literals:
+        return
+    if input_type in CHOICE_INPUT_TYPES:
+        return
+    yield finding(
+        ref, "field-offers-choices-it-cannot-present", "manual-review",
+        f"{path}/_ui/inputType",
+        f"a {input_type} field lists {len(literals)} permitted values, which only a radio, "
+        "checkbox or list field presents; one model library keeps them and the other drops them",
+        input_type)
+
+
 def audit_literal_labels(ref: ArtifactRef, node: Any, path: str) -> Iterator[Finding]:
     """A permitted value with no label.
 
@@ -690,6 +725,7 @@ def audit_schema(ref: ArtifactRef, artifact: Any) -> Iterator[Finding]:
     yield from audit_artifact_version(ref, artifact, "")
     yield from audit_class_constraints(ref, artifact, "")
     yield from audit_literal_labels(ref, artifact, "")
+    yield from audit_field_offers_choices(ref, artifact, "")
 
     def walk(container: dict, path: str) -> Iterator[Finding]:
         properties = container.get("properties")
@@ -727,6 +763,7 @@ def audit_schema(ref: ArtifactRef, artifact: Any) -> Iterator[Finding]:
             yield from audit_artifact_version(ref, child, actual_path)
             yield from audit_class_constraints(ref, child, actual_path)
             yield from audit_literal_labels(ref, child, actual_path)
+            yield from audit_field_offers_choices(ref, child, actual_path)
 
             identifier = child.get("@id")
             if not server_considers_child_id_usable(identifier):
@@ -1659,6 +1696,7 @@ def run_audit(arguments: argparse.Namespace, client: GetOnlyClient,
                     findings.extend(audit_artifact_version(ref, artifact, ""))
                     findings.extend(audit_class_constraints(ref, artifact, ""))
                     findings.extend(audit_literal_labels(ref, artifact, ""))
+                    findings.extend(audit_field_offers_choices(ref, artifact, ""))
                 if artifact_type in {"template", "element"}:
                     findings.extend(audit_schema(ref, artifact))
                     if artifact_type == "template" and isinstance(artifact, dict):

@@ -124,6 +124,26 @@ class RuleTests(unittest.TestCase):
         self.assertEqual("save-rejected", findings["/properties/field/schema:schemaVersion"].risk)
         self.assertTrue(all(item.rule == "model-version-absent" for item in findings.values()))
 
+    def test_a_field_listing_choices_it_cannot_present_is_reported(self):
+        node = {"_ui": {"inputType": "textfield"},
+                "_valueConstraints": {"literals": [{"label": "Homo sapiens"}, {"label": "Mus musculus"}]}}
+        findings = list(audit.audit_field_offers_choices(self.ref(), node, "/properties/species"))
+        self.assertEqual(["field-offers-choices-it-cannot-present"], [f.rule for f in findings])
+        self.assertEqual("textfield", findings[0].value)
+        self.assertEqual("/properties/species/_ui/inputType", findings[0].path)
+        self.assertIn("2 permitted values", findings[0].message)
+
+    def test_a_field_that_does_present_choices_is_not_reported(self):
+        for input_type in ("radio", "checkbox", "list"):
+            node = {"_ui": {"inputType": input_type},
+                    "_valueConstraints": {"literals": [{"label": "Homo sapiens"}]}}
+            self.assertEqual([], list(audit.audit_field_offers_choices(self.ref(), node, "")), input_type)
+
+    def test_a_field_with_no_options_is_not_reported(self):
+        for constraints in ({"literals": []}, {}, {"requiredValue": True}):
+            node = {"_ui": {"inputType": "textfield"}, "_valueConstraints": constraints}
+            self.assertEqual([], list(audit.audit_field_offers_choices(self.ref(), node, "")))
+
     def test_a_class_constraint_pointing_at_no_term_is_reported(self):
         node = {"_valueConstraints": {"classes": [
             {"uri": "http://x/C1", "prefLabel": "White"},
