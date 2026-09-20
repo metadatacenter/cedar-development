@@ -124,6 +124,27 @@ class RuleTests(unittest.TestCase):
         self.assertEqual("save-rejected", findings["/properties/field/schema:schemaVersion"].risk)
         self.assertTrue(all(item.rule == "model-version-absent" for item in findings.values()))
 
+    def test_a_temporal_field_saying_no_precision_is_reported(self):
+        node = {"_ui": {"inputType": "temporal"}, "_valueConstraints": {"requiredValue": False}}
+        findings = list(audit.audit_temporal_precision(self.ref(), node, "/properties/date"))
+        self.assertEqual(["temporal-precision-absent"], [f.rule for f in findings])
+        self.assertIn("_ui/temporalGranularity", findings[0].message)
+        self.assertIn("_valueConstraints/temporalType", findings[0].message)
+        self.assertEqual("/properties/date/_ui", findings[0].path)
+
+    def test_a_half_stated_precision_is_still_reported(self):
+        for ui, vc in (({"inputType": "temporal", "temporalGranularity": "day"}, {}),
+                       ({"inputType": "temporal"}, {"temporalType": "xsd:date"})):
+            findings = list(audit.audit_temporal_precision(self.ref(), {"_ui": ui, "_valueConstraints": vc}, ""))
+            self.assertEqual(["temporal-precision-absent"], [f.rule for f in findings])
+
+    def test_a_fully_stated_temporal_field_and_other_types_are_not_reported(self):
+        good = {"_ui": {"inputType": "temporal", "temporalGranularity": "day"},
+                "_valueConstraints": {"temporalType": "xsd:date"}}
+        self.assertEqual([], list(audit.audit_temporal_precision(self.ref(), good, "")))
+        other = {"_ui": {"inputType": "textfield"}, "_valueConstraints": {}}
+        self.assertEqual([], list(audit.audit_temporal_precision(self.ref(), other, "")))
+
     def test_a_field_listing_choices_it_cannot_present_is_reported(self):
         node = {"_ui": {"inputType": "textfield"},
                 "_valueConstraints": {"literals": [{"label": "Homo sapiens"}, {"label": "Mus musculus"}]}}

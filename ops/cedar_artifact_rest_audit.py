@@ -603,6 +603,33 @@ def audit_class_constraints(ref: ArtifactRef, node: Any, path: str) -> Iterator[
 CHOICE_INPUT_TYPES = frozenset({"radio", "checkbox", "list"})
 
 
+def audit_temporal_precision(ref: ArtifactRef, node: Any, path: str) -> Iterator[Finding]:
+    """A temporal field that does not say what precision it is read at.
+
+    `_ui.temporalGranularity` and `_valueConstraints.temporalType` are what a date means: without
+    them `cedar-artifact-library` cannot read the artifact at all and it has no YAML
+    representation. The meta-schema asks every literal field for an `inputType` and nothing more,
+    so nothing refuses one on write, and the Template Editor wrote the pair only when an author
+    opened the field's settings.
+    """
+    if not isinstance(node, dict):
+        return
+    ui = node.get("_ui")
+    if not isinstance(ui, dict) or ui.get("inputType") != "temporal":
+        return
+    constraints = node.get("_valueConstraints")
+    constraints = constraints if isinstance(constraints, dict) else {}
+    missing = [name for name, present in (
+        ("_ui/temporalGranularity", isinstance(ui.get("temporalGranularity"), str)),
+        ("_valueConstraints/temporalType", isinstance(constraints.get("temporalType"), str)),
+    ) if not present]
+    if missing:
+        yield finding(ref, "temporal-precision-absent", "manual-review", f"{path}/_ui",
+                      "a temporal field does not say what precision it is read at, so the artifact "
+                      f"has no YAML representation; absent: {', '.join(missing)}",
+                      ui.get("temporalGranularity"))
+
+
 def audit_field_offers_choices(ref: ArtifactRef, node: Any, path: str) -> Iterator[Finding]:
     """A field that lists permitted values without being a field that offers them.
 
@@ -726,6 +753,7 @@ def audit_schema(ref: ArtifactRef, artifact: Any) -> Iterator[Finding]:
     yield from audit_class_constraints(ref, artifact, "")
     yield from audit_literal_labels(ref, artifact, "")
     yield from audit_field_offers_choices(ref, artifact, "")
+    yield from audit_temporal_precision(ref, artifact, "")
 
     def walk(container: dict, path: str) -> Iterator[Finding]:
         properties = container.get("properties")
@@ -764,6 +792,7 @@ def audit_schema(ref: ArtifactRef, artifact: Any) -> Iterator[Finding]:
             yield from audit_class_constraints(ref, child, actual_path)
             yield from audit_literal_labels(ref, child, actual_path)
             yield from audit_field_offers_choices(ref, child, actual_path)
+            yield from audit_temporal_precision(ref, child, actual_path)
 
             identifier = child.get("@id")
             if not server_considers_child_id_usable(identifier):
@@ -1697,6 +1726,7 @@ def run_audit(arguments: argparse.Namespace, client: GetOnlyClient,
                     findings.extend(audit_class_constraints(ref, artifact, ""))
                     findings.extend(audit_literal_labels(ref, artifact, ""))
                     findings.extend(audit_field_offers_choices(ref, artifact, ""))
+                    findings.extend(audit_temporal_precision(ref, artifact, ""))
                 if artifact_type in {"template", "element"}:
                     findings.extend(audit_schema(ref, artifact))
                     if artifact_type == "template" and isinstance(artifact, dict):
