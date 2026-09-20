@@ -609,6 +609,75 @@ CREATED_ON, CREATED_BY = "pav:createdOn", "pav:createdBy"
 UPDATED_ON, MODIFIED_BY = "pav:lastUpdatedOn", "oslc:modifiedBy"
 
 
+# The input types the model has, as `cedar-artifact-library`'s FieldInputType enumerates them.
+#
+# `controlled-term` is deliberately not among them, and the meta-schema's IRI enum listing it is
+# the error rather than this list. A controlled term is not an input type: it is a text field whose
+# value is an IRI — `properties` of `@id`, `rdfs:label`, `@type` — carrying an ontology, value set,
+# class or branch constraint, and the library recognises it from that shape. DataCite's `language`
+# field is the mainstream example, stored as `textfield` and rendered as `controlled-term-field`.
+KNOWN_INPUT_TYPES = frozenset({
+    "textfield", "textarea", "radio", "checkbox", "temporal", "email", "list", "numeric",
+    "phone-number", "attribute-value", "page-break", "section-break", "richtext", "image",
+    "youtube", "link", "ext-orcid", "ext-ror", "ext-pfas", "ext-rrid", "ext-pubmed",
+    "ext-nih-grant-id", "ext-doi",
+})
+TERM_CONSTRAINT_KEYS = ("classes", "branches", "valueSets", "ontologies")
+
+
+CONTROLLED_TERM_DEFAULT_KEYS = frozenset({"termUri", "rdfs:label"})
+
+
+def audit_default_value_kind(ref: ArtifactRef, node: Any, path: str) -> Iterator[Finding]:
+    """A field whose default value is a kind the field cannot hold.
+
+    A controlled-term default is ``{termUri, rdfs:label}`` and a literal one is ``{@value}``. A text
+    field carrying the first cannot be read: the library refuses to convert one to the other, so the
+    artifact has no YAML representation. The meta-schema admits either shape on any literal field.
+    """
+    if not isinstance(node, dict):
+        return
+    ui = node.get("_ui")
+    constraints = node.get("_valueConstraints")
+    if not isinstance(ui, dict) or not isinstance(constraints, dict):
+        return
+    default = constraints.get("defaultValue")
+    if not isinstance(default, dict) or not CONTROLLED_TERM_DEFAULT_KEYS <= set(default):
+        return
+    terms = sum(len(constraints.get(k) or []) for k in TERM_CONSTRAINT_KEYS)
+    if terms:
+        return
+    yield finding(ref, "default-value-kind-mismatch", "manual-review",
+                  f"{path}/_valueConstraints/defaultValue",
+                  f"a {ui.get('inputType')} field defaults to a term, and no ontology, value set, "
+                  "class or branch offers one, so nothing can resolve it",
+                  default.get("rdfs:label"))
+
+
+def audit_input_type(ref: ArtifactRef, node: Any, path: str) -> Iterator[Finding]:
+    """A field naming an input type the model does not have.
+
+    `cedar-artifact-library` refuses the artifact outright, so it has no YAML representation.
+    `controlled-term` is the one such value production holds: the meta-schema's IRI enum lists it
+    among genuine input types, though a controlled term is a text field whose value is an IRI
+    rather than an input type of its own, and only a retired editor path ever wrote it.
+    """
+    if not isinstance(node, dict):
+        return
+    ui = node.get("_ui")
+    if not isinstance(ui, dict):
+        return
+    stated = ui.get("inputType")
+    if not isinstance(stated, str) or stated in KNOWN_INPUT_TYPES:
+        return
+    constraints = node.get("_valueConstraints")
+    constraints = constraints if isinstance(constraints, dict) else {}
+    terms = sum(len(constraints.get(k) or []) for k in TERM_CONSTRAINT_KEYS)
+    yield finding(ref, "input-type-unknown", "manual-review", f"{path}/_ui/inputType",
+                  "the model has no such input type, so neither model library can read the "
+                  f"artifact; the field carries {terms} term constraint(s)", stated)
+
+
 def audit_provenance(ref: ArtifactRef, node: Any, path: str) -> Iterator[Finding]:
     """An artifact that does not say when it was made, or by whom.
 
@@ -779,6 +848,8 @@ def audit_schema(ref: ArtifactRef, artifact: Any) -> Iterator[Finding]:
     yield from audit_field_offers_choices(ref, artifact, "")
     yield from audit_temporal_precision(ref, artifact, "")
     yield from audit_provenance(ref, artifact, "")
+    yield from audit_input_type(ref, artifact, "")
+    yield from audit_default_value_kind(ref, artifact, "")
 
     def walk(container: dict, path: str) -> Iterator[Finding]:
         properties = container.get("properties")
@@ -819,6 +890,8 @@ def audit_schema(ref: ArtifactRef, artifact: Any) -> Iterator[Finding]:
             yield from audit_field_offers_choices(ref, child, actual_path)
             yield from audit_temporal_precision(ref, child, actual_path)
             yield from audit_provenance(ref, child, actual_path)
+            yield from audit_input_type(ref, child, actual_path)
+            yield from audit_default_value_kind(ref, child, actual_path)
 
             identifier = child.get("@id")
             if not server_considers_child_id_usable(identifier):
@@ -1754,6 +1827,8 @@ def run_audit(arguments: argparse.Namespace, client: GetOnlyClient,
                     findings.extend(audit_field_offers_choices(ref, artifact, ""))
                     findings.extend(audit_temporal_precision(ref, artifact, ""))
                     findings.extend(audit_provenance(ref, artifact, ""))
+                    findings.extend(audit_input_type(ref, artifact, ""))
+                    findings.extend(audit_default_value_kind(ref, artifact, ""))
                 if artifact_type in {"template", "element"}:
                     findings.extend(audit_schema(ref, artifact))
                     if artifact_type == "template" and isinstance(artifact, dict):

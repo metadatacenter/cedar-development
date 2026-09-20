@@ -23,7 +23,7 @@ sys.modules[SPEC.name] = audit
 SPEC.loader.exec_module(audit)
 
 
-def schema_child(at_type, identifier, input_type="text", nested=None):
+def schema_child(at_type, identifier, input_type="textfield", nested=None):
     child = {
         "$schema": audit.JSON_SCHEMA_DRAFT_04,
         "type": "object",
@@ -123,6 +123,38 @@ class RuleTests(unittest.TestCase):
         self.assertEqual("manual-review", findings["/properties/break/schema:schemaVersion"].risk)
         self.assertEqual("save-rejected", findings["/properties/field/schema:schemaVersion"].risk)
         self.assertTrue(all(item.rule == "model-version-absent" for item in findings.values()))
+
+    def test_controlled_term_is_reported_because_it_is_not_an_input_type(self):
+        """A controlled term is a text field whose value is an IRI, not an input type of its own."""
+        node = {"_ui": {"inputType": "controlled-term"},
+                "_valueConstraints": {"classes": [{"uri": "http://x/1"}], "branches": []}}
+        findings = list(audit.audit_input_type(self.ref(), node, "/properties/term"))
+        self.assertEqual(["input-type-unknown"], [f.rule for f in findings])
+        self.assertEqual("controlled-term", findings[0].value)
+        self.assertIn("1 term constraint", findings[0].message)
+
+    def test_every_input_type_the_model_has_is_accepted(self):
+        for known in ("textfield", "temporal", "list", "attribute-value", "section-break",
+                      "ext-doi", "link", "ext-orcid"):
+            node = {"_ui": {"inputType": known}, "_valueConstraints": {}}
+            self.assertEqual([], list(audit.audit_input_type(self.ref(), node, "")), known)
+
+    def test_a_default_naming_an_unreachable_term_is_reported(self):
+        node = {"_ui": {"inputType": "textfield"},
+                "_valueConstraints": {"classes": [], "branches": [], "valueSets": [], "ontologies": [],
+                                      "defaultValue": {"termUri": "http://x/1", "rdfs:label": "Mixed-use"}}}
+        findings = list(audit.audit_default_value_kind(self.ref(), node, "/properties/land"))
+        self.assertEqual(["default-value-kind-mismatch"], [f.rule for f in findings])
+        self.assertEqual("Mixed-use", findings[0].value)
+
+    def test_a_reachable_term_default_and_a_literal_one_are_not_reported(self):
+        reachable = {"_ui": {"inputType": "textfield"},
+                     "_valueConstraints": {"classes": [{"uri": "http://x/1"}],
+                                           "defaultValue": {"termUri": "http://x/1", "rdfs:label": "A"}}}
+        self.assertEqual([], list(audit.audit_default_value_kind(self.ref(), reachable, "")))
+        literal = {"_ui": {"inputType": "textfield"},
+                   "_valueConstraints": {"defaultValue": {"@value": "Mixed-use"}}}
+        self.assertEqual([], list(audit.audit_default_value_kind(self.ref(), literal, "")))
 
     def test_an_artifact_saying_nothing_about_its_making_is_reported(self):
         node = {"pav:createdOn": None, "pav:createdBy": None,
