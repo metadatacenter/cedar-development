@@ -38,6 +38,8 @@ import os
 import re
 import ssl
 import sys
+from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeoutError
 import tempfile
 import time
 import urllib.error
@@ -74,10 +76,38 @@ BEHAVIORAL_BASELINES = {
     "cedar-server-utils": "826839e2",
 }
 
+# Reading one artifact at a time left the pass waiting on the network for nearly all of its five
+# hours. A small window of readers ahead of the consumer removes that wait without changing what is
+# read or the order it is reported in.
+DEFAULT_WORKERS = 12
+DEFAULT_WORKER_TIMEOUT = 600
+
 TEMPLATE_ELEMENT = "https://schema.metadatacenter.org/core/TemplateElement"
 TEMPLATE_FIELD = "https://schema.metadatacenter.org/core/TemplateField"
 STATIC_TEMPLATE_FIELD = "https://schema.metadatacenter.org/core/StaticTemplateField"
 RECOGNISED_CHILD_TYPES = {TEMPLATE_ELEMENT, TEMPLATE_FIELD, STATIC_TEMPLATE_FIELD}
+
+# The model this deployment's meta-schemas describe. A stored artifact naming another one was
+# written against a model those schemas no longer define, and nothing reports it: the meta-schema
+# asks only that `schema:schemaVersion` be a non-empty string. A static field is exempt, since
+# `static-field-meta-schema.json` does not describe the property at all.
+CURRENT_MODEL_VERSION = "1.6.0"
+SCHEMA_VERSION = "schema:schemaVersion"
+
+# An artifact's own version, which `cedar-artifact-library` holds as three integers and parses with
+# this expression. A stored value it cannot parse has no YAML representation at all: the JSON read
+# returns the bytes unexamined, the YAML read transcodes them and fails. The meta-schema asks only
+# for a non-empty string, so nothing reports it.
+ARTIFACT_VERSION = "pav:version"
+PARSEABLE_VERSION = re.compile(r"^\d+\.\d+\.\d+$")
+# Digits and dots alone, one to three parts: a value whose intended version is mechanical, since
+# padding the missing parts with zero is the only reading. Leading zeros are dropped, because the
+# library renders 01.0.0 as 1.0.0 and a stored value that does not survive its own renderer is a
+# defect of a different kind.
+PADDABLE_VERSION = re.compile(r"^\d+(\.\d+){0,2}$")
+# Valid semver carrying a prerelease or build tag. Correct data the record cannot hold, which is a
+# library limitation rather than something to repair, and is counted apart for that reason.
+PRERELEASE_VERSION = re.compile(r"^\d+\.\d+\.\d+[-+][0-9A-Za-z.\-+]+$")
 
 NON_SERIALIZING_INPUT_TYPES = {
     "page-break", "section-break", "richtext", "image", "youtube", "attribute-value",
@@ -473,6 +503,176 @@ def mismatched_child_prefix(identifier: str, at_type: Optional[str]) -> bool:
     return expected not in identifier and other in identifier
 
 
+def fetch_artifact(client: GetOnlyClient, ref: ArtifactRef) -> tuple[Any, Optional[Exception]]:
+    try:
+        return client.get_json(typed_artifact_path(ref)), None
+    except Exception as error:  # noqa: BLE001 - the consumer decides which failures stop the run
+        return None, error
+
+
+def fetch_in_order(client: GetOnlyClient, refs: list[ArtifactRef], workers: int,
+                   fetch=None, worker_timeout: float = DEFAULT_WORKER_TIMEOUT
+                   ) -> Iterator[tuple[ArtifactRef, Any, Optional[Exception]]]:
+    """Read a few artifacts ahead of the consumer, and hand them over in enumeration order.
+
+    Order is what the resume file depends on, so it is preserved whatever order the answers arrive
+    in. A worker is given ``worker_timeout`` to answer, beyond the socket timeout the client
+    applies to each request: a name lookup that hangs is covered by neither the socket timeout nor
+    the retry budget, and waiting on such a worker forever stops the run without stopping the
+    process. The artifact is recorded as unread and the pass goes on.
+    """
+    fetch = fetch or fetch_artifact
+    window = max(1, workers * 2)
+    pending: collections.deque[tuple[ArtifactRef, Future]] = collections.deque()
+    position = 0
+    executor = ThreadPoolExecutor(max_workers=max(1, workers))
+    try:
+        while position < len(refs) and len(pending) < window:
+            pending.append((refs[position], executor.submit(fetch, client, refs[position])))
+            position += 1
+        while pending:
+            ref, future = pending.popleft()
+            try:
+                artifact, error = future.result(timeout=worker_timeout)
+            except FuturesTimeoutError:
+                artifact = None
+                error = TimeoutError(f"no answer within {worker_timeout:.0f}s; the worker is stuck")
+            if position < len(refs):
+                pending.append((refs[position], executor.submit(fetch, client, refs[position])))
+                position += 1
+            yield ref, artifact, error
+    finally:
+        executor.shutdown(wait=False, cancel_futures=True)
+
+
+def padded_version(value: str) -> Optional[str]:
+    """The three-part version a short numeric one means, or None when it does not mean one.
+
+    ``0.9`` is ``0.9.0`` and ``1`` is ``1.0.0``: the missing parts are zero, which is the only
+    reading available and the one every consumer already assumes. Each part is renormalised so a
+    leading zero does not survive, since the library's own renderer drops it.
+    """
+    if not isinstance(value, str) or not PADDABLE_VERSION.match(value):
+        return None
+    parts = [int(part) for part in value.split(".")]
+    parts += [0] * (3 - len(parts))
+    return ".".join(str(part) for part in parts)
+
+
+def release_version(value: str) -> Optional[str]:
+    """The release part of a semver carrying a prerelease or build tag, or None when there is none.
+
+    ``1.0.0-rc1`` is release ``1.0.0`` with a tag the model's three integers cannot hold. Dropping
+    the tag is a reading of what was meant, not a mechanical completion the way padding is, which
+    is why it is offered separately and applied only where an owner has agreed to it.
+    """
+    if not isinstance(value, str) or not PRERELEASE_VERSION.match(value):
+        return None
+    return padded_version(re.split(r"[-+]", value, maxsplit=1)[0])
+
+
+def audit_class_constraints(ref: ArtifactRef, node: Any, path: str) -> Iterator[Finding]:
+    """A controlled-term constraint that points at no term.
+
+    A class constraint is a pointer, so an empty ``uri`` offers a choice nothing can resolve. Both
+    model libraries refuse to read it, which leaves the artifact with no YAML representation, and
+    the meta-schema does not object because it asks only for a string.
+    """
+    if not isinstance(node, dict):
+        return
+    constraints = node.get("_valueConstraints")
+    if not isinstance(constraints, dict):
+        return
+    entries = constraints.get("classes")
+    if not isinstance(entries, list):
+        return
+    for index, entry in enumerate(entries):
+        if not isinstance(entry, dict):
+            continue
+        if not isinstance(entry.get("uri"), str) or entry["uri"] == "":
+            yield finding(
+                ref, "class-constraint-unresolved", "manual-review",
+                f"{path}/_valueConstraints/classes/{index}",
+                "a class constraint points at no term, so neither model library can read the "
+                "artifact and it has no YAML representation", entry.get("prefLabel"))
+
+
+def audit_literal_labels(ref: ArtifactRef, node: Any, path: str) -> Iterator[Finding]:
+    """A permitted value with no label.
+
+    A literal's label is the value the instance stores, so a blank one offers a choice whose answer
+    cannot be told from no answer at all. Optionality is already the model's to express through
+    ``requiredValue``, which every field carrying a blank option also sets.
+    """
+    if not isinstance(node, dict):
+        return
+    constraints = node.get("_valueConstraints")
+    if not isinstance(constraints, dict):
+        return
+    entries = constraints.get("literals")
+    if not isinstance(entries, list):
+        return
+    for index, entry in enumerate(entries):
+        if isinstance(entry, dict) and entry.get("label") == "":
+            yield finding(
+                ref, "literal-label-blank", "manual-review",
+                f"{path}/_valueConstraints/literals/{index}/label",
+                "a permitted value has no label, so choosing it stores nothing distinguishable "
+                "from leaving the field unanswered", "")
+
+
+def audit_artifact_version(ref: ArtifactRef, node: Any, path: str) -> Iterator[Finding]:
+    """What a node states as its own version, where the library cannot read it back.
+
+    Three outcomes, kept apart because each is a different decision: a value whose meaning is
+    mechanical, a value that is correct semver the model cannot hold, and a value that says nothing
+    a repair could act on.
+    """
+    if not isinstance(node, dict):
+        return
+    stated = node.get(ARTIFACT_VERSION)
+    if not isinstance(stated, str) or PARSEABLE_VERSION.match(stated):
+        return
+    here = f"{path}/{json_pointer_component(ARTIFACT_VERSION)}"
+    padded = padded_version(stated)
+    if padded is not None:
+        yield finding(ref, "artifact-version-unpadded", "manual-review", here,
+                      f"states a version the library cannot parse; padding reads it as {padded}", stated)
+    elif PRERELEASE_VERSION.match(stated):
+        yield finding(ref, "artifact-version-prerelease", "manual-review", here,
+                      "valid semver carrying a prerelease or build tag, which the model's three "
+                      f"integers cannot hold; its release is {release_version(stated)}", stated)
+    else:
+        yield finding(ref, "artifact-version-unreadable", "manual-review", here,
+                      "states no version any rule can derive; an owner has to say what was meant",
+                      stated)
+
+
+def audit_model_version(ref: ArtifactRef, node: Any, path: str, at_type: Optional[str]) -> Iterator[Finding]:
+    """The model version a node declares, at every position that carries one.
+
+    A static field is reported too, at a lower risk. ``static-field-meta-schema.json`` does not
+    describe the property, so its absence is accepted on write today, while the library writes it
+    there on every render — an inconsistency the meta-schema is to close by declaring and
+    requiring it. Filling these is what has to happen before that tightening, so they are counted
+    now and marked apart from the absences the meta-schema already refuses.
+    """
+    if not isinstance(node, dict):
+        return
+    declared = node.get(SCHEMA_VERSION)
+    static = at_type == STATIC_TEMPLATE_FIELD
+    if declared is None:
+        yield finding(
+            ref, "model-version-absent", "manual-review" if static else "save-rejected",
+            f"{path}/{SCHEMA_VERSION}",
+            "a static field is not asked for a model version today, and is to be once the "
+            "meta-schema declares it" if static else "the meta-schema requires a model version here")
+    elif declared != CURRENT_MODEL_VERSION:
+        yield finding(ref, "model-version-stale", "manual-review", f"{path}/{SCHEMA_VERSION}",
+                      f"written against a model other than {CURRENT_MODEL_VERSION}; an ordinary save "
+                      "keeps whatever the client sends, so this does not correct itself", declared)
+
+
 def audit_schema(ref: ArtifactRef, artifact: Any) -> Iterator[Finding]:
     if not isinstance(artifact, dict):
         return
@@ -484,6 +684,12 @@ def audit_schema(ref: ArtifactRef, artifact: Any) -> Iterator[Finding]:
         yield finding(ref, "root-schema-invalid", "save-rejected", "/$schema",
                       "artifact root must declare the canonical draft-04 JSON Schema URI",
                       artifact.get("$schema"))
+
+    yield from audit_model_version(ref, artifact, "", TEMPLATE_ELEMENT if ref.artifact_type == "element"
+                                   else TEMPLATE_FIELD if ref.artifact_type == "field" else None)
+    yield from audit_artifact_version(ref, artifact, "")
+    yield from audit_class_constraints(ref, artifact, "")
+    yield from audit_literal_labels(ref, artifact, "")
 
     def walk(container: dict, path: str) -> Iterator[Finding]:
         properties = container.get("properties")
@@ -516,6 +722,11 @@ def audit_schema(ref: ArtifactRef, artifact: Any) -> Iterator[Finding]:
             if at_type not in RECOGNISED_CHILD_TYPES:
                 yield finding(ref, "child-type-unrecognised", "save-rejected", f"{actual_path}/@type",
                               "child must declare TemplateElement, TemplateField, or StaticTemplateField", at_type)
+
+            yield from audit_model_version(ref, child, actual_path, at_type)
+            yield from audit_artifact_version(ref, child, actual_path)
+            yield from audit_class_constraints(ref, child, actual_path)
+            yield from audit_literal_labels(ref, child, actual_path)
 
             identifier = child.get("@id")
             if not server_considers_child_id_usable(identifier):
@@ -1402,15 +1613,13 @@ def run_audit(arguments: argparse.Namespace, client: GetOnlyClient,
         )
         state.processing_started_monotonic = time.monotonic()
         with open_private_text_file(refs_path, append=True) as refs_stream:
-            for ref in artifact_refs:
-                if artifact_key(ref) in completed:
-                    continue
+            outstanding = [ref for ref in artifact_refs if artifact_key(ref) not in completed]
+            for ref, artifact, fetch_error in fetch_in_order(client, outstanding, arguments.workers):
                 artifact_type = ref.artifact_type
-                try:
-                    artifact = client.get_json(typed_artifact_path(ref))
-                except AuthenticationError:
-                    raise
-                except Exception as error:
+                if isinstance(fetch_error, AuthenticationError):
+                    raise fetch_error
+                if fetch_error is not None:
+                    error = fetch_error
                     state.fetch_errors += 1
                     state.batch_fetch_errors += 1
                     error_text = str(error)
@@ -1441,6 +1650,15 @@ def run_audit(arguments: argparse.Namespace, client: GetOnlyClient,
 
                 findings = list(audit_common(ref, artifact))
                 diagnostics: list[Finding] = []
+                if artifact_type == "field":
+                    # A standalone field declares a model version and a version of its own, and only
+                    # audit_schema reaches those rules, which containers alone are walked through.
+                    findings.extend(audit_model_version(
+                        ref, artifact, "",
+                        artifact.get("@type") if isinstance(artifact, dict) else None))
+                    findings.extend(audit_artifact_version(ref, artifact, ""))
+                    findings.extend(audit_class_constraints(ref, artifact, ""))
+                    findings.extend(audit_literal_labels(ref, artifact, ""))
                 if artifact_type in {"template", "element"}:
                     findings.extend(audit_schema(ref, artifact))
                     if artifact_type == "template" and isinstance(artifact, dict):
@@ -1556,6 +1774,9 @@ def build_parser() -> argparse.ArgumentParser:
                         help="resume from --refs and append to the existing findings JSONL")
     parser.add_argument("--timeout", type=float, default=90,
                         help="per-request timeout in seconds (default: 90)")
+    parser.add_argument("--workers", type=int, default=DEFAULT_WORKERS,
+                        help=f"artifact reads in flight at once (default: {DEFAULT_WORKERS}); "
+                             "order of reporting and resume are unaffected")
     parser.add_argument("--retries", type=int, default=5,
                         help="attempts for transient failures (default: 5)")
     parser.add_argument("--delay-ms", type=int, default=0,
