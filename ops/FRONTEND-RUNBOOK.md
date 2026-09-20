@@ -274,8 +274,17 @@ component is never stamped, built or published here; only the pins move.
 
 Applying it stamps the component's next development version from its `develop` head, runs its dist
 command, publishes the staged package under the `dev` tag, then repoints each consumer's manifest,
-moves its lock, and re-stages its served bundles. Reporting is the default because an npm version
-once taken cannot be republished. Every repository it would write to must be clean in its tracked
+moves its lock, and re-stages its served bundles.
+
+When a development reactor is active, pin updates only change manifests and locks
+(`npm install --package-lock-only --ignore-scripts`): they leave installed packages and served
+bundles intact and skip consumer restaging. Publishing must not roll a running local frontend back
+to its older registry pins. Component publication itself starts with `npm ci`, so it builds against
+the declared dependencies even when a local reactor installation differs. Use `cedarcli build frontends` and the native frontend restart to activate a new development
+composition; verify served
+bundle identities again after any packaging or publication work.
+
+Reporting is the default because an npm version once taken cannot be republished. Every repository it would write to must be clean in its tracked
 files first, so the diffs left behind are its own, and nothing is committed.
 
 The train captures the term picker and the designer, so a train's recorded source names their
