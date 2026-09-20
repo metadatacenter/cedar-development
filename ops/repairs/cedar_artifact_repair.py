@@ -813,6 +813,122 @@ CLASSES_KEY = "classes"
 LITERALS_KEY = "literals"
 
 
+UI_KEY = "_ui"
+INPUT_TYPE_KEY = "inputType"
+LIST_INPUT_TYPE = "list"
+MULTIPLE_CHOICE_KEY = "multipleChoice"
+
+
+def present_choices_as_a_list(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Make a field that lists permitted values the kind of field that offers them.
+
+    ``_valueConstraints.literals`` is a closed set of choices. Only a radio, checkbox or list field
+    presents one, so a text field carrying it describes a control it is not: the options are stored,
+    and whether a reader sees them depends on which library reads the artifact. A single-select list
+    is what the field already says it is in every other respect — a closed set, ``multipleChoice``
+    already stated, the requirement already stated — so only the input type moves.
+
+    Deliberately narrow. Radio is not offered, because choosing between a dropdown and a row of
+    buttons is a presentation decision about how many options a reader can stand to see, and that is
+    the author's rather than a repair's. A field whose ``multipleChoice`` is absent is refused for
+    the same reason: the list would have to guess whether one answer is allowed or several.
+    """
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+    refusals: list[str] = []
+
+    def walk(node: Any, path: str) -> Any:
+        if isinstance(node, dict):
+            result = {}
+            for name, value in node.items():
+                result[name] = walk(value, f"{path}/{rest.json_pointer_component(name)}")
+            ui = result.get(UI_KEY)
+            constraints = result.get(VALUE_CONSTRAINTS_KEY)
+            if isinstance(ui, dict) and isinstance(constraints, dict):
+                literals = constraints.get(LITERALS_KEY)
+                stated = ui.get(INPUT_TYPE_KEY)
+                if (isinstance(literals, list) and literals
+                        and stated not in rest.CHOICE_INPUT_TYPES):
+                    here = f"{path}/{rest.json_pointer_component(UI_KEY)}/{INPUT_TYPE_KEY}"
+                    if not isinstance(constraints.get(MULTIPLE_CHOICE_KEY), bool):
+                        refusals.append(f"{here} states no multipleChoice, so how many answers "
+                                        "a list would allow is a decision rather than a repair")
+                    else:
+                        result[UI_KEY] = {**ui, INPUT_TYPE_KEY: LIST_INPUT_TYPE}
+                        changes.append({"path": here, "replaced": stated, "wrote": LIST_INPUT_TYPE})
+            return result
+        if isinstance(node, list):
+            return [walk(value, f"{path}/{index}") for index, value in enumerate(node)]
+        return node
+
+    repaired = walk(copy.deepcopy(artifact), "")
+    if artifact.get(STATUS_KEY) != DRAFT_STATUS:
+        raise TransformRefused(
+            f"a field's type is only changed on a draft; this artifact is {artifact.get(STATUS_KEY)!r}")
+    if refusals:
+        raise TransformRefused(refusals[0] + (f" ({len(refusals)} in all)" if len(refusals) > 1 else ""))
+    return repaired, changes
+
+
+def only_presented_choices_as_a_list(before: Any, after: Any) -> Optional[str]:
+    """The invariant: the only change is an input type becoming ``list``, on a field with options.
+
+    Every option, the multiple-choice flag and the requirement are compared like any other value,
+    so a repair that touched what the field offers rather than how it offers it is caught here.
+    """
+
+    def offered_choices(node: Any) -> bool:
+        constraints = node.get(VALUE_CONSTRAINTS_KEY) if isinstance(node, dict) else None
+        literals = constraints.get(LITERALS_KEY) if isinstance(constraints, dict) else None
+        return isinstance(literals, list) and bool(literals)
+
+    def walk(old: Any, new: Any, path: str) -> Optional[str]:
+        if isinstance(old, dict):
+            if not isinstance(new, dict) or set(old) != set(new):
+                return path or "/"
+            # The input type is judged where the options are visible: a field, not its _ui alone.
+            oldUi, newUi = old.get(UI_KEY), new.get(UI_KEY)
+            if (isinstance(oldUi, dict) and isinstance(newUi, dict)
+                    and oldUi.get(INPUT_TYPE_KEY) != newUi.get(INPUT_TYPE_KEY)):
+                here = f"{path}/{rest.json_pointer_component(UI_KEY)}/{INPUT_TYPE_KEY}"
+                if (newUi.get(INPUT_TYPE_KEY) != LIST_INPUT_TYPE
+                        or oldUi.get(INPUT_TYPE_KEY) in rest.CHOICE_INPUT_TYPES
+                        or not offered_choices(old)
+                        or not isinstance((old.get(VALUE_CONSTRAINTS_KEY) or {}).get(MULTIPLE_CHOICE_KEY), bool)):
+                    return here
+            for name in old:
+                here = f"{path}/{rest.json_pointer_component(name)}"
+                if name == UI_KEY and isinstance(oldUi, dict) and isinstance(newUi, dict):
+                    if set(oldUi) != set(newUi):
+                        return here
+                    for key in oldUi:
+                        if key == INPUT_TYPE_KEY:
+                            continue
+                        difference = walk(oldUi[key], newUi[key],
+                                          f"{here}/{rest.json_pointer_component(key)}")
+                        if difference is not None:
+                            return difference
+                    continue
+                difference = walk(old[name], new[name], here)
+                if difference is not None:
+                    return difference
+            return None
+        if isinstance(old, list):
+            if not isinstance(new, list) or len(old) != len(new):
+                return path or "/"
+            for index, value in enumerate(old):
+                difference = walk(value, new[index], f"{path}/{index}")
+                if difference is not None:
+                    return difference
+            return None
+        return None if type(old) is type(new) and old == new else (path or "/")
+
+    return walk(before, after, "")
+
+
+
+
 def has_a_label(entry: Any) -> bool:
     """Whether a permitted value names itself."""
     return isinstance(entry, dict) and isinstance(entry.get("label"), str) and entry["label"] != ""
@@ -5149,6 +5265,13 @@ REPAIRS = {
         summary="deploy an inherently multiple child as the array it always serializes to",
         transform=wrap_inherently_multiple,
         invariant=only_wrapped_inherently_multiple,
+    ),
+    "present-choices-as-a-list": Repair(
+        name="present-choices-as-a-list",
+        condition="field-offers-choices-it-cannot-present",
+        summary="make a field that lists permitted values a single-select list",
+        transform=present_choices_as_a_list,
+        invariant=only_presented_choices_as_a_list,
     ),
     "drop-blank-literal": Repair(
         name="drop-blank-literal",

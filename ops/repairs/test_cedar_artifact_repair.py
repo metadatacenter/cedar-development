@@ -1854,6 +1854,90 @@ class WrapInherentlyMultipleTest(unittest.TestCase):
         self.assertIsNotNone(REPAIR.only_wrapped_inherently_multiple(before, after))
 
 
+class PresentChoicesAsAListTest(unittest.TestCase):
+    """Only a radio, checkbox or list field presents a closed set of permitted values."""
+
+    def field(self, input_type, literals, multiple=False, extra_ui=None):
+        node = child()
+        node["_ui"] = {"inputType": input_type, **(extra_ui or {})}
+        node["_valueConstraints"] = {"requiredValue": True, "multipleChoice": multiple,
+                                     "literals": literals}
+        return node
+
+    def draft(self, field, key="species"):
+        doc = template({key: field})
+        doc["bibo:status"] = "bibo:draft"
+        return doc
+
+    OPTIONS = [{"label": "Homo sapiens"}, {"label": "Mus musculus"}, {"label": "Danio rerio"}]
+
+    def test_a_text_field_with_options_becomes_a_list(self):
+        doc = self.draft(self.field("textfield", self.OPTIONS))
+        after, changes = REPAIR.present_choices_as_a_list(doc)
+        self.assertEqual(after["properties"]["species"]["_ui"]["inputType"], "list")
+        self.assertEqual(changes, [{"path": "/properties/species/_ui/inputType",
+                                    "replaced": "textfield", "wrote": "list"}])
+        self.assertIsNone(REPAIR.only_presented_choices_as_a_list(doc, after))
+
+    def test_the_options_and_the_constraints_do_not_move(self):
+        doc = self.draft(self.field("textfield", self.OPTIONS))
+        after, _changes = REPAIR.present_choices_as_a_list(doc)
+        before_vc = doc["properties"]["species"]["_valueConstraints"]
+        after_vc = after["properties"]["species"]["_valueConstraints"]
+        self.assertEqual(before_vc, after_vc)
+
+    def test_other_ui_settings_survive(self):
+        doc = self.draft(self.field("textfield", self.OPTIONS, extra_ui={"hidden": True}))
+        after, _changes = REPAIR.present_choices_as_a_list(doc)
+        self.assertEqual(after["properties"]["species"]["_ui"], {"inputType": "list", "hidden": True})
+
+    def test_a_field_that_already_presents_choices_is_untouched(self):
+        for input_type in ("list", "radio", "checkbox"):
+            with self.subTest(input_type=input_type):
+                doc = self.draft(self.field(input_type, self.OPTIONS))
+                _after, changes = REPAIR.present_choices_as_a_list(doc)
+                self.assertEqual(changes, [])
+
+    def test_a_field_with_no_options_is_untouched(self):
+        doc = self.draft(self.field("textfield", []))
+        _after, changes = REPAIR.present_choices_as_a_list(doc)
+        self.assertEqual(changes, [])
+
+    def test_an_absent_multiple_choice_is_refused_as_a_decision(self):
+        """Whether a list allows one answer or several is the author's to say, not a repair's."""
+        node = self.field("textfield", self.OPTIONS)
+        del node["_valueConstraints"]["multipleChoice"]
+        with self.assertRaises(REPAIR.TransformRefused):
+            REPAIR.present_choices_as_a_list(self.draft(node))
+
+    def test_a_published_artifact_is_refused(self):
+        doc = self.draft(self.field("textfield", self.OPTIONS))
+        doc["bibo:status"] = "bibo:published"
+        with self.assertRaises(REPAIR.TransformRefused):
+            REPAIR.present_choices_as_a_list(doc)
+
+    def test_a_second_run_finds_nothing(self):
+        after, _changes = REPAIR.present_choices_as_a_list(self.draft(self.field("textfield", self.OPTIONS)))
+        _again, changes = REPAIR.present_choices_as_a_list(after)
+        self.assertEqual(changes, [])
+
+    def test_the_invariant_rejects_another_type_or_a_field_with_no_options(self):
+        doc = self.draft(self.field("textfield", self.OPTIONS))
+        after, _changes = REPAIR.present_choices_as_a_list(doc)
+        radio = copy.deepcopy(doc)
+        radio["properties"]["species"]["_ui"]["inputType"] = "radio"
+        self.assertEqual(REPAIR.only_presented_choices_as_a_list(doc, radio),
+                         "/properties/species/_ui/inputType")
+        bare = self.draft(self.field("textfield", []))
+        promoted = copy.deepcopy(bare)
+        promoted["properties"]["species"]["_ui"]["inputType"] = "list"
+        self.assertEqual(REPAIR.only_presented_choices_as_a_list(bare, promoted),
+                         "/properties/species/_ui/inputType")
+        renamed = copy.deepcopy(after)
+        renamed["schema:name"] = "Renamed"
+        self.assertEqual(REPAIR.only_presented_choices_as_a_list(doc, renamed), "/schema:name")
+
+
 class DropBlankLiteralTest(unittest.TestCase):
     """A permitted value with no label offers a choice indistinguishable from no answer."""
 
