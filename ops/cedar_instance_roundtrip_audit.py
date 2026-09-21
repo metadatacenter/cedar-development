@@ -244,6 +244,16 @@ def main() -> int:
                     rest.fetch_in_order(client, pending, arguments.fetch_workers, fetch=fetch), 1):
                 record: dict[str, Any] = {"id": ref.artifact_id}
                 yaml_text, json_text, problems = got if got else (None, None, [str(error)])
+                # The template every record names is what turns a per-instance finding into a
+                # per-template one. A defect in a stored template shape is repaired by fixing that
+                # template and the instances on it together, which needs their count, not a sample.
+                if json_text is not None:
+                    try:
+                        based_on = json.loads(json_text).get("schema:isBasedOn")
+                        if based_on:
+                            record["isBasedOn"] = based_on
+                    except Exception:
+                        pass
                 if problems:
                     record["unserved"] = problems
                     tally["unserved"] += 1
@@ -261,8 +271,7 @@ def main() -> int:
                         tally["served-yaml-reproduced"] += 1
 
                 if json_text is not None and not arguments.no_write_path:
-                    document = json.loads(json_text)
-                    template_id = document.get("schema:isBasedOn")
+                    template_id = record.get("isBasedOn")
                     if not template_id:
                         record["writePath"] = {"stage": "template", "message": "names no template"}
                         tally["write-path-no-template"] += 1
@@ -377,6 +386,7 @@ def main() -> int:
                "tally": dict(tally), "lossKinds": dict(loss_kinds),
                "writePathErrors": dict(write_path_errors),
                "templatesRead": len([t for t in template_cache.values() if t]),
+               "templatesSeen": len(template_cache),
                "reader": bridge.reader}
     summary_path.write_text(json.dumps(summary, indent=2))
 
