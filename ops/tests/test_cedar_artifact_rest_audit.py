@@ -720,9 +720,91 @@ class ConcurrentFetchTests(unittest.TestCase):
         list(audit.fetch_in_order(None, refs, workers=6, fetch=fetch))
         self.assertEqual(sorted(ref.artifact_id for ref in refs), sorted(calls))
 
+    def test_a_slow_answer_does_not_stop_the_pool_reading_ahead(self):
+        """The window counts unfinished reads, so completions waiting their turn do not close it.
+
+        One read holds the head of the queue while the rest complete. Counting every queued read,
+        finished or not, let the window fill with answers nobody had collected yet and the pool ran
+        dry behind the slow one. Reading ahead has to continue past it.
+        """
+        import threading
+        refs = self.refs(200)
+        released = threading.Event()
+        self.addCleanup(released.set)
+        started = threading.Semaphore(0)
+
+        def fetch(_client, ref):
+            if ref.artifact_id.endswith("/t0"):
+                released.wait(timeout=30)
+            started.release()
+            return {"@id": ref.artifact_id}, None
+
+        collected = []
+        reader = audit.fetch_in_order(None, refs, workers=8, fetch=fetch)
+        consumer = threading.Thread(target=lambda: collected.extend(reader), daemon=True)
+        consumer.start()
+        # The consumer blocks on the stuck head; every other read should still be picked up.
+        for _ in range(100):
+            self.assertTrue(started.acquire(timeout=15),
+                            "the pool stopped reading ahead while one read was outstanding")
+        released.set()
+        consumer.join(timeout=60)
+        self.assertEqual([ref.artifact_id for ref in refs],
+                         [ref.artifact_id for ref, _artifact, _error in collected])
+
+    def test_reading_ahead_stays_bounded_when_nothing_is_collected(self):
+        """A slow head must not pull the whole enumeration into flight."""
+        import threading
+        import time as clock
+        workers = 4
+        refs = self.refs(5000)
+        released = threading.Event()
+        self.addCleanup(released.set)
+        lock = threading.Lock()
+        submitted = []
+
+        def fetch(_client, ref):
+            with lock:
+                submitted.append(ref.artifact_id)
+            if ref.artifact_id.endswith("/t0"):
+                released.wait(timeout=30)
+            return {"@id": ref.artifact_id}, None
+
+        collected = []
+        reader = audit.fetch_in_order(None, refs, workers=workers, fetch=fetch)
+        consumer = threading.Thread(target=lambda: collected.extend(reader), daemon=True)
+        consumer.start()
+
+        ceiling = workers * 2 * 8
+        deadline = clock.monotonic() + 15
+        while clock.monotonic() < deadline:
+            with lock:
+                if len(submitted) >= ceiling:
+                    break
+            clock.sleep(0.05)
+        clock.sleep(0.5)                      # give it a chance to overshoot if it is going to
+        with lock:
+            reached = len(submitted)
+        released.set()
+        consumer.join(timeout=60)
+        self.assertLessEqual(reached, ceiling + workers,
+                             f"reading ahead was not bounded: {reached} reads in flight")
+        self.assertEqual(len(refs), len(collected))
+
     def test_workers_defaults_and_is_settable(self):
         self.assertEqual(audit.DEFAULT_WORKERS, audit.build_parser().parse_args([]).workers)
         self.assertEqual(3, audit.build_parser().parse_args(["--workers", "3"]).workers)
+
+
+class RetryBudgetTests(unittest.TestCase):
+    """`retries` counts attempts, so the smallest usable value still sends one request."""
+
+    def test_a_zero_retry_budget_still_makes_one_attempt(self):
+        client = audit.GetOnlyClient("https://repo.example", "key", retries=0)
+        self.assertEqual(1, client.retries)
+
+    def test_an_explicit_budget_is_kept(self):
+        self.assertEqual(4, audit.GetOnlyClient("https://repo.example", "key", retries=4).retries)
 
 
 class RestIntegrationTests(unittest.TestCase):

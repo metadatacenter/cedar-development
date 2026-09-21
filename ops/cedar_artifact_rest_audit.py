@@ -38,8 +38,8 @@ import os
 import re
 import ssl
 import sys
-from concurrent.futures import Future, ThreadPoolExecutor
-from concurrent.futures import TimeoutError as FuturesTimeoutError
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor
+from concurrent.futures import wait as futures_wait
 import tempfile
 import time
 import urllib.error
@@ -522,24 +522,58 @@ def fetch_in_order(client: GetOnlyClient, refs: list[ArtifactRef], workers: int,
     process. The artifact is recorded as unread and the pass goes on.
     """
     fetch = fetch or fetch_artifact
-    window = max(1, workers * 2)
+    workers = max(1, workers)
+    # Enough unfinished reads to keep every worker busy.
+    window = workers * 2
+    # How far ahead of the consumer the read may run, so one slow answer cannot pull the whole
+    # enumeration into memory.
+    ceiling = window * 8
     pending: collections.deque[tuple[ArtifactRef, Future]] = collections.deque()
     position = 0
-    executor = ThreadPoolExecutor(max_workers=max(1, workers))
-    try:
-        while position < len(refs) and len(pending) < window:
+    executor = ThreadPoolExecutor(max_workers=workers)
+
+    def top_up() -> None:
+        """Submit until enough reads are outstanding again.
+
+        Two things matter here. Only unfinished reads count towards the window, because answers
+        arrive out of order and then wait their turn, and counting those too closed the window
+        while the pool stood idle. And this runs while the consumer is blocked on the read at the
+        head of the queue, not only between hand-overs, because otherwise the pool drains behind
+        that one read and stays drained until it answers. Together they cost a measured factor of
+        four against a deployment.
+        """
+        nonlocal position
+        outstanding = sum(1 for _ref, future in pending if not future.done())
+        while position < len(refs) and outstanding < window and len(pending) < ceiling:
             pending.append((refs[position], executor.submit(fetch, client, refs[position])))
             position += 1
-        while pending:
-            ref, future = pending.popleft()
-            try:
-                artifact, error = future.result(timeout=worker_timeout)
-            except FuturesTimeoutError:
+            outstanding += 1
+
+    try:
+        while True:
+            top_up()
+            if not pending:
+                break
+            ref, head = pending[0]
+            deadline = time.monotonic() + worker_timeout
+            # Wait for the read at the head of the queue, waking whenever any read finishes so the
+            # pool can be fed again. Waiting on the head alone drains the pool behind it; waking on
+            # a fixed interval instead adds that interval to every hand-over.
+            while not head.done():
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                outstanding = [future for _ref, future in pending if not future.done()]
+                if not outstanding:
+                    break
+                futures_wait(outstanding, timeout=remaining, return_when=FIRST_COMPLETED)
+                top_up()
+            if head.done():
+                artifact, error = head.result()
+            else:
                 artifact = None
                 error = TimeoutError(f"no answer within {worker_timeout:.0f}s; the worker is stuck")
-            if position < len(refs):
-                pending.append((refs[position], executor.submit(fetch, client, refs[position])))
-                position += 1
+            pending.popleft()
             yield ref, artifact, error
     finally:
         executor.shutdown(wait=False, cancel_futures=True)
@@ -1198,7 +1232,11 @@ class GetOnlyClient:
         self.origin = (parsed.scheme, parsed.netloc)
         self.api_key = api_key
         self.timeout = timeout
-        self.retries = retries
+        # A total attempt count, not a count of retries on top of the first try: 1 means try once
+        # and give up. It is clamped to at least one attempt because 0 used to make every request
+        # return "exhausted its retry budget" without a request ever being sent, which reads as a
+        # server-wide outage.
+        self.retries = max(1, retries)
         self.delay = max(0, delay_ms) / 1000
         context = ssl.create_default_context(cafile=ca_file) if parsed.scheme == "https" else None
         handlers: list[Any] = [_NoRedirect()]
