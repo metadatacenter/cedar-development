@@ -313,11 +313,17 @@ class NativeProcessSafetyTest(unittest.TestCase):
                 self.assertNotIn('SIGNALLED', result.stdout)
 
     def test_auxiliary_stop_refuses_a_live_foreign_listener(self):
+        # The listener has to be a pid that really exists. process_exiting() now asks ps for the
+        # process state, and a fabricated pid is indistinguishable from one that has already gone
+        # -- which is the correct reading for the code and the wrong fixture for this test. $$ is
+        # the library's own shell, alive for the whole run. The kill stub answers the -0 liveness
+        # probe silently so the SIGNALLED assertion still catches a real signal.
         result = self.run_library(
             'auxiliary_ports() { echo 9209; }; '
-            'port_owner() { echo 4242; }; port_open() { return 0; }; '
+            'port_owner() { echo $$; }; port_open() { return 0; }; '
             'process_command() { echo "python unrelated.py"; }; '
-            'kill() { echo SIGNALLED; }; stop_auxiliary_processes group'
+            'kill() { if [ "$1" = "-0" ]; then return 0; fi; echo SIGNALLED; }; '
+            'stop_auxiliary_processes group'
         )
         self.assertNotEqual(0, result.returncode)
         self.assertIn('REFUSED TO STOP', result.stderr)
