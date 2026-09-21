@@ -284,6 +284,119 @@ class DifferencesTest(unittest.TestCase):
         self.assertEqual(list(REPAIR.differences({"a": 1}, {"a": True})), [("/a", 1, True)])
 
 
+class CompactBlankOccurrencesTest(unittest.TestCase):
+    """A blank occurrence standing before a value moves every later value down a place."""
+
+    BLANK = {"@value": None}
+
+    def template_with(self, children):
+        doc = template(children)
+        doc["properties"]["@context"]["properties"] = {
+            name: {"enum": [GOOD_IRI + name]} for name in children}
+        return doc
+
+    def repeated(self, bound=None):
+        wrapper = {"type": "array", "items": child()}
+        if bound is not None:
+            wrapper["minItems"] = bound
+        return wrapper
+
+    def value(self, text):
+        return {"@value": text}
+
+    def test_a_blank_before_a_value_is_moved_out_of_the_way(self):
+        tmpl = self.template_with({"Carrier": self.repeated(1)})
+        before = {"Carrier": [self.BLANK, self.value("audio disc")]}
+        after, changes = REPAIR.compact_blank_occurrences(before, tmpl)
+        self.assertEqual([self.value("audio disc")], after["Carrier"])
+        self.assertEqual("/Carrier", changes[0]["path"])
+        self.assertEqual(2, changes[0]["replaced"])
+        self.assertEqual(1, changes[0]["wrote"])
+        self.assertIsNone(REPAIR.only_compacted_blank_occurrences(before, after, tmpl))
+
+    def test_values_keep_their_order(self):
+        tmpl = self.template_with({"Points": self.repeated(1)})
+        before = {"Points": [self.value("a"), self.value("b"), self.BLANK,
+                             self.value("c"), self.value("d")]}
+        after, _changes = REPAIR.compact_blank_occurrences(before, tmpl)
+        self.assertEqual([self.value(x) for x in ("a", "b", "c", "d")], after["Points"])
+
+    def test_enough_blanks_remain_to_meet_the_stated_bound(self):
+        tmpl = self.template_with({"Points": self.repeated(3)})
+        before = {"Points": [self.BLANK, self.value("a"), self.value("b")]}
+        after, _changes = REPAIR.compact_blank_occurrences(before, tmpl)
+        self.assertEqual([self.value("a"), self.value("b"), self.BLANK], after["Points"])
+
+    def test_trailing_blanks_are_left_alone(self):
+        tmpl = self.template_with({"Symptom": self.repeated(1)})
+        before = {"Symptom": [self.value("a"), self.value("b"), self.BLANK]}
+        after, changes = REPAIR.compact_blank_occurrences(before, tmpl)
+        self.assertEqual([], changes, "a blank after every value moves nothing")
+        self.assertEqual(before, after)
+
+    def test_a_list_of_nothing_but_blanks_is_left_alone(self):
+        tmpl = self.template_with({"Symptom": self.repeated(1)})
+        before = {"Symptom": [self.BLANK, self.BLANK]}
+        _after, changes = REPAIR.compact_blank_occurrences(before, tmpl)
+        self.assertEqual([], changes)
+
+    def test_a_single_instance_field_is_not_touched(self):
+        tmpl = self.template_with({"Name": child()})
+        before = {"Name": self.BLANK}
+        _after, changes = REPAIR.compact_blank_occurrences(before, tmpl)
+        self.assertEqual([], changes)
+
+    def test_a_repeated_field_inside_an_element_is_reached(self):
+        inner = {"@type": ELEMENT_TYPE, "type": "object", "_ui": {"order": ["Point"]},
+                 "schema:schemaVersion": AUDIT_MODEL_VERSION,
+                 "properties": {"@context": {"properties": {}, "required": []},
+                                "Point": self.repeated(1)}}
+        tmpl = self.template_with({"Block": inner})
+        before = {"Block": {"Point": [self.BLANK, self.value("a")]}}
+        after, changes = REPAIR.compact_blank_occurrences(before, tmpl)
+        self.assertEqual([self.value("a")], after["Block"]["Point"])
+        self.assertEqual("/Block/Point", changes[0]["path"])
+
+    def test_a_reordering_that_keeps_the_length_is_still_accepted(self):
+        """The bound can hold the length while the order changes, which reports element by element.
+
+        A list of three with one blank and a bound of three keeps its length: the blank moves to
+        the end. `differences` then reports each element that moved rather than one whole-list
+        change, and an invariant that only looked for a changed list refused its own transform.
+        """
+        tmpl = self.template_with({"Keyword": self.repeated(3)})
+        before = {"Keyword": [self.BLANK, self.value("a"), self.value("b")]}
+        after, changes = REPAIR.compact_blank_occurrences(before, tmpl)
+        self.assertEqual(3, len(after["Keyword"]))
+        self.assertEqual(3, changes[0]["replaced"])
+        self.assertEqual(3, changes[0]["wrote"])
+        self.assertIsNone(REPAIR.only_compacted_blank_occurrences(before, after, tmpl),
+                          "the invariant must accept a reordering that keeps the length")
+
+    def test_the_invariant_refuses_a_reordered_value(self):
+        tmpl = self.template_with({"Points": self.repeated(1)})
+        before = {"Points": [self.BLANK, self.value("a"), self.value("b")]}
+        tampered = {"Points": [self.value("b"), self.value("a")]}
+        self.assertIsNotNone(REPAIR.only_compacted_blank_occurrences(before, tampered, tmpl))
+
+    def test_the_invariant_refuses_a_dropped_value(self):
+        tmpl = self.template_with({"Points": self.repeated(1)})
+        before = {"Points": [self.BLANK, self.value("a"), self.value("b")]}
+        tampered = {"Points": [self.value("a")]}
+        self.assertIsNotNone(REPAIR.only_compacted_blank_occurrences(before, tampered, tmpl))
+
+    def test_the_invariant_refuses_a_change_anywhere_else(self):
+        tmpl = self.template_with({"Points": self.repeated(1), "Name": child()})
+        before = {"Points": [self.BLANK, self.value("a")], "Name": {"@value": "kept"}}
+        after, _changes = REPAIR.compact_blank_occurrences(before, tmpl)
+        after["Name"] = {"@value": "altered"}
+        self.assertIsNotNone(REPAIR.only_compacted_blank_occurrences(before, after, tmpl))
+
+    def test_an_unreadable_template_is_refused(self):
+        with self.assertRaises(REPAIR.TransformRefused):
+            REPAIR.compact_blank_occurrences({"Points": []}, None)
+
+
 class StampInstanceValueTypeTest(unittest.TestCase):
     """A numeric or temporal field renders with @type among the properties its value must carry."""
 

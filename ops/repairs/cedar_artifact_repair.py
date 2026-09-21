@@ -3541,6 +3541,140 @@ def only_normalized_orcid_spacing(before: Any, after: Any, template: Any) -> Opt
     return None
 
 
+def blank_field_occurrence(value: Any) -> bool:
+    """Whether a field occurrence holds nothing: no value, no identifier, no label."""
+    if value in ({}, None):
+        return True
+    if not isinstance(value, dict):
+        return False
+    keys = set(value) - {AT_TYPE}
+    if keys == {"@value"} and value["@value"] is None:
+        return True
+    if keys and keys <= {"@id", "rdfs:label", "skos:notation"} and not value.get("@id"):
+        return True
+    return False
+
+
+def occurrence_lower_bound(container: Any, name: str) -> int:
+    """How many occurrences of this child the container's JSON Schema demands.
+
+    A multi-instance child always states a lower bound, and states the model's default of one when
+    it names none, so the bound is never absent in practice; the default is applied here for a
+    container that somehow omits it.
+    """
+    declared = (container or {}).get("properties", {}).get(name)
+    if not isinstance(declared, dict):
+        return 1
+    bound = declared.get("minItems")
+    return bound if isinstance(bound, int) and bound >= 0 else 1
+
+
+def compacted_occurrences(value: list, bound: int) -> Optional[list]:
+    """Values in their order, then only as many blank occurrences as the bound requires.
+
+    Returns None when the list already has that shape, so a field needing nothing is not rewritten.
+    """
+    flags = [blank_field_occurrence(item) for item in value]
+    if not any(flags) or all(flags):
+        return None
+    # A blank that stands after every value moves nothing when it is dropped, so a list already in
+    # values-then-blanks order is left exactly as it is.
+    if flags.index(True) > max(index for index, blank in enumerate(flags) if not blank):
+        return None
+    values = [item for item, blank in zip(value, flags) if not blank]
+    blanks = [item for item, blank in zip(value, flags) if blank]
+    wanted = values + blanks[:max(0, bound - len(values))]
+    return None if wanted == value else wanted
+
+
+def compact_blank_occurrences(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Put a multi-instance field's values first and keep only the blanks its bound requires.
+
+    A multi-instance field renders occurrence by occurrence and an occurrence holding nothing is
+    omitted, so a blank standing before a value moves every later value down a place: a list stored
+    as ``[blank, "audio disc"]`` comes back as ``["audio disc"]``, and the deployment and the
+    representation disagree about which occurrence is which. Nothing rejects either form, so the
+    disagreement is silent.
+
+    Reordering settles it. Values keep their order, and enough blanks remain to meet the lower bound
+    the field declares, which is the shape a round trip already returns — so the stored list and the
+    returned list agree from then on.
+
+    Only a list whose blanks stand before a value is touched. Trailing blanks move nothing and are
+    left alone. A list of nothing but blanks is left alone too: it states an occurrence count that
+    no value contradicts, and emptying it would be a different decision.
+    """
+    if not isinstance(template, dict):
+        raise TransformRefused("the template this instance names could not be read")
+    if not isinstance(instance, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def walk(node: Any, container: Any, path: str) -> Any:
+        if not isinstance(node, dict):
+            return node
+        result = copy.deepcopy(node)
+        for name, child, multiple in container_children(container):
+            if name not in result:
+                continue
+            here = f"{path}/{rest.json_pointer_component(name)}"
+            value = result[name]
+            if is_element(child):
+                if isinstance(value, list):
+                    result[name] = [walk(item, child, f"{here}/{index}")
+                                    for index, item in enumerate(value)]
+                elif isinstance(value, dict):
+                    result[name] = walk(value, child, here)
+                continue
+            if not multiple or not isinstance(value, list):
+                continue
+            wanted = compacted_occurrences(value, occurrence_lower_bound(container, name))
+            if wanted is None:
+                continue
+            result[name] = wanted
+            changes.append({"path": here, "replaced": len(value), "wrote": len(wanted),
+                            "keptValues": sum(1 for item in wanted
+                                              if not blank_field_occurrence(item))})
+        return result
+
+    return walk(instance, template, ""), changes
+
+
+def only_compacted_blank_occurrences(before: Any, after: Any, template: Any) -> Optional[str]:
+    """Every difference lies inside one multi-instance field list rewritten to the shape above.
+
+    A difference is resolved to the list that encloses it, because a reordering that keeps the
+    length reports element by element rather than as one whole-list change. That list is then
+    re-derived from the stored one — the values it must keep, in their stored order, followed by
+    the blanks its bound requires — so a value altered, reordered or dropped fails this, as does
+    any change outside such a list.
+    """
+    for path, _was, _now in differences(before, after):
+        parts = path.split("/")
+        accounted = False
+        for depth in range(len(parts), 1, -1):
+            prefix = "/".join(parts[:depth])
+            stored = value_at(before, prefix)
+            if not isinstance(stored, list):
+                continue
+            container = declaration_at(template, "/".join(parts[:depth - 1])) \
+                if depth > 2 else template
+            name = parts[depth - 1]
+            if container is None:
+                continue
+            declared = (container.get("properties") or {}).get(name)
+            if not isinstance(declared, dict) or declared.get("type") != "array":
+                continue
+            wanted = compacted_occurrences(stored, occurrence_lower_bound(container, name))
+            if wanted is None or wanted != value_at(after, prefix):
+                return path
+            accounted = True
+            break
+        if not accounted:
+            return path
+    return None
+
+
 def only_completed_empty_literals(before: Any, after: Any, template: Any) -> Optional[str]:
     for path, was, now in differences(before, after):
         if not path.endswith("/@value") or was is not ABSENT or now is not None:
@@ -5427,6 +5561,12 @@ def only_declared_fields(before: Any, after: Any) -> Optional[str]:
 
 
 REPAIRS = {
+    "compact-blank-occurrences": Repair(
+        name="compact-blank-occurrences", condition="",
+        summary="put a multi-instance field's values first so the stored order is the order a round trip returns",
+        transform=compact_blank_occurrences, invariant=only_compacted_blank_occurrences,
+        needs_template=True,
+    ),
     "normalize-instance-orcid-spacing": Repair(
         name="normalize-instance-orcid-spacing", condition="",
         summary="remove accidental ORCID host-path whitespace without changing the identifier",
