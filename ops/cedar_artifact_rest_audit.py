@@ -560,6 +560,11 @@ def fetch_in_order(client: GetOnlyClient, refs: list[ArtifactRef], workers: int,
             # pool can be fed again. Waiting on the head alone drains the pool behind it; waking on
             # a fixed interval instead adds that interval to every hand-over.
             while not head.done():
+                # Fill before deciding what to wait on. Every other read can finish before this
+                # thread first looks, and then the set to wait on is the stuck read alone: waiting
+                # on that blocks until it answers, and nothing is ever submitted again. Topping up
+                # here instead means the set always holds whatever was just submitted.
+                top_up()
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     break
@@ -567,7 +572,6 @@ def fetch_in_order(client: GetOnlyClient, refs: list[ArtifactRef], workers: int,
                 if not outstanding:
                     break
                 futures_wait(outstanding, timeout=remaining, return_when=FIRST_COMPLETED)
-                top_up()
             if head.done():
                 artifact, error = head.result()
             else:
