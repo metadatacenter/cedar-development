@@ -3122,6 +3122,71 @@ reported rather than repaired: typed GETs that return 404 for a search row, dupl
 a search total that changed during the walk. As with the REST audit, `COMPLETE_FOR_KEY` means
 complete for what this key can enumerate and read.
 
+## Round-Tripping Every Instance Through YAML
+
+`ops/cedar_instance_roundtrip_audit.py` asks two questions about every template instance a key can
+read, and it is the instance counterpart of the schema-artifact conversion audit. Can the library
+read the YAML the deployment serves, and does it write that document back unchanged? And does the
+instance survive a trip through YAML — JSON to the model, out as YAML, back to the model, out as
+JSON again — with nothing lost? Its HTTP client implements GET only, and it never writes an
+artifact.
+
+The two questions disagree whenever a deployment lags the library, and the run reports them apart
+for that reason. The first answers for whichever jar production is running. The second is what says
+whether the library is correct today.
+
+```bash
+export JAVA_HOME=$(/usr/libexec/java_home -v 17)
+python3 ops/cedar_instance_roundtrip_audit.py \
+  --classpath "$CEDAR_HOME/cedar-artifact-library/target/classes:$(cat classpath.txt)" \
+  --records instance-roundtrip.jsonl
+```
+
+One JVM, `ops/cedar_instance_roundtrip_bridge.java`, stays up for the whole pass, launched in
+Java's source-file mode so nothing is compiled ahead of time. Build the artifact library and write
+its dependency classpath first with `mvn -o dependency:build-classpath`. The bridge sustains
+several thousand documents a second, so the pass is bound by reading, not by conversion.
+
+**YAML is lossy on purpose, and the run has to say so.** It carries no JSON-LD context and no field
+that holds nothing, and the server completes both against the template when a YAML instance is
+written. A comparison that counted those would report every instance as broken. The bridge
+therefore classifies each difference and sets aside the benign ones — a context term, a field
+holding nothing, an element whose every descendant field holds nothing — counting them without
+reporting them. What remains is content the round trip lost, reported with its path and a named
+kind.
+
+The run streams one record per instance, including a `"clean": true` record for an instance with
+nothing to say, which is what `--resume` reads back to know what is done. `--limit` makes a sample
+run, `--page-size` and `--fetch-workers` tune the walk, and `--timeout` bounds one read.
+
+### A Failed Read Is Not a Finding
+
+A small share of reads fail as a transport error rather than an HTTP response: a socket timeout, or
+a name lookup that does not answer. Measured against production, 208 of 301,158 reads (0.069%), and
+0.126% under deliberate sustained load. Every one served when asked again. The rate is flat across
+a walk, so it is a property of the path rather than of any one run or any one artifact.
+
+The audit therefore re-reads everything that failed, one at a time, at the end of a run. Only the
+failures that survive are counted; the transient ones are reported as `unserved-transient` and the
+survivors are written to an adjacent `-persistent.json` with both verdicts. `--no-verify` skips
+that pass, and then a failure is whatever the first ask returned, which overstates breakage — 43%
+of one whole-corpus run's failures were noise.
+
+Two rules hold whatever tool is used against these endpoints. **Never treat a first-pass failure as
+a finding.** And **distinguish a transport error from an HTTP status**: a transient failure carries
+no status code at all, while a stored defect carries a 500 whose message names it.
+
+### An Artifact Identifier Is Opaque
+
+Instance identifiers live under two hosts. A whole-corpus enumeration in September 2026 named
+150,334 under `repo.metadatacenter.org` and 245 under `repo.metadatacenter.net`. Pass the `@id`
+that `/search-deep` gives through exactly as it arrives. Rebuilding one from its UUID against the
+wrong host returns a correct, repeatable 404, which looks first like an artifact being deleted and
+then like the server reporting a present artifact missing.
+
+The `.net` identifiers also fail genuinely far more often — 20 of 245 against 259 of 150,334 — and
+three of the four instances absent from the artifact store entirely are among them.
+
 ## Repairing a Defect Across the Stored Population
 
 Run `ops/repairs/cedar_artifact_repair.py` from `cedar-development`. It uses audit records to select

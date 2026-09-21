@@ -94,6 +94,14 @@ below have no CLI front end yet, so call them directly:
   two converters render the same document identically. Streams one record per artifact, reports
   progress every 200, resumes, and writes the identifiers of everything that failed to a file of
   their own.
+- `cedar_instance_roundtrip_audit.py` — the instance counterpart of the conversion audit: a GET-only
+  walk over every template instance, asking whether the library reads the YAML the deployment serves
+  and reproduces it, and whether the instance survives JSON to the model, out as YAML, back, and out
+  as JSON again. YAML carries no context and no empty field by design, so the bridge counts those
+  differences apart from content the trip actually lost. One JVM,
+  `cedar_instance_roundtrip_bridge.java`, stays up for the pass. It re-reads every failed read at the
+  end, because a share of reads fail as a socket timeout rather than an answer and asking again
+  settles them. Streams one record per instance, resumes, never writes.
 - `cedar_content_constraint_survey.py` — what production holds in the fields the meta-schema
   constrains only as strings. Roughly half the string-typed properties it describes carry no
   pattern, format or enumeration, so a rule only one component enforces produces stored data
