@@ -38,7 +38,7 @@ async function open(path) {
     await page.locator('#kc-login').click();
   }
   await page.waitForFunction(() => document.querySelector('cedar-embeddable-designer, cedar-embeddable-field-designer')?.shadowRoot?.querySelector('input, button'), { timeout: 30000 });
-  await page.waitForFunction(() => ['Ready', 'Unsaved changes'].includes(document.getElementById('state').textContent));
+  await page.waitForFunction(() => ['No unsaved changes', 'Unsaved changes'].includes(document.getElementById('state').textContent));
   if (path.startsWith('/fields/edit/')) {
     await page.getByRole('button', { name: 'Expand field settings', exact: true }).click();
     await page.getByRole('tab', { name: 'Display', exact: true }).click();
