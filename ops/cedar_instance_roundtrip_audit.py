@@ -116,6 +116,26 @@ def enumerate_instances(client, page_size: int, limit: Optional[int]) -> tuple[l
                   "enumerated": len(refs)}
 
 
+def ask_write_path(bridge, template_id: str, template: Any, json_text: str,
+                   sent: set[str]) -> dict[str, Any]:
+    """Ask the write-path question, sending the template whenever the bridge says it needs it.
+
+    The bridge keeps a bounded template cache and answers ``template-missing`` when the one it
+    needs has been evicted, which its protocol says to answer by sending it again. A driver that
+    only sent each template once instead recorded a failure: a deployment with 1,530 templates and
+    a 200-entry cache evicted constantly, and 4,110 instances of one whole-corpus run were counted
+    as unwritable when nothing had been asked about them.
+    """
+    for attempt in (1, 2):
+        if template_id not in sent or attempt == 2:
+            bridge.ask({"op": "cache-template", "id": template_id, "template": template})
+            sent.add(template_id)
+        verdict = bridge.ask({"op": "writepath", "templateId": template_id, "json": json_text})
+        if verdict.get("status") != "template-missing":
+            return verdict
+    return verdict
+
+
 def template_for(client, template_id: str, cache: dict[str, Any]) -> Optional[Any]:
     """The template an instance names, read once and kept.
 
@@ -282,13 +302,16 @@ def main() -> int:
                                                    "message": "its template could not be read"}
                             tally["write-path-template-unreadable"] += 1
                         else:
-                            if template_id not in sent_templates:
-                                bridge.ask({"op": "cache-template", "id": template_id,
-                                            "template": template})
-                                sent_templates.add(template_id)
-                            verdict = bridge.ask({"op": "writepath", "templateId": template_id,
-                                                  "json": json_text})
-                            if verdict.get("status") != "ok":
+                            verdict = ask_write_path(bridge, template_id, template, json_text,
+                                                     sent_templates)
+                            if verdict.get("status") == "template-missing":
+                                # The retry above already re-sent it, so this is the bridge
+                                # refusing the template itself rather than a cache miss.
+                                record["writePath"] = {"stage": "template",
+                                                       "message": "the bridge would not hold "
+                                                                  "this template"}
+                                tally["write-path-template-not-cached"] += 1
+                            elif verdict.get("status") != "ok":
                                 record["writePath"] = {"stage": verdict.get("stage"),
                                                        "message": verdict.get("message"),
                                                        "storedValid": verdict.get("storedValid")}
