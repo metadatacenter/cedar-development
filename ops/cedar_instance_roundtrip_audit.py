@@ -1,9 +1,16 @@
 """GET-only walk over every template instance, asking whether it survives its YAML representation.
 
-Two questions per instance, from the two documents the server will serve for it. Can this library
-read the YAML the deployment emits, and does it write that document back unchanged? And does the
-instance survive a trip through YAML — JSON to the model, out as YAML, back to the model, out as
-JSON again — with nothing lost?
+Three questions per instance. Can this library read the YAML the deployment emits, and does it
+write that document back unchanged? Does the instance survive a trip through YAML — JSON to the
+model, out as YAML, back to the model, out as JSON again — with nothing lost? And would a YAML
+write of it be stored?
+
+The third is the one that matters operationally, and it is not the second. A template-free trip
+loses everything the template restores, so it reports as damaged an instance the server would
+write back perfectly. The write path runs what the server runs: render the YAML a client would
+send, read it back, complete it against its template, mint the element-instance identifiers the
+repository mints, and validate. Leaving any step out invents refusals — omitting the minting step
+alone made every element the YAML elided look like a null identifier.
 
 The second question is the one that says whether the library is correct today, because the first
 answers for whatever jar production happens to be running. They disagree whenever a deployment
@@ -109,6 +116,23 @@ def enumerate_instances(client, page_size: int, limit: Optional[int]) -> tuple[l
                   "enumerated": len(refs)}
 
 
+def template_for(client, template_id: str, cache: dict[str, Any]) -> Optional[Any]:
+    """The template an instance names, read once and kept.
+
+    A deployment has orders of magnitude fewer templates than instances, so the cache turns one
+    read per instance into one read per template. A template that cannot be read is remembered as
+    unavailable rather than retried for every instance that names it.
+    """
+    if template_id in cache:
+        return cache[template_id]
+    try:
+        cache[template_id] = client.get_json(
+            f"/templates/{urllib.parse.quote(template_id, safe='')}")
+    except Exception:
+        cache[template_id] = None
+    return cache[template_id]
+
+
 def both_representations(client, ref) -> tuple[Optional[str], Optional[str], list[str]]:
     """The two documents the server serves for one instance, and what refusing them looked like."""
     quoted = urllib.parse.quote(ref.artifact_id, safe="")
@@ -141,7 +165,8 @@ def read_records(path: pathlib.Path) -> Iterator[dict[str, Any]]:
                 continue
 
 
-def main() -> int:
+def build_parser() -> argparse.ArgumentParser:
+    """The command line, built apart from main so it can be inspected and tested."""
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--server", default="https://resource.metadatacenter.org")
@@ -156,10 +181,18 @@ def main() -> int:
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--timeout", type=float, default=60,
                         help="seconds to wait for one read (default: 60)")
+    parser.add_argument("--no-write-path", action="store_true",
+                        help="skip the question of whether a YAML write would be stored; that "
+                             "question needs each instance's template, which costs one read per "
+                             "distinct template")
     parser.add_argument("--no-verify", action="store_true",
                         help="skip the pass that re-reads everything that failed; a failure is "
                              "then whatever the first ask returned, which overstates breakage")
-    arguments = parser.parse_args()
+    return parser
+
+
+def main() -> int:
+    arguments = build_parser().parse_args()
 
     # Three attempts, not one. A read that fails once is usually a socket timeout or a name
     # lookup that did not answer, and asking again settles it; a run that tried once reported 208
@@ -196,6 +229,9 @@ def main() -> int:
     bridge = Bridge(arguments.classpath)
     tally = collections.Counter()
     loss_kinds = collections.Counter()
+    write_path_errors = collections.Counter()
+    template_cache: dict[str, Any] = {}
+    sent_templates: set[str] = set()
     losing: list[dict[str, Any]] = []
     started = time.time()
 
@@ -224,6 +260,52 @@ def main() -> int:
                     else:
                         tally["served-yaml-reproduced"] += 1
 
+                if json_text is not None and not arguments.no_write_path:
+                    document = json.loads(json_text)
+                    template_id = document.get("schema:isBasedOn")
+                    if not template_id:
+                        record["writePath"] = {"stage": "template", "message": "names no template"}
+                        tally["write-path-no-template"] += 1
+                    else:
+                        template = template_for(client, template_id, template_cache)
+                        if template is None:
+                            record["writePath"] = {"stage": "template",
+                                                   "message": "its template could not be read"}
+                            tally["write-path-template-unreadable"] += 1
+                        else:
+                            if template_id not in sent_templates:
+                                bridge.ask({"op": "cache-template", "id": template_id,
+                                            "template": template})
+                                sent_templates.add(template_id)
+                            verdict = bridge.ask({"op": "writepath", "templateId": template_id,
+                                                  "json": json_text})
+                            if verdict.get("status") != "ok":
+                                record["writePath"] = {"stage": verdict.get("stage"),
+                                                       "message": verdict.get("message"),
+                                                       "storedValid": verdict.get("storedValid")}
+                                held = "stored-valid" if verdict.get("storedValid") else "stored-invalid"
+                                tally[f"write-path-failed at {verdict.get('stage')}, {held}"] += 1
+                                if verdict.get("storedValid"):
+                                    write_path_errors[
+                                        f"[{verdict.get('stage')}] "
+                                        + str(verdict.get("message", ""))[:70]] += 1
+                            elif verdict.get("accepted"):
+                                tally["write-path-accepted"] += 1
+                                if not verdict.get("storedValid"):
+                                    tally["write-path-accepted-though-stored-invalid"] += 1
+                            else:
+                                record["writePath"] = {"errors": verdict.get("errors", []),
+                                                       "errorCount": verdict.get("errorCount"),
+                                                       "storedValid": verdict.get("storedValid")}
+                                if verdict.get("storedValid"):
+                                    # The deployment holds this as valid and the write path would
+                                    # refuse it. That is this path's defect, not the data's.
+                                    tally["write-path-refused-though-stored-valid"] += 1
+                                    for error in verdict.get("errors", []):
+                                        write_path_errors[error.get("message", "")[:90]] += 1
+                                else:
+                                    tally["write-path-refused-and-stored-invalid"] += 1
+
                 if json_text is not None:
                     trip = bridge.ask({"op": "roundtrip", "json": json_text})
                     if trip.get("status") != "ok":
@@ -251,8 +333,9 @@ def main() -> int:
                     rate = index / max(1e-9, time.time() - started)
                     left = (len(pending) - index) / max(1e-9, rate)
                     print(f"  {index}/{len(pending)}  {rate:.0f}/s  ~{left / 60:.0f} min left  "
-                          f"survives {tally['survives']}  loses {tally['loses-content']}  "
-                          f"unserved {tally['unserved']}", flush=True)
+                          f"writable {tally['write-path-accepted']}  "
+                          f"refused-but-valid {tally['write-path-refused-though-stored-valid']}  "
+                          f"survives {tally['survives']}  unserved {tally['unserved']}", flush=True)
     finally:
         bridge.close()
 
@@ -292,14 +375,20 @@ def main() -> int:
                "enumeration": enumeration,
                "instances": len(refs), "processed": len(pending), "elapsedSeconds": round(elapsed, 1),
                "tally": dict(tally), "lossKinds": dict(loss_kinds),
+               "writePathErrors": dict(write_path_errors),
+               "templatesRead": len([t for t in template_cache.values() if t]),
                "reader": bridge.reader}
     summary_path.write_text(json.dumps(summary, indent=2))
 
     print(f"\nprocessed {len(pending)} instances in {elapsed / 60:.1f} min")
     for name, count in tally.most_common():
         print(f"   {count:7d}  {name}")
+    if write_path_errors:
+        print("why a YAML write would be refused for an instance the deployment holds as valid:")
+        for name, count in write_path_errors.most_common(15):
+            print(f"   {count:7d}  {name}")
     if loss_kinds:
-        print("losses by kind:")
+        print("what a template-free round trip loses (the template restores most of it):")
         for name, count in loss_kinds.most_common():
             print(f"   {count:7d}  {name}")
     print(f"\nrecords : {arguments.records}")

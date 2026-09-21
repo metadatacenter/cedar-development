@@ -23,6 +23,8 @@
 //     {"op": "hello"}
 //     {"op": "serves", "yaml": "<document the server served>"}
 //     {"op": "roundtrip", "json": "<document the server served>"}
+//     {"op": "cache-template", "id": "<template @id>", "template": {...}}
+//     {"op": "writepath", "templateId": "<template @id>", "json": "<document the server served>"}
 //     {"op": "shutdown"}
 //
 // A "serves" answer carries "status": "ok" with "reproduced" saying whether re-rendering the
@@ -30,6 +32,13 @@
 // "parse" for a document YAML itself rejects, "read" for one the instance model cannot represent.
 // A "roundtrip" answer carries "survives", the benign counts, and "losses": each one a "kind",
 // the "path" it sits at and a short "value".
+//
+// A "writepath" answer says whether a YAML write of that instance would be stored. It runs the
+// sequence the resource server runs — render YAML, read it back, complete it against the template
+// with InstanceInflater, mint the element-instance identifiers the repository mints, then validate
+// with cedar-model-validation-library. It carries "status": "ok" with "accepted" and, when
+// refused, the validator's errors; "template-missing" when the caller must send the template
+// first; or "error" with the "stage" it failed at.
 //
 // ops/cedar_instance_roundtrip_audit.py is the caller this exists for. Its siblings
 // ops/cedar_yaml_convert_bridge.java and ops/cedar_validation_bridge.java answer the same shape of
@@ -43,7 +52,13 @@ import org.metadatacenter.artifacts.model.core.TemplateInstanceArtifact;
 import org.metadatacenter.artifacts.model.reader.JsonArtifactReader;
 import org.metadatacenter.artifacts.model.reader.YamlArtifactReader;
 import org.metadatacenter.artifacts.model.renderer.JsonArtifactRenderer;
+import org.metadatacenter.artifacts.model.core.TemplateSchemaArtifact;
 import org.metadatacenter.artifacts.model.renderer.YamlArtifactRenderer;
+import org.metadatacenter.artifacts.model.tools.InstanceInflater;
+import org.metadatacenter.model.validation.CedarValidator;
+import org.metadatacenter.model.validation.ModelValidator;
+import org.metadatacenter.model.validation.report.ErrorItem;
+import org.metadatacenter.model.validation.report.ValidationReport;
 import org.yaml.snakeyaml.Yaml;
 
 import java.io.BufferedReader;
@@ -54,8 +69,10 @@ import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public class CedarInstanceRoundtripBridge {
 
@@ -63,6 +80,10 @@ public class CedarInstanceRoundtripBridge {
   private static final int MAX_LOSSES = 40;
   private static final int MAX_TEXT = 300;
 
+  private final ModelValidator validator = new CedarValidator();
+  private final LinkedHashMap<String, JsonNode> templates = new LinkedHashMap<>();
+  private final LinkedHashMap<String, TemplateSchemaArtifact> parsedTemplates = new LinkedHashMap<>();
+  private int templateCacheSize = 200;
   private final JsonArtifactReader jsonReader = new JsonArtifactReader();
   private final YamlArtifactReader yamlReader = new YamlArtifactReader();
   private final JsonArtifactRenderer jsonRenderer = new JsonArtifactRenderer();
@@ -72,6 +93,9 @@ public class CedarInstanceRoundtripBridge {
     PrintStream out = new PrintStream(new FileOutputStream(FileDescriptor.out), true, StandardCharsets.UTF_8);
     BufferedReader in = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8));
     CedarInstanceRoundtripBridge bridge = new CedarInstanceRoundtripBridge();
+    for (int index = 0; index < args.length - 1; index++)
+      if ("--template-cache".equals(args[index]))
+        bridge.templateCacheSize = Math.max(1, Integer.parseInt(args[index + 1]));
     String line;
     while ((line = in.readLine()) != null) {
       if (line.isBlank()) continue;
@@ -105,6 +129,8 @@ public class CedarInstanceRoundtripBridge {
         }
         case "serves" -> serves(request, answer);
         case "roundtrip" -> roundtrip(request, answer);
+        case "cache-template" -> cacheTemplate(request, answer);
+        case "writepath" -> writepath(request, answer);
         case "shutdown" -> answer.put("status", "ok");
         default -> {
           answer.put("status", "error");
@@ -238,6 +264,139 @@ public class CedarInstanceRoundtripBridge {
     answer.put("emptyElements", emptyElements);
     answer.put("lossCount", losses.size());
     if (!losses.isEmpty()) answer.set("losses", losses);
+  }
+
+  private void cacheTemplate(JsonNode request, ObjectNode answer) {
+    String id = request.path("id").asText();
+    JsonNode template = request.get("template");
+    if (id.isEmpty() || template == null || !template.isObject()) {
+      answer.put("status", "error");
+      answer.put("message", "cache-template needs a non-empty id and an object template");
+      return;
+    }
+    while (templates.size() >= templateCacheSize && !templates.isEmpty()) {
+      String oldest = templates.keySet().iterator().next();
+      templates.remove(oldest);
+      parsedTemplates.remove(oldest);
+    }
+    templates.put(id, template);
+    try {
+      parsedTemplates.put(id, jsonReader.readTemplateSchemaArtifact((ObjectNode) template));
+      answer.put("status", "ok");
+    } catch (Exception e) {
+      templates.remove(id);
+      answer.put("status", "error");
+      answer.put("stage", "template");
+      answer.put("message", truncate(String.valueOf(e.getMessage())));
+    }
+  }
+
+  /**
+   * Would a YAML write of this instance be stored?
+   *
+   * The sequence is the resource server's: render the YAML a client would send, read it back,
+   * complete it against its template, mint the element-instance identifiers the repository mints,
+   * and validate. Leaving any step out reports a refusal the server would never issue — omitting
+   * the minting step in particular makes every element the YAML elided look like a null identifier.
+   */
+  private void writepath(JsonNode request, ObjectNode answer) throws Exception {
+    String templateId = request.path("templateId").asText();
+    JsonNode templateNode = templates.get(templateId);
+    TemplateSchemaArtifact template = parsedTemplates.get(templateId);
+    if (templateNode == null || template == null) {
+      answer.put("status", "template-missing");
+      answer.put("templateId", templateId);
+      return;
+    }
+    JsonNode text = request.get("json");
+    if (text == null || !text.isTextual()) {
+      answer.put("status", "error");
+      answer.put("stage", "request");
+      answer.put("message", "writepath needs a textual json document");
+      return;
+    }
+
+    // Whether the deployment holds this document as valid decides what any later outcome means,
+    // so it is settled before the write path is attempted rather than after it succeeds. Refusing
+    // or failing on an already-invalid instance is correct behaviour; doing either to one the
+    // deployment holds as valid is a defect in this path.
+    ObjectNode storedNode = (ObjectNode) MAPPER.readTree(text.asText());
+    boolean storedValid = "true".equals(
+        validator.validateTemplateInstance(storedNode, templateNode).getValidationStatus());
+    answer.put("storedValid", storedValid);
+
+    TemplateInstanceArtifact stored;
+    try {
+      stored = jsonReader.readTemplateInstanceArtifact(storedNode);
+    } catch (Exception e) {
+      answer.put("status", "error");
+      answer.put("stage", "read");
+      answer.put("message", truncate(String.valueOf(e.getMessage())));
+      return;
+    }
+
+    ObjectNode written;
+    try {
+      LinkedHashMap<String, Object> asYaml = yamlRenderer.renderTemplateInstanceArtifact(stored);
+      TemplateInstanceArtifact sparse = yamlReader.readTemplateInstanceArtifact(asYaml);
+      TemplateInstanceArtifact complete = InstanceInflater.inflate(template, sparse);
+      written = jsonRenderer.renderTemplateInstanceArtifact(complete);
+    } catch (Exception e) {
+      answer.put("status", "error");
+      answer.put("stage", "complete");
+      answer.put("message", truncate(String.valueOf(e.getMessage())));
+      return;
+    }
+    mintElementInstanceIds(written);
+
+    ValidationReport report = validator.validateTemplateInstance(written, templateNode);
+    boolean accepted = "true".equals(report.getValidationStatus());
+    answer.put("status", "ok");
+    answer.put("accepted", accepted);
+    if (!accepted) {
+      ArrayNode errors = answer.putArray("errors");
+      int kept = 0;
+      for (ErrorItem item : report.getErrors()) {
+        if (kept++ >= MAX_LOSSES) break;
+        ObjectNode error = errors.addObject();
+        error.put("message", truncate(item.getMessage()));
+        error.put("location", item.getLocation());
+      }
+      answer.put("errorCount", report.getErrors().size());
+    }
+  }
+
+  /**
+   * Give every element instance without one an identifier, as the repository does before it
+   * validates a write.
+   *
+   * This mirrors {@code LinkedDataUtil.addElementInstanceIds} in cedar-config-library: a nested
+   * object is an element instance when it carries {@code @context}, and it needs an identifier
+   * when it has none or a null one. The rule is repeated here rather than depended on, so this
+   * bridge needs only the artifact library's classpath; if the repository's rule changes, this
+   * one has to follow.
+   */
+  private void mintElementInstanceIds(JsonNode node) {
+    if (node instanceof ObjectNode object) {
+      boolean isElementInstance = object.has("@context") && !object.has("schema:isBasedOn");
+      if (isElementInstance) {
+        JsonNode id = object.get("@id");
+        if (id == null || id.isNull())
+          object.put("@id", "https://repo.example/template-element-instances/minted-by-the-bridge");
+      }
+      for (Map.Entry<String, JsonNode> child : iterable(object.fields()))
+        if (!"@context".equals(child.getKey()))
+          mintElementInstanceIds(child.getValue());
+    } else if (node != null && node.isArray()) {
+      node.forEach(this::mintElementInstanceIds);
+    }
+  }
+
+  private static Iterable<Map.Entry<String, JsonNode>> iterable(
+      java.util.Iterator<Map.Entry<String, JsonNode>> iterator) {
+    Set<Map.Entry<String, JsonNode>> entries = new LinkedHashSet<>();
+    iterator.forEachRemaining(entries::add);
+    return entries;
   }
 
   private ObjectNode loss(String kind, String path, String value) {
