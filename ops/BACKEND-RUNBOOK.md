@@ -3205,8 +3205,9 @@ question and the template reads with it.
 
 A small share of reads fail as a transport error rather than an HTTP response: a socket timeout, or
 a name lookup that does not answer. Measured against production, 208 of 301,158 reads (0.069%), and
-0.126% under deliberate sustained load. Every one served when asked again. The rate is flat across
-a walk, so it is a property of the path rather than of any one run or any one artifact.
+0.126% under deliberate sustained load. Every one served when asked again. These observations
+establish intermittent read failures, not their cause. Enumeration-order buckets do not establish
+their distribution in time, and a successful repeat does not rule out intermittent service failure.
 
 The audit therefore re-reads everything that failed, one at a time, at the end of a run. Only the
 failures that survive are counted; the transient ones are reported as `unserved-transient` and the
@@ -3214,9 +3215,115 @@ survivors are written to an adjacent `-persistent.json` with both verdicts. `--n
 that pass, and then a failure is whatever the first ask returned, which overstates breakage — 43%
 of one whole-corpus run's failures were noise.
 
-Two rules hold whatever tool is used against these endpoints. **Never treat a first-pass failure as
-a finding.** And **distinguish a transport error from an HTTP status**: a transient failure carries
-no status code at all, while a stored defect carries a 500 whose message names it.
+Two rules hold whatever tool is used against these endpoints. **Do not classify a first-pass read
+failure as a stored-artifact defect without verification.** Retain it as a reliability observation
+even if a later attempt succeeds. **Distinguish a transport error from an HTTP status**: the 208
+failures above had no status, while the observed stored-data rejections returned a 500 naming the
+defect. HTTP failures can also be transient; a transport failure while reading a response body can
+occur after a status has arrived.
+
+### Diagnosing Intermittent Resource Reads
+
+For a controlled comparison, use the same known-readable artifact identifiers, JSON/YAML
+sequence and maximum request-start rate for fresh HTTPS connections and persistent connections.
+Keep runs bounded, validate TLS, and record failures without retrying them away. Capture UTC,
+connection reuse, local and remote addresses, status if received, and separate DNS, TCP, TLS,
+response-header and body durations. Keep API keys, permission-scoped identifiers and raw output
+outside Git. The one-off probe used for the investigation below is not maintained in this repository.
+
+Correlate UTC/request ID with **the deployed** nginx and resource logs. Repository staging
+configuration puts proxy logs under `$CEDAR_HOME/log/server-resource/nginx-{access,error}.log`,
+but does not prove production uses those paths or logs request IDs. Its combined access format
+does not include upstream timing. Inspect the active configuration before choosing logs; absence
+from an access log written on completion does not prove a connection never arrived. If extra
+logging is needed, capture incoming request ID, status, request time, upstream address/status,
+and upstream connect/header/response times without Authorization headers or bodies. TCP/TLS
+failures may require connection-level evidence at the edge and client, not an application log.
+No HTTP request ID reaches the server when TCP/TLS fails; use UTC and connection tuples instead,
+allowing for a NAT device rewriting the client's local source port.
+
+DNS failure points to resolution; TCP/TLS failure localizes the fault before application HTTP
+handling but does not distinguish the client, network, or accepting endpoint. Header/body delays
+need proxy and application correlation. Keep-alive improving reliability narrows the issue toward
+connection churn but does not by itself prove the cause. At the original 0.069% rate, zero failures
+in 3,000 independent requests has about a 13% probability, so short clean runs do not establish a
+healthy path. Compare rates at matched traffic levels and from a second host before changing
+service pools, resolver configuration, or proxy limits.
+
+**2026-09-21 investigation.** A rate-capped probe from the audit workstation over 100 previously
+clean instances reproduced failures before HTTP was sent. With 64 workers, a cap of 100 starts/s,
+fresh connections and a 10-second socket timeout, 4,611 attempts yielded 4,589 HTTP 200 responses,
+21 TLS-handshake timeouts and one TCP-connect timeout. The automatic stop triggered at ten
+observed transport failures; already running requests brought the final count to 22. DNS completed
+in milliseconds. Twenty TLS failures started between 16:45:59.734 and 16:45:59.958 UTC, so this
+sample contains a burst that enumeration buckets would conceal. All 13 affected instances then
+served both representations sequentially: 26/26 HTTP 200, using a 60-second timeout.
+
+A separate keep-alive run with the same 64 workers, 100 starts/s cap, 10-second timeout and sample
+completed 5,000/5,000 HTTP 200 reads; 4,936 actually reused a connection. Median/p95 latency was
+42.7/75.4 ms, versus 139.1/213.5 ms for the fresh-connection run. This supports connection reuse
+as a mitigation candidate, but the sequential runs do not prove that reuse alone explains the
+difference or that the original audit's failures all share this cause.
+
+These failures precede artifact handling but do not yet distinguish the workstation, its network
+path, or the TLS-terminating endpoint. The shorter timeout also means this failure rate cannot be
+equated with the original audit's rate. Earlier probes at caps of 10 and 40 starts/s completed
+800 and 10,000 requests with no failures; those preliminary probes omitted the standard client's
+TCP_NODELAY setting, so their latency comparisons are not the final baseline. The corrected probe
+matched that setting and recorded its source hash. Raw evidence, preserved original sweep files,
+checksums, probe provenance and the exact failed timestamps are retained locally under
+`$CEDAR_HOME/.cedar/diagnostics/resource-transport-2026-09-21/`, outside Git.
+
+Read-only production inspection then matched all 20,415 successful first-session reads to nginx
+HTTP 200 access records. The resource error log had no writes during the failure window; the
+root-owned global error log was not readable by the inspecting account. The configuration on disk
+has six running workers, `worker_connections 1024`, `worker_rlimit_nofile 1024`,
+`keepalive_requests 100` and `keepalive_timeout 65s`. The 100-request connection lifetime explains
+observed reconnects in the persistent lane; it does not establish a fault.
+
+The workstation's route changed from its ordinary network to a tunnel before host inspection.
+The first TCP monitor filtered the old client address and therefore could not observe the new
+connections. A first tunnel-path run served 3,000/3,000 fresh-connection reads; 800 concurrent
+server-loopback HTTPS GETs to `/`, with normal SNI/certificate verification, also passed. Loopback
+TLS median/p95/max was 14.5/30.3/62.1 ms. These are controls, not proof of absence of a rare fault.
+
+With the corrected source-address filter, another 2,000 tunnel-path reads produced seven TLS
+timeouts. Each followed a roughly 3–4 second TCP connection establishment. Of their seven source
+ports, five matched server TCP connections that remained established with only two received
+segments and no reported payload bytes throughout the observed stall; another appeared briefly
+with 1,332 received bytes, and one was not sampled. This observation is below the application layer:
+the server was not receiving a complete TLS exchange on those sockets. During the monitor,
+host-wide `ListenOverflows`, `ListenDrops`, `TCPBacklogDrop` and `SyncookiesSent` did not increase;
+retransmission counters did increase, but are not specific to these flows. Thus the failure is not
+confined to the ordinary external route, and changing Java pools or nginx limits remains
+unjustified.
+
+The operator then started overlapping packet-summary captures at the client's tunnel interface
+and the production NIC. The controlled 3,000-read run completed without timeout; a separate instance
+audit was also active, so this was not an isolated load test. One captured connection beginning
+just before the controlled run supplies a concrete explanation for a long TLS delay: the client
+sent its initial TLS message as 1,332 bytes followed immediately by 200 bytes, but the server
+initially received only the 1,332 bytes. The client saw an acknowledgment covering only that
+prefix and retransmitted the missing 200 bytes 6.065 seconds later. At the server, the two segments
+arrived 6.056 seconds apart; the first TLS response followed the final segment by 26.7 ms.
+These intervals are measured within each capture because the host clock offset was not measured.
+TCP sequence numbers, timestamp clocks and window options differ between the two sides, supporting
+an intervening TCP proxy/normalizer, without identifying the device responsible for the missing
+segment. This packet pair localizes that delay to the path between capture points, before nginx
+could receive the complete initial TLS message, rather than to artifact handling or TLS response
+processing. Earlier client-only delays around 15 seconds precede the server capture and cannot be
+independently localized by this pair.
+
+The concrete next step is a network-operator investigation of the public VIP/tunnel path: identify
+the intermediary and inspect packet-drop, retransmission and session/inspection events for the
+recorded tuple and time. `packet-correlation-summary.json` and the two short
+`matched-flow-54678-{client,server}.txt` excerpts in the local diagnostic directory contain the
+exact addresses, sequence ranges, times and checksums. Full captures remain there too; no packet
+payload dump was requested. The server capture stopped at its five-minute deadline, and its
+process exit was verified. No production service or network configuration was changed. Keep
+bounded retries and preserve transient-failure metrics; connection reuse remains a mitigation
+candidate, not an established repair of the network fault. The original DNS failures remain a
+separate, unreproduced symptom.
 
 ### An Artifact Identifier Is Opaque
 
