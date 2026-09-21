@@ -17,12 +17,17 @@
 //     {"op": "hello"}
 //     {"op": "convert", "kind": "template" | "element" | "field", "yaml": "<document>",
 //      "compact": false}
+//     {"op": "render", "kind": "template" | "element" | "field", "json": {...},
+//      "compact": false}
 //     {"op": "validate", "kind": "template" | "element" | "field", "artifact": {...}}
 //     {"op": "shutdown"}
 //
 // A convert answer carries "status": "ok" with the rendered "json", or "error" with the "stage" it
 // failed at — "parse" for a document YAML itself rejects, "read" for one the artifact model cannot
-// represent, "render" for a model the JSON renderer cannot write. A validate answer carries
+// represent, "render" for a model the JSON renderer cannot write. A render answer is the other
+// direction, JSON Schema to YAML, and carries "yaml" with the same stages: it exists so a caller
+// can start from the document a deployment stores rather than from one a deployment rendered, which
+// is the only way a YAML writer is put under test rather than merely used. A validate answer carries
 // "status": "valid", "invalid" or "error", and an invalid answer lists the library's errors and
 // warnings as {message, location}. Nothing but answers goes to stdout; logging goes to stderr.
 //
@@ -38,8 +43,11 @@ import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 import org.metadatacenter.artifacts.model.core.ElementSchemaArtifact;
 import org.metadatacenter.artifacts.model.core.FieldSchemaArtifact;
 import org.metadatacenter.artifacts.model.core.TemplateSchemaArtifact;
+import org.metadatacenter.artifacts.model.reader.JsonArtifactReader;
 import org.metadatacenter.artifacts.model.reader.YamlArtifactReader;
 import org.metadatacenter.artifacts.model.renderer.JsonArtifactRenderer;
+import org.metadatacenter.artifacts.model.core.Artifact;
+import org.metadatacenter.artifacts.model.tools.YamlSerializer;
 import org.metadatacenter.model.validation.CedarValidator;
 import org.metadatacenter.model.validation.ModelValidator;
 import org.metadatacenter.model.validation.report.ErrorItem;
@@ -112,6 +120,7 @@ public class CedarYamlConvertBridge {
           answer.put("java", System.getProperty("java.version"));
         }
         case "convert" -> convert(request, answer);
+        case "render" -> render(request, answer);
         case "validate" -> validate(request, answer);
         case "shutdown" -> answer.put("status", "ok");
         default -> {
@@ -197,6 +206,60 @@ public class CedarYamlConvertBridge {
       };
       answer.put("status", "ok");
       answer.set("json", rendering);
+    } catch (Throwable t) {
+      answer.put("status", "error");
+      answer.put("stage", "render");
+      answer.put("exception", t.getClass().getName());
+      answer.put("message", truncate(String.valueOf(t.getMessage())));
+    }
+  }
+
+  /**
+   * Read a JSON Schema document into the artifact model and render it back out as YAML.
+   * <p>
+   * The inverse of {@link #convert}, reporting the same three stages apart so the caller counts
+   * them separately: "parse" for a body that is not an object, "read" for one the model cannot
+   * represent, "render" for a model the YAML renderer cannot write.
+   */
+  private void render(JsonNode request, ObjectNode answer) {
+    String kind = request.path("kind").asText();
+    JsonNode source = request.get("json");
+    if (source == null || !source.isObject()) {
+      answer.put("status", "error");
+      answer.put("stage", "parse");
+      answer.put("message", "render needs an object json document");
+      return;
+    }
+    boolean compact = request.path("compact").asBoolean(false);
+
+    Object artifact;
+    try {
+      JsonArtifactReader jsonReader = new JsonArtifactReader();
+      artifact = switch (kind) {
+        case "template" -> jsonReader.readTemplateSchemaArtifact((ObjectNode) source);
+        case "element" -> jsonReader.readElementSchemaArtifact((ObjectNode) source);
+        case "field" -> jsonReader.readFieldSchemaArtifact((ObjectNode) source);
+        default -> null;
+      };
+      if (artifact == null) {
+        answer.put("status", "error");
+        answer.put("stage", "request");
+        answer.put("message", "unknown kind: " + kind);
+        return;
+      }
+    } catch (Throwable t) {
+      answer.put("status", "error");
+      answer.put("stage", "read");
+      answer.put("exception", t.getClass().getName());
+      answer.put("message", truncate(String.valueOf(t.getMessage())));
+      return;
+    }
+
+    try {
+      // The same call and the same quoting the resource server uses, so a document rendered here
+      // is comparable with one the deployment serves rather than with a form nothing emits.
+      answer.put("status", "ok");
+      answer.put("yaml", YamlSerializer.getYAML((Artifact) artifact, compact, true));
     } catch (Throwable t) {
       answer.put("status", "error");
       answer.put("stage", "render");

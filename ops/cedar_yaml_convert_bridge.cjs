@@ -64,17 +64,19 @@ try {
   process.exit(2);
 }
 
-for (const name of ['CedarYamlReaders', 'CedarWriters']) {
+for (const name of ['CedarYamlReaders', 'CedarJsonReaders', 'CedarWriters']) {
   if (!library[name]) {
     process.stderr.write(`${libraryPath} does not export ${name}; it is not a CEDAR model library build\n`);
     process.exit(2);
   }
 }
 
-const { CedarYamlReaders, CedarWriters } = library;
+const { CedarYamlReaders, CedarJsonReaders, CedarWriters } = library;
 const readers = CedarYamlReaders.getStrict();
 const compactReaders = CedarYamlReaders.getStrictForCompact();
 const writers = CedarWriters.json().getStrict();
+const jsonReaders = CedarJsonReaders.getStrict();
+const yamlWriters = CedarWriters.yaml().getStrict();
 
 /** What the reader had to say about a document it read anyway. */
 function readerReport(parsingResult) {
@@ -109,6 +111,68 @@ function readerReport(parsingResult) {
  * Reading and writing fail for different reasons and the caller counts them apart, so each step
  * reports the stage it was at rather than a single conversion failure.
  */
+/**
+ * Read a JSON Schema document into the artifact model and render it back out as YAML.
+ *
+ * The inverse of convert, reporting the same stages apart. It exists so a caller can start from
+ * the document a deployment stores rather than from one a deployment rendered, which is the only
+ * way this library's YAML writer is put under test rather than merely used.
+ */
+function render(request, answer) {
+  const kind = request.kind;
+  if (request.json === null || typeof request.json !== 'object' || Array.isArray(request.json)) {
+    answer.status = 'error';
+    answer.stage = 'parse';
+    answer.message = 'render needs an object json document';
+    return;
+  }
+  const compact = request.compact === true;
+
+  let artifact;
+  let report;
+  try {
+    if (kind === 'template') {
+      const result = jsonReaders.getTemplateReader().readFromObject(request.json);
+      artifact = result.template;
+      report = readerReport(result.parsingResult);
+    } else if (kind === 'element') {
+      const result = jsonReaders.getTemplateElementReader().readFromObject(request.json);
+      artifact = result.element;
+      report = readerReport(result.parsingResult);
+    } else if (kind === 'field') {
+      const result = jsonReaders.getTemplateFieldReader().readFromObject(request.json);
+      artifact = result.field;
+      report = readerReport(result.parsingResult);
+    } else {
+      answer.status = 'error';
+      answer.stage = 'request';
+      answer.message = `unknown kind: ${kind}`;
+      return;
+    }
+  } catch (error) {
+    answer.status = 'error';
+    answer.stage = 'read';
+    answer.exception = error && error.constructor ? error.constructor.name : typeof error;
+    answer.message = error && error.message ? error.message : String(error);
+    return;
+  }
+
+  try {
+    const writer = kind === 'template' ? yamlWriters.getTemplateWriter()
+      : kind === 'element' ? yamlWriters.getTemplateElementWriter()
+        : yamlWriters.getFieldWriterForField(artifact);
+    answer.yaml = writer.getAsYamlString(artifact, compact);
+    answer.status = 'ok';
+    answer.readErrors = report.errors;
+    answer.readWarnings = report.warnings;
+  } catch (error) {
+    answer.status = 'error';
+    answer.stage = 'render';
+    answer.exception = error && error.constructor ? error.constructor.name : typeof error;
+    answer.message = error && error.message ? error.message : String(error);
+  }
+}
+
 function convert(request, answer) {
   const kind = request.kind;
   if (typeof request.yaml !== 'string') {
@@ -195,6 +259,9 @@ function answerFor(line) {
         answer.library = libraryPath;
         answer.libraryVersion = libraryVersion();
         answer.node = process.versions.node;
+        break;
+      case 'render':
+        render(request, answer);
         break;
       case 'convert':
         convert(request, answer);
