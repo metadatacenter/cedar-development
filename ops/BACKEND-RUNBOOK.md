@@ -3124,16 +3124,16 @@ complete for what this key can enumerate and read.
 
 ## Round-Tripping Every Instance Through YAML
 
-`ops/cedar_instance_roundtrip_audit.py` asks two questions about every template instance a key can
-read, and it is the instance counterpart of the schema-artifact conversion audit. Can the library
-read the YAML the deployment serves, and does it write that document back unchanged? And does the
-instance survive a trip through YAML — JSON to the model, out as YAML, back to the model, out as
-JSON again — with nothing lost? Its HTTP client implements GET only, and it never writes an
-artifact.
+`ops/cedar_instance_roundtrip_audit.py` asks three questions about every template instance a key
+can read, and it is the instance counterpart of the schema-artifact conversion audit. Can the
+library read the YAML the deployment serves, and does it write that document back unchanged? Does
+the instance survive a trip through YAML — JSON to the model, out as YAML, back to the model, out
+as JSON again — with nothing lost? And would a YAML write of it be stored? Its HTTP client
+implements GET only, and it never writes an artifact.
 
-The two questions disagree whenever a deployment lags the library, and the run reports them apart
-for that reason. The first answers for whichever jar production is running. The second is what says
-whether the library is correct today.
+The first two disagree whenever a deployment lags the library. The first answers for whichever jar
+production is running; the second for the library as it stands. The third is the one that matters
+operationally, and it is not the second.
 
 ```bash
 export JAVA_HOME=$(/usr/libexec/java_home -v 17)
@@ -3158,6 +3158,48 @@ kind.
 The run streams one record per instance, including a `"clean": true` record for an instance with
 nothing to say, which is what `--resume` reads back to know what is done. `--limit` makes a sample
 run, `--page-size` and `--fetch-workers` tune the walk, and `--timeout` bounds one read.
+
+### Would a YAML Write Be Stored?
+
+The third question is the useful one, and asking it needs the template. A template-free trip loses
+everything the template restores, so it reports as damaged an instance the deployment would write
+back perfectly: of one whole-corpus run's 607 instances said to lose content, most lost nothing a
+write would put back.
+
+So the run performs the sequence the resource server performs. Render the YAML a client would send,
+read it back, complete it against its template with `InstanceInflater`, mint the element-instance
+identifiers the repository mints, and validate with `cedar-model-validation-library`. Every step
+belongs there. Omitting the minting step alone made each element the YAML elided look like a null
+identifier and produced refusals the server would never issue — `TemplateInstancesResource` calls
+`setProvenanceAndId` before `validateArtifact`, and `LinkedDataUtil` treats a null `@id` on
+anything carrying `@context` as an identifier to mint, so `@id: null` is the correct wire form
+rather than a defect.
+
+**Whether the deployment holds the stored document as valid is settled first**, because that is
+what any later outcome means. Refusing or failing on an instance that is already invalid against
+its own template is correct behaviour. Doing either to one the deployment holds as valid is this
+path's defect. The tally separates them, and only the second kind reaches the summary's list of
+reasons a write would be refused.
+
+Over the oldest two thousand instances, the worst region of the corpus, that separation gives:
+
+```
+1773  write-path-accepted
+ 142  refused, and the stored instance was already invalid
+  35  failed to complete, stored already invalid
+  18  failed to read, stored already invalid
+  33  accepted although stored invalid   (the write path repairs these)
+  19  failed to read, though stored valid
+   7  refused, though stored valid
+   1  failed to complete, though stored valid
+```
+
+Twenty-seven of two thousand are this path's own defects. Counting the correct refusals alongside
+them, as an earlier pass did, overstates the problem by a factor of seven.
+
+Each distinct template is read once and a template that cannot be read is remembered as such, so
+the walk costs one extra read per template rather than per instance. `--no-write-path` skips the
+question and the template reads with it.
 
 ### A Failed Read Is Not a Finding
 

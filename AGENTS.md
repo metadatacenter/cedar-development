@@ -96,12 +96,15 @@ below have no CLI front end yet, so call them directly:
   their own.
 - `cedar_instance_roundtrip_audit.py` — the instance counterpart of the conversion audit: a GET-only
   walk over every template instance, asking whether the library reads the YAML the deployment serves
-  and reproduces it, and whether the instance survives JSON to the model, out as YAML, back, and out
-  as JSON again. YAML carries no context and no empty field by design, so the bridge counts those
-  differences apart from content the trip actually lost. One JVM,
-  `cedar_instance_roundtrip_bridge.java`, stays up for the pass. It re-reads every failed read at the
-  end, because a share of reads fail as a socket timeout rather than an answer and asking again
-  settles them. Streams one record per instance, resumes, never writes.
+  and reproduces it, whether the instance survives JSON to the model, out as YAML, back, and out as
+  JSON again, and whether a YAML write of it would be stored. The last is the one that matters, and
+  it runs what the server runs — complete the document against its template, mint the
+  element-instance identifiers the repository mints, then validate — because a template-free trip
+  reports as damaged an instance the server would write back perfectly. Whether the deployment holds
+  the stored document as valid is settled first, so a refusal is attributed either to the data or to
+  this path. One JVM, `cedar_instance_roundtrip_bridge.java`, stays up for the pass. It re-reads
+  every failed read at the end, because a share of reads fail as a socket timeout rather than an
+  answer and asking again settles them. Streams one record per instance, resumes, never writes.
 - `cedar_content_constraint_survey.py` — what production holds in the fields the meta-schema
   constrains only as strings. Roughly half the string-typed properties it describes carry no
   pattern, format or enumeration, so a rule only one component enforces produces stored data
