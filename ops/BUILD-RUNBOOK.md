@@ -436,6 +436,13 @@ the corresponding published train was reproduced.
 
 ## Failure Diagnosis
 
+An HTTP 502 during Maven upload can occur after compilation succeeds and after some immutable
+files have reached Nexus. The 2.9.18 reactor-validation train hit it on large application jars.
+The uploader retries transport failures with bounded backoff; if retries are exhausted, check
+publication-target health and resume the same train ID while its captured source is unchanged.
+Do not replace partially published versions. A source correction instead requires a new
+smoke-covered train, even when the earlier failure itself was only a transport problem.
+
 Follow the dispatched job with:
 
 ```bash

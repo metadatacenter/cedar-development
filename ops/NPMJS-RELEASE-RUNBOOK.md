@@ -598,6 +598,9 @@ and normalizes only this closed release-provenance list:
 
 - package name, version, publish channel, and root lock identity;
 - the one embedded CEE version, model-package identity, and load trace in the browser bundle;
+- the one design-token pin embedded in the build manifest's `devDependencies`: the development
+  pin must equal the train's planned token package, and the public pin must be exact. Compiled
+  styles remain subject to the full byte comparison; no other dependency or code is normalized;
 - the bundle manifest derived from those browser-bundle bytes;
 - CEE's exact `allowScripts` install policy if embedded from root `package.json`: the planner reads
   it from the train's captured CEE commit and permits its minified literal exactly once; and
