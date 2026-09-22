@@ -903,6 +903,16 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   goes. If they are debris, `cedar_artifact_patch.py` should remove them and both YAML writers should
   stop carrying them.
 
+  **One document shows the shape with a term an author chose, and no corpus case covers it.**
+  `template-033-original.json` carries it twice, on `Data Characteristics Table in Key-Value Pairs`
+  and `Data File Descriptive Key-Value Pairs`, and its values are
+  `https://w3id.org/radx/radmo/dataCharacteristicsTableInKeyValuePairs` and
+  `https://w3id.org/radx/radmo/auxiliaryMetadataKeyValuePair` rather than minted identifiers. The
+  debris reading therefore cannot be assumed for the shape in general, whatever those three entries
+  turn out to be. The canonical `template-033.json` has no attribute-value child at all, because the
+  case was restructured in April 2024, so nothing in the corpus exercises an attribute-value child
+  carrying a vocabulary term. Adding such a case belongs to whichever answer is taken.
+
   This is not the question a requirement on the same type answers, and the difference is the whole of
   it: a requirement has nowhere to go in the JSON form, because an attribute-value field carries no
   `_valueConstraints` node at all, so the YAML writers record nothing. A property IRI has somewhere to
