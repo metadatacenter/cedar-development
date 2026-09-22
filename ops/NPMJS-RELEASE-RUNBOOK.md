@@ -437,6 +437,12 @@ export CEE_PREP_COMMIT=$(git rev-parse HEAD)
 gh pr create --base main --head develop --title "Release CEE ${CEE_VERSION}"
 ```
 
+The token-adoption PR check compares against `main`, so a baseline that passes against the
+previous `develop` commit can still fail here. For 2.0.17, one pager padding allowance had grown
+since the preceding release. Replacing literal `6px` with the equivalent shared spacing expression
+and removing that allowance preserved compiled output while satisfying the release comparison.
+Do not raise the baseline to make a release PR green.
+
 Wait for the prepare job and every visual shard. Merge only when they are green:
 
 ```bash
