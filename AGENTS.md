@@ -276,10 +276,11 @@ to Nexus and consumer development-pin/lockfile updates are allowed when needed; 
 not be presented as a blocker to using the sources just built. Release-version changes and
 Git commit/push are separate from this contract.
 
-The command currently builds and records the runtime selection but does not yet automate every
-remaining stage. Until it does, complete those stages with the existing CLI commands without
-waiting for another request, and do not call compilation alone a completed reactor. See
-[The Reactor](ops/FRONTEND-RUNBOOK.md#the-reactor) for the contract and current implementation.
+The command runs component verification, records the immutable build graph and runtime selection,
+restarts local frontends, verifies their installed component bytes, and runs whole-stack smoke.
+Tracked development pins remain unchanged: dependency rewrites and resolved locks belong to the
+isolated build and its retained evidence. Trains independently build captured committed sources.
+See [The Reactor](ops/FRONTEND-RUNBOOK.md#the-reactor) for the completion and failure contract.
 
 ## Version locks and framework state
 

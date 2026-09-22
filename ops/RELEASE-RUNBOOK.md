@@ -222,7 +222,9 @@ bounded retry; an HTTP refusal does not.
 The release runs these phases, each verifying its work before the next begins:
 
 1. Clone every train source commit into isolated workspaces, and pin the public CEE version in all
-   seven frontend consumer manifests and lockfiles.
+   seven frontend consumer manifests and lockfiles. Shared-component pins (tokens, picker and
+   designer) also follow the train's verified package graph; their exact registry tarball and
+   integrity are checked before and after lock generation.
 2. Stamp `<VER>` and `<NEXT>` from the same source commits, and move the copyright year in every
    `license.txt` to the release year. Both variants retain the stable public CEE wiring. The
    Docker build's frontend defaults in `cedar-images-base.sh` are rewritten from the train's

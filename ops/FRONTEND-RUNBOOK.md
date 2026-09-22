@@ -189,7 +189,8 @@ on older components. Release preparation remains a separate operation.
    compilation alone does not fulfill a request for a full frontend reactor.
 
 The frontend build guard checks the frontend source repositories and CLI tooling. Within
-`cedar-development`, it checks `bin/`, `ops/frontend-train.json` and `ops/cedar-services.sh`:
+`cedar-development`, it checks `bin/`, `ops/frontend-train.json`, `ops/cedar-services.sh`
+and `ops/frontend_reactor_runtime.py`:
 profiles and frontend build/runtime configuration. Concurrent edits or commits to backend audits,
 repairs and documentation do not invalidate a frontend build. A guard failure means tracked inputs
 changed during the run; it does not establish that the build itself changed them.
@@ -198,13 +199,11 @@ This contract does not require a release, a production deployment, or a Git comm
 Development package publication and development-pin updates are distinct from release-version
 changes. Commit/push remains subject to the user’s instruction.
 
-**Current implementation boundary:** the command currently builds the sources and records the
-runtime selection described below. It does not yet orchestrate every verification step, frontend
-restart and smoke test itself. Until that orchestration is implemented, the operator or agent
-fulfilling a frontend reactor request must also run the applicable visual/integration checks,
-`cedarcli native restart frontends`, served-bundle verification and `cedarcli test e2e` before
-calling the request complete. This is an implementation gap, not a narrower meaning of “reactor”.
-No additional user request is needed to complete those stages.
+The command runs the component verification gates in the isolated build copies, records the
+successful package selection, restarts all native frontends, verifies their installed reactor
+packages, and runs both whole-stack smoke tiers. A failure at any stage returns nonzero. A
+compilation failure leaves the previous runtime selection intact; a deployment or smoke failure
+leaves the newly selected composition available for diagnosis and does not report completion.
 
 #### Current artifact transport
 
@@ -225,7 +224,7 @@ producer's `prepare` script. Missing or invalid package output and packing or st
 fail the producer task.
 
 `npm ci` becomes `npm install` for the same build, since a rewritten manifest no longer matches the
-lock, and the copy's lock is discarded with the copy. A development build is therefore not
+lock, and the resolved manifests and locks are retained as evidence before the copy is discarded. A development build is therefore not
 lockfile-reproducible, which is why the pinned build stays the release path.
 
 Each build snapshots the available references once, then advances its own selection as its
@@ -244,8 +243,8 @@ build leaves the previous selection intact, and concurrent producer refs cannot 
 completed selection. The runtime checker verifies the selected tarball hash, install provenance
 and served bytes, so no publication is needed for local smoke tests.
 
-The current build stage does not interrupt running frontends; run
-`cedarcli native restart frontends` after it to serve the new build. Its local-tarball transport
+The compilation stage leaves running frontends alone; after compilation and component checks,
+`build frontends` restarts them to serve the selected build. Its local-tarball transport
 does not publish to a registry or modify tracked manifests or locks: the build rewrite happens
 in the throwaway copy. This describes the current transport, not a prohibition on Nexus dev
 publication or development-pin updates when needed to fulfill the reactor contract. A server payload builds in place
@@ -257,6 +256,38 @@ each repository's CI runs `npm ci` on every push, and `cedarcli check components
 and train preflights judge the composition. The isolated compilation stage proves the sources compose. Completing the local reactor
 contract also requires runtime verification and smoke; release and train gates still verify
 the separately pinned shipping composition.
+
+#### Reading reactor evidence
+
+`.reactor/runtime.json` names the selected package hashes and its `build` record under
+`.reactor/builds/<SHA256>.json`. That immutable record contains each built source's Git revision,
+fingerprint of tracked and nonignored source files (including uncommitted changes), executed
+commands, local dependency edges, integration-test sibling hashes, and resolved manifests and locks.
+All source fingerprints are captured before the first task, checked before each copy is built, and
+checked again when the graph is recorded. Package version labels are
+not source identities: a package compiled today can retain an older development version string.
+Use the source fingerprint and artifact hash to identify what was built.
+
+The train never searches this machine for a previous reactor. It captures committed sources and
+builds its own graph, publishing immutable packages before wiring their consumers. A local reactor
+can therefore test uncommitted work, but a train requires committed, pushed sources and smoke
+evidence for those commits. Finish controller changes and runbook updates before the final smoke
+and train capture; moving a captured head invalidates release eligibility.
+
+A fresh model can expose failures hidden by an older checked-in pin. In particular, the model's
+empty-string description default requires new designer child deployments to use the built
+child's effective schema description rather than assuming an absent value is always null. Otherwise YAML restores `""` where JSON omitted the override, and the
+designer's loss-detection guard refuses valid exports. Preserve the loss-detection guard and align
+the producer/consumer default; do not bypass the gate or restore an older library to make it green.
+
+The designer's browser suite conditionally enables real-sibling tests through `CEF_BUNDLE` and
+`PICKER_BUNDLE`. The reactor supplies both from its selected immutable packages and records their
+hashes. A test suite passing with these inputs absent does not prove the CEE/picker/designer
+integration, because those cases are ignored or skipped.
+
+CEE's container visual gate mounts the local reactor artifact directory read-only at its original
+absolute path. Without that mount, the host can install a `file:` dependency while the container
+cannot resolve the same generated lock. The mount exposes only immutable tarballs.
 
 ### Recording a Pin
 
@@ -272,11 +303,12 @@ builds it, and every consumer whose pin follows it. The design tokens publish fr
 root and declare `"."`; the term picker and the designer stage under `dist-npm/`.
 
 A component something else publishes is declared to be followed instead, with `publishedBy` and a
-`reference`. The TypeScript model library is the one: the build train publishes its development
-snapshots and advances CEE's pin, and nothing advanced the other consumers. Its target is the
-version the reference consumer already carries rather than a new stamp, because the library's own
-manifest names its last stamp and not always the newest snapshot the train published. A followed
-component is never stamped, built or published here; only the pins move.
+`reference`. The TypeScript model library is the one: this command follows CEE's checked-in model pin when
+updating the designer. It does not discover the latest model source or consume local reactor
+artifacts. The build train publishes and wires its own model, CEE and shared-component versions in
+disposable checkouts; it does not update this reference consumer in the source checkout. A followed
+component is never stamped, built or published by `publish components`; only its declared pins move.
+Do not use this command as evidence that a reactor's complete dependency graph was published.
 
 Applying it stamps the component's next development version from its `develop` head, runs its dist
 command, publishes the staged package under the `dev` tag, then repoints each consumer's manifest,

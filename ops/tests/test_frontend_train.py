@@ -151,8 +151,16 @@ class FrontendTrainTest(unittest.TestCase):
             write(app / "package.json", app_manifest)
             app_sha = commit(app)
 
+            tokens = workspace / 'tokens'
+            write(tokens / 'package.json', {'name': '@org.metadatacenter/tokens', 'version': '0.1.0-dev.old'})
+            tokens_sha = commit(tokens)
+
             config = {
                 "registry": "https://registry.example/npm/",
+                "components": [{'id': 'tokens', 'repository': 'tokens',
+                                'publishedName': '@org.metadatacenter/tokens',
+                                'sourceManifest': 'package.json', 'stagedPackage': '.',
+                                'distCommand': ['npm', 'run', 'build'], 'consumers': []}],
                 "model": {"repository": "model", "sourceManifest": "package.json",
                           "publishedManifest": "package-dist.json"},
                 "cee": {"repository": "cee", "sourceManifest": "package.json",
@@ -173,7 +181,7 @@ class FrontendTrainTest(unittest.TestCase):
             write(config_path, config)
             write(state / "trains" / f"{VERSION}.json", {
                 "version": VERSION,
-                "repositories": {"model": model_sha, "cee": cee_sha, "app": app_sha},
+                "repositories": {"model": model_sha, "cee": cee_sha, "app": app_sha, 'tokens': tokens_sha},
                 "frontendPackages": {"CEDAR_WEB_COMPONENTS_NPM_VERSION": "2.8.0"},
             })
 
@@ -202,6 +210,9 @@ class FrontendTrainTest(unittest.TestCase):
             self.assertEqual(cee_sha, plan["cee"]["revision"])
             self.assertEqual("train-owned", plan["model"]["publication"])
             self.assertEqual("train-owned", plan["cee"]["publication"])
+            self.assertEqual(tokens_sha, plan['components'][0]['revision'])
+            self.assertEqual(frontend_train.train_package_version('0.1.0', VERSION, tokens_sha),
+                             plan['components'][0]['version'])
             self.assertEqual([{
                 "name": "@webcomponents/webcomponentsjs",
                 "version": "2.8.0",
@@ -218,6 +229,33 @@ class FrontendTrainTest(unittest.TestCase):
                     root / "package.json", root / "package-lock.json",
                     "cee", CEE_NAME, CEE_VERSION,
                 )
+
+    def test_shared_component_wiring_checks_publication_before_advancing_dev_dependency(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            name = '@org.metadatacenter/tokens'
+            dependency_files(root / 'app', name, name, '0.1.0-old')
+            for filename in ('package.json', 'package-lock.json'):
+                path = root / 'app' / filename
+                path.write_text(path.read_text().replace('dependencies', 'devDependencies'))
+            component = {'name': name, 'version': '0.1.0-new', 'consumers': [
+                {'repository': 'app', 'dependency': name, 'manifest': 'package.json', 'lock': 'package-lock.json'}]}
+            plan = {'registry': 'https://registry.example', 'components': [component]}
+            args = argparse.Namespace(workspace=root)
+            with patch.object(frontend_train, 'verify_record', side_effect=RuntimeError('missing producer')), \
+                    patch.object(frontend_train, 'install_exact_alias') as install:
+                with self.assertRaisesRegex(RuntimeError, 'missing producer'):
+                    frontend_train.wire_components(args, plan, 'app')
+                install.assert_not_called()
+            def install(cwd, dependency, published, version, legacy):
+                dependency_files(cwd, dependency, published, version)
+                for filename in ('package.json', 'package-lock.json'):
+                    path = cwd / filename
+                    path.write_text(path.read_text().replace('dependencies', 'devDependencies'))
+            with patch.object(frontend_train, 'verify_record'), \
+                    patch.object(frontend_train, 'install_exact_alias', side_effect=install):
+                self.assertEqual(['package.json', 'package-lock.json'],
+                                 frontend_train.wire_components(args, plan, 'app'))
 
     def test_registry_verification_hashes_the_downloaded_tarball(self):
         tarball = b"immutable npm tarball"

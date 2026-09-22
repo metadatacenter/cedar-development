@@ -5,16 +5,17 @@ commits. Versions are changed only in disposable checkouts; native `develop` kee
 `<NEXT>-SNAPSHOT` versions. Maven train artifacts use `<NEXT>-dev.YYYYMMDD.HHMM` in
 Nexus `cedar-maven-dev`.
 
-Local frontend builds (`cedarcli build frontends`, `build all`, `build this`) are compile-only: disposable source
-copies, private npm caches, `CI=true`, and `npm ci` with each repository's declared peer mode.
-They discard output and do not share a live development server's `node_modules` or Angular cache.
-Manifest/lock disagreements fail rather than rewriting locks.
+Local frontend builds compile disposable source copies with private dependency installs and caches.
+The frontend reactor resolves internal dependencies from the packages just built, retains immutable
+tarballs and resolved build evidence under `.reactor/`, and leaves tracked manifests and locks
+unchanged. `cedarcli build frontends` also runs component gates, restarts the native frontends,
+verifies the selected installations and runs whole-stack smoke. See
+[the frontend reactor](FRONTEND-RUNBOOK.md#the-reactor) for its completion and failure contract.
 
-Ordinary builds compare tracked state across the estate before and after, even on failure.
-Pre-existing edits are the baseline; changes made during the build fail the guard, including edits
-from another session. Keep concurrent writers idle during this verification window. Publishing owns
-tracked distributions. `split-frontends --server-payload` is an explicit in-place exception and
-refuses to run while a development runtime owns the checkout.
+Build guards reject changes to their tracked source inputs during compilation. The frontend-only
+guard excludes unrelated backend work and runbook edits. Publishing owns tracked distributions;
+`split-frontends --server-payload` remains an explicit in-place build and refuses to run while a
+runtime owns the checkout.
 
 The `Angular build isolation canary` checks this boundary on Linux and macOS weekly, on dispatch
 and when its implementation changes. It keeps Monitoring's real development server running with
@@ -219,19 +220,23 @@ A partial or failed train can never become current.
 Next, the workflow creates `npm/trains/<TRAIN_ID>.json` before npm publication and runs three visible,
 ordered jobs:
 
-1. **npm 1/3 · TypeScript model.** The job stamps the captured model commit in its disposable
+1. **npm 1/3 · TypeScript model.** The job first builds, publishes and verifies the captured design
+   tokens under a train-owned version. It then stamps the captured model commit in its disposable
    checkout as `<MODEL_NEXT>-dev.YYYYMMDDHHMM.g<SHA12>`, runs lint, typecheck, coverage, JSON and
    YAML parity, and the packed-consumer test, then publishes the scoped package to Nexus. It
    downloads the result, verifies its registry integrity and `gitHead`, and records
    `npm/model/completed/<TRAIN_ID>.json`.
 2. **npm 2/3 · CEE.** The job starts again from the captured CEE commit, pins the train-published
-   model alias with integrity in both the root and visual lockfiles, and stamps CEE as
+   model alias with integrity in both the root and visual lockfiles, wires the train-owned tokens,
+   and stamps CEE as
    `<CEE_NEXT>-dev.YYYYMMDDHHMM.g<SHA12>`. On the ARM runner required by CEE, it runs the complete
    unit, coordinator, domain, visual, package, type and production-audit gate. Only that tested
    package is published and verified; `npm/cee/completed/<TRAIN_ID>.json` records the result.
-3. **npm 3/3 · frontends.** In fresh captured checkouts, the job pins that exact CEE alias and
-   integrity in all seven embedding manifests and lockfiles. It rebuilds Bridging because Bridging
-   vendors CEE into its distributed bytes; OpenView receives the same verified CEE tarball through
+3. **npm 3/3 · frontends.** The job builds and publishes the captured picker and designer, wiring
+   the train tokens into both and the train model into the designer. In fresh application
+   checkouts, it pins those shared components and that exact CEE alias and
+   integrity in all seven embedding manifests and lockfiles. It rebuilds Bridging, Monitoring and OpenView from those wired sources rather than packing
+   their previously committed distributions; OpenView receives the same verified CEE tarball through
    its explicit Docker runtime input. It records hashes of every prepared manifest, lock and built
    payload before publishing the seven frontend packages.
 

@@ -30,7 +30,7 @@ def current(cedar_home: Path, frontend: Path) -> bool:
         return False
 
 
-def sync(cedar_home: Path, frontend: Path) -> None:
+def sync(cedar_home: Path, frontend: Path, *, verify_only=False) -> None:
     """Install successful reactor outputs without changing tracked manifests or locks."""
     runtime = cedar_home / '.reactor/runtime.json'
     if not runtime.is_file():
@@ -66,12 +66,14 @@ def sync(cedar_home: Path, frontend: Path) -> None:
                         matches = False
             needs_install |= not matches
     if specs and needs_install:
+        if verify_only:
+            raise ValueError('Installed components differ from reactor selection: ' + str(frontend))
         print('Installing local reactor components for ' + str(frontend), flush=True)
         subprocess.run(['npm', 'install', '--no-save', '--ignore-scripts', '--no-audit', '--no-fund', *specs], cwd=frontend, check=True)
 
 
 if __name__ == '__main__':
-    if len(sys.argv) == 4 and sys.argv[1] == 'sync':
-        sync(Path(sys.argv[2]), Path(sys.argv[3]))
+    if len(sys.argv) == 4 and sys.argv[1] in ('sync', 'verify'):
+        sync(Path(sys.argv[2]), Path(sys.argv[3]), verify_only=sys.argv[1] == 'verify')
     else:
         sys.exit(0 if current(Path(sys.argv[1]), Path(sys.argv[2])) else 1)

@@ -226,6 +226,23 @@
       "ceeConsumer": {
         "manifest": "cedar-openview-src/package.json",
         "lock": "cedar-openview-src/package-lock.json"
+      },
+      "preparedBuild": {
+        "directory": "cedar-openview-src",
+        "commands": [
+          [
+            "npm",
+            "ci"
+          ],
+          [
+            "npm",
+            "run",
+            "build",
+            "--",
+            "--configuration=production"
+          ]
+        ],
+        "output": "cedar-openview-src/dist/cedar-openview"
       }
     },
     {
@@ -240,7 +257,24 @@
       "image": "cedar-frontend-monitoring",
       "repository": "cedar-monitoring",
       "packagePath": "cedar-monitoring-dist",
-      "npmVersionVariable": "CEDAR_MONITORING_NPM_VERSION"
+      "npmVersionVariable": "CEDAR_MONITORING_NPM_VERSION",
+      "preparedBuild": {
+        "directory": "cedar-monitoring-src",
+        "commands": [
+          [
+            "npm",
+            "ci"
+          ],
+          [
+            "npm",
+            "run",
+            "build",
+            "--",
+            "--configuration=production"
+          ]
+        ],
+        "output": "cedar-monitoring-src/dist/cedar-monitoring"
+      }
     },
     {
       "id": "bridging",
