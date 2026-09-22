@@ -284,6 +284,10 @@ The designer's browser suite conditionally enables real-sibling tests through `C
 `PICKER_BUNDLE`. The reactor supplies both from its selected immutable packages and records their
 hashes. A test suite passing with these inputs absent does not prove the CEE/picker/designer
 integration, because those cases are ignored or skipped.
+Keep the extracted test bundles beside the isolated checkout, outside its source tree. Tailwind
+scans local JavaScript: placing them inside the designer added 1,772 bytes of sibling-only CSS and
+tripped its raw bundle limit. Moving the test inputs out restored the original output without
+raising either size budget.
 
 CEE's container visual gate mounts the local reactor artifact directory read-only at its original
 absolute path. Without that mount, the host can install a `file:` dependency while the container
