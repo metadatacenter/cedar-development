@@ -1324,9 +1324,9 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   outage producing a successful read. That comparison is what proving routing compatibility means,
   and no adapter should be reduced before it passes on the deployed topology.
 
-  Item 25 settles a different question about the same two services — which path shape a route takes —
-  and the two interact: retiring repo's routes would retire the bare-identifier convention that item
-  26 proposes to generalize, so whichever is decided first constrains the other.
+  Item 29 settles a different question about the same two services: which path shape a route takes.
+  The two interact, because retiring repo's routes would retire the bare-identifier convention it
+  proposes to generalize. Whichever is decided first constrains the other.
 
   Done when each of the two hosts has a stated role, an owner, and either a current caller that needs
   the process or a routing arrangement that keeps its URLs resolving without one.
