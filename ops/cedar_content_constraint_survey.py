@@ -73,7 +73,10 @@ EXPECTATIONS: dict[str, tuple[str, Callable[[str], bool]]] = {
 # name JSON Schema uses for its own keyword as well, so the scope says which occurrences are the
 # ones a value constraint names a term kind with.
 ENUMERATED = {"type": {"OntologyClass", "Ontology", "ValueSet", "Branch", "Class"}}
-SCOPES = {"type": re.compile(r"/_valueConstraints/(classes|ontologies|branches|valueSets|actions)/")}
+# An action entry is deliberately absent. Its `type` is one of `Value` or `OntologyClass` and the
+# meta-schema enumerates both, so it is already constrained and nothing here should second-guess it;
+# checking it against the term kinds reported 585 valid occurrences as offending.
+SCOPES = {"type": re.compile(r"/_valueConstraints/(classes|ontologies|branches|valueSets)/")}
 
 
 def strings_at(node: Any, key: str, path: str = "") -> Iterator[tuple[str, str]]:
@@ -100,6 +103,10 @@ class Survey:
         self.values = collections.defaultdict(collections.Counter)
         self.offending = collections.defaultdict(collections.Counter)
         self.offending_artifacts = collections.defaultdict(set)
+        # One entry per offending occurrence, with the artifact and the path it sits at. The counts
+        # above say how much there is; a repair needs to know where, and recovering that meant
+        # walking the whole deployment a second time.
+        self.offences: list[dict[str, Any]] = []
 
     def add(self, ref: rest.ArtifactRef, artifact: Any) -> None:
         self.artifacts[ref.artifact_type] += 1
@@ -118,6 +125,11 @@ class Survey:
                 if not acceptable:
                     self.offending[key][value] += 1
                     self.offending_artifacts[key].add(ref.artifact_id)
+                    self.offences.append({
+                        "artifactType": ref.artifact_type, "artifactId": ref.artifact_id,
+                        "artifactName": ref.name, "property": key, "path": path, "value": value,
+                        "conditionRules": {f"{key}-unexpected": 1},
+                    })
 
     def report(self) -> None:
         print(f"\nartifacts walked: {sum(self.artifacts.values())} "
@@ -161,6 +173,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--ca-file")
     parser.add_argument("--allow-http", action="store_true")
     parser.add_argument("--out", help="write the surveyed values as JSON here")
+    parser.add_argument("--offences", help="write one JSONL record per offending occurrence here, "
+                                           "as the target list a repair takes")
     return parser
 
 
@@ -188,6 +202,12 @@ def main(argv: Optional[list[str]] = None) -> int:
             if read % 500 == 0:
                 print(f"    read {read}/{len(refs)}", flush=True)
     survey.report()
+    if arguments.offences:
+        path = Path(arguments.offences)
+        with path.open("w", encoding="utf-8") as stream:
+            for offence in survey.offences:
+                stream.write(json.dumps(offence) + "\n")
+        print(f"\n{len(survey.offences)} offending occurrences written to {path}")
     if arguments.out:
         Path(arguments.out).write_text(json.dumps(
             {key: dict(counter) for key, counter in survey.values.items()}, indent=2), encoding="utf-8")
