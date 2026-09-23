@@ -125,6 +125,11 @@ command: credential resolution and authentication happen automatically during `r
 callers cannot reach, and reads a repository as well, because the status endpoints answer from the
 web tier and stay green while everything behind them fails.
 
+The content probe reads retained release metadata for `cedar-parent`. Snapshot metadata may be
+absent after cleanup even while repository reads and train uploads work. A missing probe (404)
+is reported as a missing repository read, never as daily request-budget exhaustion; that diagnosis
+is reserved for the observed HTTP 500 response with writable status still healthy.
+
 **A Nexus over its request budget looks like an outage.** The instance is Community Edition, with a
 limit on requests per day, and when it is over that limit it serves its status endpoints and returns
 500 for every repository path. The plan names that shape rather than reporting a generic failure,
