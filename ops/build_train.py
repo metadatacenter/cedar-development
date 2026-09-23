@@ -279,6 +279,12 @@ def validate_configuration(
         _require_file(workspace, repository, consumer.get("manifest"), "CEE consumer manifest")
         _require_file(workspace, repository, consumer.get("lock"), "CEE consumer lock")
 
+    import frontend_inventory
+    try:
+        frontend_inventory.validate(frontend)
+    except ValueError as error:
+        raise RuntimeError(str(error)) from error
+
     audit_baselines = validate_audit_baselines(frontend, workspace, repositories)
 
     docker_manifest = workspace / "cedar-docker-build" / "bin" / "cedar-images-base.sh"

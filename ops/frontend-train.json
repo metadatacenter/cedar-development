@@ -538,5 +538,501 @@
       "registry": "https://registry.npmjs.org/"
     }
   ],
-  "dockerCeeVersionVariable": "CEDAR_OPENVIEW_CEE_NPM_VERSION"
+  "dockerCeeVersionVariable": "CEDAR_OPENVIEW_CEE_NPM_VERSION",
+  "surfaces": [
+    {
+      "id": "template-editor",
+      "repository": "cedar-template-editor",
+      "directory": ".",
+      "install": [],
+      "build": [],
+      "release": true,
+      "reactorName": "cedar-template-editor",
+      "verify": [
+        [
+          "npx",
+          "gulp",
+          "replace-url",
+          "replace-version"
+        ],
+        [
+          "npm",
+          "test"
+        ],
+        [
+          "bash",
+          "-c",
+          "node --test test/*.test.cjs"
+        ]
+      ],
+      "setup": [
+        [
+          "npm",
+          "ci"
+        ]
+      ],
+      "packageDirectories": [
+        "."
+      ]
+    },
+    {
+      "id": "workspace",
+      "repository": "cedar-workspace",
+      "directory": ".",
+      "install": [],
+      "build": [
+        "npm",
+        "run",
+        "build"
+      ],
+      "release": true,
+      "reactorName": "cedar-workspace",
+      "verify": [
+        [
+          "npm",
+          "run",
+          "build:deployment"
+        ],
+        [
+          "npm",
+          "test"
+        ]
+      ],
+      "setup": [
+        [
+          "npm",
+          "ci"
+        ]
+      ],
+      "packageDirectories": [
+        "."
+      ]
+    },
+    {
+      "id": "template-designer",
+      "repository": "cedar-template-designer",
+      "directory": ".",
+      "install": [],
+      "build": [],
+      "release": true,
+      "reactorName": "cedar-template-designer",
+      "verify": [
+        [
+          "npm",
+          "run",
+          "prepare:components"
+        ],
+        [
+          "npm",
+          "test"
+        ]
+      ],
+      "setup": [
+        [
+          "npm",
+          "ci"
+        ]
+      ],
+      "packageDirectories": [
+        "."
+      ]
+    },
+    {
+      "id": "openview",
+      "repository": "cedar-openview",
+      "directory": "cedar-openview-src",
+      "install": [],
+      "build": [
+        "npm",
+        "run",
+        "build"
+      ],
+      "buildOutput": "cedar-openview-src/dist/cedar-openview",
+      "release": true,
+      "reactorName": "cedar-openview-src",
+      "verify": [
+        [
+          "npm",
+          "test",
+          "--",
+          "--watch=false",
+          "--browsers=ChromeHeadless"
+        ]
+      ],
+      "setup": [
+        [
+          "npm",
+          "ci"
+        ]
+      ],
+      "packageDirectories": [
+        "cedar-openview-dist"
+      ]
+    },
+    {
+      "id": "bridging",
+      "repository": "cedar-bridging",
+      "directory": "cedar-bridging-src",
+      "install": [],
+      "build": [
+        "npm",
+        "run",
+        "build"
+      ],
+      "buildOutput": "cedar-bridging-src/dist/cedar-bridging",
+      "release": true,
+      "reactorName": "cedar-bridging-src",
+      "verify": [
+        [
+          "npm",
+          "test",
+          "--",
+          "--watch=false",
+          "--browsers=ChromeHeadless"
+        ]
+      ],
+      "setup": [
+        [
+          "npm",
+          "ci"
+        ]
+      ],
+      "packageDirectories": [
+        "cedar-bridging-dist"
+      ]
+    },
+    {
+      "id": "monitoring",
+      "repository": "cedar-monitoring",
+      "directory": "cedar-monitoring-src",
+      "install": [
+        "--legacy-peer-deps"
+      ],
+      "build": [
+        "npm",
+        "run",
+        "build"
+      ],
+      "buildOutput": "cedar-monitoring-src/dist/cedar-monitoring",
+      "release": true,
+      "reactorName": "cedar-monitoring-src",
+      "verify": [
+        [
+          "npm",
+          "test",
+          "--",
+          "--watch=false",
+          "--browsers=ChromeHeadless"
+        ]
+      ],
+      "setup": [
+        [
+          "npm",
+          "ci",
+          "--legacy-peer-deps"
+        ]
+      ],
+      "packageDirectories": [
+        "cedar-monitoring-dist"
+      ]
+    },
+    {
+      "id": "content",
+      "repository": "cedar-content-distribution",
+      "directory": ".",
+      "install": [],
+      "build": [
+        "npm",
+        "run",
+        "build"
+      ],
+      "release": true,
+      "reactorName": "cedar-content-distribution",
+      "verify": [],
+      "verificationExemption": "Static content application has no test script; build and package checks cover delivery.",
+      "setup": [
+        [
+          "npm",
+          "ci"
+        ]
+      ],
+      "packageDirectories": [
+        "."
+      ]
+    },
+    {
+      "id": "cee-demo-angular",
+      "repository": "cedar-component-demo",
+      "directory": "cedar-cee-demo-angular-src",
+      "install": [],
+      "verify": [
+        [
+          "npm",
+          "run",
+          "lint"
+        ],
+        [
+          "npm",
+          "run",
+          "test"
+        ]
+      ],
+      "build": [
+        "npm",
+        "run",
+        "build"
+      ],
+      "buildOutput": "cedar-cee-demo-angular-src/dist/cedar-cee-demo-angular-src/browser",
+      "release": true,
+      "reactorName": "cedar-cee-demo-angular-src",
+      "setup": [
+        [
+          "npm",
+          "ci"
+        ]
+      ]
+    },
+    {
+      "id": "cee-demo-ember",
+      "repository": "cedar-component-demo",
+      "directory": "cedar-cee-demo-ember-src",
+      "install": [],
+      "verify": [
+        [
+          "npm",
+          "run",
+          "lint"
+        ],
+        [
+          "npm",
+          "run",
+          "test:ember"
+        ]
+      ],
+      "build": [
+        "npm",
+        "run",
+        "build"
+      ],
+      "release": true,
+      "reactorName": "cedar-cee-demo-ember-src",
+      "setup": [
+        [
+          "npm",
+          "ci"
+        ]
+      ]
+    },
+    {
+      "id": "cee-demo-react",
+      "repository": "cedar-component-demo",
+      "directory": "cedar-cee-demo-react",
+      "install": [],
+      "verify": [
+        [
+          "npm",
+          "run",
+          "lint"
+        ],
+        [
+          "npm",
+          "run",
+          "test"
+        ]
+      ],
+      "build": [
+        "npm",
+        "run",
+        "build"
+      ],
+      "release": true,
+      "reactorName": "cedar-cee-demo-react",
+      "setup": [
+        [
+          "npm",
+          "ci"
+        ]
+      ]
+    },
+    {
+      "id": "cedar-design-tokens",
+      "repository": "cedar-design-tokens",
+      "directory": ".",
+      "reactorName": "cedar-design-tokens",
+      "release": false,
+      "install": [],
+      "build": [],
+      "setup": [
+        [
+          "npm",
+          "ci"
+        ]
+      ],
+      "verify": [
+        [
+          "npm",
+          "test"
+        ]
+      ]
+    },
+    {
+      "id": "cedar-model-typescript-library",
+      "repository": "cedar-model-typescript-library",
+      "directory": ".",
+      "reactorName": "cedar-model-typescript-library",
+      "release": false,
+      "install": [],
+      "build": [],
+      "setup": [
+        [
+          "npm",
+          "ci"
+        ]
+      ],
+      "verify": [
+        [
+          "npm",
+          "run",
+          "lint"
+        ],
+        [
+          "npm",
+          "run",
+          "typecheck"
+        ],
+        [
+          "npm",
+          "run",
+          "test:coverage"
+        ],
+        [
+          "npm",
+          "run",
+          "parity:yaml"
+        ],
+        [
+          "npm",
+          "run",
+          "parity:json"
+        ],
+        [
+          "npm",
+          "run",
+          "test:package"
+        ]
+      ]
+    },
+    {
+      "id": "cedar-embeddable-editor",
+      "repository": "cedar-embeddable-editor",
+      "directory": ".",
+      "reactorName": "cedar-embeddable-editor",
+      "release": false,
+      "install": [],
+      "build": [],
+      "setup": [
+        [
+          "npm",
+          "ci"
+        ],
+        [
+          "npm",
+          "--prefix",
+          "harness",
+          "ci"
+        ],
+        [
+          "npm",
+          "--prefix",
+          "visual",
+          "ci"
+        ]
+      ],
+      "verify": [
+        [
+          "npm",
+          "run",
+          "test:ci"
+        ]
+      ]
+    },
+    {
+      "id": "cedar-embeddable-designer",
+      "repository": "cedar-embeddable-designer",
+      "directory": ".",
+      "reactorName": "cedar-embeddable-designer",
+      "release": false,
+      "install": [],
+      "build": [],
+      "setup": [
+        [
+          "npm",
+          "ci"
+        ],
+        [
+          "npm",
+          "--prefix",
+          "browser",
+          "ci"
+        ]
+      ],
+      "verify": [
+        [
+          "npm",
+          "run",
+          "test:ci"
+        ],
+        [
+          "npm",
+          "run",
+          "test:visual"
+        ]
+      ],
+      "integrationInputs": [
+        {
+          "variable": "CEF_BUNDLE",
+          "repository": "cedar-embeddable-editor",
+          "bundle": "cedar-embeddable-editor.js"
+        },
+        {
+          "variable": "PICKER_BUNDLE",
+          "repository": "cedar-embeddable-term-picker",
+          "bundle": "cedar-embeddable-term-picker.js"
+        }
+      ]
+    },
+    {
+      "id": "cedar-embeddable-term-picker",
+      "repository": "cedar-embeddable-term-picker",
+      "directory": ".",
+      "reactorName": "cedar-embeddable-term-picker",
+      "release": false,
+      "install": [],
+      "build": [],
+      "setup": [
+        [
+          "npm",
+          "ci"
+        ],
+        [
+          "npm",
+          "--prefix",
+          "browser",
+          "ci"
+        ]
+      ],
+      "verify": [
+        [
+          "npm",
+          "run",
+          "test:ci"
+        ],
+        [
+          "npm",
+          "run",
+          "test:visual"
+        ]
+      ]
+    }
+  ]
 }

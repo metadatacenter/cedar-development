@@ -235,6 +235,13 @@ build's selection or installed bytes. Old directory entries from the earlier sto
 ignored; rebuilding the producers populates the tarball store. Keep immutable artifacts while
 builds are active; removing the whole `.reactor` cache is safe when no build is using it.
 
+`ops/frontend-train.json` owns the shared `surfaces` inventory: source directories,
+reactor identities, setup and verification commands, release build commands, and
+integration bundle inputs. The reactor, npm train and release preparation read those
+recipes. Every declared producer and consumer must have verification commands or an
+explicit `verificationExemption`; missing coverage fails preflight. Add new surfaces
+there alongside their dependency wiring, rather than editing separate gate lists.
+
 A successful `cedarcli build frontends` records its exact component selection in
 `.reactor/runtime.json`. Local `cedarcli native start|restart` in the develop profile installs
 those tarballs with `npm install --no-save` before starting each frontend, retaining the

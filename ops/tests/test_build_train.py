@@ -131,6 +131,9 @@ class BuildTrainTest(unittest.TestCase):
                 },
             }],
         }
+        frontend['surfaces'] = [dict(repository=r, directory='.', reactorName=r,
+                                     setup=[], verify=[], verificationExemption='fixture')
+                                for r in ('model', 'cee', 'frontend', 'demo')]
         return workspace, build, frontend, {"groups": groups}
 
     def test_train_id_is_strict(self):

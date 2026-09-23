@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import frontend_inventory
 import argparse
 import base64
 import datetime as dt
@@ -518,15 +519,7 @@ def publish_model(args: argparse.Namespace) -> None:
     published = load_json(root / "package-dist.json")
     if published.get("name") != expected["name"]:
         raise RuntimeError("TypeScript model published manifest has the wrong scoped name")
-    for command in (
-        ["npm", "ci"],
-        ["npm", "run", "lint"],
-        ["npm", "run", "typecheck"],
-        ["npm", "run", "test:coverage"],
-        ["npm", "run", "parity:yaml"],
-        ["npm", "run", "parity:json"],
-        ["npm", "run", "test:package"],
-    ):
+    for command in frontend_inventory.commands(load_json(args.config), expected['repository']):
         run_command(command, root)
     built = load_json(root / "dist" / "package.json")
     if built.get("name") != expected["name"] or built.get("version") != expected["version"]:
@@ -568,14 +561,9 @@ def publish_cee(args: argparse.Namespace) -> None:
             root / consumer["manifest"], root / consumer["lock"], dependency,
             plan["model"]["name"], plan["model"]["version"],
         )
-    for command, cwd in (
-        (["npm", "ci"], root),
-        (["npm", "--prefix", "harness", "ci"], root),
-        (["npm", "--prefix", "visual", "ci"], root),
-        (["npm", "run", "test:ci"], root),
-        (["npm", "run", "audit:prod"], root),
-    ):
-        run_command(command, cwd)
+    for command in frontend_inventory.commands(config, expected['repository']):
+        run_command(command, root)
+    run_command(['npm', 'run', 'audit:prod'], root)
     staged = root / "dist-npm" / "cedar-embeddable-editor"
     built = load_json(staged / "package.json")
     if built.get("name") != expected["name"] or built.get("version") != expected["version"]:
@@ -643,6 +631,29 @@ def wire_components(args, plan, repository):
     return changes
 
 
+def verification_environment(config, plan, repository, workspace):
+    row = next(r for r in frontend_inventory.surfaces(config) if r['repository'] == repository)
+    environment = dict(os.environ)
+    packages = [plan.get('cee', {}), *plan.get('components', [])]
+    for item in row.get('integrationInputs', []):
+        package = next((p for p in packages if p.get('repository') == item['repository']), None)
+        if package is None:
+            raise RuntimeError(f"Missing integration package {item['repository']}")
+        verified = verify_record(plan['registry'], package)
+        content = fetch(verified['tarball'])
+        if sha256_bytes(content) != verified['tarballSha256']:
+            raise RuntimeError('Integration tarball changed after verification')
+        target = workspace / '.frontend-checks' / verified['tarballSha256'] / item['bundle']
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with tarfile.open(fileobj=io.BytesIO(content), mode='r:gz') as archive:
+            member = archive.getmember('package/' + item['bundle'])
+            if not member.isfile():
+                raise RuntimeError('Integration bundle must be a regular file')
+            target.write_bytes(archive.extractfile(member).read())
+        environment[item['variable']] = str(target.resolve())
+    return environment
+
+
 def publish_component(args, plan, component):
     if existing_verified_package(plan['registry'], component):
         verify_record(plan['registry'], component)
@@ -666,7 +677,9 @@ def publish_component(args, plan, component):
                                     consumer['dependency'], plan['model']['name'], plan['model']['version'])
                 require_exact_alias(root / consumer['manifest'], root / consumer['lock'],
                                     consumer['dependency'], plan['model']['name'], plan['model']['version'])
-    run_command(['npm', 'ci'], root)
+    environment = verification_environment(config, plan, component['repository'], args.workspace)
+    for command in frontend_inventory.commands(config, component['repository']):
+        run_command(command, root, environment)
     run_command(component['distCommand'], root)
     staged = root / component['stagedPackage']
     built = load_json(staged / 'package.json')
@@ -717,6 +730,16 @@ def prepare_frontends(args: argparse.Namespace) -> None:
             by_frontend.setdefault(consumer["publishedFrontend"], []).extend([
                 consumer["manifest"], consumer["lock"],
             ])
+
+    # All dependency rewrites are now complete. Verify every consumer composition,
+    # including demos that do not publish a standalone frontend package.
+    config = load_json(args.config)
+    frontend_inventory.validate(config)
+    for surface in frontend_inventory.surfaces(config):
+        if surface.get('release'):
+            root = args.workspace / surface['repository'] / surface['directory']
+            for command in frontend_inventory.commands(config, surface['repository'], surface['directory']):
+                run_command(command, root)
 
     builds = []
     for frontend in plan["frontends"]:

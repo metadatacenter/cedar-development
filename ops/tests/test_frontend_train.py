@@ -28,6 +28,15 @@ def write(path: Path, value: dict) -> None:
     path.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
 
 
+def verification_fixture(root):
+    config = json.loads((Path(__file__).resolve().parents[1] / 'frontend-train.json').read_text())
+    model = next(r for r in config['surfaces'] if r['repository'] == 'cedar-model-typescript-library')
+    model.update(repository='model', reactorName='model')
+    path = root / 'verification.json'
+    write(path, {'surfaces': [model]})
+    return path
+
+
 def dependency_files(root: Path, name: str, published: str, version: str) -> None:
     alias = version if name == published else f"npm:{published}@{version}"
     write(root / "package.json", {"dependencies": {name: alias}})
@@ -55,6 +64,30 @@ def commit(repository: Path, timestamp: str = "2026-08-25T22:04:26Z") -> str:
 
 
 class FrontendTrainTest(unittest.TestCase):
+    def test_integration_checks_use_verified_train_bundle_bytes(self):
+        import io
+        buffer = io.BytesIO()
+        with tarfile.open(fileobj=buffer, mode='w:gz') as archive:
+            info = tarfile.TarInfo('package/cee.js')
+            info.size = 6
+            archive.addfile(info, io.BytesIO(b'bundle'))
+        content = buffer.getvalue()
+        config = {'surfaces': [dict(repository='designer', directory='.', reactorName='designer',
+            setup=[], verify=[['npm','test']], integrationInputs=[
+                dict(variable='CEF_BUNDLE', repository='cee', bundle='cee.js')])]}
+        plan = {'registry':'https://example.org', 'cee':{'repository':'cee'}}
+        verified = {'tarball':'https://example.org/cee.tgz',
+                    'tarballSha256':hashlib.sha256(content).hexdigest()}
+        with tempfile.TemporaryDirectory() as directory, \
+                patch.object(frontend_train, 'verify_record', return_value=verified), \
+                patch.object(frontend_train, 'fetch', return_value=content):
+            environment = frontend_train.verification_environment(config, plan, 'designer', Path(directory))
+            self.assertEqual(b'bundle', Path(environment['CEF_BUNDLE']).read_bytes())
+            self.assertIn('.frontend-checks', environment['CEF_BUNDLE'])
+            with patch.object(frontend_train, 'fetch', return_value=b'changed'):
+                with self.assertRaisesRegex(RuntimeError, 'changed after verification'):
+                    frontend_train.verification_environment(config, plan, 'designer', Path(directory))
+
     def test_shared_tokens_follow_every_ui_consumer(self):
         config = json.loads((Path(__file__).resolve().parents[1] / "frontend-train.json").read_text())
         tokens = next(c for c in config['components'] if c['id'] == 'tokens')
@@ -488,7 +521,7 @@ class FrontendTrainTest(unittest.TestCase):
                 }),
             ):
                 frontend_train.publish_model(argparse.Namespace(
-                    version=VERSION, workspace=workspace, state=state,
+                    version=VERSION, workspace=workspace, state=state, config=verification_fixture(root),
                 ))
             self.assertIn(["npm", "run", "test:coverage"], commands)
             self.assertIn(["npm", "run", "parity:yaml"], commands)
@@ -539,7 +572,9 @@ class FrontendTrainTest(unittest.TestCase):
             config_path = root / "config.json"
             write(config_path, {"cee": {
                 "modelDependency": "cedar-model-typescript-library",
-            }})
+            }, "surfaces": [dict(repository='cee', directory='.', reactorName='cee',
+                setup=[['npm', 'ci'], ['npm', '--prefix', 'harness', 'ci'],
+                       ['npm', '--prefix', 'visual', 'ci']], verify=[['npm', 'run', 'test:ci']])]})
             commands = []
 
             def wire(directory, dependency, published, version, legacy_peer_deps=False):
@@ -609,7 +644,7 @@ class FrontendTrainTest(unittest.TestCase):
                 patch.object(frontend_train, "verify_record"),
                 patch.object(frontend_train, "install_exact_alias", side_effect=wire),
             ):
-                args = argparse.Namespace(version=VERSION, workspace=workspace, state=state)
+                args = argparse.Namespace(version=VERSION, workspace=workspace, state=state, config=verification_fixture(root))
                 frontend_train.prepare_frontends(args)
                 frontend_train.prepare_frontends(args)
             plan = frontend_train.load_json(plan_path)
@@ -676,7 +711,7 @@ class FrontendTrainTest(unittest.TestCase):
                 patch.object(frontend_train, "run_command", side_effect=build),
             ):
                 frontend_train.prepare_frontends(argparse.Namespace(
-                    version=VERSION, workspace=workspace, state=state,
+                    version=VERSION, workspace=workspace, state=state, config=verification_fixture(root),
                 ))
             self.assertFalse((distribution / "old.js").exists())
             self.assertEqual("new CEE bundle\n", (distribution / "main.js").read_text())
@@ -737,7 +772,7 @@ class FrontendTrainTest(unittest.TestCase):
                 patch.object(frontend_train, "run_command", side_effect=build),
             ):
                 frontend_train.prepare_frontends(argparse.Namespace(
-                    version=VERSION, workspace=workspace, state=state,
+                    version=VERSION, workspace=workspace, state=state, config=verification_fixture(root),
                 ))
 
             # The wired manifests survive, and the built directory joins them.
@@ -782,7 +817,7 @@ class FrontendTrainTest(unittest.TestCase):
             ):
                 with self.assertRaises(RuntimeError) as refused:
                     frontend_train.prepare_frontends(argparse.Namespace(
-                        version=VERSION, workspace=workspace, state=state,
+                        version=VERSION, workspace=workspace, state=state, config=verification_fixture(root),
                     ))
             self.assertIn("did not produce app/components", str(refused.exception))
 
