@@ -37,6 +37,7 @@ import os
 import re
 import select
 import subprocess
+import threading
 import sys
 import time
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -529,6 +530,13 @@ class LineBridge:
     and a ``seq`` the answer echoes, ``hello`` opens the conversation and ``shutdown`` closes it.
     Nothing here is particular to validation, or to Java, so a second co-process speaking the same
     protocol needs only its own command.
+
+    One conversation, so one caller at a time. A co-process reading a single pipe cannot answer two
+    requests at once, and callers that let several worker threads share a bridge interleaved their
+    writes and read each other's answers: both threads advanced ``seq``, and whichever read first
+    took a line addressed to the other. That surfaced as "answered out of sequence", which killed
+    the bridge mid-run and left a repair half applied. The lock makes one request and its answer
+    atomic. It does not serialise the callers' own work, which is the HTTP they do around it.
     """
 
     def __init__(self, command: list[str], log_path: Path, timeout: float,
@@ -543,6 +551,7 @@ class LineBridge:
         self.seq = 0
         self.starts = 0
         self.hello: dict[str, Any] = {}
+        self.turn = threading.Lock()
 
     def start(self) -> dict[str, Any]:
         self.kill()
@@ -583,15 +592,20 @@ class LineBridge:
         return answer
 
     def request(self, payload: dict[str, Any]) -> dict[str, Any]:
-        """Send one request. A failure kills the process; the caller decides whether to restart."""
-        try:
-            return self._exchange(payload, self.timeout)
-        except TimeoutError:
-            self.kill()
-            raise BridgeTimeout(f"bridge gave no answer within {self.timeout:.0f}s") from None
-        except BridgeError:
-            self.kill()
-            raise
+        """Send one request. A failure kills the process; the caller decides whether to restart.
+
+        Held against the other callers for the whole round trip, answer included: releasing after
+        the write would let the next request read this one's answer.
+        """
+        with self.turn:
+            try:
+                return self._exchange(payload, self.timeout)
+            except TimeoutError:
+                self.kill()
+                raise BridgeTimeout(f"bridge gave no answer within {self.timeout:.0f}s") from None
+            except BridgeError:
+                self.kill()
+                raise
 
     def kill(self) -> None:
         process, self.process, self.reader = self.process, None, None

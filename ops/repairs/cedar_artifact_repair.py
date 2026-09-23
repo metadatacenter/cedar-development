@@ -6626,7 +6626,10 @@ def main(argv: Optional[list[str]] = None) -> int:
     print(f"Validator: {hello.get('validator')} on Java {hello.get('java')}", flush=True)
 
     guarded_bridge = GuardedBridge(bridge, arguments.bridge_max_restarts)
-    resolver = GuardedResolver(audit.TemplateResolver(client, bridge, 200))
+    # The resolver talks to the bridge too, to hand it a template it has not cached. Through the
+    # guard, or its write lands in the middle of another worker's request and each reads the
+    # other's answer.
+    resolver = GuardedResolver(audit.TemplateResolver(client, guarded_bridge, 200))
     progress = Progress(total=len(pending))
     status = "COMPLETE"
     details: dict[str, list[dict[str, Any]]] = collections.defaultdict(list)
