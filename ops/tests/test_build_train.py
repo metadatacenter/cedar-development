@@ -11,6 +11,9 @@ import urllib.error
 from unittest.mock import patch
 
 
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 MODULE_PATH = Path(__file__).resolve().parents[1] / "build_train.py"
 SPEC = importlib.util.spec_from_file_location("build_train", MODULE_PATH)
 build_train = importlib.util.module_from_spec(SPEC)
