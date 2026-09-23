@@ -48,7 +48,7 @@ async function open(path) {
     await page.locator('#kc-login').click();
   }
   await page.waitForFunction(() => document.querySelector('cedar-embeddable-designer, cedar-embeddable-field-designer')?.shadowRoot?.querySelector('input, button'), { timeout: 30000 });
-  await page.waitForFunction(() => ['No unsaved changes', 'Unsaved changes'].includes(document.getElementById('state').textContent));
+  await page.waitForFunction(() => ['Not saved yet', 'No unsaved changes', 'Unsaved changes'].includes(document.getElementById('state').textContent));
   if (path.startsWith('/fields/edit/')) {
     await page.getByRole('button', { name: 'Expand field settings', exact: true }).click();
     await page.getByRole('tab', { name: 'Display', exact: true }).click();
@@ -62,6 +62,14 @@ try {
     if (kind === 'field') await page.getByRole('button', { name: 'Number', exact: true }).click();
     const nameInput = () => kind === 'template' ? page.getByPlaceholder('Template name', { exact: true }) : page.getByRole('textbox', { name: kind === 'field' ? 'Field name' : 'Element name', exact: true });
     const descriptionInput = () => page.getByPlaceholder(kind === 'field' ? 'Add helper instructions for users...' : 'Add description...', { exact: true });
+    await page.waitForFunction(() => document.getElementById('save').disabled);
+    assert.equal(await page.locator('#state').textContent(), 'Not saved yet');
+    await nameInput().fill(name);
+    await page.waitForFunction(() => !document.getElementById('save').disabled);
+    for (const blank of ['', '   ']) {
+      await nameInput().fill(blank);
+      await page.waitForFunction(() => document.getElementById('save').disabled);
+    }
     await nameInput().fill(name);
     await page.waitForFunction(() => !document.getElementById('save').disabled);
     const savedResponse = page.waitForResponse(response => response.request().method() === 'POST' && response.url().includes(`/${collection}?`));
