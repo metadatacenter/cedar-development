@@ -243,6 +243,11 @@ build leaves the previous selection intact, and concurrent producer refs cannot 
 completed selection. The runtime checker verifies the selected tarball hash, install provenance
 and served bytes, so no publication is needed for local smoke tests.
 
+An npm hidden lock can name the selected tarball while installed package bytes still belong to
+an older build. The runtime installer compares the actual package files and removes only a
+selected package proved stale before reinstalling it; otherwise npm can report an up-to-date
+installation and retain the mismatch. Verification remains read-only and refuses that state.
+
 The compilation stage leaves running frontends alone; after compilation and component checks,
 `build frontends` restarts them to serve the selected build. Its local-tarball transport
 does not publish to a registry or modify tracked manifests or locks: the build rewrite happens

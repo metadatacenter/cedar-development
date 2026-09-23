@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import sys
 import subprocess
+import shutil
 import tarfile
 
 
@@ -41,6 +42,7 @@ def sync(cedar_home: Path, frontend: Path, *, verify_only=False) -> None:
     installed = json.loads(lock_path.read_text()).get('packages', {}) if lock_path.is_file() else {}
     specs = []
     needs_install = False
+    stale_packages = []
     for section in ['dependencies', 'devDependencies', 'optionalDependencies']:
         for name in manifest.get(section, {}):
             digest = selected.get(name.rsplit('/', 1)[-1])
@@ -65,9 +67,18 @@ def sync(cedar_home: Path, frontend: Path, *, verify_only=False) -> None:
                     if not local.is_file() or local.read_bytes() != archive.extractfile(member).read():
                         matches = False
             needs_install |= not matches
+            if not matches:
+                stale_packages.append(frontend / 'node_modules' / name)
     if specs and needs_install:
         if verify_only:
             raise ValueError('Installed components differ from reactor selection: ' + str(frontend))
+        # npm may trust its hidden lock even when the installed bytes were replaced.
+        # Remove only packages we just proved stale so npm must extract them again.
+        for package in stale_packages:
+            if package.is_symlink():
+                package.unlink()
+            elif package.exists():
+                shutil.rmtree(package)
         print('Installing local reactor components for ' + str(frontend), flush=True)
         subprocess.run(['npm', 'install', '--no-save', '--ignore-scripts', '--no-audit', '--no-fund', *specs], cwd=frontend, check=True)
 

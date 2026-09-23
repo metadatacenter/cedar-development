@@ -93,3 +93,21 @@ class ReactorRuntimeTest(unittest.TestCase):
         with patch.object(module.subprocess, 'run') as run, self.assertRaises(ValueError):
             module.sync(self.home, self.frontend)
         run.assert_not_called()
+
+    def test_matching_lock_with_wrong_bytes_forces_fresh_extraction(self):
+        from unittest.mock import patch
+        self.write(self.frontend / 'package.json', json.dumps({'dependencies': {'cedar-embeddable-editor': '2.0.16'}}).encode())
+        self.installed.write_bytes(b'old bundle behind current hidden lock')
+        def install(*args, **kwargs):
+            self.assertFalse(self.installed.parent.exists())
+            self.write(self.installed, b'new reactor bundle')
+        with patch.object(module.subprocess, 'run', side_effect=install):
+            module.sync(self.home, self.frontend)
+        module.sync(self.home, self.frontend, verify_only=True)
+
+    def test_verification_never_removes_stale_install(self):
+        self.write(self.frontend / 'package.json', json.dumps({'dependencies': {'cedar-embeddable-editor': '2.0.16'}}).encode())
+        self.installed.write_bytes(b'old bundle')
+        with self.assertRaises(ValueError):
+            module.sync(self.home, self.frontend, verify_only=True)
+        self.assertEqual(self.installed.read_bytes(), b'old bundle')
