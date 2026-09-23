@@ -3497,6 +3497,12 @@ def instance_context_expectations(container: Any) -> dict[str, str]:
 
 
 UNDECLARED_KEY_ERROR = r"^object instance has properties which are not allowed by the schema"
+# The same stray key reads as a type complaint when the template spells `additionalProperties` as a
+# schema rather than as `false`: an instance property that is not declared has to match that schema,
+# and `bibo:status` holding the string it is reads as "string found, object expected". Located at
+# one of the two keys, so a stray property of any other name is still none of this repair's business.
+SCHEMA_ONLY_KEY_ERROR = (r"^(?:object instance has properties which are not allowed by the schema"
+                         r"|/(?:pav:version|bibo:status): )")
 # A records file is searched with `re.match`, which anchors at the start of the message. These
 # complaints name their location first — "/Date: object found, array expected" — so a pattern that
 # describes only the complaint would select nothing at all.
@@ -5712,7 +5718,7 @@ REPAIRS = {
         transform=drop_schema_keys_from_instance,
         invariant=only_dropped_schema_keys,
         needs_template=True,
-        error_pattern=UNDECLARED_KEY_ERROR,
+        error_pattern=SCHEMA_ONLY_KEY_ERROR,
     ),
     "drop-superseded-instance-keys": Repair(
         name="drop-superseded-instance-keys",
