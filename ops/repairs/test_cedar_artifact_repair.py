@@ -2637,6 +2637,71 @@ def multi_select(value_type, multiple_choice=True, input_type="list", **extra):
     return {"type": "array", "minItems": 1, "items": inner}
 
 
+def numeric_with_unit(unit, **extra):
+    """A numeric field whose constraints state a unit."""
+    node = child(**extra)
+    node["_ui"] = {"inputType": "numeric"}
+    node["_valueConstraints"] = {"requiredValue": False, "numberType": "xsd:decimal"}
+    if unit is not None:
+        node["_valueConstraints"]["unitOfMeasure"] = unit
+    return node
+
+
+class DropBlankUnitOfMeasureTest(unittest.TestCase):
+    """An empty unit names nothing, which is what leaving the key out already says."""
+
+    def test_an_empty_unit_leaves(self):
+        doc = template({"Mass": numeric_with_unit("")})
+        after, changes = REPAIR.drop_blank_unit_of_measure(doc)
+        self.assertNotIn("unitOfMeasure", after["properties"]["Mass"]["_valueConstraints"])
+        self.assertEqual(changes, [{"path": "/properties/Mass/_valueConstraints/unitOfMeasure",
+                                    "replaced": "", "wrote": None}])
+        self.assertIsNone(REPAIR.only_dropped_blank_unit_of_measure(doc, after))
+
+    def test_a_unit_of_only_whitespace_leaves_too(self):
+        doc = template({"Mass": numeric_with_unit("   ")})
+        after, changes = REPAIR.drop_blank_unit_of_measure(doc)
+        self.assertEqual(len(changes), 1)
+        self.assertNotIn("unitOfMeasure", after["properties"]["Mass"]["_valueConstraints"])
+
+    def test_a_real_unit_is_left_alone(self):
+        doc = template({"Mass": numeric_with_unit("mg")})
+        after, changes = REPAIR.drop_blank_unit_of_measure(doc)
+        self.assertEqual(changes, [])
+        self.assertEqual(after, doc)
+
+    def test_a_field_stating_no_unit_is_left_alone(self):
+        doc = template({"Mass": numeric_with_unit(None)})
+        _after, changes = REPAIR.drop_blank_unit_of_measure(doc)
+        self.assertEqual(changes, [])
+
+    def test_the_rest_of_the_constraints_survive(self):
+        doc = template({"Mass": numeric_with_unit("")})
+        after, _changes = REPAIR.drop_blank_unit_of_measure(doc)
+        self.assertEqual(after["properties"]["Mass"]["_valueConstraints"],
+                         {"requiredValue": False, "numberType": "xsd:decimal"})
+
+    def test_an_empty_string_elsewhere_is_not_this_repair_s_business(self):
+        doc = template({"Mass": numeric_with_unit("mg")})
+        doc["properties"]["Mass"]["schema:description"] = ""
+        doc["schema:name"] = ""
+        _after, changes = REPAIR.drop_blank_unit_of_measure(doc)
+        self.assertEqual(changes, [])
+
+    def test_the_invariant_rejects_another_removal_and_a_real_unit_going(self):
+        doc = template({"Mass": numeric_with_unit("")})
+        after, _changes = REPAIR.drop_blank_unit_of_measure(doc)
+        stripped = copy.deepcopy(after)
+        del stripped["properties"]["Mass"]["_valueConstraints"]["numberType"]
+        self.assertEqual(REPAIR.only_dropped_blank_unit_of_measure(doc, stripped),
+                         "/properties/Mass/_valueConstraints/numberType")
+        real = template({"Mass": numeric_with_unit("mg")})
+        without = copy.deepcopy(real)
+        del without["properties"]["Mass"]["_valueConstraints"]["unitOfMeasure"]
+        self.assertEqual(REPAIR.only_dropped_blank_unit_of_measure(real, without),
+                         "/properties/Mass/_valueConstraints/unitOfMeasure")
+
+
 class NarrowMultiSelectValueTest(unittest.TestCase):
     """A multi-select's several answers are its several occurrences, each holding a string."""
 

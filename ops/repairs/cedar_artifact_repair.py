@@ -727,6 +727,85 @@ def narrow_multi_select_value(artifact: Any) -> tuple[Any, list[dict[str, Any]]]
     return walk(artifact, ""), changes
 
 
+UNIT_OF_MEASURE_KEY = "unitOfMeasure"
+
+
+def blank_unit(constraints: Any) -> bool:
+    """Whether this ``_valueConstraints`` states a unit that states nothing."""
+    if not isinstance(constraints, dict) or UNIT_OF_MEASURE_KEY not in constraints:
+        return False
+    stored = constraints[UNIT_OF_MEASURE_KEY]
+    return isinstance(stored, str) and stored.strip() == ""
+
+
+def drop_blank_unit_of_measure(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Stop a field stating a unit of measure that names no unit.
+
+    ``unitOfMeasure`` says what a number is measured in. An empty string names nothing, so it says
+    exactly what leaving the key out says, and the two are not worth distinguishing: a reader
+    showing the unit beside the value has nothing to show either way. The meta-schema asks only for
+    a string, so nothing refused it on write.
+
+    Removal rather than repair, because there is no unit to recover. A field whose unit is a string
+    with anything in it is left alone, whitespace included after trimming - inventing a unit for a
+    number would put in the document something nobody measured.
+    """
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def walk(node: Any, path: str) -> Any:
+        if isinstance(node, list):
+            return [walk(item, f"{path}/{index}") for index, item in enumerate(node)]
+        if not isinstance(node, dict):
+            return node
+        result = {}
+        for name, value in node.items():
+            here = f"{path}/{rest.json_pointer_component(name)}"
+            if name == VALUE_CONSTRAINTS_KEY and blank_unit(value):
+                trimmed = {k: v for k, v in value.items() if k != UNIT_OF_MEASURE_KEY}
+                changes.append({"path": f"{here}/{UNIT_OF_MEASURE_KEY}",
+                                "replaced": value[UNIT_OF_MEASURE_KEY], "wrote": None})
+                result[name] = walk(trimmed, here)
+            else:
+                result[name] = walk(value, here)
+        return result
+
+    return walk(artifact, ""), changes
+
+
+def only_dropped_blank_unit_of_measure(before: Any, after: Any) -> Optional[str]:
+    """The invariant: every difference is a blank unit leaving, and nothing else moves."""
+
+    def walk(old: Any, new: Any, path: str) -> Optional[str]:
+        if isinstance(old, dict):
+            if not isinstance(new, dict):
+                return path or "/"
+            gone = set(old) - set(new)
+            if set(new) - set(old):
+                return path or "/"
+            if gone and not (gone == {UNIT_OF_MEASURE_KEY} and path.endswith("/" + VALUE_CONSTRAINTS_KEY)
+                             and isinstance(old[UNIT_OF_MEASURE_KEY], str)
+                             and old[UNIT_OF_MEASURE_KEY].strip() == ""):
+                return f"{path}/{sorted(gone)[0]}"
+            for name in new:
+                difference = walk(old[name], new[name], f"{path}/{rest.json_pointer_component(name)}")
+                if difference is not None:
+                    return difference
+            return None
+        if isinstance(old, list):
+            if not isinstance(new, list) or len(old) != len(new):
+                return path or "/"
+            for index, value in enumerate(old):
+                difference = walk(value, new[index], f"{path}/{index}")
+                if difference is not None:
+                    return difference
+            return None
+        return None if type(old) is type(new) and old == new else (path or "/")
+
+    return walk(before, after, "")
+
+
 def only_narrowed_multi_select_value(before: Any, after: Any) -> Optional[str]:
     """The invariant: every change is one multi-select answer's type, re-derived rather than trusted.
 
@@ -5944,6 +6023,13 @@ REPAIRS = {
         summary="write a draft's prerelease version as its release, discarding the tag",
         transform=settle_prerelease_version,
         invariant=only_settled_prerelease_version,
+    ),
+    "drop-blank-unit-of-measure": Repair(
+        name="drop-blank-unit-of-measure",
+        condition="unitOfMeasure-unexpected",
+        summary="stop a field stating a unit of measure that names no unit",
+        transform=drop_blank_unit_of_measure,
+        invariant=only_dropped_blank_unit_of_measure,
     ),
     "narrow-multi-select-value": Repair(
         name="narrow-multi-select-value",
