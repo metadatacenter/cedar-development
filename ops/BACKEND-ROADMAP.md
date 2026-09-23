@@ -1218,6 +1218,12 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   editing artefact to drop is a decision per property rather than a rule. The other three fail on
   `@context` enum mismatches.
 
+  Six instances elsewhere wait on the same decision. They carry `pav:version` and `bibo:status`,
+  which belong to the artifact that declares a shape rather than to one that fills it in, and
+  `drop-schema-keys-from-instance` refuses them because each is separately invalid for the reasons
+  above. A read of all 150,576 instances on 2026-09-23 found nine such carriers and cleared three;
+  these are the rest.
+
   Expect each repair on this set to reveal the next. A validator reports the first thing that stops
   an instance being read, so a defect behind another is invisible until the first is gone: narrowing
   one `@value` uncovered fourteen blank occurrences and eight stray artifact-level keys, and
@@ -1246,32 +1252,9 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   version comparison is restored, and no constraint lacks a `sourceSystem` the sweep could have
   written.
 
-- **27. Refuse an artifact-level key on an instance.**
-  `pav:version` and `bibo:status` describe an artifact that is drafted, published and versioned. An
-  instance simply is, so on an instance the key's presence is the defect and there is no format to
-  constrain. Nothing refuses one. There is no instance meta-schema: `validateTemplateInstance`
-  checks an instance against its own template, and all six meta-schemas describe schema artifacts.
-  The instances found carrying the keys were caught only because their template spells
-  `additionalProperties` as a schema, so an undeclared property holding a string failed as a type
-  complaint; a template permissive there carries the key silently for as long as the instance
-  exists.
-
-  Decide the route: either the rendered template always closes against artifact-level keys, or the
-  artifact server refuses them on an instance write. Sweeping without one leaves a population that
-  refills unnoticed, and at this size it would.
-
-  The population is small and measured. `cedar_instance_schema_key_scan.py` read all 150,576
-  instances on 2026-09-23 and found nine carrying `pav:version`, every one carrying `bibo:status`
-  too, after eight others had been cleared the same day. Six of the nine remain, refused because
-  each is separately invalid - `untitled1` properties their template never declares, a missing
-  required `skos` context entry, one missing `@id` - so they clear with the undeclared-property
-  decision above rather than ahead of it. Forcing the write past the invariant is not the answer.
-
-  Done when an instance cannot be stored carrying either key, and none does.
-
 ## Later Decisions
 
-- **28. Enforce the request-body classification, and decide what an open body requires.**
+- **27. Enforce the request-body classification, and decide what an open body requires.**
   `cedarcli check openapi` reads `additionalProperties` only when deciding whether a schema counts
   as a stub, so nothing across the estate fails when a new request schema states neither that it is
   closed nor that it is open. Only the resource server asks, in its own contract test. Add the rule,
@@ -1292,7 +1275,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   subtree outside the named mappers. Sixteen more across the servers and shared libraries read
   responses or build output, where the tolerant mapper is what they want.
 
-- **29. Address artifacts by bare identifier in REST paths, keeping the full IRI as stored
+- **28. Address artifacts by bare identifier in REST paths, keeping the full IRI as stored
   identity.** **Production consequence:** an addressing migration rather than a data one. Stored
   identifiers in MongoDB, Neo4j and OpenSearch do not change, and no reindex is required, but
   clients that build URLs in the current form need the legacy shape kept as an alias until traffic
@@ -1324,7 +1307,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Done when every resource-specific route takes the bare identifier, one parser owns the
   reconstruction, and staging's per-artifact blocks are gone.
 
-- **30. Decide what each compatibility adapter is for, now that neither reads artifacts itself.**
+- **29. Decide what each compatibility adapter is for, now that neither reads artifacts itself.**
   Repo and OpenView exist to preserve URLs rather than to do work: the runbook's account of artifact
   route ownership gives repo the identifier dereferencing URLs and OpenView the anonymous
   presentation and open-artifact URLs, and says neither adapter should own artifact storage or an
@@ -1369,7 +1352,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Done when each of the two hosts has a stated role, an owner, and either a current caller that needs
   the process or a routing arrangement that keeps its URLs resolving without one.
 
-- **31. Revisit controlled-term result actions: define scalable semantics, narrow them, or delete
+- **30. Revisit controlled-term result actions: define scalable semantics, narrow them, or delete
   them.** Exclusion and `move` actions are stored beside a field's complete constraint set and apply
   to the result after all ontology, branch, class and value-set constraints have been combined. They
   are not customizations of one constraint row. Before the picker exposes authoring controls, state
@@ -1396,7 +1379,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   The compact picker presentation remains tracked in
   [VERSIONING-ROADMAP.md](./VERSIONING-ROADMAP.md); this item owns the backend meaning and scale limit.
 
-- **32. Validate a write with `cedar-artifact-library`, not the meta-schema alone.** Nothing but
+- **31. Validate a write with `cedar-artifact-library`, not the meta-schema alone.** Nothing but
   `cedar-model-validation-library` stands between a caller and the store: the artifact server's
   `validateTemplate` calls `newModelValidator()`, and the resource classes never mention
   `org.metadatacenter.artifacts.model` at all. The artifact library reads a stored artifact only
