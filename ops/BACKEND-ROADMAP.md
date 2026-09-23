@@ -1210,17 +1210,24 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   artifact before changing anything, repair the projection from the authoritative stores, and rerun
   the audit. Never delete a store artifact merely because its search entry is inconsistent.
 
-  **Change the two templates that type a single-select `@value` as an array.**
-  `62c8b5f2-7dc9-4fff-9008-07c95a746411` and `a91e12b0-1103-4615-bef3-50a30557e698` declare
-  `"@value": {"type": ["array", "null"]}` on a field whose `_ui.inputType` is single-select. The
-  meta-schema accepts that and the artifact model cannot represent it, because a literal field's
-  `@value` is a string and a multi-select is a multi-instance field rather than one instance holding
-  an array. Their instances are invalid against their own templates, so every repair that validates
-  before writing refuses them. A re-check on 2026-09-23 found 32 instances still invalid in that
-  group and 30 of them fail on this and nothing else, every one on the field `Associated Data
-  Types`. Unwrapping the array in an instance is not a repair on its own: `{"@value": ["x"]}` to
-  `{"@value": "x"}` fails the template, which demands the array. Template and instances move
-  together, or accept a window of invalidity, the same constraint the version work carries.
+  **Stop two templates declaring artifact-level keys as instance properties.** *CCP Digital Object*
+  (`62c8b5f2…`) declares `pav:version` and `bibo:status` among its `properties`, typed as objects,
+  so an instance carrying either as the string it is fails against its own template. Eight of its
+  instances do. `drop-schema-keys-from-instance` does not reach them, because it leaves a key the
+  template demands, and the demand is the defect. The template has to stop declaring them, which is
+  a schema change of the same kind as the `@value` narrowing that preceded it, and its instances
+  then validate untouched.
+
+  **Decide the instance properties two templates do not declare.** Seven instances carry properties
+  their template never declared, among them `untitled` and bare UUID keys. Whether each is data to
+  keep under a declared field or an editing artefact to drop is a decision per property, not a rule.
+  A further three fail on `@context` enum mismatches, two of them on
+  *UPDATED HEAL Study Core Metadata* (`a91e12b0…`).
+
+  **Compact the blank occurrences the invalidity was hiding.** Fourteen instances of *CCP Digital
+  Object* hold a blank occurrence before a value, and `compact-blank-occurrences` can now compute
+  and write them; while the template refused its own instances, the repair could not see the work
+  at all. Nothing else in that set of 68 has a path left to clear.
 
   **Repair the string-typed fields nothing rejects on write.** Roughly half the string-typed
   properties the meta-schema describes carry no pattern, format or enumeration, so a rule only one
