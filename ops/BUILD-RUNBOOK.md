@@ -511,3 +511,19 @@ lock-baseline check, and the pushed CEE commit must pass its complete CI workflo
 This correction changes captured source, so create a new train ID; never resume an immutable train
 to incorporate it. The new train will still replace this source-development pin in its disposable
 checkout with the model package built and verified by that new train.
+
+### Check a release-intended train before dispatch
+
+When a train is intended for a release, supply all three explicit targets:
+
+```bash
+cedarcli publish train --release-version 2.9.19 --next-version 2.9.20-SNAPSHOT --cee-version 2.0.17 --dry-run
+```
+
+Remove `--dry-run` to dispatch after the same checks pass. The release target must
+match the train base, and the next development version must advance. Release
+credentials, target refs and registry occupancy, toolchain and source contracts
+are checked before the expensive train. A failed or unreadable prerequisite
+refuses dispatch. Public CEE publication and executable equivalence remain required
+by `release plan|start` once the train artifacts exist. Ordinary development trains
+need none of these options.
