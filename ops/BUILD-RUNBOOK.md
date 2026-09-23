@@ -436,6 +436,12 @@ the corresponding published train was reproduced.
 
 ## Failure Diagnosis
 
+Use a plain exact version when a dependency key already equals its published package name.
+npm canonicalizes a same-name `npm:` alias to that plain version. Renamed dependencies, such as
+the unscoped model key consuming the scoped train package, still require an alias. Both train
+verification and release preparation follow these two forms; test wiring against real npm as
+well as mocked lockfiles so a generated-lock mismatch is caught before the hosted build.
+
 Every train-built component needs a strict install-script decision and audit baseline, including
 tokens, the term picker and the designer. A local install without strict enforcement can pass
 while the hosted train refuses `npm ci`: the tokens build requires the reviewed

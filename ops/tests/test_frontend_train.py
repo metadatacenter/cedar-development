@@ -29,7 +29,7 @@ def write(path: Path, value: dict) -> None:
 
 
 def dependency_files(root: Path, name: str, published: str, version: str) -> None:
-    alias = f"npm:{published}@{version}"
+    alias = version if name == published else f"npm:{published}@{version}"
     write(root / "package.json", {"dependencies": {name: alias}})
     write(root / "package-lock.json", {
         "packages": {
@@ -229,6 +229,17 @@ class FrontendTrainTest(unittest.TestCase):
                     root / "package.json", root / "package-lock.json",
                     "cee", CEE_NAME, CEE_VERSION,
                 )
+
+    def test_same_name_package_uses_exact_version_without_alias(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            name = '@org.metadatacenter/tokens'
+            dependency_files(root, name, name, '0.1.0-dev.train')
+            frontend_train.require_exact_alias(root / 'package.json', root / 'package-lock.json',
+                                               name, name, '0.1.0-dev.train')
+            with patch.object(frontend_train, 'run_command') as run:
+                frontend_train.install_exact_alias(root, name, name, '0.1.0-dev.train')
+            self.assertIn(name + '@0.1.0-dev.train', run.call_args.args[0])
 
     def test_shared_component_wiring_checks_publication_before_advancing_dev_dependency(self):
         with tempfile.TemporaryDirectory() as directory:

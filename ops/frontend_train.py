@@ -124,7 +124,7 @@ def repository_root(workspace: Path, source: dict, repository: str) -> tuple[Pat
 
 def require_exact_alias(manifest: Path, lock: Path, local_name: str,
                         published_name: str, version: str) -> None:
-    expected = f"npm:{published_name}@{version}"
+    expected = version if local_name == published_name else f"npm:{published_name}@{version}"
     package = load_json(manifest)
     sections = [section for section in ('dependencies', 'devDependencies', 'optionalDependencies')
                 if local_name in package.get(section, {})]
@@ -463,7 +463,8 @@ def stamp_package_version(root: Path, version: str, published_manifest: str | No
 
 def install_exact_alias(root: Path, dependency: str, published_name: str, version: str,
                         legacy_peer_deps: bool = False) -> None:
-    spec = f"{dependency}@npm:{published_name}@{version}"
+    target = version if dependency == published_name else f"npm:{published_name}@{version}"
+    spec = f"{dependency}@{target}"
     command = [
         "npm", "install", "--package-lock-only", "--ignore-scripts", "--save-exact", spec,
     ]
