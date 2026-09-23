@@ -289,6 +289,23 @@ See [The Reactor](ops/FRONTEND-RUNBOOK.md#the-reactor) for the completion and fa
 - Current framework baseline (Dropwizard version, namespace, what's migrated) lives in the runbook —
   `cedar-development/ops/BACKEND-RUNBOOK.md`, "Version locks and framework state". Don't restate it here.
 
+## Preserve the agreed product design
+
+- Preserve existing visual design, displayed information and interaction behavior by default.
+  A request to fix a bug, tidy styling, adopt shared tokens, refactor, or commit/push is not
+  permission to redesign the interface.
+- Do not silently make substantial design changes beyond the user's request. This includes
+  replacing selected names with counts (for example, "Folder, Template" with "2 types"),
+  hiding information, changing navigation or selection behavior, and substantially rearranging
+  layouts. Technical convenience and passing tests do not authorize these changes.
+- If an additional design change appears necessary, explain the concrete before/after behavior
+  and why it is needed, then obtain the user's agreement before implementing it. Continue
+  independent, already-authorized work while awaiting that decision. Do not ask again for a
+  change the user has explicitly requested or already approved.
+- Keep design changes visible in progress updates and the final change summary. Check tests
+  against the requested and existing user experience; do not rewrite expectations or visual
+  baselines merely to legitimize an unapproved redesign.
+
 ## Conventions
 
 - Commit/push only when asked. Several `cedar-*` repos may be edited by parallel sessions —
