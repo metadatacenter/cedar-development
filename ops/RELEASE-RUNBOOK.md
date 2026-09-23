@@ -112,12 +112,17 @@ against the prepared public CEE pins, in both release and next-development works
 Frontend install, verification and build tasks precede the Maven builds. A failed
 consumer check stops before publication and retains its log for `release resume`.
 
-After remote integration, run `cedarcli check ci`. The `cedar-libraries` and
-`cedar-project` aggregator workflows check out sibling `develop` branches at run time.
-A run triggered midway through sequential release pushes can see a mixture of old and
-next-development POM versions. If its log proves that mismatch, wait until all sibling
-refs are integrated, then rerun the failed jobs; a rerun checks out the updated siblings.
-Do not republish an obsolete snapshot merely to satisfy that transient checkout.
+New release plans include a `development` phase between publication and acceptance.
+It verifies published snapshot bytes and the prepared next-development train/audit
+configuration, then checks CI at every exact integrated develop commit. The phase
+dispatches `cedar-libraries` and `cedar-project` verification only after all sibling
+refs are integrated; their earlier push runs are not accepted as this proof.
+Pending CI is polled for up to 30 minutes, and a red result stops immediately with
+the run URL. `release resume` continues from recorded dispatch intents and evidence,
+without rebuilding or blindly dispatching duplicate runs. An uncertain dispatch
+response must first be reconciled with GitHub; if no run exists, dispatch its CI
+workflow on the unchanged develop ref, then resume. Final acceptance checks remote
+refs again. Previously created release ledgers retain their original phase contract.
 
 Neither a release nor a train needs `cedarcli check versions --strict`. A release stamps a train's
 exact commits rather than anything on this machine, and the train's own preflight requires every
