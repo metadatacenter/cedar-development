@@ -344,7 +344,7 @@ async function setOpenViewThroughWorkspace(page, folderId, title, kind, makeOpen
     item = page.locator(selector).filter({ visible: true }).first();
     await item.waitFor({ timeout: 8000 });
     const classes = (await item.getAttribute('class')) ?? '';
-    if (!classes.includes('link-disabled')) break;
+    if (!classes.split(/\s+/).includes('link-disabled')) break;
     await page.keyboard.press('Escape');
     item = null;
     if (attempt < 12) await page.waitForTimeout(1250);
@@ -389,7 +389,7 @@ async function moveThroughWorkspace(page, user, sourceFolderId, destinationFolde
   await waitForListingRow(page, sourceFolderId, resourceTitle);
   await openRowMenu(page, resourceTitle);
   const move = page.locator(S.MENU_MOVE).filter({ visible: true }).first();
-  if (((await move.getAttribute('class')) ?? '').includes('link-disabled')) {
+  if (((await move.getAttribute('class')) ?? '').split(/\s+/).includes('link-disabled')) {
     throw new Error(`${resourceTitle}: Workspace disabled Move for a writable resource`);
   }
   await move.click();
@@ -1102,7 +1102,7 @@ async function waitForRowCapability(page, navigate, templateName, selector, enab
     await openRowMenu(page, templateName);
     const item = page.locator(selector).first();
     seen = (await item.getAttribute('class')) ?? '';
-    if (seen.includes('link-disabled') !== enabled) return item;
+    if (seen.split(/\s+/).includes('link-disabled') !== enabled) return item;
     await page.waitForTimeout(1000);
   }
   throw new Error(`${complaint} after 10 attempts (the menu entry read class ${JSON.stringify(seen)}; `
@@ -1130,7 +1130,7 @@ async function verifyTwoUserSharing(browser, ownerPage, folderId, templateId, us
     await waitForSharedRow(recipientPage, user2.profile.homeFolderId, TEMPLATE_NAME, true);
     await openRowMenu(recipientPage, TEMPLATE_NAME);
     const viewerRename = recipientPage.locator('a.rename:visible').first();
-    if (!((await viewerRename.getAttribute('class')) ?? '').includes('link-disabled')) {
+    if (!((await viewerRename.getAttribute('class')) ?? '').split(/\s+/).includes('link-disabled')) {
       throw new Error('Viewer was offered an enabled Rename action');
     }
     await expectDescriptionEditable(recipientPage, TEMPLATE_NAME, false);
@@ -1141,7 +1141,7 @@ async function verifyTwoUserSharing(browser, ownerPage, folderId, templateId, us
         () => gotoSharedWithMe(recipientPage, user2.profile.homeFolderId), TEMPLATE_NAME,
         'a.rename:visible', true, 'Editor still saw Rename disabled');
     const editorShare = recipientPage.locator('ul.dropdown-menu:visible a.share').first();
-    if (!((await editorShare.getAttribute('class')) ?? '').includes('link-disabled')) {
+    if (!((await editorShare.getAttribute('class')) ?? '').split(/\s+/).includes('link-disabled')) {
       throw new Error('Editor was offered an enabled Share action');
     }
     await expectDescriptionEditable(recipientPage, TEMPLATE_NAME, true);
@@ -1722,7 +1722,7 @@ async function createDraftFromWorkspace(page, folderId, templateName, version) {
   await gotoListing(page, folderId);
   await openRowMenu(page, templateName);
   const createDraft = row(page, templateName).locator('a.createDraft:visible');
-  if (((await createDraft.getAttribute('class')) ?? '').includes('link-disabled')) {
+  if (((await createDraft.getAttribute('class')) ?? '').split(/\s+/).includes('link-disabled')) {
     throw new Error('Workspace disabled Create version for a published template');
   }
   await createDraft.click();
@@ -1768,7 +1768,7 @@ async function verifyPublishDraftLifecycle(browser, page, folderId, user1) {
       const versionRow = row(page, VERSION_TEMPLATE_NAME);
       const publishClass = (await versionRow.locator('a.publish:visible').getAttribute('class')) ?? '';
       const draftClass = (await versionRow.locator('a.createDraft:visible').getAttribute('class')) ?? '';
-      if (publishClass.includes('link-disabled') && !draftClass.includes('link-disabled')) {
+      if (publishClass.split(/\s+/).includes('link-disabled') && !draftClass.split(/\s+/).includes('link-disabled')) {
         immutableControls = true;
         break;
       }

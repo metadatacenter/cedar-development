@@ -3677,6 +3677,11 @@ already-open recipient editor must then receive HTTP 403 without overwriting the
 the artifact must disappear from the recipient's **Shared with Me** listing. Every permission and
 artifact update is also checked for an `If-Match` request header.
 
+Menu capability checks match the exact `link-disabled` CSS class. Angular's
+`link-disabled-remove` and `link-disabled-remove-active` animation classes describe an action
+being enabled; a substring check misreads them as a continuing permission denial and can exhaust
+the sharing poll even after the search index and visible action have updated.
+
 Workspace's graph-command coverage drives all six UI variants: make an artifact open and not open,
 make a folder open and not open, and move an artifact and a folder. The visibility checks prove the
 corresponding anonymous-access transition; the move checks prove the source loses the resource and
