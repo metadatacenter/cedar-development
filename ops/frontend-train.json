@@ -493,6 +493,42 @@
         "high": 0,
         "critical": 0
       }
+    },
+    {
+      "repository": "cedar-design-tokens",
+      "lock": "package-lock.json",
+      "strictInstallScripts": true,
+      "sha256": "2fd6aea0a426ce73f8f0cde6bbd9164c555a231e1e436b03983ed0892c221806",
+      "vulnerabilities": {
+        "low": 0,
+        "moderate": 0,
+        "high": 0,
+        "critical": 0
+      }
+    },
+    {
+      "repository": "cedar-embeddable-term-picker",
+      "lock": "package-lock.json",
+      "strictInstallScripts": true,
+      "sha256": "bfe0221aa7345a0c7d7940f4043b4a00b3adc980c3baba9576eab6f95673f414",
+      "vulnerabilities": {
+        "low": 0,
+        "moderate": 0,
+        "high": 0,
+        "critical": 0
+      }
+    },
+    {
+      "repository": "cedar-embeddable-designer",
+      "lock": "package-lock.json",
+      "strictInstallScripts": true,
+      "sha256": "6a2820238aeb2591541a6124c521f6455c640ae1b5a30e8b469a36d4c98ee3c6",
+      "vulnerabilities": {
+        "low": 0,
+        "moderate": 0,
+        "high": 0,
+        "critical": 0
+      }
     }
   ],
   "runtimePackages": [

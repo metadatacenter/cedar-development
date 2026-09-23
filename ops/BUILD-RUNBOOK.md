@@ -436,6 +436,12 @@ the corresponding published train was reproduced.
 
 ## Failure Diagnosis
 
+Every train-built component needs a strict install-script decision and audit baseline, including
+tokens, the term picker and the designer. A local install without strict enforcement can pass
+while the hosted train refuses `npm ci`: the tokens build requires the reviewed
+`@parcel/watcher@2.6.0` install script. The dispatch preflight checks these component graphs before
+spending a train version, just as it checks the consuming applications.
+
 An HTTP 502 during Maven upload can occur after compilation succeeds and after some immutable
 files have reached Nexus. The 2.9.18 reactor-validation train hit it on large application jars.
 The uploader retries transport failures with bounded backoff; if retries are exhausted, check
