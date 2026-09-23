@@ -205,6 +205,15 @@ packages, and runs both whole-stack smoke tiers. A failure at any stage returns 
 compilation failure leaves the previous runtime selection intact; a deployment or smoke failure
 leaves the newly selected composition available for diagnosis and does not report completion.
 
+For a compile-only estate build, `cedarcli build all --skip-tests` skips both Java
+and frontend verification suites while retaining dependency-ordered frontend builds.
+It does not claim full reactor verification or run the frontend deployment/smoke sequence.
+`cedarcli build frontends` always retains its verification and completion contract.
+
+The TypeScript model's reactor checks read the corpus vendored inside its isolated
+checkout. Their child-process `CEDAR_HOME` points there, so a server's `/srv/cedar`
+does not redirect those checks to an absent or stale sibling `cedar-test-artifacts`.
+
 #### Current artifact transport
 
 `cedarcli build java` never consults a pin: it builds the repositories in dependency order,
