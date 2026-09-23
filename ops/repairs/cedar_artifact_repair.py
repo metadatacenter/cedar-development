@@ -587,6 +587,23 @@ def only_completed_context_required(before: Any, after: Any) -> Optional[str]:
     return walk(before, after, "")
 
 
+def inherently_multiple(field: Any) -> bool:
+    """Whether a field takes several answers because of what it is, not because an author said so.
+
+    A checkbox and an attribute-value field always do; a list does when its constraints say
+    multiple choice. Shared by the repairs that turn on that rule, so they cannot come to
+    different answers about the same field.
+    """
+    ui = field.get("_ui") if isinstance(field, dict) else None
+    if not isinstance(ui, dict):
+        return False
+    if ui.get("inputType") in {"checkbox", "attribute-value"}:
+        return True
+    constraints = field.get("_valueConstraints")
+    return ui.get("inputType") == "list" and isinstance(constraints, dict) \
+        and constraints.get("multipleChoice") is True
+
+
 def wrap_inherently_multiple(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
     """Deploy an inherently multiple child as the array it always serializes to.
 
@@ -597,16 +614,6 @@ def wrap_inherently_multiple(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
     inner definition and is correctly object-shaped, so only children under a container are examined.
     """
     changes: list[dict[str, Any]] = []
-
-    def inherently_multiple(field: Any) -> bool:
-        ui = field.get("_ui") if isinstance(field, dict) else None
-        if not isinstance(ui, dict):
-            return False
-        if ui.get("inputType") in {"checkbox", "attribute-value"}:
-            return True
-        constraints = field.get("_valueConstraints")
-        return ui.get("inputType") == "list" and isinstance(constraints, dict) \
-            and constraints.get("multipleChoice") is True
 
     def walk(container: Any, path: str) -> Any:
         if not isinstance(container, dict):
@@ -648,6 +655,112 @@ def wrap_inherently_multiple(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
         return result
 
     return walk(copy.deepcopy(artifact), ""), changes
+
+
+ARRAY_JSON_TYPE = "array"
+STRING_JSON_TYPE = "string"
+
+
+def value_property_json_type(field: Any) -> Any:
+    """The JSON type a field gives its ``@value`` property, or None where it gives none.
+
+    Distinct from :func:`declared_value_type` below, which answers the datatype an instance value
+    must state in ``@type``.
+    """
+    properties = field.get("properties") if isinstance(field, dict) else None
+    declared = properties.get("@value") if isinstance(properties, dict) else None
+    return declared.get("type") if isinstance(declared, dict) else None
+
+
+def value_type_naming_array(declared: Any) -> bool:
+    return declared == ARRAY_JSON_TYPE or (isinstance(declared, list) and ARRAY_JSON_TYPE in declared)
+
+
+def value_type_without_array(declared: Any) -> Any:
+    """The same declaration with the array replaced by the string a single answer is."""
+    if declared == ARRAY_JSON_TYPE:
+        return STRING_JSON_TYPE
+    return [STRING_JSON_TYPE if entry == ARRAY_JSON_TYPE else entry for entry in declared]
+
+
+def narrow_multi_select_value(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Type one answer of a multi-select as the string it is, not as another array.
+
+    A field that takes several answers is deployed as an array of occurrences, and each occurrence
+    holds one of them. Typing the occupant's own ``@value`` as an array as well says each answer is
+    itself a list, which the model cannot represent: a literal field's ``@value`` is a string, and
+    the several answers are the several occurrences. No editor produces that shape, so every
+    populated instance of such a field is invalid against its own template while the template passes
+    the meta-schema, which constrains neither side against the other.
+
+    Only a child already deployed as an array and already multiple by nature is touched. A field
+    holding an array while deployed as a single object is a different question - whether it should
+    become multi-instance - and is left to :func:`wrap_inherently_multiple` and to a decision.
+    """
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def walk(container: Any, path: str) -> Any:
+        if not isinstance(container, dict):
+            return container
+        result = copy.deepcopy(container)
+        for name, child, multiple in container_children(container):
+            declared = rest.child_path(path, name)
+            here = f"{declared}/items" if multiple else declared
+            repaired = walk(child, here)
+            if multiple and inherently_multiple(repaired):
+                stored = value_property_json_type(repaired)
+                if value_type_naming_array(stored):
+                    narrowed = value_type_without_array(stored)
+                    repaired = copy.deepcopy(repaired)
+                    repaired["properties"]["@value"]["type"] = narrowed
+                    changes.append({"path": f"{here}/properties/@value/type",
+                                    "replaced": stored, "wrote": narrowed,
+                                    "inputType": (repaired.get(UI_KEY) or {}).get(INPUT_TYPE_KEY)})
+            if multiple:
+                result["properties"][name]["items"] = repaired
+            else:
+                result["properties"][name] = repaired
+        return result
+
+    return walk(artifact, ""), changes
+
+
+def only_narrowed_multi_select_value(before: Any, after: Any) -> Optional[str]:
+    """The invariant: every change is one multi-select answer's type, re-derived rather than trusted.
+
+    The narrowed declaration is recomputed from the stored one, so a transform that wrote some other
+    type, or touched a field that is not multiple by nature, is caught here rather than written.
+    """
+
+    def walk(old: Any, new: Any, path: str) -> Optional[str]:
+        if isinstance(old, dict):
+            if not isinstance(new, dict) or set(old) != set(new):
+                return path or "/"
+            for name in old:
+                here = f"{path}/{rest.json_pointer_component(name)}"
+                if (name == "type" and path.endswith("/properties/@value")
+                        and new[name] != old[name]):
+                    if not value_type_naming_array(old[name]) \
+                            or new[name] != value_type_without_array(old[name]):
+                        return here
+                    continue
+                difference = walk(old[name], new[name], here)
+                if difference is not None:
+                    return difference
+            return None
+        if isinstance(old, list):
+            if not isinstance(new, list) or len(old) != len(new):
+                return path or "/"
+            for index, value in enumerate(old):
+                difference = walk(value, new[index], f"{path}/{index}")
+                if difference is not None:
+                    return difference
+            return None
+        return None if type(old) is type(new) and old == new else (path or "/")
+
+    return walk(before, after, "")
 
 
 def only_wrapped_inherently_multiple(before: Any, after: Any) -> Optional[str]:
@@ -5825,6 +5938,13 @@ REPAIRS = {
         summary="write a draft's prerelease version as its release, discarding the tag",
         transform=settle_prerelease_version,
         invariant=only_settled_prerelease_version,
+    ),
+    "narrow-multi-select-value": Repair(
+        name="narrow-multi-select-value",
+        condition="multi-select-value-typed-as-array",
+        summary="type one answer of a multi-select as the string it is, not as another array",
+        transform=narrow_multi_select_value,
+        invariant=only_narrowed_multi_select_value,
     ),
     "pad-artifact-version": Repair(
         name="pad-artifact-version",

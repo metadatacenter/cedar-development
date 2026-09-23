@@ -2626,6 +2626,73 @@ class SettlePrereleaseVersionTest(unittest.TestCase):
         self.assertEqual(REPAIR.only_settled_prerelease_version(doc, promoted), "/bibo:status")
 
 
+def multi_select(value_type, multiple_choice=True, input_type="list", **extra):
+    """A multi-select field deployed as the array of occurrences it is."""
+    inner = child(**extra)
+    inner["_ui"] = {"inputType": input_type}
+    inner["_valueConstraints"] = {"literals": [{"label": "A"}, {"label": "B"}]}
+    if multiple_choice is not None:
+        inner["_valueConstraints"]["multipleChoice"] = multiple_choice
+    inner["properties"] = {"@value": {"type": value_type}}
+    return {"type": "array", "minItems": 1, "items": inner}
+
+
+class NarrowMultiSelectValueTest(unittest.TestCase):
+    """A multi-select's several answers are its several occurrences, each holding a string."""
+
+    def test_an_array_typed_answer_becomes_a_string(self):
+        doc = template({"Kinds": multi_select(["array", "null"])})
+        after, changes = REPAIR.narrow_multi_select_value(doc)
+        self.assertEqual(
+            after["properties"]["Kinds"]["items"]["properties"]["@value"]["type"], ["string", "null"])
+        self.assertEqual(changes, [{"path": "/properties/Kinds/items/properties/@value/type",
+                                    "replaced": ["array", "null"], "wrote": ["string", "null"],
+                                    "inputType": "list"}])
+        self.assertIsNone(REPAIR.only_narrowed_multi_select_value(doc, after))
+
+    def test_a_bare_array_becomes_a_bare_string(self):
+        doc = template({"Kinds": multi_select("array")})
+        after, _changes = REPAIR.narrow_multi_select_value(doc)
+        self.assertEqual(after["properties"]["Kinds"]["items"]["properties"]["@value"]["type"], "string")
+
+    def test_a_checkbox_is_covered_without_stating_multiple_choice(self):
+        doc = template({"Boxes": multi_select(["array", "null"], multiple_choice=None,
+                                              input_type="checkbox")})
+        after, changes = REPAIR.narrow_multi_select_value(doc)
+        self.assertEqual(len(changes), 1)
+        self.assertEqual(
+            after["properties"]["Boxes"]["items"]["properties"]["@value"]["type"], ["string", "null"])
+
+    def test_a_correctly_typed_answer_is_left_alone(self):
+        doc = template({"Kinds": multi_select(["string", "null"])})
+        after, changes = REPAIR.narrow_multi_select_value(doc)
+        self.assertEqual(changes, [])
+        self.assertEqual(after, doc)
+
+    def test_a_single_choice_list_is_not_this_repair_s_business(self):
+        """Its array is a different question - whether the field should be multiple at all."""
+        doc = template({"Kind": multi_select(["array", "null"], multiple_choice=False)})
+        _after, changes = REPAIR.narrow_multi_select_value(doc)
+        self.assertEqual(changes, [])
+
+    def test_a_field_not_deployed_as_an_array_is_left_for_the_wrapping_repair(self):
+        inner = multi_select(["array", "null"])["items"]
+        doc = template({"Kinds": inner})
+        _after, changes = REPAIR.narrow_multi_select_value(doc)
+        self.assertEqual(changes, [])
+
+    def test_the_invariant_rejects_another_change_and_a_type_it_did_not_derive(self):
+        doc = template({"Kinds": multi_select(["array", "null"])})
+        after, _changes = REPAIR.narrow_multi_select_value(doc)
+        renamed = copy.deepcopy(after)
+        renamed["schema:name"] = "Renamed"
+        self.assertEqual(REPAIR.only_narrowed_multi_select_value(doc, renamed), "/schema:name")
+        invented = copy.deepcopy(after)
+        invented["properties"]["Kinds"]["items"]["properties"]["@value"]["type"] = ["number", "null"]
+        self.assertEqual(REPAIR.only_narrowed_multi_select_value(doc, invented),
+                         "/properties/Kinds/items/properties/@value/type")
+
+
 class PadArtifactVersionTest(unittest.TestCase):
     """A version the library cannot parse leaves the artifact with no YAML representation at all."""
 
