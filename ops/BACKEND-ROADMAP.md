@@ -1228,11 +1228,19 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   **Repair the string-typed fields nothing rejects on write.** Roughly half the string-typed
   properties the meta-schema describes carry no pattern, format or enumeration, so a rule only one
   component enforces produces stored data nothing refuses until something downstream cannot read it.
-  Three are populated with values that fail the shape the model expects: `unitOfMeasure` holds empty
-  strings, a constraint `type` of `Value` appears where the meta-schema permits only Branch, Class,
-  Ontology, OntologyClass and ValueSet, and `acronym` holds help text sentences. Give each a rule
-  under `cedar_artifact_patch.py`'s discipline, and take the counts from a walk of the whole
-  population rather than from the sample that found them.
+  A walk of all 151,820 schema artifacts on 2026-09-23 found four such properties populated with
+  values that fail the shape the model expects:
+
+  | Property | Artifacts | What they hold |
+  | --- | ---: | --- |
+  | `unitOfMeasure` | 571 | 1,216 empty strings |
+  | `type` | 20 | 585 occurrences of `Value`, where only Branch, Class, Ontology, OntologyClass and ValueSet are permitted |
+  | `acronym` | 15 | help text sentences, and a URL-encoded BioPortal query string |
+  | `pav:previousVersion` | 2 | `0.0.1` and `0.0.0` where an absolute IRI belongs |
+
+  Give each a rule under `cedar_artifact_patch.py`'s discipline. An empty `unitOfMeasure` and an
+  absent one say the same thing, so that rule removes the key rather than inventing a unit; the
+  other three need a reading of each value before anything is written.
 
   Done when every enumerable artifact is valid or recorded as a named exception, the rename sheet is
   answered or explicitly abandoned for its tail, both model libraries derive `title`, the model
@@ -1243,29 +1251,28 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   `pav:version` is a non-empty string to the meta-schema and a
   `record Version(int major, int minor, int patch)` to `cedar-artifact-library`, so a value the
   record cannot hold is accepted on write and found only on read, where the artifact answers 500 to
-  an `Accept` of `application/yaml` and 200 to JSON. A JSON read returns the stored bytes
-  unexamined.
+  an `Accept` of `application/yaml` and 200 to JSON. Nothing in the meta-schema stops one being
+  stored, which is the gap to close.
 
-  The stored side has a repair already: `pad_artifact_version`, `settle_prerelease_version` and
-  `default_unreadable_version` in `ops/repairs/cedar_artifact_repair.py`, each with an invariant of
-  its own. What is left is to establish that the population is clean and then tighten. A survey of
-  8,994 schema artifacts on 2026-09-23 found no offending value, and the instances a September
-  compaction run could not write for a version error no longer carry one, but both are samples; a
-  walk of all 151,832 schema artifacts settles it.
+  The stored schema population no longer holds one. A walk of all 151,819 schema artifacts carrying
+  the property, on 2026-09-23, found no offending value across 215,245 of them, prereleases
+  included; `schema:schemaVersion` is clean over 288,618 values and `schema:identifier` over
+  172,587. So the tightening no longer waits on a repair, and the prerelease question is moot for
+  the stored corpus until something writes one again. The repairs that got it there remain in
+  `ops/repairs/cedar_artifact_repair.py` for whatever does.
 
-  The prerelease values are a question of their own. `1.0.0-rc1` is valid semver that `Version`,
-  being `record Version(int major, int minor, int patch)`, cannot hold — a library limitation
-  rather than bad data, and ruling it invalid would put 686 more occurrences into the repair.
+  Instances are the untested half. The survey walks templates, elements and fields, and an instance
+  carries `pav:version` too - eight instances of one template were found holding it during a repair
+  the same day. Walk the instance population before calling this settled, and note that an instance
+  may not carry the key at all, so what it needs is removal rather than repair.
 
-  Order still matters. The artifact server validates on write, so tightening `pav:version` while any
-  artifact still carries a value the record cannot hold makes that artifact unsaveable through the
-  API. Confirm first, or land the two together. `cedar_content_constraint_survey.py` sizes the rest
-  of the surface: `schema:schemaVersion` has 30 rule sites and production is clean there, so that
-  one is free to tighten today, and `schema:identifier` and `pav:previousVersion` are clean as well.
-  `unitOfMeasure`, `acronym` and the constraint `type` are not, and item 26 carries them.
+  `schema:schemaVersion` has 30 rule sites and is free to tighten today. `pav:version` can follow as
+  soon as the instance walk agrees. The order that mattered still does: the artifact server
+  validates on write, so tightening ahead of a population makes every artifact still carrying a bad
+  value unsaveable through the API.
 
-  Done when no schema artifact answers 500 to a YAML read, and a version that is not one is
-  refused on write rather than discovered on read.
+  Done when a version that is not one is refused on write rather than discovered on read, and no
+  artifact of any kind answers 500 to a YAML read.
 
 ## Later Decisions
 
