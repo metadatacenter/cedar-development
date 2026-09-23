@@ -107,6 +107,11 @@ The version files a release stamps onto each branch separately do not count as d
 `cedarcli check main` asks the same question of all forty-five repositories at any time, which is
 where it is cheap to answer. Asked during a release, it is already expensive.
 
+Release build validation runs the Angular, Ember and React demo lint and test suites
+against the prepared public CEE pins, in both release and next-development workspaces.
+Frontend install, verification and build tasks precede the Maven builds. A failed
+consumer check stops before publication and retains its log for `release resume`.
+
 After remote integration, run `cedarcli check ci`. The `cedar-libraries` and
 `cedar-project` aggregator workflows check out sibling `develop` branches at run time.
 A run triggered midway through sequential release pushes can see a mixture of old and
