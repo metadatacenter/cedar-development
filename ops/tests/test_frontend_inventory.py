@@ -31,6 +31,13 @@ class FrontendInventoryTest(unittest.TestCase):
         self.config['surfaces'][0]['verificationExemption'] = 'No executable source'
         frontend_inventory.validate(self.config)
 
+    def test_exemptions_must_be_written_reasons_not_truthy_placeholders(self):
+        self.config['surfaces'][0]['verify'] = []
+        for value in (None, True, 1, [], '  '):
+            self.config['surfaces'][0]['verificationExemption'] = value
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, 'neither verification nor an exemption'):
+                frontend_inventory.validate(self.config)
+
     def test_duplicates_and_unsafe_paths_fail(self):
         self.config['surfaces'].append(copy.deepcopy(self.config['surfaces'][0]))
         with self.assertRaisesRegex(ValueError, 'duplicate'):

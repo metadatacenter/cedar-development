@@ -21,7 +21,8 @@ def surfaces(config):
         if not isinstance(name, str) or not name or name in names:
             raise ValueError(f'duplicate or missing reactor identity: {name}')
         names.add(name)
-        if not row.get('verify') and not str(row.get('verificationExemption', '')).strip():
+        exemption = row.get('verificationExemption')
+        if not row.get('verify') and not (isinstance(exemption, str) and exemption.strip()):
             raise ValueError(f'frontend {key} has neither verification nor an exemption')
         for field in ('setup', 'verify'):
             commands = row.get(field)
