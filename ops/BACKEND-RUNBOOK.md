@@ -237,7 +237,7 @@ cedarcli native restart frontends
 cedarcli native status                # one-shot table: PID / port / health / binary / error-count
 cedarcli native watch                 # auto-refreshing status
 cedarcli native logs <name>           # tail -f a service log
-cedarcli native health                # exit 0 only if every managed application is healthy
+cedarcli native health                # per-service health + summary; exit 0 only if all healthy
 ```
 
 `start`, `stop`, and `restart` name one application through `microservice <name>` or
