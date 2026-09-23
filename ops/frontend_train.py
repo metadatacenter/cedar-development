@@ -631,9 +631,13 @@ def wire_components(args, plan, repository):
     return changes
 
 
-def verification_environment(config, plan, repository, workspace):
-    row = next(r for r in frontend_inventory.surfaces(config) if r['repository'] == repository)
+def verification_environment(config, plan, repository, workspace, directory='.'):
+    row = next(r for r in frontend_inventory.surfaces(config) if (r['repository'],r['directory']) == (repository,directory))
     environment = dict(os.environ)
+    for key, value in row.get('verificationDefaults', {}).items():
+        environment.setdefault(key, value)
+    environment['CEDAR_VERSION'] = plan['version']
+    environment['CEDAR_VERSION_MODIFIER'] = ''
     packages = [plan.get('cee', {}), *plan.get('components', [])]
     for item in row.get('integrationInputs', []):
         package = next((p for p in packages if p.get('repository') == item['repository']), None)
@@ -738,8 +742,9 @@ def prepare_frontends(args: argparse.Namespace) -> None:
     for surface in frontend_inventory.surfaces(config):
         if surface.get('release'):
             root = args.workspace / surface['repository'] / surface['directory']
+            environment = verification_environment(config, plan, surface['repository'], args.workspace, surface['directory'])
             for command in frontend_inventory.commands(config, surface['repository'], surface['directory']):
-                run_command(command, root)
+                run_command(command, root, environment)
 
     builds = []
     for frontend in plan["frontends"]:

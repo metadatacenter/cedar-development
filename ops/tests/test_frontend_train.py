@@ -75,7 +75,7 @@ class FrontendTrainTest(unittest.TestCase):
         config = {'surfaces': [dict(repository='designer', directory='.', reactorName='designer',
             setup=[], verify=[['npm','test']], integrationInputs=[
                 dict(variable='CEF_BUNDLE', repository='cee', bundle='cee.js')])]}
-        plan = {'registry':'https://example.org', 'cee':{'repository':'cee'}}
+        plan = {'version':VERSION,'registry':'https://example.org', 'cee':{'repository':'cee'}}
         verified = {'tarball':'https://example.org/cee.tgz',
                     'tarballSha256':hashlib.sha256(content).hexdigest()}
         with tempfile.TemporaryDirectory() as directory, \
