@@ -1224,10 +1224,6 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   A further three fail on `@context` enum mismatches, two of them on
   *UPDATED HEAL Study Core Metadata* (`a91e12b0…`).
 
-  **Compact the blank occurrences the invalidity was hiding.** Fourteen instances of *CCP Digital
-  Object* hold a blank occurrence before a value, and `compact-blank-occurrences` can now compute
-  and write them; while the template refused its own instances, the repair could not see the work
-  at all. Nothing else in that set of 68 has a path left to clear.
 
   **Repair the string-typed fields nothing rejects on write.** Roughly half the string-typed
   properties the meta-schema describes carry no pattern, format or enumeration, so a rule only one
