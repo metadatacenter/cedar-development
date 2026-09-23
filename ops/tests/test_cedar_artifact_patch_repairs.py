@@ -120,7 +120,7 @@ class ArtifactPatchRepairRoundTripTest(unittest.TestCase):
             "@type": "https://schema.metadatacenter.org/core/TemplateField",
             "schema:identifier": "stable-identifier",
             "_ui": {"inputType": "list"},
-            "_valueConstraints": {"multipleChoice": True, "requiredValue": True},
+            "_valueConstraints": {"multipleChoice": True},
             "properties": {"@value": {"type": ["string", "null"]}},
         }
         defective = {"type": "object", "properties": {"choice": field}}
@@ -130,6 +130,27 @@ class ArtifactPatchRepairRoundTripTest(unittest.TestCase):
                 "choice": {
                     "type": "array",
                     "minItems": 1,
+                    "items": copy.deepcopy(field),
+                },
+            },
+        }
+        self.assert_round_trip(32, defective, repaired)
+
+    def test_item_32_attribute_value_keeps_its_structural_zero(self):
+        """Requiring one would mean requiring an attribute nobody has named yet."""
+        field = {
+            "type": "object",
+            "@type": "https://schema.metadatacenter.org/core/TemplateField",
+            "_ui": {"inputType": "attribute-value"},
+            "properties": {"@value": {"type": ["string", "null"]}},
+        }
+        defective = {"type": "object", "properties": {"attribute": field}}
+        repaired = {
+            "type": "object",
+            "properties": {
+                "attribute": {
+                    "type": "array",
+                    "minItems": 0,
                     "items": copy.deepcopy(field),
                 },
             },

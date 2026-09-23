@@ -40,6 +40,7 @@ import subprocess
 import sys
 import time
 from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeoutError
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterator, Optional
@@ -60,6 +61,9 @@ DEFAULT_PAGE_SIZE = 500
 ENUMERATION_REPORT_SECONDS = 30
 DEFAULT_TEMPLATE_CACHE = 500
 DEFAULT_FETCH_WORKERS = 4
+# Beyond the client's own socket timeout, the longest a single fetch may occupy its worker before
+# the pass gives up on it. Generous, since a slow artifact is not a stuck one.
+DEFAULT_WORKER_TIMEOUT = 600
 DEFAULT_BRIDGE_TIMEOUT = 120
 DEFAULT_BRIDGE_MAX_RESTARTS = 5
 BRIDGE_SOURCE = Path(__file__).with_name("cedar_validation_bridge.java")
@@ -518,13 +522,18 @@ class _TimedLineReader:
             self.buffer += chunk
 
 
-class ValidationBridge:
-    """Drive cedar_validation_bridge.java over its stdin and stdout."""
+class LineBridge:
+    """Drive a co-process that answers one JSON line per JSON request line.
 
-    def __init__(self, java: str, classpath: str, source: Path, template_cache: int, heap: str,
-                 log_path: Path, timeout: float, startup_timeout: float = 180):
-        self.command = [java, f"-Xmx{heap}", "-cp", classpath, str(source),
-                        "--template-cache", str(template_cache)]
+    The protocol is the one ``cedar_validation_bridge.java`` documents: a request carries an ``op``
+    and a ``seq`` the answer echoes, ``hello`` opens the conversation and ``shutdown`` closes it.
+    Nothing here is particular to validation, or to Java, so a second co-process speaking the same
+    protocol needs only its own command.
+    """
+
+    def __init__(self, command: list[str], log_path: Path, timeout: float,
+                 startup_timeout: float = 180):
+        self.command = command
         self.log_path = log_path
         self.timeout = timeout
         self.startup_timeout = startup_timeout
@@ -584,15 +593,6 @@ class ValidationBridge:
             self.kill()
             raise
 
-    def cache_template(self, template_id: str, template: dict) -> dict[str, Any]:
-        return self.request({"op": "cache-template", "id": template_id, "template": template})
-
-    def validate(self, kind: str, artifact: Any, template_id: Optional[str] = None) -> dict[str, Any]:
-        payload: dict[str, Any] = {"op": "validate", "kind": kind, "artifact": artifact}
-        if template_id is not None:
-            payload["templateId"] = template_id
-        return self.request(payload)
-
     def kill(self) -> None:
         process, self.process, self.reader = self.process, None, None
         if process is not None and process.poll() is None:
@@ -619,6 +619,25 @@ class ValidationBridge:
             except (BridgeError, TimeoutError, subprocess.TimeoutExpired, OSError):
                 pass
         self.kill()
+
+
+class ValidationBridge(LineBridge):
+    """Drive cedar_validation_bridge.java over its stdin and stdout."""
+
+    def __init__(self, java: str, classpath: str, source: Path, template_cache: int, heap: str,
+                 log_path: Path, timeout: float, startup_timeout: float = 180):
+        super().__init__([java, f"-Xmx{heap}", "-cp", classpath, str(source),
+                          "--template-cache", str(template_cache)],
+                         log_path, timeout, startup_timeout)
+
+    def cache_template(self, template_id: str, template: dict) -> dict[str, Any]:
+        return self.request({"op": "cache-template", "id": template_id, "template": template})
+
+    def validate(self, kind: str, artifact: Any, template_id: Optional[str] = None) -> dict[str, Any]:
+        payload: dict[str, Any] = {"op": "validate", "kind": kind, "artifact": artifact}
+        if template_id is not None:
+            payload["templateId"] = template_id
+        return self.request(payload)
 
 
 def run_validate_sh(subcommand: str, timeout: float) -> str:
@@ -1089,9 +1108,22 @@ def fetch_artifact(client: rest.GetOnlyClient, ref: rest.ArtifactRef) -> tuple[A
         return None, error
 
 
-def fetch_in_order(client: rest.GetOnlyClient, refs: list[rest.ArtifactRef], workers: int
+def fetch_in_order(client: rest.GetOnlyClient, refs: list[rest.ArtifactRef], workers: int,
+                   fetch=None, worker_timeout: float = DEFAULT_WORKER_TIMEOUT
                    ) -> Iterator[tuple[rest.ArtifactRef, Any, Optional[Exception]]]:
-    """Fetch a few artifacts ahead of the consumer, and hand them over in enumeration order."""
+    """Fetch a few artifacts ahead of the consumer, and hand them over in enumeration order.
+
+    ``fetch`` reads one artifact and returns what it read with whatever failure it met; the default
+    reads the typed JSON body. A caller wanting another representation supplies its own.
+
+    A worker is given ``worker_timeout`` to answer, beyond the socket timeout the client applies to
+    each request. The two are not the same: a name lookup that hangs is covered by neither the
+    socket timeout nor the retry budget, and waiting on such a worker forever stopped the run
+    without stopping the process — a state a keyboard interrupt cannot break either, since the
+    main thread is blocked acquiring a lock. The artifact is recorded as unread and the pass goes
+    on; the worker it left behind is not reused.
+    """
+    fetch = fetch or fetch_artifact
     window = max(1, workers * 2)
     pending: collections.deque[tuple[rest.ArtifactRef, Future]] = collections.deque()
     position = 0
@@ -1100,14 +1132,18 @@ def fetch_in_order(client: rest.GetOnlyClient, refs: list[rest.ArtifactRef], wor
         while position < len(refs) and len(pending) < window:
             ref = refs[position]
             position += 1
-            pending.append((ref, executor.submit(fetch_artifact, client, ref)))
+            pending.append((ref, executor.submit(fetch, client, ref)))
         while pending:
             ref, future = pending.popleft()
-            artifact, error = future.result()
+            try:
+                artifact, error = future.result(timeout=worker_timeout)
+            except FuturesTimeoutError:
+                artifact = None
+                error = TimeoutError(f"no answer within {worker_timeout:.0f}s; the worker is stuck")
             if position < len(refs):
                 next_ref = refs[position]
                 position += 1
-                pending.append((next_ref, executor.submit(fetch_artifact, client, next_ref)))
+                pending.append((next_ref, executor.submit(fetch, client, next_ref)))
             yield ref, artifact, error
     finally:
         executor.shutdown(wait=False, cancel_futures=True)

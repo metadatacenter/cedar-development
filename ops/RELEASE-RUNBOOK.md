@@ -1,12 +1,9 @@
 # CEDAR Release Runbook
 
-How to cut a CEDAR release from an immutable development build train. Written to be followed by a
-human with no tooling beyond a terminal, or read by an LLM agent. This is the **release**
-counterpart to [BACKEND-RUNBOOK.md](./BACKEND-RUNBOOK.md), which covers running CEDAR locally.
-
-A companion visual, showing a live phase timeline alongside this command sequence, is
-[cedar-release-monitor.html](./cedar-release-monitor.html). Open it in a browser; there is no build
-step.
+Cut a CEDAR release from a completed [build train](BUILD-RUNBOOK.md). For deployment use
+[PROD-DEPLOY-RUNBOOK.md](PROD-DEPLOY-RUNBOOK.md); for local operation use
+[BACKEND-RUNBOOK.md](BACKEND-RUNBOOK.md). The optional
+[release monitor](cedar-release-monitor.html) opens directly in a browser.
 
 > Replace `<VER>` and `<NEXT>` with the release version and the next development version, for
 > example `2.9.4` and `2.9.5-SNAPSHOT`.
@@ -18,9 +15,25 @@ source state, so the release takes its exact commits, stamps versions onto them,
 what it publishes matches what the train built. Creating a train is covered in
 [BUILD-RUNBOOK.md](./BUILD-RUNBOOK.md).
 
-The route begins with one read-only plan and four explicit inputs. Nothing is inferred from the
-train identifier and no manifest path is accepted. The CLI owns the immutable manifest under
-`~/.cedar/train-releases/`.
+### Ask What the Workspace Can Answer First
+
+Run workspace readiness before creating a train, so fixes do not invalidate its captured source:
+
+```bash
+cedarcli release readiness --version <VER> --next-version <NEXT>
+```
+
+It checks consumer inventories, Maven modules/artifacts, npm publication surfaces and version
+arithmetic, and packs each surface from a clean commit archive. A `prepack` depending on checkout
+`node_modules` fails here. Versions are optional; `--skip-packaging` omits packing. Allow about ten
+seconds. Registry inventories, digests and CEE equivalence require the completed train and remain
+in `plan`.
+
+### The Plan
+
+The route proper begins with one read-only plan and four explicit inputs. Nothing is inferred
+from the train identifier and no manifest path is accepted. The CLI owns the immutable manifest
+under `~/.cedar/train-releases/`.
 
 ```bash
 cedarcli release plan \
@@ -38,38 +51,14 @@ CEE and the public npmjs CEE, and then runs the complete release gate. It must f
 
 ### Nothing May Land Between the Train and the Release
 
-A release stamps the exact commits its train captured and refuses any repository whose `develop`
-has moved off them. A single commit to any one of the forty-five therefore spends the train, and
-the release needs a new one, built and smoke-gated from scratch. Do CI, tooling and documentation
-work before the train rather than between the train and the release it backs.
+A release stamps the train's exact commits and refuses any captured repository whose `develop`
+has moved. Finish CI, tooling and documentation changes before creating the train. A later source
+change requires a new smoke-gated train.
 
-`cedarcli publish train-status` reports whether a complete train can still back a release, which
-is the cheap way to learn this while it can still change what you do. The refusal itself names
-every repository that moved and counts them against what the train captured, because one
-repository that can be explained and an estate that has moved on call for different remedies.
-
-The CEE version bases need not match. A train may already have advanced to the next development
-base after the public package was cut, so eligibility comes from the tarball proof rather than from
-version-name similarity.
-
-The proof permits only named, source-bound non-executable differences. Besides package channel
-metadata and the declared version, model identity, load trace, and release changelog entry, this
-includes CEE's exact `allowScripts` install policy when Angular has embedded the root `package.json`
-into the bundle. The planner reads that policy from `package.json` at the CEE commit captured by the
-train, requires its minified literal exactly once in the development bundle, and removes only those
-bytes before comparison. An undeclared policy, a malformed entry, a second occurrence, or any
-adjacent JavaScript change still fails the byte proof. This keeps npm's build/install allowlist from
-forcing a new public CEE release while preserving the rule that executable changes do.
-
-The proof also accepts one difference that is not a change at all. esbuild draws the short names it
-gives minified identifiers from an alphabet ordered by how often each character occurs in the
-output, and the provenance strings a train stamps into its bundle move those counts, so two builds
-of the same code can disagree in every name at one rank of that alphabet. The planner therefore
-compares the two bundles outside identifiers byte for byte and requires every identifier that
-differs to be a short minified name, renamed the same way at every differing position in both
-directions. A property, a reserved word, a longer name, or a name renamed two ways is still a
-refusal. Train 2.9.9-dev.20260906.2244 was the first to need this: its stamps carried enough of the
-digit 8 to swap its rank with the letter B.
+Use `cedarcli publish train-status` to check eligibility and identify moved repositories.
+CEE's public and development version bases need not match: eligibility depends on the
+[package equivalence proof](NPMJS-RELEASE-RUNBOOK.md#use-the-public-cee-in-a-train-backed-cedar-release),
+whose permitted normalizations are defined in the npmjs runbook.
 
 ## What Plan Checks
 
@@ -135,6 +124,11 @@ command: credential resolution and authentication happen automatically during `r
 `release start`, and `release resume`. The plan then authenticates against an endpoint anonymous
 callers cannot reach, and reads a repository as well, because the status endpoints answer from the
 web tier and stay green while everything behind them fails.
+
+The content probe reads retained release metadata for `cedar-parent`. Snapshot metadata may be
+absent after cleanup even while repository reads and train uploads work. A missing probe (404)
+is reported as a missing repository read, never as daily request-budget exhaustion; that diagnosis
+is reserved for the observed HTTP 500 response with writable status still healthy.
 
 **A Nexus over its request budget looks like an outage.** The instance is Community Edition, with a
 limit on requests per day, and when it is over that limit it serves its status endpoints and returns
@@ -233,7 +227,9 @@ bounded retry; an HTTP refusal does not.
 The release runs these phases, each verifying its work before the next begins:
 
 1. Clone every train source commit into isolated workspaces, and pin the public CEE version in all
-   seven frontend consumer manifests and lockfiles.
+   seven frontend consumer manifests and lockfiles. Shared-component pins (tokens, picker and
+   designer) also follow the train's verified package graph; their exact registry tarball and
+   integrity are checked before and after lock generation.
 2. Stamp `<VER>` and `<NEXT>` from the same source commits, and move the copyright year in every
    `license.txt` to the release year. Both variants retain the stable public CEE wiring. The
    Docker build's frontend defaults in `cedar-images-base.sh` are rewritten from the train's

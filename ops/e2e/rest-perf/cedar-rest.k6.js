@@ -543,41 +543,61 @@ function mutableResponseBody(response) {
   return JSON.parse(response.body);
 }
 
-function categoryAclBody(response) {
-  const current = mutableResponseBody(response);
+// A permissions document comes back wider than the one a PUT accepts. A grant carries the grantee's
+// name and email in the response and an identifier alone in the request, and these endpoints refuse
+// an unrecognized property rather than ignoring it. A body copied from a response is therefore
+// reduced to the request before it is sent. The owner is left out on purpose: it is optional, an
+// omitted owner leaves ownership unchanged, and this harness transfers ownership through
+// /command/transfer-category-ownership rather than through an ACL write.
+function permissionGrants(body, key, principal) {
+  return entriesFor(body, key)
+      .filter(entry => entry?.[principal]?.['@id'] && entry.role)
+      .map(entry => ({ [principal]: { '@id': entry[principal]['@id'] }, role: entry.role }));
+}
+
+function permissionsRequestFrom(body) {
   return {
-    userPermissions: entriesFor(current, 'userPermissions'),
-    groupPermissions: entriesFor(current, 'groupPermissions'),
+    userPermissions: permissionGrants(body, 'userPermissions', 'user'),
+    groupPermissions: permissionGrants(body, 'groupPermissions', 'group'),
   };
 }
 
-function categoryAclWithUserRole(response, userId, role) {
-  const body = categoryAclBody(response);
-  body.userPermissions = body.userPermissions.filter(entry => entry?.user?.['@id'] !== userId);
-  if (role) body.userPermissions.push({ user: { '@id': userId }, role });
-  return body;
+// A membership roster narrows the same way: the response describes each member, the request carries
+// the identifier and the two flags.
+function membershipRequestFrom(body) {
+  return {
+    users: entriesFor(body, 'users')
+        .filter(entry => entry?.user?.['@id'])
+        .map(entry => ({
+          user: { '@id': entry.user['@id'] },
+          administrator: entry.administrator === true,
+          member: entry.member === true,
+        })),
+  };
+}
+
+function categoryAclBody(response) {
+  return permissionsRequestFrom(mutableResponseBody(response));
 }
 
 function toggledUserRoleBody(currentBody, userId, role) {
-  const entries = entriesFor(currentBody, 'userPermissions');
   const granting = !hasUserEntry(currentBody, 'userPermissions', userId);
-  currentBody.userPermissions = entries.filter(entry => entry?.user?.['@id'] !== userId);
+  const body = permissionsRequestFrom(currentBody);
+  body.userPermissions = body.userPermissions.filter(entry => entry?.user?.['@id'] !== userId);
   if (granting) {
-    currentBody.userPermissions.push({ user: { '@id': userId }, role });
+    body.userPermissions.push({ user: { '@id': userId }, role });
   }
-  return { body: currentBody, granting };
+  return { body, granting };
 }
 
 function toggledMembershipBody(currentBody, userId) {
-  const entries = entriesFor(currentBody, 'users');
   const joining = !hasUserEntry(currentBody, 'users', userId);
-  currentBody.users = entries.filter(entry => entry?.user?.['@id'] !== userId);
+  const body = membershipRequestFrom(currentBody);
+  body.users = body.users.filter(entry => entry?.user?.['@id'] !== userId);
   if (joining) {
-    currentBody.users.push({
-      user: { '@id': userId }, administrator: false, member: true,
-    });
+    body.users.push({ user: { '@id': userId }, administrator: false, member: true });
   }
-  return { body: currentBody, joining };
+  return { body, joining };
 }
 
 function readArtifact(data, index, actor) {
@@ -700,9 +720,8 @@ function verifyPermissionReport(data, actorIndex, fixture, kind, authority, oper
 }
 
 function aclWithUserRole(current, userId, role) {
-  const body = mutableResponseBody(current);
-  body.userPermissions = entriesFor(body, 'userPermissions')
-      .filter(entry => entry?.user?.['@id'] !== userId);
+  const body = permissionsRequestFrom(mutableResponseBody(current));
+  body.userPermissions = body.userPermissions.filter(entry => entry?.user?.['@id'] !== userId);
   if (role) body.userPermissions.push({ user: { '@id': userId }, role });
   return body;
 }
@@ -762,7 +781,8 @@ function exerciseRoleTransitions(data, fixture) {
   const editorRevision = requireEtag(editorAcl, 'permission Editor ACL preflight');
   if (editorRevision) {
     const denied = cedar(data, fixture.viewerIndex, 'PUT', `${fixture.transitionField.path}/permissions`,
-        mutableResponseBody(editorAcl), 'permission denied ACL update', { 'If-Match': editorRevision },
+        permissionsRequestFrom(mutableResponseBody(editorAcl)), 'permission denied ACL update',
+        { 'If-Match': editorRevision },
         resource, [403]);
     accepted(denied, [403], 'Editor cannot change grants');
   }
@@ -774,7 +794,8 @@ function exerciseRoleTransitions(data, fixture) {
   const managerRevision = requireEtag(managerAcl, 'permission Manager ACL preflight');
   if (managerRevision) {
     const updated = cedar(data, fixture.viewerIndex, 'PUT', `${fixture.transitionField.path}/permissions`,
-        mutableResponseBody(managerAcl), 'permission Manager ACL update', { 'If-Match': managerRevision });
+        permissionsRequestFrom(mutableResponseBody(managerAcl)), 'permission Manager ACL update',
+        { 'If-Match': managerRevision });
     accepted(updated, [200], 'Manager can change grants');
   }
 
@@ -880,7 +901,7 @@ function setCategoryPermissionRole(data, fixture, role) {
   const revision = requireEtag(current, 'permission category transition ACL preflight');
   if (!revision) return false;
   const updated = cedar(data, 'admin', 'PUT', path,
-      categoryAclWithUserRole(current, actorId, role),
+      aclWithUserRole(current, actorId, role),
       'permission category transition ACL update', { 'If-Match': revision });
   return accepted(updated, [200], `category transition sets ${role || 'no direct role'}`);
 }
@@ -1323,7 +1344,7 @@ function soakCategoryUpdate(data, index, actor, permissions) {
   const currentBody = mutableResponseBody(current);
   const transition = permissions
     ? {
-        body: categoryAclWithUserRole(current, soakFixture.peer.cedarUserId,
+        body: aclWithUserRole(current, soakFixture.peer.cedarUserId,
             hasUserEntry(currentBody, 'userPermissions', soakFixture.peer.cedarUserId) ? null : 'manager'),
         granting: !hasUserEntry(currentBody, 'userPermissions', soakFixture.peer.cedarUserId),
       }
@@ -1427,7 +1448,6 @@ function hotsetFolder(data, index) {
   const currentBody = current.json();
   const marker = `${manifest.prefix} hotset folder ${scheduleSeed} ${__VU}-${__ITER}`;
   const updated = cedar(data, index, 'PUT', fixture.path, {
-    '@id': fixture.id,
     'schema:name': currentBody['schema:name'],
     'schema:description': marker,
   }, 'hotset folder PUT', { 'If-Match': revision }, resource, [200, 412]);
@@ -1572,7 +1592,6 @@ function graphRace(data, kind) {
       const operation = 'folder graph update';
       operations.push(operation);
       requests.push(batchRequest(data, index, 'PUT', resource, fixture.path, {
-        '@id': fixture.id,
         'schema:name': currentBody['schema:name'],
         'schema:description': `${manifest.prefix} folder graph ${__ITER}-${index}`,
       }, operation, revision));
@@ -1611,7 +1630,8 @@ function aclRace(data, kind) {
   if (!revision) return;
   const operations = Array(contentionWidth).fill(updateOperation);
   const requests = operations.map((operation, index) =>
-    batchRequest(data, index, 'PUT', resource, path, current.json(), operation, revision));
+    batchRequest(data, index, 'PUT', resource, path,
+        permissionsRequestFrom(mutableResponseBody(current)), operation, revision));
   exactCas(executeBatch(requests, operations), [200], `${kind} ACL contention`);
   verifyRevision(data, 0, resource, path, revision, 'contention verification', `${kind} ACL contention`);
 }
@@ -1693,7 +1713,6 @@ function replacementBody(kind, current, iteration) {
     return body;
   }
   if (kind === 'folder') return {
-    '@id': currentBody['@id'],
     'schema:name': currentBody['schema:name'],
     'schema:description': `${manifest.prefix} destructive folder ${iteration}`,
   };
@@ -1833,10 +1852,10 @@ function wildcardMutation(data, type) {
     body['schema:description'] = `${manifest.prefix} wildcard content ${__ITER}`;
   } else if (type === 'wildcard-folder-graph') {
     body = replacementBody('folder', current, __ITER);
-  } else if (type === 'wildcard-category-acl') {
-    body = categoryAclBody(current);
-  } else if (type.endsWith('-acl') || type === 'wildcard-group-membership') {
-    body = current.json();
+  } else if (type.endsWith('-acl')) {
+    body = permissionsRequestFrom(mutableResponseBody(current));
+  } else if (type === 'wildcard-group-membership') {
+    body = membershipRequestFrom(mutableResponseBody(current));
   } else if (type === 'wildcard-group-record') {
     body = { 'schema:description': `${manifest.prefix} wildcard group ${__ITER}` };
   } else if (type === 'wildcard-category-record') {

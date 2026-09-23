@@ -1,17 +1,19 @@
 # CEDAR Backend Runbook
 
-Operational knowledge for running and managing a **local, native CEDAR** on macOS — written
-to be read by a human or an LLM agent. It covers the architecture, the bring-up sequence, the
-non-obvious gotchas that will otherwise cost hours, and the two helper scripts in this folder.
+Operating guide for native CEDAR, backend contracts, tests and artifact audits. Open work belongs
+in [BACKEND-ROADMAP.md](BACKEND-ROADMAP.md).
 
-Scope: the **native-develop** setup (infrastructure as local binaries, microservices as native
-Dropwizard JVMs, frontends via `gulp`). The containerized alternative has a summary below and a
-focused [Docker runbook](./DOCKER-RUNBOOK.md).
+## Find the Procedure
 
-Known backend work items, and the decisions about what is deliberately not being done, are tracked
-in [BACKEND-ROADMAP.md](./BACKEND-ROADMAP.md).
-Docker deployment work has a narrower execution plan in
-[DOCKER-ROADMAP.md](./DOCKER-ROADMAP.md).
+| Task | Start here |
+| --- | --- |
+| Configure or start a native stack | [Environment](#environment-select-the-native-mode-first), [bring-up](#bring-up-sequence) |
+| Restart, inspect health or logs | [Native controller](#the-controller-cedarcli-native), [ports](#port-map), [gotchas](#known-gotchas-and-fixes-the-expensive-ones) |
+| Build and test | [Build](#building-cedar), [tests](#testing-cedar), [whole-stack smoke](#end-to-end-smoke-test-opse2e), [CI](#continuous-integration) |
+| Audit or repair stored artifacts | [REST inventory](#auditing-production-artifacts-through-rest), [validation](#validating-every-stored-artifact-with-the-library), [repair](#repairing-a-defect-across-the-stored-population) |
+| Docker or hybrid operation | [Docker runbook](DOCKER-RUNBOOK.md) |
+| Publish a train, release or deploy | [Build trains](BUILD-RUNBOOK.md), [releases](RELEASE-RUNBOOK.md), [production](PROD-DEPLOY-RUNBOOK.md) |
+| Frontends, terminology or MCPs | [Frontend](FRONTEND-RUNBOOK.md), [versioning](VERSIONING-RUNBOOK.md), [MCP](MCP-RUNBOOK.md) |
 
 ## Architecture
 
@@ -130,406 +132,29 @@ request thread, so the endpoint answers within two seconds whatever BioPortal is
 
 ## The Containerized Stack
 
-An alternative to the native bring-up: the same fifteen microservices and the same infrastructure,
-as containers. It is the `cedar-docker-build` images driven by the `cedar-docker-deploy` compose
-stacks. Re-proven on 2026-08-21 — all 70 Java reactor modules built, seven infrastructure and all
-fifteen microservices healthy, the whole REST estate green (683 assertions, 0 failures in one
-in-network run), and all seven frontend containers healthy. All seven public UI hostnames returned
-200 through Docker nginx; the authenticated Workspace-to-Designer template-open journey also
-passed. See [DOCKER-RUNBOOK.md](./DOCKER-RUNBOOK.md) for the reproducible build,
-deployment, health, and acceptance procedures.
-
-**It cannot run beside the native stack.** Both want 80/443, 3306, 27017, 6379, 9200, 7474/7687,
-8080 and the 9xxx range. Take the native one down first with `cedarcli native stop all`, which unlike
-`cedarcli native stop all` also stops the infrastructure. Storage is separate — the containers use
-their own named volumes and never touch `/opt/homebrew/var/*`, so the two estates keep independent
-data.
-
-Stop native mode before selecting Docker mode. The CLI validates the Docker profile and Compose
-projects when the mode is configured, then supplies that profile internally to later Docker calls.
-
-```bash
-export CEDAR_HOME=$HOME/CEDAR
-cedarcli native stop all
-cedarcli mode --clear
-cedarcli mode docker
-cedarcli docker setup one-time-setup
-cedarcli docker start all --pull missing
-cedarcli docker status
-```
-
-An ordinary aggregate start selects the current completed Docker train; `--pull missing` downloads
-only images absent from this machine. To deploy from another registry, export
-`CEDAR_IMAGE_PREFIX=<registry-host>:<port>/<namespace>` before `cedarcli mode docker`. The
-complete selected train must exist under that prefix.
-
-The checked-out-source alternative is explicit and does not claim to reproduce a published train:
-
-```bash
-cedarcli build java
-cedarcli docker build infra --local
-cedarcli docker build microservices --local
-cedarcli docker build frontends --local
-cedarcli docker start all --local --pull never
-```
-
-`--pull never` is for images already built or pulled on this machine. `--pull always` checks the
-registry even when a local image exists.
-
-Certificates come from `$CEDAR_HOME/CEDAR_CA` when it exists, and only fall back to the expired set
-bundled in `cedar-docker-deploy/cedar-assets` when it does not.
-
-**The 22-container hybrid backend does not start a frontend Compose project.** Do not infer frontend
-container status from a 22/22 backend health result. In configured Docker mode,
-`cedarcli docker start frontends --detach` starts the separate seven-container project containing
-Template Editor, Workspace, Designer, OpenView, Content, Monitoring, and Bridging. Hybrid mode
-rejects that command and permits `cedarcli native start frontends` instead. Running
-the REST estate without frontends still needs the two services
-that have no vhost addressed directly, and Keycloak addressed on its published port, because
-container addresses are not routable from macOS:
-
-```bash
-cd ops/e2e
-export CEDAR_KEYCLOAK_BASE=http://127.0.0.1:8080 CEDAR_OPENVIEW_BASE=http://127.0.0.1:9013
-export NODE_TLS_REJECT_UNAUTHORIZED=0
-npm run smoke:rest
-```
-
-The artifact server publishes no host port, deliberately, since nothing outside the container
-network should address a server that authorizes on global roles alone. A host-side REST run therefore
-passes the public estate but ends the `contract` and `freeze` suites with `fetch failed`. Run the
-suite from an ephemeral Node container on `cedarnet`, as documented in the Docker runbook, to test
-those internal cross-store contracts without exposing Artifact.
-
-To get back to the native stack, stop the complete Docker deployment, clear its mode, and select
-native before starting anything on the host:
-
-```bash
-cedarcli docker stop all
-cedarcli mode --clear
-cedarcli mode native --profile develop
-cedarcli native start all
-```
-
-### Running the Native Frontends Against the Containerized Backend
-
-This is the current interactive development mode for a full Docker backend. Docker nginx serves the
-public hostnames and proxies to native frontend development servers on the Mac. This was proven on
-Docker Desktop on 2026-08-21: all seven UI hostnames returned 200, the Workspace/Designer hostname,
-Keycloak, navigation-origin, and REST-CORS gates passed, and the earlier browser smoke completed
-login, fixture creation, BioPortal constraint lookup, and template creation.
-
-No frontend application code is copied into the nginx container. A Workspace request, for example,
-travels from the browser to Docker's published port 443, through the Workspace nginx virtual host,
-to `host.docker.internal:4201`; the native Gulp server then serves
-`$CEDAR_HOME/cedar-workspace/app/index.html` and its assets. Browser API requests return to Docker
-nginx on the API hostnames and are proxied over `cedarnet` to the Java containers.
-
-| Public hostname | Native source root | Server | Port |
-| --- | --- | --- | ---: |
-| `cedar.metadatacenter.orgx` | `cedar-template-editor/app` | Gulp / gulp-connect | 4200 |
-| `workspace.metadatacenter.orgx` | `cedar-workspace/app` | Node static server | 4201 |
-| `designer.metadatacenter.orgx` | `cedar-template-designer/app` | Gulp / gulp-connect | 4202 |
-| `openview.metadatacenter.orgx` | `cedar-openview/cedar-openview-src` | Angular CLI / `ng serve` | 4220 |
-| `content.metadatacenter.orgx` | `cedar-content-distribution` | Angular CLI / `ng serve` | 4240 |
-| `monitoring.metadatacenter.orgx` | `cedar-monitoring/cedar-monitoring-src` | Angular CLI / `ng serve` | 4300 |
-| `bridging.metadatacenter.orgx` | `cedar-bridging/cedar-bridging-src` | Angular CLI / `ng serve` | 4340 |
-
-These are seven independent Node.js processes: three legacy AngularJS applications use Gulp and
-four newer Angular applications use Angular CLI. The focused Docker procedure, verification, stop
-path, and three-mode comparison are in [DOCKER-RUNBOOK.md](./DOCKER-RUNBOOK.md).
-
-Select hybrid mode once, then start the native frontend tier and the Docker deployment. If another
-mode is already selected, stop its owned components and clear it first. The CLI loads both profiles
-for the commands that need them, binds the Angular development servers so Docker nginx can reach
-them, and refuses any native backend operation that would collide with the containers:
-
-```bash
-export CEDAR_HOME=$HOME/CEDAR
-cedarcli mode hybrid --profile develop
-cedarcli native start frontends
-cedarcli docker start all --pull never
-```
-
-Hybrid mode points all seven Docker nginx frontend upstreams at `host.docker.internal`. Docker's
-ordinary network gateway reaches published container ports but not native macOS listeners, so that
-special host name is required. To change modes, stop the current deployment, run
-`cedarcli mode --clear`, and select the replacement mode.
-
-The Docker nginx image sets `proxy_read_timeout` and `proxy_send_timeout` to 180 seconds globally.
-This is deliberate: an unmodified nginx returned 504 at 60.05 seconds for a 65-second upstream;
-with the 180-second timeout, the identical request returned 200 at 65.01 seconds.
-
-The older fallback still works: stop `infra-nginx`, start native nginx on 80/443, and leave the
-frontends on their default loopback bind. Do not run both nginx instances together.
-
-Use `cedarcli docker status` in hybrid mode. `cedarcli native status` is deliberately rejected because
-the backend ports belong to containers. If the lower-level `cedarcli native status` is run directly,
-container-owned services are marked `docker` in the PID and HEALTH columns. This describes ownership,
-not readiness; the footer points to `cedarcli docker status` for the authoritative container health
-check. Native start, stop, and restart still refuse to signal Docker's port-forwarding process.
-
-The populate-time term suggestion remains the one browser-smoke failure: the expected controlled-term
-picker input does not appear. It is not an nginx timeout—the failure is a 20-second locator wait, and
-nginx and the backend remain responsive. The template carries the branch constraint and the
-containerized terminology server answers the query. Compare the same browser smoke against the
-native backend to decide whether this is a frontend defect or a mixed-topology artifact.
-
-### Legacy Diagnostic Split: Native Servers Against Containerized Infrastructure
-
-This older diagnostic arrangement puts selected data stores in containers while the JVMs remain
-native. It is not one of the three CLI modes and is not a supported aggregate deployment. The
-procedures below use direct Homebrew, Docker, and maintenance commands intentionally; do not infer
-that `native` or `hybrid` mode owns this mixed runtime.
-
-`set-env-generic.sh` derives every infrastructure host from `CEDAR_NET_GATEWAY`, the native profile
-sets it to `127.0.0.1`, and the containers publish the selected stores on the same host ports the
-servers already read.
-
-**Redis has moved.** Swap it with the native stack running, from a second shell — the stack needs
-the Docker profile for the container's pinned address, and the servers keep running under the
-native one:
-
-```bash
-brew services stop redis                      # frees 6379
-export CEDAR_HOME=$HOME/CEDAR
-source $CEDAR_HOME/cedar-development/bin/templates/cedar-profile-docker.sh
-cd $CEDAR_HOME/cedar-docker-deploy/cedar-infrastructure
-docker compose up -d redis-persistent
-```
-
-To go back, `docker stop infra-redis-persistent && brew services start redis`. `brew services stop`
-unloads the launch agent, and the container carries `restart: unless-stopped`, so after the swap
-Redis returns on reboot as a container rather than as a Homebrew service.
-
-**Expect about ten seconds of queue errors, then silence.** Three servers poll Redis and log the
-outage: the worker's value-recommender reindex, the messaging server's pool validation, and the
-submission server's NCBI queue consumer. All three recover on their own retry interval once the
-container answers. No restart is needed, and a server that is still logging Redis failures a minute
-later is a real problem rather than the swap.
-
-Verify with `cd ops/e2e && npm run smoke`, then `redis-cli -p 6379 info stats`. The smoke run drives
-a few thousand commands through the store, so a counter still near zero means the servers are
-talking to something else. `redis-cli -p 6379 info server` should report `redis_version:7.2.7`.
-
-**OpenSearch has moved too,** at 2.19.1, the version already running natively. Same shape:
-
-```bash
-brew services stop opensearch                 # frees 9200
-docker compose up -d opensearch               # from cedar-infrastructure, Docker profile
-cedarat search-regenerateIndex                # native profile; rebuilds from Mongo + Neo4j
-cedarat rules-regenerateIndex
-```
-
-Rolling back is `docker stop infra-opensearch && brew services start opensearch`. The native data
-directory under `/opt/homebrew/var/opensearch` is never touched by any of this, so the native index
-is still there when you go back.
-
-**Regenerate rather than migrate.** The index is derived from Mongo and Neo4j, so rebuilding it is
-both the cheapest migration and a correctness check on the store you just stood up. `IndexUtils`
-deletes the indices it owns and leaves everything else alone, which matters on 2.x: that image ships
-plugins 1.3.6 did not, and they create `.plugins-ml-config` and a `top_queries-*` index of their own.
-Expect to see them, and expect the regenerate log to say it is not touching them.
-
-**Do not read `docs.count` as a resource count.** CEDAR indexes nested documents, so `_cat/indices`
-inflates. Count root documents with a `match_all` search instead, and compare that against the
-`FileSystemResource` nodes in Neo4j.
-
-**Mongo and Neo4j have moved as well,** at 5.0.31 and 5.26.0, the versions running natively. These
-are the two that carry the source of truth, so each is a real migration rather than a rebuild.
-
-Mongo goes through `mongodump` and `mongorestore`. Restore only the `cedar` database: the container
-creates its own users in `admin` on first start, native runs without auth, and restoring native's
-`admin` over the container's would take those users away.
-
-```bash
-mongodump --db cedar --out /tmp/cedardump                    # while native is still up
-# stop native (see the note below), then start the container
-docker compose up -d mongo
-mongorestore --uri "mongodb://${CEDAR_MONGO_ROOT_USER_NAME}:${CEDAR_MONGO_ROOT_USER_PASSWORD}@127.0.0.1:27017/?authSource=admin" \
-  --drop --db cedar /tmp/cedardump/cedar
-```
-
-Neo4j goes through `neo4j-admin`, which dumps offline, so the database has to be stopped first. Load
-into the volume with a one-off container before starting the service:
-
-```bash
-$CEDAR_HOME/neo4j/bin/neo4j stop
-$CEDAR_HOME/neo4j/bin/neo4j-admin database dump neo4j --to-path=/tmp/neodump
-docker run --rm -v neo4j_data:/data -v /tmp/neodump:/dump --entrypoint sh \
-  ${CEDAR_IMAGE_PREFIX}/cedar-infra-neo4j:${CEDAR_DOCKER_VERSION} \
-  -c 'neo4j-admin database load neo4j --from-path=/dump --overwrite-destination=true'
-docker compose up -d neo4j
-```
-
-Load only the `neo4j` database. Neo4j 5 keeps authentication in `system`, so the container's own
-credentials survive, which is what you want since both sides use the same ones.
-
-**MySQL and Keycloak have moved as a pair,** because Keycloak's realm is the `cedar_keycloak`
-schema. MySQL is now the Docker Official `mysql` image at **8.4 LTS**, not Oracle's
-`mysql/mysql-server`, which was abandoned in January 2023 with 8.0.32 as its last tag — that is why
-this pin never moved. LTS deliberately, rather than the 9.x innovation line the native install
-drifted onto: an innovation release is superseded roughly quarterly, which is the opposite of a
-locked version.
-
-Only what matters crosses. `cedar_keycloak` and `cedar_messaging` are 3.2 MB together; `cedar_log`
-held 2.4 GB of request and cypher logging and was dropped, its five tables restored empty so logging
-resumes. A dump from native 9.6 restores into 8.4 cleanly — rehearse it on a throwaway container
-first, and strip `GTID_PURGED` from the dump or the restore aborts before it creates anything.
-
-```bash
-mysqldump -u root -p --databases cedar_keycloak cedar_messaging --single-transaction > cedar.sql
-mysqldump -u root -p --no-data --databases cedar_log | grep -v GTID_PURGED > log-schema.sql
-brew services stop mysql            # see the warning below — mysqladmin shutdown is not enough
-docker compose up -d mysql keycloak
-docker exec -i infra-mysql mysql -u root -p"$CEDAR_MYSQL_ROOT_PASSWORD" < cedar.sql
-```
-
-**Provision the databases and users by hand in this hybrid.** The containerized estate provisions
-itself: `cedar-microservice` carries a `wait-and-init-mysql.py` that creates each server's database
-and user from `CEDAR_SERVER_NAME`, and the Keycloak image has its own for the realm database. Native
-servers never run either. So a containerized MySQL under native servers gets only what Keycloak's
-container creates, and `cedar_log` and `cedar_messaging` need their databases, users and grants
-created explicitly — at `@'%'`, since the connection now arrives from outside the container rather
-than from `localhost` as it did natively.
-
-**Stopping native MySQL needs `brew services stop mysql`.** `mysqladmin shutdown` is not enough:
-launchd restarts `mysqld_safe`, which restarts `mysqld`, within seconds. Combined with the port trap
-below this is genuinely dangerous — native rebinds `127.0.0.1:3306`, wins every connection back from
-the container, and nothing reports it. Two full REST runs passed against native MySQL while the
-container sat idle and healthy before this was noticed. Check `lsof` and `SELECT VERSION()` after
-stopping, not just that the container says healthy.
-
-**Which nginx serves 443 decides what the containers must resolve `auth.<host>` to.** Every server
-verifies bearer tokens against the realm behind that name, so `extra_hosts` has to point at whichever
-nginx is actually listening — and that is not the same thing as the nginx container's address on
-cedarnet. They have separate variables for that reason:
-
-| serving 443 | `CEDAR_AUTH_HOST_TARGET` |
-|---|---|
-| native nginx (the resting state here) | `host-gateway` |
-| the `infra-nginx` container | `${CEDAR_NGINX_HOST}` |
-
-Getting it wrong is silent until a token is verified. The request reaches the server, the server
-cannot fetch the realm's signing keys, and a **valid** token comes back `500` while an invalid one
-still correctly returns `401` — so the failure looks like a server bug rather than a routing one.
-The log says `java.net.NoRouteToHostException`.
-
-**The Keycloak container cannot reach a native resource server.** Its event listener posts user
-lifecycle events to `CEDAR_RESOURCE_SERVER_HOST`, which under the Docker profile is a
-`192.168.17.x` container address that does not exist when the servers are native, so the log fills
-with `NoRouteToHostException`. Login, token verification and the whole REST estate are unaffected —
-only event propagation is, so new-user provisioning is the thing to watch. Point it at
-`host.docker.internal` if that matters to you. The callback runs on a matching
-`cedar-angular-app` `LOGIN`, not on Keycloak registration itself, so a later login is the retry. A
-transport failure is logged with its cause; a non-2xx response is logged with status, URL, event
-type and user id. Treat either message as a provisioning failure rather than accepting a healthy
-login as proof that the CEDAR account exists.
-
-**Stopping native Mongo needs `db.shutdownServer()`, not the Homebrew service.** Two things bite
-here. `brew services start mongodb-community@5.0` now fails: Homebrew refuses the `mongodb/brew` tap
-as untrusted, cannot read the formula, and writes a launch agent with no `ProgramArguments`. Run
-native Mongo directly instead, and shut it down through the shell:
-
-```bash
-/opt/homebrew/opt/mongodb-community@5.0/bin/mongod --config /opt/homebrew/etc/mongod.conf --fork
-mongosh --quiet --eval 'db.getSiblingDB("admin").shutdownServer()'
-```
-
-`brew trust mongodb/brew` followed by `brew services start` restores the launchd path, at the cost of
-trusting that tap. `mongod --shutdown` is not available in this build.
-
-**A native store and its container can both hold port 27017 and nothing warns you.** Native binds
-`127.0.0.1` specifically while Docker binds the wildcard, so both listen, the more specific bind wins,
-and every client silently keeps talking to the native server. `docker ps` says healthy throughout.
-Check with `lsof -nP -iTCP:27017 -sTCP:LISTEN` and confirm only Docker is there before believing a
-swap took.
-
-**What is verified.** Every migration is exact: Mongo restored 62 documents with collection counts
-matching the source, the graph came across at 18 nodes and 29 relationships with the same folder and
-template counts, and MySQL carried 92 Keycloak tables, six users and 17 messages. `npm run
-smoke:rest` passes at 641 assertions against all six containerized servers, with request logging
-resuming into the new MySQL — confirm that by checking `SELECT VERSION()` on 3306 reports the
-container's, not by trusting a green run.
-
-### The Local Terminology Store, and the Two Levers That Govern It
-
-The store is a read-mostly SQLite catalog of about 31 GB at `$CEDAR_HOME/cedar-term`. It is shared
-rather than copied — a read-only bind mount, the same shape as the static content nginx already
-mounts — because copying it into a named volume would be absurd and nothing writes to it while the
-server reads.
-
-Sharing the file is only half of it. **The server reads `terminologyStore.*` JVM system properties,
-not the environment.** `cedar-services.sh` builds those `-D` flags for the native path; the
-containerized half is `CEDAR_JAVA_OPTS`, which `cedar-microservice`'s entrypoint passes to the JVM,
-set by the `server-terminology` compose entry. Passing the four `CEDAR_TERMINOLOGY_*` variables into
-a container without that hook does nothing at all, which is worth knowing before debugging a 404.
-
-**Lever one: on or off.** The server disables the store entirely when either the catalog path or the
-ontology allowlist is blank, and serves everything through BioPortal instead:
-
-```java
-if (catalogPath == null || catalogPath.isBlank() || localOntologies.isEmpty()) {
-  log.info("Local terminology store disabled; serving all ontologies via BioPortal");
-```
-
-`cedar-main.yml` ships `catalogPath: ""`, so **BioPortal is the shipped default** and the system
-properties are the only thing that turns the store on. Which makes the switch one line in the
-profile — `CEDAR_TERMINOLOGY_STORE_CATALOG`, empty for BioPortal, the mount point for the store —
-plus a container recreate. The bind mount can stay either way; it is inert when the path is blank.
-Confirm which mode you are in from the server's own log rather than by inference, and check the
-observable consequence: `bioportal/ontologies/DOID/versions/current` answers 200 with a content-hash
-version id when the store is on, and 404 when it is off.
-
-**Lever two: strict or fail-soft.** `terminologyStore.localOnly` decides whether a locally-served
-ontology may fall back to BioPortal when the local store cannot answer. It is `false` normally, so a
-local gap is silently covered by BioPortal — safe, and worth remembering, because **it means a green
-suite does not prove the local store is complete**. Strict mode exists for the equivalence harness,
-where a gap should fail loudly instead of being masked.
-
-A third setting is not a lever so much as a distinction. `localRootsOntologies` is a subset of
-`localOntologies`: the ontologies whose roots are proven BioPortal-equivalent. One in the allowlist
-but not in that subset is served locally for search and integrated-search but **browses from
-BioPortal**, because its local roots still diverge. So the split is per-operation, not per-ontology.
-
-Which vocabularies the store serves, and whether exclusively, are declared once in
-`set-env-generic.sh` and inherited by both profiles. Only the catalog path differs, since it is a
-filesystem path and the host's is not the container's.
-
-**Currently: off.** The containerized terminology server serves everything through BioPortal, with
-the mount left in place so turning it back on is the one profile line.
-
-### Building an Image Against Your Own Code
-
-By default every image fetches its jar from Nexus while it builds, so an image can only run code
-that has already been published. `--local` builds against the checkout instead:
-
-```bash
-cd $CEDAR_HOME/cedar-artifact-server && cedarcli build this --wd "$PWD"
-cedarcli docker build artifact-server --local
-```
-
-**`cedarcli docker build` is the only builder.** The compose stacks carry no `build:` stanzas, so
-`docker compose up` runs images and never makes them. Two reasons: only the CLI builds the CEDAR
-base images a target is built `FROM` first, and only the CLI supplies the locked server versions.
-Those live in `cedar-docker-build/bin/cedar-images-base.sh` — one `export <SERVER>_VERSION=` each —
-and the Dockerfiles declare them as build arguments with **no default**, so a build that was not
-given a version fails instead of quietly choosing one. A bare `docker build` therefore no longer
-works on the infrastructure images, which is deliberate. To change a server version, change it there
-and nowhere else; `ops/check_version_pairing.py` then checks it still pairs with the client
-`cedar-parent` ships.
-
-The image name is the source repository minus its `cedar-` prefix, for all fifteen servers and the
-admin tool. `cedarcli docker build` also takes `all`, a group (`infra`, `microservices`, `frontends`,
-`admin`), a component target such as `frontend workspace`, or any image name. It always builds the CEDAR bases an image is built `FROM`
-first — which a bare `docker build` does not, and which is how a stale base silently gets used.
-
-**Build clean when a library changed.** `./mvnw install` without `clean` can re-shade a fat jar around
-a cached assembly and leave an old copy of a dependency class inside it. The jar is newer than the
-library it should contain, so no timestamp check catches this, and every downstream step reports
-success: staging copies the jar faithfully, the image hash matches, and the container runs the old
-code. If you changed a shared library, `./mvnw clean install` in the consuming server before staging.
-
+Use the [Docker runbook](DOCKER-RUNBOOK.md) for Docker and hybrid operation. Docker owns
+separate data volumes but shares host ports with native services; stop the current topology before
+changing modes. The supported hybrid is a Docker backend with native frontends.
+
+| Task | Procedure |
+| --- | --- |
+| Change topology without port collisions | [Prerequisites](DOCKER-RUNBOOK.md#prerequisites) |
+| Build images from current Java sources | [Local build](DOCKER-RUNBOOK.md#checked-out-java-source-explicit-local-build) |
+| Run native frontends over Docker | [Hybrid operation](DOCKER-RUNBOOK.md#optional-hybrid-native-frontends-through-docker-nginx) |
+| Migrate individual stores for diagnostics | [Legacy diagnostic split](DOCKER-RUNBOOK.md#legacy-diagnostic-split-native-servers-against-containerized-infrastructure) |
+| Verify the deployment | [Health](DOCKER-RUNBOOK.md#health-gate), [REST](DOCKER-RUNBOOK.md#rest-acceptance-gate), [browser](DOCKER-RUNBOOK.md#browser-acceptance-gate) |
+| Stop or return to native | [Stop and preserve data](DOCKER-RUNBOOK.md#stop-restart-and-preserve-data) |
+
+<a id="running-the-native-frontends-against-the-containerized-backend"></a>
+<a id="legacy-diagnostic-split-native-servers-against-containerized-infrastructure"></a>
+<a id="the-local-terminology-store-and-the-two-levers-that-govern-it"></a>
+<a id="building-an-image-against-your-own-code"></a>
+
+Terminology catalog, index and routing configuration is defined in
+[Serving the Store](VERSIONING-RUNBOOK.md#serving-the-store). Docker passes these settings as
+`terminologyStore.*` JVM properties through `CEDAR_JAVA_OPTS`; setting environment variables
+inside a container without that mapping has no effect. Recreate the service after configuration
+changes and confirm its startup log. Do not infer the active store from a healthy port.
 
 ## The Controller: `cedarcli native`
 
@@ -582,6 +207,21 @@ uses its project-local Angular CLI when installed (`ui-content` retains its host
 matters when an ordinary frontend build ran `npm ci` while the old development server was live: the
 server may otherwise persist a module graph observed while `node_modules` was being replaced, then
 reuse the invalid graph after a restart even though the completed lock install builds correctly.
+
+A start refuses a frontend whose `node_modules` predates its `package-lock.json`, because that
+checkout launches with an error naming a missing builder rather than npm, after which the launcher
+waits out its whole readiness budget for a process that died at once. `--refresh-dependencies`
+installs past it instead of handing the command back:
+
+```bash
+cedarcli native start --refresh-dependencies frontends
+cedarcli native restart --refresh-dependencies all
+```
+
+It stays opt-in because `npm ci` reinstalls each checkout from scratch, which takes minutes, and a
+start is not where anyone expects to wait for that unless they asked. Reach for it after a release:
+a release rewrites every frontend lockfile at once, so all seven refuse together, and the reactor
+build that precedes the restart installs into an isolated workspace rather than the checkouts.
 
 ```bash
 cedarcli native start all             # infra + microservices + frontends
@@ -637,7 +277,11 @@ asks the equivalent question of the Embeddable Editor, which each of those front
 and a gulp task copies out of `node_modules` into the tree gulp serves. Those two hops are invisible
 to git, because the served copy is ignored, so moving the pin without `npm ci`, or running `npm ci`
 without `copy:cee`, keeps the previous editor on screen while `package.json`, the lock and the
-release ledger all name the new one. `STALE` there means the served bundle is not the one
+release ledger all name the new one. In the develop profile, an installed local reactor artifact also counts as current when its
+SHA-256 matches the reactor reference, npm records that exact tarball as its source, and both
+the installed and served bundle match the tarball byte for byte. This lets local reactor
+deployments pass the same smoke gate without publishing packages or changing release pins.
+Otherwise, `STALE` means the served bundle is not the one
 `package-lock.json` names, and the remedy the footer prints for each stale frontend is a reinstall
 and a recopy in its own checkout rather than a restart:
 
@@ -1355,6 +999,75 @@ generated that piece, and it is left as sent. A verbatim write stores the pair a
 everything else in the document, and what is already stored keeps a stale pair until something
 rewrites it.
 
+### One Document per Identifier, Which the Store Enforces
+
+No two documents in an artifact collection may share an `@id`, and every artifact operation
+addresses its document by that field: the DAO reads with `find(eq("@id", id))`, replaces with that
+filter plus a revision, and deletes the same way. Both properties rest on a unique index on `@id` in
+each of the four collections — `templates`, `template-elements`, `template-fields` and
+`template-instances`. The server does not create it, and until it exists the server has no way to
+hold the invariant: a create is a read that finds the identifier absent followed by an insert, so two
+concurrent creates of one identifier both succeed, a read returns the first document, and a
+conditional delete removes one and leaves the other unreachable through the API. Lookups pay for it
+as well, because an unindexed collection answers each one with a full scan.
+
+Two provisioning paths create the index, and each applies once. Natively the admin tool's
+`artifactServer-initDB` task does, which `SystemReset` also runs after wiping a store. In Docker the
+Mongo image's `create-indices.js` does, on a container's first boot against an empty state volume,
+after which the image writes `cedar-mongo-init.done` and consults that flag forever. So a definition
+changed in either place reaches no installation that is already up, and a store created outside both
+paths — installed by hand, or filled by copying documents, which carry no indexes with them — has
+no index at all.
+
+Ask any store which it carries:
+
+```bash
+cedarcli check stores
+```
+
+It reads index metadata through whichever Mongo shell the host has, prints a row per collection, and
+exits non-zero when one lacks the index. It creates nothing. On a host without the CLI:
+
+```bash
+mongosh "mongodb://$CEDAR_MONGO_APP_USER_NAME:$CEDAR_MONGO_APP_USER_PASSWORD@$CEDAR_MONGO_HOST:$CEDAR_MONGO_PORT/cedar" --quiet --eval 'for (const n of ["templates","template-elements","template-fields","template-instances"]) { const u = db[n].getIndexes().filter(i => i.key["@id"] && i.unique); print(n, u.length ? "unique index present" : "NO UNIQUE INDEX"); }'
+```
+
+**Provisioning a store that has none is two steps, in order.** Count repeated identifiers first,
+because a unique build over a collection that already holds one fails:
+
+```bash
+mongosh "mongodb://$CEDAR_MONGO_APP_USER_NAME:$CEDAR_MONGO_APP_USER_PASSWORD@$CEDAR_MONGO_HOST:$CEDAR_MONGO_PORT/cedar" --quiet --eval 'for (const n of ["templates","template-elements","template-fields","template-instances"]) { const r = db[n].aggregate([{$group:{_id:"$@id",c:{$sum:1}}},{$match:{c:{$gt:1}}},{$group:{_id:null,ids:{$sum:1},docs:{$sum:"$c"}}}],{allowDiskUse:true}).toArray(); print(n, r.length ? r[0].ids + " duplicated ids across " + r[0].docs + " documents" : "no duplicates"); }'
+```
+
+Two documents sharing an identifier are two different artifacts sharing an address, so which one
+survives is the owner's decision rather than a repair. With a clean count, build the index:
+
+```bash
+mongosh "mongodb://$CEDAR_MONGO_APP_USER_NAME:$CEDAR_MONGO_APP_USER_PASSWORD@$CEDAR_MONGO_HOST:$CEDAR_MONGO_PORT/cedar" --quiet --eval 'for (const n of ["templates","template-elements","template-fields","template-instances"]) { print(n, db[n].createIndex({"@id":1},{unique:true})); }'
+```
+
+On the pinned Mongo 5.0 the build runs online, taking an exclusive lock only briefly at each end, and
+a collection of 150,000 small documents takes seconds. `createIndex` returns the index name on
+success and raises on a duplicate-key violation, so its output is the proof.
+
+**What the server says about it.** The artifact server reads the four collections' indexes once at
+startup and logs the result — `INFO` when every collection carries one, `ERROR` naming the
+collections when not — and publishes the same reading as the `artifactIdIndex` health check. The
+probe is bounded off the startup thread, so a slow or unreachable store leaves the server starting
+normally, and it creates nothing: building an index is a provisioning decision with a failure mode of
+its own, and a server that refused to boot over it would turn a latent data defect into an outage.
+The health check stays **green** on a missing index and carries the detail, because a missing index is
+a provisioning gap rather than a sick process; failing it would stop `cedarcli native health`, and
+with it the smoke gate, on a workstation whose store was never provisioned.
+
+**Current state.** Production was measured on 2026-09-18 carrying only the default `_id_` index on
+all four collections, having run that way for years: an instance lookup examined all 150,583
+documents and took 229 ms, and the store enforced no uniqueness. A duplicate count came back clean
+and the four unique indexes were built the same day, after which the same lookup is an `IXSCAN`
+examining 0 documents in 1 ms. Staging carries them and always did. The embedded MongoDB the server
+suites run against creates them too, so a suite runs against the constraint the deployed stores
+enforce.
+
 ## Patching Stored Artifacts: `ops/cedar_artifact_patch.py`
 
 The rules above govern what the server accepts from now on. They say nothing about what a store
@@ -1414,8 +1127,9 @@ not replace the deployment's ordinary database backup and restore procedure.
 Check 32 is the multi-select incident repair. It inspects only field deployments inside templates and
 elements; a standalone field artifact is the reusable inner definition and is intentionally left
 object-shaped. The rewrite preserves the complete inner schema, moves any settled positive bounds to
-the array envelope, derives an absent `minItems` from `requiredValue`, and reports without rewriting
-when existing bounds contradict each other. The Template Designer deliberately does not perform this
+the array envelope, supplies an absent `minItems` as one — zero for an attribute-value field, which
+both model libraries read that way — and reports without rewriting when existing bounds contradict
+each other. The Template Designer deliberately does not perform this
 repair on load: opening an artifact must not silently change what its next save writes. Audit it alone
 before considering a write:
 
@@ -1503,6 +1217,36 @@ child's `configuration:` block, and a reader that looked only at the field level
 nested static field. `YamlAsymmetryProbeTest` in `cedar-artifact-library` and `YamlNegotiationTest`
 in `cedar-artifact-server` both pin it. If a round trip ever loses a setting again, add a probe there
 rather than documenting the loss.
+
+### The Meta-Schemas Are Generated
+
+`cedar-model-validation-library/src/main/resources/*-meta-schema.json` are **build output**. Each is
+merged by `scripts/generate-meta-schemas.sh` from the fragments in `schema/`, following the manifest
+named after it — `schema/template-schemas.yml` for the template meta-schema, and so on. A fragment is
+reused across several meta-schemas, so one edit lands in more than one generated file: declaring a
+property on `staticTemplateField.json` added it to the static-field, template and element
+meta-schemas at once.
+
+**Edit the fragment and regenerate. Never edit the generated file.** A hand edit survives until the
+next person runs the generator, which then silently reinstates what the edit removed — that is not
+hypothetical. Commit `21bafa6` took the boolean field's value constraints out of the generated
+meta-schemas and left them in `schema/literalFieldValueConstraintsContent.json`, so for two weeks
+regenerating would have put `nullEnabled`, `labels` and two `defaultValue` branches back for a field
+type nothing can author.
+
+Before changing anything, run the generator on a clean tree and confirm it produces no diff. That
+proves the fragments and the committed output still agree, so whatever the generator writes
+afterwards is your change alone:
+
+```bash
+cd cedar-model-validation-library/scripts && bash generate-meta-schemas.sh
+cd .. && git status --short src/main/resources/   # must be empty before you start
+```
+
+Tightening a rule is subject to the same order as any other: the artifact server validates on write,
+and `?verbatim=true` validates too, so a rule that refuses what production already stores makes
+those artifacts unsaveable — including through the repair that would fix them. Measure the corpus
+with `ops/cedar_artifact_rest_audit.py`, repair, and only then tighten.
 
 ### Comparing the Two Model Libraries
 
@@ -2104,77 +1848,11 @@ run `cedarcli test e2e`.
 
 ### Production artifact repair
 
-Use `ops/repairs/cedar_artifact_repair.py` in report mode first. An applied repair must validate its
-complete candidate, save a new durable preimage without overwriting earlier attempts, send the
-current strong ETag in `If-Match` with `PUT ?verbatim=true`, and compare the entire read-back body
-with the submitted candidate. Idempotence is not read-back verification. An artifact for which no
-transform proposes a change still needs validation before it can be called clean. Production apply
-mode rejects `--no-verify`.
+Use the [repair procedure](#repairing-a-defect-across-the-stored-population), including its semantic
+review, conditional writes, durable preimages and full read-back verification. A valid schema alone
+does not prove preservation of the original assertions.
 
-Schema validity alone does not establish preservation of meaning. Two equal field values are not
-equivalent assertions unless their explicit property IRIs also agree. The duplicate rule permits
-only matching simple property mappings and identical typed JSON values. Complex mappings require
-review. An IRI-only value is populated; do not mistake its `@id` for an empty element identity.
-Many-to-one renames refuse competing populated sources and preserve populated destinations.
-`rename_sheet.py` treats spelling and value overlap as proposals, never implicit owner answers.
-
-Changing an existing `@context` property IRI is a semantic migration. Applying
-`align-instance-context-iris` requires both `--allow-context-migration` and a reviewed `--only-ids`
-scope. Review the old/new predicates and the template history or recorded migration decision.
-Preserving provenance timestamps is appropriate for correcting a proven stored defect; it does not
-make a substantive migration meaning-preserving.
-
-`drop-empty-undeclared-instance-keys` removes only explicit empty top-level slots and their context
-entries. `complete-empty-literal` adds null only to otherwise empty literal slots whose declaration
-permits null. Neither supplies an entered term, date, number or other missing required value.
-Completion's invariant permits only declared empty shapes, required context additions and fresh
-element identities. Run the repair suites with
-`python3 -m unittest test_cedar_artifact_repair test_repair_safety` from `ops/repairs`.
-
-The independent review on 2026-09-17 fetched and revalidated the 957 IDs in the then-current residual,
-along with current bodies for the 652 instances touched by the duplicate rule. It repaired 26
-residual instances with full candidate equality and validation after writing. The remaining 931 is
-a count within that reviewed set, not a fresh full-corpus census. All 367 Repository → Dataset_ID
-cases from the initial review retain the original source assertion under Data_Repository and do not
-need restoration on that evidence. Review other semantic migrations separately from schema validity.
-The same review restored 11 historical `Event Date 1` values into the recorded destination
-`evento ha data`, where the current destination was empty and the saved bodies contained no
-competing source values. Those instances already validated before restoration: a valid artifact can
-still have lost meaning. Two populated `SCAA_posneg` values and a separate conflicting-date
-consolidation remain explicit semantic exceptions pending a destination decision.
-Local evidence, pinned inputs, per-write preimages and readbacks are under
-`$CEDAR_HOME/artifact-repair-review-2026-09-17/`.
-
-A subsequent triage pass repaired another 25 instances by removing accidental whitespace directly
-after `https://orcid.org/` and completing missing empty structure. The ORCID identifier characters
-are unchanged and must pass the MOD 11-2 checksum before the spacing rule applies; this is not a
-claim about registration or ownership. Every write passed full readback equality and validation.
-That pass left 906 known invalid instances; the scoped target list and unanswered questions are under
-`$CEDAR_HOME/artifact-repair-triage-2026-09-17/`. The rule is
-`normalize-instance-orcid-spacing`. Other malformed identifiers remain explicit defects.
-
-The subsequent owner-reviewed Cell repair updated its template and 166 instances. All 893 dependent
-instances were checked: 889 validate and four retain separate populated-field defects. The repair
-preserved the 723 previously valid instances, mapped verified species/gene terms, added the specific
-CRISP cell-line class to Type, emptied the agreed NA values, and merged repository URLs without
-conflicts. The four pending cases contain ontology assertions in text fields or malformed publication
-data. Evidence and preimages are in the triage directory's `cell/` subdirectory.
-
-One RSeq instance was repaired by replacing two literal `"null"` strings with JSON null. A further
-empty-value pass made eight instances valid across seven templates, with five template writes and
-two instance writes. The current renderer represents empty IRI fields as `{}` even when
-`_valueConstraints.requiredValue` is true; removing legacy field-level `required: ["@id", ...]`
-requirements must preserve that requiredValue setting and the ontology constraints. Literal absence
-is represented as `{"@value": null}` where permitted. Empty undeclared slots can be removed, but
-populated identifiers, labels and strings such as `"NA"`, `"None"` or `"null"` need a specific decision.
-All eleven dependent instances in that pass were checked and every write was backed up and verified.
-Evidence is in `single-instance-review/rseq-repair/` and `empty-values/` under the triage directory.
-
-The maintained residual is **731 invalid instances across 260 templates**, not a fresh whole-corpus
-inventory. `CURRENT-COUNTS.md` and `remaining-residual-records.jsonl` in the triage directory contain
-the per-template counts and target IDs. A fresh targeted MiAIRR V1.1.0 review found 13 invalid and
-29 valid instances among its 42 current instances; no MiAIRR migration was applied. Its field values,
-old/new mapping evidence and unresolved semantic decisions are in `miairr-v1.1.0/`.
+### Write Authorization and Immutability
 
 Artifact creation and replacement use different authorization checks even though both can arrive as
 `PUT /.../{id}`: an absent id requires that artifact type's `CREATE` permission, while an existing id
@@ -3444,17 +3122,227 @@ reported rather than repaired: typed GETs that return 404 for a search row, dupl
 a search total that changed during the walk. As with the REST audit, `COMPLETE_FOR_KEY` means
 complete for what this key can enumerate and read.
 
+## Round-Tripping Every Instance Through YAML
+
+`ops/cedar_instance_roundtrip_audit.py` asks three questions about every template instance a key
+can read, and it is the instance counterpart of the schema-artifact conversion audit. Can the
+library read the YAML the deployment serves, and does it write that document back unchanged? Does
+the instance survive a trip through YAML — JSON to the model, out as YAML, back to the model, out
+as JSON again — with nothing lost? And would a YAML write of it be stored? Its HTTP client
+implements GET only, and it never writes an artifact.
+
+The first two disagree whenever a deployment lags the library. The first answers for whichever jar
+production is running; the second for the library as it stands. The third is the one that matters
+operationally, and it is not the second.
+
+```bash
+export JAVA_HOME=$(/usr/libexec/java_home -v 17)
+python3 ops/cedar_instance_roundtrip_audit.py \
+  --classpath "$CEDAR_HOME/cedar-artifact-library/target/classes:$(cat classpath.txt)" \
+  --records instance-roundtrip.jsonl
+```
+
+One JVM, `ops/cedar_instance_roundtrip_bridge.java`, stays up for the whole pass, launched in
+Java's source-file mode so nothing is compiled ahead of time. Build the artifact library and write
+its dependency classpath first with `mvn -o dependency:build-classpath`. The bridge sustains
+several thousand documents a second, so the pass is bound by reading, not by conversion.
+
+**YAML is lossy on purpose, and the run has to say so.** It carries no JSON-LD context and no field
+that holds nothing, and the server completes both against the template when a YAML instance is
+written. A comparison that counted those would report every instance as broken. The bridge
+therefore classifies each difference and sets aside the benign ones — a context term, a field
+holding nothing, an element whose every descendant field holds nothing — counting them without
+reporting them. What remains is content the round trip lost, reported with its path and a named
+kind.
+
+The run streams one record per instance, including a `"clean": true` record for an instance with
+nothing to say, which is what `--resume` reads back to know what is done. `--limit` makes a sample
+run, `--page-size` and `--fetch-workers` tune the walk, and `--timeout` bounds one read.
+
+### Would a YAML Write Be Stored?
+
+The third question is the useful one, and asking it needs the template. A template-free trip loses
+everything the template restores, so it reports as damaged an instance the deployment would write
+back perfectly: of one whole-corpus run's 607 instances said to lose content, most lost nothing a
+write would put back.
+
+So the run performs the sequence the resource server performs. Render the YAML a client would send,
+read it back, complete it against its template with `InstanceInflater`, mint the element-instance
+identifiers the repository mints, and validate with `cedar-model-validation-library`. Every step
+belongs there. Omitting the minting step alone made each element the YAML elided look like a null
+identifier and produced refusals the server would never issue — `TemplateInstancesResource` calls
+`setProvenanceAndId` before `validateArtifact`, and `LinkedDataUtil` treats a null `@id` on
+anything carrying `@context` as an identifier to mint, so `@id: null` is the correct wire form
+rather than a defect.
+
+**Whether the deployment holds the stored document as valid is settled first**, because that is
+what any later outcome means. Refusing or failing on an instance that is already invalid against
+its own template is correct behaviour. Doing either to one the deployment holds as valid is this
+path's defect. The tally separates them, and only the second kind reaches the summary's list of
+reasons a write would be refused.
+
+Over the oldest two thousand instances, the worst region of the corpus, that separation gives:
+
+```
+1773  write-path-accepted
+ 142  refused, and the stored instance was already invalid
+  35  failed to complete, stored already invalid
+  18  failed to read, stored already invalid
+  33  accepted although stored invalid   (the write path repairs these)
+  19  failed to read, though stored valid
+   7  refused, though stored valid
+   1  failed to complete, though stored valid
+```
+
+Twenty-seven of two thousand are this path's own defects. Counting the correct refusals alongside
+them, as an earlier pass did, overstates the problem by a factor of seven.
+
+Each distinct template is read once and a template that cannot be read is remembered as such, so
+the walk costs one extra read per template rather than per instance. `--no-write-path` skips the
+question and the template reads with it.
+
+### A Failed Read Is Not a Finding
+
+A small share of reads fail as a transport error rather than an HTTP response: a socket timeout, or
+a name lookup that does not answer. Measured against production, 208 of 301,158 reads (0.069%), and
+0.126% under deliberate sustained load. Every one served when asked again. These observations
+establish intermittent read failures, not their cause. Enumeration-order buckets do not establish
+their distribution in time, and a successful repeat does not rule out intermittent service failure.
+
+The audit therefore re-reads everything that failed, one at a time, at the end of a run. Only the
+failures that survive are counted; the transient ones are reported as `unserved-transient` and the
+survivors are written to an adjacent `-persistent.json` with both verdicts. `--no-verify` skips
+that pass, and then a failure is whatever the first ask returned, which overstates breakage — 43%
+of one whole-corpus run's failures were noise.
+
+Two rules hold whatever tool is used against these endpoints. **Do not classify a first-pass read
+failure as a stored-artifact defect without verification.** Retain it as a reliability observation
+even if a later attempt succeeds. **Distinguish a transport error from an HTTP status**: the 208
+failures above had no status, while the observed stored-data rejections returned a 500 naming the
+defect. HTTP failures can also be transient; a transport failure while reading a response body can
+occur after a status has arrived.
+
+### Diagnosing Intermittent Resource Reads
+
+For a controlled comparison, use the same known-readable artifact identifiers, JSON/YAML
+sequence and maximum request-start rate for fresh HTTPS connections and persistent connections.
+Keep runs bounded, validate TLS, and record failures without retrying them away. Capture UTC,
+connection reuse, local and remote addresses, status if received, and separate DNS, TCP, TLS,
+response-header and body durations. Keep API keys, permission-scoped identifiers and raw output
+outside Git. The one-off probe used for the investigation below is not maintained in this repository.
+
+Correlate UTC/request ID with **the deployed** nginx and resource logs. Repository staging
+configuration puts proxy logs under `$CEDAR_HOME/log/server-resource/nginx-{access,error}.log`,
+but does not prove production uses those paths or logs request IDs. Its combined access format
+does not include upstream timing. Inspect the active configuration before choosing logs; absence
+from an access log written on completion does not prove a connection never arrived. If extra
+logging is needed, capture incoming request ID, status, request time, upstream address/status,
+and upstream connect/header/response times without Authorization headers or bodies. TCP/TLS
+failures may require connection-level evidence at the edge and client, not an application log.
+No HTTP request ID reaches the server when TCP/TLS fails; use UTC and connection tuples instead,
+allowing for a NAT device rewriting the client's local source port.
+
+DNS failure points to resolution; TCP/TLS failure localizes the fault before application HTTP
+handling but does not distinguish the client, network, or accepting endpoint. Header/body delays
+need proxy and application correlation. Keep-alive improving reliability narrows the issue toward
+connection churn but does not by itself prove the cause. At the original 0.069% rate, zero failures
+in 3,000 independent requests has about a 13% probability, so short clean runs do not establish a
+healthy path. Compare rates at matched traffic levels and from a second host before changing
+service pools, resolver configuration, or proxy limits.
+
+**2026-09-21 investigation.** A rate-capped probe from the audit workstation over 100 previously
+clean instances reproduced failures before HTTP was sent. With 64 workers, a cap of 100 starts/s,
+fresh connections and a 10-second socket timeout, 4,611 attempts yielded 4,589 HTTP 200 responses,
+21 TLS-handshake timeouts and one TCP-connect timeout. The automatic stop triggered at ten
+observed transport failures; already running requests brought the final count to 22. DNS completed
+in milliseconds. Twenty TLS failures started between 16:45:59.734 and 16:45:59.958 UTC, so this
+sample contains a burst that enumeration buckets would conceal. All 13 affected instances then
+served both representations sequentially: 26/26 HTTP 200, using a 60-second timeout.
+
+A separate keep-alive run with the same 64 workers, 100 starts/s cap, 10-second timeout and sample
+completed 5,000/5,000 HTTP 200 reads; 4,936 actually reused a connection. Median/p95 latency was
+42.7/75.4 ms, versus 139.1/213.5 ms for the fresh-connection run. This supports connection reuse
+as a mitigation candidate, but the sequential runs do not prove that reuse alone explains the
+difference or that the original audit's failures all share this cause.
+
+These failures precede artifact handling but do not yet distinguish the workstation, its network
+path, or the TLS-terminating endpoint. The shorter timeout also means this failure rate cannot be
+equated with the original audit's rate. Earlier probes at caps of 10 and 40 starts/s completed
+800 and 10,000 requests with no failures; those preliminary probes omitted the standard client's
+TCP_NODELAY setting, so their latency comparisons are not the final baseline. The corrected probe
+matched that setting and recorded its source hash. Raw evidence, preserved original sweep files,
+checksums, probe provenance and the exact failed timestamps are retained locally under
+`$CEDAR_HOME/.cedar/diagnostics/resource-transport-2026-09-21/`, outside Git.
+
+Read-only production inspection then matched all 20,415 successful first-session reads to nginx
+HTTP 200 access records. The resource error log had no writes during the failure window; the
+root-owned global error log was not readable by the inspecting account. The configuration on disk
+has six running workers, `worker_connections 1024`, `worker_rlimit_nofile 1024`,
+`keepalive_requests 100` and `keepalive_timeout 65s`. The 100-request connection lifetime explains
+observed reconnects in the persistent lane; it does not establish a fault.
+
+The workstation's route changed from its ordinary network to a tunnel before host inspection.
+The first TCP monitor filtered the old client address and therefore could not observe the new
+connections. A first tunnel-path run served 3,000/3,000 fresh-connection reads; 800 concurrent
+server-loopback HTTPS GETs to `/`, with normal SNI/certificate verification, also passed. Loopback
+TLS median/p95/max was 14.5/30.3/62.1 ms. These are controls, not proof of absence of a rare fault.
+
+With the corrected source-address filter, another 2,000 tunnel-path reads produced seven TLS
+timeouts. Each followed a roughly 3–4 second TCP connection establishment. Of their seven source
+ports, five matched server TCP connections that remained established with only two received
+segments and no reported payload bytes throughout the observed stall; another appeared briefly
+with 1,332 received bytes, and one was not sampled. This observation is below the application layer:
+the server was not receiving a complete TLS exchange on those sockets. During the monitor,
+host-wide `ListenOverflows`, `ListenDrops`, `TCPBacklogDrop` and `SyncookiesSent` did not increase;
+retransmission counters did increase, but are not specific to these flows. Thus the failure is not
+confined to the ordinary external route, and changing Java pools or nginx limits remains
+unjustified.
+
+The operator then started overlapping packet-summary captures at the client's tunnel interface
+and the production NIC. The controlled 3,000-read run completed without timeout; a separate instance
+audit was also active, so this was not an isolated load test. One captured connection beginning
+just before the controlled run supplies a concrete explanation for a long TLS delay: the client
+sent its initial TLS message as 1,332 bytes followed immediately by 200 bytes, but the server
+initially received only the 1,332 bytes. The client saw an acknowledgment covering only that
+prefix and retransmitted the missing 200 bytes 6.065 seconds later. At the server, the two segments
+arrived 6.056 seconds apart; the first TLS response followed the final segment by 26.7 ms.
+These intervals are measured within each capture because the host clock offset was not measured.
+TCP sequence numbers, timestamp clocks and window options differ between the two sides, supporting
+an intervening TCP proxy/normalizer, without identifying the device responsible for the missing
+segment. This packet pair localizes that delay to the path between capture points, before nginx
+could receive the complete initial TLS message, rather than to artifact handling or TLS response
+processing. Earlier client-only delays around 15 seconds precede the server capture and cannot be
+independently localized by this pair.
+
+The concrete next step is a network-operator investigation of the public VIP/tunnel path: identify
+the intermediary and inspect packet-drop, retransmission and session/inspection events for the
+recorded tuple and time. `packet-correlation-summary.json` and the two short
+`matched-flow-54678-{client,server}.txt` excerpts in the local diagnostic directory contain the
+exact addresses, sequence ranges, times and checksums. Full captures remain there too; no packet
+payload dump was requested. The server capture stopped at its five-minute deadline, and its
+process exit was verified. No production service or network configuration was changed. Keep
+bounded retries and preserve transient-failure metrics; connection reuse remains a mitigation
+candidate, not an established repair of the network fault. The original DNS failures remain a
+separate, unreproduced symptom.
+
+### An Artifact Identifier Is Opaque
+
+Instance identifiers live under two hosts. A whole-corpus enumeration in September 2026 named
+150,334 under `repo.metadatacenter.org` and 245 under `repo.metadatacenter.net`. Pass the `@id`
+that `/search-deep` gives through exactly as it arrives. Rebuilding one from its UUID against the
+wrong host returns a correct, repeatable 404, which looks first like an artifact being deleted and
+then like the server reporting a present artifact missing.
+
+The `.net` identifiers also fail genuinely far more often — 20 of 245 against 259 of 150,334 — and
+three of the four instances absent from the artifact store entirely are among them.
+
 ## Repairing a Defect Across the Stored Population
 
-`ops/repairs/cedar_artifact_repair.py` carries out a repair the audit has already measured. A repair
-qualifies only when it can be stated as an invariant, meaning it changes the thing it names and
-provably nothing else. Each artifact is fetched, transformed, checked against that invariant,
-validated by the library, and written back with `PUT ?verbatim=true`, so it keeps its identifier,
-provenance timestamps, version, publication status and every child identifier. One JVM validates the
-whole run, the same bridge the audit uses.
-
-Targets come from an earlier audit's records rather than a fresh walk, since the audit already knows
-which artifacts carry the condition. Dry run is the default.
+Run `ops/repairs/cedar_artifact_repair.py` from `cedar-development`. It uses audit records to select
+targets and defaults to a dry run. Each transform has an independent invariant that compares the
+whole document, including JSON types, and permits only the named changes. Verbatim writes preserve
+unrelated identifiers, provenance, versions and publication state; a repair may change an identifier
+only when its explicit invariant permits it.
 
 ```bash
 export CEDAR_API_KEY=…
@@ -3463,216 +3351,132 @@ python3 ops/repairs/cedar_artifact_repair.py --from-records production-validatio
 python3 ops/repairs/cedar_artifact_repair.py --from-records production-validation.jsonl --apply
 ```
 
-Two repairs are implemented. `empty-derived-from` deletes every `pav:derivedFrom` whose value is the
-empty string, at the root and at every depth. The key is optional, so absence is how an artifact
-that was derived from nothing says so, while the empty string is the same claim in a form the model
-cannot read. The meta-schema accepted it for years because JSON Schema's `uri` format admits a
-relative reference, and the validator's own walk rejects it now. `mint-child-ids` gives every child
-whose own `@id` is missing or not an absolute IRI a fresh one, under the prefix its type requires,
-since an element given a field's prefix is never repaired afterwards. Neither touches anything an
-instance refers to: an instance reaches a field through the property IRI in its `@context`, which is
-a different namespace from a child's own identifier, and provenance it never reads at all.
+Apply requires `WRITE_ARTIFACT_VERBATIM`. Review the target set and dry-run report before writing.
+JDK 17 and the validation-library classpath are resolved by `cedar_validate.sh`; use `--classpath`
+with a previously resolved classpath if a cold Maven cache fails or for repeated campaign runs.
 
-`mint-property-iris` is the exception, and the reason the two identifiers must not be confused. A
-child's property IRI is exactly what an instance's `@context` has to match, so minting a fresh one
-invalidates every instance that carries the stored value. Use `--exclude-ids` with a JSON list of the
-artifacts whose instances rely on it. In production the whole population is 527 artifacts, of which
-516 are safe on their own terms: 393 are standalone elements, against which no instance ever
-validates, and 123 are templates with no instances at all. The remaining 11 templates hold 894
-instances between them and want an instance-aware check first. The repair replaces only a mapping
-that is present and unusable, which in production is always the empty string. A mapping that is
-absent is deliberately out of scope, because the validator accepts it and because the server pairs a
-new mapping with an entry in `@context.required` that an existing instance may not satisfy.
+### Repair Safety
 
-`align-instance-context-iris` repairs the other side. An instance's `@context` maps its field names
-to property IRIs, and where it disagrees with its template the validator rejects the instance. The
-template is the authority: the mapping is derived from it rather than authored on the instance, whose
-own content is its field values. So the instance moves, not the template. Reconciling the template to
-its instances works only where every one of them disagrees with it, which in production is 9 templates
-out of 105; the other 96 have instances that already agree, 2,497 of them under one template, and
-moving the template would invalidate those. Targets are selected by the validator's complaint rather
-than by an inventory condition, since no condition describes this. Only a name the template maps is
-touched, only where the template's own value is usable, and element occurrences are walked against the
-element definition they belong to at every depth.
+An applied repair must validate its
+complete candidate, save a new durable preimage without overwriting earlier attempts, send the
+current strong ETag in `If-Match` with `PUT ?verbatim=true`, and compare the entire read-back body
+with the submitted candidate. Idempotence is not read-back verification. An artifact for which no
+transform proposes a change still needs validation before it can be called clean. Production apply
+mode rejects `--no-verify`.
 
-Six further repairs address defects the roadmap names, and all six are container rewrites that no
-instance references. `drop-static-field-demands` stops a container naming a static field in
-`required`, `@context.required` or `@context.properties`: a static field renders and holds nothing,
-so every editor omits it and a container demanding one describes an instance nothing will build.
-`wrap-inherently-multiple` deploys a checkbox, attribute-value or multiple-choice list child as the
-array it always serializes to, lifting cardinality onto the envelope and leaving the field's own
-metadata on the inner definition; contradictory bounds are refused rather than guessed.
-`stamp-model-version` writes the current model version on the root and on every nested definition,
-and only over one that parses, since the key asserts conformance and stamping it onto a definition
-that does not conform replaces a detectable defect with an undetectable one; a version that is absent
-or malformed stays where it stands, and the artifact is refused outright only when that is all there
-is to do. `complete-ui-order` appends declared children the order omits, after what it already holds.
-`drop-unusable-order-entries` takes the inverse drift, but only the part of it that carries its own
-proof that nothing is lost: an entry bearing a name the model reserves, which no child can be called,
-and an entry a rename left behind, recognised by the container declaring a child named the same with
-each `/` replaced by `-`. An entry that could be the last surviving evidence of a deleted child is
-left alone, since the store cannot synthesize the child back. `derive-title` composes the artifact's own title from its name, as every
-ordinary write does, touching neither the description that carries the generator's signature nor an
-embedded child's pair, which the server also leaves as sent.
+Schema validity alone does not establish preservation of meaning. Two equal field values are not
+equivalent assertions unless their explicit property IRIs also agree. The duplicate rule permits
+only matching simple property mappings and identical typed JSON values. Complex mappings require
+review. An IRI-only value is populated; do not mistake its `@id` for an empty element identity.
+Many-to-one renames refuse competing populated sources and preserve populated destinations.
+`rename_sheet.py` treats spelling and value overlap as proposals, never implicit owner answers.
 
-Three repairs act on instances rather than containers, and they compose with one another.
-`align-instance-context-iris` rewrites an instance's `@context` property IRIs to the ones its
-template names. `complete-instance` gives an instance the shape its template declares, carrying the
-model's own form for absence — an empty list where a child may repeat, `{"@value": null}` for a
-literal, `{}` for an IRI, and a built-out element with its own `@id` and `@context` — because an
-instance written before a field was added simply lacks the key, and the library reads that as a
-missing property rather than an empty field. A value already present is never touched, and a value
-that is not the shape its definition calls for is left exactly as it stands: production holds element
-occurrences written as bare strings, and building one out would discard the only content there is.
+Changing an existing `@context` property IRI is a semantic migration. Applying
+`align-instance-context-iris` requires both `--allow-context-migration` and a reviewed `--only-ids`
+scope. Review the old/new predicates and the template history or recorded migration decision.
+Preserving provenance timestamps is appropriate for correcting a proven stored defect; it does not
+make a substantive migration meaning-preserving.
 
-`rename-instance-keys` carries an instance's values over to the names its template now declares. The
-mapping is supplied through `--mapping`, never inferred: which old name became which new one is a
-fact about an edit nobody recorded, and guessing it would move a value into a field that means
-something else. `repairs/rename_sheet.py` drafts that mapping for an owner to confirm, pairing each
-stale key with a declared name by wording, spelling and how many instances carry it, and marking a
-pairing **confirmed by data** where the same value appears under both names.
+`drop-empty-undeclared-instance-keys` removes only explicit empty top-level slots and their context
+entries. `complete-empty-literal` adds null only to otherwise empty literal slots whose declaration
+permits null. Neither supplies an entered term, date, number or other missing required value.
+Completion's invariant permits only declared empty shapes, required context additions and fresh
+element identities. Run the repair suites with
+`python3 -m unittest test_cedar_artifact_repair test_repair_safety` from `ops/repairs`.
 
-A rename reaches inside an element, because renaming one moves the whole occurrence across and its
-own children then answer to what the new declaration names. A mapping key is therefore a path:
-`DataCite Title/titleLanguage` names the key `titleLanguage` as an instance carries it inside the
-element the template declares as `DataCite Title`. Every segment but the last is a declared name, so
-a path reads as the route through the template, and a segment holding a `/` of its own is escaped the
-way a JSON Pointer component is. The same form reaches a child of a container that was never renamed
-itself, which is the case where only the inside changed. A path of one segment names a key at the top
-of the instance, which is every mapping written before nesting was supported.
+### Choose the Repair
 
-Which questions the sheet can even ask depends on what is settled already: it applies the confirmed
-mapping to each sampled instance before reading it, so the inside of an element comes into view only
-once the element itself has a declaration to be read against. Answering an element rename therefore
-uncovers a fresh round of questions about its children rather than finishing it.
+Use the tool's `REPAIRS` table for the complete inventory. These are the operating constraints:
 
-Seven repairs settle an instance value that is the wrong shape rather than the wrong content, each
-reading the answer off the declaration so none of them needs an owner.
-`stamp-instance-value-type` gives a typed literal the datatype its field declares, since CEDAR
-renders a numeric or temporal field with `@type` among the properties its value must carry — the
-model's own `EmptyFieldInstances` supplies the defaults, `xsd:decimal` for a numeric field naming
-none and `xsd:dateTime` for a temporal one. `wrap-instance-occurrence` and
-`unwrap-instance-occurrence` move one occurrence into the list a repeating child declares, and a
-list of nought or one back out again; a longer list is left alone, because which of several survives
-is a decision. `settle-instance-empty-shape` writes an absent value in its own field's form,
-`{"@value": null}` for a literal and `{}` for an IRI, and touches only a value that already says
-nothing. `complete-instance-context` writes the `@context` entries a template requires and pins,
-whether a property IRI or a JSON-LD term definition such as `{"@type": "xsd:string"}`.
-`restate-instance-literal` writes a literal as the JSON type its schema states, but only where the
-restatement spells the original back, so `826` and `"826"` are interchangeable while `"007"` and
-`"LSJDK=1213"` are left as they stand. `drop-static-field-from-instance` removes a heading or a
-break an instance was given, which renders nothing and holds nothing.
+| Repair | Permitted change and boundary |
+| --- | --- |
+| `empty-derived-from` | Delete empty-string `pav:derivedFrom` at every depth; preserve populated provenance. |
+| `mint-child-ids` | Replace missing/unusable child IDs with the correct type prefix; do not change property IRIs. |
+| `mint-property-iris` | Replace present but unusable property mappings; absent mappings are out of scope. Review every dependent instance and exclude unsafe targets with `--exclude-ids`. |
+| `align-instance-context-iris` | Use reviewed template mappings at every element depth. This changes predicates: require the explicit migration scope and decision described above. |
+| `drop-static-field-demands` | Remove static children from `required`, `@context.required` and `@context.properties`; static fields hold no instance value. |
+| `wrap-inherently-multiple` | Wrap checkbox, attribute-value and multiple-choice children as arrays, lifting cardinality to the envelope. Refuse contradictory bounds. |
+| `stamp-model-version` | Stamp the current version only over parseable versions and only when the complete result validates; do not conceal malformed/missing versions. |
+| `complete-ui-order` | Append declared children missing from the order, preserving existing order. |
+| `drop-unusable-order-entries` | Remove reserved names or stale slash-to-hyphen rename entries; preserve possible evidence of a deleted child. |
+| `derive-title` | Derive the root title from its name; preserve descriptions and embedded child titles. |
+| `complete-instance` | Add missing empty shapes: list for repeatable children, `{"@value": null}` for literals, `{}` for IRIs, and declared element structure with fresh identity. Preserve existing values, including malformed populated shapes. |
+| `stamp-instance-value-type` | Supply the declared literal datatype, using model defaults where applicable (`xsd:decimal`, `xsd:dateTime`). |
+| `wrap-instance-occurrence` / `unwrap-instance-occurrence` | Match declared cardinality; never choose one value from a list of two or more. |
+| `settle-instance-empty-shape` | Normalize only an already-empty value to its declared literal/IRI shape. |
+| `complete-instance-context` | Add template-required context definitions; review changes to existing predicates as semantic migrations. |
+| `restate-instance-literal` | Change JSON type only if the original spelling round-trips: `826` / `"826"`, but not `"007"`. |
+| `drop-static-field-from-instance` | Remove a static heading/break slot that holds no value. |
+| `normalize-instance-orcid-spacing` | Remove whitespace immediately after `https://orcid.org/` only when unchanged identifier characters pass MOD 11-2; this proves neither registration nor ownership. |
 
-Each invariant is built on an exhaustive walk of the two documents rather than on the transform's
-own traversal, so a change anywhere — at any depth, in a key neither rule expected to touch — is
-reported and has to be licensed before the write proceeds.
+### Owner-Reviewed Mappings and Schema Changes
 
-`settle-instance-term-label` puts a controlled field's value behind the term its label names. A
-controlled-term field holds `@id` and a label, and an instance carrying the label alone — under
-`@value`, where the schema admits none — names a term without pointing at it. The term is supplied
-through `--terms`, never inferred: which IRI a label names is a fact about the ontology the field is
-constrained to, and the table is built by asking it. Send the field's own `_valueConstraints` to
-`POST /bioportal/integrated-search`, which is the lookup the authoring UI performs, so a term found
-is one the field would have offered; take only an exact label match, since a near one would put the
-instance behind a term nobody chose. A label the table maps to `null` empties the field instead,
-which is what a field holding `"NA"` says.
+`rename-instance-keys` requires an explicit `--mapping`. `rename_sheet.py` proposes matches from
+names and values; equal values do not establish equivalent predicates or owner approval. A mapping
+key is a path through declared element names: `DataCite Title/titleLanguage` renames the inner key.
+Escape `/` within a segment as in JSON Pointer. After confirming an element rename, rerun the sheet:
+its children become available for matching only after the parent mapping is applied.
 
-`free-controlled-field` goes the other way, for when the terminology has no term for what people
-are actually writing and the template is what needs changing. It moves two things together, because
-either alone leaves the field incoherent: the value's shape loses `@id` and gains `@value`, and the
-constraint loses the ontologies, branches, classes and value sets it named. The fields to free are
-named through `--free-fields`, because whether a field was ever really controlled is a decision
-about what the template means.
+`settle-instance-term-label` requires `--terms`. Query the field's own `_valueConstraints` through
+`POST /bioportal/integrated-search` and review exact label matches; do not choose a near match or
+assume an ambiguous label identifies a unique IRI. A mapping to `null` empties the field and needs
+an explicit owner decision. Strings such as `"NA"`, `"None"` and `"null"` are populated until such a
+decision exists.
 
-**Freeing a field forbids `@id`, so weigh it against every instance, not the invalid ones.** The
-invalid set is biased towards exactly the instances that hold a label rather than a term, which is
-the case for freeing; the instances that would break are in the valid set, which that sample does
-not contain. Ask two separate questions of each one — does it point at a term, and does it validate
-today — because a term-holding instance that is already invalid costs nothing. On CEDAR's `Cell`
-template one field had a single term-holder that was already invalid, so freeing it was free, while
-the other had 267 valid ones, so freeing it would have destroyed more than it repaired.
+`free-controlled-field` requires `--free-fields`: it changes the schema from `@id` to `@value` and
+removes ontology/branch/class/value-set constraints together. Check **all** dependent instances,
+including valid ones carrying terms. An already-invalid instance still carries assertions that must
+be preserved; invalidity does not make its content disposable.
 
-`declare-instance-field` answers a third case: the instances carry a key the template never declared
-at all. A template's `additionalProperties` admits a plain literal and nothing else, so an
-undeclared key holding a term, or holding a list, cannot validate however the instance is written.
-Two quite different things produce such a key, and they need opposite repairs. Where a field was
-renamed, the value belongs under the new name and `rename-instance-keys` moves it; where a field was
-added to the instances and never to the template, the template is behind and declaring the field is
-the repair. Only the owner knows which applies, which is why the declarations come through
-`--declare-fields`.
+`declare-instance-field` requires `--declare-fields`. First distinguish a genuinely missing field
+from a renamed field. Specify its name, term/text kind, multiplicity, own ID and property IRI so
+reruns use the same identities. Boilerplate comes from a sibling of the same kind; no such sibling
+means refusal. The new declaration requires every dependent instance to carry the slot, so include
+previously valid instances in the same campaign and complete their empty structure where permitted.
 
-A declaration states the field's name, whether it holds a term or free text, whether it may repeat,
-and the two identifiers it will be written under — its own `@id` and the property IRI its
-`@context` entry will name. The identifiers are stated rather than minted so that the file says
-exactly what will be written and a second run changes nothing. The declaration's boilerplate is
-copied from a field the template already declares of the same kind, so the new field is consistent
-with the template it joins rather than with whatever the tool was written against; a template with
-no sibling of that kind is refused rather than guessed at.
+Before weakening legacy field-level `required: ["@id", ...]` constraints to accept empty IRI shapes,
+review the schema change and preserve `_valueConstraints.requiredValue` and ontology constraints.
+Never invent missing required terms, dates, numbers or text to make an instance validate.
 
-**A declared field is required to be present, so the change reaches every instance, including the
-ones that validate today.** Those hold the new field empty, which `complete-instance` writes, and
-they have to be repaired in the same campaign or the template change leaves them invalid. Measure
-both populations before writing anything: on CEDAR's `message template` the four new fields made all
-58 invalid instances valid and took all 28 valid ones down to zero until they were completed, so the
-job was 86 instance writes, not 58.
+### Compose, Verify and Resume
 
-Weigh a proposed declaration against the valid instances as carefully as a proposed freeing. The
-same template's `Visual display` had been answered as a rename into the declared `Default display`,
-and the valid instances refuted it: they hold plain text there — `line chart`, `text-only` — so
-`Default display` has to stay free text, and `Visual display` is a controlled field of its own.
-
-**The order a chain names its repairs in is part of the repair.** `drop-superseded-instance-keys`
-removes a key whose value the instance already carries under a name the template declares, and it can
-only see that duplicate once the value is under the declared name — which is what
-`rename-instance-keys` does. Naming the two the other way round finds nothing: NanoBRET's 74
-instances each carried `Repository` and `Data_repository` holding the same value, and the duplicate
-became visible only after the rename made the second one `Data_Repository`. Put the rename first.
-For the same reason `complete-instance` goes last: it fills what is absent, and what is absent is not
-settled until everything that moves a value has run.
-
-**Repairs compose, and for some artifacts they must.** A child identifier the server would otherwise
-mint makes it refuse a verbatim write outright, so an artifact carrying that defect alongside another
-cannot be fixed by either repair on its own: one leaves the artifact invalid and is skipped, the other
-is refused by the server. Naming both applies them in a single write, and the result is still provably
-narrow because each stage is checked by its own invariant against its own input. In production 376
-artifacts are in exactly that position, which is why the empty-provenance sweep refuses them, and a
-further group needs all three repairs at once.
+Order matters: rename before `drop-superseded-instance-keys`, and run `complete-instance` last.
+Duplicate removal requires both matching simple property mappings and identical typed values.
+Each stage checks its own invariant against its input; the complete candidate must validate.
+Combine repairs when one defect would otherwise prevent a verbatim write:
 
 ```bash
 python3 ops/repairs/cedar_artifact_repair.py --from-records production-validation.jsonl \
   --repair mint-child-ids,empty-derived-from --condition child-id-unusable --apply
 ```
 
-`--condition` names the target set explicitly, which a chain needs whenever its repairs between them
-name more artifacts than the job does.
+`--condition` narrows a chain's target set; `--types` selects artifact kinds; `--limit` sizes a trial.
+Give each run its own `--out` and retain its preimages and ETags. Concurrent writes are refused by
+`If-Match`; investigate a `write-failed` result and use `--resume` to re-fetch rather than overwriting.
+A no-change candidate is `already-clean` only after validation.
 
-Each run resolves the validation library's classpath through `cedar_validate.sh`, which builds it
-on first use and occasionally fails outright on a cold Maven cache. Passing `--classpath` with a
-resolved one skips that step, and is worth doing across a campaign of many runs.
+Outcomes include `repaired`, `would-repair`, `already-clean`, `still-invalid`, `invariant-failed`,
+`fetch-failed` and `write-failed`. Preimages are saved durably before each write under the run's
+`*-preimages` directory; explicit `--preimages` selects another location. Read-back verification
+compares the entire stored body with the submitted candidate, then validates it. `--no-verify` is
+not permitted for production writes. A second idempotent pass is not a substitute for readback.
+Use the validation audit's `--recheck` to independently validate the recorded written set.
 
-Two repair runs may overlap without coordinating. Updating an existing artifact requires the ETag the
-GET returned, and the server refuses a write carrying a stale one, so the second run to reach a shared
-artifact is refused rather than silently overwriting the first. The cost of an overlap is only in the
-accounting: the loser records a write failure for an artifact that was in fact repaired, and a later
-`--resume` reads it back as already clean. Give each run its own `--out`, since the records and
-pre-images are named from it.
+To add a repair, register its transform, independent invariant and target condition in `REPAIRS`.
+The invariant must check types as well as values and prove any created value matches the intended
+model/server representation. Run both repair suites named above.
 
-Each artifact ends in one outcome, and the summary counts them: `repaired`, `would-repair` on a dry
-run, `already-clean` when the defect is gone, `still-invalid` when the artifact has other errors and
-is therefore skipped rather than written, `invariant-failed` when the transform touched anything it
-should not, and `fetch-failed` or `write-failed`. Before every write the stored body is saved under
-`<out>-preimages/<type>/<id>.json` with its ETag, so any write can be undone from the pre-image.
-After every write the artifact is read back and re-checked unless `--no-verify` says otherwise.
-Writes are conditional on the ETag that was read, so a concurrent edit is refused rather than
-overwritten. `--limit` sizes a trial, `--resume` continues an interrupted run from its own records,
-and `--types` narrows to one artifact kind. A repair run is idempotent: a second pass reports every
-artifact as `already-clean` and clears nothing.
+### Production Repair Evidence
 
-Adding a repair means adding a transform, an invariant and the audit condition that names its
-targets, as one entry in the tool's `REPAIRS` table. Keep both halves narrow. The invariant is what
-makes a verbatim write over thousands of artifacts safe, so it compares types as well as values, and
-a repair that creates a value rather than deleting one must also prove the value it wrote is the one
-the server itself would have written.
+Evidence and per-write preimages from the September 17 review are under
+`$CEDAR_HOME/artifact-repair-review-2026-09-17/`; subsequent owner-reviewed repairs and triage are
+under `$CEDAR_HOME/artifact-repair-triage-2026-09-17/`. The latter's `CURRENT-COUNTS.md` and
+`remaining-residual-records.jsonl` hold the maintained counts and target IDs. They are scoped
+residuals, not a fresh whole-corpus census. Open decisions belong in the backend roadmap.
+
+The review restored populated historical values in instances that already validated. Treat schema
+validity and preservation of meaning as separate checks. For a proposed semantic migration, consult
+the saved source assertions, template history and owner decisions in those evidence directories.
 
 ## `ops/cedar_ontology_usage.py`
 
@@ -3873,6 +3677,11 @@ already-open recipient editor must then receive HTTP 403 without overwriting the
 the artifact must disappear from the recipient's **Shared with Me** listing. Every permission and
 artifact update is also checked for an `If-Match` request header.
 
+Menu capability checks match the exact `link-disabled` CSS class. Angular's
+`link-disabled-remove` and `link-disabled-remove-active` animation classes describe an action
+being enabled; a substring check misreads them as a continuing permission denial and can exhaust
+the sharing poll even after the search index and visible action have updated.
+
 Workspace's graph-command coverage drives all six UI variants: make an artifact open and not open,
 make a folder open and not open, and move an artifact and a folder. The visibility checks prove the
 corresponding anonymous-access transition; the move checks prove the source loses the resource and
@@ -3886,6 +3695,21 @@ line. For release acceptance, make the required identity an assertion:
 ```bash
 CEDAR_EXPECT_CEE_VERSION=<CEE_VERSION> npm run smoke
 ```
+
+The Template Editor's Update Bubbling window has a suite of its own, because the guarantee it makes
+is only half backend. Propagation refuses a published target and fails the whole request, and the
+window has to say so before a tick is offered rather than after it is refused:
+
+```bash
+cd $CEDAR_HOME/cedar-development/ops/e2e
+npm run smoke:inclusion:bubbling
+```
+
+It builds one element reused by a published template and a draft one, edits the element through the
+real editor, and holds the window to three things: the published row cannot be ticked and reads as
+greyed rather than merely inert, a click on it never reaches the tree that gets posted, and the draft
+beside it still propagates. It then reads both templates back, so a pass means the change landed in
+exactly one of them. Fixtures are created and deleted by the run.
 
 The extracted Workspace and Template Designer also have a fast, credential-free contract smoke.
 It proves that both preview route shells and independent AngularJS bootstraps are being served, the

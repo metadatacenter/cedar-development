@@ -3,14 +3,14 @@
 Open work across the four MCP servers under `$CEDAR_HOME/mcp`. Building, configuring and testing
 them is in [MCP-RUNBOOK.md](./MCP-RUNBOOK.md).
 
-Items live here when they span the servers or concern how they are built and released. Work inside
-one server — a tool to add, a description to sharpen — belongs in that repository's own roadmap:
-[cedar-artifact-mcp](../../mcp/cedar-artifact-mcp/ROADMAP.md),
-[cedar-artifact-rest-mcp](../../mcp/cedar-artifact-rest-mcp/ROADMAP.md),
-[cedar-cee-mcp](../../mcp/cedar-cee-mcp/ROADMAP.md),
-[bioportal-term-mcp](../../mcp/bioportal-term-mcp/ROADMAP.md).
+Everything open lives here, whether it spans the servers or sits inside one of them. Each
+repository keeps a DESIGN.md for the principles that govern it and a README for the tool surface
+it offers.
 
-## Next
+Item numbers are contiguous and change as work leaves the document. Refer to the concrete change
+by name in commits.
+
+## Across the Servers
 
 - **1. Build and release the MCP servers with everything else.** Four repositories, none part of
   `cedarcli build java`, none with a GitHub Actions workflow, and until now unmentioned by
@@ -28,7 +28,10 @@ one server — a tool to add, a description to sharpen — belongs in that repos
   - Build the three Maven servers with the rest. When `cedar-artifact-library` advances, bump its
     two MCP consumers in the same delivery and build them after the declared library release, so a
     signature break fails before a client sees it.
-  - Give each repository the workflow every other Java repository already has.
+  - Give each Java repository the workflow every other Java repository already has.
+  - Give `bioportal-term-mcp` the Python equivalent: `uv run pytest` and `uv run pyright` on every
+    push, and a nightly `uv run pytest -m live` to catch BioPortal shape drift early. Both precede
+    any publication to PyPI, should that ever be wanted.
   - Decide whether they join the train-backed release or stay outside it, as CEE and the
     TypeScript model library do. Dependency resolution no longer decides that question:
     `cedar-artifact-rest-mcp` resolves from Maven Central alone, while `cedar-artifact-mcp` and
@@ -64,17 +67,117 @@ one server — a tool to add, a description to sharpen — belongs in that repos
   configuration surface again — 2.0 dropped nine of the fourteen keys this server sent. A unit test
   now catches that at build time, but only for a build that happens.
 
-- **3. Give the servers a shared release note surface.** Each repository has a README, a DESIGN, a
-  ROADMAP and a CLAUDE.md, and the four sets restate the same conventions — how a jar is built and
+- **3. Give the servers a shared release note surface.** Each repository has a README, a DESIGN
+  and a CLAUDE.md, and the four sets restate the same conventions — how a jar is built and
   named, that descriptions are documentation, that secrets come from the environment. The
   duplication is mild and mostly harmless, but a convention that changes has four homes to visit.
   Consider whether the shared half belongs here, in the runbook, with each repository keeping only
   what is true of itself.
 
+- **4. Extract the plumbing the three Java servers copy.** Version-resource loading, the `ping`
+  tool and its handler, `RegisteredTool`, and the success and error result helpers are copied
+  verbatim across the three Java servers. A small `cedar-mcp-common` module in the shared reactor
+  would hold them. Do the extraction inside the shared-build change of item 1, so the module is
+  built and versioned atomically with its consumers; a separately released dependency is not worth
+  creating while these servers still build independently.
+
+## cedar-artifact-mcp
+
+- **5. Expose the per-field question metadata the library carries.** `skos:prefLabel` holds the
+  preferred question text, an alternative phrasing of the field's name that a form shows, distinct
+  from the value-level labels. `skos:altLabel` holds further phrasings, and `language` and
+  `valueRecommendationEnabled` sit beside them. All four survive a round trip and none can be set
+  through a tool.
+
+- **6. Expose a template's header and footer.** `TemplateUi` carries display header and footer
+  text through `withHeader` and `withFooter`. Both survive a round trip; neither is settable.
+
+- **7. Expose the per-term actions a controlled-term constraint carries.** A constraint may carry
+  `ControlledTermValueConstraintsAction` entries, the keep, delete and move tweaks the CEDAR editor
+  applies on top of a class, ontology, branch or value-set binding — pulling one class out of an
+  otherwise-included branch, for instance. The library models and round-trips them.
+  `set_*_constraint` and `remove_constraint` work at the whole-constraint level and leave actions
+  alone, which is deliberate: this is a finer-grained surface, and it belongs beside those tools
+  rather than inside them.
+
+- **8. Decide whether one render-if-present YAML form replaces compact and expanded.** Mutating
+  tools return the expanded exchange form, and `compact` survives only on the render tools. Whether
+  the distinction can disappear altogether is open. A render-if-present form would emit provenance
+  — status, version, modelVersion, created and modified — only where it is set, an absent key
+  meaning omitted and a present one meaning shown and round-tripped, which leaves the default view
+  lean with no lossy compaction.
+
+  The prerequisite carries the cost. That lean default arrives only if `version`, `status` and
+  `modelVersion` stop being injected as defaults, both here and in `cedar-artifact-library`'s
+  builder and readers, which default them deliberately today. The change reaches CEDAR server
+  tooling and the CLI, so it takes coordinating rather than an edit in one server. The asymmetry
+  between what the reader defaults and what the builder defaults is written down in neither
+  repository and needs describing before any of this can be picked up. One tradeoff to weigh: a
+  single form can no longer hide provenance that does exist, such as a server-loaded artifact's
+  timestamps, which `compact: true` can.
+
+- **9. Distinguish an empty controlled-term field from a text field.** The CEDAR model makes the
+  two indistinguishable in JSON, because a TEXTFIELD becomes a ControlledTermField only once it
+  carries a constraint. The constraint tools and the controlled-term branch of
+  `set_iri_field_value` work around it. The fix is a model change and waits on the next model
+  version.
+
+## cedar-artifact-rest-mcp
+
+- **10. Place a created artifact in a chosen folder.** `create_*` puts an artifact in the caller's
+  home folder. Pass the optional `folder_id` query parameter — `POST /templates?folder_id=<IRI>`
+  and its counterparts — so the caller chooses instead.
+
+- **11. Read an artifact's details, report and version history.** `GET /{type}/{id}/details`,
+  `/report` and `/versions` are read-only metadata the server already serves and no tool reaches.
+
+- **12. Support the draft-to-publish lifecycle.** `/command/create-draft-artifact`,
+  `/command/publish-artifact`, `make-artifact-open` and `make-artifact-not-open` carry that
+  workflow. They mutate, and publishing is partly irreversible, so take them deliberately rather
+  than as part of a CRUD sweep.
+
+## cedar-cee-mcp
+
+- **13. Load the Material Symbols font in the host page.** The CEE's icon ligatures render as their
+  own text — `more_vert`, `unfold_more` — because the host page does not load the font. Add the
+  font link, or establish which face the pinned CEE version expects.
+
+- **14. Serve successive calls from one persistent browser tab.** A single tab receiving show and
+  fill calls over SSE or polling, in place of a tab per session, would suit repeated
+  demonstrations. Tab-per-call is adequate meanwhile, so this waits on the ergonomics mattering.
+
+- **15. Render the editor inside the chat client.** The MCP extension for `ui://` tool-result
+  resources would put the editor in the conversation. Revisit when client support is broad and the
+  sandbox and CSP story accommodates a 2 MB component bundle that needs network access to the
+  terminology service. The localhost-tab approach works in every client today, terminal ones
+  included.
+
+## bioportal-term-mcp
+
+- **16. Polish the BioPortal client.** Four independent changes, none urgent:
+
+  - Cache results. Every tool calls BioPortal on every invocation, so one ontology looked up five
+    times in a session costs five HTTP calls. A TTL cache in `_bioportal_get` fixes that
+    invisibly.
+  - Validate IRI inputs. `get_class` and `get_value_set` check only that the IRI is non-blank; a
+    real parse would catch a typo client-side, through a `_require_iri(value, field_name)` helper.
+  - Page the find tools. Each `find_*` returns one ranked page; expose `page` or `offset` when a
+    caller needs the second.
+  - Go async, but only once latency becomes a real concern. It has not.
+
+- **17. Put a recommender in front of the ranked candidates.** `find_class` ranks by BioPortal's
+  string relevance and `find_ontology` by acronym and name overlap. Both surface candidates and
+  neither judges which term fits a field, so several related terms searched one at a time can each
+  land in whichever ontology matched lexically rather than in one coherent set. Choosing well —
+  the right ontology, the right granularity, the intended sense — takes a recommender in the loop,
+  either BioPortal's Recommender service or an LLM-scored shortlist over these candidates, scoring
+  ontologies and terms for a whole field at once. It belongs in a separate component, not in
+  ranking heuristics bolted onto identifier resolution.
+
 ## Out of Scope
 
-- **What each server does.** The tool surface, its wording and its behaviour are the repository's
-  own concern, and each has a ROADMAP for it.
+- **Documenting the tool surface.** What each server offers, and how each tool is worded, belong
+  to its README; the principles that govern them belong to its DESIGN.md.
 - **The CEE itself.** Building, testing and releasing the web component is
   [FRONTEND-RUNBOOK.md](./FRONTEND-RUNBOOK.md#cee) and [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee); this pair covers only
   how `cedar-cee-mcp` consumes a published bundle.

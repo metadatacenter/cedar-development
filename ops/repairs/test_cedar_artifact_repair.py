@@ -284,6 +284,119 @@ class DifferencesTest(unittest.TestCase):
         self.assertEqual(list(REPAIR.differences({"a": 1}, {"a": True})), [("/a", 1, True)])
 
 
+class CompactBlankOccurrencesTest(unittest.TestCase):
+    """A blank occurrence standing before a value moves every later value down a place."""
+
+    BLANK = {"@value": None}
+
+    def template_with(self, children):
+        doc = template(children)
+        doc["properties"]["@context"]["properties"] = {
+            name: {"enum": [GOOD_IRI + name]} for name in children}
+        return doc
+
+    def repeated(self, bound=None):
+        wrapper = {"type": "array", "items": child()}
+        if bound is not None:
+            wrapper["minItems"] = bound
+        return wrapper
+
+    def value(self, text):
+        return {"@value": text}
+
+    def test_a_blank_before_a_value_is_moved_out_of_the_way(self):
+        tmpl = self.template_with({"Carrier": self.repeated(1)})
+        before = {"Carrier": [self.BLANK, self.value("audio disc")]}
+        after, changes = REPAIR.compact_blank_occurrences(before, tmpl)
+        self.assertEqual([self.value("audio disc")], after["Carrier"])
+        self.assertEqual("/Carrier", changes[0]["path"])
+        self.assertEqual(2, changes[0]["replaced"])
+        self.assertEqual(1, changes[0]["wrote"])
+        self.assertIsNone(REPAIR.only_compacted_blank_occurrences(before, after, tmpl))
+
+    def test_values_keep_their_order(self):
+        tmpl = self.template_with({"Points": self.repeated(1)})
+        before = {"Points": [self.value("a"), self.value("b"), self.BLANK,
+                             self.value("c"), self.value("d")]}
+        after, _changes = REPAIR.compact_blank_occurrences(before, tmpl)
+        self.assertEqual([self.value(x) for x in ("a", "b", "c", "d")], after["Points"])
+
+    def test_enough_blanks_remain_to_meet_the_stated_bound(self):
+        tmpl = self.template_with({"Points": self.repeated(3)})
+        before = {"Points": [self.BLANK, self.value("a"), self.value("b")]}
+        after, _changes = REPAIR.compact_blank_occurrences(before, tmpl)
+        self.assertEqual([self.value("a"), self.value("b"), self.BLANK], after["Points"])
+
+    def test_trailing_blanks_are_left_alone(self):
+        tmpl = self.template_with({"Symptom": self.repeated(1)})
+        before = {"Symptom": [self.value("a"), self.value("b"), self.BLANK]}
+        after, changes = REPAIR.compact_blank_occurrences(before, tmpl)
+        self.assertEqual([], changes, "a blank after every value moves nothing")
+        self.assertEqual(before, after)
+
+    def test_a_list_of_nothing_but_blanks_is_left_alone(self):
+        tmpl = self.template_with({"Symptom": self.repeated(1)})
+        before = {"Symptom": [self.BLANK, self.BLANK]}
+        _after, changes = REPAIR.compact_blank_occurrences(before, tmpl)
+        self.assertEqual([], changes)
+
+    def test_a_single_instance_field_is_not_touched(self):
+        tmpl = self.template_with({"Name": child()})
+        before = {"Name": self.BLANK}
+        _after, changes = REPAIR.compact_blank_occurrences(before, tmpl)
+        self.assertEqual([], changes)
+
+    def test_a_repeated_field_inside_an_element_is_reached(self):
+        inner = {"@type": ELEMENT_TYPE, "type": "object", "_ui": {"order": ["Point"]},
+                 "schema:schemaVersion": AUDIT_MODEL_VERSION,
+                 "properties": {"@context": {"properties": {}, "required": []},
+                                "Point": self.repeated(1)}}
+        tmpl = self.template_with({"Block": inner})
+        before = {"Block": {"Point": [self.BLANK, self.value("a")]}}
+        after, changes = REPAIR.compact_blank_occurrences(before, tmpl)
+        self.assertEqual([self.value("a")], after["Block"]["Point"])
+        self.assertEqual("/Block/Point", changes[0]["path"])
+
+    def test_a_reordering_that_keeps_the_length_is_still_accepted(self):
+        """The bound can hold the length while the order changes, which reports element by element.
+
+        A list of three with one blank and a bound of three keeps its length: the blank moves to
+        the end. `differences` then reports each element that moved rather than one whole-list
+        change, and an invariant that only looked for a changed list refused its own transform.
+        """
+        tmpl = self.template_with({"Keyword": self.repeated(3)})
+        before = {"Keyword": [self.BLANK, self.value("a"), self.value("b")]}
+        after, changes = REPAIR.compact_blank_occurrences(before, tmpl)
+        self.assertEqual(3, len(after["Keyword"]))
+        self.assertEqual(3, changes[0]["replaced"])
+        self.assertEqual(3, changes[0]["wrote"])
+        self.assertIsNone(REPAIR.only_compacted_blank_occurrences(before, after, tmpl),
+                          "the invariant must accept a reordering that keeps the length")
+
+    def test_the_invariant_refuses_a_reordered_value(self):
+        tmpl = self.template_with({"Points": self.repeated(1)})
+        before = {"Points": [self.BLANK, self.value("a"), self.value("b")]}
+        tampered = {"Points": [self.value("b"), self.value("a")]}
+        self.assertIsNotNone(REPAIR.only_compacted_blank_occurrences(before, tampered, tmpl))
+
+    def test_the_invariant_refuses_a_dropped_value(self):
+        tmpl = self.template_with({"Points": self.repeated(1)})
+        before = {"Points": [self.BLANK, self.value("a"), self.value("b")]}
+        tampered = {"Points": [self.value("a")]}
+        self.assertIsNotNone(REPAIR.only_compacted_blank_occurrences(before, tampered, tmpl))
+
+    def test_the_invariant_refuses_a_change_anywhere_else(self):
+        tmpl = self.template_with({"Points": self.repeated(1), "Name": child()})
+        before = {"Points": [self.BLANK, self.value("a")], "Name": {"@value": "kept"}}
+        after, _changes = REPAIR.compact_blank_occurrences(before, tmpl)
+        after["Name"] = {"@value": "altered"}
+        self.assertIsNotNone(REPAIR.only_compacted_blank_occurrences(before, after, tmpl))
+
+    def test_an_unreadable_template_is_refused(self):
+        with self.assertRaises(REPAIR.TransformRefused):
+            REPAIR.compact_blank_occurrences({"Points": []}, None)
+
+
 class StampInstanceValueTypeTest(unittest.TestCase):
     """A numeric or temporal field renders with @type among the properties its value must carry."""
 
@@ -1852,6 +1965,836 @@ class WrapInherentlyMultipleTest(unittest.TestCase):
         self.assertIsNone(REPAIR.only_wrapped_inherently_multiple(before, after))
         after["properties"]["Colours"]["items"]["_ui"]["inputType"] = "list"
         self.assertIsNotNone(REPAIR.only_wrapped_inherently_multiple(before, after))
+
+
+class NameControlledTermFieldTest(unittest.TestCase):
+    """CEDAR has no controlled-term input type: a controlled term is a text field with constraints."""
+
+    def field(self, input_type="controlled-term", **vc):
+        node = child()
+        node["_ui"] = {"inputType": input_type}
+        node["_valueConstraints"] = {"requiredValue": False, "classes": [], "branches": [],
+                                     "valueSets": [], "ontologies": [], **vc}
+        return node
+
+    def draft(self, field, key="term"):
+        doc = template({key: field})
+        doc["bibo:status"] = "bibo:draft"
+        return doc
+
+    def test_a_field_naming_a_term_source_becomes_a_textfield(self):
+        for source in ("classes", "branches", "valueSets", "ontologies"):
+            with self.subTest(source=source):
+                doc = self.draft(self.field(**{source: [{"uri": "http://x/1"}]}))
+                after, changes = REPAIR.name_a_controlled_term_field_as_it_is_modelled(doc)
+                self.assertEqual(after["properties"]["term"]["_ui"]["inputType"], "textfield")
+                self.assertEqual(changes, [{"path": "/properties/term/_ui/inputType",
+                                            "replaced": "controlled-term", "wrote": "textfield"}])
+                self.assertIsNone(REPAIR.only_named_controlled_term_fields(doc, after))
+
+    def test_the_constraints_are_untouched(self):
+        doc = self.draft(self.field(classes=[{"uri": "http://x/1", "prefLabel": "A"}]))
+        after, _changes = REPAIR.name_a_controlled_term_field_as_it_is_modelled(doc)
+        self.assertEqual(after["properties"]["term"]["_valueConstraints"],
+                         doc["properties"]["term"]["_valueConstraints"])
+
+    def test_a_field_naming_no_term_source_is_refused(self):
+        """A text field with no constraints collects something different, which is the author's call."""
+        with self.assertRaises(REPAIR.TransformRefused):
+            REPAIR.name_a_controlled_term_field_as_it_is_modelled(self.draft(self.field()))
+
+    def test_a_known_input_type_is_untouched(self):
+        doc = self.draft(self.field("textfield", classes=[{"uri": "http://x/1"}]))
+        _after, changes = REPAIR.name_a_controlled_term_field_as_it_is_modelled(doc)
+        self.assertEqual(changes, [])
+
+    def test_a_published_artifact_is_refused(self):
+        doc = self.draft(self.field(classes=[{"uri": "http://x/1"}]))
+        doc["bibo:status"] = "bibo:published"
+        with self.assertRaises(REPAIR.TransformRefused):
+            REPAIR.name_a_controlled_term_field_as_it_is_modelled(doc)
+
+    def test_a_second_run_finds_nothing(self):
+        doc = self.draft(self.field(classes=[{"uri": "http://x/1"}]))
+        after, _c = REPAIR.name_a_controlled_term_field_as_it_is_modelled(doc)
+        _again, changes = REPAIR.name_a_controlled_term_field_as_it_is_modelled(after)
+        self.assertEqual(changes, [])
+
+    def test_the_invariant_rejects_another_target_or_an_unconstrained_field(self):
+        doc = self.draft(self.field(classes=[{"uri": "http://x/1"}]))
+        after, _c = REPAIR.name_a_controlled_term_field_as_it_is_modelled(doc)
+        other = copy.deepcopy(doc)
+        other["properties"]["term"]["_ui"]["inputType"] = "list"
+        self.assertEqual(REPAIR.only_named_controlled_term_fields(doc, other),
+                         "/properties/term/_ui/inputType")
+        bare = self.draft(self.field())
+        promoted = copy.deepcopy(bare)
+        promoted["properties"]["term"]["_ui"]["inputType"] = "textfield"
+        self.assertEqual(REPAIR.only_named_controlled_term_fields(bare, promoted),
+                         "/properties/term/_ui/inputType")
+        renamed = copy.deepcopy(after)
+        renamed["schema:name"] = "Renamed"
+        self.assertEqual(REPAIR.only_named_controlled_term_fields(doc, renamed), "/schema:name")
+
+
+class DropUnresolvableDefaultTest(unittest.TestCase):
+    """A default naming a term the field offers no way to reach."""
+
+    TERM = {"termUri": "https://data.bioontology.org/provisional_classes/671ba040",
+            "rdfs:label": "Mixed-use"}
+
+    def field(self, default=None, **vc):
+        node = child()
+        node["_ui"] = {"inputType": "textfield"}
+        node["_valueConstraints"] = {"requiredValue": False, "classes": [], "branches": [],
+                                     "valueSets": [], "ontologies": [], **vc}
+        if default is not None:
+            node["_valueConstraints"]["defaultValue"] = default
+        return node
+
+    def draft(self, field, key="landUseTypes"):
+        doc = template({key: field})
+        doc["bibo:status"] = "bibo:draft"
+        return doc
+
+    def test_an_unreachable_term_default_is_removed(self):
+        doc = self.draft(self.field(self.TERM))
+        after, changes = REPAIR.drop_unresolvable_default(doc)
+        self.assertNotIn("defaultValue", after["properties"]["landUseTypes"]["_valueConstraints"])
+        self.assertEqual(changes, [{"path": "/properties/landUseTypes/_valueConstraints/defaultValue",
+                                    "replaced": "Mixed-use", "wrote": None}])
+        self.assertIsNone(REPAIR.only_dropped_unresolvable_defaults(doc, after))
+
+    def test_a_field_that_does_name_a_term_source_keeps_its_default(self):
+        doc = self.draft(self.field(self.TERM, classes=[{"uri": "http://x/1"}]))
+        _after, changes = REPAIR.drop_unresolvable_default(doc)
+        self.assertEqual(changes, [])
+
+    def test_a_literal_default_is_untouched(self):
+        doc = self.draft(self.field({"@value": "Mixed-use"}))
+        _after, changes = REPAIR.drop_unresolvable_default(doc)
+        self.assertEqual(changes, [])
+
+    def test_the_other_constraints_survive(self):
+        doc = self.draft(self.field(self.TERM, requiredValue=True))
+        after, _changes = REPAIR.drop_unresolvable_default(doc)
+        vc = after["properties"]["landUseTypes"]["_valueConstraints"]
+        self.assertEqual(vc["requiredValue"], True)
+        self.assertEqual(vc["classes"], [])
+
+    def test_a_published_artifact_is_refused(self):
+        doc = self.draft(self.field(self.TERM))
+        doc["bibo:status"] = "bibo:published"
+        with self.assertRaises(REPAIR.TransformRefused):
+            REPAIR.drop_unresolvable_default(doc)
+
+    def test_a_second_run_finds_nothing(self):
+        after, _c = REPAIR.drop_unresolvable_default(self.draft(self.field(self.TERM)))
+        _again, changes = REPAIR.drop_unresolvable_default(after)
+        self.assertEqual(changes, [])
+
+    def test_the_invariant_rejects_removing_anything_else(self):
+        doc = self.draft(self.field(self.TERM))
+        after, _c = REPAIR.drop_unresolvable_default(doc)
+        overzealous = copy.deepcopy(after)
+        del overzealous["properties"]["landUseTypes"]["_valueConstraints"]["classes"]
+        self.assertEqual(REPAIR.only_dropped_unresolvable_defaults(doc, overzealous),
+                         "/properties/landUseTypes/_valueConstraints")
+        renamed = copy.deepcopy(after)
+        renamed["schema:name"] = "Renamed"
+        self.assertEqual(REPAIR.only_dropped_unresolvable_defaults(doc, renamed), "/schema:name")
+
+
+class DeriveAbsentProvenanceTest(unittest.TestCase):
+    """An artifact that says nothing about its own making, read from what it says about its last."""
+
+    STAMP = "2026-03-04T17:46:50-08:00"
+    USER = "https://metadatacenter.org/users/f58a18a0-78bd-4d15-9c0b-f9a66738824f"
+
+    def draft(self, **overrides):
+        doc = template({"Name": child()})
+        doc["bibo:status"] = "bibo:draft"
+        doc.update({"pav:createdOn": None, "pav:createdBy": None,
+                    "pav:lastUpdatedOn": self.STAMP, "oslc:modifiedBy": self.USER})
+        doc.update(overrides)
+        return doc
+
+    def test_both_are_filled_from_the_last_change(self):
+        doc = self.draft()
+        after, changes = REPAIR.derive_absent_provenance(doc)
+        self.assertEqual(after["pav:createdOn"], self.STAMP)
+        self.assertEqual(after["pav:createdBy"], self.USER)
+        self.assertEqual([(c["path"], c["derivedFrom"]) for c in changes],
+                         [("/pav:createdOn", "pav:lastUpdatedOn"),
+                          ("/pav:createdBy", "oslc:modifiedBy")])
+        self.assertIsNone(REPAIR.only_derived_absent_provenance(doc, after))
+
+    def test_the_derivation_is_recorded_rather_than_presented_as_fact(self):
+        _after, changes = REPAIR.derive_absent_provenance(self.draft())
+        self.assertTrue(all(c["replaced"] is None and c["derivedFrom"] for c in changes))
+
+    def test_a_value_already_present_is_never_overwritten(self):
+        doc = self.draft(**{"pav:createdOn": "2020-01-01T00:00:00-08:00"})
+        after, changes = REPAIR.derive_absent_provenance(doc)
+        self.assertEqual(after["pav:createdOn"], "2020-01-01T00:00:00-08:00")
+        self.assertEqual([c["path"] for c in changes], ["/pav:createdBy"])
+
+    def test_a_null_with_nothing_to_derive_from_is_left_alone(self):
+        doc = self.draft(**{"pav:lastUpdatedOn": None, "oslc:modifiedBy": None})
+        _after, changes = REPAIR.derive_absent_provenance(doc)
+        self.assertEqual(changes, [])
+
+    def test_a_nested_definition_is_filled_from_its_own_last_change(self):
+        doc = self.draft()
+        other = "https://metadatacenter.org/users/aaaaaaaa-0000-0000-0000-000000000000"
+        doc["properties"]["Name"].update({"pav:createdOn": None, "pav:createdBy": None,
+                                          "pav:lastUpdatedOn": "2021-01-01T00:00:00-08:00",
+                                          "oslc:modifiedBy": other})
+        after, _changes = REPAIR.derive_absent_provenance(doc)
+        self.assertEqual(after["properties"]["Name"]["pav:createdBy"], other)
+        self.assertEqual(after["properties"]["Name"]["pav:createdOn"], "2021-01-01T00:00:00-08:00")
+        self.assertEqual(after["pav:createdBy"], self.USER)
+
+    def test_a_published_artifact_is_refused(self):
+        doc = self.draft()
+        doc["bibo:status"] = "bibo:published"
+        with self.assertRaises(REPAIR.TransformRefused):
+            REPAIR.derive_absent_provenance(doc)
+
+    def test_a_second_run_finds_nothing(self):
+        after, _changes = REPAIR.derive_absent_provenance(self.draft())
+        _again, changes = REPAIR.derive_absent_provenance(after)
+        self.assertEqual(changes, [])
+
+    def test_the_invariant_rejects_another_value_or_another_change(self):
+        doc = self.draft()
+        after, _changes = REPAIR.derive_absent_provenance(doc)
+        invented = copy.deepcopy(doc)
+        invented["pav:createdBy"] = "https://metadatacenter.org/users/somebody-else"
+        self.assertEqual(REPAIR.only_derived_absent_provenance(doc, invented), "/pav:createdBy")
+        overwritten = copy.deepcopy(after)
+        overwritten["pav:lastUpdatedOn"] = "2026-01-01T00:00:00-08:00"
+        self.assertEqual(REPAIR.only_derived_absent_provenance(doc, overwritten), "/pav:lastUpdatedOn")
+
+
+class StateTemporalPrecisionTest(unittest.TestCase):
+    """A date that does not say what precision it is read at cannot be read at all."""
+
+    def temporal(self, ui_extra=None, vc_extra=None):
+        node = child()
+        node["_ui"] = {"inputType": "temporal", **(ui_extra or {})}
+        node["_valueConstraints"] = {"requiredValue": False, **(vc_extra or {})}
+        return node
+
+    def draft(self, field, key="date"):
+        doc = template({key: field})
+        doc["bibo:status"] = "bibo:draft"
+        return doc
+
+    def test_a_bare_temporal_field_gains_day_precision(self):
+        doc = self.draft(self.temporal())
+        after, changes = REPAIR.state_temporal_precision(doc)
+        self.assertEqual(after["properties"]["date"]["_ui"]["temporalGranularity"], "day")
+        self.assertEqual(after["properties"]["date"]["_valueConstraints"]["temporalType"], "xsd:date")
+        self.assertEqual([c["path"] for c in changes],
+                         ["/properties/date/_ui/temporalGranularity",
+                          "/properties/date/_valueConstraints/temporalType"])
+        self.assertIsNone(REPAIR.only_stated_temporal_precision(doc, after))
+
+    def test_a_field_stating_either_half_is_left_to_its_author(self):
+        """A partial statement is a decision about which half is right, not a completion."""
+        for ui_extra, vc_extra in (({"temporalGranularity": "minute"}, None),
+                                   (None, {"temporalType": "xsd:dateTime"})):
+            with self.subTest(ui=ui_extra, vc=vc_extra):
+                doc = self.draft(self.temporal(ui_extra, vc_extra))
+                _after, changes = REPAIR.state_temporal_precision(doc)
+                self.assertEqual(changes, [])
+
+    def test_other_ui_settings_survive(self):
+        doc = self.draft(self.temporal({"hidden": True}, {"requiredValue": True}))
+        after, _changes = REPAIR.state_temporal_precision(doc)
+        ui = after["properties"]["date"]["_ui"]
+        self.assertEqual(ui["hidden"], True)
+        self.assertEqual(ui["inputType"], "temporal")
+        self.assertEqual(after["properties"]["date"]["_valueConstraints"]["requiredValue"], True)
+
+    def test_no_other_field_type_is_touched(self):
+        node = child()
+        node["_ui"] = {"inputType": "textfield"}
+        _after, changes = REPAIR.state_temporal_precision(self.draft(node))
+        self.assertEqual(changes, [])
+
+    def test_a_published_artifact_is_refused(self):
+        doc = self.draft(self.temporal())
+        doc["bibo:status"] = "bibo:published"
+        with self.assertRaises(REPAIR.TransformRefused):
+            REPAIR.state_temporal_precision(doc)
+
+    def test_a_standalone_temporal_field_is_reached(self):
+        field = self.temporal()
+        field["bibo:status"] = "bibo:draft"
+        after, changes = REPAIR.state_temporal_precision(field)
+        self.assertEqual(len(changes), 2)
+        self.assertEqual(after["_ui"]["temporalGranularity"], "day")
+
+    def test_a_second_run_finds_nothing(self):
+        after, _changes = REPAIR.state_temporal_precision(self.draft(self.temporal()))
+        _again, changes = REPAIR.state_temporal_precision(after)
+        self.assertEqual(changes, [])
+
+    def test_the_invariant_rejects_another_value_or_another_change(self):
+        doc = self.draft(self.temporal())
+        after, _changes = REPAIR.state_temporal_precision(doc)
+        wrong = copy.deepcopy(after)
+        wrong["properties"]["date"]["_ui"]["temporalGranularity"] = "second"
+        self.assertEqual(REPAIR.only_stated_temporal_precision(doc, wrong),
+                         "/properties/date/_ui/temporalGranularity")
+        renamed = copy.deepcopy(after)
+        renamed["schema:name"] = "Renamed"
+        self.assertEqual(REPAIR.only_stated_temporal_precision(doc, renamed), "/schema:name")
+
+
+class PresentChoicesAsAListTest(unittest.TestCase):
+    """Only a radio, checkbox or list field presents a closed set of permitted values."""
+
+    def field(self, input_type, literals, multiple=False, extra_ui=None):
+        node = child()
+        node["_ui"] = {"inputType": input_type, **(extra_ui or {})}
+        node["_valueConstraints"] = {"requiredValue": True, "multipleChoice": multiple,
+                                     "literals": literals}
+        return node
+
+    def draft(self, field, key="species"):
+        doc = template({key: field})
+        doc["bibo:status"] = "bibo:draft"
+        return doc
+
+    OPTIONS = [{"label": "Homo sapiens"}, {"label": "Mus musculus"}, {"label": "Danio rerio"}]
+
+    def test_a_text_field_with_options_becomes_a_list(self):
+        doc = self.draft(self.field("textfield", self.OPTIONS))
+        after, changes = REPAIR.present_choices_as_a_list(doc)
+        self.assertEqual(after["properties"]["species"]["_ui"]["inputType"], "list")
+        self.assertEqual(changes, [{"path": "/properties/species/_ui/inputType",
+                                    "replaced": "textfield", "wrote": "list"}])
+        self.assertIsNone(REPAIR.only_presented_choices_as_a_list(doc, after))
+
+    def test_the_options_and_the_constraints_do_not_move(self):
+        doc = self.draft(self.field("textfield", self.OPTIONS))
+        after, _changes = REPAIR.present_choices_as_a_list(doc)
+        before_vc = doc["properties"]["species"]["_valueConstraints"]
+        after_vc = after["properties"]["species"]["_valueConstraints"]
+        self.assertEqual(before_vc, after_vc)
+
+    def test_other_ui_settings_survive(self):
+        doc = self.draft(self.field("textfield", self.OPTIONS, extra_ui={"hidden": True}))
+        after, _changes = REPAIR.present_choices_as_a_list(doc)
+        self.assertEqual(after["properties"]["species"]["_ui"], {"inputType": "list", "hidden": True})
+
+    def test_a_field_that_already_presents_choices_is_untouched(self):
+        for input_type in ("list", "radio", "checkbox"):
+            with self.subTest(input_type=input_type):
+                doc = self.draft(self.field(input_type, self.OPTIONS))
+                _after, changes = REPAIR.present_choices_as_a_list(doc)
+                self.assertEqual(changes, [])
+
+    def test_a_field_with_no_options_is_untouched(self):
+        doc = self.draft(self.field("textfield", []))
+        _after, changes = REPAIR.present_choices_as_a_list(doc)
+        self.assertEqual(changes, [])
+
+    def test_an_absent_multiple_choice_is_refused_as_a_decision(self):
+        """Whether a list allows one answer or several is the author's to say, not a repair's."""
+        node = self.field("textfield", self.OPTIONS)
+        del node["_valueConstraints"]["multipleChoice"]
+        with self.assertRaises(REPAIR.TransformRefused):
+            REPAIR.present_choices_as_a_list(self.draft(node))
+
+    def test_a_published_artifact_is_refused(self):
+        doc = self.draft(self.field("textfield", self.OPTIONS))
+        doc["bibo:status"] = "bibo:published"
+        with self.assertRaises(REPAIR.TransformRefused):
+            REPAIR.present_choices_as_a_list(doc)
+
+    def test_a_second_run_finds_nothing(self):
+        after, _changes = REPAIR.present_choices_as_a_list(self.draft(self.field("textfield", self.OPTIONS)))
+        _again, changes = REPAIR.present_choices_as_a_list(after)
+        self.assertEqual(changes, [])
+
+    def test_the_invariant_rejects_another_type_or_a_field_with_no_options(self):
+        doc = self.draft(self.field("textfield", self.OPTIONS))
+        after, _changes = REPAIR.present_choices_as_a_list(doc)
+        radio = copy.deepcopy(doc)
+        radio["properties"]["species"]["_ui"]["inputType"] = "radio"
+        self.assertEqual(REPAIR.only_presented_choices_as_a_list(doc, radio),
+                         "/properties/species/_ui/inputType")
+        bare = self.draft(self.field("textfield", []))
+        promoted = copy.deepcopy(bare)
+        promoted["properties"]["species"]["_ui"]["inputType"] = "list"
+        self.assertEqual(REPAIR.only_presented_choices_as_a_list(bare, promoted),
+                         "/properties/species/_ui/inputType")
+        renamed = copy.deepcopy(after)
+        renamed["schema:name"] = "Renamed"
+        self.assertEqual(REPAIR.only_presented_choices_as_a_list(doc, renamed), "/schema:name")
+
+
+class DropBlankLiteralTest(unittest.TestCase):
+    """A permitted value with no label offers a choice indistinguishable from no answer."""
+
+    def field_with(self, literals, required=False):
+        node = child()
+        node["_valueConstraints"] = {"requiredValue": required, "multipleChoice": False,
+                                     "literals": literals}
+        return node
+
+    def draft(self, literals, required=False):
+        doc = template({"Status": self.field_with(literals, required)})
+        doc["bibo:status"] = "bibo:draft"
+        return doc
+
+    def test_the_blank_option_is_removed_and_the_rest_keep_their_order(self):
+        doc = self.draft([{"label": ""}, {"label": "In progress"}, {"label": "Complete"}])
+        after, changes = REPAIR.drop_blank_literal(doc)
+        kept = after["properties"]["Status"]["_valueConstraints"]["literals"]
+        self.assertEqual([l["label"] for l in kept], ["In progress", "Complete"])
+        self.assertEqual(changes, [{"path": "/properties/Status/_valueConstraints/literals/0",
+                                    "replaced": "", "wrote": None}])
+        self.assertIsNone(REPAIR.only_dropped_blank_literals(doc, after))
+
+    def test_selected_by_default_travels_with_the_entry_it_belongs_to(self):
+        doc = self.draft([{"label": ""}, {"label": "Complete", "selectedByDefault": True}])
+        after, _changes = REPAIR.drop_blank_literal(doc)
+        self.assertEqual(after["properties"]["Status"]["_valueConstraints"]["literals"],
+                         [{"label": "Complete", "selectedByDefault": True}])
+
+    def test_a_list_that_would_be_emptied_is_refused(self):
+        with self.assertRaises(REPAIR.TransformRefused):
+            REPAIR.drop_blank_literal(self.draft([{"label": ""}]))
+
+    def test_a_published_artifact_is_refused(self):
+        doc = self.draft([{"label": ""}, {"label": "Complete"}])
+        doc["bibo:status"] = "bibo:published"
+        with self.assertRaises(REPAIR.TransformRefused):
+            REPAIR.drop_blank_literal(doc)
+
+    def test_labelled_values_are_untouched(self):
+        doc = self.draft([{"label": "In progress"}, {"label": "Complete"}])
+        after, changes = REPAIR.drop_blank_literal(doc)
+        self.assertEqual(changes, [])
+        self.assertEqual(after, doc)
+
+    def test_class_constraints_are_left_to_their_own_repair(self):
+        doc = self.draft([{"label": ""}, {"label": "Complete"}])
+        doc["properties"]["Status"]["_valueConstraints"]["classes"] = [{"uri": "", "prefLabel": "x"}]
+        after, _changes = REPAIR.drop_blank_literal(doc)
+        self.assertEqual(after["properties"]["Status"]["_valueConstraints"]["classes"],
+                         [{"uri": "", "prefLabel": "x"}])
+
+    def test_a_second_run_finds_nothing(self):
+        after, _changes = REPAIR.drop_blank_literal(self.draft([{"label": ""}, {"label": "Complete"}]))
+        _again, changes = REPAIR.drop_blank_literal(after)
+        self.assertEqual(changes, [])
+
+    def test_the_invariant_rejects_dropping_a_labelled_value_or_any_other_change(self):
+        doc = self.draft([{"label": ""}, {"label": "Complete"}])
+        after, _changes = REPAIR.drop_blank_literal(doc)
+        overzealous = copy.deepcopy(after)
+        overzealous["properties"]["Status"]["_valueConstraints"]["literals"] = []
+        self.assertEqual(REPAIR.only_dropped_blank_literals(doc, overzealous),
+                         "/properties/Status/_valueConstraints/literals")
+        renamed = copy.deepcopy(after)
+        renamed["schema:name"] = "Renamed"
+        self.assertEqual(REPAIR.only_dropped_blank_literals(doc, renamed), "/schema:name")
+
+
+class DropUnresolvedClassConstraintTest(unittest.TestCase):
+    """A class constraint is a pointer to a term; one pointing at nothing offers an unusable choice."""
+
+    def klass(self, uri, label):
+        return {"uri": uri, "prefLabel": label, "type": "OntologyClass", "label": label, "source": "NCIT"}
+
+    def field_with(self, classes):
+        node = child()
+        node["_valueConstraints"] = {"requiredValue": False, "classes": classes,
+                                     "ontologies": [], "valueSets": [], "branches": []}
+        return node
+
+    def draft(self, classes):
+        doc = template({"race_id": self.field_with(classes)})
+        doc["bibo:status"] = "bibo:draft"
+        return doc
+
+    def test_an_entry_pointing_at_nothing_is_removed(self):
+        classes = [self.klass("http://x/C1", "White"), self.klass("", "Mixed"),
+                   self.klass("http://x/C2", "Asian")]
+        doc = self.draft(classes)
+        after, changes = REPAIR.drop_unresolved_class_constraint(doc)
+        kept = after["properties"]["race_id"]["_valueConstraints"]["classes"]
+        self.assertEqual([c["prefLabel"] for c in kept], ["White", "Asian"])
+        self.assertEqual(changes, [{"path": "/properties/race_id/_valueConstraints/classes/1",
+                                    "replaced": "Mixed", "wrote": None}])
+        self.assertIsNone(REPAIR.only_dropped_unresolved_class_constraints(doc, after))
+
+    def test_the_surviving_order_is_the_original_order(self):
+        classes = [self.klass("", "a"), self.klass("http://x/1", "b"),
+                   self.klass("", "c"), self.klass("http://x/2", "d")]
+        after, changes = REPAIR.drop_unresolved_class_constraint(self.draft(classes))
+        kept = after["properties"]["race_id"]["_valueConstraints"]["classes"]
+        self.assertEqual([c["prefLabel"] for c in kept], ["b", "d"])
+        self.assertEqual([c["replaced"] for c in changes], ["a", "c"])
+
+    def test_a_missing_uri_counts_as_pointing_at_nothing(self):
+        entry = {"prefLabel": "Mixed", "type": "OntologyClass", "source": "NCIT"}
+        after, changes = REPAIR.drop_unresolved_class_constraint(
+            self.draft([self.klass("http://x/1", "White"), entry]))
+        self.assertEqual(len(changes), 1)
+        self.assertEqual(len(after["properties"]["race_id"]["_valueConstraints"]["classes"]), 1)
+
+    def test_a_list_that_would_be_emptied_is_refused(self):
+        """A controlled-term field left with no constraint at all is a different change."""
+        with self.assertRaises(REPAIR.TransformRefused):
+            REPAIR.drop_unresolved_class_constraint(self.draft([self.klass("", "Mixed")]))
+
+    def test_a_published_artifact_is_refused(self):
+        doc = self.draft([self.klass("http://x/1", "White"), self.klass("", "Mixed")])
+        doc["bibo:status"] = "bibo:published"
+        with self.assertRaises(REPAIR.TransformRefused):
+            REPAIR.drop_unresolved_class_constraint(doc)
+
+    def test_fully_resolved_constraints_are_untouched(self):
+        doc = self.draft([self.klass("http://x/1", "White"), self.klass("http://x/2", "Asian")])
+        after, changes = REPAIR.drop_unresolved_class_constraint(doc)
+        self.assertEqual(changes, [])
+        self.assertEqual(after, doc)
+
+    def test_other_constraint_kinds_are_left_alone(self):
+        doc = self.draft([self.klass("http://x/1", "White"), self.klass("", "Mixed")])
+        doc["properties"]["race_id"]["_valueConstraints"]["ontologies"] = [{"uri": "", "name": "n"}]
+        after, _changes = REPAIR.drop_unresolved_class_constraint(doc)
+        self.assertEqual(after["properties"]["race_id"]["_valueConstraints"]["ontologies"],
+                         [{"uri": "", "name": "n"}])
+
+    def test_a_second_run_finds_nothing(self):
+        doc = self.draft([self.klass("http://x/1", "White"), self.klass("", "Mixed")])
+        after, _changes = REPAIR.drop_unresolved_class_constraint(doc)
+        _again, changes = REPAIR.drop_unresolved_class_constraint(after)
+        self.assertEqual(changes, [])
+
+    def test_the_invariant_rejects_dropping_a_resolved_entry_or_any_other_change(self):
+        classes = [self.klass("http://x/1", "White"), self.klass("", "Mixed")]
+        doc = self.draft(classes)
+        after, _changes = REPAIR.drop_unresolved_class_constraint(doc)
+        overzealous = copy.deepcopy(after)
+        overzealous["properties"]["race_id"]["_valueConstraints"]["classes"] = []
+        self.assertEqual(
+            REPAIR.only_dropped_unresolved_class_constraints(doc, overzealous),
+            "/properties/race_id/_valueConstraints/classes")
+        renamed = copy.deepcopy(after)
+        renamed["schema:name"] = "Renamed"
+        self.assertEqual(REPAIR.only_dropped_unresolved_class_constraints(doc, renamed), "/schema:name")
+
+
+class DefaultUnreadableVersionTest(unittest.TestCase):
+    """A field filled by accident, given what the library assigns when nothing is supplied."""
+
+    def draft(self, version):
+        doc = template({"Name": child()})
+        doc["pav:version"] = version
+        doc["bibo:status"] = "bibo:draft"
+        return doc
+
+    def test_a_version_carrying_no_version_becomes_the_default(self):
+        for value in ("requestJson", "asd", "v1.0", "1.", "latest", ""):
+            with self.subTest(value=value):
+                doc = self.draft(value)
+                after, changes = REPAIR.default_unreadable_version(doc)
+                self.assertEqual(after["pav:version"], "0.0.1")
+                self.assertEqual(changes, [{"path": "/pav:version", "replaced": value, "wrote": "0.0.1"}])
+                self.assertIsNone(REPAIR.only_defaulted_unreadable_version(doc, after))
+
+    def test_it_never_takes_a_value_the_other_repairs_can_read(self):
+        """Padding and settling recover what was written; this one replaces it, so it goes last."""
+        for value in ("0.9", "1", "01", "1.0.0-rc1", "1.0.0+build.5", "2.3.4"):
+            with self.subTest(value=value):
+                _after, changes = REPAIR.default_unreadable_version(self.draft(value))
+                self.assertEqual(changes, [])
+
+    def test_a_published_artifact_is_refused(self):
+        doc = self.draft("requestJson")
+        doc["bibo:status"] = "bibo:published"
+        with self.assertRaises(REPAIR.TransformRefused):
+            REPAIR.default_unreadable_version(doc)
+
+    def test_the_status_is_not_touched(self):
+        after, _changes = REPAIR.default_unreadable_version(self.draft("asd"))
+        self.assertEqual(after["bibo:status"], "bibo:draft")
+
+    def test_a_nested_definition_is_reached(self):
+        doc = self.draft("0.0.1")
+        doc["properties"]["Name"]["pav:version"] = "asd"
+        doc["properties"]["Name"]["bibo:status"] = "bibo:draft"
+        after, changes = REPAIR.default_unreadable_version(doc)
+        self.assertEqual([c["path"] for c in changes], ["/properties/Name/pav:version"])
+        self.assertEqual(after["properties"]["Name"]["pav:version"], "0.0.1")
+
+    def test_a_second_run_finds_nothing(self):
+        after, _changes = REPAIR.default_unreadable_version(self.draft("asd"))
+        _again, changes = REPAIR.default_unreadable_version(after)
+        self.assertEqual(changes, [])
+
+    def test_the_invariant_rejects_another_change_and_another_value(self):
+        doc = self.draft("asd")
+        after, _changes = REPAIR.default_unreadable_version(doc)
+        renamed = copy.deepcopy(after)
+        renamed["schema:name"] = "Renamed"
+        self.assertEqual(REPAIR.only_defaulted_unreadable_version(doc, renamed), "/schema:name")
+        invented = copy.deepcopy(doc)
+        invented["pav:version"] = "1.0.0"
+        self.assertEqual(REPAIR.only_defaulted_unreadable_version(doc, invented), "/pav:version")
+
+
+class SettlePrereleaseVersionTest(unittest.TestCase):
+    """A prerelease tag the model cannot hold, dropped only where an owner agreed and only on a draft."""
+
+    def draft(self, version, children=None):
+        doc = template(children if children is not None else {"Name": child()})
+        doc["pav:version"] = version
+        doc["bibo:status"] = "bibo:draft"
+        return doc
+
+    def test_a_draft_prerelease_becomes_its_release(self):
+        doc = self.draft("1.0.0-rc1")
+        after, changes = REPAIR.settle_prerelease_version(doc)
+        self.assertEqual(after["pav:version"], "1.0.0")
+        self.assertEqual(changes, [{"path": "/pav:version", "replaced": "1.0.0-rc1", "wrote": "1.0.0"}])
+        self.assertIsNone(REPAIR.only_settled_prerelease_version(doc, after))
+
+    def test_capitalisation_and_build_tags_settle_the_same_way(self):
+        for stated in ("1.0.0-rc2", "1.0.0-RC2", "1.0.0+build.5", "2.1.3-alpha.1"):
+            with self.subTest(stated=stated):
+                after, _changes = REPAIR.settle_prerelease_version(self.draft(stated))
+                self.assertEqual(after["pav:version"], stated.split("-")[0].split("+")[0])
+
+    def test_the_status_is_not_touched(self):
+        doc = self.draft("1.0.0-rc1")
+        after, _changes = REPAIR.settle_prerelease_version(doc)
+        self.assertEqual(after["bibo:status"], "bibo:draft")
+
+    def test_a_published_artifact_is_refused(self):
+        """A published version is what other things cite; changing which release it claims is not a repair."""
+        doc = self.draft("1.0.0-rc1")
+        doc["bibo:status"] = "bibo:published"
+        with self.assertRaises(REPAIR.TransformRefused):
+            REPAIR.settle_prerelease_version(doc)
+
+    def test_one_published_definition_refuses_the_whole_artifact(self):
+        doc = self.draft("1.0.0-rc1")
+        doc["properties"]["Name"]["pav:version"] = "1.0.0-rc1"
+        doc["properties"]["Name"]["bibo:status"] = "bibo:published"
+        with self.assertRaises(REPAIR.TransformRefused):
+            REPAIR.settle_prerelease_version(doc)
+
+    def test_nested_definitions_settle_with_the_root(self):
+        doc = self.draft("1.0.0-rc1", {"Name": child(), "Address": child(ELEMENT_TYPE)})
+        for name in ("Name", "Address"):
+            doc["properties"][name]["pav:version"] = "1.0.0-rc1"
+            doc["properties"][name]["bibo:status"] = "bibo:draft"
+        after, changes = REPAIR.settle_prerelease_version(doc)
+        self.assertEqual(len(changes), 3)
+        self.assertEqual(after["properties"]["Name"]["pav:version"], "1.0.0")
+        self.assertEqual(after["properties"]["Address"]["pav:version"], "1.0.0")
+
+    def test_a_plain_version_and_a_short_one_are_left_to_other_repairs(self):
+        for stated in ("1.0.0", "0.9", "asd"):
+            with self.subTest(stated=stated):
+                _after, changes = REPAIR.settle_prerelease_version(self.draft(stated))
+                self.assertEqual(changes, [])
+
+    def test_a_second_run_finds_nothing(self):
+        after, _changes = REPAIR.settle_prerelease_version(self.draft("1.0.0-rc1"))
+        _again, changes = REPAIR.settle_prerelease_version(after)
+        self.assertEqual(changes, [])
+
+    def test_the_invariant_rejects_another_change_and_a_status_move(self):
+        doc = self.draft("1.0.0-rc1")
+        after, _changes = REPAIR.settle_prerelease_version(doc)
+        renamed = copy.deepcopy(after)
+        renamed["schema:name"] = "Renamed"
+        self.assertEqual(REPAIR.only_settled_prerelease_version(doc, renamed), "/schema:name")
+        promoted = copy.deepcopy(after)
+        promoted["bibo:status"] = "bibo:published"
+        self.assertEqual(REPAIR.only_settled_prerelease_version(doc, promoted), "/bibo:status")
+
+
+class PadArtifactVersionTest(unittest.TestCase):
+    """A version the library cannot parse leaves the artifact with no YAML representation at all."""
+
+    def test_a_two_part_version_gains_its_patch(self):
+        doc = template({"Name": child()})
+        doc["pav:version"] = "0.9"
+        after, changes = REPAIR.pad_artifact_version(doc)
+        self.assertEqual(after["pav:version"], "0.9.0")
+        self.assertEqual(changes, [{"path": "/pav:version", "replaced": "0.9", "wrote": "0.9.0"}])
+        self.assertIsNone(REPAIR.only_padded_artifact_version(doc, after))
+
+    def test_a_bare_major_gains_both(self):
+        doc = template({"Name": child()})
+        doc["pav:version"] = "1"
+        after, _changes = REPAIR.pad_artifact_version(doc)
+        self.assertEqual(after["pav:version"], "1.0.0")
+
+    def test_a_leading_zero_does_not_survive(self):
+        """The library renders 01.0.0 as 1.0.0, so storing the padded form keeps the two in step."""
+        doc = template({"Name": child()})
+        doc["pav:version"] = "01"
+        after, _changes = REPAIR.pad_artifact_version(doc)
+        self.assertEqual(after["pav:version"], "1.0.0")
+
+    def test_a_nested_definition_is_padded_with_the_root(self):
+        doc = template({"Name": child(), "Address": child(ELEMENT_TYPE)})
+        doc["pav:version"] = "0.0.1"
+        doc["properties"]["Name"]["pav:version"] = "0.1"
+        doc["properties"]["Address"]["pav:version"] = "1.2"
+        after, changes = REPAIR.pad_artifact_version(doc)
+        self.assertEqual([c["path"] for c in changes],
+                         ["/properties/Name/pav:version", "/properties/Address/pav:version"])
+        self.assertEqual(after["properties"]["Name"]["pav:version"], "0.1.0")
+        self.assertEqual(after["properties"]["Address"]["pav:version"], "1.2.0")
+        self.assertEqual(after["pav:version"], "0.0.1")
+
+    def test_a_prerelease_is_left_for_a_decision(self):
+        """Correct semver the model's three integers cannot hold is a limitation, not a defect."""
+        doc = template({"Name": child()})
+        doc["pav:version"] = "1.0.0-rc1"
+        after, changes = REPAIR.pad_artifact_version(doc)
+        self.assertEqual(changes, [])
+        self.assertEqual(after["pav:version"], "1.0.0-rc1")
+
+    def test_a_version_no_rule_can_read_is_left_alone(self):
+        for value in ("requestJson", "asd", "v1.0", "1.", ""):
+            with self.subTest(value=value):
+                doc = template({"Name": child()})
+                doc["pav:version"] = value
+                _after, changes = REPAIR.pad_artifact_version(doc)
+                self.assertEqual(changes, [])
+
+    def test_a_parseable_version_is_untouched(self):
+        doc = template({"Name": child()})
+        doc["pav:version"] = "2.3.4"
+        _after, changes = REPAIR.pad_artifact_version(doc)
+        self.assertEqual(changes, [])
+
+    def test_a_second_run_finds_nothing(self):
+        doc = template({"Name": child()})
+        doc["pav:version"] = "0.9"
+        after, _changes = REPAIR.pad_artifact_version(doc)
+        _again, changes = REPAIR.pad_artifact_version(after)
+        self.assertEqual(changes, [])
+
+    def test_the_invariant_rejects_any_other_change_and_any_other_version(self):
+        doc = template({"Name": child()})
+        doc["pav:version"] = "0.9"
+        after, _changes = REPAIR.pad_artifact_version(doc)
+        self.assertIsNone(REPAIR.only_padded_artifact_version(doc, after))
+        renamed = copy.deepcopy(after)
+        renamed["schema:name"] = "Renamed"
+        self.assertEqual(REPAIR.only_padded_artifact_version(doc, renamed), "/schema:name")
+        invented = copy.deepcopy(doc)
+        invented["pav:version"] = "9.9.9"
+        self.assertEqual(REPAIR.only_padded_artifact_version(doc, invented), "/pav:version")
+
+
+class StampStaticFieldModelVersionTest(unittest.TestCase):
+    """A static field is a model specification too, and the model gives it a version."""
+
+    def static(self, **extra):
+        node = child(STATIC_TYPE, **extra)
+        node["_ui"] = {"inputType": "section-break"}
+        del node["schema:schemaVersion"]
+        return node
+
+    def test_a_static_field_with_no_version_gains_the_current_one(self):
+        doc = template({"Break": self.static()})
+        after, changes = REPAIR.stamp_static_field_model_version(doc)
+        self.assertEqual([c["path"] for c in changes], ["/properties/Break/schema:schemaVersion"])
+        self.assertEqual(changes[0]["replaced"], None)
+        self.assertEqual(after["properties"]["Break"]["schema:schemaVersion"], AUDIT_MODEL_VERSION)
+        self.assertIsNone(REPAIR.only_stamped_static_field_model_version(doc, after))
+
+    def test_a_static_field_that_already_states_one_is_left_to_the_other_repair(self):
+        doc = template({"Break": child(STATIC_TYPE)})
+        doc["properties"]["Break"]["schema:schemaVersion"] = "1.5.0"
+        _after, changes = REPAIR.stamp_static_field_model_version(doc)
+        self.assertEqual(changes, [])
+
+    def test_an_ordinary_field_with_no_version_is_not_touched(self):
+        """That absence is what stamp-model-version refuses to guess at, and this does not overrule it."""
+        ordinary = child()
+        del ordinary["schema:schemaVersion"]
+        doc = template({"Name": ordinary})
+        after, changes = REPAIR.stamp_static_field_model_version(doc)
+        self.assertEqual(changes, [])
+        self.assertNotIn("schema:schemaVersion", after["properties"]["Name"])
+
+    def test_a_static_field_nested_in_an_element_is_reached(self):
+        element = child(ELEMENT_TYPE)
+        element["properties"]["Break"] = self.static()
+        element["_ui"] = {"order": ["Break"]}
+        doc = template({"Section": element})
+        after, changes = REPAIR.stamp_static_field_model_version(doc)
+        self.assertEqual([c["path"] for c in changes],
+                         ["/properties/Section/properties/Break/schema:schemaVersion"])
+        self.assertIsNone(REPAIR.only_stamped_static_field_model_version(doc, after))
+
+    def test_the_invariant_rejects_the_same_key_added_to_anything_else(self):
+        ordinary = child()
+        del ordinary["schema:schemaVersion"]
+        doc = template({"Name": ordinary})
+        after = copy.deepcopy(doc)
+        after["properties"]["Name"]["schema:schemaVersion"] = AUDIT_MODEL_VERSION
+        self.assertEqual(REPAIR.only_stamped_static_field_model_version(doc, after),
+                         "/properties/Name/schema:schemaVersion")
+
+    def test_the_invariant_rejects_any_other_change(self):
+        doc = template({"Break": self.static()})
+        after, _changes = REPAIR.stamp_static_field_model_version(doc)
+        after["schema:name"] = "Renamed"
+        self.assertEqual(REPAIR.only_stamped_static_field_model_version(doc, after), "/schema:name")
+
+    def test_the_invariant_rejects_a_removal_and_a_wrong_version(self):
+        doc = template({"Break": self.static()})
+        stripped = copy.deepcopy(doc)
+        del stripped["schema:name"]
+        self.assertEqual(REPAIR.only_stamped_static_field_model_version(doc, stripped), "/")
+        wrong = copy.deepcopy(doc)
+        wrong["properties"]["Break"]["schema:schemaVersion"] = "9.9.9"
+        self.assertEqual(REPAIR.only_stamped_static_field_model_version(doc, wrong),
+                         "/properties/Break/schema:schemaVersion")
+
+    def test_a_second_run_over_a_repaired_artifact_finds_nothing(self):
+        doc = template({"Break": self.static()})
+        after, _changes = REPAIR.stamp_static_field_model_version(doc)
+        _again, changes = REPAIR.stamp_static_field_model_version(after)
+        self.assertEqual(changes, [])
+
+
+class RestAuditFindingsAsTargetsTest(unittest.TestCase):
+    """The REST audit is an inventory too, so its findings name targets without a conversion step."""
+
+    def test_a_finding_is_read_as_a_single_condition_record(self):
+        record = REPAIR.normalized_target_record({
+            "rule": "model-version-absent", "risk": "manual-review",
+            "artifact_type": "template", "artifact_id": BASE + "templates/abc",
+            "artifact_name": "Study", "path": "/properties/Break/schema:schemaVersion",
+        })
+        self.assertEqual("template", record["artifactType"])
+        self.assertEqual(BASE + "templates/abc", record["artifactId"])
+        self.assertEqual({"model-version-absent": 1}, record["conditionRules"])
+
+    def test_a_validation_audit_record_is_returned_untouched(self):
+        original = {"artifactType": "template", "artifactId": BASE + "templates/abc",
+                    "conditionRules": {"derived-from-empty": 2}}
+        self.assertIs(original, REPAIR.normalized_target_record(original))
 
 
 class StampModelVersionTest(unittest.TestCase):

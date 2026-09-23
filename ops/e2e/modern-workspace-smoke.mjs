@@ -190,17 +190,91 @@ async function editorSave(p, method, collection, status = 200) {
   await ready(p);
   return data;
 }
+async function permissionAppearance(p, name) {
+  const heading = modal(p).locator('h2');
+  assert.equal(await heading.evaluate(e => getComputedStyle(e).color), 'rgb(23, 63, 62)');
+  assert.equal(await modal(p).evaluate(e => getComputedStyle(e).backgroundColor), 'rgb(255, 255, 255)');
+  if (name === 'readonly') {
+    assert.equal(await modal(p).locator('select.readonly-role').first().evaluate(e => getComputedStyle(e).opacity), '1', 'read-only values remain legible rather than appearing unavailable');
+  }
+  const previous = p.viewportSize();
+  for (const width of [1440, 375]) {
+    await p.setViewportSize({width, height: 950});
+    const bounds = await modal(p).boundingBox();
+    assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= width, 'permissions stays within viewport');
+    assert.equal(await modal(p).locator('.access-list').evaluate(e => e.scrollWidth <= e.clientWidth), true, 'permission controls require no horizontal scrolling');
+    const done = await modal(p).getByRole('button', {name: 'Done', exact: true}).boundingBox();
+    assert.ok(done.y + done.height <= 950, 'Done stays reachable on narrow screens');
+    if (process.env.CEDAR_UI_SCREENSHOTS) {
+      await mkdir(process.env.CEDAR_UI_SCREENSHOTS, {recursive: true});
+      await p.screenshot({path: `${process.env.CEDAR_UI_SCREENSHOTS}/permissions-${name}-${width}.png`});
+    }
+  }
+  await p.setViewportSize(previous);
+}
+async function permissionDone(p) {
+  await modal(p).getByRole("button", { name: "Done", exact: true }).click();
+  await modal(p).waitFor({ state: "hidden" });
+}
+async function setPermission(p, collection, role) {
+  const rolePicker = modal(p).getByRole("combobox", {
+    name: "Role for Test User 2",
+    exact: true,
+  });
+  await modal(p)
+    .getByRole("heading", { name: "Access on this resource", exact: true })
+    .waitFor();
+  if (await rolePicker.count()) {
+    await write(
+      p,
+      "PUT",
+      collection,
+      () => rolePicker.selectOption(role),
+      200,
+      true,
+    );
+  } else {
+    await modal(p)
+      .getByRole("combobox", { name: "User or group", exact: true })
+      .fill("Test User 2");
+    await modal(p)
+      .getByRole("option", { name: "Test User 2", exact: true })
+      .click();
+    await modal(p)
+      .getByRole("combobox", { name: "Role", exact: true })
+      .selectOption(role);
+    await write(
+      p,
+      "PUT",
+      collection,
+      () => modal(p).getByRole("button", { name: "Add", exact: true }).click(),
+      200,
+      true,
+    );
+  }
+  await permissionDone(p);
+}
+async function removePermission(p, collection) {
+  await write(
+    p,
+    "PUT",
+    collection,
+    () =>
+      modal(p)
+        .getByRole("button", {
+          name: "Remove access for Test User 2",
+          exact: true,
+        })
+        .click(),
+    200,
+    true,
+  );
+  await permissionDone(p);
+}
 async function grant(p, role) {
   await listed(p, names.template);
-  await menu(p, names.template, "Share");
-  await modal(p)
-    .getByLabel("Add person or group")
-    .selectOption({ label: "Test User 2 (user)" });
-  await modal(p)
-    .getByRole("combobox", { name: "New access role", exact: true })
-    .selectOption(role);
-  await modal(p).getByRole("button", { name: "Add", exact: true }).click();
-  await save(p, "PUT", "/templates/", 200, true);
+  await menu(p, names.template, "Permissions…");
+  await setPermission(p, "/templates/", role);
 }
 function pass(message) {
   checks.push(message);
@@ -233,6 +307,32 @@ try {
   await save(page, "POST", "/command/rename-resource", 200, true);
   names.destination += " renamed";
   pass("Create folder and conditional rename");
+  step = "artifact-menu-visibility";
+  for (const height of [1000, 480]) {
+    await page.setViewportSize({ width: 1500, height });
+    await row(page, names.destination)
+      .getByRole("button", { name: "Actions for " + names.destination, exact: true }).click();
+    const resourceMenu = page.locator(".resource-menu");
+    await resourceMenu.waitFor();
+    assert.equal(await resourceMenu.getByRole("button").count(), 18);
+    await page.waitForFunction(() => {
+      const menu = document.querySelector(".resource-menu");
+      const rect = menu?.getBoundingClientRect();
+      return rect && rect.top >= 0 && rect.bottom <= innerHeight;
+    });
+    if (height === 1000) {
+      assert.equal(await resourceMenu.evaluate((m) => m.scrollHeight <= m.clientHeight), true,
+        "All legacy menu actions should fit without scrolling on a tall viewport");
+    }
+    const last = resourceMenu.getByRole("button", { name: "Open in OpenView", exact: true });
+    await last.scrollIntoViewIfNeeded();
+    const bounds = await last.boundingBox();
+    assert.ok(bounds && bounds.y >= 0 && bounds.y + bounds.height <= height,
+      "The final menu action must remain reachable on short viewports");
+    await page.keyboard.press("Escape");
+  }
+  await page.setViewportSize({ width: 1500, height: 1000 });
+  pass("All legacy artifact menu actions fit tall screens and remain reachable on short screens");
   step = "session-retry";
   await ready(page);
   // Inject one expired-access-token response, then let the real refresh and
@@ -330,7 +430,7 @@ try {
           );
     await input.fill(names[kind]);
     if (kind === "template") {
-      await page.getByRole("button", { name: /Add Child/ }).click();
+      await page.getByRole("button", { name: /^Add field$/ }).click();
       await page
         .locator("app-field-type-picker")
         .getByRole("button", { name: "Text", exact: true })
@@ -413,6 +513,24 @@ try {
       .count(),
     0,
   );
+  await menu(reader, names.template, "Permissions…");
+  await modal(reader)
+    .getByRole("heading", { name: "Access on this resource", exact: true })
+    .waitFor();
+  assert.equal(
+    await modal(reader)
+      .getByRole("combobox", { name: "User or group", exact: true })
+      .count(),
+    0,
+  );
+  assert.equal(
+    await modal(reader)
+      .getByRole("combobox", { name: "Role for Test User 2", exact: true })
+      .isDisabled(),
+    true,
+  );
+  await permissionAppearance(reader, "readonly");
+  await permissionDone(reader);
   await grant(page, "editor");
   await reader.reload();
   await ready(reader);
@@ -424,23 +542,114 @@ try {
   await grant(page, "manager");
   await reader.reload();
   await ready(reader);
-  await menu(reader, names.template, "Share");
-  await modal(reader).getByLabel("Add person or group").waitFor();
+  await menu(reader, names.template, "Permissions…");
   await modal(reader)
-    .getByRole("button", { name: "Cancel", exact: true })
-    .click();
+    .getByRole("combobox", { name: "User or group", exact: true })
+    .waitFor();
+  await permissionDone(reader);
   await listed(page, names.template);
-  await menu(page, names.template, "Share");
+  await menu(page, names.template, "Permissions…");
+  await modal(page).getByRole("heading", {name: "Access on this resource", exact: true}).waitFor();
+  await permissionAppearance(page, "editable");
+  // Special groups remain Viewer-only and cannot be made owners.
   await modal(page)
-    .locator(".grant")
-    .filter({ hasText: "Test User 2" })
-    .getByRole("button", { name: "Remove access", exact: true })
+    .getByRole("combobox", { name: "User or group", exact: true })
+    .fill("Everyone");
+  await modal(page)
+    .getByRole("option", { name: "Everyone (Group)", exact: true })
     .click();
-  await save(page, "PUT", "/templates/", 200, true);
+  await page.waitForFunction(
+    () => document.querySelector("#share-role")?.options.length === 1,
+  );
+  assert.deepEqual(
+    await modal(page)
+      .getByRole("combobox", { name: "Role", exact: true })
+      .locator("option")
+      .allTextContents(),
+    ["Viewer"],
+  );
+  await write(
+    page,
+    "PUT",
+    "/templates/",
+    () => modal(page).getByRole("button", { name: "Add", exact: true }).click(),
+    200,
+    true,
+  );
+  const everyoneRole = modal(page).getByRole("combobox", {
+    name: "Role for Everyone",
+    exact: true,
+  });
+  await everyoneRole.waitFor();
+  assert.deepEqual(
+    (await everyoneRole.locator("option").allTextContents()).map((label) => label.trim()),
+    ["Viewer"],
+  );
+  assert.equal(
+    await modal(page)
+      .getByRole("checkbox", { name: "Make Everyone the owner", exact: true })
+      .isDisabled(),
+    true,
+  );
+  await write(
+    page,
+    "PUT",
+    "/templates/",
+    () =>
+      modal(page)
+        .getByRole("button", {
+          name: "Remove access for Everyone",
+          exact: true,
+        })
+        .click(),
+    200,
+    true,
+  );
+  await everyoneRole.waitFor({ state: "detached" });
+
+  // An external ACL change must reject a stale edit and leave the failed intent visible.
+  const permissionPath = templatePath + "/permissions";
+  const acl = await call(user1.auth, "GET", permissionPath);
+  assert.equal(acl.status, 200);
+  const changed = await mutate(user1.auth, "PUT", permissionPath, {
+    owner: { "@id": acl.body.owner["@id"] },
+    userPermissions: acl.body.userPermissions.map((g) => ({
+      user: { "@id": g.user["@id"] },
+      role: "editor",
+    })),
+    groupPermissions: [],
+  });
+  assert.equal(changed.status, 200);
+  await write(
+    page,
+    "PUT",
+    "/templates/",
+    () =>
+      modal(page)
+        .getByRole("combobox", { name: "Role for Test User 2", exact: true })
+        .selectOption("viewer"),
+    412,
+    true,
+  );
+  await modal(page)
+    .getByRole("alert")
+    .filter({ hasText: "Not saved: Set Test User 2 to viewer" })
+    .waitFor();
+  await modal(page)
+    .getByRole("button", { name: "Reload permissions", exact: true })
+    .click();
+  await page.waitForFunction(
+    () =>
+      document.querySelector('select[aria-label="Role for Test User 2"]')
+        ?.value === "editor",
+  );
+  await removePermission(page, "/templates/");
   await reader.reload();
   await ready(reader);
   assert.equal(await row(reader, names.template).count(), 0);
-  pass("Two-user viewer/editor/manager sharing, update and revocation");
+  pass(
+    "Permissions: viewer access, immediate role saves, Everyone restrictions, stale revisions, and two-user revocation",
+  );
   step = "metadata";
   await listed(page, names.template);
   await menu(page, names.template, "Populate");
@@ -508,7 +717,7 @@ try {
     .waitFor();
   page.removeAllListeners("dialog");
   page.once("dialog", (dialog) => dialog.dismiss());
-  await page.getByRole("button", { name: "← Workspace", exact: true }).click();
+  await page.getByRole("button", { name: "Workspace", exact: true }).click();
   assert.equal(page.url(), metadataUrl);
   page.on("dialog", (dialog) => dialog.accept());
   await cee.getByLabel("Notes", { exact: false }).first().fill("Updated notes");
@@ -516,7 +725,7 @@ try {
     .locator(".metadata-toolbar [role=status]")
     .filter({ hasText: /^Saved$/ })
     .waitFor();
-  await page.getByRole("button", { name: "← Workspace", exact: true }).click();
+  await page.getByRole("button", { name: "Workspace", exact: true }).click();
   await ready(page);
   pass(
     "CEE host loads no AngularJS, saves without remounting, guards navigation and recognizes exact reverts",
@@ -560,15 +769,8 @@ try {
   );
   await grant(page, "viewer");
   await listed(page, names.instance);
-  await menu(page, names.instance, "Share");
-  await modal(page)
-    .getByLabel("Add person or group")
-    .selectOption({ label: "Test User 2 (user)" });
-  await modal(page)
-    .getByRole("combobox", { name: "New access role", exact: true })
-    .selectOption("viewer");
-  await modal(page).getByRole("button", { name: "Add", exact: true }).click();
-  await save(page, "PUT", "/template-instances/", 200, true);
+  await menu(page, names.instance, "Permissions…");
+  await setPermission(page, "/template-instances/", "viewer");
   await reader.goto(metadataUrl);
   await reader
     .locator(".metadata-toolbar [role=status]")
@@ -580,13 +782,8 @@ try {
     await reader.locator("#instance-name").getAttribute("readonly"),
     "",
   );
-  await menu(page, names.instance, "Share");
-  await modal(page)
-    .locator(".grant")
-    .filter({ hasText: "Test User 2" })
-    .getByRole("button", { name: "Remove access", exact: true })
-    .click();
-  await save(page, "PUT", "/template-instances/", 200, true);
+  await menu(page, names.instance, "Permissions…");
+  await removePermission(page, "/template-instances/");
   pass(
     "CEE host settles viewer permissions before configuring its read-only editor",
   );

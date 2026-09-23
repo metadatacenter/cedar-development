@@ -11,11 +11,9 @@ analysis: `LOG-PIPELINE-CAPACITY.md`.
 
 ## 0 · The One Thing to Understand First
 
-**The consumer drains at ~6 rows/s and always has.** It cannot be tuned into keeping up. So queue
-growth always means *something upstream is producing more than 6/s*, and the fix is always to find
-and stop that thing — never to speed up the consumer in the moment.
-
-Historical baseline traffic is ~0.76/s, so there is normally ~8x headroom and nothing is visible.
+During the September 8–14 incident the consumer drained about 6 rows/s against normal traffic of
+about 0.76/s. Measure current arrival and drain rates first. Look for a producer surge, a blocked
+consumer or dependency failure before changing tuning; the commands below distinguish these cases.
 
 ---
 
@@ -279,11 +277,13 @@ If the depth climbs back after clearing with no outage to explain it, then it is
 
 ---
 
-## 5 · Dead Ends — Measured 2026-09-14, Do Not Re-Try
+<a id="5--dead-ends--measured-2026-09-14-do-not-re-try"></a>
+
+## 5 · Incident Measurements (2026-09-14)
 
 | hypothesis | result |
 |---|---|
-| nginx rate limits / external abuse | nginx saw 36,452/day against ~357,798 DB rows — **~30:1**. The traffic never touches nginx; it is internal or direct-to-port. |
+| nginx rate limits / external abuse | nginx saw 36,452/day against ~357,798 DB rows — **~10:1**. The traffic never touches nginx; it is internal or direct-to-port. |
 | `innodb_buffer_pool_size` (was 128 MB vs a 76 GB DB) | raised to 2 GB: **+26%**. Worth keeping, not a fix. |
 | `innodb_flush_log_at_trx_commit` 1 → 2 | **+20%**. Not a fix. |
 | `acknowledge()`'s O(N) `LREM` | `-processing` was 1. Not the problem. |
@@ -292,13 +292,15 @@ If the depth climbs back after clearing with no outage to explain it, then it is
 | valuerecommender rule generation | fails instantly on a dead OpenSearch client; 246 requests total. |
 | the log-table indexes added 2026-09-10 | ~20%. Real, marginal. |
 
-**The database is not the constraint.** Its connections sit `Sleep`, the app host shows `0.0 wa`, and
-the worker uses ~28% of one core. Tuning moved the ceiling ~50% cumulatively and changed nothing that
-mattered.
+In that incident, database connections were sleeping, app-host I/O wait was zero, and the worker
+used about 28% of one core. Tuning improved throughput by roughly 50% without clearing the overload.
+Use these measurements to avoid repeating the same investigation unless current evidence differs.
 
 ---
 
 ## 6 · Escalation Facts Worth Having to Hand
+
+These host measurements are from the incident; recheck capacity and access before acting.
 
 - **Redis has no `maxmemory`** (`maxmemory_policy: noeviction`). It grows until the host runs out —
   roughly 1.1 KB per message, ~37 GB available, so ~32M messages. There is no hard cliff at a
@@ -308,6 +310,6 @@ mattered.
   `SET GLOBAL` does not survive a restart; persist it.
 - **Disk on that host is 85% full**, 19 GB free of 120 GB.
 - **`SELECT 1` costs 7.25 ms** against a 1.07 ms ICMP RTT between app and DB hosts — 7x
-  amplification, possibly stateful firewall inspection. Fixing it would be a ~7x win on this path.
+  the ICMP latency. This alone identifies neither the cause nor an achievable throughput gain.
 - SSH to `cedr-prd-db-01` is blocked from both app and staging hosts; server-level MariaDB changes
   need Alex or root on that box. `cedar_log_usr` has schema-scoped grants only.

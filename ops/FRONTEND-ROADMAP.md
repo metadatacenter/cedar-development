@@ -264,6 +264,14 @@ Preserve the stored value until an explicit correction; rejecting it must not si
 blank the control or rewrite the instance. Update the tests that currently document
 this leniency once the display and validation behavior is decided.
 
+### 12. Run the Model Library's Continuous Integration on `main`
+
+`.github/workflows/test.yml` in `cedar-model-typescript-library` triggers on pushes and pull
+requests to `develop` alone, so `main` — the branch every public release is cut from, published
+from and tagged on — reaches npmjs without CI having checked it. Add `main` to both triggers
+once it is in a passing state, so a release pull request reports the same gate development
+reports.
+
 <a id="ced"></a>
 
 ## CED
@@ -274,7 +282,7 @@ editing, rendering, local validation and host-facing UI contracts. The embedding
 host owns storage, authentication, permissions, server validation requests,
 publishing, version allocation and provenance.
 
-### 12. Display Host-Supplied Validation Findings in CED
+### 13. Display Host-Supplied Validation Findings in CED
 
 Define an input for validation findings supplied by the embedding host. Map artifact
 paths to fields and settings, show messages beside the affected controls, and offer
@@ -285,7 +293,7 @@ Specify when external findings become stale after an edit or artifact replacemen
 Preserve unsaved input and cover correction, clearing and replacement of reports.
 The host calls the schema server and decides whether an artifact may be saved.
 
-### 13. The Three Profiles, and What Each One Holds
+### 14. The Three Profiles, and What Each One Holds
 
 Basic, Semantic and Modular are the product structure, and CED has their names
 already: three presets in the preferences modal, each a bundle of visibility
@@ -310,7 +318,7 @@ does not show.
 Every control on a card today is a decision this item has to absorb, and there are
 now a great many of them.
 
-### 14. Complete the CED Embedding Contract
+### 15. Complete the CED Embedding Contract
 
 Define inputs for read-only mode, language and allowed field types. Host restrictions
 bound what the author may edit or select; profile and preference settings can narrow
@@ -325,14 +333,14 @@ artifact or creates an editable draft, without CED allocating identities or vers
 Add conformance and browser tests for these inputs and events, including read-only
 published content and transitions to a host-supplied editable document.
 
-### 15. Keyboard and Screen-Reader Access
+### 16. Keyboard and Screen-Reader Access
 
 Verify keyboard focus order across cards, settings, palette actions and nested
 elements. Add live-region announcements for constraint changes and accepted or
 rejected local Apply actions and host-supplied validation results. Exercise those workflows with a screen reader and
 verify that focus returns to a useful control after each action.
 
-### 16. Complete Split CED Host Integration
+### 17. Complete Split CED Host Integration
 
 Replace the host's inert read-only surface with the component's read-only contract so
 inspection, navigation and preview remain available.

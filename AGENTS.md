@@ -29,7 +29,7 @@ cedarcli git status            # working-tree state across all repos
 cedarcli check versions        # version consistency; --strict also fails a checkout behind its remote or a stale fetch
 cedarcli check ci              # CI at every develop head a train would capture
 cedarcli check ci-env          # every Java repository's CI environment block; --apply repairs drift
-cedarcli build frontends       # reactor: every frontend against the siblings just built, not the pins
+cedarcli build frontends       # full frontend reactor; completion contract below
 cedarcli check components      # what each browser application serves against the component sources beside it
 cedarcli publish components    # publish each component's current source and advance the pins that follow it
 cedarcli test e2e              # both whole-stack smoke tiers; records the run the train and release gates require
@@ -84,6 +84,34 @@ below have no CLI front end yet, so call them directly:
   splits each count by verdict, since a valid artifact may still carry one. Streams one record per
   artifact, reports progress every 200 artifacts, resumes. `--recheck` re-validates exactly the
   artifacts a repair run reports having written, which is how a repair is proved.
+- `cedar_yaml_conversion_audit.py` — the same GET-only walk over the schema artifacts alone,
+  requesting each one as YAML through the resource server's Accept negotiation and converting it
+  back to JSON Schema twice: once with `cedar-artifact-library`, once with
+  `cedar-model-typescript-library`. Both renderings are validated by
+  `cedar-model-validation-library`, so a lane that fails on its own is the converter's doing and
+  not the validator's. Two co-processes stay up for the whole pass,
+  `cedar_yaml_convert_bridge.java` and `cedar_yaml_convert_bridge.cjs`. It also says how often the
+  two converters render the same document identically. Streams one record per artifact, reports
+  progress every 200, resumes, and writes the identifiers of everything that failed to a file of
+  their own.
+- `cedar_instance_roundtrip_audit.py` — the instance counterpart of the conversion audit: a GET-only
+  walk over every template instance, asking whether the library reads the YAML the deployment serves
+  and reproduces it, whether the instance survives JSON to the model, out as YAML, back, and out as
+  JSON again, and whether a YAML write of it would be stored. The last is the one that matters, and
+  it runs what the server runs — complete the document against its template, mint the
+  element-instance identifiers the repository mints, then validate — because a template-free trip
+  reports as damaged an instance the server would write back perfectly. Whether the deployment holds
+  the stored document as valid is settled first, so a refusal is attributed either to the data or to
+  this path. One JVM, `cedar_instance_roundtrip_bridge.java`, stays up for the pass. It re-reads
+  every failed read at the end, because a share of reads fail as a socket timeout rather than an
+  answer and asking again settles them. Streams one record per instance, resumes, never writes.
+- `cedar_content_constraint_survey.py` — what production holds in the fields the meta-schema
+  constrains only as strings. Roughly half the string-typed properties it describes carry no
+  pattern, format or enumeration, so a rule only one component enforces produces stored data
+  nothing rejects until something downstream refuses to read it. Walks a deployment and reports,
+  per property, how many artifacts carry it, how many distinct values it takes and how many fail
+  the shape the model expects. Its expectations are its own reading and are printed beside each
+  row, so a disagreement about one is visible rather than buried. GET-only.
 - `repairs/cedar_artifact_repair.py` — carry out a repair the audit has measured, one `PUT ?verbatim=true` at
   a time, so each artifact keeps its identifier, provenance, version and child identifiers. A repair
   is a transform plus an invariant proving nothing else changed; the library validates every body
@@ -238,6 +266,21 @@ suggestion, ~30 s): `cd cedar-development/ops/e2e && npm run smoke` — details 
   source no passing run covers, and no option skips that gate.
 - Full operational, build, test, and dependency-state detail lives in the runbook
   (`cedar-development/ops/BACKEND-RUNBOOK.md`).
+
+### Frontend reactor completion contract
+
+“Full frontend reactor” means `cedarcli build frontends`: current local library and component
+sources flow into every frontend, followed by applicable integration/visual checks, local
+redeployment, served-bundle verification and whole-stack smoke. Fresh dev package publication
+to Nexus and consumer development-pin/lockfile updates are allowed when needed; npm pins must
+not be presented as a blocker to using the sources just built. Release-version changes and
+Git commit/push are separate from this contract.
+
+The command runs component verification, records the immutable build graph and runtime selection,
+restarts local frontends, verifies their installed component bytes, and runs whole-stack smoke.
+Tracked development pins remain unchanged: dependency rewrites and resolved locks belong to the
+isolated build and its retained evidence. Trains independently build captured committed sources.
+See [The Reactor](ops/FRONTEND-RUNBOOK.md#the-reactor) for the completion and failure contract.
 
 ## Version locks and framework state
 

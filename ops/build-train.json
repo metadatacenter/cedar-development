@@ -31,7 +31,6 @@
     "cedar-model-library",
     "cedar-model-library-roundtrip",
     "cedar-model-typescript-library",
-    "cedar-model-typescript-library-demo",
     "cedar-model-validation-library",
     "cedar-monitor-server",
     "cedar-monitoring",

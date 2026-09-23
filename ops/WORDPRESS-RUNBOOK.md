@@ -1,14 +1,8 @@
 # CEDAR WordPress Runbook
 
-How to publish and maintain posts on the public CEDAR site at **https://metadatacenter.org** — where
-to sign in, how the categories are wired, how to author a post so it matches the existing ones, and
-which saves silently do not stick. Written to be followed by a human with a browser, or read by an
-LLM agent driving one.
-
-This is the **public-site** counterpart to [RELEASE-RUNBOOK.md](./RELEASE-RUNBOOK.md) (cutting a
-release) and [PROD-DEPLOY-RUNBOOK.md](./PROD-DEPLOY-RUNBOOK.md) (standing that release up). Nothing
-here touches CEDAR itself; the site is an ordinary WordPress install that happens to announce CEDAR
-work.
+Publish and maintain posts at **https://metadatacenter.org**. For cutting or deploying a CEDAR
+release, use [RELEASE-RUNBOOK.md](RELEASE-RUNBOOK.md) and
+[PROD-DEPLOY-RUNBOOK.md](PROD-DEPLOY-RUNBOOK.md).
 
 ## What the Site Is
 
@@ -32,8 +26,7 @@ authors every post. Credentials live in the team password store, not here.
 
 ## How the Categories Are Wired
 
-This is the part that is easy to get wrong. **Happenings is a parent category**, not a sibling of the
-others:
+**Happenings is the parent category:**
 
 ```
 Happenings (57)
@@ -240,8 +233,6 @@ curl -s "https://metadatacenter.org/happenings/news/cedar-now-supports-yaml-meta
 Drafts are not exposed through the public API. Use the preview URL for those.
 
 ## Driving the Admin from an Agent
-
-Browser automation against this admin has a few sharp edges that cost real time to rediscover.
 
 **Trust the DOM, not the accessibility tree, for checkbox state.** Element-finding tools report
 Gutenberg's category checkboxes as unchecked whether or not they are. Read the real state instead:

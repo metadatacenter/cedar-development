@@ -313,11 +313,17 @@ class NativeProcessSafetyTest(unittest.TestCase):
                 self.assertNotIn('SIGNALLED', result.stdout)
 
     def test_auxiliary_stop_refuses_a_live_foreign_listener(self):
+        # The listener has to be a pid that really exists. process_exiting() now asks ps for the
+        # process state, and a fabricated pid is indistinguishable from one that has already gone
+        # -- which is the correct reading for the code and the wrong fixture for this test. $$ is
+        # the library's own shell, alive for the whole run. The kill stub answers the -0 liveness
+        # probe silently so the SIGNALLED assertion still catches a real signal.
         result = self.run_library(
             'auxiliary_ports() { echo 9209; }; '
-            'port_owner() { echo 4242; }; port_open() { return 0; }; '
+            'port_owner() { echo $$; }; port_open() { return 0; }; '
             'process_command() { echo "python unrelated.py"; }; '
-            'kill() { echo SIGNALLED; }; stop_auxiliary_processes group'
+            'kill() { if [ "$1" = "-0" ]; then return 0; fi; echo SIGNALLED; }; '
+            'stop_auxiliary_processes group'
         )
         self.assertNotEqual(0, result.returncode)
         self.assertIn('REFUSED TO STOP', result.stderr)
@@ -556,9 +562,18 @@ class NativeProcessSafetyTest(unittest.TestCase):
                   / "src/main/resources/config.yml")
         if not config.is_file():
             self.skipTest("cedar-terminology-server is not checked out beside cedar-development")
+        # The application log, which is the one the controller offers. A service config declares
+        # more than one file appender — the request log above `logging:` has a
+        # `currentLogFilename` of its own — so the block has to be chosen rather than the first
+        # match taken, or the assertion quietly compares against the access log.
+        lines = config.read_text().splitlines()
+        logging_at = next((number for number, line in enumerate(lines) if line.startswith("logging:")), None)
+        self.assertIsNotNone(logging_at, f"{config} declares no top-level logging block")
         declared = [line.split("currentLogFilename:")[1].strip()
-                    for line in config.read_text().splitlines()
+                    for line in lines[logging_at:]
                     if "currentLogFilename:" in line]
+        self.assertEqual(1, len(declared),
+                         f"expected one application log appender, found {declared}")
 
         result = self.run_library('dropwizard_logfile terminology')
 

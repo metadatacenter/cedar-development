@@ -5,8 +5,8 @@ test and ops tooling. Items live here when they span repositories or when the fi
 shared library rather than to one server.
 
 For how to run and build the system see [BACKEND-RUNBOOK.md](./BACKEND-RUNBOOK.md), whose "Dependency and Framework
-State" section records what the stack currently sits on. Library-internal items belong in that
-library's own roadmap, for example [cedar-artifact-library](../../cedar-artifact-library/ROADMAP.md).
+State" section records what the stack currently sits on. A shared library's internal items are
+here as well, rather than in that library's own repository.
 Work on the main browser applications is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md), work on
 the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), and work on the MCP servers is in
 [MCP-ROADMAP.md](./MCP-ROADMAP.md).
@@ -48,7 +48,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   recorded.
 
   The npm releases are the working example of route two and need nothing, but they are driven by an
-  operator who is already there for the twenty-five commands item 21 exists to remove. Automating
+  operator who is already there for the twenty-five commands item 20 exists to remove. Automating
   that route puts the identity question back.
 
   Prove whichever ruleset is chosen against one repository before it reaches all forty-five. Until
@@ -169,6 +169,14 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   messaging, monitor and worker suite. Production application accounts must have no
   `ALTER`, `CREATE`, `DROP` or `INDEX` grants; a separate migration identity holds DDL authority, so a
   configuration regression fails at startup rather than rebuilding a live table.
+
+  **Widen it past the relational schemas.** Mongo's unique `@id` indexes and Neo4j's index and
+  constraint declarations are the same kind of statement: something that has to be true of a store
+  before the code depending on it runs. Each is written down twice today, in a container's
+  first-boot script and in an admin-tool task a person runs, and neither copy is applied again once
+  a store is up, so a changed definition reaches no existing installation. `cedarcli check stores`
+  reports the artifact collections' indexes and the artifact server logs them at startup, which
+  makes a gap visible but leaves the definition in two places the release does not own.
 
   Introduce one versioned, forward-only migration mechanism for each CEDAR-owned relational schema.
   `dropwizard-migrations` sits on the Dropwizard line `cedar-parent` already manages. Baseline
@@ -773,43 +781,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   when both tiers run unattended on a cadence, their reports are retained, and a train dispatched
   through Actions is refused on the same evidence that refuses one dispatched from `cedarcli`.
 
-- **19. Let the artifact server own the uniqueness of `@id`.** No two documents in an artifact
-  collection may share an `@id`. The server relies on a unique index on that field to enforce it. A
-  create is a read that finds the identifier absent followed by an insert, and
-  `GenericLDDaoMongoDB.create` answers a duplicate-key rejection with the same 412 the update path
-  gives a stale writer. Nothing in the application creates that index. The Docker image's Mongo init
-  script does, and natively the admin tool's `artifactServer-initDB` task does, which `SystemReset`
-  runs as its second step, so a store that has been reset carries it and the development workstation's
-  does. Neither `cedarcli native start` nor the backend runbook names the task, so a native store
-  that never saw it has no index. There two concurrent creates of one identifier both succeed,
-  `findWithRevision` reads only the first, and a conditional delete removes one document and leaves
-  the other unreachable through the API. The embedded Mongo the server suites run against creates
-  no index either, so no suite exercises the rejection the DAO translates. The DAO test mocks it.
-
-  Ensure the four indexes at artifact-server startup, so the invariant stops depending on a step an
-  operator remembers. Creating an index that already exists with the same options is a no-op, so a
-  deployment whose collections were provisioned pays nothing, and only a store that was never
-  provisioned builds one on first boot. On the pinned Mongo 5.0 that build keeps the collection
-  readable and writable and takes seconds to a few minutes over 400,000 documents, once. Give
-  `EmbeddedCedarMongo` the same indexes, so the suites run against the constraint the store actually
-  has, and add a resource test that inserts the same identifier twice through the real store rather
-  than through a proxied service.
-
-  **This can take production down if it is done carelessly.** A unique index cannot be built over a
-  collection that already holds two documents with the same `@id`, and a store that ever ran without
-  the index may hold exactly that. If the startup ensure treats a failed build as fatal, the first
-  release carrying it turns a latent data defect into an artifact server that refuses to boot, and
-  every retry fails the same way. Two rules follow. The ensure never stops the server: a failed build
-  is logged at error and reported through the health check, and the server keeps serving as it does
-  today. And the production deploy runbook gains a preflight, run before the release that carries the
-  ensure, which lists the indexes each of the four collections holds and counts identifiers that occur
-  more than once. Production is expected to pass both, because `artifactServer-initDB` has provisioned
-  every CEDAR store since before 2019, but the expectation is verified, not assumed. Duplicates found
-  are repaired first, with `cedar_artifact_patch.py` or by hand, and only then can a build succeed.
-  Done when a fresh, unprovisioned Mongo refuses the second insert, the suites prove it, a store with
-  duplicates still boots and reports why its index is missing, and the runbook carries the preflight.
-
-- **20. Take the dependency upgrades that need code changes.** The versions that could move without
+- **19. Take the dependency upgrades that need code changes.** The versions that could move without
   consequence have moved. What stayed behind stayed deliberately, and it separates into work to do,
   versions that follow something else, and versions whose newest release is not a final.
 
@@ -893,7 +865,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Done when each upgrade above has either landed or been recorded as refused with its reason, and
   the estate no longer carries a dependency held back only because nobody looked at it.
 
-- **21. Give the public CEE release a CLI route.** Publishing `cedar-embeddable-editor` to npmjs is a
+- **20. Give the public CEE release a CLI route.** Publishing `cedar-embeddable-editor` to npmjs is a
   runbook of about twenty-five commands across `develop`, a pull request, `main`, the registry, a
   tag, the development-state restore and the train baseline refresh. Release 2.0.6 took an hour of
   operator attention for two minutes of gate time, and CEE has shipped four public versions in a
@@ -906,7 +878,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   the command exists, rewrite the npmjs runbook into a description of what it does and where it
   stops.
 
-- **22. Decide whether an attribute-value child keeps its declared property IRI.** Both model
+- **21. Decide whether an attribute-value child keeps its declared property IRI.** Both model
   libraries read such a child's property IRI out of a template's `@context` and then decline to write
   it back as JSON, so a read-and-write cycle over `template-022.json` loses
   `https://schema.metadatacenter.org/properties/d01cb533-265c-474a-95f3-9afb4616a6e1` from the
@@ -931,6 +903,16 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   goes. If they are debris, `cedar_artifact_patch.py` should remove them and both YAML writers should
   stop carrying them.
 
+  **One document shows the shape with a term an author chose, and no corpus case covers it.**
+  `template-033-original.json` carries it twice, on `Data Characteristics Table in Key-Value Pairs`
+  and `Data File Descriptive Key-Value Pairs`, and its values are
+  `https://w3id.org/radx/radmo/dataCharacteristicsTableInKeyValuePairs` and
+  `https://w3id.org/radx/radmo/auxiliaryMetadataKeyValuePair` rather than minted identifiers. The
+  debris reading therefore cannot be assumed for the shape in general, whatever those three entries
+  turn out to be. The canonical `template-033.json` has no attribute-value child at all, because the
+  case was restructured in April 2024, so nothing in the corpus exercises an attribute-value child
+  carrying a vocabulary term. Adding such a case belongs to whichever answer is taken.
+
   This is not the question a requirement on the same type answers, and the difference is the whole of
   it: a requirement has nowhere to go in the JSON form, because an attribute-value field carries no
   `_valueConstraints` node at all, so the YAML writers record nothing. A property IRI has somewhere to
@@ -939,7 +921,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Whichever way it goes, the three children and their generated fixtures move with it, and the Java
   library's corpus verifier reports them stale until they are regenerated.
 
-- **23. Decide what an ordinary write may change about the artifact it stores.** Every non-verbatim
+- **22. Decide what an ordinary write may change about the artifact it stores.** Every non-verbatim
   write is normalized before it is validated, and two different things travel under that one name.
   One is minting: a child identifier, a property IRI for an attribute the author named, an element
   occurrence identifier, and the JSON Schema `title` and `description` derived from `schema:name`.
@@ -998,9 +980,71 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   check or an explicit decision to do so, and an author editing a template is told what it does to
   the instances that already exist.
 
+### Shared Libraries
+
+- **23. Render a sparse instance to JSON against its template.** A CEDAR JSON instance must carry
+  an entry for every field its template defines, unset ones included, because the template's JSON
+  Schema marks those properties `required`; an unset literal renders as `{"@value": null}` and an
+  unset IRI as `{}`. The YAML instance form is the opposite, and correct as it stands — it omits an
+  unset field entirely. Rendering a sparse instance model to JSON therefore produces an incomplete
+  JSON instance, and a YAML-to-JSON translation that is to produce a valid one must re-add the
+  empty placeholders, which takes the template, since only it says which fields exist. The
+  asymmetry is an old model decision the group is not fond of, and it stays until the next model
+  iteration.
+
+  `cedar-artifact-library` already has the template-driven traversal in `InstanceInflater` and
+  `EmptyFieldInstances`, recursive elements included, and MCP callers compose it with rendering
+  themselves. What is missing is the rendering API that does both, such as
+  `renderTemplateInstanceArtifact(template, sparseInstance)`. The existing one-argument renderer
+  cannot inflate, because an instance alone does not carry the schema that says which fields are
+  absent.
+
+  Done when a YAML-to-JSON caller renders a valid CEDAR instance through one call, and no caller
+  composes inflation and rendering by hand.
+
+- **24. Take the parse-library tree type out of the public reader and renderer API.** This is a
+  major-version change. `JsonArtifactReader` and `JsonArtifactRenderer` take and return Jackson's
+  `ObjectNode`, and `YamlArtifactReader` and `YamlArtifactRenderer` take and return JDK
+  `LinkedHashMap<String, Object>` trees, so the tree representation is part of the public contract
+  and leaks even into the shared `ArtifactReader<N>` type parameter. A caller must obtain or build
+  one of those trees before it can call the library at all.
+
+  Move the boundary to the wire format itself. `readTemplate(String)` and
+  `renderTemplate(artifact)` returning `String`, with the element, field and instance
+  counterparts, parse and serialize internally. That hides both parse libraries, gives JSON and
+  YAML one symmetric `read(String)` and `render(Artifact)` contract, and matches what callers
+  actually hold, which is text from a file or an HTTP body. The internals do not change: the
+  String methods prepend a parse and append a serialize. A bespoke `JsonNode`-style abstraction
+  interface would trade one library coupling for a hand-rolled tree API plus adapters that callers
+  must still populate, so it is not the answer.
+
+  Migrate additively. Add the String methods, mark the node-typed ones
+  `@Deprecated(forRemoval = true)` delegating to them, and remove those at the next major version.
+  Two cleanups fall out: the keyed, tree-returning render overloads such as
+  `renderElementSchemaArtifact(key, artifact)` are internal child-composition helpers and can
+  become package-private, and the `ArtifactReader<N>` type parameter disappears. A caller that
+  wants the rendered artifact as a tree, to embed in a larger document or to validate it without
+  re-parsing, loses direct access. If that need proves real, keep one explicitly
+  parse-library-typed opt-in method, so the coupling exists only where it is consciously chosen.
+
+- **25. Translate between an instance and RDF.** The model is designed so an instance maps to RDF:
+  the schema's `instanceType` gives each instance or element its `rdf:type`, each child's
+  `propertyIri` gives the predicate, the instance `id` is the subject, and field values are the
+  objects, a controlled term or link contributing its IRI and a literal contributing a plain or
+  typed literal. The library implements neither direction. Its renderers are JSON, JSON-LD
+  `@context`, JSON Schema, YAML, Excel and UBKG, and none produces a triple graph.
+
+  The JSON instance form is already JSON-LD, carrying `@context`, `@type` and `@id`, so an
+  external JSON-LD processor can serialize it as RDF. A model-level translator would drop that
+  dependency and, more to the point, work from the sparse YAML instance form, which relies on its
+  template for the predicates and types the instance itself does not carry. Add a template-driven
+  RDF renderer taking an instance model and its template and, if round-tripping is wanted, an RDF
+  reader taking RDF and a template. The "Mapping to RDF" section of the CEDAR YAML specification
+  documents the intended mapping.
+
 ## Production Data
 
-- **24. Resolve the remaining production artifact defects and review semantic migrations.**
+- **26. Resolve the remaining production artifact defects and review semantic migrations.**
   Classify the remaining **731 invalid instances across 260 templates** in the reviewed residual
   (2026-09-17, after verified repairs) by their actual schema declarations,
   then repair only transformations whose meaning is established. A missing `@id` in a controlled-term
@@ -1171,9 +1215,35 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   version comparison is restored, and no constraint lacks a `sourceSystem` the sweep could have
   written.
 
+- **27. Repair the versions production stores, then let the meta-schema say what a version is.**
+  1,672 schema artifacts — 103 templates, 557 elements, 1,012 fields — answer 500 to an `Accept`
+  of `application/yaml` and 200 to JSON. A JSON read returns the stored bytes unexamined; the YAML
+  read parses them with `cedar-artifact-library`, whose `Version` record takes three integer parts
+  and refuses everything else. These artifacts have no YAML representation at all, and nothing
+  reported it, because the meta-schema asks only that `pav:version` be a non-empty string.
+
+  Of the 655 containers probed in full, 642 carry a version that is not three-part semver: `0.9`
+  and `0.1` dominate, `1.0.0-rc1`, `1.0.0-rc2` and `1.0.0-RC2` follow, and a tail holds
+  `requestJson`, `123`, `asd`, `1`, `1.2`, `1.0` and `01`. A survey of 3,594 artifacts puts the
+  rate at 8.7%.
+
+  The prerelease values are a question of their own. `1.0.0-rc1` is valid semver that `Version`,
+  being `record Version(int major, int minor, int patch)`, cannot hold — a library limitation
+  rather than bad data, and ruling it invalid would put 686 more occurrences into the repair.
+
+  Order matters. The artifact server validates on write, so tightening `pav:version` before
+  repairing makes every one of those artifacts unsaveable through the API: repair first, or land
+  the two together. `cedar_content_constraint_survey.py` sizes the rest of the surface.
+  `schema:schemaVersion` has 30 rule sites and production is already clean there, so that one is
+  free to tighten today; `acronym`, `schema:identifier`, `unitOfMeasure` and `pav:previousVersion`
+  are clean too, and three artifacts hold a constraint `type` of `Value`.
+
+  Done when no schema artifact answers 500 to a YAML read, and a version that is not one is
+  refused on write rather than discovered on read.
+
 ## Later Decisions
 
-- **25. Enforce the request-body classification, and decide what an open body requires.**
+- **28. Enforce the request-body classification, and decide what an open body requires.**
   `cedarcli check openapi` reads `additionalProperties` only when deciding whether a schema counts
   as a stub, so nothing across the estate fails when a new request schema states neither that it is
   closed nor that it is open. Only the resource server asks, in its own contract test. Add the rule,
@@ -1194,7 +1264,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   subtree outside the named mappers. Sixteen more across the servers and shared libraries read
   responses or build output, where the tolerant mapper is what they want.
 
-- **26. Address artifacts by bare identifier in REST paths, keeping the full IRI as stored
+- **29. Address artifacts by bare identifier in REST paths, keeping the full IRI as stored
   identity.** **Production consequence:** an addressing migration rather than a data one. Stored
   identifiers in MongoDB, Neo4j and OpenSearch do not change, and no reindex is required, but
   clients that build URLs in the current form need the legacy shape kept as an alias until traffic
@@ -1226,7 +1296,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Done when every resource-specific route takes the bare identifier, one parser owns the
   reconstruction, and staging's per-artifact blocks are gone.
 
-- **27. Decide what each compatibility adapter is for, now that neither reads artifacts itself.**
+- **30. Decide what each compatibility adapter is for, now that neither reads artifacts itself.**
   Repo and OpenView exist to preserve URLs rather than to do work: the runbook's account of artifact
   route ownership gives repo the identifier dereferencing URLs and OpenView the anonymous
   presentation and open-artifact URLs, and says neither adapter should own artifact storage or an
@@ -1264,14 +1334,14 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   outage producing a successful read. That comparison is what proving routing compatibility means,
   and no adapter should be reduced before it passes on the deployed topology.
 
-  Item 26 settles a different question about the same two services — which path shape a route takes —
-  and the two interact: retiring repo's routes would retire the bare-identifier convention that item
-  26 proposes to generalize, so whichever is decided first constrains the other.
+  Item 29 settles a different question about the same two services: which path shape a route takes.
+  The two interact, because retiring repo's routes would retire the bare-identifier convention it
+  proposes to generalize. Whichever is decided first constrains the other.
 
   Done when each of the two hosts has a stated role, an owner, and either a current caller that needs
   the process or a routing arrangement that keeps its URLs resolving without one.
 
-- **28. Revisit controlled-term result actions: define scalable semantics, narrow them, or delete
+- **31. Revisit controlled-term result actions: define scalable semantics, narrow them, or delete
   them.** Exclusion and `move` actions are stored beside a field's complete constraint set and apply
   to the result after all ontology, branch, class and value-set constraints have been combined. They
   are not customizations of one constraint row. Before the picker exposes authoring controls, state
@@ -1297,3 +1367,47 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   page filling. Only then should the terminology picker expose a table-level result-customization UI.
   The compact picker presentation remains tracked in
   [VERSIONING-ROADMAP.md](./VERSIONING-ROADMAP.md); this item owns the backend meaning and scale limit.
+
+- **32. Validate a write with `cedar-artifact-library`, not the meta-schema alone.** Nothing but
+  `cedar-model-validation-library` stands between a caller and the store: the artifact server's
+  `validateTemplate` calls `newModelValidator()`, and the resource classes never mention
+  `org.metadatacenter.artifacts.model` at all. The artifact library reads a stored artifact only
+  later, when something asks for YAML — which is why defects sat in production for years before a
+  read found them.
+
+  The two disagree, and the meta-schema is always the more permissive. It asks every literal field
+  for an `inputType` and nothing more, so a temporal field with no granularity is accepted and then
+  unreadable. It types `pav:version` as a non-empty string, so `0.9` is accepted and has no YAML
+  form. It shares one value-constraints shape across all ten literal input types, so a text field
+  may carry an option list and a numeric field may carry one too. Every artifact repaired in
+  September 2026 entered through that gap.
+
+  The library is also the cheaper check. Measured warm over 100 runs: a 343 KB template costs it
+  2.70 ms to read and render against 17.14 ms to validate; 163 KB, 1.83 ms against 11.77 ms;
+  42 KB, 0.29 ms against 3.05 ms. Across all 151,806 production schema artifacts the library sits
+  at 0 ms through the 99th percentile where the validator reaches 7 ms, and on the largest
+  artifacts the gap is widest — 271 KB cost 5 ms to convert and 88 ms to validate. Adding the
+  library to a path that already pays for the validator costs roughly a sixth again.
+
+  And it says what is wrong. Draft-04 `oneOf` reports every failed branch, so one duplicated
+  literal produced 242 errors whose first named `/properties/theme/items/properties/@value/type:
+  array found, string expected` — a path with nothing wrong with it. The library answers `No text
+  value present for field temporalGranularity at /properties/Analysis Complete / Release date/_ui`.
+
+  **Instances are unmeasured and have to be settled before any of this lands.** The September 2026
+  work covered the 151,831 schema artifacts and left the 150,579 instances alone. An instance is
+  validated against the template it names rather than a fixed meta-schema, the library reads one
+  through `readTemplateInstanceArtifact`, and neither the cost nor the disagreement is known for
+  them. Measure both before deciding, since instances outnumber schema artifacts and a write gate
+  that doubles their cost is a different proposition.
+
+  Order is forced, as it was for `pav:version`. Refusing on write what the library cannot read
+  makes every stored artifact carrying such a shape unsaveable, including through the repair that
+  would fix it, so the corpus has to be clean first. `cedar_artifact_rest_audit.py` now reports the
+  shapes found so far — `temporal-precision-absent`, `field-offers-choices-it-cannot-present`,
+  `literal-label-blank`, `class-constraint-unresolved`, the three `artifact-version-*` rules — and a
+  pass over instances would say what else is waiting.
+
+  Decide, too, whether the library gates or advises. Gating refuses the write; running it ahead of
+  the validator and surfacing its message keeps the meta-schema authoritative while giving the
+  author something they can act on. The second is reversible and the first is not.

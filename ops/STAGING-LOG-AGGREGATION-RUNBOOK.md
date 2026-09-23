@@ -1,7 +1,12 @@
 # Staging rollout — CEDAR 2.9.7 + log aggregation
 
 **Date:** 2026-09-04 · **Target:** `cedar.staging.metadatacenter.org` · **Release:** `release-2.9.7`
-(cut by Martin 2026-09-04 03:21 PDT from train `2.9.7-dev.20260904.0620`).
+(train `2.9.7-dev.20260904.0620`).
+
+**Scope:** this is the release-specific rehearsal plan, not the current general deployment
+procedure. The plan alone does not establish whether the rollout completed. Before reusing it,
+check the recorded worklog, deployed release, schema and job state. General deployment mechanics
+belong in [PROD-DEPLOY-RUNBOOK.md](PROD-DEPLOY-RUNBOOK.md).
 
 Companions: `LOG-AGGREGATION-PLAN.md` (design), `PROD-LOG-AGGREGATION-ROLLOUT.md` (the prod plan this
 rehearses), `PROD-DEPLOY-RUNBOOK.md` (deploy mechanics — staging variant noted inline).
@@ -10,43 +15,19 @@ rehearses), `PROD-DEPLOY-RUNBOOK.md` (deploy mechanics — staging variant noted
 
 ## 0 · Why This Run Matters More Than a Normal Staging Deploy
 
-Two things are different from every previous staging deploy, and they point in opposite directions.
+A production-sized log copy can share staging's MySQL instance with app, messaging and Keycloak
+schemas. Confirm the topology: if shared, backfill and pruning compete for the same memory, I/O and
+disk. Use at least the production throttles (§5) and restore into a dedicated schema such as
+`cedar_log_staging`. `CEDAR_LOG_MYSQL_HOST/PORT/DB/USER/PASSWORD` selects the datasource;
+`hibernate.default_catalog` selects where `agg_*` and `log_aggregation_state` are created.
 
-**(a) The blast-radius guarantee does NOT hold on staging.**
-`PROD-LOG-AGGREGATION-ROLLOUT.md` §0 rests on the log DB being a *separate host*
-(`cedr-prd-db-01`), so backfill/prune can only stress the log DB and CEDAR stays up. On staging the
-prod log copy most likely sits in the **same MySQL instance** as staging's app / messaging / Keycloak
-schemas. If so, a prod-sized backfill contends for the *same* buffer pool, I/O queue and data volume
-as the rest of staging. **Throttle staging at least as hard as prod, not less** — §5 sets this.
+Measure DDL against that production-sized copy. Hibernate updates the schema before Jetty binds;
+a long `ALGORITHM=COPY` leaves the JVM alive, the port closed and nginx returning immediate 502s.
+**Run and time the log DDL in §4 before starting Monitor or Worker on this release.**
 
-The code itself does not care: the log datasource is fully parameterised
-(`CEDAR_LOG_MYSQL_HOST/PORT/DB/USER/PASSWORD`, with `hibernate.default_catalog` pinned to
-`${CEDAR_LOG_MYSQL_DB}` in `cedar-config-library/src/main/resources/cedar-main.yml`). Same instance +
-separate schema is a supported, normal shape — it is exactly the local-dev shape (`cedar_log`).
-**Recommendation: give the restored copy its own schema** (e.g. `cedar_log_staging`) even on the
-shared instance. Do not restore log tables into a schema that already holds app tables — hbm2ddl will
-create the eight new `agg_*` / `log_aggregation_state` tables into whatever
-`CEDAR_LOG_MYSQL_DB` names, and you want them isolated so §6's `DROP` is unambiguous.
-
-**(b) Staging can now catch the boot-stall — this is the whole point.**
-`PROD-LOG-AGGREGATION-ROLLOUT.md` §3a says *"Staging cannot catch this. Identical code, identical
-config — the only variable is row count, and staging's `log_request` is small."* By restoring a copy
-of prod's MySQL, **you have removed that exemption.** Staging's log tables are now prod-sized, so:
-
-- Every DDL timing you measure here is a real estimate for next week's prod run.
-- Conversely, staging's `cedar-monitor-server` (9014) and `cedar-worker-server` (9011) will now stall
-  at boot exactly the way prod did on 2026-09-01 if any log-entity DDL needs `ALGORITHM=COPY`.
-  Dropwizard runs the Hibernate schema update **before Jetty binds** — the signature is a *fast* 502
-  from nginx (connection refused), JVM alive in `ps`, nothing listening.
-
-**So the order is non-negotiable: migrate the log DB by hand (§4), timed, BEFORE monitor and worker
-start on the 2.9.7 build.** Never let boot discover the DDL.
-
-**Version modifier:** none needed. The version number itself moves (staging is on 2.9.1 per
-`worklog/2026-07-29-staging-deploy.md`), which busts the asset cache. `CEDAR_VERSION_MODIFIER` is only
-for same-version redeploys.
-
----
+For asset identity and any environment modifier, follow
+[production deployment](PROD-DEPLOY-RUNBOOK.md#3--choose-the-environment-modifier-then-re-source-the-env).
+Do not infer today's staging version from this plan's original baseline.
 
 ## 1 · Gather the Connection Facts
 
@@ -654,9 +635,11 @@ Then turn it back off and record what it cost.
 
 ---
 
-## 10 · Carry-Over to Prod (Next Week)
+<a id="10--carry-over-to-prod-next-week"></a>
 
-Fill this table in as you go — it *is* the prod plan.
+## 10 · Carry-Over to Prod
+
+Record these measurements for the production rollout decision.
 
 | Measured on staging | Value | Prod implication |
 |---|---|---|

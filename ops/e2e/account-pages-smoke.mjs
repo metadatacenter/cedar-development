@@ -34,7 +34,7 @@ async function open(route) {
   await page.goto(base + route);
   await page
     .locator(
-      "#username, cedar-account-shell .account-card, cedar-account-shell [role=alert]",
+      "#username, cedar-account-shell .account-card, cedar-account-shell [role=alert], #groups-page .groups-card",
     )
     .first()
     .waitFor();
@@ -102,7 +102,7 @@ try {
       200,
     );
     await key().waitFor({ state: "detached" });
-    await page.getByRole("link", { name: "← Workspace", exact: true }).click();
+    await page.getByRole("link", { name: "Workspace", exact: true }).click();
     await page.locator("cedar-workspace-page").waitFor();
     console.log(
       "PASS: Profile is Angular-only; account, key create/reveal/hide/regenerate/delete, and Workspace return",
@@ -139,7 +139,8 @@ try {
   }
   if (area === "groups") {
     await open("/groups");
-    await page.getByLabel("New group name", { exact: true }).fill(fixture);
+    await page.getByRole("tab", { name: "Create group", exact: true }).click();
+    await page.getByLabel("Group name", { exact: true }).fill(fixture);
     const created = await mutation(
       "POST",
       "/groups",
@@ -149,24 +150,17 @@ try {
     );
     groupId = (await created.json())["@id"];
     const path = "/groups/" + enc(groupId);
-    await page
-      .getByRole("button", { name: "Save details", exact: true })
-      .waitFor();
+    await page.getByRole("button", { name: "Save", exact: true }).waitFor();
     const me = page.getByRole("listitem", {
       name: [user1.profile.firstName, user1.profile.lastName]
         .filter(Boolean)
         .join(" "),
       exact: true,
     });
+    assert.equal(await me.getByRole("checkbox").isDisabled(), true);
     assert.equal(
       await me
-        .getByRole("button", { name: "Remove administrator", exact: true })
-        .isDisabled(),
-      true,
-    );
-    assert.equal(
-      await me
-        .getByRole("button", { name: "Remove member", exact: true })
+        .getByRole("button", { name: /^Remove .* from the group$/ })
         .isDisabled(),
       true,
     );
@@ -176,13 +170,24 @@ try {
     await mutation(
       "PUT",
       path,
-      () =>
-        page.getByRole("button", { name: "Save details", exact: true }).click(),
+      () => page.getByRole("button", { name: "Save", exact: true }).click(),
       200,
     );
     await page
-      .getByLabel("Add a member", { exact: true })
-      .selectOption(user2.profile["@id"]);
+      .getByRole("combobox", { name: "Add a member", exact: true })
+      .fill(
+        [user2.profile.firstName, user2.profile.lastName]
+          .filter(Boolean)
+          .join(" "),
+      );
+    await page
+      .getByRole("option", {
+        name: [user2.profile.firstName, user2.profile.lastName]
+          .filter(Boolean)
+          .join(" "),
+        exact: true,
+      })
+      .click();
     await mutation(
       "PUT",
       path + "/users",
@@ -208,14 +213,18 @@ try {
       .locator("#password")
       .fill(process.env.CEDAR_FRONTEND_local_USER2_PASSWORD || "test2");
     await vp.locator("#kc-login").click();
-    await vp.getByRole("button", { name: fixture, exact: true }).click();
+    await vp.getByRole("combobox", { name: "Find a group" }).fill(fixture);
     await vp
-      .getByText("Only group administrators can view and manage membership.")
+      .getByRole("option", {
+        name: fixture + " - Smoke description",
+        exact: true,
+      })
+      .click();
+    await vp
+      .getByText("Only a Group Administrator can see who is in this group.")
       .waitFor();
     assert.equal(
-      await vp
-        .getByRole("button", { name: "Save details", exact: true })
-        .count(),
+      await vp.getByRole("button", { name: "Save", exact: true }).count(),
       0,
     );
     assert.equal(await vp.evaluate(() => typeof window.angular), "undefined");
@@ -223,33 +232,33 @@ try {
     await mutation(
       "PUT",
       path + "/users",
-      () =>
-        other
-          .getByRole("button", { name: "Make administrator", exact: true })
-          .click(),
+      () => other.getByRole("checkbox").click(),
       200,
     );
-    await other
-      .getByRole("button", { name: "Remove administrator", exact: true })
-      .waitFor();
+    await page.waitForFunction(() => {
+      return (
+        document.querySelectorAll(".groups-member-row input:checked").length ===
+        2
+      );
+    });
+    await mutation(
+      "PUT",
+      path + "/users",
+      () => other.getByRole("checkbox").click(),
+      200,
+    );
+    await page.waitForFunction(() => {
+      return (
+        document.querySelectorAll(".groups-member-row input:checked").length ===
+        1
+      );
+    });
     await mutation(
       "PUT",
       path + "/users",
       () =>
         other
-          .getByRole("button", { name: "Remove administrator", exact: true })
-          .click(),
-      200,
-    );
-    await other
-      .getByRole("button", { name: "Make administrator", exact: true })
-      .waitFor();
-    await mutation(
-      "PUT",
-      path + "/users",
-      () =>
-        other
-          .getByRole("button", { name: "Remove member", exact: true })
+          .getByRole("button", { name: /^Remove .* from the group$/ })
           .click(),
       200,
     );
@@ -265,8 +274,7 @@ try {
     await mutation(
       "PUT",
       path,
-      () =>
-        page.getByRole("button", { name: "Save details", exact: true }).click(),
+      () => page.getByRole("button", { name: "Save", exact: true }).click(),
       412,
     );
     await page
@@ -280,9 +288,7 @@ try {
     await page
       .getByRole("button", { name: "Reload group", exact: true })
       .click();
-    await page
-      .getByRole("button", { name: "Save details", exact: true })
-      .waitFor();
+    await page.getByRole("button", { name: "Save", exact: true }).waitFor();
     await page.waitForFunction(
       () =>
         document.querySelector("#group-description")?.value ===
@@ -349,7 +355,7 @@ try {
         "page",
       );
     }
-    await page.getByRole("link", { name: "← Workspace", exact: true }).click();
+    await page.getByRole("link", { name: "Workspace", exact: true }).click();
     await page.locator("cedar-workspace-page").waitFor();
     console.log(
       "PASS: Privacy policy, responsive layout, account navigation, and all four Angular-only routes",

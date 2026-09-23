@@ -136,19 +136,26 @@ Measured: ~300–530 classes a second, and 500–1,100 bytes on disk a class. A 
 
 ## Serving the Store
 
-The terminology server reads the store when the profile names it, and reports itself unavailable
-rather than answering from BioPortal when it does not:
+Configure the catalog and index paths in this installation's `set-env-internal.sh`:
 
 ```bash
 export CEDAR_TERMINOLOGY_STORE_CATALOG="${CEDAR_HOME}/cedar-term/prod/catalog.sqlite"
 export CEDAR_TERMINOLOGY_STORE_INDEX="${CEDAR_HOME}/cedar-term/prod/search-index.sqlite"
 ```
 
-Both belong to the host rather than to the versioned profile, so they go in this installation's own
-`set-env-internal.sh`, and `cedar-services.sh` passes them to the
-terminology service alone. The catalog and the index are separate variables because they are
-separate files: a catalog can be served without an index, and `POST /search` and
-`GET /search/hierarchy` then report themselves unavailable while `/bioportal/*` carries on.
+The native controller passes them only to Terminology as `terminologyStore.*` JVM properties.
+Docker supplies the same properties through `CEDAR_JAVA_OPTS` and mounts the store from the host;
+use container-visible paths there. Restart/recreate the service after changes.
+
+The local service requires a catalog and a nonempty `localOntologies` search allowlist. Without
+either, or if opening the catalog fails, legacy lookups use BioPortal and local version-aware
+endpoints are unavailable. Without a search index, the catalog still serves local legacy lookups,
+but `POST /search` and `GET /search/hierarchy` cannot use the cross-snapshot index.
+
+`localRootsOntologies` independently selects local tree browsing; blank means use the search
+allowlist. Search-only ontologies browse through BioPortal, and browse-only entries are supported.
+The profile variables are `CEDAR_TERMINOLOGY_LOCAL_ONTOLOGIES`,
+`CEDAR_TERMINOLOGY_LOCAL_ROOTS_ONTOLOGIES` and `CEDAR_TERMINOLOGY_LOCAL_ONLY`.
 
 Confirm from the startup log rather than from the port answering:
 
@@ -156,9 +163,11 @@ Confirm from the startup log rather than from the port answering:
 grep -E "terminology store enabled|Cross-snapshot search index" $CEDAR_HOME/log/cedar-terminology-server.log | tail -2
 ```
 
-`localOnly=false` means an ontology outside the allowlist still proxies to BioPortal. The
-UMLS-licensed sources — SNOMEDCT, MEDDRA, RCD, ICPC2P — cannot be held locally and can never be
-pinned.
+`localOnly=false` permits BioPortal fallback when a routed local operation is unsupported;
+`true` makes that operation fail instead, which the equivalence harness needs. Ontologies outside
+the applicable local allowlist still route remotely. A green fallback-enabled suite therefore does
+not prove local coverage. UMLS-licensed sources (SNOMEDCT, MEDDRA, RCD, ICPC2P) remain remote and
+cannot be pinned in this store.
 
 ## What a Lookup Costs
 

@@ -46,8 +46,20 @@ navigation, collapsible side panels and Info/Version tabs. Category, latest-vers
 type filters are intentionally absent. Artifact/folder menus use existing REST operations
 and server capabilities; lifecycle actions come from resource reports, not listing summaries.
 
+The artifact and folder menu's **Permissions…** dialog follows the legacy access layout.
+It shows the owner and direct user/group grants to any reader, with searchable principals
+and immediately saved Viewer/Editor/Manager roles for callers with `manageGrants`.
+Everyone is Viewer-only. Ownership transfer is a separate, confirmed user-only action,
+gated by `transferOwnership`. Each write uses the permissions ETag; a stale write displays
+the failed change and requires an explicit reload. Capabilities refresh after each successful
+write, including self-demotion; a successful ownership transfer closes the dialog and refreshes
+the workspace, since the former owner may lose access. The modern Workspace smoke covers
+read-only viewing, role changes, Everyone, stale permissions, and two-user revocation.
+
 Profile provides account details and masked API-key create/regenerate/delete operations.
-Settings saves the account date preference used by Workspace. Groups uses independent
+Settings saves the account date preference used by Workspace. Groups has a standalone
+legacy-style Manage/Create layout with searchable group and member selectors, using shared
+design tokens instead of the account-page navigation. It uses independent
 group and membership ETags, restricts administration to group administrators and protects
 the last administrator. Privacy retains the existing policy wording in the Angular account
 shell. In `ops/e2e`, run `npm run smoke:account:all` for all four pages, or
@@ -76,6 +88,14 @@ not remount the editor. The combined Template Editor and its AngularJS smoke rem
 
 `npm test` runs Angular/Vitest tests and the Node tests for the retained plain-JavaScript
 Keycloak adapter, deployment configuration, atomic staging and npm package contents.
+`groups.spec.ts`, `permissions-dialog.spec.ts`, `access-views.spec.ts` and the Workspace
+action tests carry forward the legacy group/share controller, directive, permission-model
+and conditional-request contracts. They exercise rendered controls as well as request
+shapes, independent revisions, pending-write guards, failed/cancelled changes, late reads,
+last-administrator protection, direct-user ownership transfer and read-only access.
+Bootstrap visibility and asynchronous confirmation mechanics are replaced by native-dialog
+and confirmation-event tests. Failed writes retain the last saved state and the failed
+intent; stale revisions block further writes until an explicit recovery read completes.
 Configuration and CEE assets finish writing before the development server starts.
 Use `npm run copy:cee` to refresh only the staged editor.
 Workspace participates in `cedarcli check design-tokens` and the shared CI adoption gate;
@@ -144,10 +164,48 @@ rather than a dist-tag, and a semver range over these prereleases snaps back to 
 The lock is what makes a build reproducible, so the pin stays exact, and advancing it is a source
 change across several repositories.
 
-Development does not pay that cost, because `cedarcli build frontends` is a reactor. What
-remains is advancing the pins that a release records, and that is what the command below is for.
+The frontend reactor must handle this dependency propagation as part of the requested work.
+Publishing development packages to Nexus and advancing consumers’ development manifests and
+lockfiles are valid ways to do it; npm’s immutable versions are not a reason to leave consumers
+on older components. Release preparation remains a separate operation.
 
 ### The Reactor
+
+**“Full frontend reactor” means `cedarcli build frontends`.** The agreed completion contract is:
+
+1. Build all frontend libraries, embeddable components and browser applications from their
+   current local sources in dependency order, including the working-tree changes being tested.
+2. Make every downstream consumer use the components produced by that build. This is the
+   development equivalent of Maven SNAPSHOT resolution. It may publish fresh immutable **dev**
+   packages to Nexus and advance development pins in `package.json` and lockfiles as needed.
+   Registry publication and development-pin changes are allowed parts of the reactor, not
+   blockers or separate work the user must request again.
+3. Run the applicable component, integration and visual regression checks. Review intentional
+   visual changes before updating baselines; do not accept failed screenshots automatically.
+4. Redeploy all local frontends, verify the bundles actually served match the selected build,
+   and run the whole-stack smoke tests. Preserve that selection across restarts and dependency
+   reinstalls so old pins cannot silently restore an earlier component.
+5. Report completion only when the full sequence passes. Identify any unfinished stage precisely;
+   compilation alone does not fulfill a request for a full frontend reactor.
+
+The frontend build guard checks the frontend source repositories and CLI tooling. Within
+`cedar-development`, it checks `bin/`, `ops/frontend-train.json`, `ops/cedar-services.sh`
+and `ops/frontend_reactor_runtime.py`:
+profiles and frontend build/runtime configuration. Concurrent edits or commits to backend audits,
+repairs and documentation do not invalidate a frontend build. A guard failure means tracked inputs
+changed during the run; it does not establish that the build itself changed them.
+
+This contract does not require a release, a production deployment, or a Git commit/push.
+Development package publication and development-pin updates are distinct from release-version
+changes. Commit/push remains subject to the user’s instruction.
+
+The command runs the component verification gates in the isolated build copies, records the
+successful package selection, restarts all native frontends, verifies their installed reactor
+packages, and runs both whole-stack smoke tiers. A failure at any stage returns nonzero. A
+compilation failure leaves the previous runtime selection intact; a deployment or smoke failure
+leaves the newly selected composition available for diagnosis and does not report completion.
+
+#### Current artifact transport
 
 `cedarcli build java` never consults a pin: it builds the repositories in dependency order,
 installing each into `~/.m2`, so every consumer compiles against the sibling that came out of the
@@ -166,7 +224,7 @@ producer's `prepare` script. Missing or invalid package output and packing or st
 fail the producer task.
 
 `npm ci` becomes `npm install` for the same build, since a rewritten manifest no longer matches the
-lock, and the copy's lock is discarded with the copy. A development build is therefore not
+lock, and the resolved manifests and locks are retained as evidence before the copy is discarded. A development build is therefore not
 lockfile-reproducible, which is why the pinned build stays the release path.
 
 Each build snapshots the available references once, then advances its own selection as its
@@ -177,15 +235,68 @@ build's selection or installed bytes. Old directory entries from the earlier sto
 ignored; rebuilding the producers populates the tarball store. Keep immutable artifacts while
 builds are active; removing the whole `.reactor` cache is safe when no build is using it.
 
-Nothing is published to a registry, committed, or deployed, and no tracked file changes: the
-rewrite happens in the throwaway copy. A server payload builds in place
+A successful `cedarcli build frontends` records its exact component selection in
+`.reactor/runtime.json`. Local `cedarcli native start|restart` in the develop profile installs
+those tarballs with `npm install --no-save` before starting each frontend, retaining the
+application lock for other dependencies. Existing verified installs are reused. A failed full
+build leaves the previous selection intact, and concurrent producer refs cannot change a
+completed selection. The runtime checker verifies the selected tarball hash, install provenance
+and served bytes, so no publication is needed for local smoke tests.
+
+An npm hidden lock can name the selected tarball while installed package bytes still belong to
+an older build. The runtime installer compares the actual package files and removes only a
+selected package proved stale before reinstalling it; otherwise npm can report an up-to-date
+installation and retain the mismatch. Verification remains read-only and refuses that state.
+
+The compilation stage leaves running frontends alone; after compilation and component checks,
+`build frontends` restarts them to serve the selected build. Its local-tarball transport
+does not publish to a registry or modify tracked manifests or locks: the build rewrite happens
+in the throwaway copy. This describes the current transport, not a prohibition on Nexus dev
+publication or development-pin updates when needed to fulfill the reactor contract. A server payload builds in place
 and still installs its locks, and the train resolves exact Nexus aliases in its own checkouts, so
 neither sees the reactor.
 
 Because development no longer exercises the locks, the pinned composition is checked elsewhere:
 each repository's CI runs `npm ci` on every push, and `cedarcli check components` with the release
-and train preflights judge the composition. A reactor build proves the sources compose, not that
-what ships does.
+and train preflights judge the composition. The isolated compilation stage proves the sources compose. Completing the local reactor
+contract also requires runtime verification and smoke; release and train gates still verify
+the separately pinned shipping composition.
+
+#### Reading reactor evidence
+
+`.reactor/runtime.json` names the selected package hashes and its `build` record under
+`.reactor/builds/<SHA256>.json`. That immutable record contains each built source's Git revision,
+fingerprint of tracked and nonignored source files (including uncommitted changes), executed
+commands, local dependency edges, integration-test sibling hashes, and resolved manifests and locks.
+All source fingerprints are captured before the first task, checked before each copy is built, and
+checked again when the graph is recorded. Package version labels are
+not source identities: a package compiled today can retain an older development version string.
+Use the source fingerprint and artifact hash to identify what was built.
+
+The train never searches this machine for a previous reactor. It captures committed sources and
+builds its own graph, publishing immutable packages before wiring their consumers. A local reactor
+can therefore test uncommitted work, but a train requires committed, pushed sources and smoke
+evidence for those commits. Finish controller changes and runbook updates before the final smoke
+and train capture; moving a captured head invalidates release eligibility.
+
+A fresh model can expose failures hidden by an older checked-in pin. In particular, the model's
+empty-string description default requires new designer child deployments to use the built
+child's effective schema description rather than assuming an absent value is always null. Otherwise YAML restores `""` where JSON omitted the override, and the
+designer's loss-detection guard refuses valid exports. Preserve the loss-detection guard and align
+the producer/consumer default; do not bypass the gate or restore an older library to make it green.
+
+The designer's browser suite conditionally enables real-sibling tests through `CEF_BUNDLE` and
+`PICKER_BUNDLE`. The reactor supplies both from its selected immutable packages and records their
+hashes. A test suite passing with these inputs absent does not prove the CEE/picker/designer
+integration, because those cases are ignored or skipped.
+Keep the extracted test bundles beside the isolated checkout, outside its source tree. Tailwind
+scans local JavaScript: placing them inside the designer added 1,772 bytes of sibling-only CSS and
+tripped its raw bundle limit. Moving the test inputs out restored the original output without
+raising either size budget.
+
+CEE's container visual gate mounts the local reactor artifact directory read-only at its original
+absolute path. Without that mount, the host can install a `file:` dependency while the container
+cannot resolve the same generated lock. The mount exposes only immutable tarballs.
 
 ### Recording a Pin
 
@@ -201,16 +312,26 @@ builds it, and every consumer whose pin follows it. The design tokens publish fr
 root and declare `"."`; the term picker and the designer stage under `dist-npm/`.
 
 A component something else publishes is declared to be followed instead, with `publishedBy` and a
-`reference`. The TypeScript model library is the one: the build train publishes its development
-snapshots and advances CEE's pin, and nothing advanced the other consumers. Its target is the
-version the reference consumer already carries rather than a new stamp, because the library's own
-manifest names its last stamp and not always the newest snapshot the train published. A followed
-component is never stamped, built or published here; only the pins move.
+`reference`. The TypeScript model library is the one: this command follows CEE's checked-in model pin when
+updating the designer. It does not discover the latest model source or consume local reactor
+artifacts. The build train publishes and wires its own model, CEE and shared-component versions in
+disposable checkouts; it does not update this reference consumer in the source checkout. A followed
+component is never stamped, built or published by `publish components`; only its declared pins move.
+Do not use this command as evidence that a reactor's complete dependency graph was published.
 
 Applying it stamps the component's next development version from its `develop` head, runs its dist
 command, publishes the staged package under the `dev` tag, then repoints each consumer's manifest,
-moves its lock, and re-stages its served bundles. Reporting is the default because an npm version
-once taken cannot be republished. Every repository it would write to must be clean in its tracked
+moves its lock, and re-stages its served bundles.
+
+When a development reactor is active, pin updates only change manifests and locks
+(`npm install --package-lock-only --ignore-scripts`): they leave installed packages and served
+bundles intact and skip consumer restaging. Publishing must not roll a running local frontend back
+to its older registry pins. Component publication itself starts with `npm ci`, so it builds against
+the declared dependencies even when a local reactor installation differs. Use `cedarcli build frontends` and the native frontend restart to activate a new development
+composition; verify served
+bundle identities again after any packaging or publication work.
+
+Reporting is the default because an npm version once taken cannot be republished. Every repository it would write to must be clean in its tracked
 files first, so the diffs left behind are its own, and nothing is committed.
 
 The train captures the term picker and the designer, so a train's recorded source names their
@@ -570,6 +691,11 @@ distinguishes them.
 <a id="cee-releasing-a-dev-snapshot-locally"></a>
 
 #### Releasing a Dev Snapshot Locally
+
+Publish snapshots scoped to `@org.metadatacenter` on Nexus, never unscoped: Nexus's old unscoped
+CEE lineage can outrank current releases in semver ranges. `scripts/npm-package.mjs` selects the
+channel from `-dev.` in the version. Pass `--tag dev` explicitly because npm 11 ignores
+`publishConfig.tag`; dry-run the same command first and verify the registry's dist-tags afterwards.
 
 A snapshot is a real published version, so every frontend can name it and install
 it, and anyone can fetch it later. Reads from Nexus are anonymous; only publishing
@@ -1672,354 +1798,36 @@ instead, where the dev versions do not exist.
 
 <a id="cee-release"></a>
 
-### Release
-
-`main` is owned by the release process. Work lands on `develop`.
-
-There is one stable publish target: the unscoped `cedar-embeddable-editor` on public npmjs, under the
-default `latest` tag, which `npm view cedar-embeddable-editor version` names. All seven embedding
-manifests pin one exact stable version from npmjs; the propagation check confirms the matching
-manifest and lockfile resolution in every consumer.
-The stable registry goes from 1.5.2 straight to 2.0.1: 1.6.0 was
-published on 2026-08-12 and unpublished from npmjs afterwards, so a manifest still naming 1.6.0
-cannot install, and the tarball it named cannot be fetched for comparison.
-`scripts/npm-package.mjs` generates the published manifest, hardcoding the stable package name and
-writing no `publishConfig`, so a stable package goes to `registry.npmjs.org`; the root manifest's
-own `name` and `publishConfig` are not what publishes.
-
-Dev snapshots are a second channel: the scoped `@org.metadatacenter/cedar-embeddable-editor` on
-Stanford Nexus under a `dev` tag, versioned `<next>-dev.<date>.<sha>`. It was retired for a while and
-is live again. Query the registry before relying on the mutable `dev` tag; pin an exact version in
-an embedding app through an npm alias, since npm routes by scope and this is the only package taken
-from Nexus.
-Train-owned snapshots use the more specific
-`<next>-dev.<train-date><train-minute>.g<sha12>` identity, tying the package to both the train and
-the captured CEE commit without rewriting CEE source history.
-
-`scripts/npm-package.mjs` derives the channel from the version rather than taking it as a flag: a
-version containing `-dev.` is published scoped, with a `publishConfig` naming the Nexus registry;
-anything else is published unscoped to npmjs. So a snapshot cannot reach npmjs by a forgotten flag.
-
-The **tag** is not covered by that. npm 11 ignores `publishConfig.tag` — a dry run of the snapshot
-manifest reports `tag latest` — so `--tag dev` has to be passed on the command line. Without it the
-scoped package gains a `latest` pointing at a prerelease, a tag it does not otherwise have.
-
-Do not publish CEE unscoped to Nexus. That name exists there already, carrying a 2023 lineage:
-`2.6.20`–`2.6.24` from early 2023 and `1.0.3` as `latest`. Any 2.x published now sorts below
-`2.6.24`, so a range like `^2.0.0` would resolve to a three-year-old build. `npm-cedar` is a hosted
-repository and proxies nothing, so an unscoped package cannot be reached selectively anyway: npm
-routes by scope, and pointing a whole app at Nexus would break every dependency it does not hold.
-
-Version is surfaced at runtime as `window.cedarEmbeddableEditorVersion`.
-
-> `gocee`, `gocedar` and `gobridging` are CEDAR profile aliases (cd to the respective
-> repo). **Never commit npm tokens, passwords, or OTPs.**
-
 <a id="cee-prerequisites--registry-auth"></a>
-
-#### Prerequisites — Registry Auth
-
-Publishing needs rights on `cedar-embeddable-editor` at npmjs, and npm requires a second factor:
-pass `--otp=<code>`, or hold a granular access token with "Bypass 2FA" in `~/.npmrc`. An `E404` on
-publish means unauthenticated rather than missing — check `npm whoami` before believing the package
-disappeared. Confirm the account without printing any credential:
-
-```bash
-npm whoami
-```
-
-A token is a credential — keep it in `~/.npmrc` only, never in a repo or these notes.
-
 <a id="cee-1--bump-the-version"></a>
-
-#### 1 · Bump the Version
-
-A release version is plain semver — for example, `2.0.3`. Only **two** files hold it by hand:
-
-| File | Occurrences |
-|---|---|
-| `package.json` | 1 (`"version"`) |
-| `package-lock.json` | 2 (top-level `"version"` + the root `""` package entry) |
-
-Everything under `dist-npm/cedar-embeddable-editor/` is **generated** and git-ignored —
-`scripts/npm-package.mjs` derives the manifests from the root `package.json`, `types:public` emits
-the declarations, and the README and changelog are copied from the root. Do not hand-edit any of
-them; staging overwrites them. (Older notes describing "six version spots", or the directory as a
-committed artifact, predate that script and the ignore.)
-
-CEE deliberately has no `package-dist.json`. The model library needs that second source manifest
-because its root and published packages have different names. CEE's staging script already performs
-the same translation: a plain version produces `cedar-embeddable-editor` for npmjs, while a version
-containing `-dev.` produces `@org.metadatacenter/cedar-embeddable-editor` for Nexus. Copying the
-model library's manifest into CEE would create a second manual version and channel switch that could
-disagree with the tested package; `.gitignore` rejects that accidental file.
-
-Then add a `## [X.Y.Z] - <date>` section to `CHANGELOG.md`, and bump the load-trace stamp in
-`src/app/modules/shared/components/cedar-embeddable-metadata-editor/cedar-embeddable-metadata-editor.component.ts`
-→ `private static INNER_VERSION = '<YYYY-MM-DD HH:MM>';`, the time the bump was written. 2.0.1 stamps
-`'2026-08-21 15:09'`.
-
-> `ceeVersion` derives from `package.json` and is exposed as `window.cedarEmbeddableEditorVersion`,
-> so bumping `package.json` is what drives the visible version. `INNER_VERSION` is only the stamp
-> logged at load. `README.md` and `CHANGELOG.md` are copied into the package by staging — no manual
-> `cp` step.
-
-The stamp is the only version spot nothing derives — every other copy is generated from
-`package.json`, so a forgotten stamp used to ship a bundle that passed everything and then reported
-the previous release to anyone reading the console. `check:npm-package` guards that only for a dev
-version, where the version's trailing sha and the stamp's must name the same commit; a stable version
-carries no commit, so the check reports `(stable, no load-trace commit to check)` and passes whatever
-the stamp says. Read it yourself before publishing a release.
-
-If the root already reports the requested release version, do not rerun `npm version`: npm rejects
-an idempotent version request as `Version not changed`. Check first, then bump only when needed:
-
-```bash
-node -p "require('./package.json').version"
-npm version X.Y.Z --no-git-tag-version
-```
-
 <a id="cee-2--test-and-stage-the-package"></a>
-
-#### 2 · Test and Stage the Package
-
-The operator command now has the same shape as the model library's:
-
-```bash
-npm run test:package
-node -p "require('./dist-npm/cedar-embeddable-editor/package.json').name + '@' + require('./dist-npm/cedar-embeddable-editor/package.json').version"
-```
-
-For a stable `X.Y.Z`, the second command must print
-`cedar-embeddable-editor@X.Y.Z`. For a dev version it must print the scoped
-`@org.metadatacenter/cedar-embeddable-editor@<DEV_VERSION>` identity.
-
-`test:package` builds production, runs the Playwright baseline, checks the bundle size, emits the
-public declarations and compiles the README examples against them, then writes and verifies
-`dist-npm/cedar-embeddable-editor/`. Staging publishes
-`visual/public/cedar-embeddable-editor.js` and refuses to run unless that file's SHA-256 and byte
-count match `visual/public/bundle-manifest.json`. The published artifact is therefore the exact
-bundle a browser exercised.
-
 <a id="cee-3--publish"></a>
-
-#### 3 · Publish
-
-A release goes to npmjs, unscoped, under `latest`:
-
-```bash
-cd dist-npm/cedar-embeddable-editor && npm publish
-```
-
-A dev snapshot goes to Nexus, scoped. The registry comes from the staged manifest; the tag does not,
-so pass it:
-
-```bash
-cd dist-npm/cedar-embeddable-editor && npm publish --tag dev
-```
-
-> Dry-run it first. A published version cannot be replaced, and the dry run names the registry and
-> the tag it would use — the cheapest way to catch a wrong target while it is still reversible:
->
-> ```bash
-> npm publish --dry-run
-> ```
-
-Then confirm what moved. For a release:
-
-```bash
-npm dist-tag ls cedar-embeddable-editor
-```
-
-`latest` should point at the version just published, and it should be the only tag. For a snapshot,
-read the tags off Nexus, where `dev` should be the only one:
-
-```bash
-curl -s "https://nexus.bmir.stanford.edu/repository/npm-cedar/@org.metadatacenter%2fcedar-embeddable-editor" | python3 -c "import json,sys; print(json.load(sys.stdin)['dist-tags'])"
-```
-
 <a id="cee-4--commit-tag-the-release-and-draft-its-notes"></a>
-
-#### 4 · Commit, Tag the Release, and Draft Its Notes
-
-Nothing in the publish records which commit was staged, and `npm publish` will happily ship a dirty
-working tree. Commit the release preparation immediately after the publish, then tag that commit
-rather than a later merge:
-
-```bash
-git add package.json package-lock.json CHANGELOG.md \
-  src/app/modules/shared/components/cedar-embeddable-metadata-editor/cedar-embeddable-metadata-editor.component.ts
-git commit -m "Prepare CEE release X.Y.Z"
-git push
-RELEASE_COMMIT=$(git rev-parse HEAD)
-git checkout main
-git pull
-git tag -a release-X.Y.Z "$RELEASE_COMMIT" -m "CEE X.Y.Z"
-git push origin release-X.Y.Z
-git checkout develop
-```
-
-If the tag is added later and the commit is no longer obvious, the published package identifies it.
-Three of its files are copied rather than generated — `README.md`, `CHANGELOG.md` and
-`license.txt` — so `npm pack cedar-embeddable-editor@<version>` and a hash of those three against
-each candidate commit settles which tree was staged. That is what distinguishes the bump commit on
-`develop` from the merge on `main`, which can differ in nothing else.
-
-Then draft the release notes against the tag:
-
-```bash
-gh release create "release-${CEE_VERSION}" --draft --title "CEE ${CEE_VERSION}" --notes-file <notes.md>
-```
-
 <a id="cee-5--advance-development"></a>
-
-#### 5 · Advance Development
-
-Back on `develop`, advance to the next development base. The version itself selects the scoped
-Nexus channel, so there is no package name to restore:
-
-```bash
-DEV_SHA=$(git rev-parse --short HEAD)
-DEV_DATE=$(git show -s --format=%cd --date=format:%Y%m%d HEAD)
-npm version "<NEXT>-dev.${DEV_DATE}.${DEV_SHA}" --no-git-tag-version
-```
-
-Update `INNER_VERSION` to name the same date and SHA, then verify the generated identity without
-publishing it:
-
-```bash
-npm run test:package
-node -p "require('./dist-npm/cedar-embeddable-editor/package.json').name + '@' + require('./dist-npm/cedar-embeddable-editor/package.json').version"
-# Must print @org.metadatacenter/cedar-embeddable-editor@<DEV_VERSION>
-git add package.json package-lock.json \
-  src/app/modules/shared/components/cedar-embeddable-metadata-editor/cedar-embeddable-metadata-editor.component.ts
-git commit -m "Advance CEE to next development version"
-git push
-```
-
-CEE's notes follow the shape 2.0.3's carry, which is not the one
-[cedar-project's releases](https://github.com/metadatacenter/cedar-project/releases) use — those
-announce a platform deployment to the people who use the Workbench, and CEE ships a package to the
-people who embed it. One opening line names the release and links the npm package. One paragraph
-says what most of the release is, in specifics. Then the changelog's own headings — Added, Changed,
-Removed, Fixed, Security — each bullet led by a bold clause naming the thing that changed, with
-`Fixed` grouped under bold labels once it runs long. The pre-release-builds note and the link to
-the full changelog close it.
-
-A bullet is one or two sentences — 20 to 30 words, 45 at the outside. It says what changed and, if
-it is not obvious, what was wrong before; the reasoning behind it stays in `CHANGELOG.md`, which is
-where a reader who wants it will look. Lead with the concrete subject: "A `change` event naming the
-field that changed" is a bullet, while "a host is told what changed rather than that something did"
-is a riddle whose answer is the bullet.
-
-`CHANGELOG.md` is the source for the notes and not their shape. It records every change; the notes
-select the ones an embedder has to act on or would want to know about, and say what each is for.
-Publish the draft once someone has read it.
-
-Releases before 2.0.1 carry tags but no GitHub release; 1.6.0's tag was added retroactively, at
-`8a9e3693`.
-
 <a id="cee-6--propagate"></a>
-
-#### 6 · Propagate
-
-Seven manifests across five repos depend on CEE. Workspace is a required consumer alongside the
-production monolith and the existing auxiliary/demo frontends. A stable release names one exact
-version resolved from npmjs:
-
-```json
-"cedar-embeddable-editor": "2.0.3"
-```
-
-Its lockfiles record the npmjs tarball and integrity hash, so what installs is reproducible.
-Installing needs no credential; only publishing does. A development snapshot instead uses the
-scoped `@org.metadatacenter` Nexus alias.
-
-Each repo carries an `.npmrc` holding `@org.metadatacenter:registry` against Nexus, which is required
-while a development snapshot is pinned and harmless for a stable npmjs release.
-
-| Repo | Manifest | Install |
-|---|---|---|
-| `cedar-workspace` | `package.json` | plain |
-| `cedar-template-editor` | `package.json` | plain |
-| `cedar-bridging` | `cedar-bridging-src/package.json` | plain |
-| `cedar-openview` | `cedar-openview-src/package.json` | plain |
-| `cedar-component-demo` | `cedar-cee-demo-angular-src` | plain |
-| `cedar-component-demo` | `cedar-cee-demo-ember-src`, `cedar-cee-demo-react` | plain |
-
-Every consumer installs in plain mode. OpenView needed `--legacy-peer-deps` while it carried
-`ngx-youtube-player-14`, which demanded `@angular/common@^14.1.3` from a project on Angular 16; that
-package left with the unreachable dependencies, and a plain install now resolves. The Angular demo
-needed the flag until it moved to Angular 22, for a different reason: it declared
-`@angular/material`, which wants `@angular/forms`, and used neither.
-
-The mode reaches further than the install. The train and the release regenerate each consumer's
-lock when they pin a CEE version, and a lock written under `--legacy-peer-deps` omits the peer
-packages a plain install records, which that repository's plain `npm ci` then refuses as out of
-sync with its manifest. The mode a consumer's own CI uses is therefore the mode
-`frontend-train.json` and `propagate-cee-release.mjs` must name for it.
-
-Propagate all seven pins with the checked cross-repository helper. It updates each manifest and
-lockfile using the appropriate npm peer-dependency mode, then fails unless Workspace and every
-existing consumer resolve the exact version from the correct registry:
-
-```bash
-export CEDAR_HOME=/path/to/CEDAR
-node $CEDAR_HOME/cedar-development/ops/propagate-cee-release.mjs --apply <CEE_VERSION>
-node $CEDAR_HOME/cedar-development/ops/propagate-cee-release.mjs --check <CEE_VERSION>
-```
-
-Never replace the helper with a remembered consumer list: its tested inventory is the guard that
-keeps Workspace wired into every CEE release. Review and commit the resulting manifest and lockfile
-changes in each owning repository separately.
-
-There are two deliberately different propagation paths. A stable CEE release still uses this helper
-to make reviewable changes in the owning source repositories. An immutable development build train
-does not modify those repositories: in disposable exact-commit checkouts it publishes the captured
-model after its full gate, wires it into CEE, runs CEE's full ARM gate, publishes that CEE, and then
-wires the verified CEE into all seven consumers. The train records hashes of those transformed
-manifests, locks and rebuilt payloads before publishing the frontend artifacts. See
-[BUILD-RUNBOOK.md](./BUILD-RUNBOOK.md) for `npm/model/completed`, `npm/cee/completed`, and the final
-`npm/completed` record.
-
-The train-backed CEDAR release then requires an explicit public CEE version. It verifies both
-tarballs and accepts the npmjs package only when its executable bundle is byte-identical after
-normalizing the single embedded CEE version, model-package identity and load trace. It also permits
-only the package channel metadata, the manifest derived from those bundle bytes, and one dated
-current-release changelog entry; every other packaged byte must match. This proves the public model
-substitution did not change the model code compiled into CEE and prevents an independently changed
-CEE from being substituted into the CEDAR release. The closed normalization list and its failure
-rules are in [NPMJS-RELEASE-RUNBOOK.md](./NPMJS-RELEASE-RUNBOOK.md#use-the-public-cee-in-a-train-backed-cedar-release).
-
-Propagating a release also means rebuilding each deployed consumer.
-Confirm the bytes rather than the version string: the sha256 that `package:npm:prebuilt` prints should
-appear in each consumer's `node_modules`, and again wherever that consumer stages the bundle —
-`app/third_party_components/` for both Workspace and the monolith,
-`dist/cedar-openview/node_modules/` for OpenView.
-
-```bash
-gobridging  && npm install && cd .. && cedarcli build this --wd "$PWD"
-cd $CEDAR_HOME/cedar-workspace && npm run copy:cee
-cd $CEDAR_HOME/cedar-template-editor && npx gulp copy:cee
-```
-
-A rebuild is what reaches a running frontend; the manifest edit and the install only change what
-resolves. Both Workspace and `cedar-template-editor` copy the installed bundle during Gulp. The
-production deployment procedure must build whichever of those two payloads the environment serves,
-and during migration builds both ([PROD-DEPLOY-RUNBOOK.md](./PROD-DEPLOY-RUNBOOK.md) step 6).
-
 <a id="cee-gotchas"></a>
 
-#### Gotchas
+### Release
 
-- **Publish only from `dist-npm/cedar-embeddable-editor/`.** From the repo root, `npm publish` uses
-  the root manifest and packs the whole source tree.
-- **Staging refuses a stale bundle** rather than shipping one. `browser bundle does not match its
-  manifest` means run `npm run test:visual` again; it is the guard working, not a fault.
-- **Reaching an environment is a separate step.** Publishing does nothing there until every served
-  CEE host—including Workspace and the monolith during migration—is rebuilt against the new version,
-  its served hash is verified, and the environment cache-buster/CDN entries are changed or purged
-  (PROD-DEPLOY-RUNBOOK + frontend-caching).
+The [npmjs release runbook](NPMJS-RELEASE-RUNBOOK.md) owns stable CEE and model-library releases:
+prepare and test on `develop`, merge through green CI, rebuild and publish from `main`, tag the
+published commit, then restore development state. Never publish from the repository root.
+
+| Task | Authoritative procedure |
+| --- | --- |
+| Credentials and version availability | [Shared prerequisites](NPMJS-RELEASE-RUNBOOK.md#shared-prerequisites) |
+| CEE version, model pin, tests and publication | [Release CEE](NPMJS-RELEASE-RUNBOOK.md#release-cee-with-an-explicit-model-version) |
+| Advance CEE after release | [Restore development state](NPMJS-RELEASE-RUNBOOK.md#restore-cee-development-state) |
+| Update consumer pins and train baselines | [Propagate CEE](NPMJS-RELEASE-RUNBOOK.md#propagate-a-stable-cee-release) |
+| Adopt public CEE in a CEDAR release | [Train-backed release](NPMJS-RELEASE-RUNBOOK.md#use-the-public-cee-in-a-train-backed-cedar-release) |
+| Write the announcement | [Release notes](NPMJS-RELEASE-RUNBOOK.md#release-notes) |
+| Publish a development snapshot | [Local dev snapshots](#cee-releasing-a-dev-snapshot-locally) |
+
+
+
+Publishing alone changes no running frontend. Rebuild each served host, verify bundle hashes,
+and invalidate its caches using [production deployment](PROD-DEPLOY-RUNBOOK.md#6--verify-and-rebuild-every-cee-host-to-the-intended-version).
+For local bundle staging, see [Getting a Local Build into the Frontends](#cee-getting-a-local-build-into-the-frontends).
 
 <a id="ced"></a>
 
@@ -2619,9 +2427,20 @@ Error text and borders use `color-error` (#b42318), advisory text uses
 `color-warning`, and advisory backgrounds use `surface-advisory`. The old Material
 `color-warn` remains exported for compatibility. The shared `fonts` Sass export
 contains 21 embedded font faces and no selectors or external font requests.
-Font registrars import it outside shadow DOM; CEE separately retains its Material
-icon font. Sharing the source preserves self-contained bundles rather than
-introducing a runtime font download.
+Font registrars import it outside shadow DOM. Sharing the source preserves
+self-contained bundles rather than introducing a runtime font download.
+
+Modern Workspace, CEE/CEF, CED/CEFD and CETP use the tokens package's `icons`
+export: curated Lucide SVGs behind CEDAR semantic names, shared 16/20/24px sizes
+and a 2-unit stroke. Thin Angular adapters render that registry; CEE uses a
+`cedarIcon` directive on Material hosts and no longer ships an icon font.
+Icon-only controls retain accessible names while SVGs are decorative.
+Brand assets and authored content are separate. The legacy AngularJS shells
+are excluded. `cedarcli check design-tokens --strict` also rejects local icon
+geometry, icon-font markup and unknown static names; icon findings cannot be
+waived with baseline allowances. Consumer unit tests exercise the registry
+adapters, browser tests check meanings and dimensions, and CEE/CED screenshot
+baselines use their pinned Linux ARM containers with zero pixel tolerance.
 
 Interface typography uses regular 400 and medium 500, with a 12px minimum for
 small labels and count badges. OpenView retains a distinct 34px artifact title.
@@ -2630,7 +2449,7 @@ system monospace stack. New CSS roles use fallback values so older pinned token
 packages remain buildable; advance pins after publishing a new immutable snapshot.
 
 CEE's production build also emits `cedar-embeddable-editor.host-fonts.js` and
-`bundle-manifest.host-fonts.json`. This entry point retains Material Icons and
+`bundle-manifest.host-fonts.json`. This entry point uses the shared Lucide registry and
 expects the host to register `CEE Roboto` 400/500 globally. The default bundle
 continues to embed its fonts for standalone CEE/CEF use. Workspace copies and
 selects the host-font variant when its installed CEE package includes it, falling
@@ -2646,6 +2465,32 @@ accepted configuration to terminology and embedded CEF. Malformed non-object
 configurations do not consume the first assignment. CEE/CEF's existing direct-host
 contract still requires trailing slashes; the designer coordinator supplies them.
 Read-only and document lifecycle contracts remain component-specific.
+
+#### Shared interaction and layout roles
+
+The tokens package also owns keyboard focus geometry, enabled hover/pressed and
+disabled states, paired semantic status colors, dialog/menu surfaces, form rhythm,
+table density, motion durations and overlay layers. Use its opt-in Sass recipes
+through thin adapters; keep component behavior, host override contracts and unique
+layout local. Semantic status text/surface pairs have automated contrast checks.
+Default table rows accommodate 36px controls with 8px vertical gutters; authoring
+rows accommodate 32px controls with 4px gutters. Row heights can grow for content.
+
+Include the shared reduced-motion recipe once per document or shadow root.
+JavaScript-driven animation must honor the preference separately. Layer roles
+are ordered within the host stacking context; they do not supersede native dialog
+top layers. CED browser checks exercise menu/modal layers and both motion modes.
+The read-only live `ops/e2e` command `npm run smoke:ui-unification` checks Groups
+keyboard focus and disabled, hover and pressed states, plus the CEE-derived white
+surfaces and title roles across Workspace, account pages and resource dialogs at
+desktop and phone widths. `CEDAR_UI_SCREENSHOTS=/tmp/cedar-ui` saves review captures.
+The full `npm run smoke:workspace:modern` journey also checks editable and read-only
+Permissions dialogs, including visible role/ownership controls on phones; it accepts
+the same screenshot directory. These live checks need the authenticated local stack.
+CETP's `npm run test:visual` compares two zero-tolerance desktop/phone baselines in
+Playwright 1.63.0's ARM Linux container, matching its CI runner. Build first; update
+with `npm run test:visual -- --update-snapshots` only after reviewing the render.
+CEE's existing read-only and editable visual baselines remain the design reference.
 
 #### Local Verification of Unpublished Token Changes
 
@@ -2679,14 +2524,39 @@ its tests exercise.
 
 #### Monitoring token adoption
 
-Run `cedarcli check design-tokens` for the three embeddable component repositories (CEE/CEF, CED/CEFD and CETP),
-`--strict` to gate new color/typography drift, `--json` for an archived report,
-and `--repo <name> --prune-baseline` after removing existing findings. Spacing and
-geometry are advisory. The version comparison is against the local token package,
+Run `cedarcli check design-tokens` for Workspace, CEE/CEF, CED/CEFD, CETP,
+OpenView, Monitoring, Bridging and the Template Designer host,
+`--strict` to gate new color/typography, spacing, control geometry, layers and
+motion drift, `--json` for an archived report, and `--repo <name> --prune-baseline`
+after removing existing findings. Policy 2 includes Angular styles, inline templates,
+style bindings and utility classes. Unknown shared properties cannot be baselined.
+CI rejects increased allowances against the trusted base revision, including unused
+allowances. The offline scanner reads versioned sources and needs no npm build. The version comparison is against the local token package,
 not the latest Nexus publication. This complements `cedarcli check components`;
 it does not prove which bundle a host serves. The token repository's README owns
 the scanner scope, exact-declaration exceptions, CI base-revision comparison and
 rollout order. Review baseline changes as code; do not regenerate debt to pass CI.
+
+The tokens package exports opt-in `patterns` Sass recipes for titles, menus, dialogs,
+forms, toolbars, tabs, table cells and empty states. Its `UI-CONTRACTS.md` records
+required behavior and the suites that verify it. Workspace, Groups and Permissions
+consume these recipes; CEE remains the visual reference.
+
+Token pull requests and develop pushes run `Consumer contracts` across all eight
+consumers. Each job records both source SHAs and the packed candidate hash, installs
+the consumer's locked graph, and replaces only the dependency-free token package.
+Every packed file is compared byte for byte. All eight consumers build; CEE, CED,
+CETP and Workspace run their existing pinned Linux ARM64 visual suites without
+updating baselines. This complements each consumer's own CI and catches shared
+changes before publication. It does not install repository approval rules.
+
+Workspace's `npm run test:visual` runs its built Angular application in the pinned
+Playwright container, covering desktop/375px screenshots, Axe accessibility, keyboard
+menus, modal focus/return, nested Escape handling, stale/duplicate saves, field errors,
+unsaved edits, destructive cancellation and URL navigation state. Fixtures mock HTTP,
+authentication and the CEE SDK boundary; the real-component and live-stack suites
+remain necessary. `npm run smoke:workspace:modern` in `ops/e2e` exercises the live
+services and actual CEE/CED components. See `cedar-workspace/browser/README.md`.
 
 For a side-by-side manual comparison, build CEE and CED using the procedures above,
 stage the current CEE bundle beside CED's bundle, then start CED's fixture server
@@ -2699,7 +2569,8 @@ node browser/serve.mjs
 ```
 
 Open `http://localhost:4598/style-comparison.html`. It renders all four real
-components and supports compact/authoring entry density, narrow hosts, inherited
+components, displays the shared semantic status pairs, and supports
+compact/authoring entry density, narrow hosts, inherited
 overrides and the supported read-only modes. Use keyboard focus and invalid
 field values to inspect those states. The page shows a missing-bundle message
 instead of substituting mock components. Its browser test joins the existing

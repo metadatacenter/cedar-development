@@ -124,14 +124,19 @@ def repository_root(workspace: Path, source: dict, repository: str) -> tuple[Pat
 
 def require_exact_alias(manifest: Path, lock: Path, local_name: str,
                         published_name: str, version: str) -> None:
-    expected = f"npm:{published_name}@{version}"
+    expected = version if local_name == published_name else f"npm:{published_name}@{version}"
     package = load_json(manifest)
-    declared = package.get("dependencies", {}).get(local_name)
+    sections = [section for section in ('dependencies', 'devDependencies', 'optionalDependencies')
+                if local_name in package.get(section, {})]
+    if len(sections) != 1:
+        raise RuntimeError(f'{manifest} must declare {local_name} in exactly one dependency section')
+    section = sections[0]
+    declared = package[section][local_name]
     if declared != expected:
         raise RuntimeError(f"{manifest} must pin {local_name} exactly to {expected}; found {declared!r}")
     locked = load_json(lock)
     root = locked.get("packages", {}).get("", {})
-    if root.get("dependencies", {}).get(local_name) != expected:
+    if root.get(section, {}).get(local_name) != expected:
         raise RuntimeError(f"{lock} root dependency does not match {expected}")
     installed = locked.get("packages", {}).get(f"node_modules/{local_name}", {})
     if installed.get("version") != version or not installed.get("integrity"):
@@ -196,7 +201,7 @@ def record_plan(args: argparse.Namespace) -> None:
         manifest = load_json(frontend_root / frontend["packagePath"] / "package.json")
         expected_version = (
             wired_frontend_version(manifest["version"], args.version, revision)
-            if "ceeConsumer" in frontend
+            if "ceeConsumer" in frontend or frontend.get('preparedBuild')
             else frontend_version(frontend_root, manifest["version"], revision)
         )
         if "ceeConsumer" in frontend:
@@ -257,6 +262,20 @@ def record_plan(args: argparse.Namespace) -> None:
             "registry": package["registry"],
         })
 
+    components = []
+    for component in config.get('components', []):
+        if component.get('publishedBy'):
+            continue
+        root, revision = repository_root(args.workspace, source, component['repository'])
+        manifest = load_json(root / component['sourceManifest'])
+        components.append({
+            'id': component['id'], 'name': component['publishedName'],
+            'repository': component['repository'], 'revision': revision,
+            'version': train_package_version(manifest['version'], args.version, revision),
+            'stagedPackage': component['stagedPackage'],
+            'distCommand': component['distCommand'], 'consumers': component['consumers'],
+            'publication': 'train-owned',
+        })
     plan = {
         "schemaVersion": 2,
         "version": validate_train(args.version),
@@ -289,6 +308,7 @@ def record_plan(args: argparse.Namespace) -> None:
             ],
         },
         "frontends": packages,
+        "components": components,
         "runtimePackages": runtime_packages,
         "additionalCeeConsumers": additional_consumers,
         "ceeConsumers": cee_consumers,
@@ -443,7 +463,8 @@ def stamp_package_version(root: Path, version: str, published_manifest: str | No
 
 def install_exact_alias(root: Path, dependency: str, published_name: str, version: str,
                         legacy_peer_deps: bool = False) -> None:
-    spec = f"{dependency}@npm:{published_name}@{version}"
+    target = version if dependency == published_name else f"npm:{published_name}@{version}"
+    spec = f"{dependency}@{target}"
     command = [
         "npm", "install", "--package-lock-only", "--ignore-scripts", "--save-exact", spec,
     ]
@@ -480,6 +501,9 @@ def record_library_completion(state: Path, stage: str, plan: dict,
 
 def publish_model(args: argparse.Namespace) -> None:
     plan = load_json(args.state / "npm" / "trains" / f"{validate_train(args.version)}.json")
+    for component in plan.get('components', []):
+        if component['id'] == 'tokens':
+            publish_component(args, plan, component)
     expected = plan["model"]
     if existing_verified_package(plan["registry"], expected):
         verified = verify_record(plan["registry"], expected)
@@ -532,6 +556,7 @@ def publish_cee(args: argparse.Namespace) -> None:
     assert_clean_repository(root, "CEE")
     stamp_package_version(root, expected["version"])
     config = load_json(args.config)
+    wire_components(args, plan, expected['repository'])
     dependency = config["cee"]["modelDependency"]
     for consumer in expected["modelConsumers"]:
         consumer_root = (root / consumer["manifest"]).parent
@@ -600,6 +625,57 @@ def replace_prepared_dist(source: Path, destination: Path) -> None:
             shutil.copy2(child, target)
 
 
+def wire_components(args, plan, repository):
+    """Resolve shared components from this train, never from the checkout's old pins."""
+    changes = []
+    for component in plan.get('components', []):
+        for consumer in component['consumers']:
+            if consumer['repository'] != repository:
+                continue
+            verify_record(plan['registry'], component)
+            root = args.workspace / repository
+            install_exact_alias((root / consumer['manifest']).parent, consumer['dependency'],
+                                component['name'], component['version'],
+                                bool(consumer.get('legacyPeerDeps', False)))
+            require_exact_alias(root / consumer['manifest'], root / consumer['lock'],
+                                consumer['dependency'], component['name'], component['version'])
+            changes.extend([consumer['manifest'], consumer['lock']])
+    return changes
+
+
+def publish_component(args, plan, component):
+    if existing_verified_package(plan['registry'], component):
+        verify_record(plan['registry'], component)
+        return
+    source, _ = source_manifest(args.state, args.version)
+    root, revision = repository_root(args.workspace, source, component['repository'])
+    if revision != component['revision']:
+        raise RuntimeError('Component revision differs from train plan')
+    assert_clean_repository(root, component['repository'])
+    stamp_package_version(root, component['version'])
+    wire_components(args, plan, component['repository'])
+    # Followed model consumers also need the model built by this train.
+    config = load_json(args.config)
+    for followed in config.get('components', []):
+        if followed.get('repository') != plan['model']['repository']:
+            continue
+        for consumer in followed['consumers']:
+            if consumer['repository'] == component['repository']:
+                verify_record(plan['registry'], plan['model'])
+                install_exact_alias((root / consumer['manifest']).parent,
+                                    consumer['dependency'], plan['model']['name'], plan['model']['version'])
+                require_exact_alias(root / consumer['manifest'], root / consumer['lock'],
+                                    consumer['dependency'], plan['model']['name'], plan['model']['version'])
+    run_command(['npm', 'ci'], root)
+    run_command(component['distCommand'], root)
+    staged = root / component['stagedPackage']
+    built = load_json(staged / 'package.json')
+    if built.get('name') != component['name'] or built.get('version') != component['version']:
+        raise RuntimeError('Built component does not have its train identity')
+    run_command(['npm', 'publish', str(staged), '--tag', 'dev', '--registry', plan['registry']], root)
+    verify_record(plan['registry'], component)
+
+
 def prepare_frontends(args: argparse.Namespace) -> None:
     version = validate_train(args.version)
     plan_path = args.state / "npm" / "trains" / f"{version}.json"
@@ -608,6 +684,14 @@ def prepare_frontends(args: argparse.Namespace) -> None:
     source, _ = source_manifest(args.state, version)
     wiring = []
     by_frontend: dict[str, list[str]] = {}
+    for component in plan.get('components', []):
+        publish_component(args, plan, component)
+    for frontend in plan['frontends']:
+        changed = wire_components(args, plan, frontend['repository'])
+        by_frontend.setdefault(frontend['id'], []).extend(changed)
+    for repository in sorted({c['repository'] for c in plan.get('additionalCeeConsumers', [])}
+                             - {f['repository'] for f in plan['frontends']}):
+        wire_components(args, plan, repository)
     for consumer in plan["ceeConsumers"]:
         repository_root(args.workspace, source, consumer["repository"])
         manifest_path = args.workspace / consumer["repository"] / consumer["manifest"]
@@ -680,6 +764,13 @@ def prepare_frontends(args: argparse.Namespace) -> None:
         "preparedAt": dt.datetime.now(dt.timezone.utc).isoformat(),
         "ceeVersion": plan["cee"]["version"],
         "consumers": wiring,
+        "componentConsumers": [
+            {**consumer, 'name': component['name'], 'version': component['version'],
+             'manifestSha256': path_sha256(args.workspace / consumer['repository'] / consumer['manifest']),
+             'lockSha256': path_sha256(args.workspace / consumer['repository'] / consumer['lock'])}
+            for component in plan.get('components', []) for consumer in component['consumers']
+            if consumer['repository'] in {f['repository'] for f in plan['frontends']}
+        ],
         "builds": builds,
         "overlays": overlays,
     }
@@ -700,7 +791,7 @@ def verify_frontend_preparation(plan: dict, workspace: Path) -> None:
     preparation = plan.get("frontendPreparation")
     if not isinstance(preparation, dict) or preparation.get("ceeVersion") != plan["cee"]["version"]:
         raise RuntimeError("frontends have not been prepared against the train CEE")
-    for consumer in preparation.get("consumers", []):
+    for consumer in [*preparation.get("consumers", []), *preparation.get('componentConsumers', [])]:
         root = workspace / consumer["repository"]
         if path_sha256(root / consumer["manifest"]) != consumer["manifestSha256"]:
             raise RuntimeError(f"prepared manifest changed for {consumer['repository']}")
@@ -745,7 +836,7 @@ def complete(args: argparse.Namespace) -> None:
     plan_content = plan_path.read_bytes()
     plan = json.loads(plan_content)
     verified = []
-    for expected in (plan["model"], plan["cee"], *plan["frontends"]):
+    for expected in (plan["model"], plan["cee"], *plan.get('components', []), *plan["frontends"]):
         verified.append(verify_record(plan["registry"], expected))
     for expected in plan.get("runtimePackages", []):
         verified.append(verify_record(expected["registry"], expected))

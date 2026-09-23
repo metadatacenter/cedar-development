@@ -94,12 +94,38 @@ async function openApplication(page, app) {
     return;
   }
   ok(`${app.name} renders its ${JSON.stringify(app.marker)} card for a signed-in user`);
+  const heading = await marker.first().evaluate(element => ({size: getComputedStyle(element).fontSize, weight: getComputedStyle(element).fontWeight}));
+  if (heading.size !== '20px' || heading.weight !== '500') fail(`${app.name}: card headings must retain the shared heading hierarchy`);
 
   if (await page.locator('app-header').count() === 0) {
     fail(`${app.name}: rendered its dashboard without its own header`);
   } else {
     ok(`${app.name} draws its header`);
   }
+
+  const icons = await page.locator('mat-icon').evaluateAll(elements => elements.map(element => {
+    const svg = element.querySelector('svg');
+    const box = element.getBoundingClientRect();
+    return {shared: element.classList.contains('cedar-icon'), svg: !!svg,
+      viewBox: svg?.getAttribute('viewBox'), stroke: svg?.getAttribute('stroke-width'),
+      width: box.width, height: box.height, text: element.textContent.trim()};
+  }));
+  if (!icons.length || icons.some(icon => !icon.shared || !icon.svg || icon.text ||
+      icon.viewBox !== '0 0 24 24' || icon.stroke !== '2' || icon.width !== icon.height)) {
+    fail(`${app.name}: icons must render shared, square SVGs without font ligatures`);
+  } else {
+    ok(`${app.name} renders ${icons.length} shared SVG icons`);
+  }
+  if (process.env.CEDAR_ICON_SCREENSHOTS) {
+    await page.screenshot({path: `${process.env.CEDAR_ICON_SCREENSHOTS}/${app.name.toLowerCase()}-icons.png`, fullPage: true});
+  }
+
+  const home = page.getByRole('button', {name: 'Home', exact: true});
+  await page.keyboard.press('Tab');
+  await home.focus();
+  const focus = await home.evaluate(element => getComputedStyle(element).outlineColor);
+  if (focus !== 'rgb(255, 255, 255)') fail(`${app.name}: keyboard focus must contrast with the primary header`);
+  else ok(`${app.name} preserves visible keyboard focus on its shared primary header`);
 
   if (app.customElement) {
     const registered = await page.evaluate(

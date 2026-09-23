@@ -152,6 +152,7 @@ def only_removed_empty_derived_from(before: Any, after: Any, path: str = "") -> 
 
 STATIC_AT_TYPE = "https://schema.metadatacenter.org/core/StaticTemplateField"
 MODEL_VERSION_KEY = "schema:schemaVersion"
+ARTIFACT_VERSION_KEY = "pav:version"
 # What a container's own title is composed from, by the same rule the artifact server applies on every
 # ordinary write. A static field is a field here, as it is everywhere identifiers and titles are formed.
 KIND_WORD = {
@@ -770,6 +771,1011 @@ def only_stamped_model_version(before: Any, after: Any) -> Optional[str]:
                         return here
                     continue
                 difference = walk(old[name], new[name], here)
+                if difference is not None:
+                    return difference
+            return None
+        if isinstance(old, list):
+            if not isinstance(new, list) or len(old) != len(new):
+                return path or "/"
+            for index, value in enumerate(old):
+                difference = walk(value, new[index], f"{path}/{index}")
+                if difference is not None:
+                    return difference
+            return None
+        return None if type(old) is type(new) and old == new else (path or "/")
+
+    return walk(before, after, "")
+
+
+DRAFT_STATUS = "bibo:draft"
+STATUS_KEY = "bibo:status"
+
+
+# What `cedar-artifact-library` assigns a freshly created artifact: Version.DEFAULT.
+DEFAULT_ARTIFACT_VERSION = "0.0.1"
+
+
+def unreadable_version(value: Any) -> bool:
+    """Whether a stated version says nothing any rule can turn into a version.
+
+    Not merely unparseable: a short numeric value is completed by padding and a prerelease tag is
+    dropped by settling, each of which derives its answer from what is written. This is what is
+    left — a string that carries no version at all.
+    """
+    return (isinstance(value, str) and not audit.VERSION_PATTERN.match(value)
+            and rest.padded_version(value) is None and rest.release_version(value) is None)
+
+
+VALUE_CONSTRAINTS_KEY = "_valueConstraints"
+CLASSES_KEY = "classes"
+
+
+LITERALS_KEY = "literals"
+
+
+UI_KEY = "_ui"
+INPUT_TYPE_KEY = "inputType"
+LIST_INPUT_TYPE = "list"
+MULTIPLE_CHOICE_KEY = "multipleChoice"
+
+
+# Where an artifact says nothing about its own making, what it says about its last change is the
+# only evidence left. Each derivation is recorded in the change so the substitution stays visible.
+DERIVED_PROVENANCE = ((rest.CREATED_ON, rest.UPDATED_ON), (rest.CREATED_BY, rest.MODIFIED_BY))
+
+
+def derive_absent_provenance(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Fill a null creation date or author from what the artifact records about its last change.
+
+    The meta-schema requires both keys and lets both be null, so an artifact that says nothing
+    about who made it or when is valid, and five standalone fields in production say exactly that
+    while naming who last touched them.
+
+    The date is a lower bound: an artifact created earlier than it records is understated, not
+    misdescribed. The author is an inference and the weaker of the two — it asserts that the last
+    person to touch the artifact is the one who made it, which is likely for a draft written once
+    and never edited, and wrong if someone else edited it since. Both derivations are named in the
+    change record rather than presented as recovered fact.
+
+    A value already present is never overwritten, and a null with no counterpart to derive from is
+    left alone: there is nothing to say.
+    """
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def walk(node: Any, path: str) -> Any:
+        if isinstance(node, dict):
+            result = {name: walk(value, f"{path}/{rest.json_pointer_component(name)}")
+                      for name, value in node.items()}
+            for absent, source in DERIVED_PROVENANCE:
+                if absent not in result or result[absent] is not None:
+                    continue
+                derived = result.get(source)
+                if not isinstance(derived, str) or not derived:
+                    continue
+                result[absent] = derived
+                changes.append({"path": f"{path}/{rest.json_pointer_component(absent)}",
+                                "replaced": None, "wrote": derived, "derivedFrom": source})
+            return result
+        if isinstance(node, list):
+            return [walk(value, f"{path}/{index}") for index, value in enumerate(node)]
+        return node
+
+    repaired = walk(copy.deepcopy(artifact), "")
+    if artifact.get(STATUS_KEY) != DRAFT_STATUS:
+        raise TransformRefused(
+            f"provenance is only derived on a draft; this artifact is {artifact.get(STATUS_KEY)!r}")
+    return repaired, changes
+
+
+def only_derived_absent_provenance(before: Any, after: Any) -> Optional[str]:
+    """The invariant: the only changes are null provenance taking the value it was derived from."""
+
+    def walk(old: Any, new: Any, path: str) -> Optional[str]:
+        if isinstance(old, dict):
+            if not isinstance(new, dict) or set(old) != set(new):
+                return path or "/"
+            derived = dict(DERIVED_PROVENANCE)
+            for name in old:
+                here = f"{path}/{rest.json_pointer_component(name)}"
+                if name in derived and new[name] != old[name]:
+                    if old[name] is not None or new[name] != old.get(derived[name]):
+                        return here
+                    continue
+                difference = walk(old[name], new[name], here)
+                if difference is not None:
+                    return difference
+            return None
+        if isinstance(old, list):
+            if not isinstance(new, list) or len(old) != len(new):
+                return path or "/"
+            for index, value in enumerate(old):
+                difference = walk(value, new[index], f"{path}/{index}")
+                if difference is not None:
+                    return difference
+            return None
+        return None if type(old) is type(new) and old == new else (path or "/")
+
+    return walk(before, after, "")
+
+
+CONTROLLED_TERM_INPUT_TYPE = "controlled-term"
+TEXTFIELD_INPUT_TYPE = "textfield"
+DEFAULT_VALUE_KEY = "defaultValue"
+
+
+def name_a_controlled_term_field_as_it_is_modelled(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Write ``controlled-term`` as the input type the model actually has.
+
+    CEDAR has no ``controlled-term`` input type. A controlled term is a text field carrying term
+    constraints — classes, branches, value sets or ontologies — so a field naming that type is
+    describing itself with a word the model never defined, and no reader can take it: the artifact
+    has no YAML representation at all.
+
+    Only a field that carries at least one term constraint is renamed, because that is what makes
+    ``textfield`` the same field said properly rather than a different field. One carrying none
+    would become a plain text box, which is a change to what it collects and an author's to make.
+    """
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+    refusals: list[str] = []
+
+    def walk(node: Any, path: str) -> Any:
+        if isinstance(node, dict):
+            result = {name: walk(value, f"{path}/{rest.json_pointer_component(name)}")
+                      for name, value in node.items()}
+            ui = result.get(UI_KEY)
+            if isinstance(ui, dict) and ui.get(INPUT_TYPE_KEY) == CONTROLLED_TERM_INPUT_TYPE:
+                here = f"{path}/{rest.json_pointer_component(UI_KEY)}/{INPUT_TYPE_KEY}"
+                constraints = result.get(VALUE_CONSTRAINTS_KEY)
+                constraints = constraints if isinstance(constraints, dict) else {}
+                terms = sum(len(constraints.get(k) or []) for k in rest.TERM_CONSTRAINT_KEYS)
+                if not terms:
+                    refusals.append(f"{here} names no term source, so a text field would collect "
+                                    "something different")
+                else:
+                    result[UI_KEY] = {**ui, INPUT_TYPE_KEY: TEXTFIELD_INPUT_TYPE}
+                    changes.append({"path": here, "replaced": CONTROLLED_TERM_INPUT_TYPE,
+                                    "wrote": TEXTFIELD_INPUT_TYPE})
+            return result
+        if isinstance(node, list):
+            return [walk(value, f"{path}/{index}") for index, value in enumerate(node)]
+        return node
+
+    repaired = walk(copy.deepcopy(artifact), "")
+    if artifact.get(STATUS_KEY) != DRAFT_STATUS:
+        raise TransformRefused(
+            f"an input type is only rewritten on a draft; this artifact is {artifact.get(STATUS_KEY)!r}")
+    if refusals:
+        raise TransformRefused(refusals[0] + (f" ({len(refusals)} in all)" if len(refusals) > 1 else ""))
+    return repaired, changes
+
+
+def only_named_controlled_term_fields(before: Any, after: Any) -> Optional[str]:
+    """The invariant: the only change is controlled-term becoming textfield, where terms are named."""
+
+    def walk(old: Any, new: Any, path: str) -> Optional[str]:
+        if isinstance(old, dict):
+            if not isinstance(new, dict) or set(old) != set(new):
+                return path or "/"
+            oldUi, newUi = old.get(UI_KEY), new.get(UI_KEY)
+            if (isinstance(oldUi, dict) and isinstance(newUi, dict)
+                    and oldUi.get(INPUT_TYPE_KEY) != newUi.get(INPUT_TYPE_KEY)):
+                here = f"{path}/{rest.json_pointer_component(UI_KEY)}/{INPUT_TYPE_KEY}"
+                constraints = old.get(VALUE_CONSTRAINTS_KEY)
+                constraints = constraints if isinstance(constraints, dict) else {}
+                if (oldUi.get(INPUT_TYPE_KEY) != CONTROLLED_TERM_INPUT_TYPE
+                        or newUi.get(INPUT_TYPE_KEY) != TEXTFIELD_INPUT_TYPE
+                        or not sum(len(constraints.get(k) or []) for k in rest.TERM_CONSTRAINT_KEYS)):
+                    return here
+            for name in old:
+                here = f"{path}/{rest.json_pointer_component(name)}"
+                if name == UI_KEY and isinstance(oldUi, dict) and isinstance(newUi, dict):
+                    if set(oldUi) != set(newUi):
+                        return here
+                    for key in oldUi:
+                        if key == INPUT_TYPE_KEY:
+                            continue
+                        difference = walk(oldUi[key], newUi[key],
+                                          f"{here}/{rest.json_pointer_component(key)}")
+                        if difference is not None:
+                            return difference
+                    continue
+                difference = walk(old[name], new[name], here)
+                if difference is not None:
+                    return difference
+            return None
+        if isinstance(old, list):
+            if not isinstance(new, list) or len(old) != len(new):
+                return path or "/"
+            for index, value in enumerate(old):
+                difference = walk(value, new[index], f"{path}/{index}")
+                if difference is not None:
+                    return difference
+            return None
+        return None if type(old) is type(new) and old == new else (path or "/")
+
+    return walk(before, after, "")
+
+
+def drop_unresolvable_default(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Remove a default that points at a term the field offers no way to reach.
+
+    A controlled-term default is ``{termUri, rdfs:label}``. On a field with no ontology, value set,
+    class or branch, nothing can resolve it, and the library refuses to read the artifact at all
+    because the field's kind and its default's kind disagree.
+
+    The default goes rather than being rewritten as text: the author chose a term, and a label is
+    what that term is called rather than the value they meant to store. A field that does name a
+    term source is left alone, since there the default may well be legitimate.
+    """
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def walk(node: Any, path: str) -> Any:
+        if isinstance(node, dict):
+            result = {name: walk(value, f"{path}/{rest.json_pointer_component(name)}")
+                      for name, value in node.items()}
+            constraints = result.get(VALUE_CONSTRAINTS_KEY)
+            if isinstance(constraints, dict):
+                default = constraints.get(DEFAULT_VALUE_KEY)
+                terms = sum(len(constraints.get(k) or []) for k in rest.TERM_CONSTRAINT_KEYS)
+                if (isinstance(default, dict) and not terms
+                        and rest.CONTROLLED_TERM_DEFAULT_KEYS <= set(default)):
+                    without = {k: v for k, v in constraints.items() if k != DEFAULT_VALUE_KEY}
+                    result[VALUE_CONSTRAINTS_KEY] = without
+                    changes.append({
+                        "path": f"{path}/{rest.json_pointer_component(VALUE_CONSTRAINTS_KEY)}"
+                                f"/{DEFAULT_VALUE_KEY}",
+                        "replaced": default.get("rdfs:label"), "wrote": None})
+            return result
+        if isinstance(node, list):
+            return [walk(value, f"{path}/{index}") for index, value in enumerate(node)]
+        return node
+
+    repaired = walk(copy.deepcopy(artifact), "")
+    if artifact.get(STATUS_KEY) != DRAFT_STATUS:
+        raise TransformRefused(
+            f"a default is only dropped on a draft; this artifact is {artifact.get(STATUS_KEY)!r}")
+    return repaired, changes
+
+
+def only_dropped_unresolvable_defaults(before: Any, after: Any) -> Optional[str]:
+    """The invariant: the only change is an unreachable term default being removed."""
+
+    def walk(old: Any, new: Any, path: str) -> Optional[str]:
+        if isinstance(old, dict):
+            if not isinstance(new, dict):
+                return path or "/"
+            removed = set(old) - set(new)
+            if set(new) - set(old):
+                return path or "/"
+            if removed:
+                if removed != {DEFAULT_VALUE_KEY}:
+                    return path or "/"
+                default = old.get(DEFAULT_VALUE_KEY)
+                terms = sum(len(old.get(k) or []) for k in rest.TERM_CONSTRAINT_KEYS)
+                if (not isinstance(default, dict) or terms
+                        or not rest.CONTROLLED_TERM_DEFAULT_KEYS <= set(default)):
+                    return f"{path}/{DEFAULT_VALUE_KEY}"
+            for name in old:
+                if name in removed:
+                    continue
+                difference = walk(old[name], new[name], f"{path}/{rest.json_pointer_component(name)}")
+                if difference is not None:
+                    return difference
+            return None
+        if isinstance(old, list):
+            if not isinstance(new, list) or len(old) != len(new):
+                return path or "/"
+            for index, value in enumerate(old):
+                difference = walk(value, new[index], f"{path}/{index}")
+                if difference is not None:
+                    return difference
+            return None
+        return None if type(old) is type(new) and old == new else (path or "/")
+
+    return walk(before, after, "")
+
+
+TEMPORAL_INPUT_TYPE = "temporal"
+GRANULARITY_KEY = "temporalGranularity"
+TEMPORAL_TYPE_KEY = "temporalType"
+# What the Template Editor's own settings panel writes for a plain date, and what 23 of the 26
+# configured temporal fields in production carry.
+DEFAULT_GRANULARITY = "day"
+DEFAULT_TEMPORAL_TYPE = "xsd:date"
+
+
+def state_temporal_precision(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Say what precision a temporal field is read at, where it says nothing.
+
+    A date with no ``temporalGranularity`` and no ``temporalType`` cannot be read by
+    ``cedar-artifact-library`` at all, so the artifact has no YAML representation. The editor wrote
+    the pair only when an author opened the field's settings, and the meta-schema never asked for
+    it, so a date added and saved reached the store without one.
+
+    Day precision on an ``xsd:date`` is what the editor itself picks for a plain date, so this
+    states what the field would have carried had its settings been opened. A field that already
+    states either half is left alone: a partial statement is an author's, and completing it would
+    mean deciding which half is right.
+    """
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def walk(node: Any, path: str) -> Any:
+        if isinstance(node, dict):
+            result = {}
+            for name, value in node.items():
+                result[name] = walk(value, f"{path}/{rest.json_pointer_component(name)}")
+            ui = result.get(UI_KEY)
+            if isinstance(ui, dict) and ui.get(INPUT_TYPE_KEY) == TEMPORAL_INPUT_TYPE:
+                constraints = result.get(VALUE_CONSTRAINTS_KEY)
+                constraints = constraints if isinstance(constraints, dict) else None
+                states_granularity = isinstance(ui.get(GRANULARITY_KEY), str)
+                states_type = isinstance((constraints or {}).get(TEMPORAL_TYPE_KEY), str)
+                if constraints is not None and not states_granularity and not states_type:
+                    result[UI_KEY] = {**ui, GRANULARITY_KEY: DEFAULT_GRANULARITY}
+                    result[VALUE_CONSTRAINTS_KEY] = {**constraints,
+                                                     TEMPORAL_TYPE_KEY: DEFAULT_TEMPORAL_TYPE}
+                    changes.append({"path": f"{path}/{rest.json_pointer_component(UI_KEY)}/{GRANULARITY_KEY}",
+                                    "replaced": None, "wrote": DEFAULT_GRANULARITY})
+                    changes.append({"path": f"{path}/{rest.json_pointer_component(VALUE_CONSTRAINTS_KEY)}"
+                                            f"/{TEMPORAL_TYPE_KEY}",
+                                    "replaced": None, "wrote": DEFAULT_TEMPORAL_TYPE})
+            return result
+        if isinstance(node, list):
+            return [walk(value, f"{path}/{index}") for index, value in enumerate(node)]
+        return node
+
+    repaired = walk(copy.deepcopy(artifact), "")
+    if artifact.get(STATUS_KEY) != DRAFT_STATUS:
+        raise TransformRefused(
+            f"a field's precision is only stated on a draft; this artifact is "
+            f"{artifact.get(STATUS_KEY)!r}")
+    return repaired, changes
+
+
+def only_stated_temporal_precision(before: Any, after: Any) -> Optional[str]:
+    """The invariant: the only changes are the two keys a temporal field was missing."""
+
+    def walk(old: Any, new: Any, path: str) -> Optional[str]:
+        if isinstance(old, dict):
+            if not isinstance(new, dict):
+                return path or "/"
+            added = set(new) - set(old)
+            if set(old) - set(new) or added:
+                # Only the two keys may appear, and only inside the nodes that hold them.
+                if added - {GRANULARITY_KEY, TEMPORAL_TYPE_KEY} or set(old) - set(new):
+                    return path or "/"
+                if GRANULARITY_KEY in added and (
+                        old.get(INPUT_TYPE_KEY) != TEMPORAL_INPUT_TYPE
+                        or new[GRANULARITY_KEY] != DEFAULT_GRANULARITY):
+                    return f"{path}/{GRANULARITY_KEY}"
+                if TEMPORAL_TYPE_KEY in added and new[TEMPORAL_TYPE_KEY] != DEFAULT_TEMPORAL_TYPE:
+                    return f"{path}/{TEMPORAL_TYPE_KEY}"
+            for name in old:
+                difference = walk(old[name], new[name], f"{path}/{rest.json_pointer_component(name)}")
+                if difference is not None:
+                    return difference
+            return None
+        if isinstance(old, list):
+            if not isinstance(new, list) or len(old) != len(new):
+                return path or "/"
+            for index, value in enumerate(old):
+                difference = walk(value, new[index], f"{path}/{index}")
+                if difference is not None:
+                    return difference
+            return None
+        return None if type(old) is type(new) and old == new else (path or "/")
+
+    return walk(before, after, "")
+
+
+def present_choices_as_a_list(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Make a field that lists permitted values the kind of field that offers them.
+
+    ``_valueConstraints.literals`` is a closed set of choices. Only a radio, checkbox or list field
+    presents one, so a text field carrying it describes a control it is not: the options are stored,
+    and whether a reader sees them depends on which library reads the artifact. A single-select list
+    is what the field already says it is in every other respect — a closed set, ``multipleChoice``
+    already stated, the requirement already stated — so only the input type moves.
+
+    Deliberately narrow. Radio is not offered, because choosing between a dropdown and a row of
+    buttons is a presentation decision about how many options a reader can stand to see, and that is
+    the author's rather than a repair's. A field whose ``multipleChoice`` is absent is refused for
+    the same reason: the list would have to guess whether one answer is allowed or several.
+    """
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+    refusals: list[str] = []
+
+    def walk(node: Any, path: str) -> Any:
+        if isinstance(node, dict):
+            result = {}
+            for name, value in node.items():
+                result[name] = walk(value, f"{path}/{rest.json_pointer_component(name)}")
+            ui = result.get(UI_KEY)
+            constraints = result.get(VALUE_CONSTRAINTS_KEY)
+            if isinstance(ui, dict) and isinstance(constraints, dict):
+                literals = constraints.get(LITERALS_KEY)
+                stated = ui.get(INPUT_TYPE_KEY)
+                if (isinstance(literals, list) and literals
+                        and stated not in rest.CHOICE_INPUT_TYPES):
+                    here = f"{path}/{rest.json_pointer_component(UI_KEY)}/{INPUT_TYPE_KEY}"
+                    if not isinstance(constraints.get(MULTIPLE_CHOICE_KEY), bool):
+                        refusals.append(f"{here} states no multipleChoice, so how many answers "
+                                        "a list would allow is a decision rather than a repair")
+                    else:
+                        result[UI_KEY] = {**ui, INPUT_TYPE_KEY: LIST_INPUT_TYPE}
+                        changes.append({"path": here, "replaced": stated, "wrote": LIST_INPUT_TYPE})
+            return result
+        if isinstance(node, list):
+            return [walk(value, f"{path}/{index}") for index, value in enumerate(node)]
+        return node
+
+    repaired = walk(copy.deepcopy(artifact), "")
+    if artifact.get(STATUS_KEY) != DRAFT_STATUS:
+        raise TransformRefused(
+            f"a field's type is only changed on a draft; this artifact is {artifact.get(STATUS_KEY)!r}")
+    if refusals:
+        raise TransformRefused(refusals[0] + (f" ({len(refusals)} in all)" if len(refusals) > 1 else ""))
+    return repaired, changes
+
+
+def only_presented_choices_as_a_list(before: Any, after: Any) -> Optional[str]:
+    """The invariant: the only change is an input type becoming ``list``, on a field with options.
+
+    Every option, the multiple-choice flag and the requirement are compared like any other value,
+    so a repair that touched what the field offers rather than how it offers it is caught here.
+    """
+
+    def offered_choices(node: Any) -> bool:
+        constraints = node.get(VALUE_CONSTRAINTS_KEY) if isinstance(node, dict) else None
+        literals = constraints.get(LITERALS_KEY) if isinstance(constraints, dict) else None
+        return isinstance(literals, list) and bool(literals)
+
+    def walk(old: Any, new: Any, path: str) -> Optional[str]:
+        if isinstance(old, dict):
+            if not isinstance(new, dict) or set(old) != set(new):
+                return path or "/"
+            # The input type is judged where the options are visible: a field, not its _ui alone.
+            oldUi, newUi = old.get(UI_KEY), new.get(UI_KEY)
+            if (isinstance(oldUi, dict) and isinstance(newUi, dict)
+                    and oldUi.get(INPUT_TYPE_KEY) != newUi.get(INPUT_TYPE_KEY)):
+                here = f"{path}/{rest.json_pointer_component(UI_KEY)}/{INPUT_TYPE_KEY}"
+                if (newUi.get(INPUT_TYPE_KEY) != LIST_INPUT_TYPE
+                        or oldUi.get(INPUT_TYPE_KEY) in rest.CHOICE_INPUT_TYPES
+                        or not offered_choices(old)
+                        or not isinstance((old.get(VALUE_CONSTRAINTS_KEY) or {}).get(MULTIPLE_CHOICE_KEY), bool)):
+                    return here
+            for name in old:
+                here = f"{path}/{rest.json_pointer_component(name)}"
+                if name == UI_KEY and isinstance(oldUi, dict) and isinstance(newUi, dict):
+                    if set(oldUi) != set(newUi):
+                        return here
+                    for key in oldUi:
+                        if key == INPUT_TYPE_KEY:
+                            continue
+                        difference = walk(oldUi[key], newUi[key],
+                                          f"{here}/{rest.json_pointer_component(key)}")
+                        if difference is not None:
+                            return difference
+                    continue
+                difference = walk(old[name], new[name], here)
+                if difference is not None:
+                    return difference
+            return None
+        if isinstance(old, list):
+            if not isinstance(new, list) or len(old) != len(new):
+                return path or "/"
+            for index, value in enumerate(old):
+                difference = walk(value, new[index], f"{path}/{index}")
+                if difference is not None:
+                    return difference
+            return None
+        return None if type(old) is type(new) and old == new else (path or "/")
+
+    return walk(before, after, "")
+
+
+
+
+def has_a_label(entry: Any) -> bool:
+    """Whether a permitted value names itself."""
+    return isinstance(entry, dict) and isinstance(entry.get("label"), str) and entry["label"] != ""
+
+
+def drop_blank_literal(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Remove a permitted value that has no label.
+
+    A literal's label is the value an instance stores, so a blank entry offers a choice whose
+    answer cannot be told from no answer. What it is reaching for — that the field may be left
+    alone — is already what ``requiredValue: false`` says, so removing the entry takes away a
+    second, lossier way of saying it rather than taking away a choice.
+
+    Refused where it would empty a list, since a list field with no permitted values is a
+    different change, and on anything that is not a draft.
+    """
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+    refusals: list[str] = []
+
+    def walk(node: Any, path: str) -> Any:
+        if isinstance(node, dict):
+            result = {}
+            for name, value in node.items():
+                here = f"{path}/{rest.json_pointer_component(name)}"
+                if (name == VALUE_CONSTRAINTS_KEY and isinstance(value, dict)
+                        and isinstance(value.get(LITERALS_KEY), list)):
+                    entries = value[LITERALS_KEY]
+                    kept = [entry for entry in entries if has_a_label(entry)]
+                    if len(kept) != len(entries):
+                        literals_path = f"{here}/{LITERALS_KEY}"
+                        if not kept:
+                            refusals.append(f"{literals_path} would be left with no permitted value")
+                        else:
+                            for index, entry in enumerate(entries):
+                                if not has_a_label(entry):
+                                    changes.append({"path": f"{literals_path}/{index}",
+                                                    "replaced": entry.get("label"), "wrote": None})
+                            value = {**value, LITERALS_KEY: kept}
+                result[name] = walk(value, here)
+            return result
+        if isinstance(node, list):
+            return [walk(value, f"{path}/{index}") for index, value in enumerate(node)]
+        return node
+
+    repaired = walk(copy.deepcopy(artifact), "")
+    if artifact.get(STATUS_KEY) != DRAFT_STATUS:
+        raise TransformRefused(
+            f"a permitted value is only dropped on a draft; this artifact is {artifact.get(STATUS_KEY)!r}")
+    if refusals:
+        raise TransformRefused(refusals[0] + (f" ({len(refusals)} in all)" if len(refusals) > 1 else ""))
+    return repaired, changes
+
+
+def only_dropped_blank_literals(before: Any, after: Any) -> Optional[str]:
+    """The invariant: the only change is unlabelled permitted values, removed in place."""
+
+    def walk(old: Any, new: Any, path: str) -> Optional[str]:
+        if isinstance(old, dict):
+            if not isinstance(new, dict) or set(old) != set(new):
+                return path or "/"
+            for name in old:
+                here = f"{path}/{rest.json_pointer_component(name)}"
+                if (name == LITERALS_KEY and isinstance(old[name], list)
+                        and isinstance(new[name], list) and len(old[name]) != len(new[name])):
+                    if new[name] != [e for e in old[name] if has_a_label(e)]:
+                        return here
+                    continue
+                difference = walk(old[name], new[name], here)
+                if difference is not None:
+                    return difference
+            return None
+        if isinstance(old, list):
+            if not isinstance(new, list) or len(old) != len(new):
+                return path or "/"
+            for index, value in enumerate(old):
+                difference = walk(value, new[index], f"{path}/{index}")
+                if difference is not None:
+                    return difference
+            return None
+        return None if type(old) is type(new) and old == new else (path or "/")
+
+    return walk(before, after, "")
+
+
+
+
+def resolves_to_a_term(entry: Any) -> bool:
+    """Whether a class constraint points at anything."""
+    return isinstance(entry, dict) and isinstance(entry.get("uri"), str) and entry["uri"] != ""
+
+
+def drop_unresolved_class_constraint(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Remove a class constraint whose URI is the empty string.
+
+    A class constraint is a pointer to a term, so one pointing at ``""`` offers a choice that
+    cannot be resolved: both model libraries refuse to read it, which leaves the template with no
+    YAML representation. The entry carries a label and nothing else, and no term exists to give it
+    — the converter that wrote these had an empty ``conceptURI`` in its own input, meaning the
+    harmonisation upstream had already concluded there was none.
+
+    Removing the entry loses the fact that the label was once offered as a choice. That is the
+    point of the repair rather than an oversight: what it offered was unusable, and the alternative
+    readings — inventing a near-miss term, or leaving the template unreadable — are both worse.
+
+    Refused where it would empty a list, since a controlled-term field left with no constraint at
+    all is a different change, and on anything that is not a draft, since dropping a choice a
+    published template offered is not a repair.
+    """
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+    refusals: list[str] = []
+
+    def walk(node: Any, path: str) -> Any:
+        if isinstance(node, dict):
+            result = {}
+            for name, value in node.items():
+                here = f"{path}/{rest.json_pointer_component(name)}"
+                if (name == VALUE_CONSTRAINTS_KEY and isinstance(value, dict)
+                        and isinstance(value.get(CLASSES_KEY), list)):
+                    entries = value[CLASSES_KEY]
+                    kept = [entry for entry in entries if resolves_to_a_term(entry)]
+                    if len(kept) != len(entries):
+                        classes_path = f"{here}/{CLASSES_KEY}"
+                        if not kept:
+                            refusals.append(f"{classes_path} would be left with no constraint at all")
+                        elif node.get(STATUS_KEY) is not None and node.get(STATUS_KEY) != DRAFT_STATUS:
+                            refusals.append(f"{classes_path} is on a {node.get(STATUS_KEY)!r} artifact")
+                        else:
+                            for index, entry in enumerate(entries):
+                                if not resolves_to_a_term(entry):
+                                    changes.append({
+                                        "path": f"{classes_path}/{index}",
+                                        "replaced": entry.get("prefLabel"), "wrote": None})
+                            value = {**value, CLASSES_KEY: kept}
+                result[name] = walk(value, here)
+            return result
+        if isinstance(node, list):
+            return [walk(value, f"{path}/{index}") for index, value in enumerate(node)]
+        return node
+
+    repaired = walk(copy.deepcopy(artifact), "")
+    if artifact.get(STATUS_KEY) != DRAFT_STATUS:
+        raise TransformRefused(
+            f"a class constraint is only dropped on a draft; this artifact is "
+            f"{artifact.get(STATUS_KEY)!r}")
+    if refusals:
+        raise TransformRefused(refusals[0] + (f" ({len(refusals)} in all)" if len(refusals) > 1 else ""))
+    return repaired, changes
+
+
+def only_dropped_unresolved_class_constraints(before: Any, after: Any) -> Optional[str]:
+    """The invariant: the only change is class constraints pointing at nothing, removed in place.
+
+    A list that shrank is checked against the filter itself, so the survivors have to be exactly
+    the entries that resolve, in the order they were already in. Every other list must keep its
+    length, and every other value must be identical.
+    """
+
+    def walk(old: Any, new: Any, path: str) -> Optional[str]:
+        if isinstance(old, dict):
+            if not isinstance(new, dict) or set(old) != set(new):
+                return path or "/"
+            for name in old:
+                here = f"{path}/{rest.json_pointer_component(name)}"
+                if (name == CLASSES_KEY and isinstance(old[name], list)
+                        and isinstance(new[name], list) and len(old[name]) != len(new[name])):
+                    if new[name] != [e for e in old[name] if resolves_to_a_term(e)]:
+                        return here
+                    continue
+                difference = walk(old[name], new[name], here)
+                if difference is not None:
+                    return difference
+            return None
+        if isinstance(old, list):
+            if not isinstance(new, list) or len(old) != len(new):
+                return path or "/"
+            for index, value in enumerate(old):
+                difference = walk(value, new[index], f"{path}/{index}")
+                if difference is not None:
+                    return difference
+            return None
+        return None if type(old) is type(new) and old == new else (path or "/")
+
+    return walk(before, after, "")
+
+
+def default_unreadable_version(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Give a draft whose stated version carries no version the one a new artifact gets.
+
+    ``0.0.1`` is not a guess at what the author meant: nothing in ``requestJson`` or ``asd`` means
+    anything, and the alternative to writing the default is leaving the artifact with no YAML
+    representation for good. It is what the library would have assigned had the caller supplied
+    nothing at all, which is the honest reading of a field that was filled by accident.
+
+    Deliberately last of the three version repairs, and never a fallback for the other two: a value
+    padding or settling can read is theirs, because those recover what was written rather than
+    replacing it.
+    """
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+    published: list[str] = []
+
+    def walk(definition: Any, path: str) -> Any:
+        if not isinstance(definition, dict):
+            return definition
+        result = copy.deepcopy(definition)
+        stored = definition.get(ARTIFACT_VERSION_KEY)
+        if unreadable_version(stored):
+            here = f"{path}/{rest.json_pointer_component(ARTIFACT_VERSION_KEY)}"
+            if definition.get(STATUS_KEY) != DRAFT_STATUS:
+                published.append(f"{here} is {definition.get(STATUS_KEY)!r}")
+            else:
+                result[ARTIFACT_VERSION_KEY] = DEFAULT_ARTIFACT_VERSION
+                changes.append({"path": here, "replaced": stored,
+                                "wrote": DEFAULT_ARTIFACT_VERSION})
+        for name, child, multiple in container_children(definition):
+            declared = rest.child_path(path, name)
+            repaired = walk(child, f"{declared}/items" if multiple else declared)
+            if multiple:
+                result["properties"][name]["items"] = repaired
+            else:
+                result["properties"][name] = repaired
+        return result
+
+    defaulted = walk(artifact, "")
+    if published:
+        raise TransformRefused(
+            "a version is only defaulted on a draft, and " + published[0]
+            + (f" ({len(published)} in all)" if len(published) > 1 else ""))
+    return defaulted, changes
+
+
+def only_defaulted_unreadable_version(before: Any, after: Any) -> Optional[str]:
+    """The invariant: every change is an unreadable version on a draft becoming the default."""
+
+    def walk(old: Any, new: Any, path: str) -> Optional[str]:
+        if isinstance(old, dict):
+            if not isinstance(new, dict) or set(old) != set(new):
+                return path or "/"
+            for name in old:
+                here = f"{path}/{rest.json_pointer_component(name)}"
+                if name == ARTIFACT_VERSION_KEY and new[name] != old[name]:
+                    if not unreadable_version(old[name]) or new[name] != DEFAULT_ARTIFACT_VERSION:
+                        return here
+                    if old.get(STATUS_KEY) != DRAFT_STATUS:
+                        return here
+                    continue
+                difference = walk(old[name], new[name], here)
+                if difference is not None:
+                    return difference
+            return None
+        if isinstance(old, list):
+            if not isinstance(new, list) or len(old) != len(new):
+                return path or "/"
+            for index, value in enumerate(old):
+                difference = walk(value, new[index], f"{path}/{index}")
+                if difference is not None:
+                    return difference
+            return None
+        return None if type(old) is type(new) and old == new else (path or "/")
+
+    return walk(before, after, "")
+
+
+
+
+def settle_prerelease_version(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Write a version carrying a prerelease tag as its release.
+
+    ``1.0.0-rc1`` is correct semver whose tag the model's three integers cannot hold, so the
+    artifact has no YAML representation until the tag goes. Dropping it is a reading of what was
+    meant rather than a completion of what was written — unlike padding, something is discarded —
+    so this is a separate repair an owner asks for, not one the tool applies on its own.
+
+    Refused unless every definition carrying such a version is a draft. On a published artifact the
+    version is what other things cite, and changing which release it claims is not a repair.
+    """
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+    published: list[str] = []
+
+    def walk(definition: Any, path: str) -> Any:
+        if not isinstance(definition, dict):
+            return definition
+        result = copy.deepcopy(definition)
+        stored = definition.get(ARTIFACT_VERSION_KEY)
+        release = rest.release_version(stored) if isinstance(stored, str) else None
+        if release is not None:
+            here = f"{path}/{rest.json_pointer_component(ARTIFACT_VERSION_KEY)}"
+            if definition.get(STATUS_KEY) != DRAFT_STATUS:
+                published.append(f"{here} is {definition.get(STATUS_KEY)!r}")
+            else:
+                result[ARTIFACT_VERSION_KEY] = release
+                changes.append({"path": here, "replaced": stored, "wrote": release})
+        for name, child, multiple in container_children(definition):
+            declared = rest.child_path(path, name)
+            repaired = walk(child, f"{declared}/items" if multiple else declared)
+            if multiple:
+                result["properties"][name]["items"] = repaired
+            else:
+                result["properties"][name] = repaired
+        return result
+
+    settled = walk(artifact, "")
+    if published:
+        raise TransformRefused(
+            "a prerelease version is only settled on a draft, and " + published[0]
+            + (f" ({len(published)} in all)" if len(published) > 1 else ""))
+    return settled, changes
+
+
+def only_settled_prerelease_version(before: Any, after: Any) -> Optional[str]:
+    """The invariant: every change is a prerelease version becoming its own release, nothing else.
+
+    The release is re-derived from the stored value rather than trusted, and the status is compared
+    like any other value, so a repair that moved a draft to published would be caught here.
+    """
+
+    def walk(old: Any, new: Any, path: str) -> Optional[str]:
+        if isinstance(old, dict):
+            if not isinstance(new, dict) or set(old) != set(new):
+                return path or "/"
+            for name in old:
+                here = f"{path}/{rest.json_pointer_component(name)}"
+                if name == ARTIFACT_VERSION_KEY and new[name] != old[name]:
+                    if not isinstance(old[name], str) or new[name] != rest.release_version(old[name]):
+                        return here
+                    if old.get(STATUS_KEY) != DRAFT_STATUS:
+                        return here
+                    continue
+                difference = walk(old[name], new[name], here)
+                if difference is not None:
+                    return difference
+            return None
+        if isinstance(old, list):
+            if not isinstance(new, list) or len(old) != len(new):
+                return path or "/"
+            for index, value in enumerate(old):
+                difference = walk(value, new[index], f"{path}/{index}")
+                if difference is not None:
+                    return difference
+            return None
+        return None if type(old) is type(new) and old == new else (path or "/")
+
+    return walk(before, after, "")
+
+
+def pad_artifact_version(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Write a short numeric ``pav:version`` as the three-part version it means.
+
+    ``0.9`` is ``0.9.0`` and ``1`` is ``1.0.0``: the missing parts are zero, which is the only
+    reading available and the one the library assumes the moment it can parse the value at all.
+    Until it can, the artifact has no YAML representation — a JSON read returns the stored bytes
+    unexamined while a YAML read transcodes them and fails — so this is what restores one.
+
+    A version carrying a prerelease tag is left alone: ``1.0.0-rc1`` is correct semver that the
+    model's three integers cannot hold, which is a limitation to decide about rather than a value
+    to rewrite. So is anything a rule cannot read, such as ``asd``; inventing a version for it
+    would replace a visible defect with an invisible one. Both go on being reported.
+
+    A template states a version on each nested definition as well as at its root, and the two drift
+    apart, so the walk covers both.
+    """
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def walk(definition: Any, path: str) -> Any:
+        if not isinstance(definition, dict):
+            return definition
+        result = copy.deepcopy(definition)
+        stored = definition.get(ARTIFACT_VERSION_KEY)
+        if isinstance(stored, str) and not audit.VERSION_PATTERN.match(stored):
+            padded = rest.padded_version(stored)
+            if padded is not None:
+                result[ARTIFACT_VERSION_KEY] = padded
+                changes.append({"path": f"{path}/{rest.json_pointer_component(ARTIFACT_VERSION_KEY)}",
+                                "replaced": stored, "wrote": padded})
+        for name, child, multiple in container_children(definition):
+            declared = rest.child_path(path, name)
+            repaired = walk(child, f"{declared}/items" if multiple else declared)
+            if multiple:
+                result["properties"][name]["items"] = repaired
+            else:
+                result["properties"][name] = repaired
+        return result
+
+    return walk(artifact, ""), changes
+
+
+def only_padded_artifact_version(before: Any, after: Any) -> Optional[str]:
+    """The invariant: every change is a short numeric version becoming the one it means.
+
+    The padding has to be re-derived from the stored value rather than trusted, so a transform that
+    wrote some other version would be caught here rather than shipped.
+    """
+
+    def walk(old: Any, new: Any, path: str) -> Optional[str]:
+        if isinstance(old, dict):
+            if not isinstance(new, dict) or set(old) != set(new):
+                return path or "/"
+            for name in old:
+                here = f"{path}/{rest.json_pointer_component(name)}"
+                if name == ARTIFACT_VERSION_KEY and new[name] != old[name]:
+                    if not isinstance(old[name], str) or new[name] != rest.padded_version(old[name]):
+                        return here
+                    continue
+                difference = walk(old[name], new[name], here)
+                if difference is not None:
+                    return difference
+            return None
+        if isinstance(old, list):
+            if not isinstance(new, list) or len(old) != len(new):
+                return path or "/"
+            for index, value in enumerate(old):
+                difference = walk(value, new[index], f"{path}/{index}")
+                if difference is not None:
+                    return difference
+            return None
+        return None if type(old) is type(new) and old == new else (path or "/")
+
+    return walk(before, after, "")
+
+
+def stamp_static_field_model_version(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Declare the current model version on a static field that states none.
+
+    A static field is a model specification like any other definition, and the model gives it a
+    version. ``static-field-meta-schema.json`` omits the property, which is why an absence there is
+    accepted on write while the library writes one on every render; the omission is a defect in the
+    meta-schema rather than a decision, and this fills the artifacts ahead of closing it.
+
+    Narrower than :func:`stamp_model_version` on purpose. That one moves a version that is merely
+    behind and refuses to guess at one that is absent or unparseable, which is the right answer
+    wherever the model already demands a version. Here the demand is the thing being added, so the
+    absence is the defect. A static field stating a version, current or not, is left to the other
+    repair, and nothing but a static field is touched.
+    """
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def walk(definition: Any, path: str) -> Any:
+        if not isinstance(definition, dict):
+            return definition
+        result = copy.deepcopy(definition)
+        if definition.get("@type") == STATIC_AT_TYPE and MODEL_VERSION_KEY not in definition:
+            result[MODEL_VERSION_KEY] = audit.MODEL_VERSION
+            changes.append({"path": f"{path}/{rest.json_pointer_component(MODEL_VERSION_KEY)}",
+                            "replaced": None, "wrote": audit.MODEL_VERSION})
+        for name, child, multiple in container_children(definition):
+            declared = rest.child_path(path, name)
+            repaired = walk(child, f"{declared}/items" if multiple else declared)
+            if multiple:
+                result["properties"][name]["items"] = repaired
+            else:
+                result["properties"][name] = repaired
+        return result
+
+    return walk(artifact, ""), changes
+
+
+def only_stamped_static_field_model_version(before: Any, after: Any) -> Optional[str]:
+    """The invariant: the only change is a static field gaining the current model version.
+
+    An addition is what this repair makes, so unlike its sibling the walk has to admit one key
+    appearing — and admit exactly that one, on exactly that kind of node, with exactly that value.
+    Nothing may be removed and no other value may move.
+    """
+
+    def walk(old: Any, new: Any, path: str) -> Optional[str]:
+        if isinstance(old, dict):
+            if not isinstance(new, dict):
+                return path or "/"
+            if set(old) - set(new):
+                return path or "/"
+            added = set(new) - set(old)
+            if added - {MODEL_VERSION_KEY}:
+                return path or "/"
+            if added:
+                here = f"{path}/{rest.json_pointer_component(MODEL_VERSION_KEY)}"
+                if old.get("@type") != STATIC_AT_TYPE or new[MODEL_VERSION_KEY] != audit.MODEL_VERSION:
+                    return here
+            for name in old:
+                difference = walk(old[name], new[name], f"{path}/{rest.json_pointer_component(name)}")
                 if difference is not None:
                     return difference
             return None
@@ -2531,6 +3537,140 @@ def only_normalized_orcid_spacing(before: Any, after: Any, template: Any) -> Opt
         if not path.endswith("/@id") or not definition \
                 or "@id" not in definition.get("properties", {}) \
                 or normalized_spaced_orcid(was) is None or normalized_spaced_orcid(was) != now:
+            return path
+    return None
+
+
+def blank_field_occurrence(value: Any) -> bool:
+    """Whether a field occurrence holds nothing: no value, no identifier, no label."""
+    if value in ({}, None):
+        return True
+    if not isinstance(value, dict):
+        return False
+    keys = set(value) - {AT_TYPE}
+    if keys == {"@value"} and value["@value"] is None:
+        return True
+    if keys and keys <= {"@id", "rdfs:label", "skos:notation"} and not value.get("@id"):
+        return True
+    return False
+
+
+def occurrence_lower_bound(container: Any, name: str) -> int:
+    """How many occurrences of this child the container's JSON Schema demands.
+
+    A multi-instance child always states a lower bound, and states the model's default of one when
+    it names none, so the bound is never absent in practice; the default is applied here for a
+    container that somehow omits it.
+    """
+    declared = (container or {}).get("properties", {}).get(name)
+    if not isinstance(declared, dict):
+        return 1
+    bound = declared.get("minItems")
+    return bound if isinstance(bound, int) and bound >= 0 else 1
+
+
+def compacted_occurrences(value: list, bound: int) -> Optional[list]:
+    """Values in their order, then only as many blank occurrences as the bound requires.
+
+    Returns None when the list already has that shape, so a field needing nothing is not rewritten.
+    """
+    flags = [blank_field_occurrence(item) for item in value]
+    if not any(flags) or all(flags):
+        return None
+    # A blank that stands after every value moves nothing when it is dropped, so a list already in
+    # values-then-blanks order is left exactly as it is.
+    if flags.index(True) > max(index for index, blank in enumerate(flags) if not blank):
+        return None
+    values = [item for item, blank in zip(value, flags) if not blank]
+    blanks = [item for item, blank in zip(value, flags) if blank]
+    wanted = values + blanks[:max(0, bound - len(values))]
+    return None if wanted == value else wanted
+
+
+def compact_blank_occurrences(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Put a multi-instance field's values first and keep only the blanks its bound requires.
+
+    A multi-instance field renders occurrence by occurrence and an occurrence holding nothing is
+    omitted, so a blank standing before a value moves every later value down a place: a list stored
+    as ``[blank, "audio disc"]`` comes back as ``["audio disc"]``, and the deployment and the
+    representation disagree about which occurrence is which. Nothing rejects either form, so the
+    disagreement is silent.
+
+    Reordering settles it. Values keep their order, and enough blanks remain to meet the lower bound
+    the field declares, which is the shape a round trip already returns — so the stored list and the
+    returned list agree from then on.
+
+    Only a list whose blanks stand before a value is touched. Trailing blanks move nothing and are
+    left alone. A list of nothing but blanks is left alone too: it states an occurrence count that
+    no value contradicts, and emptying it would be a different decision.
+    """
+    if not isinstance(template, dict):
+        raise TransformRefused("the template this instance names could not be read")
+    if not isinstance(instance, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def walk(node: Any, container: Any, path: str) -> Any:
+        if not isinstance(node, dict):
+            return node
+        result = copy.deepcopy(node)
+        for name, child, multiple in container_children(container):
+            if name not in result:
+                continue
+            here = f"{path}/{rest.json_pointer_component(name)}"
+            value = result[name]
+            if is_element(child):
+                if isinstance(value, list):
+                    result[name] = [walk(item, child, f"{here}/{index}")
+                                    for index, item in enumerate(value)]
+                elif isinstance(value, dict):
+                    result[name] = walk(value, child, here)
+                continue
+            if not multiple or not isinstance(value, list):
+                continue
+            wanted = compacted_occurrences(value, occurrence_lower_bound(container, name))
+            if wanted is None:
+                continue
+            result[name] = wanted
+            changes.append({"path": here, "replaced": len(value), "wrote": len(wanted),
+                            "keptValues": sum(1 for item in wanted
+                                              if not blank_field_occurrence(item))})
+        return result
+
+    return walk(instance, template, ""), changes
+
+
+def only_compacted_blank_occurrences(before: Any, after: Any, template: Any) -> Optional[str]:
+    """Every difference lies inside one multi-instance field list rewritten to the shape above.
+
+    A difference is resolved to the list that encloses it, because a reordering that keeps the
+    length reports element by element rather than as one whole-list change. That list is then
+    re-derived from the stored one — the values it must keep, in their stored order, followed by
+    the blanks its bound requires — so a value altered, reordered or dropped fails this, as does
+    any change outside such a list.
+    """
+    for path, _was, _now in differences(before, after):
+        parts = path.split("/")
+        accounted = False
+        for depth in range(len(parts), 1, -1):
+            prefix = "/".join(parts[:depth])
+            stored = value_at(before, prefix)
+            if not isinstance(stored, list):
+                continue
+            container = declaration_at(template, "/".join(parts[:depth - 1])) \
+                if depth > 2 else template
+            name = parts[depth - 1]
+            if container is None:
+                continue
+            declared = (container.get("properties") or {}).get(name)
+            if not isinstance(declared, dict) or declared.get("type") != "array":
+                continue
+            wanted = compacted_occurrences(stored, occurrence_lower_bound(container, name))
+            if wanted is None or wanted != value_at(after, prefix):
+                return path
+            accounted = True
+            break
+        if not accounted:
             return path
     return None
 
@@ -4421,6 +5561,12 @@ def only_declared_fields(before: Any, after: Any) -> Optional[str]:
 
 
 REPAIRS = {
+    "compact-blank-occurrences": Repair(
+        name="compact-blank-occurrences", condition="",
+        summary="put a multi-instance field's values first so the stored order is the order a round trip returns",
+        transform=compact_blank_occurrences, invariant=only_compacted_blank_occurrences,
+        needs_template=True,
+    ),
     "normalize-instance-orcid-spacing": Repair(
         name="normalize-instance-orcid-spacing", condition="",
         summary="remove accidental ORCID host-path whitespace without changing the identifier",
@@ -4616,6 +5762,83 @@ REPAIRS = {
         summary="deploy an inherently multiple child as the array it always serializes to",
         transform=wrap_inherently_multiple,
         invariant=only_wrapped_inherently_multiple,
+    ),
+    "name-controlled-term-field": Repair(
+        name="name-controlled-term-field",
+        condition="input-type-unknown",
+        summary="write controlled-term as the textfield the model actually has",
+        transform=name_a_controlled_term_field_as_it_is_modelled,
+        invariant=only_named_controlled_term_fields,
+    ),
+    "drop-unresolvable-default": Repair(
+        name="drop-unresolvable-default",
+        condition="default-value-kind-mismatch",
+        summary="remove a default naming a term the field offers no way to reach",
+        transform=drop_unresolvable_default,
+        invariant=only_dropped_unresolvable_defaults,
+    ),
+    "derive-absent-provenance": Repair(
+        name="derive-absent-provenance",
+        condition="provenance-absent",
+        summary="fill a null creation date or author from what the last change records",
+        transform=derive_absent_provenance,
+        invariant=only_derived_absent_provenance,
+    ),
+    "state-temporal-precision": Repair(
+        name="state-temporal-precision",
+        condition="temporal-precision-absent",
+        summary="say what precision a temporal field is read at, where it says nothing",
+        transform=state_temporal_precision,
+        invariant=only_stated_temporal_precision,
+    ),
+    "present-choices-as-a-list": Repair(
+        name="present-choices-as-a-list",
+        condition="field-offers-choices-it-cannot-present",
+        summary="make a field that lists permitted values a single-select list",
+        transform=present_choices_as_a_list,
+        invariant=only_presented_choices_as_a_list,
+    ),
+    "drop-blank-literal": Repair(
+        name="drop-blank-literal",
+        condition="literal-label-blank",
+        summary="remove a permitted value that has no label",
+        transform=drop_blank_literal,
+        invariant=only_dropped_blank_literals,
+    ),
+    "drop-unresolved-class-constraint": Repair(
+        name="drop-unresolved-class-constraint",
+        condition="class-constraint-unresolved",
+        summary="remove a class constraint whose URI is the empty string",
+        transform=drop_unresolved_class_constraint,
+        invariant=only_dropped_unresolved_class_constraints,
+    ),
+    "default-unreadable-version": Repair(
+        name="default-unreadable-version",
+        condition="artifact-version-unreadable",
+        summary="give a draft whose version carries no version the default a new artifact gets",
+        transform=default_unreadable_version,
+        invariant=only_defaulted_unreadable_version,
+    ),
+    "settle-prerelease-version": Repair(
+        name="settle-prerelease-version",
+        condition="artifact-version-prerelease",
+        summary="write a draft's prerelease version as its release, discarding the tag",
+        transform=settle_prerelease_version,
+        invariant=only_settled_prerelease_version,
+    ),
+    "pad-artifact-version": Repair(
+        name="pad-artifact-version",
+        condition="artifact-version-unpadded",
+        summary="write a short numeric pav:version as the three-part version it means",
+        transform=pad_artifact_version,
+        invariant=only_padded_artifact_version,
+    ),
+    "stamp-static-field-model-version": Repair(
+        name="stamp-static-field-model-version",
+        condition="model-version-absent",
+        summary="declare the current model version on a static field that states none",
+        transform=stamp_static_field_model_version,
+        invariant=only_stamped_static_field_model_version,
     ),
     "stamp-model-version": Repair(
         name="stamp-model-version",
@@ -4814,12 +6037,32 @@ def conditions_named_by(path: Path, sample: int = 5000) -> list[str]:
                 if number >= sample:
                     break
                 try:
-                    found.update(json.loads(line).get("conditionRules") or {})
+                    found.update(normalized_target_record(json.loads(line)).get("conditionRules") or {})
                 except (ValueError, AttributeError):
                     continue
     except OSError:
         return []
     return sorted(found)
+
+
+def normalized_target_record(record: Any) -> dict:
+    """One target row, whichever inventory wrote it.
+
+    ``cedar_artifact_validation_audit.py`` writes a record per artifact carrying every condition it
+    met; ``cedar_artifact_rest_audit.py`` writes a finding per defect naming one rule. Both are
+    inventories a repair draws targets from, so a finding is read as the single-condition record it
+    already is rather than needing a conversion step between the two tools.
+    """
+    if not isinstance(record, dict) or "conditionRules" in record or "artifactId" in record:
+        return record if isinstance(record, dict) else {}
+    if not {"rule", "artifact_id", "artifact_type"} <= set(record):
+        return record
+    return {
+        "artifactType": record["artifact_type"],
+        "artifactId": record["artifact_id"],
+        "artifactName": record.get("artifact_name", ""),
+        "conditionRules": {record["rule"]: 1},
+    }
 
 
 def targets_from_records(path: Path, conditions: list[str], patterns: list[str],
@@ -4838,7 +6081,7 @@ def targets_from_records(path: Path, conditions: list[str], patterns: list[str],
             for line in stream:
                 if wanted and not any(condition in line for condition in wanted) and not expressions:
                     continue
-                record = json.loads(line)
+                record = normalized_target_record(json.loads(line))
                 matched = bool(wanted & set(record.get("conditionRules") or {}))
                 if not matched and expressions:
                     errors = ((record.get("validation") or {}).get("errors") or [])

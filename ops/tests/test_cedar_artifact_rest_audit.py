@@ -23,12 +23,13 @@ sys.modules[SPEC.name] = audit
 SPEC.loader.exec_module(audit)
 
 
-def schema_child(at_type, identifier, input_type="text", nested=None):
+def schema_child(at_type, identifier, input_type="textfield", nested=None):
     child = {
         "$schema": audit.JSON_SCHEMA_DRAFT_04,
         "type": "object",
         "@type": at_type,
         "@id": identifier,
+        "schema:schemaVersion": audit.CURRENT_MODEL_VERSION,
         "_ui": {"inputType": input_type},
         "properties": {"@context": {"type": "object", "properties": {}, "required": []}},
     }
@@ -43,6 +44,7 @@ def schema_artifact(identifier, children=None, mappings=None, required=None):
         "@id": identifier,
         "@type": "https://schema.metadatacenter.org/core/Template",
         "schema:name": "Schema",
+        "schema:schemaVersion": audit.CURRENT_MODEL_VERSION,
         "properties": {
             "@context": {
                 "type": "object",
@@ -93,6 +95,217 @@ class RuleTests(unittest.TestCase):
         findings = list(audit.audit_common(self.ref(), artifact))
         self.assertEqual([item.rule for item in findings], ["derived-from-unusable"])
         self.assertEqual(findings[0].risk, "repair-on-save")
+
+    def test_a_child_written_against_another_model_is_reported_for_review(self):
+        child = schema_child(audit.TEMPLATE_FIELD, "https://repo.example/fields/f1")
+        child["schema:schemaVersion"] = "1.5.0"
+        artifact = schema_artifact(self.ref().artifact_id, children={"field": child})
+        findings = [item for item in audit.audit_schema(self.ref(), artifact)
+                    if item.rule.startswith("model-version")]
+        self.assertEqual(["model-version-stale"], [item.rule for item in findings])
+        self.assertEqual("manual-review", findings[0].risk)
+        self.assertEqual("1.5.0", findings[0].value)
+        self.assertEqual("/properties/field/schema:schemaVersion", findings[0].path)
+
+    def test_a_static_field_missing_one_is_counted_apart_from_a_refused_absence(self):
+        """The meta-schema does not ask a static field for it yet, so the risk differs from the rest."""
+        static = schema_child(audit.STATIC_TEMPLATE_FIELD, "https://repo.example/fields/s1",
+                              input_type="section-break")
+        del static["schema:schemaVersion"]
+        ordinary = schema_child(audit.TEMPLATE_FIELD, "https://repo.example/fields/f1")
+        del ordinary["schema:schemaVersion"]
+        artifact = schema_artifact(self.ref().artifact_id,
+                                   children={"break": static, "field": ordinary})
+        findings = {item.path: item for item in audit.audit_schema(self.ref(), artifact)
+                    if item.rule.startswith("model-version")}
+        self.assertEqual({"/properties/break/schema:schemaVersion",
+                          "/properties/field/schema:schemaVersion"}, set(findings))
+        self.assertEqual("manual-review", findings["/properties/break/schema:schemaVersion"].risk)
+        self.assertEqual("save-rejected", findings["/properties/field/schema:schemaVersion"].risk)
+        self.assertTrue(all(item.rule == "model-version-absent" for item in findings.values()))
+
+    def test_controlled_term_is_reported_because_it_is_not_an_input_type(self):
+        """A controlled term is a text field whose value is an IRI, not an input type of its own."""
+        node = {"_ui": {"inputType": "controlled-term"},
+                "_valueConstraints": {"classes": [{"uri": "http://x/1"}], "branches": []}}
+        findings = list(audit.audit_input_type(self.ref(), node, "/properties/term"))
+        self.assertEqual(["input-type-unknown"], [f.rule for f in findings])
+        self.assertEqual("controlled-term", findings[0].value)
+        self.assertIn("1 term constraint", findings[0].message)
+
+    def test_every_input_type_the_model_has_is_accepted(self):
+        for known in ("textfield", "temporal", "list", "attribute-value", "section-break",
+                      "ext-doi", "link", "ext-orcid"):
+            node = {"_ui": {"inputType": known}, "_valueConstraints": {}}
+            self.assertEqual([], list(audit.audit_input_type(self.ref(), node, "")), known)
+
+    def test_a_default_naming_an_unreachable_term_is_reported(self):
+        node = {"_ui": {"inputType": "textfield"},
+                "_valueConstraints": {"classes": [], "branches": [], "valueSets": [], "ontologies": [],
+                                      "defaultValue": {"termUri": "http://x/1", "rdfs:label": "Mixed-use"}}}
+        findings = list(audit.audit_default_value_kind(self.ref(), node, "/properties/land"))
+        self.assertEqual(["default-value-kind-mismatch"], [f.rule for f in findings])
+        self.assertEqual("Mixed-use", findings[0].value)
+
+    def test_a_reachable_term_default_and_a_literal_one_are_not_reported(self):
+        reachable = {"_ui": {"inputType": "textfield"},
+                     "_valueConstraints": {"classes": [{"uri": "http://x/1"}],
+                                           "defaultValue": {"termUri": "http://x/1", "rdfs:label": "A"}}}
+        self.assertEqual([], list(audit.audit_default_value_kind(self.ref(), reachable, "")))
+        literal = {"_ui": {"inputType": "textfield"},
+                   "_valueConstraints": {"defaultValue": {"@value": "Mixed-use"}}}
+        self.assertEqual([], list(audit.audit_default_value_kind(self.ref(), literal, "")))
+
+    def test_an_artifact_saying_nothing_about_its_making_is_reported(self):
+        node = {"pav:createdOn": None, "pav:createdBy": None,
+                "pav:lastUpdatedOn": "2026-03-04T17:46:50-08:00",
+                "oslc:modifiedBy": "https://repo.example/users/u1"}
+        findings = list(audit.audit_provenance(self.ref(), node, ""))
+        self.assertEqual(["provenance-absent"] * 2, [f.rule for f in findings])
+        self.assertEqual(["/pav:createdOn", "/pav:createdBy"], [f.path for f in findings])
+        self.assertEqual(["2026-03-04T17:46:50-08:00", "https://repo.example/users/u1"],
+                         [f.value for f in findings])
+
+    def test_provenance_that_is_simply_gone_is_not_reported(self):
+        """Nothing to recover it from is a different thing from something to recover it from."""
+        node = {"pav:createdOn": None, "pav:createdBy": None,
+                "pav:lastUpdatedOn": None, "oslc:modifiedBy": None}
+        self.assertEqual([], list(audit.audit_provenance(self.ref(), node, "")))
+
+    def test_a_recorded_provenance_is_not_reported(self):
+        node = {"pav:createdOn": "2020-01-01T00:00:00-08:00",
+                "pav:createdBy": "https://repo.example/users/u1",
+                "pav:lastUpdatedOn": "2026-03-04T17:46:50-08:00",
+                "oslc:modifiedBy": "https://repo.example/users/u2"}
+        self.assertEqual([], list(audit.audit_provenance(self.ref(), node, "")))
+
+    def test_a_temporal_field_saying_no_precision_is_reported(self):
+        node = {"_ui": {"inputType": "temporal"}, "_valueConstraints": {"requiredValue": False}}
+        findings = list(audit.audit_temporal_precision(self.ref(), node, "/properties/date"))
+        self.assertEqual(["temporal-precision-absent"], [f.rule for f in findings])
+        self.assertIn("_ui/temporalGranularity", findings[0].message)
+        self.assertIn("_valueConstraints/temporalType", findings[0].message)
+        self.assertEqual("/properties/date/_ui", findings[0].path)
+
+    def test_a_half_stated_precision_is_still_reported(self):
+        for ui, vc in (({"inputType": "temporal", "temporalGranularity": "day"}, {}),
+                       ({"inputType": "temporal"}, {"temporalType": "xsd:date"})):
+            findings = list(audit.audit_temporal_precision(self.ref(), {"_ui": ui, "_valueConstraints": vc}, ""))
+            self.assertEqual(["temporal-precision-absent"], [f.rule for f in findings])
+
+    def test_a_fully_stated_temporal_field_and_other_types_are_not_reported(self):
+        good = {"_ui": {"inputType": "temporal", "temporalGranularity": "day"},
+                "_valueConstraints": {"temporalType": "xsd:date"}}
+        self.assertEqual([], list(audit.audit_temporal_precision(self.ref(), good, "")))
+        other = {"_ui": {"inputType": "textfield"}, "_valueConstraints": {}}
+        self.assertEqual([], list(audit.audit_temporal_precision(self.ref(), other, "")))
+
+    def test_a_field_listing_choices_it_cannot_present_is_reported(self):
+        node = {"_ui": {"inputType": "textfield"},
+                "_valueConstraints": {"literals": [{"label": "Homo sapiens"}, {"label": "Mus musculus"}]}}
+        findings = list(audit.audit_field_offers_choices(self.ref(), node, "/properties/species"))
+        self.assertEqual(["field-offers-choices-it-cannot-present"], [f.rule for f in findings])
+        self.assertEqual("textfield", findings[0].value)
+        self.assertEqual("/properties/species/_ui/inputType", findings[0].path)
+        self.assertIn("2 permitted values", findings[0].message)
+
+    def test_a_field_that_does_present_choices_is_not_reported(self):
+        for input_type in ("radio", "checkbox", "list"):
+            node = {"_ui": {"inputType": input_type},
+                    "_valueConstraints": {"literals": [{"label": "Homo sapiens"}]}}
+            self.assertEqual([], list(audit.audit_field_offers_choices(self.ref(), node, "")), input_type)
+
+    def test_a_field_with_no_options_is_not_reported(self):
+        for constraints in ({"literals": []}, {}, {"requiredValue": True}):
+            node = {"_ui": {"inputType": "textfield"}, "_valueConstraints": constraints}
+            self.assertEqual([], list(audit.audit_field_offers_choices(self.ref(), node, "")))
+
+    def test_a_class_constraint_pointing_at_no_term_is_reported(self):
+        node = {"_valueConstraints": {"classes": [
+            {"uri": "http://x/C1", "prefLabel": "White"},
+            {"uri": "", "prefLabel": "Mixed"},
+            {"prefLabel": "ER and/or PgR positive"},
+        ]}}
+        findings = list(audit.audit_class_constraints(self.ref(), node, "/properties/race"))
+        self.assertEqual(["class-constraint-unresolved"] * 2, [f.rule for f in findings])
+        self.assertEqual(["Mixed", "ER and/or PgR positive"], [f.value for f in findings])
+        self.assertEqual(["/properties/race/_valueConstraints/classes/1",
+                          "/properties/race/_valueConstraints/classes/2"],
+                         [f.path for f in findings])
+
+    def test_resolved_constraints_and_other_kinds_are_not_reported(self):
+        node = {"_valueConstraints": {
+            "classes": [{"uri": "http://x/C1", "prefLabel": "White"}],
+            "ontologies": [{"uri": "", "name": "n"}],
+        }}
+        self.assertEqual([], list(audit.audit_class_constraints(self.ref(), node, "")))
+
+    def test_padding_reads_a_short_numeric_version_and_nothing_else(self):
+        for stated, expected in (("0.9", "0.9.0"), ("1.0", "1.0.0"), ("1", "1.0.0"),
+                                 ("01", "1.0.0"), ("1.2", "1.2.0"), ("123", "123.0.0"),
+                                 ("0.1", "0.1.0"), ("01.0.0", "1.0.0")):
+            self.assertEqual(expected, audit.padded_version(stated), stated)
+        for stated in ("1.0.0-rc1", "requestJson", "asd", "", "1.", ".1", "1..0", "v1.0", None):
+            self.assertIsNone(audit.padded_version(stated), stated)
+
+    def test_a_version_is_reported_as_paddable_prerelease_or_unreadable(self):
+        cases = {
+            "0.9": "artifact-version-unpadded",
+            "1": "artifact-version-unpadded",
+            "1.0.0-rc1": "artifact-version-prerelease",
+            "1.0.0+build.5": "artifact-version-prerelease",
+            "requestJson": "artifact-version-unreadable",
+            "asd": "artifact-version-unreadable",
+        }
+        for stated, rule in cases.items():
+            with self.subTest(stated=stated):
+                node = {"pav:version": stated}
+                findings = list(audit.audit_artifact_version(self.ref(), node, ""))
+                self.assertEqual([rule], [item.rule for item in findings])
+                self.assertEqual(stated, findings[0].value)
+                self.assertEqual("/pav:version", findings[0].path)
+
+    def test_a_parseable_version_and_an_absent_one_are_not_reported(self):
+        for node in ({"pav:version": "1.0.0"}, {"pav:version": "0.0.1"}, {}, {"pav:version": 7}):
+            self.assertEqual([], list(audit.audit_artifact_version(self.ref(), node, "")))
+
+    def test_a_nested_definition_answers_for_its_own_version(self):
+        """A template whose own version parses can still hold children whose versions do not."""
+        child = schema_child(audit.TEMPLATE_FIELD, "https://repo.example/fields/f1")
+        child["pav:version"] = "0.1"
+        artifact = schema_artifact(self.ref().artifact_id, children={"field": child})
+        artifact["pav:version"] = "0.0.1"
+        findings = [item for item in audit.audit_schema(self.ref(), artifact)
+                    if item.rule.startswith("artifact-version")]
+        self.assertEqual(["artifact-version-unpadded"], [item.rule for item in findings])
+        self.assertEqual("/properties/field/pav:version", findings[0].path)
+
+    def test_a_standalone_field_answers_for_its_own_model_version(self):
+        """Only containers are walked through audit_schema, so the field root needs its own check."""
+        field = {"$schema": audit.JSON_SCHEMA_DRAFT_04, "@type": audit.TEMPLATE_FIELD,
+                 "@id": "https://repo.example/template-fields/f1", "schema:name": "Field"}
+        ref = self.ref("field", field["@id"])
+        absent = list(audit.audit_model_version(ref, field, "", field["@type"]))
+        self.assertEqual(["model-version-absent"], [item.rule for item in absent])
+        self.assertEqual("save-rejected", absent[0].risk)
+        field["schema:schemaVersion"] = audit.CURRENT_MODEL_VERSION
+        self.assertEqual([], list(audit.audit_model_version(ref, field, "", field["@type"])))
+
+    def test_the_artifact_root_answers_for_its_own_model_version(self):
+        artifact = schema_artifact(self.ref().artifact_id)
+        artifact["schema:schemaVersion"] = "0.9"
+        findings = [item for item in audit.audit_schema(self.ref(), artifact)
+                    if item.rule.startswith("model-version")]
+        self.assertEqual(["model-version-stale"], [item.rule for item in findings])
+        self.assertEqual("/schema:schemaVersion", findings[0].path)
+
+    def test_a_current_model_version_is_not_reported_anywhere(self):
+        child = schema_child(audit.TEMPLATE_ELEMENT, "https://repo.example/elements/e1",
+                             nested={"inner": schema_child(audit.TEMPLATE_FIELD,
+                                                           "https://repo.example/fields/f1")})
+        artifact = schema_artifact(self.ref().artifact_id, children={"element": child})
+        self.assertEqual([], [item for item in audit.audit_schema(self.ref(), artifact)
+                              if item.rule.startswith("model-version")])
 
     def test_schema_reports_unusable_child_id_mapping_and_required_entry(self):
         child = schema_child(audit.TEMPLATE_FIELD, "tmp-child")
@@ -446,6 +659,154 @@ class _FakeCedarHandler(BaseHTTPRequestHandler):
         self.wfile.write(payload)
 
 
+class ConcurrentFetchTests(unittest.TestCase):
+    """Reading ahead must not change what the pass reports or the order it resumes from."""
+
+    def refs(self, count):
+        return [audit.ArtifactRef("template", f"https://repo.example/templates/t{index}", f"T{index}")
+                for index in range(count)]
+
+    def test_answers_arrive_in_enumeration_order_however_they_complete(self):
+        import random
+        import time as clock
+        refs = self.refs(25)
+
+        def fetch(_client, ref):
+            clock.sleep(random.uniform(0, 0.02))
+            return {"@id": ref.artifact_id}, None
+
+        seen = [ref.artifact_id for ref, _artifact, _error in
+                audit.fetch_in_order(None, refs, workers=8, fetch=fetch)]
+        self.assertEqual([ref.artifact_id for ref in refs], seen)
+
+    def test_a_failure_is_handed_over_rather_than_raised(self):
+        refs = self.refs(3)
+
+        def fetch(_client, ref):
+            if ref.artifact_id.endswith("t1"):
+                return None, RuntimeError("404")
+            return {"@id": ref.artifact_id}, None
+
+        results = list(audit.fetch_in_order(None, refs, workers=4, fetch=fetch))
+        self.assertEqual([None if r.artifact_id.endswith("t1") else {"@id": r.artifact_id}
+                          for r in refs], [artifact for _ref, artifact, _error in results])
+        self.assertIsInstance(results[1][2], RuntimeError)
+
+    def test_a_worker_that_never_answers_is_recorded_unread_and_the_pass_goes_on(self):
+        import threading
+        refs = self.refs(3)
+        released = threading.Event()
+        self.addCleanup(released.set)
+
+        def fetch(_client, ref):
+            if ref.artifact_id.endswith("t0"):
+                released.wait(timeout=30)
+            return {"@id": ref.artifact_id}, None
+
+        results = list(audit.fetch_in_order(None, refs, workers=2, fetch=fetch, worker_timeout=0.1))
+        self.assertEqual(3, len(results))
+        self.assertIsNone(results[0][1])
+        self.assertIsInstance(results[0][2], TimeoutError)
+        self.assertEqual({"@id": refs[2].artifact_id}, results[2][1])
+
+    def test_every_ref_is_read_exactly_once(self):
+        refs = self.refs(40)
+        calls = []
+
+        def fetch(_client, ref):
+            calls.append(ref.artifact_id)
+            return {"@id": ref.artifact_id}, None
+
+        list(audit.fetch_in_order(None, refs, workers=6, fetch=fetch))
+        self.assertEqual(sorted(ref.artifact_id for ref in refs), sorted(calls))
+
+    def test_a_slow_answer_does_not_stop_the_pool_reading_ahead(self):
+        """The window counts unfinished reads, so completions waiting their turn do not close it.
+
+        One read holds the head of the queue while the rest complete. Counting every queued read,
+        finished or not, let the window fill with answers nobody had collected yet and the pool ran
+        dry behind the slow one. Reading ahead has to continue past it.
+        """
+        import threading
+        refs = self.refs(200)
+        released = threading.Event()
+        self.addCleanup(released.set)
+        started = threading.Semaphore(0)
+
+        def fetch(_client, ref):
+            if ref.artifact_id.endswith("/t0"):
+                released.wait(timeout=30)
+            started.release()
+            return {"@id": ref.artifact_id}, None
+
+        collected = []
+        reader = audit.fetch_in_order(None, refs, workers=8, fetch=fetch)
+        consumer = threading.Thread(target=lambda: collected.extend(reader), daemon=True)
+        consumer.start()
+        # The consumer blocks on the stuck head; every other read should still be picked up.
+        for _ in range(100):
+            self.assertTrue(started.acquire(timeout=15),
+                            "the pool stopped reading ahead while one read was outstanding")
+        released.set()
+        consumer.join(timeout=60)
+        self.assertEqual([ref.artifact_id for ref in refs],
+                         [ref.artifact_id for ref, _artifact, _error in collected])
+
+    def test_reading_ahead_stays_bounded_when_nothing_is_collected(self):
+        """A slow head must not pull the whole enumeration into flight."""
+        import threading
+        import time as clock
+        workers = 4
+        refs = self.refs(5000)
+        released = threading.Event()
+        self.addCleanup(released.set)
+        lock = threading.Lock()
+        submitted = []
+
+        def fetch(_client, ref):
+            with lock:
+                submitted.append(ref.artifact_id)
+            if ref.artifact_id.endswith("/t0"):
+                released.wait(timeout=30)
+            return {"@id": ref.artifact_id}, None
+
+        collected = []
+        reader = audit.fetch_in_order(None, refs, workers=workers, fetch=fetch)
+        consumer = threading.Thread(target=lambda: collected.extend(reader), daemon=True)
+        consumer.start()
+
+        ceiling = workers * 2 * 8
+        deadline = clock.monotonic() + 15
+        while clock.monotonic() < deadline:
+            with lock:
+                if len(submitted) >= ceiling:
+                    break
+            clock.sleep(0.05)
+        clock.sleep(0.5)                      # give it a chance to overshoot if it is going to
+        with lock:
+            reached = len(submitted)
+        released.set()
+        consumer.join(timeout=60)
+        self.assertLessEqual(reached, ceiling + workers,
+                             f"reading ahead was not bounded: {reached} reads in flight")
+        self.assertEqual(len(refs), len(collected))
+
+    def test_workers_defaults_and_is_settable(self):
+        self.assertEqual(audit.DEFAULT_WORKERS, audit.build_parser().parse_args([]).workers)
+        self.assertEqual(3, audit.build_parser().parse_args(["--workers", "3"]).workers)
+
+
+class RetryBudgetTests(unittest.TestCase):
+    """`retries` counts attempts, so the smallest usable value still sends one request."""
+
+    def test_a_zero_retry_budget_still_makes_one_attempt(self):
+        client = audit.GetOnlyClient("https://repo.example", "key", retries=0)
+        self.assertEqual(1, client.retries)
+
+    def test_an_explicit_budget_is_kept(self):
+        self.assertEqual(4, audit.GetOnlyClient("https://repo.example", "key", retries=4).retries)
+
+
 class RestIntegrationTests(unittest.TestCase):
     def setUp(self):
         template_id = "https://repo.example/templates/t1"
@@ -456,7 +817,9 @@ class RestIntegrationTests(unittest.TestCase):
             ),
             ("field", "https://repo.example/template-fields/f1"): {
                 "$schema": audit.JSON_SCHEMA_DRAFT_04,
-                "@id": "https://repo.example/template-fields/f1", "schema:name": "Field"
+                "@id": "https://repo.example/template-fields/f1", "schema:name": "Field",
+                "@type": audit.TEMPLATE_FIELD,
+                "schema:schemaVersion": audit.CURRENT_MODEL_VERSION,
             },
             ("instance", "https://repo.example/template-instances/i1"): {
                 "@id": "https://repo.example/template-instances/i1",

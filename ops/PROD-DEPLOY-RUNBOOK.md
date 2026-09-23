@@ -1,15 +1,9 @@
 # CEDAR Production Deploy Runbook
 
-How to deploy an **already-cut release** onto the production application server — reconcile any
-live hot-patches, pull the release onto `main`, choose an environment modifier when needed, rebuild, redeploy the
-backend + frontends, run the DB migrations (app DB **and** the separate log DB), and bring the
-front door back up. Written to be followed by a human with a terminal, or read by an LLM agent.
-
-This is the **prod-deploy** counterpart to:
-- [RELEASE-RUNBOOK.md](./RELEASE-RUNBOOK.md) — *cutting* a release (`cedarcli release start`,
-  tag/merge/push across the repos, publish to Nexus + npm). Do that **first**; this runbook takes
-  the released `main` and stands it up on prod.
-- [BACKEND-RUNBOOK.md](./BACKEND-RUNBOOK.md) — running CEDAR locally.
+Deploy an already-cut release from `main`: reconcile host edits, build, migrate databases,
+restart services and verify served frontend bytes. First cut the release using
+[RELEASE-RUNBOOK.md](RELEASE-RUNBOOK.md). Local stack operation is covered in
+[BACKEND-RUNBOOK.md](BACKEND-RUNBOOK.md).
 
 > Replace `youruser@<prod-app-host>` and `<prod-log-db-host>` with the real prod hosts, and
 > `<MODIFIER>` with the deploy's version modifier (see step 3). Never commit real hostnames,
@@ -17,33 +11,19 @@ This is the **prod-deploy** counterpart to:
 
 ## What a Prod Deploy Actually Is
 
-Prod runs the released code from **`main`** at `$CEDAR_HOME`, built in place. A deploy:
+Production builds released `main` checkouts in place. Build before stopping Java to keep the
+outage between `cedarcli native stop microservices` and `cedarcli native start microservices`
+short. Rebuild every served CEE host, including Workspace and the monolith during migration.
 
-1. **Reconciles local state** — prod may carry emergency **hot-patches** applied directly on the box
-   (this deploy found prod hot-patched to a newer CEE). Those are un-committed working-tree edits;
-   they must be reverted so the pull is clean.
-2. **Pulls the release** onto `main`. The three AngularJS payloads automatically bind their module
-   URLs to the source commit embedded by the build.
-3. Optionally changes **`CEDAR_VERSION_MODIFIER`** in `set-env-internal.sh` when two payloads from
-   the same source commit need distinct runtime content.
-4. **Rebuilds** all Java + configures the static frontends for the prod domain, and **rebuilds every
-   served CEE host** to the intended CEE version. During the split migration that means both the
-   monolith and Workspace, not only the historical frontend.
-5. **Migrates the databases** — the app MySQL (on the app host, as root) and the **log DB on a
-   separate host**.
-6. **Restarts** Java, then bounces nginx.
-
-> **Downtime window.** Java is down from `cedarcli native stop microservices` until
-> `cedarcli native start microservices` — do the
-> build *before* stopping Java to keep the window short. The **log DB migration causes no downtime**:
-> the log DB is written only by the worker draining Redis, asynchronously, so it can be migrated while
-> the rest of the system is up (or even before the window).
+Plan migrations for both the app database and the separate log database. Log writes are queued
+through Redis, so the log migration can precede the application outage; monitor queue and disk
+headroom while its consumer is unavailable.
 
 ## The Sequence
 
-Run everything in an interactive `cedar` shell inside `tmux` (survives a disconnect). `cedarcli`,
-`gocedar`, and `goeditor` are shell aliases/functions from the CEDAR profile — they only work in a
-full interactive `cedar` login shell, not a bare `bash script.sh`.
+Run the sequence as `cedar` inside `tmux` so it survives a disconnect. Examples use the profile's
+`gocedar` and `goeditor` navigation aliases. Without the `cedarcli` alias, export `CEDAR_HOME` and
+use `bash "$CEDAR_HOME/cedar-cli/cli.sh" <args>`; the CLI loads its selected profile itself.
 
 ### A · Connect
 ```bash
@@ -62,25 +42,22 @@ the existing mode reports `docker` or `hybrid`; do not change a production topol
 deployment using that mode has been identified and stopped through its own command surface.
 
 ### 1 · Reconcile Local State — Revert Any Hot-Patches
-Prod can drift from git when someone live-patches the box. Check, and discard working-tree edits so
-the pull can't conflict.
+Inspect local edits before pulling. Reconcile each known hot-patch with the release; retain a copy
+and restore only the paths whose changes are already accounted for. Investigate unexplained edits.
 ```bash
 cedarcli git status                       # any repo showing modified/dirty?
 goeditor                                  # cd the template-editor frontend
-git status                                # this deploy: prod was hot-patched to a newer CEE
-git checkout .                            # revert the hot-patch (re-applied cleanly in step 6)
+git diff                                  # inspect the hot-patch
+# After preserving and accounting for it: git restore -- <reviewed-path>
 gocedar
 ```
-> Only `git checkout .` (discard) once you've confirmed *what* the local change is and that it's a
-> known hot-patch being folded into this release. If it's an unexplained edit, stop and investigate
-> — discarding it loses it.
 
 ### 2 · Pull the Release onto `main`
 ```bash
 cedarcli git branch                       # see where each repo sits
 cedarcli git checkout main                # prod deploys from main
 cedarcli git pull
-cedarcli git status                        # expect clean; "prod data is now on main"
+cedarcli git status                        # expect clean
 ```
 
 ### 3 · Choose the Environment Modifier, Then Re-Source the Env
@@ -198,6 +175,11 @@ cedarcli native health
 - Verify an authenticated workspace read/save and a repo identifier URL. On staging, exercise the
   bridge DOI workflow against its test destination and a worker indexing job. These callers must
   continue to work after artifact starts enforcing its key.
+- Run `cedarcli check stores`. Every artifact collection must carry a unique `@id` index: without
+  one the store enforces no uniqueness and answers each lookup by identifier with a collection
+  scan. A store that has none is provisioned by counting repeated identifiers and then building the
+  index, in that order, as the backend runbook sets out; do not build one from a deploy step,
+  because a unique build over a collection already holding a repeated identifier fails.
 - Open the monitoring application's **Counts** page as a monitor-authorized user. All four Mongo
   totals must appear alongside Neo4j, OpenSearch and Keycloak. The totals are actual document-store
   counts; differences from graph/search counts are diagnostic information, not automatically errors.
