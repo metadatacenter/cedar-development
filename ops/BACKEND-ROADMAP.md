@@ -1246,46 +1246,28 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   version comparison is restored, and no constraint lacks a `sourceSystem` the sweep could have
   written.
 
-- **27. Let the meta-schema say what a version is.**
-  `pav:version` is a non-empty string to the meta-schema and a
-  `record Version(int major, int minor, int patch)` to `cedar-artifact-library`, so a value the
-  record cannot hold is accepted on write and found only on read, where the artifact answers 500 to
-  an `Accept` of `application/yaml` and 200 to JSON. Nothing in the meta-schema stops one being
-  stored, which is the gap to close.
+- **27. Refuse an artifact-level key on an instance.**
+  `pav:version` and `bibo:status` describe an artifact that is drafted, published and versioned. An
+  instance simply is, so on an instance the key's presence is the defect and there is no format to
+  constrain. Nothing refuses one. There is no instance meta-schema: `validateTemplateInstance`
+  checks an instance against its own template, and all six meta-schemas describe schema artifacts.
+  The instances found carrying the keys were caught only because their template spells
+  `additionalProperties` as a schema, so an undeclared property holding a string failed as a type
+  complaint; a template permissive there carries the key silently for as long as the instance
+  exists.
 
-  The stored schema population no longer holds one. A walk of all 151,819 schema artifacts carrying
-  the property, on 2026-09-23, found no offending value across 215,245 of them, prereleases
-  included; `schema:schemaVersion` is clean over 288,618 values and `schema:identifier` over
-  172,587. So the tightening no longer waits on a repair, and the prerelease question is moot for
-  the stored corpus until something writes one again. The repairs that got it there remain in
-  `ops/repairs/cedar_artifact_repair.py` for whatever does.
+  Decide the route: either the rendered template always closes against artifact-level keys, or the
+  artifact server refuses them on an instance write. Sweeping without one leaves a population that
+  refills unnoticed, and at this size it would.
 
-  Instances are a different question with the same key. An instance may not carry `pav:version` at
-  all: a version belongs to the artifact that declares a shape, not to one that fills it in, so
-  there is no format to constrain and nothing to tighten - the key's presence is the defect.
-  `cedar_instance_schema_key_scan.py` read all 150,576 instances on 2026-09-23 and found nine
-  carrying it, every one of them carrying `bibo:status` too, after eight others had been cleared
-  the same day. Six of the nine are still to do, refused because they are separately invalid:
-  `untitled1` properties their template never declares, a missing required `skos` context entry,
-  one missing `@id`. They clear with the undeclared-property decision above, not before it, and
-  forcing the write past the invariant is not the answer.
+  The population is small and measured. `cedar_instance_schema_key_scan.py` read all 150,576
+  instances on 2026-09-23 and found nine carrying `pav:version`, every one carrying `bibo:status`
+  too, after eight others had been cleared the same day. Six of the nine remain, refused because
+  each is separately invalid - `untitled1` properties their template never declares, a missing
+  required `skos` context entry, one missing `@id` - so they clear with the undeclared-property
+  decision above rather than ahead of it. Forcing the write past the invariant is not the answer.
 
-  Nowhere enforces that rule. There is no instance meta-schema: `validateTemplateInstance` checks an
-  instance against its own template, and the six meta-schemas all describe schema artifacts. Those
-  eight were caught only because their template spells `additionalProperties` as a schema, so an
-  undeclared property holding a string failed as a type complaint. A template that is permissive
-  there would carry the key silently. So the enforcement question is its own: either the rendered
-  template always closes against artifact-level keys, or the artifact server refuses them on an
-  instance write. Decide which before sweeping, or the sweep has nothing holding it.
-
-  `schema:schemaVersion` has 30 rule sites and is free to tighten today, and `pav:version` on a
-  schema artifact can follow it now that the population is clean. The order that mattered still
-  does: the artifact server
-  validates on write, so tightening ahead of a population makes every artifact still carrying a bad
-  value unsaveable through the API.
-
-  Done when a version that is not one is refused on write rather than discovered on read, and no
-  artifact of any kind answers 500 to a YAML read.
+  Done when an instance cannot be stored carrying either key, and none does.
 
 ## Later Decisions
 
