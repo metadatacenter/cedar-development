@@ -733,6 +733,12 @@ needs. Install, then get the bundle into what each host serves:
 | `cedar-component-demo` (Angular) | plain | nothing to deploy — it is not served here |
 | `cedar-component-demo` (Ember, React) | plain | nothing — they run from source |
 
+The three framework demos verify that `showDownloadMenu` reaches CEE by finding its
+accessible Download button. Assert the control rather than a Material icon ligature:
+CEE uses SVG icons, whose `mat-icon` text is empty. A correct rendered control can
+therefore fail an old assertion for `file_download`. Run each demo's own tests after
+advancing its public CEE pin; component checks and compilation do not cover those assertions.
+
 The install is what places the new bytes for openview and bridging. Neither imports
 CEE: each declares an asset glob that copies `cedar-embeddable-editor.js` out of
 `node_modules`, and loads it through a script tag in `index.html`. A **running `ng

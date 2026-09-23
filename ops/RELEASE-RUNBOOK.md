@@ -107,6 +107,13 @@ The version files a release stamps onto each branch separately do not count as d
 `cedarcli check main` asks the same question of all forty-five repositories at any time, which is
 where it is cheap to answer. Asked during a release, it is already expensive.
 
+After remote integration, run `cedarcli check ci`. The `cedar-libraries` and
+`cedar-project` aggregator workflows check out sibling `develop` branches at run time.
+A run triggered midway through sequential release pushes can see a mixture of old and
+next-development POM versions. If its log proves that mismatch, wait until all sibling
+refs are integrated, then rerun the failed jobs; a rerun checks out the updated siblings.
+Do not republish an obsolete snapshot merely to satisfy that transient checkout.
+
 Neither a release nor a train needs `cedarcli check versions --strict`. A release stamps a train's
 exact commits rather than anything on this machine, and the train's own preflight requires every
 checked-out repository's `develop` to equal the live remote `develop`. The strict form is for a host
