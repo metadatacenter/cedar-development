@@ -1260,12 +1260,15 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   the stored corpus until something writes one again. The repairs that got it there remain in
   `ops/repairs/cedar_artifact_repair.py` for whatever does.
 
-  Instances are a different question with the same key, and the survey does not reach them. An
-  instance may not carry `pav:version` at all: a version belongs to the artifact that declares a
-  shape, not to one that fills it in, so there is no format to constrain and nothing to tighten -
-  the key's presence is the defect. Eight instances of one template were found carrying it on
-  2026-09-23; how many others do is unmeasured, and `drop-schema-keys-from-instance` is what
-  removes them.
+  Instances are a different question with the same key. An instance may not carry `pav:version` at
+  all: a version belongs to the artifact that declares a shape, not to one that fills it in, so
+  there is no format to constrain and nothing to tighten - the key's presence is the defect.
+  `cedar_instance_schema_key_scan.py` read all 150,576 instances on 2026-09-23 and found nine
+  carrying it, every one of them carrying `bibo:status` too, after eight others had been cleared
+  the same day. Six of the nine are still to do, refused because they are separately invalid:
+  `untitled1` properties their template never declares, a missing required `skos` context entry,
+  one missing `@id`. They clear with the undeclared-property decision above, not before it, and
+  forcing the write past the invariant is not the answer.
 
   Nowhere enforces that rule. There is no instance meta-schema: `validateTemplateInstance` checks an
   instance against its own template, and the six meta-schemas all describe schema artifacts. Those
