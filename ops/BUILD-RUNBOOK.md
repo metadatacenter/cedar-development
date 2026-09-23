@@ -527,3 +527,20 @@ are checked before the expensive train. A failed or unreadable prerequisite
 refuses dispatch. Public CEE publication and executable equivalence remain required
 by `release plan|start` once the train artifacts exist. Ordinary development trains
 need none of these options.
+
+### Nexus failure budget and optional write probe
+
+Train reads/uploads now stop after three transient attempts. HTTP 500 stops
+immediately; a 429 without a short `Retry-After`, or a requested delay above
+60 seconds, stops rather than spending more requests. A possibly accepted PUT is
+reconciled against Nexus's checksum before another PUT. Preserve the train ID and
+resume after recovery; do not allocate a new train to retry the same bytes.
+
+`cedarcli publish probe` checks the existing read-only publication endpoints.
+`cedarcli publish probe --upload` additionally writes, reads and removes a unique
+64 KiB object, **only** in the dedicated Nexus raw repository `cedar-cli-probes`.
+That repository must be provisioned with read, write and delete permissions; the
+CLI does not create it or use a release repository as a scratch area. Cleanup is
+attempted even after a lost PUT response, and a cleanup failure reports the exact
+path. This small probe cannot establish that large uploads or later requests will
+succeed. Status and GET success alone never establish upload recovery.

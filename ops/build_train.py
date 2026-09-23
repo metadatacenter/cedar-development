@@ -853,17 +853,11 @@ def build(args: argparse.Namespace) -> None:
     )
 
 
-# Nexus answers a transient fault with one of these rather than a refused connection, and a
-# train uploads a few hundred files, so without a retry one blip anywhere in the run discards
-# the whole build. None of them says anything about the artifact being uploaded.
-TRANSIENT_STATUSES = frozenset({429, 500, 502, 503, 504})
-# Nexus does not fail one request in isolation: it goes unavailable for a burst and then
-# recovers, so the budget is sized to outlast a burst rather than to survive a single blip.
-# Eight attempts with the backoff below span about three minutes, which is cheap against a
-# train that runs for twenty-five and is discarded whole if the burst outlasts the retries.
-UPLOAD_ATTEMPTS = 8
+# A few retries cover a transient gateway fault. Repeated failure stops the train
+# with its immutable state intact; successful status/GET probes do not prove PUTs.
+TRANSIENT_STATUSES = frozenset({429, 502, 503, 504})
+UPLOAD_ATTEMPTS = 3
 MAX_RETRY_DELAY = 60
-THROTTLED_RETRY_DELAY = 120
 
 
 def with_retries(what: str, attempt_call):
@@ -873,22 +867,30 @@ def with_retries(what: str, attempt_call):
         try:
             return attempt_call()
         except urllib.error.HTTPError as error:
-            if error.code not in TRANSIENT_STATUSES or attempt == UPLOAD_ATTEMPTS:
-                raise
             reason = f"HTTP {error.code}"
-            # A registry over its request budget answers 429, or 500 on every repository path
-            # while its status endpoints stay green. Retrying such a fault at the pace of a
-            # dropped connection spends the very budget that is exhausted, so wait for as long
-            # as the server asks, and otherwise for the longest wait allowed.
+            if error.code == 500:
+                error.close()
+                raise RuntimeError(f"Nexus stopped during {what}: HTTP 500. Check repository health and "
+                    "request budget; no automatic retry. Preserve this train and resume after recovery.") from error
+            if error.code not in TRANSIENT_STATUSES:
+                raise
+            if attempt == UPLOAD_ATTEMPTS:
+                error.close()
+                raise RuntimeError(f"Nexus circuit open after {attempt} attempts during {what}: {reason}. "
+                    "A successful health/read probe does not establish upload recovery. "
+                    "Preserve this train and resume after recovery.") from error
             after = error.headers.get("Retry-After") if error.headers else None
-            if after and after.strip().isdigit():
-                throttled_for = min(THROTTLED_RETRY_DELAY, int(after.strip()))
-            elif error.code == 429:
-                throttled_for = THROTTLED_RETRY_DELAY
+            if after and after.strip().isdigit() and int(after.strip()) <= MAX_RETRY_DELAY:
+                throttled_for = int(after.strip())
+            elif error.code == 429 or after:
+                error.close()
+                raise RuntimeError(f"Nexus throttled {what}: HTTP {error.code}, Retry-After={after or 'unspecified'}. "
+                    "Stop requests and resume this train after the throttle clears.") from error
             error.close()
         except (urllib.error.URLError, TimeoutError, OSError) as error:
             if attempt == UPLOAD_ATTEMPTS:
-                raise
+                raise RuntimeError(f"Nexus circuit open after {attempt} attempts during {what}: {error}. "
+                    "Preserve this train and resume after recovery.") from error
             reason = str(error)
         delay = throttled_for if throttled_for is not None else min(MAX_RETRY_DELAY, 2 ** attempt)
         print(f"retry {attempt}/{UPLOAD_ATTEMPTS - 1} after {reason}: {what} (waiting {delay}s)",
@@ -961,7 +963,16 @@ def upload_file(
             "Content-Type": "application/octet-stream",
         },
     )
+    attempts = 0
     def put():
+        nonlocal attempts
+        attempts += 1
+        if attempts > 1:
+            existing = remote_sha1(destination)
+            if existing is not None:
+                if existing != hashlib.sha1(content).hexdigest():
+                    raise RuntimeError(f"immutable Nexus path contains different bytes: {destination}")
+                return
         with urllib.request.urlopen(request, timeout=300) as response:
             if response.status not in (200, 201, 204):
                 raise RuntimeError(f"Nexus returned HTTP {response.status} for {destination}")

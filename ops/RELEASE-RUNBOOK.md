@@ -492,3 +492,13 @@ change.
 `cedarcli git checkout main` is a blanket checkout of every repository, including the two independent
 npmjs repositories. Do not use it to prepare a release; the release controller owns isolated,
 manifest-bound workspaces for that purpose.
+
+### Repeated Nexus transport failures
+
+A release's automatic retry loop stops after three Nexus transport failures, while
+retaining phase, task and artifact evidence for `release resume`. GitHub transport
+retries retain their separate existing allowance. HTTP 500 and throttling refusals
+are not treated as ordinary connection blips. The failure names the request or
+upload operation; successful health/read probes do not prove that a PUT works.
+Use the optional dedicated write probe described in the build runbook when its
+disposable repository is available.
