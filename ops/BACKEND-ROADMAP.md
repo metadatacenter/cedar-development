@@ -1210,33 +1210,56 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   artifact before changing anything, repair the projection from the authoritative stores, and rerun
   the audit. Never delete a store artifact merely because its search entry is inconsistent.
 
+  **Change the two templates that type a single-select `@value` as an array.**
+  `62c8b5f2-7dc9-4fff-9008-07c95a746411` and `a91e12b0-1103-4615-bef3-50a30557e698` declare
+  `"@value": {"type": ["array", "null"]}` on a field whose `_ui.inputType` is single-select. The
+  meta-schema accepts that and the artifact model cannot represent it, because a literal field's
+  `@value` is a string and a multi-select is a multi-instance field rather than one instance holding
+  an array. Their instances are invalid against their own templates, so every repair that validates
+  before writing refuses them. A re-check on 2026-09-23 found 32 instances still invalid in that
+  group and 30 of them fail on this and nothing else, every one on the field `Associated Data
+  Types`. Unwrapping the array in an instance is not a repair on its own: `{"@value": ["x"]}` to
+  `{"@value": "x"}` fails the template, which demands the array. Template and instances move
+  together, or accept a window of invalidity, the same constraint the version work carries.
+
+  **Repair the string-typed fields nothing rejects on write.** Roughly half the string-typed
+  properties the meta-schema describes carry no pattern, format or enumeration, so a rule only one
+  component enforces produces stored data nothing refuses until something downstream cannot read it.
+  Three are populated with values that fail the shape the model expects: `unitOfMeasure` holds empty
+  strings, a constraint `type` of `Value` appears where the meta-schema permits only Branch, Class,
+  Ontology, OntologyClass and ValueSet, and `acronym` holds help text sentences. Give each a rule
+  under `cedar_artifact_patch.py`'s discipline, and take the counts from a walk of the whole
+  population rather than from the sample that found them.
+
   Done when every enumerable artifact is valid or recorded as a named exception, the rename sheet is
   answered or explicitly abandoned for its tail, both model libraries derive `title`, the model
   version comparison is restored, and no constraint lacks a `sourceSystem` the sweep could have
   written.
 
-- **27. Repair the versions production stores, then let the meta-schema say what a version is.**
-  1,672 schema artifacts — 103 templates, 557 elements, 1,012 fields — answer 500 to an `Accept`
-  of `application/yaml` and 200 to JSON. A JSON read returns the stored bytes unexamined; the YAML
-  read parses them with `cedar-artifact-library`, whose `Version` record takes three integer parts
-  and refuses everything else. These artifacts have no YAML representation at all, and nothing
-  reported it, because the meta-schema asks only that `pav:version` be a non-empty string.
+- **27. Let the meta-schema say what a version is.**
+  `pav:version` is a non-empty string to the meta-schema and a
+  `record Version(int major, int minor, int patch)` to `cedar-artifact-library`, so a value the
+  record cannot hold is accepted on write and found only on read, where the artifact answers 500 to
+  an `Accept` of `application/yaml` and 200 to JSON. A JSON read returns the stored bytes
+  unexamined.
 
-  Of the 655 containers probed in full, 642 carry a version that is not three-part semver: `0.9`
-  and `0.1` dominate, `1.0.0-rc1`, `1.0.0-rc2` and `1.0.0-RC2` follow, and a tail holds
-  `requestJson`, `123`, `asd`, `1`, `1.2`, `1.0` and `01`. A survey of 3,594 artifacts puts the
-  rate at 8.7%.
+  The stored side has a repair already: `pad_artifact_version`, `settle_prerelease_version` and
+  `default_unreadable_version` in `ops/repairs/cedar_artifact_repair.py`, each with an invariant of
+  its own. What is left is to establish that the population is clean and then tighten. A survey of
+  8,994 schema artifacts on 2026-09-23 found no offending value, and the instances a September
+  compaction run could not write for a version error no longer carry one, but both are samples; a
+  walk of all 151,832 schema artifacts settles it.
 
   The prerelease values are a question of their own. `1.0.0-rc1` is valid semver that `Version`,
   being `record Version(int major, int minor, int patch)`, cannot hold — a library limitation
   rather than bad data, and ruling it invalid would put 686 more occurrences into the repair.
 
-  Order matters. The artifact server validates on write, so tightening `pav:version` before
-  repairing makes every one of those artifacts unsaveable through the API: repair first, or land
-  the two together. `cedar_content_constraint_survey.py` sizes the rest of the surface.
-  `schema:schemaVersion` has 30 rule sites and production is already clean there, so that one is
-  free to tighten today; `acronym`, `schema:identifier`, `unitOfMeasure` and `pav:previousVersion`
-  are clean too, and three artifacts hold a constraint `type` of `Value`.
+  Order still matters. The artifact server validates on write, so tightening `pav:version` while any
+  artifact still carries a value the record cannot hold makes that artifact unsaveable through the
+  API. Confirm first, or land the two together. `cedar_content_constraint_survey.py` sizes the rest
+  of the surface: `schema:schemaVersion` has 30 rule sites and production is clean there, so that
+  one is free to tighten today, and `schema:identifier` and `pav:previousVersion` are clean as well.
+  `unitOfMeasure`, `acronym` and the constraint `type` are not, and item 26 carries them.
 
   Done when no schema artifact answers 500 to a YAML read, and a version that is not one is
   refused on write rather than discovered on read.
