@@ -1210,19 +1210,18 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   artifact before changing anything, repair the projection from the authoritative stores, and rerun
   the audit. Never delete a store artifact merely because its search entry is inconsistent.
 
-  **Stop two templates declaring artifact-level keys as instance properties.** *CCP Digital Object*
-  (`62c8b5f2…`) declares `pav:version` and `bibo:status` among its `properties`, typed as objects,
-  so an instance carrying either as the string it is fails against its own template. Eight of its
-  instances do. `drop-schema-keys-from-instance` does not reach them, because it leaves a key the
-  template demands, and the demand is the defect. The template has to stop declaring them, which is
-  a schema change of the same kind as the `@value` narrowing that preceded it, and its instances
-  then validate untouched.
+  **Decide the instance properties two templates do not declare.** Ten instances of *CCP Digital
+  Object* (`62c8b5f2…`) and *UPDATED HEAL Study Core Metadata* (`a91e12b0…`) remain invalid, the
+  last of a set of 68 whose other 58 are clean. Seven carry properties their template never
+  declared - `untitled`, bare UUID keys, `Additional Information1`, and one holding an array where
+  the template declares an object. Whether each is data belonging under a declared field or an
+  editing artefact to drop is a decision per property rather than a rule. The other three fail on
+  `@context` enum mismatches.
 
-  **Decide the instance properties two templates do not declare.** Seven instances carry properties
-  their template never declared, among them `untitled` and bare UUID keys. Whether each is data to
-  keep under a declared field or an editing artefact to drop is a decision per property, not a rule.
-  A further three fail on `@context` enum mismatches, two of them on
-  *UPDATED HEAL Study Core Metadata* (`a91e12b0…`).
+  Expect each repair on this set to reveal the next. A validator reports the first thing that stops
+  an instance being read, so a defect behind another is invisible until the first is gone: narrowing
+  one `@value` uncovered fourteen blank occurrences and eight stray artifact-level keys, and
+  removing those uncovered eight more blank occurrences. Re-read the whole set after every write.
 
 
   **Repair the string-typed fields nothing rejects on write.** Roughly half the string-typed
