@@ -1260,13 +1260,24 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   the stored corpus until something writes one again. The repairs that got it there remain in
   `ops/repairs/cedar_artifact_repair.py` for whatever does.
 
-  Instances are the untested half. The survey walks templates, elements and fields, and an instance
-  carries `pav:version` too - eight instances of one template were found holding it during a repair
-  the same day. Walk the instance population before calling this settled, and note that an instance
-  may not carry the key at all, so what it needs is removal rather than repair.
+  Instances are a different question with the same key, and the survey does not reach them. An
+  instance may not carry `pav:version` at all: a version belongs to the artifact that declares a
+  shape, not to one that fills it in, so there is no format to constrain and nothing to tighten -
+  the key's presence is the defect. Eight instances of one template were found carrying it on
+  2026-09-23; how many others do is unmeasured, and `drop-schema-keys-from-instance` is what
+  removes them.
 
-  `schema:schemaVersion` has 30 rule sites and is free to tighten today. `pav:version` can follow as
-  soon as the instance walk agrees. The order that mattered still does: the artifact server
+  Nowhere enforces that rule. There is no instance meta-schema: `validateTemplateInstance` checks an
+  instance against its own template, and the six meta-schemas all describe schema artifacts. Those
+  eight were caught only because their template spells `additionalProperties` as a schema, so an
+  undeclared property holding a string failed as a type complaint. A template that is permissive
+  there would carry the key silently. So the enforcement question is its own: either the rendered
+  template always closes against artifact-level keys, or the artifact server refuses them on an
+  instance write. Decide which before sweeping, or the sweep has nothing holding it.
+
+  `schema:schemaVersion` has 30 rule sites and is free to tighten today, and `pav:version` on a
+  schema artifact can follow it now that the population is clean. The order that mattered still
+  does: the artifact server
   validates on write, so tightening ahead of a population makes every artifact still carrying a bad
   value unsaveable through the API.
 
