@@ -5713,7 +5713,7 @@ REPAIRS = {
     ),
     "drop-schema-keys-from-instance": Repair(
         name="drop-schema-keys-from-instance",
-        condition="",
+        condition="schema-only-key-on-instance",
         summary="remove artifact-level keys an instance may not carry",
         transform=drop_schema_keys_from_instance,
         invariant=only_dropped_schema_keys,
