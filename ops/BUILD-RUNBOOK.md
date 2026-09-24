@@ -194,7 +194,9 @@ Maven in the dependency order already encoded by the CEDAR reactors:
 4. `cedar-clients`
 5. `cedar-model-library-roundtrip`
 
-All phases install into a clean job-local Maven repository. Nothing is published until every phase
+Maven schedules modules within each phase with two threads by default (`build_train.py build
+--threads 1` is the serial diagnostic path, maximum eight). The parent/library/service
+phase boundaries remain ordered. All phases install into a clean job-local Maven repository. Nothing is published until every phase
 has compiled. The train's timestamp is also the Maven archive output timestamp, so rebuilding the
 same manifest produces stable archive timestamps. Publication uploads only the resulting
 `org.metadatacenter` files. If a destination

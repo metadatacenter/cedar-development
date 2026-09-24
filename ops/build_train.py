@@ -830,6 +830,9 @@ def build(args: argparse.Namespace) -> None:
     version = validate_train(args.version)
     local_repository = args.workspace / ".m2" / "repository"
     local_repository.mkdir(parents=True, exist_ok=True)
+    threads = getattr(args, "threads", 2)
+    if not 1 <= threads <= 8:
+        raise ValueError("Maven threads must be between 1 and 8")
     for phase in config["phases"]:
         repository = args.workspace / phase["repository"]
         wrapper = repository / "mvnw"
@@ -844,6 +847,7 @@ def build(args: argparse.Namespace) -> None:
             "clean",
             "install",
             "-DskipTests",
+            "-T", str(threads),
         ]
         print(f"\n=== {phase['name']}: {phase['repository']} ({version}) ===", flush=True)
         run(command, cwd=repository)
@@ -1132,6 +1136,7 @@ def parser() -> argparse.ArgumentParser:
         "--resume", action="store_true",
         help="Check each destination before uploading, because some may already be there",
     )
+    build_parser.add_argument("--threads", type=int, choices=range(1, 9), default=2)
     build_parser.set_defaults(handler=build)
 
     complete_parser = commands.add_parser("complete")

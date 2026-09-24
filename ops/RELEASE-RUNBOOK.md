@@ -241,6 +241,10 @@ makes only two cheap probes: writable status and one real repository read. It op
 ledger mutation or bulk registry verification. A direct connection failure remains eligible for
 bounded retry; an HTTP refusal does not.
 
+New release manifests record two Maven reactor threads in `buildConcurrency`.
+Release tests remain enabled; next-development compile and snapshot deployment use the
+same thread limit. Older manifests without this policy retain serial Maven execution.
+
 The release runs these phases, each verifying its work before the next begins:
 
 1. Clone every train source commit into isolated workspaces, and pin the public CEE version in all
