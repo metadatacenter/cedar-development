@@ -243,6 +243,10 @@ publication and runs three visible, ordered jobs:
    its explicit Docker runtime input. It records hashes of every prepared manifest, lock and built
    payload before publishing the seven frontend packages.
 
+The frontend publication job runs on Linux ARM64, matching component visual baselines.
+Component setup installs the captured Playwright Chromium before browser tests; legacy
+Karma consumers use that executable through `CHROME_BIN`, including on clean runners.
+
 Frontend consumer verification uses two concurrent repository jobs and four workers per
 job (`frontend_train.py prepare-frontends --jobs 1 --workers 1` is the serial path).
 Commands within a repository stay ordered; shared integration bundles are staged before

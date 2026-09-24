@@ -331,7 +331,7 @@ jobs:
   publish-frontends:
     name: npm 3/3 · wire consumers and publish frontends
     needs: publish-cee
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 45
     env:
       BMIR_NEXUS_USERNAME: ${{ secrets.BMIR_NEXUS_USERNAME }}
@@ -377,6 +377,15 @@ jobs:
             --resume "$TRAIN_VERSION" \
             --workspace "$RUNNER_TEMP/CEDAR" \
             --state build-trains
+
+      # The component visual baselines are pinned to Linux ARM64. Use the
+      # captured picker's Chromium for legacy Karma suites on this runner too.
+      - name: Select the captured Chromium for consumer tests
+        run: |
+          browser="$RUNNER_TEMP/CEDAR/cedar-embeddable-term-picker/browser"
+          npm --prefix "$browser" ci
+          chromium=$(node -p "require('$browser/node_modules/playwright').chromium.executablePath()")
+          echo "CHROME_BIN=$chromium" >> "$GITHUB_ENV"
 
       - name: Wire all seven CEE consumers and rebuild bundled consumers
         run: |

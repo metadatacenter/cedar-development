@@ -952,6 +952,12 @@
           "--prefix",
           "browser",
           "ci"
+        ],
+        [
+          "./browser/node_modules/.bin/playwright",
+          "install",
+          "--with-deps",
+          "chromium"
         ]
       ],
       "verify": [
@@ -997,6 +1003,12 @@
           "--prefix",
           "browser",
           "ci"
+        ],
+        [
+          "./browser/node_modules/.bin/playwright",
+          "install",
+          "--with-deps",
+          "chromium"
         ]
       ],
       "verify": [
