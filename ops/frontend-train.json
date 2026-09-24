@@ -896,32 +896,7 @@
         [
           "npm",
           "run",
-          "lint"
-        ],
-        [
-          "npm",
-          "run",
-          "typecheck"
-        ],
-        [
-          "npm",
-          "run",
-          "test:coverage"
-        ],
-        [
-          "npm",
-          "run",
-          "parity:yaml"
-        ],
-        [
-          "npm",
-          "run",
-          "parity:json"
-        ],
-        [
-          "npm",
-          "run",
-          "test:package"
+          "test:ci"
         ]
       ]
     },

@@ -234,9 +234,24 @@ reports, so it cannot clear another tier's output. Visual checks follow those st
 `test:ci`, `test:ci:prebuilt` and `test:ci:nonvisual:prebuilt` retain their original checks.
 Direct npm gate invocations use the same CPU-based worker default. Each stage prints its elapsed time.
 
+The model's `test:ci` gate overlaps lint, types, coverage, YAML parity, JSON parity
+and the packaged-consumer smoke. Jest receives most of the worker budget rather
+than being forced into `--runInBand`; pretest fixture generation still completes
+once before any of the checks start (parity reads the same generated module). Each parity invocation owns its temporary output tree,
+and only packaging writes `dist/`. Every check must pass before consumers start.
+
+The designer's `test:ci` overlaps unit, lint, types, import-boundary and packaging
+checks. Its Angular unit tests and distribution build remain ordered because they
+share a cache; browser checks wait for the distribution and use the full budget.
+The reactor still runs the separate container visual gate afterward. CEE gives
+its domain/unit tiers two workers each when the budget permits, and fixture
+opening waits for finite animations instead of an unconditional 300 ms delay.
+No screenshot tolerance, baseline, browser project or integration input is removed.
+
 The CLI passes the worker budget into Angular builds and the component browser suites.
-CEE's Vitest suites also honor it; Angular's coordinator tier retains its serial test
-execution. Container browser dependencies use private anonymous volumes removed with
+CEE's Vitest suites also honor it. The component gates pass `VITEST_MAX_WORKERS`
+explicitly into Angular's Vitest runner as well as bounding Angular build workers.
+Container browser dependencies use private anonymous volumes removed with
 `--rm`, so concurrent reactor copies cannot race through `npm ci`. Reports and generated
 fixtures stay in each isolated copy. This does not make two runs against the same checkout
 safe: use separate reactor copies for concurrent runs. The browser image, architecture,
@@ -252,6 +267,37 @@ On a 16-core M4 with 64 GB RAM (2026-09-24), `--jobs 2 --workers 8` completed th
 full frontend build and test gates in 320.8 seconds, before deployment and whole-stack
 smoke. CEE's gate took 123.2 seconds, including 645 passing visual/browser checks.
 These are measured elapsed times; no serial frontend comparison was recorded.
+
+A subsequent component comparison on that machine used isolated copies with
+installed dependencies, the same source/dependency inputs on both sides, and no
+baseline updates. Before used eight workers and the older gate scheduling:
+
+| Complete component gate | Before | New gate, 8 workers | New gate, 12 workers |
+| --- | ---: | ---: | ---: |
+| TypeScript model (all six checks) | 39.2 s | 20.0 s | 21.4 s |
+| CEE (including visual and packaging) | 130.5 s | 103.3 s | 88.2 s |
+| Designer (including browser integration) | 88.0 s | 78.4 s | 59.4 s |
+
+The model comparison used committed source because unrelated working-tree model
+changes failed the initial baseline. Its unchanged 3,529-test coverage suite also
+passed with Jest's cache disabled: 26.2 s serial, 11.0 s at four workers, 10.3 s at
+eight. CEE retained all 645 browser/visual checks; the designer retained 368 browser
+checks and its existing one skip, with its separate 15-baseline visual gate passing.
+The designer browser stage alone measured 64.5 s at eight workers, 45.6 s at twelve,
+and 42.7 s at sixteen, so twelve captured most of the available gain.
+
+These are component timings, not a full-reactor before/after result: dependency
+installation, deployment and whole-stack smoke are outside the comparison, and
+build/transform caches were warm except in the explicitly uncached Jest sweep.
+For this M4, `cedarcli build --jobs 2 --workers 12 frontends` is a useful tuning
+candidate; eight remains the portable default. Preserve all gates when comparing.
+
+After aligning designer expectations with the model's derived-title policy, the
+current-source reactor at two jobs and twelve workers passed in 332.2 seconds for
+builds and test gates, or 612.1 seconds including local deployment, served-component
+verification and both smoke tiers. REST smoke passed 1,063 assertions in 81.4 seconds;
+browser smoke also passed. This successful total uses newer sources than the component
+comparison above and is not a controlled end-to-end speedup measurement.
 
 #### Current artifact transport
 
