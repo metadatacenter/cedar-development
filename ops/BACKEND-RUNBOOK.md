@@ -1716,6 +1716,16 @@ time fell from about 121 to 73 seconds. Class names, counts and skips matched ex
 confirmed two distinct fork commands. This is one measured run, not a CI guarantee.
 Evidence: `.cedar/build-reports/20260924T152253Z-0dfb7cae.json`.
 
+A ten-run repeatability check on 2026-09-24 used the same eight-thread command and
+two resource test JVMs. All ten sequential full clean builds passed on their first
+attempt, with identical class names and per-class counts: 494 class summaries,
+5,581 tests, zero failures/errors and 12 skips per run. Source revisions and working
+trees remained unchanged. Mean build time was 173.6 seconds, median 173.5, and range
+171.5–175.4; these timings exclude CLI setup and report archival. No intermittent
+failure appeared in this sample. Logs, source revisions, JSON results and archived
+test reports are retained locally under
+`.cedar/build-reports/java-repeat-10-20260924T153125Z/`.
+
 **Build temporary storage must permit execution.** `cedarcli` creates a private, unique
 workspace per Maven task or frontend build under `$CEDAR_HOME/.cedar/build-tmp/`, and probes
 execution permission before running it. Isolated frontend copies and their npm caches live there;
