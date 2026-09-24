@@ -270,7 +270,11 @@ tarball to that graph before extraction. The three source-package images install
 the vendored shrinkwrap; OpenView extracts the exact verified CEE and webcomponents tarballs
 directly, without resolving an npm dependency graph during the image build.
 
-The final job removes local copies and pulls each of the 31 images from Nexus. It verifies the
+The final job removes local copies and pulls each of the 31 images from Nexus with
+four bounded verification workers (`docker_train.py verify --workers 1` provides serial diagnosis).
+Each worker owns a distinct image reference and records its elapsed time; completion is
+written in plan order only after all workers succeed. Failed runs drain active workers
+and never advance the completion pointer. It verifies the
 labels, hashes the embedded manifest in every frontend container, and records the registry digest
 and platform for every image. Only then does it create
 `docker/completed/<TRAIN_ID>.json` and advance `docker/current.json`. The four administration images

@@ -2,6 +2,7 @@ import argparse
 import hashlib
 import json
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -99,7 +100,16 @@ class DockerTrainTest(unittest.TestCase):
                 state=state,
             ))
 
+            barrier = threading.Barrier(4)
+            observed = set()
+            guard = threading.Lock()
+
             def inspected(reference):
+                with guard:
+                    observed.add(threading.get_ident())
+                    first_wave = inspect.call_count <= 4
+                if first_wave:
+                    barrier.wait(timeout=5)
                 repository = reference.rsplit(":", 1)[0]
                 image = repository.rsplit("/", 1)[1]
                 return {
@@ -127,6 +137,9 @@ class DockerTrainTest(unittest.TestCase):
                 (state / "docker" / "completed" / f"{VERSION}.json").read_text()
             )
             current = json.loads((state / "docker" / "current.json").read_text())
+            self.assertEqual(4, len(observed))
+            self.assertEqual(docker_train.core_images(docker_train.load_json(docker_train.DEFAULT_CONFIG)),
+                             [item["image"] for item in completion["images"]])
             self.assertEqual(31, len(completion["images"]))
             self.assertEqual(VERSION, current["version"])
             pulls = [call for call in run.call_args_list if call.args[0][:2] == ["docker", "pull"]]
