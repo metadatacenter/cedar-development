@@ -693,6 +693,15 @@ def publish_component(args, plan, component):
     verify_record(plan['registry'], component)
 
 
+def publish_picker(args: argparse.Namespace) -> None:
+    """Publish the token-dependent picker independently of the CEE gate."""
+    plan = load_json(args.state / "npm" / "trains" / f"{validate_train(args.version)}.json")
+    picker = next(component for component in plan['components'] if component['id'] == 'cetp')
+    publish_component(args, plan, picker)
+    verified = verify_record(plan['registry'], picker)
+    record_library_completion(args.state, 'picker', plan, picker, verified)
+
+
 def verify_component_package(config, plan, component, root, workspace, workers=4):
     staged = root / component['stagedPackage']
     reuse = component.get('verificationBuildsPackage', False)
@@ -964,6 +973,12 @@ def parser() -> argparse.ArgumentParser:
     cee.add_argument("--state", type=Path, required=True)
     cee.add_argument("--workers", type=int, choices=range(1, 17), default=4)
     cee.set_defaults(handler=publish_cee)
+    picker = commands.add_parser("publish-picker")
+    picker.add_argument("--version", required=True)
+    picker.add_argument("--workspace", type=Path, required=True)
+    picker.add_argument("--state", type=Path, required=True)
+    picker.add_argument("--workers", type=int, choices=range(1, 17), default=4)
+    picker.set_defaults(handler=publish_picker)
     prepare = commands.add_parser("prepare-frontends")
     prepare.add_argument("--version", required=True)
     prepare.add_argument("--workspace", type=Path, required=True)

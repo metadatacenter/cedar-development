@@ -64,6 +64,22 @@ def commit(repository: Path, timestamp: str = "2026-08-25T22:04:26Z") -> str:
 
 
 class FrontendTrainTest(unittest.TestCase):
+    def test_picker_publication_records_verified_identity_without_waiting_for_cee(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory)
+            picker = dict(id='cetp', name='picker', version='1.0.0',
+                          repository='picker', revision='abc')
+            plan = dict(version=VERSION, registry='registry', components=[picker])
+            write(state / 'npm' / 'trains' / f'{VERSION}.json', plan)
+            args = argparse.Namespace(version=VERSION, state=state)
+            with patch.object(frontend_train, 'publish_component') as publish, \
+                 patch.object(frontend_train, 'verify_record', return_value={'integrity': 'verified'}):
+                frontend_train.publish_picker(args)
+            publish.assert_called_once_with(args, plan, picker)
+            record = json.loads((state / 'npm' / 'picker' / 'completed' / f'{VERSION}.json').read_text())
+            self.assertEqual('abc', record['expected']['revision'])
+            self.assertEqual('verified', record['package']['integrity'])
+
     def test_verified_package_is_fresh_and_not_rebuilt(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -873,7 +889,7 @@ class FrontendTrainTest(unittest.TestCase):
         self.assertIn("  publish-cee:", workflow)
         self.assertIn("  publish-frontends:", workflow)
         self.assertIn("needs: publish-model", workflow)
-        self.assertIn("needs: publish-cee", workflow)
+        self.assertIn("needs: [publish-cee, publish-picker]", workflow)
         self.assertNotIn("  publish-npm:", workflow)
 
     def test_completion_includes_verified_runtime_packages(self):

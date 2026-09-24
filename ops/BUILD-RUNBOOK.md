@@ -228,7 +228,7 @@ still runs. The first run populates these caches; savings apply to subsequent ru
 
 After the common exact-source capture and preflight job, Maven assembly and the npm
 chain run independently. The npm chain creates `npm/trains/<TRAIN_ID>.json` before
-publication and runs three visible, ordered jobs:
+publication and runs model, parallel CEE/picker, then frontend jobs:
 
 1. **npm 1/3 · TypeScript model.** The job first builds, publishes and verifies the captured design
    tokens under a train-owned version. It then stamps the captured model commit in its disposable
@@ -243,7 +243,9 @@ publication and runs three visible, ordered jobs:
    unit, coordinator, domain, visual, package, type and production-audit gate, with four
    workers by default (`frontend_train.py publish-cee --workers 1` for serial diagnosis). Only that tested
    package is published and verified; `npm/cee/completed/<TRAIN_ID>.json` records the result.
-3. **npm 3/3 · frontends.** The job builds and publishes the captured picker and designer, wiring
+   The token-dependent term picker publishes in a separate ARM64 job alongside CEE. Both
+   must pass before frontend preparation; the picker records its verified package identity separately.
+3. **npm 3/3 · frontends.** The job verifies the already-published picker and builds the designer, wiring
    the train tokens into both and the train model into the designer. In fresh application
    checkouts, it pins those shared components and that exact CEE alias and
    integrity in all seven embedding manifests and lockfiles. It rebuilds Bridging, Monitoring and OpenView from those wired sources rather than packing
