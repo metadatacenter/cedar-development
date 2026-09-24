@@ -601,6 +601,8 @@ class FrontendTrainTest(unittest.TestCase):
             def run(command, cwd, environment=None):
                 commands.append(command)
                 if command == ["npm", "run", "test:ci"]:
+                    self.assertEqual('4', environment['CEDAR_TEST_WORKERS'])
+                    self.assertEqual('4', environment['VITEST_MAX_WORKERS'])
                     write(cwd / "dist-npm" / "cedar-embeddable-editor" / "package.json", {
                         "name": CEE_NAME, "version": cee_version,
                     })

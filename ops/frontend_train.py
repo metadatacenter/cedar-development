@@ -563,8 +563,10 @@ def publish_cee(args: argparse.Namespace) -> None:
             root / consumer["manifest"], root / consumer["lock"], dependency,
             plan["model"]["name"], plan["model"]["version"],
         )
+    environment = {variable: str(getattr(args, 'workers', 4)) for variable in
+                   ('CEDAR_TEST_WORKERS', 'VITEST_MAX_WORKERS', 'NG_BUILD_MAX_WORKERS')}
     for command in frontend_inventory.commands(config, expected['repository']):
-        run_command(command, root)
+        run_command(command, root, environment)
     run_command(['npm', 'run', 'audit:prod'], root)
     staged = root / "dist-npm" / "cedar-embeddable-editor"
     built = load_json(staged / "package.json")
@@ -944,6 +946,7 @@ def parser() -> argparse.ArgumentParser:
     cee.add_argument("--version", required=True)
     cee.add_argument("--workspace", type=Path, required=True)
     cee.add_argument("--state", type=Path, required=True)
+    cee.add_argument("--workers", type=int, choices=range(1, 17), default=4)
     cee.set_defaults(handler=publish_cee)
     prepare = commands.add_parser("prepare-frontends")
     prepare.add_argument("--version", required=True)

@@ -233,7 +233,8 @@ publication and runs three visible, ordered jobs:
    model alias with integrity in both the root and visual lockfiles, wires the train-owned tokens,
    and stamps CEE as
    `<CEE_NEXT>-dev.YYYYMMDDHHMM.g<SHA12>`. On the ARM runner required by CEE, it runs the complete
-   unit, coordinator, domain, visual, package, type and production-audit gate. Only that tested
+   unit, coordinator, domain, visual, package, type and production-audit gate, with four
+   workers by default (`frontend_train.py publish-cee --workers 1` for serial diagnosis). Only that tested
    package is published and verified; `npm/cee/completed/<TRAIN_ID>.json` records the result.
 3. **npm 3/3 · frontends.** The job builds and publishes the captured picker and designer, wiring
    the train tokens into both and the train model into the designer. In fresh application
