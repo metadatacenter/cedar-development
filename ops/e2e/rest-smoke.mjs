@@ -20,11 +20,12 @@
 //   * templates/recommend and /recommend — need a built rules index, which is its own fixture problem.
 //
 // Requires the stack up: cedar-services.sh health.
+import { runSuites, workerCount, PARALLEL_SUITES } from './rest/scheduler.mjs';
 import { argv } from 'node:process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { actors, call, teardown, summary, enc, RUN, suite, beginSuite, check, cleanup, workerComplaints } from './rest/lib.mjs';
+import { actors, call, teardown, summary, enc, RUN, suite, beginSuite, check, cleanup, workerComplaints, withSuite } from './rest/lib.mjs';
 
 import * as folders from './rest/suites/folders.mjs';
 import * as artifacts from './rest/suites/artifacts.mjs';
@@ -52,6 +53,9 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const INVENTORY_PATH = resolve(HERE, 'rest', 'expected-checks.json');
 const reportArg = argv.find(a => a.startsWith('--report='));
 const REPORT_PATH = resolve(process.cwd(), reportArg?.slice('--report='.length) ?? 'reports/rest-smoke.json');
+const workers = workerCount(argv.find(a => a.startsWith('--workers='))?.slice('--workers='.length));
+const suiteTimings = new Map();
+const phaseTimings = {};
 const updateInventory = argv.includes('--update-inventory');
 
 const requested = argv.slice(2).filter(a => !a.startsWith('-'));
@@ -68,7 +72,7 @@ if (requested.length && selected.length !== requested.length) {
 const started = Date.now();
 let auth1;
 let user1Profile;
-let ran = 'nothing';
+let phaseStarted = Date.now();
 
 const stamp = /\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}/;
 const nameOf = node => node?.['schema:name'] ?? node?.schema_name ?? '';
@@ -113,7 +117,7 @@ function expectedFor(suiteNames) {
 // The handler records the interruption and returns rather than tearing down itself. Installing a
 // handler at all suppresses the default exit, so the run carries on: a teardown started from here
 // deletes artifacts out from under suites that are still using them, which turns one interruption
-// into a screenful of unrelated failures. The suite loop reads the flag between suites, and the
+// into a screenful of unrelated failures. The scheduler reads the flag before starting work, and the
 // existing `finally` does the cleanup. A second signal is the way out of a suite that will not
 // return, at the cost of the cleanup this exists to perform.
 let interrupted = false;
@@ -124,7 +128,7 @@ for (const signal of ['SIGINT', 'SIGTERM']) {
       process.exit(130);
     }
     interrupted = true;
-    console.log(`\n${signal} — finishing the current suite, then tearing down`);
+    console.log(`\n${signal} — draining active suites, then tearing down`);
   });
 }
 
@@ -148,8 +152,8 @@ try {
   check(complaintsBefore.length === 0, 'the worker starts with every consumer live and no dead letters',
       complaintsBefore.map(c => `${c.name}: ${c.message}`).join('; '));
 
-  // One working folder for the suites that need somewhere to put things, so the run leaves a single
-  // subtree behind if teardown ever fails.
+  // One parent for the per-suite working folders, so a failed teardown leaves a
+  // single identifiable working subtree.
   const workName = `REST Suites ${RUN}`;
   const work = await call(auth1, 'POST', '/folders',
       { folderId: homeFolderId, name: workName, description: 'Working folder for the REST suites' });
@@ -160,27 +164,39 @@ try {
   // have, since a non-empty folder cannot be deleted.
   cleanup('folder', `/folders/${enc(folderId)}`, workName);
 
-  const ctx = { user1, user2, admin, homeFolderId, folderId };
-  for (const s of selected) {
-    if (interrupted) {
-      console.log(`\nstopping after "${ran}" — ${selected.length - selected.indexOf(s)} suite(s) not run`);
-      break;
-    }
+  phaseTimings.setup = (Date.now() - phaseStarted) / 1000;
+  phaseStarted = Date.now();
+  await runSuites(selected, workers, s => withSuite(s.name, async () => {
+    const suiteStarted = Date.now();
     try {
-      beginSuite(s.name);
-      await s.run(ctx);
+      // Each suite owns its folder. The real home remains available for home guards.
+      const name = `REST ${s.name} ${RUN}`;
+      const own = await call(auth1, 'POST', '/folders',
+          { folderId, name, description: 'Isolated REST suite working folder' });
+      if (own.status !== 201) throw new Error(`suite folder creation returned ${own.status}: ${own.text}`);
+      const ownId = own.body['@id'];
+      cleanup('folder', `/folders/${enc(ownId)}`, name);
+      await s.run({ user1, user2, admin, homeFolderId, folderId: ownId });
     } catch (e) {
       suite(s.name);
       check(false, `suite "${s.name}" threw`, e.stack ?? e.message);
+    } finally {
+      const seconds = (Date.now() - suiteStarted) / 1000;
+      suiteTimings.set(s.name, { suite: s.name, seconds,
+        scheduling: workers > 1 && PARALLEL_SUITES.has(s.name) ? 'parallel' : 'exclusive' });
+      console.log(`[rest timing] ${s.name}: ${seconds.toFixed(2)}s`);
     }
-    ran = s.name;
-  }
+  }), () => interrupted);
+  phaseTimings.suites = (Date.now() - phaseStarted) / 1000;
 
 } catch (e) {
   suite('runner');
   check(false, 'the run could not start', e.stack ?? e.message);
 } finally {
-  if (auth1) await teardown(auth1);
+  phaseStarted = Date.now();
+  if (auth1) await teardown(auth1, selected.map(s => s.name), workers);
+  phaseTimings.teardown = (Date.now() - phaseStarted) / 1000;
+  phaseStarted = Date.now();
   if (auth1 && user1Profile?.homeFolderId) {
     beginSuite('runner');
     suite('runner: clean-stack postflight');
@@ -198,7 +214,8 @@ try {
   }
 }
 
-let result = summary();
+phaseTimings.postflight = (Date.now() - phaseStarted) / 1000;
+let result = summary(selected.map(s => s.name));
 const observedChecks = result.checks.map(checkIdentity);
 let inventoryMatched = true;
 if (updateInventory) {
@@ -207,7 +224,7 @@ if (updateInventory) {
     suite('runner: expected-check inventory');
     check(false, 'a failing or interrupted run cannot replace the committed check inventory',
         `${result.failed} failure(s), interrupted=${interrupted}`);
-    result = summary();
+    result = summary(selected.map(s => s.name));
   } else {
     writeFileSync(INVENTORY_PATH, `${JSON.stringify({ version: 1, checks: observedChecks }, null, 2)}\n`);
     console.log(`\nupdated check inventory: ${INVENTORY_PATH}`);
@@ -225,7 +242,7 @@ if (updateInventory) {
     check(false, 'the run executes the committed check inventory',
         `missing ${missing.length}: ${missing.slice(0, 8).join(' | ')}; `
         + `unexpected ${unexpected.length}: ${unexpected.slice(0, 8).join(' | ')}`);
-    result = summary();
+    result = summary(selected.map(s => s.name));
   }
 }
 
@@ -243,6 +260,9 @@ const report = {
   verdict,
   interrupted,
   selectedSuites: selected.map(s => s.name),
+  workers,
+  suiteTimings: selected.map(s => suiteTimings.get(s.name)).filter(Boolean),
+  phaseTimings,
   counts: { passed, failed, skipped, total: passed + failed + skipped },
   inventoryMatched,
   checks: result.checks,

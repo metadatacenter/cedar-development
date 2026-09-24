@@ -3,6 +3,8 @@
 // The suites drive the real stack over HTTP with no browser. Everything they need is here:
 // authentication, a request helper, assertions that collect rather than abort, and a teardown
 // registry that verifies each deletion instead of trusting a status code.
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { drainPool } from './scheduler.mjs';
 import { env } from 'node:process';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -51,42 +53,52 @@ export const enc = iri => encodeURIComponent(iri);
 
 // ── results ─────────────────────────────────────────────────────────────────
 
-const results = { passed: 0, failed: 0, skipped: 0, checks: [] };
-let currentSuite = '';
-let currentModule = 'runner';
+const contexts = new AsyncLocalStorage();
+const makeState = name => ({ results: { passed: 0, failed: 0, skipped: 0, checks: [] },
+  currentSuite: name, currentModule: name, registry: [], created: [], registeredIds: new Set() });
+const rootState = makeState('runner');
+const suiteStates = new Map();
+const state = () => contexts.getStore() ?? rootState;
+
+export function withSuite(name, run) {
+  if (suiteStates.has(name)) throw new Error(`Duplicate suite context: ${name}`);
+  const local = makeState(name);
+  suiteStates.set(name, local);
+  return contexts.run(local, run);
+}
 
 export function beginSuite(name) {
-  currentModule = name;
-  currentSuite = name;
+  state().currentModule = name;
+  state().currentSuite = name;
 }
 
 export function suite(name) {
-  currentSuite = name;
+  state().currentSuite = name;
   console.log(`\n── ${name} ${'─'.repeat(Math.max(0, 60 - name.length))}`);
 }
 
 export function ok(what) {
-  results.passed++;
-  console.log(`  ✓ ${what}`);
+  state().results.passed++;
+  console.log(`  [${state().currentModule}] ✓ ${what}`);
 }
 
 /** A failure. Recorded and reported; the suite keeps going so one run shows everything. */
 export function bad(what, detail) {
-  results.failed++;
-  console.error(`  ✗ ${what}\n      ${detail}`);
+  state().results.failed++;
+  console.error(`  [${state().currentModule}] ✗ ${what}\n      ${detail}`);
 }
 
 export function check(condition, what, detail) {
-  results.checks.push({ suite: currentModule, section: currentSuite, name: what,
+  state().results.checks.push({ suite: state().currentModule, section: state().currentSuite, name: what,
     status: condition ? 'passed' : 'failed' });
   if (condition) ok(what); else bad(what, detail);
   return !!condition;
 }
 
 export function skip(what, detail) {
-  results.skipped++;
-  results.checks.push({ suite: currentModule, section: currentSuite, name: what, status: 'skipped' });
-  console.log(`  - ${what} (skipped: ${detail})`);
+  state().results.skipped++;
+  state().results.checks.push({ suite: state().currentModule, section: state().currentSuite, name: what, status: 'skipped' });
+  console.log(`  [${state().currentModule}] - ${what} (skipped: ${detail})`);
 }
 
 /** Asserts a status, reporting the body when it differs — the body is where the reason is. */
@@ -96,12 +108,17 @@ export function checkStatus(res, expected, what) {
       `expected ${list.join(' or ')}, got ${res.status}: ${(res.text ?? '').slice(0, 300)}`);
 }
 
-export function summary() {
+export function summary(order = [...suiteStates.keys()]) {
+  const locals = order.map(name => suiteStates.get(name)).filter(Boolean);
+  const all = [rootState, ...locals];
+  // Preserve within-suite order. Concurrency changes completion order, not coverage.
+  const before = rootState.results.checks.filter(c => c.section === 'runner: clean-stack preflight');
+  const after = rootState.results.checks.filter(c => c.section !== 'runner: clean-stack preflight');
   return {
-    passed: results.passed,
-    failed: results.failed,
-    skipped: results.skipped,
-    checks: results.checks.map(check => ({ ...check })),
+    passed: all.reduce((sum, s) => sum + s.results.passed, 0),
+    failed: all.reduce((sum, s) => sum + s.results.failed, 0),
+    skipped: all.reduce((sum, s) => sum + s.results.skipped, 0),
+    checks: [...before, ...locals.flatMap(s => s.results.checks), ...after].map(c => ({ ...c })),
   };
 }
 
@@ -368,7 +385,6 @@ export const KINDS = [
 
 // ── teardown ────────────────────────────────────────────────────────────────
 
-const registry = [];
 
 /** Where each kind is addressed, for a path built from an identifier alone. */
 const COLLECTION_PATH = {
@@ -384,8 +400,7 @@ const COLLECTION_PATH = {
 // what catches a suite that creates without registering: teardown reports only the deletions it was
 // asked for, so such a suite leaves a subtree behind inside a run that passes. One run left
 // thirty-two artifacts in the first user's home exactly that way.
-const created = [];
-const registeredIds = new Set();
+
 
 /**
  * The kind a resource is, read off the identifier it was assigned rather than the endpoint that
@@ -401,8 +416,8 @@ function noteCreated(json, base) {
   const id = json?.['@id'];
   if (typeof id !== 'string') return;
   const kind = kindOfId(id);
-  if (!kind || created.some(c => c.id === id)) return;
-  created.push({ kind, id, name: json['schema:name'] ?? json.schema_name ?? '(unnamed)', suite: currentSuite });
+  if (!kind || state().created.some(c => c.id === id)) return;
+  state().created.push({ kind, id, name: json['schema:name'] ?? json.schema_name ?? '(unnamed)', suite: state().currentSuite });
 }
 
 /**
@@ -412,8 +427,8 @@ function noteCreated(json, base) {
  * a group.
  */
 export function cleanup(kind, path, name, auth, base) {
-  registry.unshift({ kind, path, name, auth, base });
-  registeredIds.add(decodeURIComponent(path.slice(path.lastIndexOf('/') + 1)));
+  state().registry.unshift({ kind, path, name, auth, base });
+  state().registeredIds.add(decodeURIComponent(path.slice(path.lastIndexOf('/') + 1)));
 }
 
 /**
@@ -422,7 +437,7 @@ export function cleanup(kind, path, name, auth, base) {
  * inside a passing run, which is how a whole working subtree survived unnoticed.
  */
 async function sweepUnregistered(auth) {
-  const suspects = created.filter(c => !registeredIds.has(c.id));
+  const suspects = state().created.filter(c => !state().registeredIds.has(c.id));
   let swept = 0;
   for (const kind of ['instance', 'template', 'element', 'field', 'folder']) {
     // Newest first within a kind: a nested folder is created after the folder holding it, and a
@@ -448,9 +463,9 @@ async function sweepUnregistered(auth) {
  * Deletes everything registered and verifies each one is gone by reading it back. An earlier UI
  * smoke left four scratch folders behind because it believed a status code.
  */
-export async function teardown(auth) {
+async function teardownCurrent(auth) {
   let removed = 0;
-  for (const item of registry) {
+  for (const item of state().registry) {
     const as = item.auth ?? auth;
     const where = { base: item.base };
     const del = await mutate(as, 'DELETE', item.path, undefined, where);
@@ -472,7 +487,23 @@ export async function teardown(auth) {
   const swept = await sweepUnregistered(auth);
   if (removed) console.log(`\n  cleaned up ${removed} resource(s)`);
   if (swept) console.log(`  swept ${swept} unregistered resource(s) — see the failures above`);
-  registry.length = 0;
-  created.length = 0;
-  registeredIds.clear();
+  state().registry.length = 0;
+  state().created.length = 0;
+  state().registeredIds.clear();
+}
+
+// All suite work drains before teardown. Each registry unwinds serially, and the
+// runner's parent folder is removed last. Never delete fixtures under a live suite.
+export async function teardown(auth, order = [...suiteStates.keys()], workers = 1) {
+  await drainPool([...order].reverse(), workers, async name => {
+    const local = suiteStates.get(name);
+    if (local) await contexts.run(local, async () => {
+      try { await teardownCurrent(auth); }
+      catch (error) { bad(`teardown: ${name} threw`, error.stack ?? error.message); }
+    });
+  });
+  await contexts.run(rootState, async () => {
+    try { await teardownCurrent(auth); }
+    catch (error) { bad('teardown: runner threw', error.stack ?? error.message); }
+  });
 }

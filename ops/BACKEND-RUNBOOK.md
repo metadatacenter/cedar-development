@@ -2229,7 +2229,7 @@ on its first navigation; the smoke reads that file before the cross-application 
 which origins are deployed and which the run addressed, rather than waiting out a timeout.
 
 `ops/e2e` holds the two whole-stack tests, and they answer different questions. `npm run smoke:rest`
-drives the REST API directly, in about 65–80 seconds, and reaches what no unit suite can: the artifact
+drives the REST API directly (timings below), and reaches what no unit suite can: the artifact
 write path (which proxies, so the per-service suites cannot follow it), publish and create-draft,
 whether the graph and the artifact server agree, and the things a real running stack does that an
 embedded one cannot. It authenticates through Keycloak's password grant using the credentials already
@@ -2243,6 +2243,46 @@ a failure even when every check that did run passed. Freeze keeps the inventory 
 terminology store is absent by recording its seven checks as skipped rather than silently omitting
 them. `download` includes JSON / YAML / compact-YAML export and read-negotiation across all four
 artifact kinds.
+
+The REST runner uses two workers by default, bounded to one through four. Use
+`cedarcli test e2e --rest-workers 4` for four workers, or `--rest-workers 1` for the
+serial diagnostic path. For an individual REST invocation, the equivalent is
+`npm run smoke:rest -- --workers=4` after loading the normal profile. The standalone
+REST invocation does not replace the two-tier release smoke gate.
+
+Thirteen audited suites may overlap. Each has its own working folder, asynchronous
+check context, creation tracking and cleanup registry. The `folders`, `groups`,
+`categories`, `authentication`, `pagination` and `contract` suites run exclusively
+after that parallel batch: their home guards, protected group operations, category
+tree, account credentials or global counts require a stable surrounding stack.
+New suites default to exclusive execution. One worker preserves the original suite
+order. Result merging restores the canonical suite order while preserving the check
+order within each suite, so the existing exact 1,063-check inventory is unchanged.
+
+After all suites drain, independent cleanup registries overlap within the same worker
+budget, each retaining its own reverse creation order. The shared parent is deleted
+last. A first interrupt stops new suites, drains active work and then cleans up;
+a second interrupt forces exit. Preflight, final leftover checks and worker health
+checks still surround the entire run. Do not run separate smoke processes or other
+fixture-mutating tests simultaneously against the same stack.
+
+Reports include `workers`, `suiteTimings` and `phaseTimings` (setup, suites, teardown
+and postflight). `npm run test:rest-harness` verifies bounded scheduling, exclusive
+barriers, interruption, report attribution and cleanup ordering; it also runs before
+every `npm run smoke:rest` invocation.
+
+On the 16-core M4 workstation (2026-09-24), all 1,063 checks passed in 118.6 seconds
+with one worker, 72.8 with two and 46.4 with four. Those initial comparisons used the
+same isolated fixtures and included cleanup and postflight. Suite-only parallelism
+with serial cleanup took 86.7 seconds at two workers; overlapping independent cleanup
+registries accounts for the additional reduction. These are local measurements,
+not a CI performance guarantee.
+
+Ten subsequent four-worker runs passed on the first attempt, each with 1,063 passes,
+zero failures/skips, the exact serial check identities and verdicts, no leftovers and
+healthy worker consumers. Mean elapsed time was 51.26 seconds, range 47.3–55.2: about
+57% less than the serial baseline. Local logs and JSON reports are retained under
+`.cedar/build-reports/rest-repeat-10-20260924T162831Z/`.
 
 `cedarcli test e2e` runs both tiers in one command and records the run as the evidence the train
 and release preflights require. Before anything runs it reads the controller's status and refuses
