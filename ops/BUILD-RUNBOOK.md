@@ -245,7 +245,8 @@ publication and runs three visible, ordered jobs:
 
 The frontend publication job runs on Linux ARM64, matching component visual baselines.
 Component setup installs the captured Playwright Chromium before browser tests; legacy
-Karma consumers use that executable through `CHROME_BIN`, including on clean runners.
+Karma consumers use that executable through `CHROME_BIN`, and Testem discovers the
+same executable as `chrome` on the job PATH, including on clean runners.
 The hosted runner grants user namespaces only to that executable with an AppArmor
 profile and proves a sandboxed launch before spending time on component gates.
 Component gates use the same recorded frontend worker budget as consumer checks.

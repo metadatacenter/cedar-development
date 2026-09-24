@@ -392,6 +392,10 @@ jobs:
           sudo apparmor_parser -r /etc/apparmor.d/cedar-train-chromium
           "$chromium" --headless --disable-gpu --dump-dom about:blank > "$RUNNER_TEMP/chromium-smoke.html"
           echo "CHROME_BIN=$chromium" >> "$GITHUB_ENV"
+          # Testem discovers Chrome on PATH rather than reading CHROME_BIN.
+          mkdir -p "$RUNNER_TEMP/train-bin"
+          ln -s "$chromium" "$RUNNER_TEMP/train-bin/chrome"
+          echo "$RUNNER_TEMP/train-bin" >> "$GITHUB_PATH"
 
       - name: Wire all seven CEE consumers and rebuild bundled consumers
         run: |
