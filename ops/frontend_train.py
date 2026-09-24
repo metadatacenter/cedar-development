@@ -758,6 +758,38 @@ def verify_surfaces(config, plan, workspace, jobs=2, workers=4):
             raise
 
 
+def build_prepared_frontends(frontends, workspace, jobs=2, workers=4):
+    """Build independent repositories concurrently; leave evidence to the coordinator."""
+    if not 1 <= jobs <= 4 or not 1 <= workers <= 16:
+        raise ValueError("Frontend jobs must be 1–4 and workers 1–16")
+    groups = {}
+    for frontend in frontends:
+        if frontend.get('preparedBuild'):
+            groups.setdefault(frontend['repository'], []).append(frontend)
+    environment = dict(os.environ)
+    environment.update({key: str(workers) for key in
+                        ('CEDAR_TEST_WORKERS', 'VITEST_MAX_WORKERS', 'NG_BUILD_MAX_WORKERS')})
+
+    def build_group(group):
+        started = time.monotonic()
+        for frontend in group:
+            build = frontend['preparedBuild']
+            root = workspace / frontend['repository'] / build['directory']
+            for command in build['commands']:
+                run_command(command, root, environment)
+        print(f"Prepared {group[0]['repository']}: {time.monotonic() - started:.2f}s", flush=True)
+
+    with ThreadPoolExecutor(max_workers=jobs) as pool:
+        futures = [pool.submit(build_group, group) for group in groups.values()]
+        try:
+            for future in futures:
+                future.result()
+        except BaseException:
+            for future in futures:
+                future.cancel()
+            raise
+
+
 def prepare_frontends(args: argparse.Namespace) -> None:
     version = validate_train(args.version)
     plan_path = args.state / "npm" / "trains" / f"{version}.json"
@@ -807,15 +839,14 @@ def prepare_frontends(args: argparse.Namespace) -> None:
     verify_surfaces(config, plan, args.workspace,
                     getattr(args, 'jobs', 2), getattr(args, 'workers', 4))
 
+    build_prepared_frontends(plan['frontends'], args.workspace,
+                             getattr(args, 'jobs', 2), getattr(args, 'workers', 4))
     builds = []
     for frontend in plan["frontends"]:
         build = frontend.get("preparedBuild")
         if not build:
             continue
         root = args.workspace / frontend["repository"]
-        build_root = root / build["directory"]
-        for command in build["commands"]:
-            run_command(command, build_root)
         if build.get("output"):
             output = root / build["output"]
             destination = root / frontend["packagePath"]

@@ -64,6 +64,27 @@ def commit(repository: Path, timestamp: str = "2026-08-25T22:04:26Z") -> str:
 
 
 class FrontendTrainTest(unittest.TestCase):
+    def test_prepared_builds_overlap_repositories_and_fail_before_evidence(self):
+        import threading
+        barrier = threading.Barrier(2)
+        seen = []
+        frontends = [dict(repository=r, preparedBuild=dict(directory=d, commands=[['build']]))
+                     for r, d in [('a', 'one'), ('a', 'two'), ('b', 'one')]]
+        def run(command, root, environment):
+            self.assertEqual('3', environment['NG_BUILD_MAX_WORKERS'])
+            self.assertEqual(os.environ['PATH'], environment['PATH'])
+            if root.name == 'one':
+                barrier.wait(timeout=5)
+            else:
+                self.assertIn(('a', 'one'), seen)
+            seen.append((root.parent.name, root.name))
+        with patch.object(frontend_train, 'run_command', side_effect=run):
+            frontend_train.build_prepared_frontends(frontends, Path('/isolated'), 2, 3)
+        self.assertEqual(3, len(seen))
+        with patch.object(frontend_train, 'run_command', side_effect=RuntimeError('failed')):
+            with self.assertRaisesRegex(RuntimeError, 'failed'):
+                frontend_train.build_prepared_frontends(frontends, Path('/isolated'), 2, 3)
+
     def test_picker_publication_records_verified_identity_without_waiting_for_cee(self):
         with tempfile.TemporaryDirectory() as directory:
             state = Path(directory)
