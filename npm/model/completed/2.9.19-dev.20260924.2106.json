@@ -1,0 +1,22 @@
+{
+  "completedAt": "2026-09-24T21:09:07.246399+00:00",
+  "expected": {
+    "name": "@org.metadatacenter/cedar-model-typescript-library",
+    "repository": "cedar-model-typescript-library",
+    "revision": "4ab533959d1695c6cd1df5eee7bc58912cff1f64",
+    "version": "1.0.14-dev.20260924.g4ab533959d16.t2106"
+  },
+  "package": {
+    "integrity": "sha512-B6XUq9b7/RG+912pUCXGWweYj+4UrYQcn6BuTVupc1M7+rQpEBnuINcArmfQeyD1gPceByOOEE4csrASvTlIUA==",
+    "name": "@org.metadatacenter/cedar-model-typescript-library",
+    "repository": "cedar-model-typescript-library",
+    "revision": "4ab533959d1695c6cd1df5eee7bc58912cff1f64",
+    "tarball": "https://nexus.bmir.stanford.edu/repository/npm-cedar/@org.metadatacenter/cedar-model-typescript-library/-/cedar-model-typescript-library-1.0.14-dev.20260924.g4ab533959d16.t2106.tgz",
+    "tarballSha256": "6e5d9b1ee0605bf3a45a7148944c5e865571200ad18d7cb11ad53b9981ffe341",
+    "version": "1.0.14-dev.20260924.g4ab533959d16.t2106"
+  },
+  "schemaVersion": 1,
+  "sourceManifestSha256": "23e433584da3722fd936bb237fecbc3bd490de48ef7d422ad274e14e1aa5f673",
+  "stage": "model",
+  "version": "2.9.19-dev.20260924.2106"
+}
