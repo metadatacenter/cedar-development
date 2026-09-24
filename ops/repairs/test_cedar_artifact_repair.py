@@ -2740,6 +2740,152 @@ class ResolveConstraintSourceTest(unittest.TestCase):
         self.assertEqual(REPAIR.only_resolved_constraint_source(doc, renamed), "/schema:name")
 
 
+def link_instance(website, extra=None):
+    """A template instance whose one IRI field holds whatever is given."""
+    node = {"@id": "https://repo.metadatacenter.org/template-instances/i1",
+            "@context": {"Website": "https://example.org/p/Website"},
+            "schema:isBasedOn": "https://repo.metadatacenter.org/templates/t1",
+            "schema:name": "probe", "schema:description": "",
+            "Website": website}
+    if extra: node.update(extra)
+    return node
+
+
+class DropEmptyInstanceIriTest(unittest.TestCase):
+    """An unfilled IRI field leaves the key out; an empty string is not a way to say it."""
+
+    def test_an_empty_iri_key_is_removed(self):
+        doc = link_instance({"@id": ""})
+        after, changes = REPAIR.drop_empty_instance_iri(doc)
+        self.assertEqual(after["Website"], {})
+        self.assertEqual(changes, [{"path": "/Website/@id", "replaced": "", "wrote": None}])
+        self.assertIsNone(REPAIR.only_dropped_empty_instance_iri(doc, after))
+
+    def test_whitespace_counts_as_empty(self):
+        doc = link_instance({"@id": "   "})
+        after, changes = REPAIR.drop_empty_instance_iri(doc)
+        self.assertEqual(len(changes), 1)
+        self.assertEqual(after["Website"], {})
+
+    def test_a_real_iri_is_left_alone(self):
+        doc = link_instance({"@id": "https://example.org/thing"})
+        after, changes = REPAIR.drop_empty_instance_iri(doc)
+        self.assertEqual(changes, [])
+        self.assertEqual(after, doc)
+
+    def test_a_label_beside_the_empty_iri_survives(self):
+        doc = link_instance({"@id": "", "rdfs:label": "typed but not resolved"})
+        after, _changes = REPAIR.drop_empty_instance_iri(doc)
+        self.assertEqual(after["Website"], {"rdfs:label": "typed but not resolved"})
+
+    def test_every_occurrence_of_a_repeating_field_is_cleared(self):
+        doc = link_instance([{"@id": ""}, {"@id": "https://example.org/kept"}, {"@id": ""}])
+        after, changes = REPAIR.drop_empty_instance_iri(doc)
+        self.assertEqual([c["path"] for c in changes], ["/Website/0/@id", "/Website/2/@id"])
+        self.assertEqual(after["Website"], [{}, {"@id": "https://example.org/kept"}, {}])
+
+    def test_a_nested_element_is_reached(self):
+        doc = link_instance({"@id": "https://example.org/x"},
+                            {"Publication": {"@id": "https://example.org/element",
+                                             "link": {"@id": ""}}})
+        after, changes = REPAIR.drop_empty_instance_iri(doc)
+        self.assertEqual([c["path"] for c in changes], ["/Publication/link/@id"])
+        self.assertEqual(after["Publication"]["@id"], "https://example.org/element")
+
+    def test_the_instance_own_identity_is_not_deleted(self):
+        doc = link_instance({"@id": ""})
+        doc["@id"] = ""
+        with self.assertRaises(REPAIR.TransformRefused):
+            REPAIR.drop_empty_instance_iri(doc)
+
+    def test_the_invariant_rejects_a_real_iri_going(self):
+        doc = link_instance({"@id": "https://example.org/thing"})
+        stripped = copy.deepcopy(doc)
+        del stripped["Website"]["@id"]
+        self.assertEqual(REPAIR.only_dropped_empty_instance_iri(doc, stripped), "/Website/@id")
+
+    def test_the_invariant_rejects_another_removal(self):
+        doc = link_instance({"@id": ""})
+        after, _changes = REPAIR.drop_empty_instance_iri(doc)
+        also = copy.deepcopy(after)
+        del also["schema:name"]
+        self.assertEqual(REPAIR.only_dropped_empty_instance_iri(doc, also), "/schema:name")
+
+
+class ComposeArtifactTitleTest(unittest.TestCase):
+    """A title restates the artifact's name; an older editor lowercased it first."""
+
+    def titled(self, doc, title):
+        doc["title"] = title
+        return doc
+
+    def test_a_lowercased_title_is_recomposed_from_the_name(self):
+        doc = self.titled(template({"Name": child()}), "study template schema")
+        doc["schema:name"] = "Study"
+        after, changes = REPAIR.compose_artifact_title(doc)
+        self.assertEqual(after["title"], "Study template schema")
+        self.assertEqual(changes, [{"path": "/title", "replaced": "study template schema",
+                                    "wrote": "Study template schema"}])
+        self.assertIsNone(REPAIR.only_composed_artifact_title(doc, after))
+
+    def test_a_title_already_composed_is_left_alone(self):
+        doc = self.titled(template({"Name": child()}), "Study template schema")
+        doc["schema:name"] = "Study"
+        after, changes = REPAIR.compose_artifact_title(doc)
+        self.assertEqual(changes, [])
+        self.assertEqual(after, doc)
+
+    def test_a_nested_definition_is_recomposed_with_the_root(self):
+        doc = self.titled(template({"Alias": child()}), "Study template schema")
+        doc["schema:name"] = "Study"
+        doc["properties"]["Alias"]["schema:name"] = "Alias"
+        doc["properties"]["Alias"]["title"] = "alias field schema"
+        after, changes = REPAIR.compose_artifact_title(doc)
+        self.assertEqual([c["path"] for c in changes], ["/properties/Alias/title"])
+        self.assertEqual(after["properties"]["Alias"]["title"], "Alias field schema")
+
+    def test_an_element_composes_with_its_own_noun(self):
+        doc = template({"Address": child(ELEMENT_TYPE)})
+        doc["properties"]["Address"]["schema:name"] = "Address"
+        doc["properties"]["Address"]["title"] = "wrong"
+        after, _changes = REPAIR.compose_artifact_title(doc)
+        self.assertEqual(after["properties"]["Address"]["title"], "Address element schema")
+
+    def test_a_definition_naming_no_kind_is_left_alone(self):
+        doc = template({"Name": child()})
+        doc["schema:name"] = "Study"
+        doc["title"] = "anything"
+        del doc["@type"]
+        _after, changes = REPAIR.compose_artifact_title(doc)
+        self.assertEqual(changes, [])
+
+    def test_a_json_schema_fragment_named_at_type_is_not_an_artifact(self):
+        """`@type` is a string on an artifact and a schema fragment inside `properties`."""
+        doc = template({"Name": child()})
+        doc["schema:name"] = "Study"
+        doc["title"] = "study template schema"
+        doc["properties"]["Name"]["properties"] = {"@type": {"type": "string", "format": "uri"}}
+        after, changes = REPAIR.compose_artifact_title(doc)
+        self.assertEqual([c["path"] for c in changes], ["/title"])
+        self.assertEqual(after["title"], "Study template schema")
+
+    def test_the_invariant_rejects_a_title_it_did_not_compose(self):
+        doc = self.titled(template({"Name": child()}), "study template schema")
+        doc["schema:name"] = "Study"
+        after, _changes = REPAIR.compose_artifact_title(doc)
+        invented = copy.deepcopy(after)
+        invented["title"] = "Something else"
+        self.assertEqual(REPAIR.only_composed_artifact_title(doc, invented), "/title")
+
+    def test_the_invariant_rejects_another_change(self):
+        doc = self.titled(template({"Name": child()}), "study template schema")
+        doc["schema:name"] = "Study"
+        after, _changes = REPAIR.compose_artifact_title(doc)
+        renamed = copy.deepcopy(after)
+        renamed["@id"] = "https://repo.metadatacenter.org/templates/somewhere-else"
+        self.assertEqual(REPAIR.only_composed_artifact_title(doc, renamed), "/@id")
+
+
 ENCODED = "https%3A%2F%2Fw3id.org%2Fgdmt%2FIdentifierScheme"
 PLAIN = "https://w3id.org/gdmt/IdentifierScheme"
 

@@ -811,6 +811,185 @@ def only_decoded_constraint_iri(before: Any, after: Any) -> Optional[str]:
     return walk(before, after, "")
 
 
+JSON_LD_ID = "@id"
+EMPTY_IRI_ERROR = r"^(?:\[read\] )?An empty string is not a URI"
+
+
+def drop_empty_instance_iri(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Take an empty ``@id`` out of a field that holds no IRI.
+
+    An IRI-valued field - a link, an ORCID, a controlled term - says what it holds with ``@id``. A
+    field nobody filled in holds no IRI, and the way to say that is to leave the key out: the
+    occurrence is then an ordinary node with nothing in it. An empty string is not a way to say it.
+    It is not an IRI, JSON-LD gives it no meaning, and ``cedar-artifact-library`` refuses to read
+    one, so an instance carrying it has no YAML representation and answers 500 when asked for one.
+
+    Nothing rejected it on write. The field's rendered schema types ``@id`` as a string with
+    ``format: uri``, and an empty string satisfies that, so the validator holds these instances
+    valid while the library will not read them. That gap is why the repair is worth making and why
+    tightening the schema is a separate question: it would touch every stored template.
+
+    ``null`` would also be read, and the library's own message offers it, but a node object's
+    ``@id`` is defined to be a string and null is not one. Removal says the same thing in the shape
+    an unfilled IRI field already has.
+
+    The instance's own ``@id`` is left alone. An artifact whose identity is an empty string is a
+    different defect and not one to settle by deleting its identity.
+    """
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    stored_root = artifact.get(JSON_LD_ID)
+    if isinstance(stored_root, str) and stored_root.strip() == "":
+        raise TransformRefused("the instance's own @id is empty, which is a different defect")
+    changes: list[dict[str, Any]] = []
+
+    def walk(node: Any, path: str) -> Any:
+        if isinstance(node, list):
+            return [walk(item, f"{path}/{index}") for index, item in enumerate(node)]
+        if not isinstance(node, dict):
+            return node
+        stored = node.get(JSON_LD_ID)
+        empty = path != "" and isinstance(stored, str) and stored.strip() == ""
+        result = {}
+        for name, value in node.items():
+            here = f"{path}/{rest.json_pointer_component(name)}"
+            if name == JSON_LD_ID and empty:
+                changes.append({"path": here, "replaced": stored, "wrote": None})
+                continue
+            result[name] = walk(value, here)
+        return result
+
+    return walk(artifact, ""), changes
+
+
+def only_dropped_empty_instance_iri(before: Any, after: Any) -> Optional[str]:
+    """The invariant: the only keys gone are empty ``@id``s below the root."""
+
+    def walk(old: Any, new: Any, path: str) -> Optional[str]:
+        if isinstance(old, dict):
+            if not isinstance(new, dict):
+                return path or "/"
+            if set(new) - set(old):
+                return path or "/"
+            gone = set(old) - set(new)
+            unexpected = sorted(gone - {JSON_LD_ID})
+            if unexpected:
+                return f"{path}/{rest.json_pointer_component(unexpected[0])}"
+            if gone:
+                stored = old[JSON_LD_ID]
+                if path == "" or not isinstance(stored, str) or stored.strip() != "":
+                    return f"{path}/{JSON_LD_ID}"
+            for name in new:
+                difference = walk(old[name], new[name], f"{path}/{rest.json_pointer_component(name)}")
+                if difference is not None:
+                    return difference
+            return None
+        if isinstance(old, list):
+            if not isinstance(new, list) or len(old) != len(new):
+                return path or "/"
+            for index, value in enumerate(old):
+                difference = walk(value, new[index], f"{path}/{index}")
+                if difference is not None:
+                    return difference
+            return None
+        return None if type(old) is type(new) and old == new else (path or "/")
+
+    return walk(before, after, "")
+
+
+TITLE_KEY = "title"
+SCHEMA_NAME_KEY = "schema:name"
+ARTIFACT_NOUN = {
+    "https://schema.metadatacenter.org/core/Template": "template",
+    "https://schema.metadatacenter.org/core/TemplateElement": "element",
+    "https://schema.metadatacenter.org/core/TemplateField": "field",
+    "https://schema.metadatacenter.org/core/StaticTemplateField": "field",
+}
+
+
+def composed_title(definition: Any) -> Optional[str]:
+    """The title a definition of this name and kind has, or None where it does not have one."""
+    if not isinstance(definition, dict):
+        return None
+    # `@type` is a string on an artifact and a JSON Schema fragment inside `properties`, so ask
+    # only where it is the former.
+    at_type = definition.get(AT_TYPE)
+    noun = ARTIFACT_NOUN.get(at_type) if isinstance(at_type, str) else None
+    name = definition.get(SCHEMA_NAME_KEY)
+    if noun is None or not isinstance(name, str) or not name:
+        return None
+    return f"{name} {noun} schema"
+
+
+def compose_artifact_title(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Write the title an artifact's name and kind compose, where it holds another.
+
+    ``title`` names the JSON Schema constraining instances of an artifact, and it restates the
+    artifact's own name: an artifact called Study has a template schema called "Study template
+    schema" and there is nothing else it could be called. It carries nothing an author decided, so
+    a stored one that differs is not an alternative anybody chose.
+
+    An older editor composed it from a lowercased name, so the stored title disagrees with the name
+    beside it in case alone - "Template with Text Field 1" against "Template with text field 1
+    template schema". Both model libraries derive the title on read, so such an artifact is
+    rewritten the moment anything reads and writes it; composing it here means the stored document
+    says what every reader of it already says.
+
+    Every nested definition carries its own, so the walk covers them with the root.
+    """
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def walk(node: Any, path: str) -> Any:
+        if isinstance(node, list):
+            return [walk(item, f"{path}/{index}") for index, item in enumerate(node)]
+        if not isinstance(node, dict):
+            return node
+        result = {}
+        wanted = composed_title(node)
+        for name, value in node.items():
+            here = f"{path}/{rest.json_pointer_component(name)}"
+            if name == TITLE_KEY and wanted is not None and isinstance(value, str) and value != wanted:
+                result[name] = wanted
+                changes.append({"path": here, "replaced": value, "wrote": wanted})
+            else:
+                result[name] = walk(value, here)
+        return result
+
+    return walk(artifact, ""), changes
+
+
+def only_composed_artifact_title(before: Any, after: Any) -> Optional[str]:
+    """The invariant: every change is a title becoming the one its own name and kind compose."""
+
+    def walk(old: Any, new: Any, path: str) -> Optional[str]:
+        if isinstance(old, dict):
+            if not isinstance(new, dict) or set(old) != set(new):
+                return path or "/"
+            for name in old:
+                here = f"{path}/{rest.json_pointer_component(name)}"
+                if name == TITLE_KEY and new[name] != old[name]:
+                    if new[name] != composed_title(old):
+                        return here
+                    continue
+                difference = walk(old[name], new[name], here)
+                if difference is not None:
+                    return difference
+            return None
+        if isinstance(old, list):
+            if not isinstance(new, list) or len(old) != len(new):
+                return path or "/"
+            for index, value in enumerate(old):
+                difference = walk(value, new[index], f"{path}/{index}")
+                if difference is not None:
+                    return difference
+            return None
+        return None if type(old) is type(new) and old == new else (path or "/")
+
+    return walk(before, after, "")
+
+
 ACRONYM_KEY = "acronym"
 # The three keys that together address a constraint's vocabulary. A paste into the acronym lands in
 # all of them, so a repair reaching only one leaves an address still pointing at a browse page.
@@ -6332,6 +6511,21 @@ REPAIRS = {
         summary="write a draft's prerelease version as its release, discarding the tag",
         transform=settle_prerelease_version,
         invariant=only_settled_prerelease_version,
+    ),
+    "drop-empty-instance-iri": Repair(
+        name="drop-empty-instance-iri",
+        condition="empty-instance-iri",
+        summary="take an empty @id out of a field that holds no IRI",
+        transform=drop_empty_instance_iri,
+        invariant=only_dropped_empty_instance_iri,
+        error_pattern=EMPTY_IRI_ERROR,
+    ),
+    "compose-artifact-title": Repair(
+        name="compose-artifact-title",
+        condition="title-not-composed",
+        summary="write the title an artifact's name and kind compose, where it holds another",
+        transform=compose_artifact_title,
+        invariant=only_composed_artifact_title,
     ),
     "decode-constraint-iri": Repair(
         name="decode-constraint-iri",
