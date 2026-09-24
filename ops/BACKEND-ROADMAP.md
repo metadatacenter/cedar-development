@@ -1143,32 +1143,15 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   and JSON → model → JSON tests. This does not make `description` derived, and nothing here rewrites
   description or provenance text.
 
-  **Make the model version explicit, then enforce it.** The population is measured: 13 artifacts, of
-  which 3 declare a stale version and 10 declare none at all. The decision left is what an artifact
-  that never carried a version gets. A version cannot be stamped on faith, because
-  `schema:schemaVersion` asserts that the artifact conforms to the model it names, so writing the
-  current version into an artifact that does not conform replaces a detectable defect with an
-  undetectable one. Write it only where the artifact already satisfies the current model, and report
-  the remainder for a scoped repair of its own.
-
-  The two Java readers disagree until that lands, so one artifact is accepted as JSON and refused as
-  YAML. `checkSchemaArtifactModelVersion` in `cedar-artifact-library`'s `JsonArtifactShapeChecks`
-  rejects a value it cannot parse and accepts every value it can, because the comparison is
-  commented out (`JsonArtifactShapeChecks.java:128`), while `YamlArtifactReader` declares a method of
-  the same name that compares. Absence is the harder half: `readModelVersion` returns an empty result
-  for an artifact that declares no version, and the disabled comparison rejects an empty result as
-  well as a stale one. Restore the comparison and delete its explanatory note only once a repeated
-  audit reports no stale and no absent version, and replace `ModelVersionEnforcementTest`'s two JSON
-  acceptances with rejections at the same time.
-
-  The suites cannot find this defect, which is why it stayed open, and the reason is worth fixing
-  independently of the production run. Every JSON fixture and every programmatic case supplies the
-  version by referencing the same constant the disabled comparison would compare against, and the
-  YAML renderer writes that constant rather than the version its source artifact declared, so a
-  cross-format round trip launders a stale version into a current one before the strict reader sees
-  it. The in-memory model has no field to carry a model version at all. `ModelVersionEnforcementTest`
-  pins the divergence, stating what each reader does with a well-formed stale version and with none,
-  so the day it changes is a failure rather than a surprise.
+  **Make the model version explicit.** The enforcement is done: a walk of every schema artifact a
+  deployment serves found `schema:schemaVersion` declared on all 151,805 of them and holding the
+  current value throughout, so `JsonArtifactShapeChecks` compares again and refuses a stale version
+  and an absent one alike, as `YamlArtifactReader` always did. What remains is the decision the
+  population never forced: what an artifact that has never carried a version gets, should one
+  appear. A version cannot be stamped on faith, because `schema:schemaVersion` asserts that the
+  artifact conforms to the model it names, so writing the current version into an artifact that
+  does not conform replaces a detectable defect with an undetectable one. Write it only where the
+  artifact already satisfies the current model, and report the remainder for a scoped repair.
 
   **Make terminology sources explicit.** A controlled-term constraint may name the system serving its
   vocabulary, and both model libraries read an absent `sourceSystem` as BioPortal —
