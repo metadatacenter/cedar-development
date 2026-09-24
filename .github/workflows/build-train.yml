@@ -384,7 +384,13 @@ jobs:
         run: |
           browser="$RUNNER_TEMP/CEDAR/cedar-embeddable-term-picker/browser"
           npm --prefix "$browser" ci
+          "$browser/node_modules/.bin/playwright" install --with-deps chromium
           chromium=$(node -p "require('$browser/node_modules/playwright').chromium.executablePath()")
+          # Permit namespaces for this exact captured browser, keeping Chromium's
+          # sandbox enabled without relaxing the runner's global AppArmor policy.
+          printf 'abi <abi/4.0>,\ninclude <tunables/global>\nprofile cedar-train-chromium "%s" flags=(unconfined) {\n  userns,\n}\n' "$chromium" | sudo tee /etc/apparmor.d/cedar-train-chromium >/dev/null
+          sudo apparmor_parser -r /etc/apparmor.d/cedar-train-chromium
+          "$chromium" --headless --disable-gpu --dump-dom about:blank > "$RUNNER_TEMP/chromium-smoke.html"
           echo "CHROME_BIN=$chromium" >> "$GITHUB_ENV"
 
       - name: Wire all seven CEE consumers and rebuild bundled consumers

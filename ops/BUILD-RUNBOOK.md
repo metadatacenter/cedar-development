@@ -246,6 +246,9 @@ publication and runs three visible, ordered jobs:
 The frontend publication job runs on Linux ARM64, matching component visual baselines.
 Component setup installs the captured Playwright Chromium before browser tests; legacy
 Karma consumers use that executable through `CHROME_BIN`, including on clean runners.
+The hosted runner grants user namespaces only to that executable with an AppArmor
+profile and proves a sandboxed launch before spending time on component gates.
+Component gates use the same recorded frontend worker budget as consumer checks.
 
 Frontend consumer verification uses two concurrent repository jobs and four workers per
 job (`frontend_train.py prepare-frontends --jobs 1 --workers 1` is the serial path).

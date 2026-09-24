@@ -684,6 +684,8 @@ def publish_component(args, plan, component):
                 require_exact_alias(root / consumer['manifest'], root / consumer['lock'],
                                     consumer['dependency'], plan['model']['name'], plan['model']['version'])
     environment = verification_environment(config, plan, component['repository'], args.workspace)
+    for variable in ('CEDAR_TEST_WORKERS', 'VITEST_MAX_WORKERS', 'NG_BUILD_MAX_WORKERS'):
+        environment[variable] = str(getattr(args, 'workers', 4))
     for command in frontend_inventory.commands(config, component['repository']):
         run_command(command, root, environment)
     run_command(component['distCommand'], root)
