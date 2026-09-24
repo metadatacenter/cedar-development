@@ -1183,6 +1183,12 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   artifacts carry 28,046 such constraints; the 2026-09-08 corpus audit, standalone fields included,
   counted 72,393 over 46,937 artifacts.
 
+  The same entries hold two more noncanonical values, measured across the seven GDMT templates on
+  2026-09-24 and unmeasured beyond them: 43 of 57 constraint entries record `source` as a
+  `bioportal.bioontology.org` browse URL rather than the display string, and 50 give `name` the
+  acronym again instead of the term's label. Both are this item's business rather than a repair of
+  their own, and a rule for either wants the corpus-wide count first.
+
   The serving system cannot be derived from the term IRI, which is the tempting shortcut and a wrong
   one. The 51 HuBMAP assay templates carry 504 branch constraints whose targets sit under
   `https://purl.humanatlas.io/vocab/hravs#`, and every one of them resolves through BioPortal, which
