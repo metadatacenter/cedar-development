@@ -59,6 +59,7 @@ jobs:
           python -m unittest -v \
             ops.tests.test_build_train \
             ops.tests.test_docker_train \
+            ops.tests.test_push_train_state \
             ops.tests.test_frontend_train \
             ops.tests.test_native_process_safety \
             ops.tests.test_angular_build_isolation_canary

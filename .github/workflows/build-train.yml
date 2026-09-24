@@ -29,9 +29,9 @@ env:
   NPM_CONFIG_STRICT_ALLOW_SCRIPTS: "true"
 
 jobs:
-  publish-maven:
+  capture-source:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 30
     env:
       BMIR_NEXUS_USERNAME: ${{ secrets.BMIR_NEXUS_USERNAME }}
       BMIR_NEXUS_PASSWORD: ${{ secrets.BMIR_NEXUS_PASSWORD }}
@@ -101,8 +101,64 @@ jobs:
           git -C "$TRAIN_STATE" add "trains/$TRAIN_VERSION.json"
           if ! git -C "$TRAIN_STATE" diff --cached --quiet; then
             git -C "$TRAIN_STATE" commit -m "Record build train $TRAIN_VERSION"
-            git -C "$TRAIN_STATE" push origin HEAD:build-trains
+            python3 controller/ops/push_train_state.py --state "$TRAIN_STATE"
           fi
+
+
+  publish-maven:
+    needs: capture-source
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      BMIR_NEXUS_USERNAME: ${{ secrets.BMIR_NEXUS_USERNAME }}
+      BMIR_NEXUS_PASSWORD: ${{ secrets.BMIR_NEXUS_PASSWORD }}
+      TRAIN_WORKSPACE: ${{ github.workspace }}/CEDAR
+      TRAIN_STATE: ${{ github.workspace }}/build-trains
+
+    steps:
+      - name: Check out the train controller
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          path: controller
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Check Nexus credentials
+        run: |
+          test -n "$BMIR_NEXUS_USERNAME" || { echo 'BMIR_NEXUS_USERNAME is unavailable to cedar-development'; exit 1; }
+          test -n "$BMIR_NEXUS_PASSWORD" || { echo 'BMIR_NEXUS_PASSWORD is unavailable to cedar-development'; exit 1; }
+
+      - name: Check out the build-train state branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          state_url="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          if git ls-remote --exit-code --heads "$state_url" build-trains >/dev/null 2>&1; then
+            git clone --quiet --depth 1 --branch build-trains "$state_url" "$TRAIN_STATE"
+          else
+            mkdir -p "$TRAIN_STATE"
+            git -C "$TRAIN_STATE" init --quiet
+            git -C "$TRAIN_STATE" checkout --quiet --orphan build-trains
+            git -C "$TRAIN_STATE" remote add origin "$state_url"
+            touch "$TRAIN_STATE/.gitkeep"
+          fi
+          git -C "$TRAIN_STATE" config user.name github-actions[bot]
+          git -C "$TRAIN_STATE" config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          if [ -f "$TRAIN_STATE/completed/$TRAIN_VERSION.json" ]; then
+            echo 'MAVEN_ALREADY_COMPLETE=true' >> "$GITHUB_ENV"
+          fi
+
+      - name: Restore the captured source manifest
+        run: |
+          python3 controller/ops/build_train.py prepare \
+            --resume "$TRAIN_VERSION" \
+            --workspace "$TRAIN_WORKSPACE" \
+            --state "$TRAIN_STATE"
 
       - name: Build and publish the Maven train
         if: env.MAVEN_ALREADY_COMPLETE != 'true'
@@ -124,7 +180,7 @@ jobs:
             --state "$TRAIN_STATE"
           git -C "$TRAIN_STATE" add .
           git -C "$TRAIN_STATE" commit -m "Complete build train $TRAIN_VERSION"
-          git -C "$TRAIN_STATE" push origin HEAD:build-trains
+          python3 controller/ops/push_train_state.py --state "$TRAIN_STATE"
 
       - name: Confirm the existing Maven completion on resume
         if: env.MAVEN_ALREADY_COMPLETE == 'true'
@@ -132,7 +188,7 @@ jobs:
 
   publish-model:
     name: npm 1/3 · publish TypeScript model
-    needs: publish-maven
+    needs: capture-source
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -189,7 +245,7 @@ jobs:
           git -C build-trains add "npm/trains/$TRAIN_VERSION.json"
           if ! git -C build-trains diff --cached --quiet; then
             git -C build-trains commit -m "Record npm train $TRAIN_VERSION"
-            git -C build-trains push origin HEAD:build-trains
+            python3 controller/ops/push_train_state.py --state build-trains
           fi
 
       - name: Gate, build, publish, and verify the captured TypeScript model
@@ -204,7 +260,7 @@ jobs:
           git -C build-trains add "npm/model/completed/$TRAIN_VERSION.json"
           if ! git -C build-trains diff --cached --quiet; then
             git -C build-trains commit -m "Complete npm model for $TRAIN_VERSION"
-            git -C build-trains push origin HEAD:build-trains
+            python3 controller/ops/push_train_state.py --state build-trains
           fi
 
   publish-cee:
@@ -269,7 +325,7 @@ jobs:
           git -C build-trains add "npm/cee/completed/$TRAIN_VERSION.json"
           if ! git -C build-trains diff --cached --quiet; then
             git -C build-trains commit -m "Complete npm CEE for $TRAIN_VERSION"
-            git -C build-trains push origin HEAD:build-trains
+            python3 controller/ops/push_train_state.py --state build-trains
           fi
 
   publish-frontends:
@@ -334,7 +390,7 @@ jobs:
           git -C build-trains add "npm/trains/$TRAIN_VERSION.json"
           if ! git -C build-trains diff --cached --quiet; then
             git -C build-trains commit -m "Record npm wiring for $TRAIN_VERSION"
-            git -C build-trains push origin HEAD:build-trains
+            python3 controller/ops/push_train_state.py --state build-trains
           fi
 
       - name: Publish the seven train frontend packages
@@ -352,7 +408,7 @@ jobs:
           git -C build-trains add npm
           if ! git -C build-trains diff --cached --quiet; then
             git -C build-trains commit -m "Complete npm train $TRAIN_VERSION"
-            git -C build-trains push origin HEAD:build-trains
+            python3 controller/ops/push_train_state.py --state build-trains
           fi
 
   record-docker-plan:
@@ -390,7 +446,7 @@ jobs:
           git -C build-trains add "docker/trains/$TRAIN_VERSION.json"
           if ! git -C build-trains diff --cached --quiet; then
             git -C build-trains commit -m "Record Docker train $TRAIN_VERSION"
-            git -C build-trains push origin HEAD:build-trains
+            python3 controller/ops/push_train_state.py --state build-trains
           fi
 
       - name: Export build matrices
@@ -539,4 +595,4 @@ jobs:
         run: |
           git -C build-trains add docker
           git -C build-trains commit -m "Complete Docker train $TRAIN_VERSION"
-          git -C build-trains push origin HEAD:build-trains
+          python3 controller/ops/push_train_state.py --state build-trains
