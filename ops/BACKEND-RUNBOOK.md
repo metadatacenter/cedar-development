@@ -1661,6 +1661,24 @@ seven build commands that can reach Java — `this`, `parent`, `libraries`, `pro
 explicitly for a fast compile/install loop. Frontend-only build commands do not expose an inert
 Java-test option.
 
+**Bounded parallel Maven builds.** `cedarcli build --jobs 2 java` passes `-T 2` to
+Maven (the default); `--jobs 1` retains serial execution. Maven schedules modules by
+its dependency graph inside each reactor. The parent, libraries, project and clients
+commands remain ordered and run in separate owning processes, so the embedded-Mongo
+preflight/cleanup guards still surround one reactor at a time. Test classes remain serial
+within each test JVM; this does not enable JUnit concurrent execution or extra Surefire
+forks, which would need a separate audit of process-global test configuration and stores.
+Embedded MariaDB instances use private extraction and data directories beneath the
+executable build scratch space, even when Maven workers share `java.io.tmpdir`.
+CLI command timings and exit codes are retained under `.cedar/build-reports/`.
+The source guard fingerprints build profiles and frontend build tooling within the
+mixed-purpose `cedar-development` repository; concurrent audit, repair and documentation
+work there does not invalidate a build. Other repository source guards remain in force.
+
+On a 16-core M4 with 64 GB RAM (2026-09-24), the full Java gate took 681.9 seconds
+serially and 345.7 seconds with four Maven threads: 49% less elapsed time, with matching
+test totals and zero failures. These are workstation measurements, not a CI guarantee.
+
 **Build temporary storage must permit execution.** `cedarcli` creates a private, unique
 workspace per Maven task or frontend build under `$CEDAR_HOME/.cedar/build-tmp/`, and probes
 execution permission before running it. Isolated frontend copies and their npm caches live there;

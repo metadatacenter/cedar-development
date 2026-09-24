@@ -214,6 +214,45 @@ The TypeScript model's reactor checks read the corpus vendored inside its isolat
 checkout. Their child-process `CEDAR_HOME` points there, so a server's `/srv/cedar`
 does not redirect those checks to an absent or stale sibling `cedar-test-artifacts`.
 
+#### Bounded parallel builds and test gates
+
+`cedarcli build --jobs 2 --workers 2 frontends` runs at most two isolated frontend
+repositories at once, with two workers per repository. Two repositories is the default;
+the worker default is half the detected CPU count, at least one and capped at eight
+(eight on a 16-core M4). Put
+build options before the target; `--jobs 1 --workers 1` provides a serial comparison.
+The scheduler reads dependencies from nested package manifests (including npm aliases)
+and the inventory's integration bundle inputs. A consumer waits for its current-source
+producers to pass all checks and publish their immutable local artifacts. Other build
+commands remain exclusive barriers, and deployment and both smoke tiers run after all
+frontend checks pass. A failed producer blocks its consumers, including in continue mode.
+
+The CEE gate overlaps independent build, domain, unit, lint and type-check stages within
+`CEDAR_TEST_WORKERS`. The Angular build and coordinator tests remain ordered because they
+share a cache. The domain harness has its own Vite cache and `harness/coverage/`
+reports, so it cannot clear another tier's output. Visual checks follow those stages; packaging follows the visual gate.
+`test:ci`, `test:ci:prebuilt` and `test:ci:nonvisual:prebuilt` retain their original checks.
+Direct npm gate invocations use the same CPU-based worker default. Each stage prints its elapsed time.
+
+The CLI passes the worker budget into Angular builds and the component browser suites.
+CEE's Vitest suites also honor it; Angular's coordinator tier retains its serial test
+execution. Container browser dependencies use private anonymous volumes removed with
+`--rm`, so concurrent reactor copies cannot race through `npm ci`. Reports and generated
+fixtures stay in each isolated copy. This does not make two runs against the same checkout
+safe: use separate reactor copies for concurrent runs. The browser image, architecture,
+snapshot tolerances and baseline files are unchanged.
+
+Every actual CLI build writes command durations, task dependency edges and exit codes to
+`.cedar/build-reports/<timestamp>-<id>.json`, including failed/interrupted runs. Independent
+running jobs drain after a test failure; Ctrl-C cancels owned subprocess groups. Increase
+one concurrency setting at a time and compare elapsed times and failures before increasing
+both: `jobs × workers` is the intended frontend worker budget, not a memory limit.
+
+On a 16-core M4 with 64 GB RAM (2026-09-24), `--jobs 2 --workers 8` completed the
+full frontend build and test gates in 320.8 seconds, before deployment and whole-stack
+smoke. CEE's gate took 123.2 seconds, including 645 passing visual/browser checks.
+These are measured elapsed times; no serial frontend comparison was recorded.
+
 #### Current artifact transport
 
 `cedarcli build java` never consults a pin: it builds the repositories in dependency order,
@@ -928,7 +967,8 @@ unit, coordinator and domain coverage, verifies the staged npm package, audits t
 runtime tree and uploads `dist`; four `visual` jobs restore that exact build and run
 Playwright with `--shard=1/4` through `--shard=4/4`. A shard failure fails the gate,
 and `fail-fast` is off so one failure does not hide results from the other three.
-The local `npm run test:ci` remains the one-command serial equivalent. Two of CI's
+The local `npm run test:ci` runs the same checks with a bounded stage scheduler;
+`CEDAR_TEST_WORKERS=1` serializes it. Two of CI's
 choices are deliberate and expensive to rediscover.
 
 **The runner is `ubuntu-24.04-arm`, and the visual suite runs in a container.**
