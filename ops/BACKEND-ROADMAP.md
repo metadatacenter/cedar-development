@@ -1230,22 +1230,14 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   removing those uncovered eight more blank occurrences. Re-read the whole set after every write.
 
 
-  **Repair the string-typed fields nothing rejects on write.** Roughly half the string-typed
-  properties the meta-schema describes carry no pattern, format or enumeration, so a rule only one
-  component enforces produces stored data nothing refuses until something downstream cannot read it.
-  A walk of all 151,820 schema artifacts on 2026-09-23 found four such properties populated with
-  values that fail the shape the model expects:
-
-  | Property | Artifacts | What they hold |
-  | --- | ---: | --- |
-  | `unitOfMeasure` | 571 | 1,216 empty strings |
-  | `type` | 20 | 585 occurrences of `Value`, where only Branch, Class, Ontology, OntologyClass and ValueSet are permitted |
-  | `acronym` | 15 | help text sentences, and a URL-encoded BioPortal query string |
-  | `pav:previousVersion` | 2 | `0.0.1` and `0.0.0` where an absolute IRI belongs |
-
-  Give each a rule under `cedar_artifact_patch.py`'s discipline. An empty `unitOfMeasure` and an
-  absent one say the same thing, so that rule removes the key rather than inventing a unit; the
-  other three need a reading of each value before anything is written.
+  **Decide what seven pasted constraints were meant to constrain.** Seven templates constrain a
+  `mimeType` field to the whole of the GDMT vocabulary, because someone pasted a BioPortal browse
+  URL into the entry. The address is repaired and confirmed against BioPortal, but the URL's
+  `conceptid` names one class in that ontology, `https://w3id.org/gdmt/MIMEType`, so the author may
+  have meant a single class rather than every term GDMT serves. Changing an `ontologies` entry into
+  a `classes` entry narrows what an instance may say, which is a decision about the template's
+  meaning and not one a lookup answers. Ask the owner, or record that constraining to the whole
+  ontology is intended.
 
   Done when every enumerable artifact is valid or recorded as a named exception, the rename sheet is
   answered or explicitly abandoned for its tail, both model libraries derive `title`, the model
