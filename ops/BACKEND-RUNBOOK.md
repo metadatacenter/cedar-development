@@ -1679,6 +1679,25 @@ On a 16-core M4 with 64 GB RAM (2026-09-24), the full Java gate took 681.9 secon
 serially and 345.7 seconds with four Maven threads: 49% less elapsed time, with matching
 test totals and zero failures. These are workstation measurements, not a CI guarantee.
 
+A follow-up on the same machine reused one embedded Neo4j harness per resource outbox
+test class, clearing the graph before each test while retaining each test's own driver
+and outbox restart lifecycle. The 15 deletion/restore outbox tests fell from 113.0 to
+23.5–24.5 seconds combined; the resource application module fell from about 209 to
+121–122 seconds. Full `cedarcli build --jobs N java` measurements were:
+
+| Maven threads | Full build seconds | Result |
+| --- | ---: | --- |
+| 4 | 260.3 | Passed |
+| 6 | 230.3 | Passed |
+| 8 | 219.9 | Passed |
+
+Each run reported 5,581 tests across 494 class summaries, zero failures/errors and
+12 skips. Runs were sequential, one measurement per setting; cache warmth and machine
+load can affect comparisons. Eight threads is the fastest measured setting on this
+workstation, with only ten seconds gained over six. The portable default remains two.
+Reports: `.cedar/build-reports/20260924T150746Z-f7104ba3.json`,
+`20260924T151221Z-baeb23a2.json`, and `20260924T151629Z-8a1fbc2f.json`.
+
 **Build temporary storage must permit execution.** `cedarcli` creates a private, unique
 workspace per Maven task or frontend build under `$CEDAR_HOME/.cedar/build-tmp/`, and probes
 execution permission before running it. Isolated frontend copies and their npm caches live there;
