@@ -564,8 +564,9 @@ def publish_cee(args: argparse.Namespace) -> None:
             root / consumer["manifest"], root / consumer["lock"], dependency,
             plan["model"]["name"], plan["model"]["version"],
         )
-    environment = {variable: str(getattr(args, 'workers', 4)) for variable in
-                   ('CEDAR_TEST_WORKERS', 'VITEST_MAX_WORKERS', 'NG_BUILD_MAX_WORKERS')}
+    environment = os.environ.copy()
+    environment.update({variable: str(getattr(args, 'workers', 4)) for variable in
+                        ('CEDAR_TEST_WORKERS', 'VITEST_MAX_WORKERS', 'NG_BUILD_MAX_WORKERS')})
     for command in frontend_inventory.commands(config, expected['repository']):
         run_command(command, root, environment)
     run_command(['npm', 'run', 'audit:prod'], root)
