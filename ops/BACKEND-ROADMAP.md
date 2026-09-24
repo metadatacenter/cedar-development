@@ -1134,15 +1134,6 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   entries, so an element occurrence cannot demand root-instance provenance or `schema:isBasedOn`.
   Audit other contradictory demands and distinguish missing required data from malformed schemas.
 
-  **The `title`/`internalName` contract is settled and the stored population is repaired. The
-  libraries are not.** Title is derived metadata composed from `schema:name` in the canonical
-  `"<name> <type> schema"` form. `YamlArtifactReader` composes it that way, while
-  `JsonArtifactReader` still reads `title` as a required string of its own
-  (`JsonArtifactReader.java:292`, `:334`, `:381`), so an independently supplied title survives a JSON
-  round trip. Make both libraries derive it, and prove the canonical result with JSON → YAML → JSON
-  and JSON → model → JSON tests. This does not make `description` derived, and nothing here rewrites
-  description or provenance text.
-
   **Make the model version explicit.** The enforcement is done: a walk of every schema artifact a
   deployment serves found `schema:schemaVersion` declared on all 151,805 of them and holding the
   current value throughout, so `JsonArtifactShapeChecks` compares again and refuses a stale version
