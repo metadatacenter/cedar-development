@@ -219,8 +219,9 @@ After publication, the workflow queries Nexus for the libraries and runtime appl
 by Docker. Only a complete inventory creates `completed/<TRAIN_ID>.json` and advances `current.json`.
 A partial or failed train can never become current.
 
-Next, the workflow creates `npm/trains/<TRAIN_ID>.json` before npm publication and runs three visible,
-ordered jobs:
+After the common exact-source capture and preflight job, Maven assembly and the npm
+chain run independently. The npm chain creates `npm/trains/<TRAIN_ID>.json` before
+publication and runs three visible, ordered jobs:
 
 1. **npm 1/3 · TypeScript model.** The job first builds, publishes and verifies the captured design
    tokens under a train-owned version. It then stamps the captured model commit in its disposable
@@ -262,7 +263,7 @@ runtime tarball OpenView copies. Only then does `npm/current.json` advance. A tr
 the complete model → CEE → frontend chain; it never silently substitutes whichever dev packages
 happened to have been published before the train began.
 
-The workflow then records the expected Docker plan and builds the image estate in dependency
+Both Maven and npm must complete before the workflow records the expected Docker plan and builds the image estate in dependency
 order. `cedar-java` and `cedar-microservice` publish to the internal repository. Seven
 infrastructure, fifteen microservice, and seven frontend images publish to the runtime repository.
 Independent images build in parallel; the Java bases remain ordered. The verified npm plan supplies
@@ -296,8 +297,11 @@ now resolves to different registry content is rejected before any service starts
 
 Train 2.9.8-dev.20260905.0436 took 36 minutes: nine and a half for the Maven phases, two for the
 TypeScript model, eight and a half for the CEE gate on its ARM runner, two for the seven frontends,
-five for the 31 images, and eight and a half to pull every image back and verify it. Everything but
-the image matrix runs serially. The local dispatch preflight takes about a minute, most of it the
+five for the 31 images, and eight and a half to pull every image back and verify it. That historical workflow ran everything but
+the image matrix serially. The current workflow overlaps Maven with the npm chain,
+uses bounded Maven/frontend/image-verification workers, and probes exact-source CI
+with four workers. Concurrent state-branch writers rebase independent evidence commits
+with bounded retries; conflicts stop the job and are never force-pushed. The local dispatch preflight takes about a minute, most of it the
 CI probe across the 45 captured repositories, and a `--dry-run` rehearsal pays it a second time.
 
 ## Resume a Failed Train

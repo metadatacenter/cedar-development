@@ -250,7 +250,12 @@ checks and prior Maven phases. Only the coordinator writes progress and completi
 evidence; a failure stops new work, drains active tasks, and retains successful tasks
 for resume.
 Release tests remain enabled; next-development compile and snapshot deployment use the
-same thread limit. Older manifests without this policy retain serial Maven execution.
+same thread limit. Older manifests without this policy retain serial Maven execution. New manifests also
+reuse the validated next-development Maven repository during snapshot deployment, rather
+than downloading dependencies into a second empty cache. The deploy lifecycle and
+post-publication inventory verification still run. Exact-commit CI probes use at most
+four workers; only the coordinator records their results, and settled repositories are
+not polled again.
 
 The release runs these phases, each verifying its work before the next begins:
 

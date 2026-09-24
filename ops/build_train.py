@@ -734,12 +734,13 @@ def _github_ci_preflight(source: dict, workspace: Path, policy=None) -> None:
     if not token:
         raise RuntimeError("GH_TOKEN is required for exact-source CI preflight")
     policy = policy or _captured_ci_policy(workspace)
-    failures = []
-    for repository, revision in sorted(source.get("repositories", {}).items()):
+    def inspect_repository(item):
+        repository, revision = item
+        failures = []
         workflow_root = workspace / repository / ".github" / "workflows"
         if not workflow_root.is_dir() or not any(path.is_file() for path in workflow_root.iterdir()):
             print(f"CI advisory: {repository} has no workflow contract; train gates its outputs.")
-            continue
+            return failures
         try:
             probe = policy.probe_exact_commit(
                 repository,
@@ -748,7 +749,7 @@ def _github_ci_preflight(source: dict, workspace: Path, policy=None) -> None:
             )
         except policy.GithubCIProbeError as error:
             failures.append(str(error))
-            continue
+            return failures
         runs = list(probe.runs)
         # The train workflow is the caller currently performing this check. Counting it would
         # make cedar-development wait on itself forever (or inherit a previous train failure).
@@ -760,7 +761,7 @@ def _github_ci_preflight(source: dict, workspace: Path, policy=None) -> None:
         if not runs:
             failures.append(
                 f"{repository}: no CI run for {revision[:8]} after bounded indexing grace")
-            continue
+            return failures
         for name, run_record in policy.latest_runs_by_name(runs).items():
             status = run_record.get("status")
             conclusion = run_record.get("conclusion")
@@ -772,6 +773,10 @@ def _github_ci_preflight(source: dict, workspace: Path, policy=None) -> None:
                 failures.append(
                     f"{repository}: {name} concluded "
                     f"{conclusion or 'without a result'}{suffix}")
+        return failures
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+        failures = [failure for result in pool.map(inspect_repository,
+                    sorted(source.get("repositories", {}).items())) for failure in result]
     if failures:
         raise RuntimeError("train source CI is not settled: " + "; ".join(failures))
 
