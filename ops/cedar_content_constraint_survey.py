@@ -76,7 +76,11 @@ ENUMERATED = {"type": {"OntologyClass", "Ontology", "ValueSet", "Branch", "Class
 # An action entry is deliberately absent. Its `type` is one of `Value` or `OntologyClass` and the
 # meta-schema enumerates both, so it is already constrained and nothing here should second-guess it;
 # checking it against the term kinds reported 585 valid occurrences as offending.
-SCOPES = {"type": re.compile(r"/_valueConstraints/(classes|ontologies|branches|valueSets)/")}
+# `acronym` is scoped for a second reason: it is also a field name authors use, and a template
+# describing a field called `acronym` holds its help text at `_ui/propertyDescriptions/acronym`.
+# That is not a vocabulary address and reading it as one reported eight sentences as defects.
+SCOPES = {"type": re.compile(r"/_valueConstraints/(classes|ontologies|branches|valueSets)/"),
+          "acronym": re.compile(r"/_valueConstraints/(classes|ontologies|branches|valueSets)/")}
 
 
 def strings_at(node: Any, key: str, path: str = "") -> Iterator[tuple[str, str]]:
@@ -107,6 +111,7 @@ class Survey:
         # above say how much there is; a repair needs to know where, and recovering that meant
         # walking the whole deployment a second time.
         self.offences: list[dict[str, Any]] = []
+        self.stream = None
 
     def add(self, ref: rest.ArtifactRef, artifact: Any) -> None:
         self.artifacts[ref.artifact_type] += 1
@@ -125,11 +130,15 @@ class Survey:
                 if not acceptable:
                     self.offending[key][value] += 1
                     self.offending_artifacts[key].add(ref.artifact_id)
-                    self.offences.append({
+                    offence = {
                         "artifactType": ref.artifact_type, "artifactId": ref.artifact_id,
                         "artifactName": ref.name, "property": key, "path": path, "value": value,
                         "conditionRules": {f"{key}-unexpected": 1},
-                    })
+                    }
+                    self.offences.append(offence)
+                    if self.stream is not None:
+                        self.stream.write(json.dumps(offence) + "\n")
+                        self.stream.flush()
 
     def report(self) -> None:
         print(f"\nartifacts walked: {sum(self.artifacts.values())} "
@@ -188,6 +197,10 @@ def main(argv: Optional[list[str]] = None) -> int:
                                 retries=arguments.retries, delay_ms=arguments.delay_ms,
                                 ca_file=arguments.ca_file, allow_http=arguments.allow_http)
     survey = Survey()
+    # Opened before the walk rather than written after it: an hour-long pass that shows nothing
+    # until it ends cannot be watched, and loses everything it found if it is stopped.
+    if arguments.offences:
+        survey.stream = Path(arguments.offences).open("w", encoding="utf-8")
     state = rest.AuditState(limit=None, started_at=rest.utc_now())
     print(f"Surveying {arguments.server}: up to {arguments.limit} of each of {', '.join(kinds)}")
     for kind in kinds:
@@ -202,12 +215,9 @@ def main(argv: Optional[list[str]] = None) -> int:
             if read % 500 == 0:
                 print(f"    read {read}/{len(refs)}", flush=True)
     survey.report()
-    if arguments.offences:
-        path = Path(arguments.offences)
-        with path.open("w", encoding="utf-8") as stream:
-            for offence in survey.offences:
-                stream.write(json.dumps(offence) + "\n")
-        print(f"\n{len(survey.offences)} offending occurrences written to {path}")
+    if survey.stream is not None:
+        survey.stream.close()
+        print(f"\n{len(survey.offences)} offending occurrences written to {arguments.offences}")
     if arguments.out:
         Path(arguments.out).write_text(json.dumps(
             {key: dict(counter) for key, counter in survey.values.items()}, indent=2), encoding="utf-8")
