@@ -727,6 +727,156 @@ def narrow_multi_select_value(artifact: Any) -> tuple[Any, list[dict[str, Any]]]
     return walk(artifact, ""), changes
 
 
+ACRONYM_KEY = "acronym"
+# The three keys that together address a constraint's vocabulary. A paste into the acronym lands in
+# all of them, so a repair reaching only one leaves an address still pointing at a browse page.
+SOURCE_KEYS = ("acronym", "name", "uri")
+# Confirmed addresses, {storedValue: {acronym, name, uri}}, from `acronym_sheet.py`. Empty unless
+# --acronyms names a file, and a value absent from it is reported rather than guessed at.
+ACRONYMS: dict[str, dict[str, str]] = {}
+CONSTRAINT_GROUPS = ("ontologies", "valueSets", "classes", "branches")
+
+
+def in_constraint_entry(path: str) -> bool:
+    return any(f"/{group}/" in f"{path}/" for group in CONSTRAINT_GROUPS)
+
+
+def resolve_constraint_source(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Write the address a constraint's vocabulary is reached by, where one was confirmed.
+
+    An `acronym`, a `name` and a `uri` together say which vocabulary serves a constraint's terms.
+    Production holds a pasted BioPortal browse URL in all three of an entry, which addresses
+    nothing: the acronym carries a query string, the uri points at a page rather than an ontology,
+    and the name repeats the paste. The meta-schema asks only for strings, so nothing refused it.
+
+    Nothing is derived here. `acronym_sheet.py` proposes an address for each stored value and checks
+    every part against BioPortal, and only what an owner confirmed reaches this transform, keyed by
+    the value the entry holds. A key holding something other than that value is left alone, so a
+    good name beside a bad acronym survives; a value the sheet does not carry is reported. An
+    acronym that addresses the wrong vocabulary is worse than one that addresses none, because a
+    lookup then succeeds against the wrong terms and nothing says so.
+
+    The entry's kind is not touched. Whether an entry that names a whole ontology was meant to name
+    one class within it is a question about intent, which no lookup answers.
+    """
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    if not ACRONYMS:
+        raise TransformRefused("no confirmed addresses supplied; pass --acronyms")
+    changes: list[dict[str, Any]] = []
+
+    def walk(node: Any, path: str) -> Any:
+        if isinstance(node, list):
+            return [walk(item, f"{path}/{index}") for index, item in enumerate(node)]
+        if not isinstance(node, dict):
+            return node
+        stored = node.get(ACRONYM_KEY)
+        confirmed = ACRONYMS.get(stored) if isinstance(stored, str) else None
+        if confirmed is None or not in_constraint_entry(path):
+            return {name: walk(value, f"{path}/{rest.json_pointer_component(name)}")
+                    for name, value in node.items()}
+        # Only a value the sheet saw and named is overwritten. The acronym and the uri hold
+        # different spellings of the same paste - the uri keeps the browse prefix - so the sheet
+        # records each exactly rather than the transform matching a shape.
+        replaceable = set(confirmed.get("replaces") or [stored])
+        result = {}
+        for name, value in node.items():
+            here = f"{path}/{rest.json_pointer_component(name)}"
+            if name in SOURCE_KEYS and value in replaceable and name in confirmed:
+                result[name] = confirmed[name]
+                changes.append({"path": here, "replaced": value, "wrote": confirmed[name]})
+            else:
+                result[name] = walk(value, here)
+        return result
+
+    return walk(artifact, ""), changes
+
+
+def only_resolved_constraint_source(before: Any, after: Any) -> Optional[str]:
+    """The invariant: every change is a key that held the corrupted value taking its confirmed one."""
+
+    def walk(old: Any, new: Any, path: str) -> Optional[str]:
+        if isinstance(old, dict):
+            if not isinstance(new, dict) or set(old) != set(new):
+                return path or "/"
+            stored = old.get(ACRONYM_KEY)
+            confirmed = ACRONYMS.get(stored) if isinstance(stored, str) else None
+            for name in old:
+                here = f"{path}/{rest.json_pointer_component(name)}"
+                if new[name] != old[name] and name in SOURCE_KEYS:
+                    replaceable = set(confirmed.get("replaces") or [stored]) if confirmed else set()
+                    if (confirmed is None or not in_constraint_entry(path)
+                            or old[name] not in replaceable
+                            or new[name] != confirmed.get(name)):
+                        return here
+                    continue
+                difference = walk(old[name], new[name], here)
+                if difference is not None:
+                    return difference
+            return None
+        if isinstance(old, list):
+            if not isinstance(new, list) or len(old) != len(new):
+                return path or "/"
+            for index, value in enumerate(old):
+                difference = walk(value, new[index], f"{path}/{index}")
+                if difference is not None:
+                    return difference
+            return None
+        return None if type(old) is type(new) and old == new else (path or "/")
+
+    return walk(before, after, "")
+
+
+PREVIOUS_VERSION_KEY = "pav:previousVersion"
+
+
+def drop_unusable_previous_version(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Stop an artifact naming a predecessor by something that is not one.
+
+    ``pav:previousVersion`` points at the artifact this one succeeds, so its value is that
+    artifact's IRI. Production holds version strings there - one of them the artifact's own version,
+    which would have it succeed itself. Neither addresses an artifact, and the meta-schema asks only
+    for a string, so nothing refused them on write.
+
+    Removal, because nothing says what was meant. A version string names no artifact, and where the
+    artifact carries no ``pav:derivedFrom`` either there is no predecessor to recover; a first
+    version has none to name in the first place. No meta-schema requires the key, so an artifact
+    without it is saying the truth rather than losing a fact. A value that is an absolute IRI is
+    left alone whether or not it resolves, because that is a different question and a different
+    repair.
+    """
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    stored = artifact.get(PREVIOUS_VERSION_KEY)
+    if not isinstance(stored, str) or rest.is_absolute_iri(stored):
+        return artifact, []
+    result = {k: v for k, v in artifact.items() if k != PREVIOUS_VERSION_KEY}
+    return result, [{"path": f"/{rest.json_pointer_component(PREVIOUS_VERSION_KEY)}",
+                     "replaced": stored, "wrote": None}]
+
+
+def only_dropped_unusable_previous_version(before: Any, after: Any) -> Optional[str]:
+    """The invariant: the one key that left held a value that was not an absolute IRI."""
+    if not isinstance(before, dict) or not isinstance(after, dict):
+        return "/"
+    gone = set(before) - set(after)
+    if set(after) - set(before):
+        return "/"
+    # Name the removal that is not allowed, rather than whichever sorts first, so the report says
+    # what is wrong with the candidate.
+    unexpected = sorted(gone - {PREVIOUS_VERSION_KEY})
+    if unexpected:
+        return f"/{rest.json_pointer_component(unexpected[0])}"
+    if gone:
+        stored = before[PREVIOUS_VERSION_KEY]
+        if not isinstance(stored, str) or rest.is_absolute_iri(stored):
+            return f"/{PREVIOUS_VERSION_KEY}"
+    for key in after:
+        if after[key] != before[key]:
+            return f"/{rest.json_pointer_component(key)}"
+    return None
+
+
 UNIT_OF_MEASURE_KEY = "unitOfMeasure"
 
 
@@ -6024,6 +6174,20 @@ REPAIRS = {
         transform=settle_prerelease_version,
         invariant=only_settled_prerelease_version,
     ),
+    "resolve-constraint-source": Repair(
+        name="resolve-constraint-source",
+        condition="acronym-unexpected",
+        summary="write the address a constraint's vocabulary is reached by, where one was confirmed",
+        transform=resolve_constraint_source,
+        invariant=only_resolved_constraint_source,
+    ),
+    "drop-unusable-previous-version": Repair(
+        name="drop-unusable-previous-version",
+        condition="pav:previousVersion-unexpected",
+        summary="stop an artifact naming a predecessor by something that is not one",
+        transform=drop_unusable_previous_version,
+        invariant=only_dropped_unusable_previous_version,
+    ),
     "drop-blank-unit-of-measure": Repair(
         name="drop-blank-unit-of-measure",
         condition="unitOfMeasure-unexpected",
@@ -6551,6 +6715,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--free-fields",
                         help="JSON of fields to make free text, {templateId: [fieldName]}, which "
                              "free-controlled-field applies; nothing is freed without it")
+    parser.add_argument("--acronyms",
+                        help="JSON of confirmed vocabulary addresses, "
+                             "{storedValue: {acronym, name, uri}}, from acronym_sheet.py, which "
+                             "resolve-constraint-source applies; nothing is rewritten without it")
     parser.add_argument("--terms",
                         help="JSON of resolved terms, {templateId: {fieldRoute: {label: term}}}, which "
                              "settle-instance-term-label applies; a term of null empties the field")
@@ -6687,6 +6855,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         return 0
 
     for flag, supplied, into in (("--mapping", arguments.mapping, RENAMES),
+                                 ("--acronyms", arguments.acronyms, ACRONYMS),
                                  ("--terms", arguments.terms, TERMS),
                                  ("--free-fields", arguments.free_fields, FREE_FIELDS),
                                  ("--declare-fields", arguments.declare_fields, DECLARED_FIELDS)):

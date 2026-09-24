@@ -2637,6 +2637,153 @@ def multi_select(value_type, multiple_choice=True, input_type="list", **extra):
     return {"type": "array", "minItems": 1, "items": inner}
 
 
+def constrained(acronym, group="branches", **extra):
+    """A controlled-term field whose constraint entry names a vocabulary by acronym."""
+    node = child(**extra)
+    node["_ui"] = {"inputType": "textfield"}
+    node["_valueConstraints"] = {"requiredValue": False, "ontologies": [], "valueSets": [],
+                                 "classes": [], "branches": [], "multipleChoice": False}
+    node["_valueConstraints"][group] = [{"source": "Human Disease Ontology (DOID)",
+                                         "acronym": acronym,
+                                         "uri": "http://purl.obolibrary.org/obo/DOID_4",
+                                         "name": "disease", "maxDepth": 0}]
+    node["properties"] = {"@id": {"type": "string", "format": "uri"},
+                          "rdfs:label": {"type": ["string", "null"]}}
+    return node
+
+
+PASTED = "GDMT?p=classes&conceptid=https%3A%2F%2Fw3id.org%2Fgdmt%2FMIMEType"
+GDMT = {"acronym": "GDMT", "name": "Generic Dataset Metadata Template Vocabulary",
+        "uri": "https://data.bioontology.org/ontologies/GDMT"}
+
+
+def pasted_entry(group="ontologies", **overrides):
+    """A constraint entry whose whole vocabulary address is one pasted browse URL."""
+    node = child()
+    node["_ui"] = {"inputType": "textfield"}
+    node["_valueConstraints"] = {"requiredValue": False, "ontologies": [], "valueSets": [],
+                                 "classes": [], "branches": [], "multipleChoice": False}
+    entry = {"uri": PASTED, "acronym": PASTED, "name": PASTED}
+    entry.update(overrides)
+    node["_valueConstraints"][group] = [entry]
+    node["properties"] = {"@id": {"type": "string", "format": "uri"},
+                          "rdfs:label": {"type": ["string", "null"]}}
+    return node
+
+
+class ResolveConstraintSourceTest(unittest.TestCase):
+    """An address reaches a vocabulary, so a wrong one is worse than an unusable one."""
+
+    def setUp(self):
+        REPAIR.ACRONYMS.clear()
+        REPAIR.ACRONYMS[PASTED] = dict(GDMT)
+
+    def tearDown(self):
+        REPAIR.ACRONYMS.clear()
+
+    def entry(self, artifact, group="ontologies"):
+        return artifact["properties"]["Format"]["_valueConstraints"][group][0]
+
+    def test_all_three_keys_are_written(self):
+        doc = template({"Format": pasted_entry()})
+        after, changes = REPAIR.resolve_constraint_source(doc)
+        self.assertEqual(self.entry(after), GDMT)
+        self.assertEqual({c["path"].rsplit("/", 1)[-1] for c in changes}, {"acronym", "name", "uri"})
+        self.assertIsNone(REPAIR.only_resolved_constraint_source(doc, after))
+
+    def test_a_key_holding_something_else_is_left_alone(self):
+        doc = template({"Format": pasted_entry(name="MIME Type")})
+        after, changes = REPAIR.resolve_constraint_source(doc)
+        self.assertEqual(self.entry(after)["name"], "MIME Type")
+        self.assertEqual({c["path"].rsplit("/", 1)[-1] for c in changes}, {"acronym", "uri"})
+
+    def test_an_entry_nobody_confirmed_is_left_alone(self):
+        REPAIR.ACRONYMS.clear()
+        REPAIR.ACRONYMS["something else"] = dict(GDMT)
+        doc = template({"Format": pasted_entry()})
+        after, changes = REPAIR.resolve_constraint_source(doc)
+        self.assertEqual(changes, [])
+        self.assertEqual(after, doc)
+
+    def test_the_transform_refuses_without_a_confirmed_file(self):
+        REPAIR.ACRONYMS.clear()
+        with self.assertRaises(REPAIR.TransformRefused):
+            REPAIR.resolve_constraint_source(template({"Format": pasted_entry()}))
+
+    def test_the_entry_kind_is_not_touched(self):
+        doc = template({"Format": pasted_entry()})
+        after, _changes = REPAIR.resolve_constraint_source(doc)
+        constraints = after["properties"]["Format"]["_valueConstraints"]
+        self.assertEqual(len(constraints["ontologies"]), 1)
+        self.assertEqual(constraints["classes"], [])
+
+    def test_an_acronym_outside_a_constraint_group_is_not_touched(self):
+        doc = template({"Format": pasted_entry()})
+        doc["_ui"]["propertyDescriptions"] = {"acronym": PASTED}
+        after, changes = REPAIR.resolve_constraint_source(doc)
+        self.assertEqual(after["_ui"]["propertyDescriptions"]["acronym"], PASTED)
+        self.assertEqual(len(changes), 3)
+
+    def test_the_invariant_rejects_an_address_nobody_confirmed(self):
+        doc = template({"Format": pasted_entry()})
+        after, _changes = REPAIR.resolve_constraint_source(doc)
+        invented = copy.deepcopy(after)
+        invented["properties"]["Format"]["_valueConstraints"]["ontologies"][0]["acronym"] = "NCIT"
+        self.assertEqual(REPAIR.only_resolved_constraint_source(doc, invented),
+                         "/properties/Format/_valueConstraints/ontologies/0/acronym")
+
+    def test_the_invariant_rejects_another_change(self):
+        doc = template({"Format": pasted_entry()})
+        after, _changes = REPAIR.resolve_constraint_source(doc)
+        renamed = copy.deepcopy(after)
+        renamed["schema:name"] = "Renamed"
+        self.assertEqual(REPAIR.only_resolved_constraint_source(doc, renamed), "/schema:name")
+
+
+class DropUnusablePreviousVersionTest(unittest.TestCase):
+    """A predecessor is named by its IRI; a version string names no artifact."""
+
+    def test_a_version_string_leaves(self):
+        doc = template({"Name": child()})
+        doc["pav:previousVersion"] = "0.0.1"
+        after, changes = REPAIR.drop_unusable_previous_version(doc)
+        self.assertNotIn("pav:previousVersion", after)
+        self.assertEqual(changes, [{"path": "/pav:previousVersion", "replaced": "0.0.1",
+                                    "wrote": None}])
+        self.assertIsNone(REPAIR.only_dropped_unusable_previous_version(doc, after))
+
+    def test_an_absolute_iri_is_left_alone(self):
+        doc = template({"Name": child()})
+        doc["pav:previousVersion"] = "https://repo.metadatacenter.org/templates/older"
+        after, changes = REPAIR.drop_unusable_previous_version(doc)
+        self.assertEqual(changes, [])
+        self.assertEqual(after, doc)
+
+    def test_an_artifact_naming_no_predecessor_is_left_alone(self):
+        doc = template({"Name": child()})
+        _after, changes = REPAIR.drop_unusable_previous_version(doc)
+        self.assertEqual(changes, [])
+
+    def test_a_null_is_left_for_another_repair(self):
+        doc = template({"Name": child()})
+        doc["pav:previousVersion"] = None
+        _after, changes = REPAIR.drop_unusable_previous_version(doc)
+        self.assertEqual(changes, [])
+
+    def test_the_invariant_rejects_another_removal_and_an_iri_going(self):
+        doc = template({"Name": child()})
+        doc["pav:previousVersion"] = "0.0.1"
+        after, _changes = REPAIR.drop_unusable_previous_version(doc)
+        also = copy.deepcopy(after)
+        del also["schema:name"]
+        self.assertEqual(REPAIR.only_dropped_unusable_previous_version(doc, also), "/schema:name")
+        real = template({"Name": child()})
+        real["pav:previousVersion"] = "https://repo.metadatacenter.org/templates/older"
+        without = {k: v for k, v in real.items() if k != "pav:previousVersion"}
+        self.assertEqual(REPAIR.only_dropped_unusable_previous_version(real, without),
+                         "/pav:previousVersion")
+
+
 def numeric_with_unit(unit, **extra):
     """A numeric field whose constraints state a unit."""
     node = child(**extra)
