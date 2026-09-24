@@ -1,0 +1,143 @@
+{
+  "completedAt": "2026-09-24T23:18:34.511094+00:00",
+  "dockerInputs": {
+    "CEDAR_BRIDGING_NPM_VERSION": "2.9.19-dev.20260924.gbb1b2a8348b2.t2257.p4",
+    "CEDAR_CONTENT_NPM_VERSION": "2.9.19-dev.20260923.ge28f4f335162.t005833.p3",
+    "CEDAR_MONITORING_NPM_VERSION": "2.9.19-dev.20260924.g3cd169a565c8.t2257.p4",
+    "CEDAR_OPENVIEW_CEE_NPM_VERSION": "2.0.18-dev.20260924.g6f6c877afcec.t2257",
+    "CEDAR_OPENVIEW_NPM_VERSION": "2.9.19-dev.20260924.ga3e2a051ee85.t2257.p4",
+    "CEDAR_OPENVIEW_WEBCOMPONENTS_NPM_VERSION": "2.8.0",
+    "CEDAR_TEMPLATE_DESIGNER_NPM_VERSION": "2.9.19-dev.20260924.g29f4a886a6a5.t2257.p4",
+    "CEDAR_TEMPLATE_EDITOR_NPM_VERSION": "2.9.19-dev.20260924.g192e587b8518.t2257.p4",
+    "CEDAR_WORKSPACE_NPM_VERSION": "2.9.19-dev.20260924.gd233c42059c2.t2257.p4"
+  },
+  "packages": [
+    {
+      "integrity": "sha512-5c7+/IzATVmTxr1PGAxvVIIhnqTvnd+nkQbKsrS+nBlfT/rzRGrkPcMzzFeAubCwef673NESkHgs/y4EPOk4hA==",
+      "name": "@org.metadatacenter/cedar-model-typescript-library",
+      "repository": "cedar-model-typescript-library",
+      "revision": "4ab533959d1695c6cd1df5eee7bc58912cff1f64",
+      "tarball": "https://nexus.bmir.stanford.edu/repository/npm-cedar/@org.metadatacenter/cedar-model-typescript-library/-/cedar-model-typescript-library-1.0.14-dev.20260924.g4ab533959d16.t2257.tgz",
+      "tarballSha256": "9aa28313dc971bd34a331ba0d798d333450f8f62927c220e616d03d0f9f0db1b",
+      "version": "1.0.14-dev.20260924.g4ab533959d16.t2257"
+    },
+    {
+      "integrity": "sha512-af/WzPttfh44J6h22jxhF2i7uau5XSyhrOgKAFacThz8bBwUsePaLMBaO6/tWKWA3Y6l5MDUt7FJbihag9eJdw==",
+      "name": "@org.metadatacenter/cedar-embeddable-editor",
+      "repository": "cedar-embeddable-editor",
+      "revision": "6f6c877afcec158ac88a5821026c0109f8dccc44",
+      "tarball": "https://nexus.bmir.stanford.edu/repository/npm-cedar/@org.metadatacenter/cedar-embeddable-editor/-/cedar-embeddable-editor-2.0.18-dev.20260924.g6f6c877afcec.t2257.tgz",
+      "tarballSha256": "c4d840e965c46ff9a9e20037c239b6a47758874e66c6b54462789a9c297327f1",
+      "version": "2.0.18-dev.20260924.g6f6c877afcec.t2257"
+    },
+    {
+      "integrity": "sha512-cvGtkL01jzh5LxgzsDT4lqLXE6E92EGSKuS8+zwnkf95gVUfLr6IIRF77r/J8LEQ34FqI1E1WV4HMek4M/jKHQ==",
+      "name": "@org.metadatacenter/cedar-design-tokens",
+      "repository": "cedar-design-tokens",
+      "revision": "691bc8a28eab89534b157b3cfa452c0ba898d890",
+      "tarball": "https://nexus.bmir.stanford.edu/repository/npm-cedar/@org.metadatacenter/cedar-design-tokens/-/cedar-design-tokens-0.1.0-dev.20260924.g691bc8a28eab.t2257.tgz",
+      "tarballSha256": "a5cac70567248a7685a726b0d02a9e68ad6db2606d54d7b1c19b52913a9f8052",
+      "version": "0.1.0-dev.20260924.g691bc8a28eab.t2257"
+    },
+    {
+      "integrity": "sha512-B3HaNHIgH9BzEAwsD1jW2xOxRuMPObLV7TSN280Bygrayo9tDgCIsjwjCOXgiZ5Y+gUOxCxbgJijM2Pa7HbR+Q==",
+      "name": "@org.metadatacenter/cedar-embeddable-term-picker",
+      "repository": "cedar-embeddable-term-picker",
+      "revision": "6d4bdc8e9a6c9886967bffb3dca55cc6fb2c022d",
+      "tarball": "https://nexus.bmir.stanford.edu/repository/npm-cedar/@org.metadatacenter/cedar-embeddable-term-picker/-/cedar-embeddable-term-picker-0.1.0-dev.20260924.g6d4bdc8e9a6c.t2257.tgz",
+      "tarballSha256": "33bde6fe10ff098cbbcc5866078bdd658ab11bab8075a0ac55e64554b62f3a16",
+      "version": "0.1.0-dev.20260924.g6d4bdc8e9a6c.t2257"
+    },
+    {
+      "integrity": "sha512-iD5cGXii6qCoB4UyYkSEJx+S2keD6JfVMmWFEqs0lElGefxR40e4DMFWdXqn5nr1wQmHTaxck4Ri/ZHf+dwjiA==",
+      "name": "@org.metadatacenter/cedar-embeddable-designer",
+      "repository": "cedar-embeddable-designer",
+      "revision": "d82b0f24315a24aa53a86ea1314b62986efbbe4f",
+      "tarball": "https://nexus.bmir.stanford.edu/repository/npm-cedar/@org.metadatacenter/cedar-embeddable-designer/-/cedar-embeddable-designer-0.1.0-dev.20260924.gd82b0f24315a.t2257.tgz",
+      "tarballSha256": "299ded3ddff183f6026b458c71fdd7ed48e64635d09b2572d37c9108346bca14",
+      "version": "0.1.0-dev.20260924.gd82b0f24315a.t2257"
+    },
+    {
+      "integrity": "sha512-qayTqRvaF1S0FAlIMz9sU1uQPmcbcSUzHWK0MVPjz8P26RvSIYCInQfCfBtuI1r72XOhDdiJJAeDWsfdjsy67g==",
+      "name": "cedar-template-editor",
+      "repository": "cedar-template-editor",
+      "revision": "192e587b8518571bc0f3013673f44a1811c5367b",
+      "shrinkwrapSha256": "01f9004b0cb7ba78d77e2dd50b4886c660069c3934ced545dc7cb379216b440d",
+      "tarball": "https://nexus.bmir.stanford.edu/repository/npm-cedar/cedar-template-editor/-/cedar-template-editor-2.9.19-dev.20260924.g192e587b8518.t2257.p4.tgz",
+      "tarballSha256": "b32dc8a234377163b2e95d0285ad1c9f7ded7ec6eb34dfe9d6f534d5a4959bd5",
+      "version": "2.9.19-dev.20260924.g192e587b8518.t2257.p4"
+    },
+    {
+      "integrity": "sha512-2kBJIImD2M5fWUvYT53mCJhFAvFlJ/imh3TFq5F0PLosp1acuk0RJ0mfNBo1GOvmhh2NxtBwEHl29DEbKznCDQ==",
+      "name": "cedar-workspace",
+      "repository": "cedar-workspace",
+      "revision": "d233c42059c22f7fd61efbe8cbe94774e715dc17",
+      "shrinkwrapSha256": "8a7276033d76e6256cd6f0f87ec2debc0e03233bc5bfeacab1f2cf7100f61ae5",
+      "tarball": "https://nexus.bmir.stanford.edu/repository/npm-cedar/cedar-workspace/-/cedar-workspace-2.9.19-dev.20260924.gd233c42059c2.t2257.p4.tgz",
+      "tarballSha256": "3f616a524c1555dad753b219f5803e56f6f098318c025274118063ea035f25b4",
+      "version": "2.9.19-dev.20260924.gd233c42059c2.t2257.p4"
+    },
+    {
+      "integrity": "sha512-3x9MMWlTxR9TBRPLPH7dgHub17Bn0tKMQ7tG78fSM0RAqd/8pH51bSGYcGF4YXYmUBaS3AAmTgtL5EHGqnBQvQ==",
+      "name": "cedar-template-designer",
+      "repository": "cedar-template-designer",
+      "revision": "29f4a886a6a5c7bba262c87f8767d1975d7e235a",
+      "shrinkwrapSha256": "e10f3252704944daf3494c5f243303655d3cd2ceb5cb484df6951a17a1e8c223",
+      "tarball": "https://nexus.bmir.stanford.edu/repository/npm-cedar/cedar-template-designer/-/cedar-template-designer-2.9.19-dev.20260924.g29f4a886a6a5.t2257.p4.tgz",
+      "tarballSha256": "96ddfe7147ce4f862c03090ef0cd43bb9526f4ec48fcce42f754fc51d7c3047c",
+      "version": "2.9.19-dev.20260924.g29f4a886a6a5.t2257.p4"
+    },
+    {
+      "integrity": "sha512-X6pKazwZYkgmRKH9E/DapixShfTyOG5ELrfrZakx3uOelZ9FsXnZ8vx0FKX92E0aSVE2amPsIoiGTxGvDF9E7w==",
+      "name": "cedar-openview-dist",
+      "repository": "cedar-openview",
+      "revision": "a3e2a051ee85709a9a8a15aeb8dfcacaf704d3c3",
+      "shrinkwrapSha256": "4031fbc79af4afe3bd37ddb3cf59c7e485c8b4134048363654ef44f6f8abf1d8",
+      "tarball": "https://nexus.bmir.stanford.edu/repository/npm-cedar/cedar-openview-dist/-/cedar-openview-dist-2.9.19-dev.20260924.ga3e2a051ee85.t2257.p4.tgz",
+      "tarballSha256": "50fc1f2f3c1193fd109ec34d4d1c1236af26968f303a6e0abcc6502054fffc8a",
+      "version": "2.9.19-dev.20260924.ga3e2a051ee85.t2257.p4"
+    },
+    {
+      "integrity": "sha512-xUkd4niC44YsaellgCYRvoUy/DdYasecLfq/aQ1gGCk7z3F8CC5Ur0dbRStbqyd4/281xfY54hGg8HxtOBk35Q==",
+      "name": "cedar-content-distribution",
+      "repository": "cedar-content-distribution",
+      "revision": "e28f4f335162453d42b9dc7e51cfce5cce24ab86",
+      "shrinkwrapSha256": "15c6379185b7a69a4270627e81481a3ff08f97f880750b368f8bf37d204cdab7",
+      "tarball": "https://nexus.bmir.stanford.edu/repository/npm-cedar/cedar-content-distribution/-/cedar-content-distribution-2.9.19-dev.20260923.ge28f4f335162.t005833.p3.tgz",
+      "tarballSha256": "45331fb96cc5d31f02fe06bb78262da78859fd6cc0195940210e628788b4ad8e",
+      "version": "2.9.19-dev.20260923.ge28f4f335162.t005833.p3"
+    },
+    {
+      "integrity": "sha512-KopuMLUZFGW+/jW4U8/7ZsGyIDtSJXDK+3Y8XmfarXXqdEcAKC3jSt7tg6aUtIQNBvVouPuFc8+qZYaM3Ttyfg==",
+      "name": "cedar-monitoring-dist",
+      "repository": "cedar-monitoring",
+      "revision": "3cd169a565c8d8cccc1ef4ca3c54fdec0793f81f",
+      "shrinkwrapSha256": "564b77819435325c9fb77c32e2aaf91dbe153f68e322b78f06e62facd9b87877",
+      "tarball": "https://nexus.bmir.stanford.edu/repository/npm-cedar/cedar-monitoring-dist/-/cedar-monitoring-dist-2.9.19-dev.20260924.g3cd169a565c8.t2257.p4.tgz",
+      "tarballSha256": "77d0417c3ae7f64fb2f984c701cdef74e2257dba90e2ab3a862cf509511ccc3b",
+      "version": "2.9.19-dev.20260924.g3cd169a565c8.t2257.p4"
+    },
+    {
+      "integrity": "sha512-SpRySA61dmsVgeY0xV0MKrHbjUISVkm1QPbuPLLIR3eYzh0Mc9rT6+tsy6Qss2LxM7JOIFW6wUmctfUKBq7Y2w==",
+      "name": "cedar-bridging-dist",
+      "repository": "cedar-bridging",
+      "revision": "bb1b2a8348b2b6faba437847687059aa707b3cdd",
+      "shrinkwrapSha256": "39f70f1350bd335e21c826c2f16a9e97b7683037caa1636e1f15de24961a1cda",
+      "tarball": "https://nexus.bmir.stanford.edu/repository/npm-cedar/cedar-bridging-dist/-/cedar-bridging-dist-2.9.19-dev.20260924.gbb1b2a8348b2.t2257.p4.tgz",
+      "tarballSha256": "ba05ed3550528eb39627bd14dbae26c399ff5f7ff7afa8c49be18c661dd5329e",
+      "version": "2.9.19-dev.20260924.gbb1b2a8348b2.t2257.p4"
+    },
+    {
+      "integrity": "sha512-loGD63sacRzOzSJgQnB9ZAhaQGkN7wl2Zuw7tsphI5Isa0irijrRo6EnJii/GgjGefIFO8AIO7UivzRhFaEk9w==",
+      "name": "@webcomponents/webcomponentsjs",
+      "tarball": "https://registry.npmjs.org/@webcomponents/webcomponentsjs/-/webcomponentsjs-2.8.0.tgz",
+      "tarballSha256": "49c24c49013cf64258cd5c3e7066fb6f1302804ba8238fb4e914a12cf93d3c8c",
+      "version": "2.8.0"
+    }
+  ],
+  "plan": "npm/trains/2.9.19-dev.20260924.2257.json",
+  "planSha256": "53712b04d2a666e5fe9ccf887f5180924d12d9c4ac4f32056209554ab8f540f3",
+  "schemaVersion": 1,
+  "sourceManifestSha256": "ada51fe38942965309ab6e48b43fc00eb3b40030fab12cc9113df1de4c3eec3f",
+  "version": "2.9.19-dev.20260924.2257"
+}
