@@ -1666,8 +1666,9 @@ Maven (the default); `--jobs 1` retains serial execution. Maven schedules module
 its dependency graph inside each reactor. The parent, libraries, project and clients
 commands remain ordered and run in separate owning processes, so the embedded-Mongo
 preflight/cleanup guards still surround one reactor at a time. Test classes remain serial
-within each test JVM; this does not enable JUnit concurrent execution or extra Surefire
-forks, which would need a separate audit of process-global test configuration and stores.
+within each test JVM; Maven thread count does not enable JUnit concurrent execution.
+The resource application uses two isolated reusable Surefire JVMs as described below;
+other modules retain their existing fork settings.
 Embedded MariaDB instances use private extraction and data directories beneath the
 executable build scratch space, even when Maven workers share `java.io.tmpdir`.
 CLI command timings and exit codes are retained under `.cedar/build-reports/`.
@@ -1697,6 +1698,23 @@ load can affect comparisons. Eight threads is the fastest measured setting on th
 workstation, with only ten seconds gained over six. The portable default remains two.
 Reports: `.cedar/build-reports/20260924T150746Z-f7104ba3.json`,
 `20260924T151221Z-baeb23a2.json`, and `20260924T151629Z-8a1fbc2f.json`.
+
+**Resource test JVM isolation.** The resource application distributes test classes over
+two reusable Surefire JVMs. Each JVM retains serial JUnit execution, keeping the
+process-global CEDAR environment, service singletons and class cleanup isolated. HTTP
+fixtures request OS-assigned ports; Neo4j harnesses use private stores. Surefire writes
+class-specific reports, and each class is assigned to one fork. This adds at most one
+test JVM beyond the reactor's usual module concurrency, rather than doubling forks
+across the estate. The module's Maven property `cedar.resource.test.forks` defaults to
+two; setting it to one restores its serial diagnostic path. `--jobs 1` controls reactor
+threads alone and does not override this module property.
+
+With eight Maven threads and two resource test JVMs, the same workstation's full gate
+took 172.8 seconds (versus 219.9 with one resource JVM); resource application elapsed
+time fell from about 121 to 73 seconds. Class names, counts and skips matched exactly:
+494 class summaries, 5,581 tests, zero failures/errors, 12 skips. Surefire reports
+confirmed two distinct fork commands. This is one measured run, not a CI guarantee.
+Evidence: `.cedar/build-reports/20260924T152253Z-0dfb7cae.json`.
 
 **Build temporary storage must permit execution.** `cedarcli` creates a private, unique
 workspace per Maven task or frontend build under `$CEDAR_HOME/.cedar/build-tmp/`, and probes
