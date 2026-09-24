@@ -250,7 +250,11 @@ Karma consumers use that executable through `CHROME_BIN`, and Testem discovers t
 same executable as `chrome` on the job PATH, including on clean runners.
 The hosted runner grants user namespaces only to that executable with an AppArmor
 profile and proves a sandboxed launch before spending time on component gates.
-Component gates use the same recorded frontend worker budget as consumer checks.
+Component gates use the same frontend worker budget as consumer checks.
+Picker and designer gates declare that they produce their publishable package. The
+controller removes stale staging output before verification and publishes the resulting
+package only after checking its train identity, without running a second `dist` build.
+Legacy plans and components without that declaration retain their explicit build step.
 
 Frontend consumer verification uses two concurrent repository jobs and four workers per
 job (`frontend_train.py prepare-frontends --jobs 1 --workers 1` is the serial path).

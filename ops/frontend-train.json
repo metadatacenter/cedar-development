@@ -117,7 +117,8 @@
             "prepare:components"
           ]
         }
-      ]
+      ],
+      "verificationBuildsPackage": true
     },
     {
       "id": "ced",
@@ -143,7 +144,8 @@
             "prepare:components"
           ]
         }
-      ]
+      ],
+      "verificationBuildsPackage": true
     },
     {
       "id": "model",

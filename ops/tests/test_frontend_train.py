@@ -64,6 +64,28 @@ def commit(repository: Path, timestamp: str = "2026-08-25T22:04:26Z") -> str:
 
 
 class FrontendTrainTest(unittest.TestCase):
+    def test_verified_package_is_fresh_and_not_rebuilt(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            component = dict(repository='component', stagedPackage='dist/package',
+                             name='component', version='1.0.0', distCommand=['build'],
+                             verificationBuildsPackage=True)
+            staged = root / component['stagedPackage']
+            write(staged / 'package.json', {'name': 'stale'})
+            def verify(command, cwd, environment):
+                self.assertFalse(staged.exists())
+                self.assertEqual(['verify'], command)
+                write(staged / 'package.json', {'name': 'component', 'version': '1.0.0'})
+            with patch.object(frontend_train, 'verification_environment', return_value={}), \
+                 patch.object(frontend_train.frontend_inventory, 'commands', return_value=[['verify']]), \
+                 patch.object(frontend_train, 'run_command', side_effect=verify) as run:
+                self.assertEqual(staged, frontend_train.verify_component_package({}, {}, component, root, root))
+                self.assertEqual(1, run.call_count)
+                with patch.object(frontend_train, 'run_command'):
+                    with self.assertRaises(FileNotFoundError):
+                        frontend_train.verify_component_package({}, {}, component, root, root)
+                    self.assertFalse(staged.exists())
+
     def test_surface_workers_overlap_repositories_but_preserve_shared_repository_order(self):
         import threading
         barrier = threading.Barrier(2)

@@ -278,6 +278,7 @@ def record_plan(args: argparse.Namespace) -> None:
             'stagedPackage': component['stagedPackage'],
             'distCommand': component['distCommand'], 'consumers': component['consumers'],
             'publication': 'train-owned',
+            'verificationBuildsPackage': bool(component.get('verificationBuildsPackage', False)),
         })
     plan = {
         "schemaVersion": 2,
@@ -685,18 +686,32 @@ def publish_component(args, plan, component):
                                     consumer['dependency'], plan['model']['name'], plan['model']['version'])
                 require_exact_alias(root / consumer['manifest'], root / consumer['lock'],
                                     consumer['dependency'], plan['model']['name'], plan['model']['version'])
-    environment = verification_environment(config, plan, component['repository'], args.workspace)
+    staged = verify_component_package(config, plan, component, root, args.workspace,
+                                      getattr(args, 'workers', 4))
+    run_command(['npm', 'publish', str(staged), '--tag', 'dev', '--registry', plan['registry']], root)
+    verify_record(plan['registry'], component)
+
+
+def verify_component_package(config, plan, component, root, workspace, workers=4):
+    staged = root / component['stagedPackage']
+    reuse = component.get('verificationBuildsPackage', False)
+    if reuse:
+        resolved = staged.resolve()
+        if resolved == root.resolve() or not resolved.is_relative_to(root.resolve()):
+            raise RuntimeError('Verification output must be a directory inside the component checkout')
+        if staged.exists():
+            shutil.rmtree(staged)
+    environment = verification_environment(config, plan, component['repository'], workspace)
     for variable in ('CEDAR_TEST_WORKERS', 'VITEST_MAX_WORKERS', 'NG_BUILD_MAX_WORKERS'):
-        environment[variable] = str(getattr(args, 'workers', 4))
+        environment[variable] = str(workers)
     for command in frontend_inventory.commands(config, component['repository']):
         run_command(command, root, environment)
-    run_command(component['distCommand'], root)
-    staged = root / component['stagedPackage']
+    if not reuse:
+        run_command(component['distCommand'], root, environment)
     built = load_json(staged / 'package.json')
     if built.get('name') != component['name'] or built.get('version') != component['version']:
         raise RuntimeError('Built component does not have its train identity')
-    run_command(['npm', 'publish', str(staged), '--tag', 'dev', '--registry', plan['registry']], root)
-    verify_record(plan['registry'], component)
+    return staged
 
 
 def verify_surfaces(config, plan, workspace, jobs=2, workers=4):
