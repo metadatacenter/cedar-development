@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import frontend_inventory
 import argparse
+from concurrent.futures import ThreadPoolExecutor
+import time
 import base64
 import datetime as dt
 import hashlib
@@ -693,6 +695,40 @@ def publish_component(args, plan, component):
     verify_record(plan['registry'], component)
 
 
+def verify_surfaces(config, plan, workspace, jobs=2, workers=4):
+    if not 1 <= jobs <= 4 or not 1 <= workers <= 16:
+        raise ValueError("Frontend jobs must be 1–4 and workers 1–16")
+    groups = {}
+    # Resolve/stage integration tarballs before starting readers: distinct
+    # consumers can name the same shared content-addressed bundle path.
+    for surface in frontend_inventory.surfaces(config):
+        if not surface.get('release'):
+            continue
+        repository, directory = surface['repository'], surface['directory']
+        environment = verification_environment(config, plan, repository, workspace, directory)
+        for variable in ('CEDAR_TEST_WORKERS', 'VITEST_MAX_WORKERS', 'NG_BUILD_MAX_WORKERS'):
+            environment[variable] = str(workers)
+        groups.setdefault(repository, []).append((surface, environment))
+
+    def verify_group(group):
+        started = time.monotonic()
+        for surface, environment in group:
+            repository, directory = surface['repository'], surface['directory']
+            for command in frontend_inventory.commands(config, repository, directory):
+                run_command(command, workspace / repository / directory, environment)
+        print(f"Frontend {repository}: {time.monotonic() - started:.2f}s", flush=True)
+
+    with ThreadPoolExecutor(max_workers=jobs) as pool:
+        futures = [pool.submit(verify_group, group) for group in groups.values()]
+        try:
+            for future in futures:
+                future.result()
+        except BaseException:
+            for future in futures:
+                future.cancel()
+            raise
+
+
 def prepare_frontends(args: argparse.Namespace) -> None:
     version = validate_train(args.version)
     plan_path = args.state / "npm" / "trains" / f"{version}.json"
@@ -739,12 +775,8 @@ def prepare_frontends(args: argparse.Namespace) -> None:
     # including demos that do not publish a standalone frontend package.
     config = load_json(args.config)
     frontend_inventory.validate(config)
-    for surface in frontend_inventory.surfaces(config):
-        if surface.get('release'):
-            root = args.workspace / surface['repository'] / surface['directory']
-            environment = verification_environment(config, plan, surface['repository'], args.workspace, surface['directory'])
-            for command in frontend_inventory.commands(config, surface['repository'], surface['directory']):
-                run_command(command, root, environment)
+    verify_surfaces(config, plan, args.workspace,
+                    getattr(args, 'jobs', 2), getattr(args, 'workers', 4))
 
     builds = []
     for frontend in plan["frontends"]:
@@ -915,6 +947,8 @@ def parser() -> argparse.ArgumentParser:
     prepare.add_argument("--version", required=True)
     prepare.add_argument("--workspace", type=Path, required=True)
     prepare.add_argument("--state", type=Path, required=True)
+    prepare.add_argument("--jobs", type=int, choices=range(1, 5), default=2)
+    prepare.add_argument("--workers", type=int, choices=range(1, 17), default=4)
     prepare.set_defaults(handler=prepare_frontends)
     publish = commands.add_parser("publish-frontends")
     publish.add_argument("--version", required=True)

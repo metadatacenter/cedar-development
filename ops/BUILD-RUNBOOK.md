@@ -242,6 +242,11 @@ ordered jobs:
    its explicit Docker runtime input. It records hashes of every prepared manifest, lock and built
    payload before publishing the seven frontend packages.
 
+Frontend consumer verification uses two concurrent repository jobs and four workers per
+job (`frontend_train.py prepare-frontends --jobs 1 --workers 1` is the serial path).
+Commands within a repository stay ordered; shared integration bundles are staged before
+workers start. Prepared production payloads are built only after every consumer check passes.
+
 None of those version or dependency edits is written back to a source repository. They are
 controlled transformations in isolated exact-commit checkouts, and their hashes become part of the
 immutable npm plan. A frontend whose packaged bytes were prepared by the train uses the `p4`

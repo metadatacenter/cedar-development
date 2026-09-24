@@ -241,7 +241,14 @@ makes only two cheap probes: writable status and one real repository read. It op
 ledger mutation or bulk registry verification. A direct connection failure remains eligible for
 bounded retry; an HTTP refusal does not.
 
-New release manifests record two Maven reactor threads in `buildConcurrency`.
+New release manifests record two concurrent build jobs, four frontend workers per job,
+and two Maven reactor threads in `buildConcurrency`. Set these through `release start
+--jobs N --workers N --maven-threads N`; resume uses the recorded limits. Independent
+repositories and release/next-development variants may overlap. Each repository keeps
+its own install/check/build order, and Maven phases wait for that variant’s frontend
+checks and prior Maven phases. Only the coordinator writes progress and completion
+evidence; a failure stops new work, drains active tasks, and retains successful tasks
+for resume.
 Release tests remain enabled; next-development compile and snapshot deployment use the
 same thread limit. Older manifests without this policy retain serial Maven execution.
 

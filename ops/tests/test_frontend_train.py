@@ -64,6 +64,26 @@ def commit(repository: Path, timestamp: str = "2026-08-25T22:04:26Z") -> str:
 
 
 class FrontendTrainTest(unittest.TestCase):
+    def test_surface_workers_overlap_repositories_but_preserve_shared_repository_order(self):
+        import threading
+        barrier = threading.Barrier(2)
+        seen = []
+        surfaces = [dict(repository=r, directory=d, release=True) for r,d in
+                    [('a','one'),('a','two'),('b','one')]]
+        def run(command, root, environment):
+            self.assertEqual('3', environment['VITEST_MAX_WORKERS'])
+            if root.name == 'one':
+                barrier.wait(timeout=5)
+            else:
+                self.assertIn(('a','one'), seen)
+            seen.append((root.parent.name, root.name))
+        with patch.object(frontend_train.frontend_inventory, 'surfaces', return_value=surfaces), \
+             patch.object(frontend_train.frontend_inventory, 'commands', return_value=[['npm','test']]), \
+             patch.object(frontend_train, 'verification_environment', side_effect=lambda *args: {}), \
+             patch.object(frontend_train, 'run_command', side_effect=run):
+            frontend_train.verify_surfaces({}, {}, Path('/isolated'), jobs=2, workers=3)
+        self.assertEqual(3, len(seen))
+
     def test_integration_checks_use_verified_train_bundle_bytes(self):
         import io
         buffer = io.BytesIO()
