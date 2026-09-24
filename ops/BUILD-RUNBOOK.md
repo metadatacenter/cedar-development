@@ -196,7 +196,8 @@ Maven in the dependency order already encoded by the CEDAR reactors:
 
 Maven schedules modules within each phase with two threads by default (`build_train.py build
 --threads 1` is the serial diagnostic path, maximum eight). The parent/library/service
-phase boundaries remain ordered. All phases install into a clean job-local Maven repository. Nothing is published until every phase
+phase boundaries remain ordered. All phases install into a job-local Maven repository seeded only with cached third-party downloads.
+CEDAR artifacts are excluded when saving and restoring that cache. Nothing is published until every phase
 has compiled. The train's timestamp is also the Maven archive output timestamp, so rebuilding the
 same manifest produces stable archive timestamps. Publication uploads only the resulting
 `org.metadatacenter` files. If a destination
@@ -218,6 +219,12 @@ published under an immutable train version.
 After publication, the workflow queries Nexus for the libraries and runtime applications required
 by Docker. Only a complete inventory creates `completed/<TRAIN_ID>.json` and advances `current.json`.
 A partial or failed train can never become current.
+
+Hosted dependency caches are keyed by OS, architecture and captured POM/lockfile content,
+with stage-specific npm caches. Keys use committed inputs before train stamping or wiring.
+Only npm download content and third-party Maven dependencies are cached; checkouts,
+credentials, test results and build outputs are not. Every gate and package integrity check
+still runs. The first run populates these caches; savings apply to subsequent runs.
 
 After the common exact-source capture and preflight job, Maven assembly and the npm
 chain run independently. The npm chain creates `npm/trains/<TRAIN_ID>.json` before

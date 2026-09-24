@@ -160,6 +160,24 @@ jobs:
             --workspace "$TRAIN_WORKSPACE" \
             --state "$TRAIN_STATE"
 
+      - name: Identify captured Maven dependencies
+        id: dependency-key
+        run: echo "value=$(python3 controller/ops/train_dependency_cache.py key --kind maven --workspace "$TRAIN_WORKSPACE")" >> "$GITHUB_OUTPUT"
+
+      - name: Cache third-party Maven downloads
+        uses: actions/cache@v5
+        with:
+          path: ${{ runner.temp }}/cedar-maven-dependencies
+          key: train-maven-v1-${{ runner.os }}-${{ runner.arch }}-java17-${{ steps.dependency-key.outputs.value }}
+          restore-keys: |
+            train-maven-v1-${{ runner.os }}-${{ runner.arch }}-java17-
+
+      - name: Seed the isolated Maven repository with third-party downloads
+        run: |
+          python3 controller/ops/train_dependency_cache.py copy-maven \
+            --source "$RUNNER_TEMP/cedar-maven-dependencies" \
+            --destination "$TRAIN_WORKSPACE/.m2/repository"
+
       - name: Build and publish the Maven train
         if: env.MAVEN_ALREADY_COMPLETE != 'true'
         run: |
@@ -171,6 +189,12 @@ jobs:
             --version "$TRAIN_VERSION" \
             --workspace "$TRAIN_WORKSPACE" \
             "${args[@]}"
+
+      - name: Retain only third-party Maven downloads for caching
+        run: |
+          python3 controller/ops/train_dependency_cache.py copy-maven \
+            --source "$TRAIN_WORKSPACE/.m2/repository" \
+            --destination "$RUNNER_TEMP/cedar-maven-dependencies"
 
       - name: Verify and advance the completed Maven-train pointer
         if: env.MAVEN_ALREADY_COMPLETE != 'true'
@@ -235,6 +259,18 @@ jobs:
             --resume "$TRAIN_VERSION" \
             --workspace "$RUNNER_TEMP/CEDAR" \
             --state build-trains
+
+      - name: Identify captured npm dependencies
+        id: dependency-key
+        run: echo "value=$(python3 controller/ops/train_dependency_cache.py key --kind npm --workspace "$RUNNER_TEMP/CEDAR")" >> "$GITHUB_OUTPUT"
+
+      - name: Cache downloaded npm packages
+        uses: actions/cache@v5
+        with:
+          path: ~/.npm/_cacache
+          key: train-npm-v1-${{ runner.os }}-${{ runner.arch }}-publish-model-${{ steps.dependency-key.outputs.value }}
+          restore-keys: |
+            train-npm-v1-${{ runner.os }}-${{ runner.arch }}-publish-model-
 
       - name: Record the complete npm dependency graph before publication
         run: |
@@ -313,6 +349,18 @@ jobs:
             --workspace "$RUNNER_TEMP/CEDAR" \
             --state build-trains
 
+      - name: Identify captured npm dependencies
+        id: dependency-key
+        run: echo "value=$(python3 controller/ops/train_dependency_cache.py key --kind npm --workspace "$RUNNER_TEMP/CEDAR")" >> "$GITHUB_OUTPUT"
+
+      - name: Cache downloaded npm packages
+        uses: actions/cache@v5
+        with:
+          path: ~/.npm/_cacache
+          key: train-npm-v1-${{ runner.os }}-${{ runner.arch }}-publish-cee-${{ steps.dependency-key.outputs.value }}
+          restore-keys: |
+            train-npm-v1-${{ runner.os }}-${{ runner.arch }}-publish-cee-
+
       - name: Wire the train model, then gate, build, publish, and verify CEE
         run: |
           python3 controller/ops/frontend_train.py publish-cee \
@@ -377,6 +425,18 @@ jobs:
             --resume "$TRAIN_VERSION" \
             --workspace "$RUNNER_TEMP/CEDAR" \
             --state build-trains
+
+      - name: Identify captured npm dependencies
+        id: dependency-key
+        run: echo "value=$(python3 controller/ops/train_dependency_cache.py key --kind npm --workspace "$RUNNER_TEMP/CEDAR")" >> "$GITHUB_OUTPUT"
+
+      - name: Cache downloaded npm packages
+        uses: actions/cache@v5
+        with:
+          path: ~/.npm/_cacache
+          key: train-npm-v1-${{ runner.os }}-${{ runner.arch }}-publish-frontends-${{ steps.dependency-key.outputs.value }}
+          restore-keys: |
+            train-npm-v1-${{ runner.os }}-${{ runner.arch }}-publish-frontends-
 
       # The component visual baselines are pinned to Linux ARM64. Use the
       # captured picker's Chromium for legacy Karma suites on this runner too.
