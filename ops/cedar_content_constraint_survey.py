@@ -67,6 +67,10 @@ EXPECTATIONS: dict[str, tuple[str, Callable[[str], bool]]] = {
     "sourceSystem": ("an absolute IRI", is_absolute_iri),
     "regex": ("a regular expression that compiles", compiles),
     "unitOfMeasure": ("a unit, not empty", lambda v: v.strip() != ""),
+    # A constraint entry's `uri` addresses the ontology, branch, class or value set it names, so a
+    # lookup resolves it directly. A percent-encoded one resolves to nothing: it reaches the
+    # terminology server as a literal and matches no term.
+    "uri": ("an absolute IRI, not percent-encoded", is_absolute_iri),
     "schema:identifier": ("an identifier, not empty", lambda v: v.strip() != ""),
 }
 # Where a value belongs to a small closed set the meta-schema does not enumerate. `type` is the
@@ -79,8 +83,8 @@ ENUMERATED = {"type": {"OntologyClass", "Ontology", "ValueSet", "Branch", "Class
 # `acronym` is scoped for a second reason: it is also a field name authors use, and a template
 # describing a field called `acronym` holds its help text at `_ui/propertyDescriptions/acronym`.
 # That is not a vocabulary address and reading it as one reported eight sentences as defects.
-SCOPES = {"type": re.compile(r"/_valueConstraints/(classes|ontologies|branches|valueSets)/"),
-          "acronym": re.compile(r"/_valueConstraints/(classes|ontologies|branches|valueSets)/")}
+CONSTRAINT_ENTRY = re.compile(r"/_valueConstraints/(classes|ontologies|branches|valueSets)/")
+SCOPES = {"type": CONSTRAINT_ENTRY, "acronym": CONSTRAINT_ENTRY, "uri": CONSTRAINT_ENTRY}
 
 
 def strings_at(node: Any, key: str, path: str = "") -> Iterator[tuple[str, str]]:

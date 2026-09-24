@@ -727,6 +727,90 @@ def narrow_multi_select_value(artifact: Any) -> tuple[Any, list[dict[str, Any]]]
     return walk(artifact, ""), changes
 
 
+def decoded_constraint_iri(stored: Any) -> Optional[str]:
+    """The IRI a percent-encoded constraint address means, where decoding once yields one.
+
+    Decoding is the whole derivation, and it is checked rather than trusted: the result has to be
+    an absolute IRI and has to re-encode to what was stored, so a value that merely contains a
+    percent sign is left alone. Decoded once only - a value needing two passes was encoded twice
+    and is a different accident.
+    """
+    if not isinstance(stored, str) or "%" not in stored or rest.is_absolute_iri(stored):
+        return None
+    decoded = urllib.parse.unquote(stored)
+    if decoded == stored or not rest.is_absolute_iri(decoded):
+        return None
+    return decoded if urllib.parse.quote(decoded, safe="") == stored else None
+
+
+def decode_constraint_iri(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Write a constraint's address as the IRI it is, not as an escaped copy of one.
+
+    A constraint entry's ``uri`` addresses the ontology, branch, class or value set it names, and a
+    terminology lookup resolves it directly. A percent-encoded one resolves to nothing: it reaches
+    the server as a literal and matches no term, so the field offers an author no values at all.
+    The meta-schema asks for a string with ``format: uri``, which an escaped IRI satisfies as a
+    relative reference, so nothing refused it on write.
+
+    Only inside a constraint entry, and only where decoding produces an absolute IRI that
+    re-encodes to exactly what was stored. Everything else is left alone: a ``uri`` elsewhere in the
+    document is not this repair's business, and a value that decoding does not account for needs a
+    reading rather than a rule.
+    """
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def walk(node: Any, path: str) -> Any:
+        if isinstance(node, list):
+            return [walk(item, f"{path}/{index}") for index, item in enumerate(node)]
+        if not isinstance(node, dict):
+            return node
+        result = {}
+        for name, value in node.items():
+            here = f"{path}/{rest.json_pointer_component(name)}"
+            decoded = decoded_constraint_iri(value) if name == "uri" and in_constraint_entry(path) \
+                else None
+            if decoded is not None:
+                result[name] = decoded
+                changes.append({"path": here, "replaced": value, "wrote": decoded})
+            else:
+                result[name] = walk(value, here)
+        return result
+
+    return walk(artifact, ""), changes
+
+
+def only_decoded_constraint_iri(before: Any, after: Any) -> Optional[str]:
+    """The invariant: every change is an escaped address becoming the IRI it re-encodes from."""
+
+    def walk(old: Any, new: Any, path: str) -> Optional[str]:
+        if isinstance(old, dict):
+            if not isinstance(new, dict) or set(old) != set(new):
+                return path or "/"
+            for name in old:
+                here = f"{path}/{rest.json_pointer_component(name)}"
+                if name == "uri" and new[name] != old[name]:
+                    if not in_constraint_entry(path) or new[name] != decoded_constraint_iri(old[name]):
+                        return here
+                    continue
+                difference = walk(old[name], new[name], here)
+                if difference is not None:
+                    return difference
+            return None
+        if isinstance(old, list):
+            if not isinstance(new, list) or len(old) != len(new):
+                return path or "/"
+            for index, value in enumerate(old):
+                difference = walk(value, new[index], f"{path}/{index}")
+                if difference is not None:
+                    return difference
+            return None
+        return None if type(old) is type(new) and old == new else (path or "/")
+
+    return walk(before, after, "")
+
+
 ACRONYM_KEY = "acronym"
 # The three keys that together address a constraint's vocabulary. A paste into the acronym lands in
 # all of them, so a repair reaching only one leaves an address still pointing at a browse page.
@@ -825,6 +909,81 @@ def only_resolved_constraint_source(before: Any, after: Any) -> Optional[str]:
         return None if type(old) is type(new) and old == new else (path or "/")
 
     return walk(before, after, "")
+
+
+# Confirmed narrowings, {artifactId: {entryPath: branchEntry}}, from a planner. Empty unless
+# --branches names a file; the path identifies one entry, because a template holds several and only
+# the named one is meant to move.
+BRANCHES: dict[str, dict[str, dict[str, Any]]] = {}
+BRANCH_REQUIRED = ("source", "acronym", "name", "uri", "maxDepth")
+
+
+def node_at(artifact: Any, path: str) -> Any:
+    node = artifact
+    for step in [p for p in path.split("/") if p]:
+        step = step.replace("~1", "/").replace("~0", "~")
+        if isinstance(node, list):
+            if not step.isdigit() or int(step) >= len(node):
+                return None
+            node = node[int(step)]
+        elif isinstance(node, dict):
+            if step not in node:
+                return None
+            node = node[step]
+        else:
+            return None
+    return node
+
+
+def narrow_ontology_constraint_to_branch(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Constrain a field to the branch its author meant, not to every term the ontology serves.
+
+    An `ontologies` entry admits any term in a vocabulary; a `branches` entry admits one subtree.
+    Where a field was meant to offer a single branch and ended up naming the whole ontology, every
+    instance of it may say more than the template intended, and nothing reports that because both
+    shapes are valid.
+
+    Which entry moves, and to which branch, is named per artifact and per path rather than derived:
+    a template holds several `ontologies` entries and only the named one is meant to move. The
+    branch entry is supplied whole and written as given, so what an owner confirmed is what is
+    stored, and it must carry every key the meta-schema requires of a branch.
+    """
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    planned = BRANCHES.get(artifact.get("@id"))
+    if not planned:
+        return artifact, []
+    result = copy.deepcopy(artifact)
+    changes: list[dict[str, Any]] = []
+    for path, branch in planned.items():
+        missing = [k for k in BRANCH_REQUIRED if k not in branch]
+        if missing:
+            raise TransformRefused(f"the branch named for {path} states no {', '.join(missing)}")
+        constraints_path, _, index = path.rpartition("/ontologies/")
+        if not constraints_path or not index.isdigit():
+            raise TransformRefused(f"{path} does not name an ontologies entry")
+        constraints = node_at(result, constraints_path)
+        if not isinstance(constraints, dict) or not isinstance(constraints.get("ontologies"), list):
+            raise TransformRefused(f"no ontologies list at {constraints_path}")
+        if int(index) >= len(constraints["ontologies"]):
+            raise TransformRefused(f"no entry {index} at {constraints_path}/ontologies")
+        removed = constraints["ontologies"].pop(int(index))
+        constraints.setdefault("branches", []).append(dict(branch))
+        changes.append({"path": path, "replaced": removed, "wrote": dict(branch)})
+    return result, changes
+
+
+def only_narrowed_ontology_constraint(before: Any, after: Any) -> Optional[str]:
+    """The invariant: each named entry left `ontologies` and exactly its confirmed branch arrived.
+
+    Re-applied to the stored body rather than compared loosely, so a run that moved a different
+    entry, or wrote a branch nobody confirmed, differs from this and is caught.
+    """
+    try:
+        expected, _ = narrow_ontology_constraint_to_branch(before)
+    except TransformRefused as refusal:
+        return f"/ ({refusal})"
+    return None if expected == after else "/"
 
 
 PREVIOUS_VERSION_KEY = "pav:previousVersion"
@@ -6174,12 +6333,26 @@ REPAIRS = {
         transform=settle_prerelease_version,
         invariant=only_settled_prerelease_version,
     ),
+    "decode-constraint-iri": Repair(
+        name="decode-constraint-iri",
+        condition="uri-unexpected",
+        summary="write a constraint's address as the IRI it is, not as an escaped copy of one",
+        transform=decode_constraint_iri,
+        invariant=only_decoded_constraint_iri,
+    ),
     "resolve-constraint-source": Repair(
         name="resolve-constraint-source",
         condition="acronym-unexpected",
         summary="write the address a constraint's vocabulary is reached by, where one was confirmed",
         transform=resolve_constraint_source,
         invariant=only_resolved_constraint_source,
+    ),
+    "narrow-ontology-constraint-to-branch": Repair(
+        name="narrow-ontology-constraint-to-branch",
+        condition="ontology-constraint-too-broad",
+        summary="constrain a field to the branch its author meant, not to the whole ontology",
+        transform=narrow_ontology_constraint_to_branch,
+        invariant=only_narrowed_ontology_constraint,
     ),
     "drop-unusable-previous-version": Repair(
         name="drop-unusable-previous-version",
@@ -6719,6 +6892,10 @@ def build_parser() -> argparse.ArgumentParser:
                         help="JSON of confirmed vocabulary addresses, "
                              "{storedValue: {acronym, name, uri}}, from acronym_sheet.py, which "
                              "resolve-constraint-source applies; nothing is rewritten without it")
+    parser.add_argument("--branches",
+                        help="JSON of confirmed narrowings, {artifactId: {entryPath: branchEntry}}, "
+                             "which narrow-ontology-constraint-to-branch applies; nothing is "
+                             "narrowed without it")
     parser.add_argument("--terms",
                         help="JSON of resolved terms, {templateId: {fieldRoute: {label: term}}}, which "
                              "settle-instance-term-label applies; a term of null empties the field")
@@ -6856,6 +7033,7 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     for flag, supplied, into in (("--mapping", arguments.mapping, RENAMES),
                                  ("--acronyms", arguments.acronyms, ACRONYMS),
+                                 ("--branches", arguments.branches, BRANCHES),
                                  ("--terms", arguments.terms, TERMS),
                                  ("--free-fields", arguments.free_fields, FREE_FIELDS),
                                  ("--declare-fields", arguments.declare_fields, DECLARED_FIELDS)):

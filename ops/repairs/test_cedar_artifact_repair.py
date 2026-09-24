@@ -2740,6 +2740,169 @@ class ResolveConstraintSourceTest(unittest.TestCase):
         self.assertEqual(REPAIR.only_resolved_constraint_source(doc, renamed), "/schema:name")
 
 
+ENCODED = "https%3A%2F%2Fw3id.org%2Fgdmt%2FIdentifierScheme"
+PLAIN = "https://w3id.org/gdmt/IdentifierScheme"
+
+
+def branch_constrained(uri):
+    node = child()
+    node["_ui"] = {"inputType": "textfield"}
+    node["_valueConstraints"] = {
+        "requiredValue": False, "ontologies": [], "valueSets": [], "classes": [],
+        "branches": [{"source": "GDMT", "acronym": "GDMT", "name": "Identifier Scheme",
+                      "uri": uri, "maxDepth": 0}], "multipleChoice": False}
+    node["properties"] = {"@id": {"type": "string", "format": "uri"},
+                          "rdfs:label": {"type": ["string", "null"]}}
+    return node
+
+
+class DecodeConstraintIriTest(unittest.TestCase):
+    """An escaped address reaches the terminology server as a literal and matches no term."""
+
+    def uri_of(self, doc):
+        return doc["properties"]["Scheme"]["_valueConstraints"]["branches"][0]["uri"]
+
+    def test_an_escaped_iri_is_written_plainly(self):
+        doc = template({"Scheme": branch_constrained(ENCODED)})
+        after, changes = REPAIR.decode_constraint_iri(doc)
+        self.assertEqual(self.uri_of(after), PLAIN)
+        self.assertEqual(changes, [{"path": "/properties/Scheme/_valueConstraints/branches/0/uri",
+                                    "replaced": ENCODED, "wrote": PLAIN}])
+        self.assertIsNone(REPAIR.only_decoded_constraint_iri(doc, after))
+
+    def test_a_plain_iri_is_left_alone(self):
+        doc = template({"Scheme": branch_constrained(PLAIN)})
+        after, changes = REPAIR.decode_constraint_iri(doc)
+        self.assertEqual(changes, [])
+        self.assertEqual(after, doc)
+
+    def test_a_value_decoding_does_not_account_for_is_left_alone(self):
+        """Half-escaped, so re-encoding the decoded form does not give back what was stored."""
+        doc = template({"Scheme": branch_constrained("https://w3id.org/gdmt%2FThing")})
+        _after, changes = REPAIR.decode_constraint_iri(doc)
+        self.assertEqual(changes, [])
+
+    def test_a_doubly_escaped_value_is_left_for_a_reading(self):
+        doc = template({"Scheme": branch_constrained("https%253A%252F%252Fw3id.org%252Fx")})
+        _after, changes = REPAIR.decode_constraint_iri(doc)
+        self.assertEqual(changes, [])
+
+    def test_a_uri_outside_a_constraint_entry_is_not_touched(self):
+        doc = template({"Scheme": branch_constrained(PLAIN)})
+        doc["properties"]["Scheme"]["uri"] = ENCODED
+        after, changes = REPAIR.decode_constraint_iri(doc)
+        self.assertEqual(changes, [])
+        self.assertEqual(after["properties"]["Scheme"]["uri"], ENCODED)
+
+    def test_the_invariant_rejects_an_address_it_did_not_derive(self):
+        doc = template({"Scheme": branch_constrained(ENCODED)})
+        after, _changes = REPAIR.decode_constraint_iri(doc)
+        invented = copy.deepcopy(after)
+        invented["properties"]["Scheme"]["_valueConstraints"]["branches"][0]["uri"] = \
+            "https://w3id.org/gdmt/Other"
+        self.assertEqual(REPAIR.only_decoded_constraint_iri(doc, invented),
+                         "/properties/Scheme/_valueConstraints/branches/0/uri")
+
+    def test_the_invariant_rejects_another_change(self):
+        doc = template({"Scheme": branch_constrained(ENCODED)})
+        after, _changes = REPAIR.decode_constraint_iri(doc)
+        renamed = copy.deepcopy(after)
+        renamed["schema:name"] = "Renamed"
+        self.assertEqual(REPAIR.only_decoded_constraint_iri(doc, renamed), "/schema:name")
+
+
+BRANCH = {"source": "Generic Dataset Metadata Template Vocabulary (GDMT)", "acronym": "GDMT",
+          "name": "MIME Type", "uri": "https://w3id.org/gdmt/MIMEType", "maxDepth": 2147483647}
+
+
+def ontology_constrained(name="mediaType", extra_entries=()):
+    node = child()
+    node["_ui"] = {"inputType": "textfield"}
+    node["_valueConstraints"] = {
+        "requiredValue": False,
+        "ontologies": [{"uri": "https://data.bioontology.org/ontologies/GDMT", "acronym": "GDMT",
+                        "name": "Generic Dataset Metadata Template Vocabulary"}, *extra_entries],
+        "valueSets": [], "classes": [], "branches": [], "multipleChoice": False}
+    node["properties"] = {"@id": {"type": "string", "format": "uri"},
+                          "rdfs:label": {"type": ["string", "null"]}}
+    return node
+
+
+class NarrowOntologyConstraintTest(unittest.TestCase):
+    """An ontologies entry admits any term; a branches entry admits one subtree."""
+
+    PATH = "/properties/mediaType/_valueConstraints/ontologies/0"
+
+    def setUp(self):
+        REPAIR.BRANCHES.clear()
+
+    tearDown = setUp
+
+    def plan(self, doc, path=None):
+        REPAIR.BRANCHES[doc["@id"]] = {path or self.PATH: dict(BRANCH)}
+
+    def test_the_named_entry_becomes_the_confirmed_branch(self):
+        doc = template({"mediaType": ontology_constrained()})
+        self.plan(doc)
+        after, changes = REPAIR.narrow_ontology_constraint_to_branch(doc)
+        constraints = after["properties"]["mediaType"]["_valueConstraints"]
+        self.assertEqual(constraints["ontologies"], [])
+        self.assertEqual(constraints["branches"], [BRANCH])
+        self.assertEqual(len(changes), 1)
+        self.assertIsNone(REPAIR.only_narrowed_ontology_constraint(doc, after))
+
+    def test_another_ontologies_entry_in_the_same_field_stays(self):
+        other = {"uri": "https://data.bioontology.org/ontologies/NCIT", "acronym": "NCIT",
+                 "name": "National Cancer Institute Thesaurus"}
+        doc = template({"mediaType": ontology_constrained(extra_entries=(other,))})
+        self.plan(doc)
+        after, _changes = REPAIR.narrow_ontology_constraint_to_branch(doc)
+        constraints = after["properties"]["mediaType"]["_valueConstraints"]
+        self.assertEqual(constraints["ontologies"], [other])
+        self.assertEqual(constraints["branches"], [BRANCH])
+
+    def test_an_artifact_nobody_planned_is_left_alone(self):
+        doc = template({"mediaType": ontology_constrained()})
+        after, changes = REPAIR.narrow_ontology_constraint_to_branch(doc)
+        self.assertEqual(changes, [])
+        self.assertEqual(after, doc)
+
+    def test_a_branch_missing_a_required_key_is_refused(self):
+        doc = template({"mediaType": ontology_constrained()})
+        REPAIR.BRANCHES[doc["@id"]] = {self.PATH: {"uri": "https://w3id.org/gdmt/MIMEType"}}
+        with self.assertRaises(REPAIR.TransformRefused):
+            REPAIR.narrow_ontology_constraint_to_branch(doc)
+
+    def test_a_path_naming_no_ontologies_entry_is_refused(self):
+        doc = template({"mediaType": ontology_constrained()})
+        self.plan(doc, path="/properties/mediaType/_valueConstraints/branches/0")
+        with self.assertRaises(REPAIR.TransformRefused):
+            REPAIR.narrow_ontology_constraint_to_branch(doc)
+
+    def test_a_path_that_does_not_lead_is_refused(self):
+        doc = template({"mediaType": ontology_constrained()})
+        self.plan(doc, path="/properties/absent/_valueConstraints/ontologies/0")
+        with self.assertRaises(REPAIR.TransformRefused):
+            REPAIR.narrow_ontology_constraint_to_branch(doc)
+
+    def test_the_invariant_rejects_a_branch_nobody_confirmed(self):
+        doc = template({"mediaType": ontology_constrained()})
+        self.plan(doc)
+        after, _changes = REPAIR.narrow_ontology_constraint_to_branch(doc)
+        invented = copy.deepcopy(after)
+        invented["properties"]["mediaType"]["_valueConstraints"]["branches"][0]["uri"] = \
+            "https://w3id.org/gdmt/Something"
+        self.assertIsNotNone(REPAIR.only_narrowed_ontology_constraint(doc, invented))
+
+    def test_the_invariant_rejects_another_change(self):
+        doc = template({"mediaType": ontology_constrained()})
+        self.plan(doc)
+        after, _changes = REPAIR.narrow_ontology_constraint_to_branch(doc)
+        renamed = copy.deepcopy(after)
+        renamed["schema:name"] = "Renamed"
+        self.assertIsNotNone(REPAIR.only_narrowed_ontology_constraint(doc, renamed))
+
+
 class DropUnusablePreviousVersionTest(unittest.TestCase):
     """A predecessor is named by its IRI; a version string names no artifact."""
 
