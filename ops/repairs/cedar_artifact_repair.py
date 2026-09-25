@@ -6951,7 +6951,135 @@ def only_renamed_reserved_value_child(before: Any, after: Any) -> Optional[str]:
     return next(iter(actual), None)
 
 
+def repair_unambiguous_instance_structure(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Resolve dangling blank names, IRI-proven whitespace renames and empty element IDs."""
+    if not isinstance(instance, dict) or not isinstance(template, dict):
+        raise TransformRefused("instance and template must be objects")
+    changes = []
+
+    def walk(node: Any, schema: dict, path: str) -> Any:
+        if not isinstance(node, dict):
+            return copy.deepcopy(node)
+        result = copy.deepcopy(node)
+        context = result.get("@context")
+        declarations = {name: (child, multiple) for name, child, multiple in container_children(schema)}
+        iris = declared_context_iris(schema)
+        for old in list(result):
+            new = old.strip()
+            if old == new or old in declarations or new not in declarations or new in result:
+                continue
+            if not isinstance(context, dict) or old not in context or new in context \
+                    or not isinstance(context[old], str) or iris.get(new) != context[old]:
+                continue
+            result[new] = result.pop(old)
+            context[new] = context.pop(old)
+            changes.append({"path": path + "/" + rest.json_pointer_component(old),
+                            "replaced": old, "wrote": new, "propertyIri": iris[new]})
+        if path and result.get("@id") == "" \
+                and "null" in schema.get("properties", {}).get("@id", {}).get("type", []):
+            if not isinstance(instance.get("@id"), str) or not rest.is_absolute_iri(instance["@id"]):
+                raise TransformRefused("minting an element ID requires an absolute root instance ID")
+            result["@id"] = ELEMENT_INSTANCE_BASE + str(uuid.uuid5(uuid.NAMESPACE_URL, instance["@id"] + "#element" + path))
+            changes.append({"path": path + "/@id", "replaced": "", "wrote": result["@id"]})
+        for name, (child, multiple) in declarations.items():
+            if name not in result:
+                continue
+            here = path + "/" + rest.json_pointer_component(name)
+            value = result[name]
+            if child.get("_ui", {}).get("inputType") == "attribute-value" and isinstance(value, list):
+                blank = [v for v in value if isinstance(v, str) and not v.strip()]
+                removable = {v for v in blank if v not in result and
+                             (not isinstance(context, dict) or v not in context)}
+                if removable:
+                    result[name] = [v for v in value if not isinstance(v, str) or v not in removable]
+                    changes.append({"path": here, "replaced": value, "wrote": result[name]})
+            elif is_element(child):
+                if isinstance(value, list):
+                    result[name] = [walk(v, child, here + "/" + str(i)) for i, v in enumerate(value)]
+                elif isinstance(value, dict):
+                    result[name] = walk(value, child, here)
+        return result
+
+    return walk(instance, template, ""), changes
+
+
+def only_unambiguous_instance_structure(before: Any, after: Any, template: Any) -> Optional[str]:
+    expected, _ = repair_unambiguous_instance_structure(before, template)
+    return next((path for path, _, _ in differences(expected, after)), None)
+
+
+STANDARD_CONTEXT_VALUES = {
+    "xsd": "http://www.w3.org/2001/XMLSchema#", "pav": "http://purl.org/pav/",
+    "schema": "http://schema.org/", "oslc": "http://open-services.net/ns/core#",
+    "rdfs": "http://www.w3.org/2000/01/rdf-schema#", "skos": "http://www.w3.org/2004/02/skos/core#",
+    **{name: {"@type": datatype} for name, datatype in CONTEXT_OBJECT_DATATYPES.items()},
+}
+STANDARD_CONTEXT_PLANS: dict[str, Any] = {}
+
+
+def apply_reviewed_standard_context(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Apply a fingerprint-pinned standard context plan after checking every indexed instance."""
+    plan = STANDARD_CONTEXT_PLANS.get(artifact.get("@id")) if isinstance(artifact, dict) else None
+    if not isinstance(plan, dict):
+        raise TransformRefused("no reviewed standard context plan")
+    if artifact_fingerprint(artifact) == plan.get("afterSha256"):
+        return copy.deepcopy(artifact), []
+    if artifact_fingerprint(artifact) != plan.get("beforeSha256"):
+        raise TransformRefused("artifact changed since standard context review")
+    is_template = artifact.get("@type") == "https://schema.metadatacenter.org/core/Template"
+    if is_template:
+        check = plan.get("instanceCheck", {})
+        if check.get("conflicts") != [] or check.get("indexed") != check.get("fetched") \
+                or not isinstance(check.get("indexed"), int) or check["indexed"] < 0 \
+                or check.get("instancePatches") != 0:
+            raise TransformRefused("dependent-instance check incomplete, conflicting or awaiting repairs")
+    result = copy.deepcopy(artifact)
+    for change in plan.get("changes", []):
+        path = change["path"]
+        if is_template and path == "/properties/@context/required":
+            result["properties"]["@context"]["required"] = copy.deepcopy(change["wrote"])
+        elif not is_template and path.startswith("/@context/") and path.count("/") == 2:
+            result["@context"][path.rsplit("/", 1)[1]] = copy.deepcopy(change["wrote"])
+        else:
+            raise TransformRefused("unsupported standard context edit")
+    if only_reviewed_standard_context(artifact, result) is not None \
+            or artifact_fingerprint(result) != plan.get("afterSha256"):
+        raise TransformRefused("standard context candidate violates invariant or reviewed fingerprint")
+    return result, copy.deepcopy(plan.get("changes", []))
+
+
+def only_reviewed_standard_context(before: Any, after: Any) -> Optional[str]:
+    if before.get("@type") == "https://schema.metadatacenter.org/core/Template":
+        old = value_at(before, "/properties/@context/required")
+        new = value_at(after, "/properties/@context/required")
+        if not isinstance(old, list) or not isinstance(new, list) or new[:len(old)] != old:
+            return "/properties/@context/required"
+        added = new[len(old):]
+        if len(set(new)) != len(new) or any(name not in STANDARD_CONTEXT_VALUES for name in added):
+            return "/properties/@context/required"
+        expected = copy.deepcopy(before)
+        expected["properties"]["@context"]["required"] = new
+        return next((p for p, _, _ in differences(expected, after)), None)
+    for path, old, new in differences(before, after):
+        parts = path.split("/")
+        if len(parts) != 3 or parts[1] != "@context" or parts[2] not in STANDARD_CONTEXT_VALUES \
+                or old is not ABSENT or not json_equal(new, STANDARD_CONTEXT_VALUES[parts[2]]):
+            return path or "/"
+    return None
+
+
 REPAIRS = {
+    "repair-unambiguous-instance-structure": Repair(
+        name="repair-unambiguous-instance-structure", condition="",
+        summary="remove dangling blank attribute references, match whitespace renames by IRI, and mint empty element IDs",
+        transform=repair_unambiguous_instance_structure, invariant=only_unambiguous_instance_structure,
+        needs_template=True,
+    ),
+    "complete-reviewed-standard-context": Repair(
+        name="complete-reviewed-standard-context", condition="missing-standard-context",
+        summary="add reviewed missing standard instance mappings or template context requirements",
+        transform=apply_reviewed_standard_context, invariant=only_reviewed_standard_context,
+    ),
     "rename-reserved-value-child": Repair(
         name="rename-reserved-value-child", condition="reserved-value-child",
         summary="rename the approved @value child to value, preserving its property IRI and field content",
@@ -7849,6 +7977,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--schema-shape-plan",
                         help="Java-reviewed nullable @id/UI-order changes keyed by artifact IRI, "
                              "with beforeSha256, afterSha256 and changes (path, before, after)")
+    parser.add_argument("--standard-context-plan",
+                        help="fingerprint-pinned standard context additions and dependent-instance checks")
     parser.add_argument("--context-object-plan",
                         help="Java-reviewed context object additions with pinned before/after hashes "
                              "and complete, conflict-free dependent-instance check results")
@@ -7931,6 +8061,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         parser.error("drop-reviewed-required-entries requires --required-removals")
     if "apply-reviewed-schema-shapes" in names and not arguments.schema_shape_plan:
         parser.error("apply-reviewed-schema-shapes requires --schema-shape-plan")
+    if "complete-reviewed-standard-context" in names and not arguments.standard_context_plan:
+        parser.error("complete-reviewed-standard-context requires --standard-context-plan")
     if "complete-reviewed-context-object-types" in names and not arguments.context_object_plan:
         parser.error("complete-reviewed-context-object-types requires --context-object-plan")
     if arguments.apply and not arguments.verify:
@@ -8011,6 +8143,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                                  ("--required-removals", arguments.required_removals, REQUIRED_REMOVALS),
                                  ("--schema-shape-plan", arguments.schema_shape_plan, SCHEMA_SHAPE_PLANS),
                                  ("--context-object-plan", arguments.context_object_plan, CONTEXT_OBJECT_PLANS),
+                                 ("--standard-context-plan", arguments.standard_context_plan, STANDARD_CONTEXT_PLANS),
                                  ("--acronyms", arguments.acronyms, ACRONYMS),
                                  ("--branches", arguments.branches, BRANCHES),
                                  ("--terms", arguments.terms, TERMS),

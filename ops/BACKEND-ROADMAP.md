@@ -1051,8 +1051,8 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   reduced to one without a decision. Empty representations and populated data need separate rules,
   each with a narrow invariant and validation of the complete candidate.
 
-  The 2026-09-25 audit and targeted repair rechecks leave 565 stored-invalid instances across
-  213 templates. Distinguish instance defects from noncanonical schema declarations against
+  The 2026-09-25 audit and targeted repair rechecks leave 561 stored-invalid instances across
+  211 templates. Distinguish instance defects from noncanonical schema declarations against
   Java's model. Reconcile any TypeScript disagreement with Java and preserve entered information
   when a stored representation must migrate; check every dependent instance before changing a
   template declaration.
@@ -1066,7 +1066,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   | Remaining issue | Schema artifacts |
   | --- | ---: |
   | Indexed artifacts whose typed GET returns 404, including on the final retry | 6: 1 template, 1 element, 4 fields |
-  | TypeScript strict-reader diagnostics on Java-validator-valid source schemas; conversions still succeed | 1,436; full audit plus targeted production rechecks on 2026-09-25 |
+  | TypeScript strict-reader diagnostics on Java-validator-valid source schemas; conversions still succeed | 1,427; full audit plus targeted production rechecks on 2026-09-25 |
   | Java 17 and JavaScript choose different decimal spellings for exceptional large floating-point values | None observed in production; a synthetic probe differs |
 
   Reconcile the unavailable search/graph entries with the store; the legacy `.net` template also
