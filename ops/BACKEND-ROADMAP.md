@@ -1060,10 +1060,12 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   These counts cover the flagged subset, not the corpus. An instance clean on both axes at the last
   full walk is not in them, and neither is anything created since.
 
-  **Harden schema conversion across both model libraries.** Resolve the two disagreements in the
-  read-only 100-artifact pilot (40 templates, 30 elements, 30 fields): TypeScript must escape the
-  control characters in template `4dd49ba9…` as Java does, so Java can read its YAML, and preserve
-  `valueRecommendation: true` for field `de5768a9…`. Add regression fixtures for both.
+  **Harden schema conversion across both model libraries.** Resolve the remaining YAML disagreement
+  in the read-only 100-artifact pilot (40 templates, 30 elements, 30 fields): escape the control
+  characters in template `4dd49ba9…` as Java does, preserving the exact string so both readers can
+  consume it. YAML 1.2 permits non-C0 characters inside quoted scalars, but Java's parser rejects
+  the raw C1 characters here; this is an interoperability and canonical-output requirement.
+  Add regression fixtures covering C0/C1 controls and Unicode line separators.
   Render each stored JSON document to YAML with
   Java and TypeScript independently, then read each YAML rendering with both libraries to produce
   four JSON Schema results. Validate the source and all four results with the Java validator; keep
