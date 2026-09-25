@@ -1060,8 +1060,11 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   These counts cover the flagged subset, not the corpus. An instance clean on both axes at the last
   full walk is not in them, and neither is anything created since.
 
-  **Harden schema conversion across both model libraries.** Expand beyond the retained 1,100
-  schema artifacts and classify source-to-output changes before claiming corpus-wide agreement.
+  **Harden schema conversion across both model libraries.** Align generated JSON provenance-key
+  ordering for the 20 templates flagged in the additional random-offset 2,000-schema sample:
+  Java writes `pav:previousVersion` before `pav:derivedFrom`; TypeScript reverses them. Add a
+  regression covering both keys together on a template. Expand beyond the retained 3,100 schema
+  artifacts and classify source-to-output changes before claiming corpus-wide agreement.
   Render each stored JSON document to YAML with
   Java and TypeScript independently, then read each YAML rendering with both libraries to produce
   four JSON Schema results. Validate the source and all four results with the Java validator; keep
@@ -1074,10 +1077,10 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   classify any order-only differences explicitly rather than globally sorting arrays. Java is the
   canonical reference, but agreement with Java does not excuse loss from the stored source.
   Turn each proven library defect into a regression fixture, reconcile the implementations, and
-  classify the source-to-output differences in all 1,100 sampled artifacts before treating agreement
+  classify the source-to-output differences in all 3,100 sampled artifacts before treating agreement
   between converters as evidence of preservation. Reconcile TypeScript's source-reader diagnostics
-  on 714 of these Java-validator-valid artifacts (67 in the original 100 and 647 in the additional
-  1,000); a successful render does not settle those reports. Expand the sample before claiming
+  on 832 of these Java-validator-valid artifacts (67 in the original 100, 647 in the next 1,000,
+  and 118 in the random-offset 2,000); a successful render does not settle those reports. Expand the sample before claiming
   corpus-wide agreement. Keep data defects and documented
   representation normalizations separate from library failures; no production writes belong to
   this audit.
