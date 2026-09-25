@@ -1132,14 +1132,21 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   **Find templates that demand instance shapes the editors cannot produce.** Decide whether the
   element meta-schema should restrict the remaining entries of `required` after its first two tuple
   entries, so an element occurrence cannot demand root-instance provenance or `schema:isBasedOn`.
-  Audit other contradictory demands and distinguish missing required data from malformed schemas.
 
-  **Make the model version explicit.** The enforcement is done: a walk of every schema artifact a
-  deployment serves found `schema:schemaVersion` declared on all 151,805 of them and holding the
-  current value throughout, so `JsonArtifactShapeChecks` compares again and refuses a stale version
-  and an absent one alike, as `YamlArtifactReader` always did. What remains is the decision the
-  population never forced: what an artifact that has never carried a version gets, should one
-  appear. A version cannot be stamped on faith, because `schema:schemaVersion` asserts that the
+  Two further demands of this kind are measured only where they turned up, and each wants a
+  corpus-wide count before a rule. A static field can carry a `required` naming `_content`, which no
+  static field declares; `canonicalise-field-required` clears it, but production has never been
+  counted for it, because the condition that names targets looks for a value or an address rather
+  than for whatever a static field was given. Separately, a literal field can carry a vocabulary
+  constraint: the constraint calls for a term while the field declares `@value`, so the two halves
+  of the field disagree about what an instance may hold. Seven are known. Settling one means
+  choosing which half is wrong, and rewriting `properties` invalidates any instance already holding
+  the other shape, so neither is a repair a lookup answers.
+
+  **Make the model version explicit.** Decide what an artifact carrying no `schema:schemaVersion`
+  gets, should one appear. The deployed population has never forced the question and the readers
+  now refuse a stale version and an absent one alike, so the case arises only for an artifact
+  written outside them. A version cannot be stamped on faith, because `schema:schemaVersion` asserts that the
   artifact conforms to the model it names, so writing the current version into an artifact that
   does not conform replaces a detectable defect with an undetectable one. Write it only where the
   artifact already satisfies the current model, and report the remainder for a scoped repair.
@@ -1220,9 +1227,8 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   ontology is intended.
 
   Done when every enumerable artifact is valid or recorded as a named exception, the rename sheet is
-  answered or explicitly abandoned for its tail, both model libraries derive `title`, the model
-  version comparison is restored, and no constraint lacks a `sourceSystem` the sweep could have
-  written.
+  answered or explicitly abandoned for its tail, and no constraint lacks a `sourceSystem` the sweep
+  could have written.
 
 ## Later Decisions
 

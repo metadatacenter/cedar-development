@@ -67,6 +67,7 @@ import cedar_artifact_validation_audit as audit  # noqa: E402
 DERIVED_FROM = "pav:derivedFrom"
 AT_ID = "@id"
 AT_TYPE = "@type"
+AT_VALUE = "@value"
 ELEMENT_AT_TYPE = "https://schema.metadatacenter.org/core/TemplateElement"
 FIELD_AT_TYPE = "https://schema.metadatacenter.org/core/TemplateField"
 # The path segment an identifier carries for each kind of child. A static field is a field here: only
@@ -792,6 +793,167 @@ def only_decoded_constraint_iri(before: Any, after: Any) -> Optional[str]:
                 here = f"{path}/{rest.json_pointer_component(name)}"
                 if name == "uri" and new[name] != old[name]:
                     if not in_constraint_entry(path) or new[name] != decoded_constraint_iri(old[name]):
+                        return here
+                    continue
+                difference = walk(old[name], new[name], here)
+                if difference is not None:
+                    return difference
+            return None
+        if isinstance(old, list):
+            if not isinstance(new, list) or len(old) != len(new):
+                return path or "/"
+            for index, value in enumerate(old):
+                difference = walk(value, new[index], f"{path}/{index}")
+                if difference is not None:
+                    return difference
+            return None
+        return None if type(old) is type(new) and old == new else (path or "/")
+
+    return walk(before, after, "")
+
+
+REQUIRED_KEY = "required"
+STATIC_FIELD_AT_TYPE = "https://schema.metadatacenter.org/core/StaticTemplateField"
+FIELD_AT_TYPES = frozenset({"https://schema.metadatacenter.org/core/TemplateField",
+                            STATIC_FIELD_AT_TYPE})
+TERM_CONSTRAINT_GROUPS = ("ontologies", "branches", "classes", "valueSets")
+# A numeric or temporal field pins its datatype in the instance's `@type`, so both libraries
+# demand it alongside the value. Every other literal field demands the value alone.
+TYPED_LITERAL_INPUT_TYPES = frozenset({"numeric", "temporal"})
+
+
+def canonical_required(definition: Any) -> tuple[Optional[list[str]], str]:
+    """What both libraries write in a field's ``required``, and the shape that decided it.
+
+    A field carries a value of one of two shapes, and the shape settles most of the question:
+
+    - a literal field declares ``@value``, and both libraries demand it. A numeric or temporal
+      field demands ``@type`` with it, because that is where the instance carries its datatype
+    - an IRI field - a link, an external identifier, or a term drawn from a vocabulary - declares
+      ``@id``, and both libraries emit no ``required`` at all
+
+    The declared properties are what say which of the two, and nothing else does. ``_ui.inputType``
+    cannot: a controlled-term field and a plain text field both render as ``textfield``, and only
+    their value constraints tell them apart. It is consulted only for the datatype question, where
+    ``numeric`` and ``temporal`` are input types of their own.
+
+    A static field carries no value at all - it is a heading, an image, a block of prose - and
+    neither library gives one a ``required`` whatever it declares. Production holds static fields
+    whose ``properties`` accumulated artifact-level keys, so the shape is taken from the kind here
+    rather than read off what such a field happens to declare.
+    """
+    if not isinstance(definition, dict):
+        return None, ""
+    at_type = definition.get(AT_TYPE)
+    if not isinstance(at_type, str) or at_type not in FIELD_AT_TYPES:
+        return None, ""
+    if at_type == STATIC_FIELD_AT_TYPE:
+        return None, "static"
+    properties = definition.get("properties")
+    if not isinstance(properties, dict):
+        return None, ""
+    literal, iri = AT_VALUE in properties, AT_ID in properties
+    if literal == iri:  # neither shape, or both: nothing here says which was meant
+        return None, ""
+    if not literal:
+        return None, "IRI"
+    ui = definition.get("_ui")
+    input_type = ui.get("inputType") if isinstance(ui, dict) else None
+    if input_type in TYPED_LITERAL_INPUT_TYPES:
+        return [AT_VALUE, AT_TYPE], "typed literal"
+    return [AT_VALUE], "literal"
+
+
+def term_constrained(definition: Any) -> bool:
+    """Whether the field draws its value from a vocabulary, which only an IRI field can."""
+    constraints = definition.get("_valueConstraints") if isinstance(definition, dict) else None
+    if not isinstance(constraints, dict):
+        return False
+    return any(constraints.get(group) for group in TERM_CONSTRAINT_GROUPS)
+
+
+def unfillable(demanded: Any, properties: Any) -> bool:
+    """Whether a ``required`` names a property the field does not declare.
+
+    This is the defect, and the whole of it. A field whose demands are all declared is satisfiable,
+    whatever else it differs from the libraries in, and is none of this repair's business: writing
+    the canonical list there could *add* a demand - a temporal field storing ``["@value"]`` where
+    the libraries write ``["@value", "@type"]`` - and invalidate instances that validate today.
+    """
+    if not isinstance(demanded, list) or not isinstance(properties, dict):
+        return False
+    return any(key not in properties for key in demanded)
+
+
+def canonicalise_field_required(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Give a field the ``required`` its declared shape calls for.
+
+    Production holds fields demanding a property they do not declare: an IRI field demanding
+    ``@value``, and a literal field demanding ``@id``. No instance of either can validate. The
+    demanded property is one the field gives an author no way to fill, and the field also sets
+    ``additionalProperties: false``, so the value an author does supply is refused in turn. The
+    field is unfillable in both directions rather than merely strict.
+
+    Only a field demanding something it does not declare is touched, and it then takes the list the
+    libraries write for its shape. That drops a demand on ``rdfs:label`` where one was made, since
+    neither library emits it and it rides along with the impossible one. Every such case relaxes:
+    nothing that validates today stops doing so, because nothing carrying that field validates
+    today, and instances that could not validate at all may now.
+
+    A field whose demands it does declare is left exactly as it stands, even where the libraries
+    would write something else. Writing the canonical list there could add a demand rather than
+    remove one, and that is a different change with a different risk.
+    """
+    if not isinstance(artifact, dict):
+        raise TransformRefused("artifact is not a JSON object")
+    changes: list[dict[str, Any]] = []
+
+    def walk(node: Any, path: str) -> Any:
+        if isinstance(node, list):
+            return [walk(item, f"{path}/{index}") for index, item in enumerate(node)]
+        if not isinstance(node, dict):
+            return node
+        wanted, shape = canonical_required(node)
+        stored = node.get(REQUIRED_KEY)
+        settled = (shape and isinstance(stored, list) and stored != wanted
+                   and unfillable(stored, node.get("properties")))
+        result = {}
+        if settled and wanted is not None and REQUIRED_KEY not in node:
+            raise TransformRefused(f"{path}: cannot place `required` in a field that has none")
+        for name, value in node.items():
+            here = f"{path}/{rest.json_pointer_component(name)}"
+            if name == REQUIRED_KEY and settled:
+                changes.append({"path": here, "replaced": list(value), "wrote": wanted,
+                                "shape": shape, "termConstrained": term_constrained(node)})
+                if wanted is not None:
+                    result[name] = list(wanted)
+                continue
+            result[name] = walk(value, here)
+        return result
+
+    return walk(artifact, ""), changes
+
+
+def only_canonicalised_field_required(before: Any, after: Any) -> Optional[str]:
+    """The invariant: every change is a field's ``required`` taking the value its shape calls for."""
+
+    def walk(old: Any, new: Any, path: str) -> Optional[str]:
+        if isinstance(old, dict):
+            if not isinstance(new, dict):
+                return path or "/"
+            if set(new) - set(old):
+                return path or "/"
+            wanted, shape = canonical_required(old)
+            # The transform only ever touches a `required` naming something the field does not
+            # declare, so the invariant holds a change to any other one to be someone else's.
+            settled = shape and unfillable(old.get(REQUIRED_KEY), old.get("properties"))
+            gone = set(old) - set(new)
+            if gone and not (gone == {REQUIRED_KEY} and settled and wanted is None):
+                return f"{path}/{rest.json_pointer_component(sorted(gone)[0])}"
+            for name in new:
+                here = f"{path}/{rest.json_pointer_component(name)}"
+                if name == REQUIRED_KEY and new[name] != old[name]:
+                    if not settled or new[name] != wanted:
                         return here
                     continue
                 difference = walk(old[name], new[name], here)
@@ -6511,6 +6673,13 @@ REPAIRS = {
         summary="write a draft's prerelease version as its release, discarding the tag",
         transform=settle_prerelease_version,
         invariant=only_settled_prerelease_version,
+    ),
+    "canonicalise-field-required": Repair(
+        name="canonicalise-field-required",
+        condition="required-names-undeclared-key",
+        summary="give a field the `required` its declared shape calls for",
+        transform=canonicalise_field_required,
+        invariant=only_canonicalised_field_required,
     ),
     "drop-empty-instance-iri": Repair(
         name="drop-empty-instance-iri",

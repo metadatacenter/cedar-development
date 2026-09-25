@@ -5406,3 +5406,239 @@ class InstanceDemandsOnElementTest(unittest.TestCase):
         after, _changes = REPAIR.drop_instance_demands_from_element(before)
         after["required"] = ["@context", "@id", "Address", "Name"]
         self.assertEqual(REPAIR.only_dropped_instance_demands(before, after), "/required")
+
+
+def literal_field(required=None):
+    """A field declaring a value and a label, as a text or email field does."""
+    node = child()
+    node["properties"] = {"@type": {"type": "string", "format": "uri"},
+                          "@value": {"type": ["string", "null"]},
+                          "rdfs:label": {"type": ["string", "null"]}}
+    if required is not None:
+        node["required"] = required
+    return node
+
+
+def linked_field(required=None, constrained=False):
+    """A field declaring an address and a label, as a link or controlled-term field does."""
+    node = iri_field()
+    node["properties"]["@type"] = {"type": "string", "format": "uri"}
+    if constrained:
+        node["_valueConstraints"] = {"ontologies": [{"acronym": "ROLEO"}], "branches": [],
+                                     "classes": [], "valueSets": []}
+    if required is not None:
+        node["required"] = required
+    return node
+
+
+def typed_literal_field(input_type, required=None):
+    """A numeric or temporal field, which carries its datatype in the instance's `@type`."""
+    node = literal_field(required)
+    node["_ui"] = {"inputType": input_type}
+    return node
+
+
+class CanonicalRequiredTest(unittest.TestCase):
+    """What both libraries write, read back off the shape the field declares."""
+
+    def test_a_field_declaring_a_value_is_literal(self):
+        self.assertEqual(REPAIR.canonical_required(literal_field()), (["@value"], "literal"))
+
+    def test_a_numeric_field_demands_its_datatype_too(self):
+        self.assertEqual(REPAIR.canonical_required(typed_literal_field("numeric")),
+                         (["@value", "@type"], "typed literal"))
+
+    def test_a_temporal_field_demands_its_datatype_too(self):
+        self.assertEqual(REPAIR.canonical_required(typed_literal_field("temporal")),
+                         (["@value", "@type"], "typed literal"))
+
+    def test_a_field_declaring_an_address_is_iri(self):
+        self.assertEqual(REPAIR.canonical_required(linked_field()), (None, "IRI"))
+
+    def test_a_controlled_term_field_is_iri_although_it_renders_as_a_textfield(self):
+        node = linked_field(constrained=True)
+        node["_ui"] = {"inputType": "textfield"}
+        self.assertEqual(REPAIR.canonical_required(node), (None, "IRI"))
+
+    def test_a_static_field_is_settled_by_its_kind(self):
+        # Production holds static fields whose `properties` accumulated artifact-level keys.
+        node = child(STATIC_TYPE)
+        node["_ui"] = {"inputType": "section-break"}
+        node["properties"] = {"@id": {"type": "string"}, "pav:createdOn": {"type": "string"}}
+        self.assertEqual(REPAIR.canonical_required(node), (None, "static"))
+
+    def test_a_field_declaring_both_settles_nothing(self):
+        node = literal_field()
+        node["properties"]["@id"] = {"type": "string", "format": "uri"}
+        self.assertEqual(REPAIR.canonical_required(node), (None, ""))
+
+    def test_a_field_declaring_neither_settles_nothing(self):
+        node = child()
+        node["properties"] = {"@type": {"type": "string", "format": "uri"}}
+        self.assertEqual(REPAIR.canonical_required(node), (None, ""))
+
+    def test_a_template_is_not_a_field(self):
+        self.assertEqual(REPAIR.canonical_required(template({})), (None, ""))
+
+    def test_an_inner_json_schema_type_is_not_mistaken_for_a_kind(self):
+        # A field's own `@type` names its kind; the one under `properties` is a schema fragment.
+        self.assertEqual(REPAIR.canonical_required(literal_field()["properties"]["@type"]),
+                         (None, ""))
+
+
+class UnfillableTest(unittest.TestCase):
+    """The defect, and the whole of it: a demand the field gives nobody a way to meet."""
+
+    def test_a_demand_on_an_undeclared_property_is_unfillable(self):
+        self.assertTrue(REPAIR.unfillable(["@value"], {"@id": {}, "rdfs:label": {}}))
+
+    def test_a_demand_on_a_declared_property_is_not(self):
+        self.assertFalse(REPAIR.unfillable(["@value"], {"@value": {}, "@type": {}}))
+
+    def test_one_undeclared_entry_among_declared_ones_counts(self):
+        self.assertFalse(REPAIR.unfillable(["rdfs:label"], {"rdfs:label": {}}))
+        self.assertTrue(REPAIR.unfillable(["@id", "rdfs:label"], {"@value": {}, "rdfs:label": {}}))
+
+    def test_nothing_to_read_is_not_a_defect(self):
+        self.assertFalse(REPAIR.unfillable(None, {"@value": {}}))
+        self.assertFalse(REPAIR.unfillable(["@value"], None))
+
+
+class CanonicaliseFieldRequiredTest(unittest.TestCase):
+    """Production holds both inversions, and neither field can hold a value anyone types."""
+
+    def test_an_iri_field_demanding_a_value_loses_the_demand(self):
+        doc = template({"Role": linked_field(["@value"], constrained=True)})
+        after, changes = REPAIR.canonicalise_field_required(doc)
+        self.assertNotIn("required", after["properties"]["Role"])
+        self.assertEqual(changes, [{"path": "/properties/Role/required", "replaced": ["@value"],
+                                    "wrote": None, "shape": "IRI", "termConstrained": True}])
+        self.assertIsNone(REPAIR.only_canonicalised_field_required(doc, after))
+
+    def test_a_link_field_is_the_same_case_without_a_vocabulary(self):
+        doc = template({"Website": linked_field(["@value"])})
+        after, changes = REPAIR.canonicalise_field_required(doc)
+        self.assertNotIn("required", after["properties"]["Website"])
+        self.assertIs(changes[0]["termConstrained"], False)
+
+    def test_a_literal_field_demanding_an_address_gets_the_value_demand(self):
+        doc = template({"Name": literal_field(["@id"])})
+        after, changes = REPAIR.canonicalise_field_required(doc)
+        self.assertEqual(after["properties"]["Name"]["required"], ["@value"])
+        self.assertEqual(changes[0]["wrote"], ["@value"])
+        self.assertIsNone(REPAIR.only_canonicalised_field_required(doc, after))
+
+    def test_a_numeric_field_demanding_an_address_keeps_its_datatype_demand(self):
+        doc = template({"Age": typed_literal_field("numeric", ["@id"])})
+        after, _changes = REPAIR.canonicalise_field_required(doc)
+        self.assertEqual(after["properties"]["Age"]["required"], ["@value", "@type"])
+
+    def test_a_label_demand_riding_along_with_it_goes_too(self):
+        # Neither library emits one, and it arrived with the impossible demand beside it.
+        doc = template({"Name": literal_field(["@id", "rdfs:label"])})
+        after, _changes = REPAIR.canonicalise_field_required(doc)
+        self.assertEqual(after["properties"]["Name"]["required"], ["@value"])
+
+    def test_a_static_field_demanding_its_content_loses_the_demand(self):
+        node = child(STATIC_TYPE)
+        node["_ui"] = {"inputType": "section-break"}
+        node["properties"] = {"@id": {"type": "string"}}
+        node["required"] = ["_content"]
+        doc = template({"Heading": node})
+        after, changes = REPAIR.canonicalise_field_required(doc)
+        self.assertNotIn("required", after["properties"]["Heading"])
+        self.assertEqual(changes[0]["shape"], "static")
+
+    def test_a_field_whose_demands_it_declares_is_left_alone(self):
+        # The whole point of the gate: writing the canonical list here could *add* a demand.
+        doc = template({"When": typed_literal_field("temporal", ["@value"])})
+        after, changes = REPAIR.canonicalise_field_required(doc)
+        self.assertEqual(changes, [])
+        self.assertEqual(after["properties"]["When"]["required"], ["@value"])
+
+    def test_an_iri_field_demanding_only_its_address_is_left_alone(self):
+        doc = template({"Cell Type": linked_field(["@id"])})
+        after, changes = REPAIR.canonicalise_field_required(doc)
+        self.assertEqual(changes, [])
+        self.assertEqual(after["properties"]["Cell Type"]["required"], ["@id"])
+
+    def test_a_field_already_holding_what_the_libraries_write_is_left_alone(self):
+        doc = template({"Name": literal_field(["@value"]), "Website": linked_field()})
+        after, changes = REPAIR.canonicalise_field_required(doc)
+        self.assertEqual(changes, [])
+        self.assertEqual(after, doc)
+
+    def test_a_field_whose_shape_is_unsettled_is_left_alone(self):
+        node = literal_field(["rdfs:label", "absent"])
+        node["properties"]["@id"] = {"type": "string", "format": "uri"}
+        doc = template({"Muddled": node})
+        after, changes = REPAIR.canonicalise_field_required(doc)
+        self.assertEqual(changes, [])
+        self.assertEqual(after, doc)
+
+    def test_a_field_carrying_no_demand_gains_none(self):
+        doc = template({"Website": linked_field(), "Name": literal_field()})
+        after, changes = REPAIR.canonicalise_field_required(doc)
+        self.assertEqual(changes, [])
+        self.assertNotIn("required", after["properties"]["Name"])
+
+    def test_the_template_own_required_is_not_touched(self):
+        # A template names its children there, which its `properties` need not declare the same way.
+        doc = template({"Name": literal_field(["@value"])})
+        doc["required"] = ["@context", "@id", "Name", "Absent"]
+        after, changes = REPAIR.canonicalise_field_required(doc)
+        self.assertEqual(changes, [])
+        self.assertEqual(after["required"], ["@context", "@id", "Name", "Absent"])
+
+    def test_a_field_inside_an_element_is_reached(self):
+        element = child(ELEMENT_TYPE)
+        element["properties"] = {"Website": linked_field(["@value"])}
+        doc = template({"Address": element})
+        _after, changes = REPAIR.canonicalise_field_required(doc)
+        self.assertEqual([c["path"] for c in changes],
+                         ["/properties/Address/properties/Website/required"])
+
+    def test_a_repeating_field_is_reached_through_its_wrapper(self):
+        doc = template({"Website": repeating(linked_field(["@value"]))})
+        _after, changes = REPAIR.canonicalise_field_required(doc)
+        self.assertEqual([c["path"] for c in changes], ["/properties/Website/items/required"])
+
+    def test_every_field_in_one_artifact_is_settled(self):
+        doc = template({"Name": literal_field(["@id"]), "Role": linked_field(["@value"]),
+                        "Sound": literal_field(["@value"]),
+                        "When": typed_literal_field("temporal", ["@value", "@type"])})
+        after, changes = REPAIR.canonicalise_field_required(doc)
+        self.assertEqual(len(changes), 2)
+        self.assertEqual(after["properties"]["Name"]["required"], ["@value"])
+        self.assertNotIn("required", after["properties"]["Role"])
+        self.assertEqual(after["properties"]["Sound"]["required"], ["@value"])
+        self.assertEqual(after["properties"]["When"]["required"], ["@value", "@type"])
+        self.assertIsNone(REPAIR.only_canonicalised_field_required(doc, after))
+
+    def test_the_invariant_rejects_a_satisfiable_demand_being_rewritten(self):
+        doc = template({"When": typed_literal_field("temporal", ["@value"])})
+        tightened = copy.deepcopy(doc)
+        tightened["properties"]["When"]["required"] = ["@value", "@type"]
+        self.assertEqual(REPAIR.only_canonicalised_field_required(doc, tightened),
+                         "/properties/When/required")
+
+    def test_the_invariant_rejects_a_demand_the_libraries_do_not_write(self):
+        doc = template({"Name": literal_field(["@id", "rdfs:label"])})
+        kept = copy.deepcopy(doc)
+        kept["properties"]["Name"]["required"] = ["rdfs:label"]
+        self.assertEqual(REPAIR.only_canonicalised_field_required(doc, kept),
+                         "/properties/Name/required")
+
+    def test_the_invariant_rejects_a_required_key_going_from_a_literal_field(self):
+        doc = template({"Name": literal_field(["@id"])})
+        stripped = copy.deepcopy(doc)
+        del stripped["properties"]["Name"]["required"]
+        self.assertEqual(REPAIR.only_canonicalised_field_required(doc, stripped),
+                         "/properties/Name/required")
+
+    def test_the_invariant_rejects_another_change(self):
+        doc = template({"Website": linked_field(["@value"])})
+        after, _changes = REPAIR.canonicalise_field_required(doc)
+        renamed = copy.deepcopy(after)
+        renamed["schema:name"] = "Renamed"
+        self.assertEqual(REPAIR.only_canonicalised_field_required(doc, renamed), "/schema:name")
