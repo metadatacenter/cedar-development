@@ -3423,6 +3423,19 @@ YAML bytes. The three remaining discrepancies are the two key-quoting cases and 
 multiple-datatype literal. The sample's source validity remains 53 valid / 47 invalid; every
 produced lane from those 53 valid sources still validates after Java template completion.
 
+The shared conservative YAML mapping-key policy leaves a key plain only if it starts with an
+ASCII letter or underscore, continues with ASCII letters, digits, underscores, hyphens or
+spaces, and does not end in a space. Case-insensitive `y`, `yes`, `n`, `no`, `true`, `false`,
+`on`, `off` and `null` are quoted. Every other key is double-quoted and escaped. This policy
+applies to all YAML mapping keys, including extension metadata keys; it does not change string
+value policy. Java and TypeScript carry identical `yaml-key-quoting.json` test cases and check
+both quote decisions and key preservation. TypeScript also checks YAML 1.1 and 1.2 readers.
+
+The same 100-instance replay with this policy yields 99 identical YAML documents and 99
+four-path JSON content/order matches. The two quoting mismatches are resolved; the sole
+remaining pipeline discrepancy is the multiple-datatype literal. Evidence is retained in
+`.cedar/audits/2026-09-25-instance-key-policy-fixed/`. Production is unchanged.
+
 ### Repairing instance-context additional-property declarations
 
 `ops/repairs/context_additional.py` compares stored schema declarations with Java's JSON → YAML →
