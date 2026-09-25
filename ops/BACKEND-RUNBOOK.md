@@ -4429,3 +4429,15 @@ Pre-images, candidate, validation, reader checks and rejection are retained in
 `.cedar/repairs/2026-09-25-stray-annotation-id/`. The existing DOI recovery roadmap tracks this
 instance alongside the two previously blocked templates. TypeScript's 3,753 tests and shared
 166-YAML / 83-JSON parity checks pass.
+
+
+TypeScript's JSON/YAML identifier readers reject raw ASCII spaces and control characters without
+trimming or URL auto-encoding, matching Java for the malformed E106TUN link. This is a targeted
+identifier-character guard, not a claim of complete Java URI grammar equivalence. Encoded spaces,
+Unicode path characters, URNs and relative references remain preserved. The stored bad URL is
+rejected in both JSON and YAML. A read check of all 10,000 source snapshots accepts all 9,957 valid
+sources and rejects only the two already-invalid URI/annotation cases. Evidence is retained in
+`.cedar/audits/2026-09-25-instance-reader-rejection-check/`. TypeScript's 3,764 tests and shared
+JSON/YAML parity checks pass. The GeoExposure CASTNET template declares both URL fields as links;
+its duplicate `@value` members are not permitted by those field schemas. No production patch
+was performed for either URL case.
