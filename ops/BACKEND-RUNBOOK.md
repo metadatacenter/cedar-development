@@ -3483,6 +3483,26 @@ fields still require completion). No production artifacts were written. Regressi
 1,209 Java tests and 3,736 TypeScript tests; all 249 Java corpus fixtures and the 166 YAML / 83 JSON
 shared parity fixtures remain current.
 
+A subsequent random 10,000-instance run (seed `2026092512`) is retained under
+`.cedar/audits/2026-09-25-instance-random-10000-restart2/`. It covers 277 templates with no
+candidate or template fetch failures. All four paths produced outputs for 9,998 instances;
+9,992 agreed on JSON content/order and 9,993 on YAML bytes. Eight instances differ: four TS
+`skos:notation` losses, one Java attribute-value membership-array reorder, one source carrying
+both `@id` and `@value`, one malformed URI Java rejects, and one stray `_annotations/@id`
+Java rejects while TS drops it. Four of these sources are valid and four invalid. All 9,957
+valid sources still validate after completion in every path; 43 stored sources were already
+invalid. The retained `REPORT.md` maps each discrepancy to its evidence. The earlier multiple-
+datatype literal was not selected. No production data was changed.
+
+The smoke runner now logs index-page and per-200-candidate fetch progress, saves candidate
+JSON under `fetched-sources/`, and reserves ten percent spare candidates for larger samples.
+It writes fetch errors before refusing an undersized sample. An earlier attempt exhausted its
+100 spares (9,954 readable of 10,100) and produced no conversion verdicts; do not use that
+incomplete attempt as the 10,000-instance result. `selected-ids.json` identifies the exact
+sample, separate from spare candidates. The shared evaluation function has regression tests
+separating JSON content, key order, YAML bytes, failed conversions and completion verdicts.
+
+
 
 
 ### Repairing instance-context additional-property declarations

@@ -1142,12 +1142,27 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   [backend runbook](./BACKEND-RUNBOOK.md#comparing-both-schema-libraries-over-the-full-stored-corpus)
   describes how to resume and recheck it after a library change.
 
+  **Resolve the random 10,000-instance pipeline discrepancies.** Eight instances remain:
+
+  | Issue | Instances |
+  | --- | ---: |
+  | TypeScript drops `skos:notation` metadata | 4 |
+  | Java changes an attribute-value group's membership-array order | 1 |
+  | A field carries both `@id` and `@value`; readers choose different representations | 1 |
+  | Malformed URI accepted by TS but rejected by Java | 1 |
+  | Stray string-valued `_annotations/@id` rejected by Java and discarded by TS | 1 |
+
+  Preserve notation and source array order; reconcile reader behavior on malformed stored shapes
+  without silently choosing or deleting information. Four affected sources are valid and four
+  already invalid. Keep the sample's 43 already-invalid sources separate from library regressions;
+  details and identifiers are in the [instance pipeline runbook](./BACKEND-RUNBOOK.md).
+
   **Resolve the deferred multi-datatype instance literal.** The earlier 100-instance smoke found
   one literal carrying two ontology-class IRIs in `@type`: Java YAML keeps only the first and
   Java's YAML reader rejects TypeScript's datatype array. Decide the correct representation
   before changing the stored value. This instance was not in the random 1,000-instance sample.
   Expand instance coverage and keep source-preservation checks separate from converter agreement;
-  the three already-invalid sources in the random sample still need data-level diagnosis.
+  the 43 already-invalid sources in the larger random sample still need data-level diagnosis.
 
   **Prioritize the largest remaining groups.** Measured 2026-09-25 over the flagged subset.
   Repeated names identify distinct templates; ID prefixes distinguish them.
