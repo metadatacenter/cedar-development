@@ -1066,7 +1066,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   | Remaining issue | Schema artifacts |
   | --- | ---: |
   | Indexed artifacts whose typed GET returns 404, including on the final retry | 6: 1 template, 1 element, 4 fields |
-  | TypeScript strict-reader diagnostics on Java-validator-valid source schemas; conversions still succeed | 1,392; full audit plus targeted rechecks of cached production schemas on 2026-09-25 |
+  | TypeScript strict-reader diagnostics on Java-validator-valid source schemas; conversions still succeed | 1,236; full audit plus targeted production rechecks on 2026-09-25 |
   | Standalone attribute-value JSON rendering: Java includes the array wrapper; TypeScript returns its field schema | None observed in the production matrix; a synthetic standalone-field probe differs |
   | Java 17 and JavaScript choose different decimal spellings for exceptional large floating-point values | None observed in production; a synthetic probe differs |
 
@@ -1076,6 +1076,12 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Reconcile the strict reader's acceptance of legacy context and schema declarations, especially
   missing required entries and property/type shapes. Keep these diagnostics separate
   from failed conversions.
+  Require property IRIs for ordinary child fields and elements in both JSON and YAML readers.
+  Before enabling this, make authoring assign them before rendering exchange artifacts: MCP
+  `add_field` currently accepts an omitted `property_iri` and emits YAML that relies on assignment
+  at repository save. Keep static fields and attribute-value groups exempt; the latter's actual
+  attributes carry their IRIs in instance contexts. Cover authoring, read/write round trips and
+  repository creation together so stricter readers do not reject the tools' own output.
   Extend numeric spelling beyond ordinary decimal expansion: the synthetic
   bound `-1.2345e21` renders as `-1234499999999999900000` in Java 17 and
   `-1234500000000000000000` in TypeScript. Match the canonical algorithm without changing values.

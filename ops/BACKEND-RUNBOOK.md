@@ -3276,6 +3276,29 @@ Converter agreement is not proof that every stored detail survives model normali
 is the key's search-visible corpus, and an indexed artifact returning 404 remains an unresolved
 inventory entry, not a successful conversion.
 
+### Repairing missing child property IRIs
+
+`ops/repairs/property_iris.py` supplies pure planning and invariant checks for ordinary child
+fields and elements. Inspect every existing instance occurrence, reuse a consistent existing
+IRI, and otherwise mint `https://schema.metadatacenter.org/properties/<UUID>`, as
+`LinkedDataUtil.addChildPropertyIris` does. Conflicting existing identities stop the plan.
+Static fields and attribute-value groups do not require fixed child mappings; actual dynamic
+attributes carry their IRIs in the instance context. An explicitly supplied group mapping is
+preserved, and a malformed explicit declaration still produces a reader diagnostic.
+
+Validate the complete candidate schemas and dependent instances before writing. Add optional
+schema mapping definitions first, so both old and repaired instances validate; patch instance
+contexts next; require the new mappings only after every instance passes. Use strong ETags,
+retain preimages for each phase, compare exact GET read-backs, and prove entered values unchanged.
+Recheck the dependent-instance index before starting and before making the mappings required.
+
+The 2026-09-25 production audit enumerated 10,141 containers and read 10,139; two known indexed
+404s remain. Its 112 affected schemas (72 templates, 40 elements) now carry 1,615 generated
+property IRIs. All 893 dependent instances validate; 890 needed matching context additions.
+The 245-schema conversion recheck, including 133 schemas with only attribute-group diagnostics,
+passes all four paths with identical generated JSON order and byte-identical YAML. Evidence and
+phase-specific backups are under `$CEDAR_HOME/.cedar/repairs/2026-09-25-property-iris/`.
+
 ### Namespace-bound schema metadata
 
 Both model libraries retain custom namespace prefixes from a schema's own `@context` and the
