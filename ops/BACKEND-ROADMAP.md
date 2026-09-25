@@ -1067,7 +1067,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   | --- | ---: |
   | Literal fields with orphan vocabulary actions become text in Java but controlled-term in TypeScript | 12: 7 templates, 5 elements |
   | Indexed artifacts whose typed GET returns 404, including on the final retry | 6: 1 template, 1 element, 4 fields |
-  | TypeScript strict-reader diagnostics on Java-validator-valid source schemas; conversions still succeed | 1,439; overlaps one of the 12 above; full audit plus targeted production rechecks on 2026-09-25 |
+  | TypeScript strict-reader diagnostics on Java-validator-valid source schemas; conversions still succeed | 1,438; overlaps one of the 12 above; full audit plus targeted production rechecks on 2026-09-25 |
   | Java 17 and JavaScript choose different decimal spellings for exceptional large floating-point values | None observed in production; a synthetic probe differs |
 
   Decide how to handle the orphan actions before changing these schemas: the 12 artifacts contain
@@ -1079,12 +1079,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
 
   Reconcile the strict reader's acceptance of legacy context and schema declarations, especially
   missing required entries, extra context terms and property/type shapes. Keep these diagnostics separate
-  from failed conversions. One missing-object-type case needs an instance decision: `languageTemplate`
-  (`04e68265-997f-4213-b40d-9b0a18171d41`) has instance
-  `e36d018b-f34a-4dcc-88c0-bba9a3be03e7` with ten explicit null metadata-context mappings.
-  It validates against the stored template but fails if those mappings must be objects; settle their
-  intended definitions before adding the ten constraints. Evidence is in
-  `$CEDAR_HOME/.cedar/repairs/2026-09-25-context-object-types/`.
+  from failed conversions.
   Extend numeric spelling beyond ordinary decimal expansion: the synthetic
   bound `-1.2345e21` renders as `-1234499999999999900000` in Java 17 and
   `-1234500000000000000000` in TypeScript. Match the canonical algorithm without changing values.

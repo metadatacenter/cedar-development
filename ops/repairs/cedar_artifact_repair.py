@@ -6816,7 +6816,48 @@ def only_completed_context_object_types(before: Any, after: Any) -> Optional[str
     return None
 
 
+def restore_null_standard_context(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Restore explicitly approved null standard context definitions, using template-pinned datatypes."""
+    if not isinstance(instance, dict) or not isinstance(template, dict) \
+            or instance.get("schema:isBasedOn") != template.get("@id"):
+        raise TransformRefused("instance does not name the supplied template")
+    context = instance.get("@context")
+    definitions = template.get("properties", {}).get("@context", {}).get("properties", {})
+    if not isinstance(context, dict) or not isinstance(definitions, dict):
+        raise TransformRefused("instance or template context is not an object")
+    if context.get("xsd") != "http://www.w3.org/2001/XMLSchema#":
+        raise TransformRefused("instance has a noncanonical xsd prefix")
+    result = copy.deepcopy(instance)
+    changes = []
+    for name, datatype in CONTEXT_OBJECT_DATATYPES.items():
+        if name not in context or context[name] is not None:
+            continue
+        definition = definitions.get(name)
+        expected = {"properties": {"@type": {"type": "string", "enum": [datatype]}}}
+        if not json_equal(definition, expected) and not json_equal(definition, {**expected, "type": "object"}):
+            raise TransformRefused("template does not canonically pin " + name)
+        value = {"@type": datatype}
+        result["@context"][name] = value
+        changes.append({"path": "/@context/" + name, "replaced": None, "wrote": value})
+    return result, changes
+
+
+def only_restored_null_standard_context(before: Any, after: Any, template: Any) -> Optional[str]:
+    for path, old, new in differences(before, after):
+        parts = path.split("/")
+        if len(parts) != 3 or parts[1] != "@context" or parts[2] not in CONTEXT_OBJECT_DATATYPES \
+                or old is not None or new != {"@type": CONTEXT_OBJECT_DATATYPES[parts[2]]}:
+            return path or "/"
+    return None
+
+
 REPAIRS = {
+    "restore-null-standard-context": Repair(
+        name="restore-null-standard-context", condition="null-standard-context",
+        summary="restore approved null metadata context definitions from the template's canonical datatypes",
+        transform=restore_null_standard_context, invariant=only_restored_null_standard_context,
+        needs_template=True,
+    ),
     "complete-reviewed-context-object-types": Repair(
         name="complete-reviewed-context-object-types", condition="missing-context-object-type",
         summary="add Java's missing object type to standard instance-context term schemas after instance checks",
@@ -7784,7 +7825,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         parser.error("complete-reviewed-context-object-types requires --context-object-plan")
     if arguments.apply and not arguments.verify:
         parser.error("production writes require read-back verification; --no-verify is dry-run only")
-    if arguments.apply and "align-instance-context-iris" in names \
+    if arguments.apply and ({"align-instance-context-iris", "restore-null-standard-context"} & set(names)) \
             and not (arguments.allow_context_migration and arguments.only_ids):
         parser.error("context alignment changes meaning; applying it requires "
                      "--allow-context-migration and an explicit --only-ids scope")
