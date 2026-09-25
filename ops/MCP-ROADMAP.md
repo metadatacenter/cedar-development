@@ -83,16 +83,42 @@ by name in commits.
 
 ## cedar-artifact-mcp
 
-- **5. Expose the per-field question metadata the library carries.** `skos:prefLabel` holds the
+<a id="property-iri-authoring"></a>
+
+- **5. Assign child property IRIs before MCP exchange, then enforce them in both libraries.**
+  `add_field` accepts an omitted `property_iri` and returns YAML before the repository assigns one.
+  Requiring that IRI on the next read would break a sequence of authoring tool calls. Make MCP
+  authoring produce complete mappings before enabling stricter Java and TypeScript readers.
+
+  - Cover ordinary child fields and elements in `add_field`, `add_element`, imports, composition
+    and edits. Preserve supplied vocabulary IRIs; assign missing ones once as
+    `https://schema.metadatacenter.org/properties/<UUID>`. Retain them through subsequent tool
+    calls, renames, edits, copies and serialization; do not mint identities during reads or renders.
+  - Carry the template's property IRIs into matching instance `@context` mappings. Preserve entered
+    values and stop on conflicting identities. Static fields and attribute-value groups need no
+    fixed property mapping; preserve explicit group mappings, and retain the actual dynamic
+    attributes' mappings in instance contexts.
+  - Audit the CEE MCP's artifact inputs and outputs and the REST MCP handoff as well as the artifact
+    MCP. Update tool schemas and descriptions to explain automatic assignment. Advance library
+    dependencies, rebuild and restart affected MCP consumers together.
+  - Once authoring is ready, require valid property IRIs on ordinary child fields and elements in
+    both libraries' JSON and YAML readers, including compact and expanded exchange forms. Recheck
+    production coverage before rollout; reconcile remaining missing or conflicting mappings first.
+  - Prove a multi-call create → add child → serialize → read → edit → populate instance → REST save
+    workflow, including nested and repeated elements, supplied and generated IRIs, and rejection of
+    absent or malformed required mappings. Require byte-identical YAML and matching generated JSON
+    content and key order across Java and TypeScript.
+
+- **6. Expose the per-field question metadata the library carries.** `skos:prefLabel` holds the
   preferred question text, an alternative phrasing of the field's name that a form shows, distinct
   from the value-level labels. `skos:altLabel` holds further phrasings, and `language` and
   `valueRecommendationEnabled` sit beside them. All four survive a round trip and none can be set
   through a tool.
 
-- **6. Expose a template's header and footer.** `TemplateUi` carries display header and footer
+- **7. Expose a template's header and footer.** `TemplateUi` carries display header and footer
   text through `withHeader` and `withFooter`. Both survive a round trip; neither is settable.
 
-- **7. Expose the per-term actions a controlled-term constraint carries.** A constraint may carry
+- **8. Expose the per-term actions a controlled-term constraint carries.** A constraint may carry
   `ControlledTermValueConstraintsAction` entries, the keep, delete and move tweaks the CEDAR editor
   applies on top of a class, ontology, branch or value-set binding — pulling one class out of an
   otherwise-included branch, for instance. The library models and round-trips them.
@@ -100,7 +126,7 @@ by name in commits.
   alone, which is deliberate: this is a finer-grained surface, and it belongs beside those tools
   rather than inside them.
 
-- **8. Decide whether one render-if-present YAML form replaces compact and expanded.** Mutating
+- **9. Decide whether one render-if-present YAML form replaces compact and expanded.** Mutating
   tools return the expanded exchange form, and `compact` survives only on the render tools. Whether
   the distinction can disappear altogether is open. A render-if-present form would emit provenance
   — status, version, modelVersion, created and modified — only where it is set, an absent key
@@ -116,7 +142,7 @@ by name in commits.
   single form can no longer hide provenance that does exist, such as a server-loaded artifact's
   timestamps, which `compact: true` can.
 
-- **9. Distinguish an empty controlled-term field from a text field.** The CEDAR model makes the
+- **10. Distinguish an empty controlled-term field from a text field.** The CEDAR model makes the
   two indistinguishable in JSON, because a TEXTFIELD becomes a ControlledTermField only once it
   carries a constraint. The constraint tools and the controlled-term branch of
   `set_iri_field_value` work around it. The fix is a model change and waits on the next model
@@ -124,29 +150,29 @@ by name in commits.
 
 ## cedar-artifact-rest-mcp
 
-- **10. Place a created artifact in a chosen folder.** `create_*` puts an artifact in the caller's
+- **11. Place a created artifact in a chosen folder.** `create_*` puts an artifact in the caller's
   home folder. Pass the optional `folder_id` query parameter — `POST /templates?folder_id=<IRI>`
   and its counterparts — so the caller chooses instead.
 
-- **11. Read an artifact's details, report and version history.** `GET /{type}/{id}/details`,
+- **12. Read an artifact's details, report and version history.** `GET /{type}/{id}/details`,
   `/report` and `/versions` are read-only metadata the server already serves and no tool reaches.
 
-- **12. Support the draft-to-publish lifecycle.** `/command/create-draft-artifact`,
+- **13. Support the draft-to-publish lifecycle.** `/command/create-draft-artifact`,
   `/command/publish-artifact`, `make-artifact-open` and `make-artifact-not-open` carry that
   workflow. They mutate, and publishing is partly irreversible, so take them deliberately rather
   than as part of a CRUD sweep.
 
 ## cedar-cee-mcp
 
-- **13. Load the Material Symbols font in the host page.** The CEE's icon ligatures render as their
+- **14. Load the Material Symbols font in the host page.** The CEE's icon ligatures render as their
   own text — `more_vert`, `unfold_more` — because the host page does not load the font. Add the
   font link, or establish which face the pinned CEE version expects.
 
-- **14. Serve successive calls from one persistent browser tab.** A single tab receiving show and
+- **15. Serve successive calls from one persistent browser tab.** A single tab receiving show and
   fill calls over SSE or polling, in place of a tab per session, would suit repeated
   demonstrations. Tab-per-call is adequate meanwhile, so this waits on the ergonomics mattering.
 
-- **15. Render the editor inside the chat client.** The MCP extension for `ui://` tool-result
+- **16. Render the editor inside the chat client.** The MCP extension for `ui://` tool-result
   resources would put the editor in the conversation. Revisit when client support is broad and the
   sandbox and CSP story accommodates a 2 MB component bundle that needs network access to the
   terminology service. The localhost-tab approach works in every client today, terminal ones
@@ -154,7 +180,7 @@ by name in commits.
 
 ## bioportal-term-mcp
 
-- **16. Polish the BioPortal client.** Four independent changes, none urgent:
+- **17. Polish the BioPortal client.** Four independent changes, none urgent:
 
   - Cache results. Every tool calls BioPortal on every invocation, so one ontology looked up five
     times in a session costs five HTTP calls. A TTL cache in `_bioportal_get` fixes that
@@ -165,7 +191,7 @@ by name in commits.
     caller needs the second.
   - Go async, but only once latency becomes a real concern. It has not.
 
-- **17. Put a recommender in front of the ranked candidates.** `find_class` ranks by BioPortal's
+- **18. Put a recommender in front of the ranked candidates.** `find_class` ranks by BioPortal's
   string relevance and `find_ontology` by acronym and name overlap. Both surface candidates and
   neither judges which term fits a field, so several related terms searched one at a time can each
   land in whichever ontology matched lexically rather than in one coherent set. Choosing well —

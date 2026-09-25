@@ -1076,12 +1076,12 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Reconcile the strict reader's acceptance of legacy context and schema declarations, especially
   missing required entries and property/type shapes. Keep these diagnostics separate
   from failed conversions.
-  Require property IRIs for ordinary child fields and elements in both JSON and YAML readers.
-  Before enabling this, make authoring assign them before rendering exchange artifacts: MCP
-  `add_field` currently accepts an omitted `property_iri` and emits YAML that relies on assignment
-  at repository save. Keep static fields and attribute-value groups exempt; the latter's actual
-  attributes carry their IRIs in instance contexts. Cover authoring, read/write round trips and
-  repository creation together so stricter readers do not reject the tools' own output.
+  Require property IRIs for ordinary child fields and elements in both Java and TypeScript JSON
+  and YAML readers. First complete [MCP property-IRI authoring](./MCP-ROADMAP.md#property-iri-authoring)
+  so exchange artifacts have their mappings before another tool reads them, and recheck production
+  coverage before enabling enforcement. Keep static fields and attribute-value groups exempt;
+  actual dynamic attributes carry their IRIs in instance contexts. Prove authoring, cross-library
+  round trips and repository creation together.
   Extend numeric spelling beyond ordinary decimal expansion: the synthetic
   bound `-1.2345e21` renders as `-1234499999999999900000` in Java 17 and
   `-1234500000000000000000` in TypeScript. Match the canonical algorithm without changing values.
