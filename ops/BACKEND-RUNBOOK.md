@@ -3607,6 +3607,28 @@ preservation: contexts and unset fields require normalization/completion, and on
 JSON documents equal all four uncompleted outputs. This read-only test does not exercise the
 production write endpoint or its DOI guard.
 
+The follow-up library reconciliation is verified by an offline replay of all 634 retained
+findings plus 1,000 randomly selected previously clean instances (seed `9254`), under
+`.cedar/audits/2026-09-25-instance-four-repairs-confirmation/`. Java `eb7ce85` preserves repeated
+element occurrences when one has only an identifier and a sibling has `@context`; both readers
+now classify the list consistently. TypeScript preserves populated language tags, puts nested
+attribute-value YAML metadata first, and serializes numeric field/attribute names after the
+instance envelope in Java order. The same JSON serialization change places each attribute group
+beside its values. Returned JSON nodes remain ordinary objects; canonical textual order is the
+`getAsJsonString` contract, matching the schema writer's serialization-view approach.
+
+All 21 requested affected instances and the additional attribute-group-order instance now agree
+in all four JSON paths, key order and YAML bytes. The 1,000 clean controls remain valid after
+completion and agree throughout. The empty repeated-element source retains both occurrences;
+its completion now reaches validation instead of failing to read, but its unrelated template
+errors remain. Another already-invalid source containing a nested field array now receives an
+explicit mixed-field/element reader rejection in one completion lane instead of a validation
+failure. No valid source regressed. The retained findings leave 72 parity exceptions plus the
+completion-only context issue, of which seven have valid sources; this is a targeted replay,
+not a second full production sweep. No production writes. Checks: 1,212 Java tests, 249 current
+Java corpus fixtures, 3,774 TS tests, 166 YAML / 83 JSON parity fixtures, lint, type checking,
+source-lock verification and packaged-consumer smoke passed.
+
 ### Repairing instance-context additional-property declarations
 
 `ops/repairs/context_additional.py` compares stored schema declarations with Java's JSON → YAML →

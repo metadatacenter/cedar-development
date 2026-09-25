@@ -1206,19 +1206,15 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
 
   **Resolve the full-production instance pipeline findings.** Keep these primary categories
   separate from the 612 already-invalid sources; counts include valid and invalid instances.
+  The retained-corpus replay leaves 73 distinct pipeline/completion findings, seven on valid sources.
 
   | Remaining issue | Instances |
   | --- | ---: |
-  | TS loses populated `@language` on a valid literal | 1 |
   | Multiple literal datatypes: Java emits the first, TS emits an array Java cannot read | 4 |
   | Template completion loses a required root context mapping | 1 |
   | Valid attribute-value member named `type` cannot be rendered as YAML | 1 |
-  | Nested attribute-value YAML metadata order differs | 13 |
   | Long-key YAML formatting differs | 5 |
-  | Numeric attribute-name JSON key order differs | 6 |
-  | Attribute-group JSON member placement differs | 1 |
   | Mixed `@id`/`@value` fields read differently | 11 |
-  | Empty repeated element retained only by TS | 1 |
   | Malformed/empty URI is the first Java rejection | 37 |
   | Malformed annotation objects | 11 |
   | Numeric JSON literals or an unexpected nested field array | 3 |
@@ -1228,7 +1224,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   load in TS, as does an additional malformed URI in a numeric-literal case. Preserve URI values
   until a checked repair establishes the intended replacement. The four unresolved index entries
   return 404 even after retry; reconcile the index and store rather than declaring them converted.
-  Investigate the other 539 invalid sources without a parity discrepancy separately from library
+  Investigate the other 546 invalid sources without a parity discrepancy separately from library
   disagreements. Revalidate against their actual templates before any source repair.
 
   The GeoExposure CASTNET source's `PROJECT/project_url` and `RESOURCE/resource_url` are
@@ -1236,7 +1232,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Its narrow repair remains blocked by 59 unrelated validation errors. Do not remove other values
   to make the write pass. Preserve DOI annotations while resolving the document/graph write guard
   before retrying the HEAL annotation repair. Exact IDs, per-category source verdicts, and evidence
-  are in `$CEDAR_HOME/.cedar/audits/2026-09-25-instance-full-matrix-current/REPORT.md` and the
+  are in `$CEDAR_HOME/.cedar/audits/2026-09-25-instance-four-repairs-confirmation/REPORT.md` and the
   [instance pipeline runbook](./BACKEND-RUNBOOK.md#full-production-instance-matrix).
 
   **Permit well-formed optional annotations on every template instance.** Make Java and TS
