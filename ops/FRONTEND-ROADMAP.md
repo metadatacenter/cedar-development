@@ -55,13 +55,14 @@ publish. Extend the opt-in `datacite`-tagged test, or add a sandbox smoke beside
 full mint and attach contract and the credential check.
 
 Reconcile existing document/graph DOI disagreement that blocks unrelated artifact updates.
-Two production templates still need this recovery before their instance-context schema repairs
+Two production templates and one instance need this recovery before their pending repairs
 can be written:
 
-| Template | Template UUID | Existing DOI |
+| Artifact | UUID | Existing DOI |
 | --- | --- | --- |
 | Human Cognitive Neuroscience Data | `0e0e551b-c465-41e6-9392-75803b1b95de` | `10.60745/k2wv-x835` |
 | FAIR-EuMon metadata template | `b530b495-bd45-4ba7-946c-f726b3066ba9` | `10.60745/ng90-tp91` |
+| HEAL study instance, 10453929 – Development of therapeutic antibodies | `44685302-6d30-41fa-b129-6875fb887912` | `10.82658/aqdn-5e14` |
 
 Their `PUT ?verbatim=true` requests preserve the stored document's DOI but receive HTTP 400
 `doiCanNotBeAltered`, with that DOI in `doiInRequest` and `storedDoi: null`.
@@ -74,7 +75,10 @@ Do not remove the DOI or bypass DOI immutability to unblock the repair.
 Add regression coverage for a document DOI with missing graph metadata, interrupted attachment
 and retry, successful unchanged-DOI updates after reconciliation, and continued rejection of DOI
 replacement or deletion through ordinary updates. Recheck the two templates and their dependent
-instances before retrying the pending schema patches. The write-rejection evidence is retained in
+instances before retrying the pending schema patches. The HEAL instance needs only its stray
+`_annotations/@id` removed while retaining the DOI annotation; the attempted conditional write
+was rejected with the same unchanged-DOI error. Its template also needs to permit optional instance
+annotations. Evidence is in `.cedar/repairs/2026-09-25-stray-annotation-id/`. The write-rejection evidence is retained in
 `.cedar/repairs/2026-09-25-context-additional/apply-summary.json` under the local CEDAR root.
 
 ### 3. Show Server Validation Findings in Workspace

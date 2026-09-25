@@ -1148,12 +1148,22 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   | --- | ---: |
   | A field carries both `@id` and `@value`; readers choose different representations | 1 |
   | Malformed URI accepted by TS but rejected by Java | 1 |
-  | Stray string-valued `_annotations/@id` rejected by Java and discarded by TS | 1 |
+  | Stray string-valued `_annotations/@id`; narrow source repair blocked by DOI document/graph disagreement | 1 |
 
   Reconcile reader behavior on malformed stored shapes without silently choosing or deleting
   information. All three affected sources are already invalid. Keep the sample's 43 already-invalid
   sources separate from library regressions;
   details and identifiers are in the [instance pipeline runbook](./BACKEND-RUNBOOK.md).
+
+  **Permit well-formed optional annotations on every template instance.** Make Java and TS
+  generated template schemas include the canonical optional `_annotations` declaration, and
+  audit stored templates for the missing declaration before a production backfill. Annotations
+  are platform metadata, including DOI attachment; keep malformed entries rejected by both
+  readers. The HEAL Study Core Metadata template `d01330c7-ccd1-4e99-856a-86e08937347c`
+  currently forbids its instance's legitimate DOI annotation. Removing only the stray instance
+  `_annotations/@id` leaves that validation defect. Its conditional write is additionally blocked
+  by [DOI minting recovery](./FRONTEND-ROADMAP.md#doi-minting-recovery); preserve the DOI and
+  reconcile the document/graph state before retrying.
 
   **Resolve the deferred multi-datatype instance literal.** The earlier 100-instance smoke found
   one literal carrying two ontology-class IRIs in `@type`: Java YAML keeps only the first and

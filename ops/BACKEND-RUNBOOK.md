@@ -4410,3 +4410,22 @@ rather than curing it.
 `https://cedar.metadatacenter.orgx` — seeded test users: `test1@test.com` / `test1`,
 `test2@test.com` / `test2`. `/etc/hosts` must map the `*.metadatacenter.orgx` names to localhost
 (already configured on this machine).
+
+
+### Misplaced annotation identifier: reader rejection and blocked source repair
+
+Both TypeScript annotation readers now reject scalar/array/null annotation entries and objects
+without a value/id, matching Java instead of silently dropping them. The exact stored HEAL instance
+`44685302-6d30-41fa-b129-6875fb887912` is rejected by both JSON readers. A proposed patch removing
+only `/_annotations/@id` yields identical four-path output and preserves its DOI annotation.
+The source template `d01330c7-ccd1-4e99-856a-86e08937347c` contains no misplaced identifier;
+it instead lacks the optional instance `_annotations` declaration. The proposed instance patch
+therefore retains the existing validation error that annotations are forbidden.
+
+The conditional `PUT ?verbatim=true` was attempted on 2026-09-25 with the current ETag and rejected
+HTTP 400 `doiCanNotBeAltered`: request DOI `https://doi.org/10.82658/aqdn-5e14`, `storedDoi: null`.
+Readback confirmed the source is unchanged. No template was written and no DOI was removed.
+Pre-images, candidate, validation, reader checks and rejection are retained in
+`.cedar/repairs/2026-09-25-stray-annotation-id/`. The existing DOI recovery roadmap tracks this
+instance alongside the two previously blocked templates. TypeScript's 3,753 tests and shared
+166-YAML / 83-JSON parity checks pass.
