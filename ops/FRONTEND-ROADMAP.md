@@ -58,7 +58,7 @@ A rejected create or update should show the user what the server refused. Render
 in the server's `validationReport` with their paths and messages in Workspace's metadata editor,
 keep the document dirty, and provide navigation to the affected field across pages and repeated
 elements where possible. State the validation summary and the missing-required-field message
-through the language files the localization item gives Workspace.
+through Workspace's language files, in English and Hungarian.
 
 Establish which CEE findings predict REST rejection and which are advisory, and gate Save only on
 the former. The `requiredValue: true` / `minItems: 0` case in CEE's
@@ -70,38 +70,11 @@ Cover invalid-to-valid and valid-to-invalid transitions, advisory-only reports, 
 creates and updates, correction followed by a successful save, and differing client and server
 reports, in `src/app/metadata-editor.spec.ts` and the Playwright interaction suite.
 
-## Localization
-
-### 4. Establish Localization Across the Browser Applications
-
-A Hungarian user should read every application in Hungarian, and dates and numbers in the form
-their locale uses. Only CEE is localized today, through ngx-translate with English and Hungarian
-language files and a language its host configures. Workspace, CED, the term picker and the Template
-Designer have no localization mechanism, and between them hold roughly 800 hard-coded English
-strings: about 400 in CED, 300 in Workspace, 80 in the term picker and 30 in the Template Designer.
-
-Adopt ngx-translate in each of them, so that every application states its text the same way CEE
-does, and give each one English and Hungarian language files. Give CED and the term picker a
-language input, as CEE has, and have each host pass its own language down: Workspace to CEE, and the
-Template Designer to CED and the term picker. Workspace currently sends CEE `"en"` whatever its
-user reads.
-
-Move CEE's remaining literals into its language files. About 40 bypass translation, among them the
-attribute-name errors, several `aria-label` values, the time picker's `HH`, `MM` and `SS`
-placeholders, and the static image and video text. Keep the data quality report's English
-diagnostics, which hosts read as data.
-
-Format dates and numbers from the configured locale rather than from fixed patterns. Workspace
-hard-codes `en-GB` in some places and `en-US` in others, CED's date pipe renders en-US whatever the
-language, and CEE's date picker reads and writes `MM/DD/YYYY`. Give each repository the parity test
-CEE's harness applies to its language files, so a string present in one language and missing from
-another fails the build.
-
 <a id="cee"></a>
 
 ## Embeddable Editor and Model Library
 
-### 5. Whole-Component Runtime Theme Overrides
+### 4. Whole-Component Runtime Theme Overrides
 
 Define host-facing CSS properties for brand, surface, text, muted and border roles beyond the
 compact-control API in `STYLING.md`. Wire them through the M3 adapter to every affected control
@@ -110,7 +83,7 @@ brand override and which semantic status colors must remain invariant. Add brows
 set custom role values and check rendered foregrounds, backgrounds and focus states before
 documenting the properties as supported.
 
-### 6. Authoring Feedback for Unsupported Markup
+### 5. Authoring Feedback for Unsupported Markup
 
 Expose CEE's rendering policy to authors in the Template Editor's rich-text `Source` mode and
 CED's markup input. Configure those surfaces to produce supported markup and warn when CEE's
@@ -123,7 +96,7 @@ configuration and tests. Either form must carry every rule the sanitizer enforce
 those beyond the tag and attribute allowlists, such as forbidden event handlers and non-raster
 data images.
 
-### 7. Reduce Embedded Font Payload
+### 6. Reduce Embedded Font Payload
 
 CEE, CED and the term picker all resolve one font source,
 `@org.metadatacenter/cedar-design-tokens/fonts`, so the Roboto question is a single edit that
@@ -159,7 +132,7 @@ serving fonts as extra files changes that contract.
 CEE's RDF downloads added 57,019 gzip bytes to its standard bundle, which dropping the five subsets
 would more than offset.
 
-### 8. Define Handling of Out-of-Range Stored UTC Offsets
+### 7. Define Handling of Out-of-Range Stored UTC Offsets
 
 Decide what to show and report when a host supplies offsets such as `-13:00` or `-13:45`, which
 `TimezonePickerComponent.zoneForOffset` accepts but the picker does not offer. Preserve the
@@ -177,7 +150,7 @@ editing, rendering, local validation and host-facing UI contracts. The embedding
 host owns storage, authentication, permissions, server validation requests,
 publishing, version allocation and provenance.
 
-### 9. Display Host-Supplied Validation Findings in CED
+### 8. Display Host-Supplied Validation Findings in CED
 
 Add an input for findings supplied by the embedding host. Map artifact paths to nodes and
 settings, show the messages beside the affected controls and in CED's validation summary, and
@@ -188,7 +161,7 @@ Specify when host findings become stale after an edit or artifact replacement. P
 input and cover correction, clearing and replacement of reports. The host calls the schema
 server and decides whether an artifact may be saved.
 
-### 10. Define the Three Profiles
+### 9. Define the Three Profiles
 
 Basic, Semantic and Modular are the product structure, and each should be a distinct interface
 with its own field types, constraint editors and guidance. Replace the presets that carry their
@@ -208,7 +181,7 @@ Moving between profiles has to leave the template intact, which is what makes th
 hard. A template authored in Modular and opened in Basic still contains everything Basic does
 not show. Every control on a card is a decision this item has to absorb.
 
-### 11. Add Host Restrictions and Preferences to the CED Embedding Contract
+### 10. Add Host Restrictions and Preferences to the CED Embedding Contract
 
 Add read-only mode, language and allowed field types to the designer element. Host
 restrictions bound what the author may edit or select; profile and preference settings can
@@ -222,14 +195,14 @@ the host replaces the artifact or supplies an editable draft.
 Add conformance and browser tests for these inputs and events, including read-only published
 content and the transition to a host-supplied editable document.
 
-### 12. Keyboard and Screen-Reader Access
+### 11. Keyboard and Screen-Reader Access
 
 Verify keyboard focus order across settings, palette actions and nested elements. Add
 live-region announcements for constraint changes, accepted or rejected local Apply actions and
 host-supplied validation results. Exercise those workflows with a screen reader and verify that
 focus returns to a useful control after each action.
 
-### 13. Complete the Template Designer
+### 12. Complete the Template Designer
 
 Replace the inert surface that the Template Designer shows for an artifact that is not writable
 with the designer element's read-only contract, once the embedding contract item provides one, so
