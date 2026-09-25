@@ -968,7 +968,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   the command exists, rewrite the npmjs runbook into a description of what it does and where it
   stops.
 
-- **24. Decide whether an attribute-value child keeps its declared property IRI.** Both model
+- **24. Keep an attribute-value child's declared property IRI in both JSON writers.** Both model
   libraries read such a child's property IRI out of a template's `@context` and then decline to write
   it back as JSON, so a read-and-write cycle over `template-022.json` loses
   `https://schema.metadatacenter.org/properties/d01cb533-265c-474a-95f3-9afb4616a6e1` from the
@@ -979,7 +979,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
 
   The loss is recorded rather than repaired. `JSON_TEMPLATE_ROUND_TRIP_DIVERGENCES` grants template
   022 one round-trip error under the reason `legacy attribute-value context mapping is absent`, and
-  the cross-library parity gates stay green because both libraries drop it in the same place:
+  the cross-library parity gates stay green because both libraries drop it in the same place.
   `ParentSchemaArtifact.getChildPropertyUris` excludes static and attribute-value children by name,
   and the TypeScript writer matches it.
 
@@ -987,29 +987,36 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   it on upload, and deriving one from a child's key would assert an identity nothing granted. That is
   an argument against minting an IRI, not against preserving one a document already carries.
 
-  Two things settle it. What the artifact server does with such a mapping when a template is uploaded,
-  and whether the entries in those two production templates mean anything or are debris from an
-  earlier writer. If they are meaningful, both JSON writers should keep them and the expectation entry
-  goes. If they are debris, `cedar_artifact_patch.py` should remove them and both YAML writers should
-  stop carrying them.
+  **The artifact server already preserves one.** On a create and on an ordinary update,
+  `LinkedDataUtil.addChildPropertyIris` in `cedar-config-library` mints a mapping for every child
+  that lacks one, skips attribute-value children along with the static kinds, and never removes a
+  mapping already present. `repairInheritedDefects` removes an inherited child mapping only when it
+  is not a single absolute IRI, and the three production entries are well-formed IRIs. A verbatim
+  write stores the document as sent. The server therefore neither mints such an IRI nor discards
+  one, and has kept these three through every save; only the libraries' JSON writers drop them. The
+  libraries should do what the server does.
 
   **One document shows the shape with a term an author chose, and no corpus case covers it.**
   `template-033-original.json` carries it twice, on `Data Characteristics Table in Key-Value Pairs`
   and `Data File Descriptive Key-Value Pairs`, and its values are
   `https://w3id.org/radx/radmo/dataCharacteristicsTableInKeyValuePairs` and
   `https://w3id.org/radx/radmo/auxiliaryMetadataKeyValuePair` rather than minted identifiers. The
-  debris reading therefore cannot be assumed for the shape in general, whatever those three entries
-  turn out to be. The canonical `template-033.json` has no attribute-value child at all, because the
-  case was restructured in April 2024, so nothing in the corpus exercises an attribute-value child
-  carrying a vocabulary term. Adding such a case belongs to whichever answer is taken.
+  shape cannot be treated as debris in general, whatever the three minted entries turn out to be.
+  The canonical `template-033.json` has no attribute-value child at all, because the case was
+  restructured in April 2024, so nothing in the corpus exercises an attribute-value child carrying a
+  vocabulary term.
 
   This is not the question a requirement on the same type answers, and the difference is the whole of
   it: a requirement has nowhere to go in the JSON form, because an attribute-value field carries no
   `_valueConstraints` node at all, so the YAML writers record nothing. A property IRI has somewhere to
   go, is there in production, and is being dropped on the way out.
 
-  Whichever way it goes, the three children and their generated fixtures move with it, and the Java
-  library's corpus verifier reports them stale until they are regenerated.
+  The work is in both libraries. `getChildPropertyUris` and the TypeScript writer should emit an
+  attribute-value child's mapping when the model holds one, and still mint none. The template 022
+  entry leaves `JSON_TEMPLATE_ROUND_TRIP_DIVERGENCES`, and a corpus case adds an attribute-value child
+  carrying a vocabulary term. The three children's generated fixtures change with it, and the Java
+  library's corpus verifier reports them stale until they are regenerated. Whether the three minted
+  entries are worth keeping is a separate question about production data, not about the writers.
 
 - **25. Decide what an ordinary write may change about the artifact it stores.** Every non-verbatim
   write is normalized before it is validated, and two different things travel under that one name.
