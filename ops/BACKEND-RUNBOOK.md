@@ -1376,6 +1376,14 @@ has to be asked for on both sides: the ordinary reader refuses it over the absen
 a reader for it is a separate constructor, `YamlArtifactReader(true)` in Java and
 `getStrictForCompact()` in TypeScript.
 
+Both JSON and YAML schema readers reject child keys that collide with Java's reserved instance
+properties, including `@value`, `@id`, `schema:name` and `rdfs:label`. Ordinary metadata constraints
+under those JSON properties remain valid. YAML scalar spellings (`true`, `null`, `yes`, numeric or
+date-like names) and CEDAR YAML keys (`type`, `name`, `key`, `children`) are valid child names:
+the writers quote string names and readers preserve them. A YAML child key must be a string;
+quote a boolean- or number-looking name in hand-written YAML. `YamlChildNamesTest` in Java and
+`ReservedChildNames.spec.ts` in TypeScript cover these boundaries.
+
 Both readers make the same compatibility concession for `$schema`: an artifact root must carry the
 canonical draft-04 URI, while a nested legacy field or element may omit it on input. Both writers put
 the canonical declaration back, so a read-render cycle repairs the omission. An explicit wrong or
