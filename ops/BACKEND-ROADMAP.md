@@ -1066,7 +1066,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   | Remaining issue | Schema artifacts |
   | --- | ---: |
   | Indexed artifacts whose typed GET returns 404, including on the final retry | 6: 1 template, 1 element, 4 fields |
-  | TypeScript strict-reader diagnostics on Java-validator-valid source schemas; conversions still succeed | 1,438; full audit plus targeted production rechecks on 2026-09-25 |
+  | TypeScript strict-reader diagnostics on Java-validator-valid source schemas; conversions still succeed | 1,436; full audit plus targeted production rechecks on 2026-09-25 |
   | Java 17 and JavaScript choose different decimal spellings for exceptional large floating-point values | None observed in production; a synthetic probe differs |
 
   Reconcile the unavailable search/graph entries with the store; the legacy `.net` template also

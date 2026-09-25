@@ -6883,7 +6883,80 @@ def only_dropped_orphan_literal_actions(before: Any, after: Any) -> Optional[str
     return None
 
 
+def reserved_value_child_edits(artifact: Any) -> dict[str, tuple[Any, Any]]:
+    """The exact edits for the approved @value → value child rename, including references."""
+    edits = {}
+    for path, node in schema_context_nodes(artifact):
+        if node.get("@type") not in ("https://schema.metadatacenter.org/core/Template", ELEMENT_AT_TYPE):
+            continue
+        properties = node.get("properties", {})
+        child = properties.get("@value")
+        if not isinstance(child, dict) or child.get("@type") != FIELD_AT_TYPE:
+            continue
+        if "value" in properties or child.get("schema:name") != "@value":
+            raise TransformRefused("reserved child rename has a conflicting destination or name at " + path)
+        renamed = copy.deepcopy(child)
+        renamed["schema:name"] = "value"
+        edits[path + "/properties/@value"] = (child, ABSENT)
+        edits[path + "/properties/value"] = (ABSENT, renamed)
+        for suffix in ("/properties/@context/properties", "/_ui/propertyLabels", "/_ui/propertyDescriptions"):
+            mapping = value_at(artifact, path + suffix)
+            if not isinstance(mapping, dict) or "@value" not in mapping or "value" in mapping:
+                raise TransformRefused("missing or conflicting child reference at " + path + suffix)
+            old = mapping["@value"]
+            new = "value" if suffix == "/_ui/propertyLabels" and old == "@value" else old
+            edits[path + suffix + "/@value"] = (old, ABSENT)
+            edits[path + suffix + "/value"] = (ABSENT, new)
+        for suffix in ("/required", "/properties/@context/required", "/_ui/order"):
+            old = value_at(artifact, path + suffix)
+            if not isinstance(old, list) or "value" in old:
+                raise TransformRefused("missing or conflicting child list at " + path + suffix)
+            new = ["value" if v == "@value" else v for v in old]
+            if suffix == "/_ui/order" and "@value" not in old:
+                new.append("value")
+            edits[path + suffix] = (old, new)
+    return edits
+
+
+def rename_reserved_value_child(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    result = copy.deepcopy(artifact)
+    changes = []
+    for path, (old, new) in reserved_value_child_edits(artifact).items():
+        parent_path, key = path.rsplit("/", 1)
+        parent = value_at(result, parent_path)
+        if new is ABSENT:
+            del parent[key]
+        else:
+            parent[key] = copy.deepcopy(new)
+        changes.append({"path": path, "replaced": None if old is ABSENT else old,
+                        "wrote": None if new is ABSENT else new})
+    return result, changes
+
+
+def only_renamed_reserved_value_child(before: Any, after: Any) -> Optional[str]:
+    expected = reserved_value_child_edits(before)
+    actual = {path: (old, new) for path, old, new in differences(before, after)}
+    # Array element replacements are reported individually when their lengths are unchanged.
+    for path, (old, new) in expected.items():
+        if isinstance(old, list) and isinstance(new, list) and len(old) == len(new):
+            for i, (was, now) in enumerate(zip(old, new)):
+                if was != now and actual.pop(path + "/" + str(i), None) != (was, now):
+                    return path
+        elif old is not ABSENT and new is not ABSENT and json_equal(old, new):
+            continue
+        else:
+            pair = actual.pop(path, None)
+            if pair is None or not json_equal(pair[0], old) or not json_equal(pair[1], new):
+                return path
+    return next(iter(actual), None)
+
+
 REPAIRS = {
+    "rename-reserved-value-child": Repair(
+        name="rename-reserved-value-child", condition="reserved-value-child",
+        summary="rename the approved @value child to value, preserving its property IRI and field content",
+        transform=rename_reserved_value_child, invariant=only_renamed_reserved_value_child,
+    ),
     "drop-orphan-literal-actions": Repair(
         name="drop-orphan-literal-actions", condition="orphan-literal-actions",
         summary="remove approved orphan vocabulary actions from literal fields without active vocabularies",
