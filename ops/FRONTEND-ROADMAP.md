@@ -242,12 +242,14 @@ live-region announcements for constraint changes, accepted or rejected local App
 host-supplied validation results. Exercise those workflows with a screen reader and verify that
 focus returns to a useful control after each action.
 
-### 14. Move the Split Host and Its Smokes onto CED
+### 14. Complete the Split Designer Host
 
 Replace the inert surface that `cedar-template-designer` shows for an artifact that is not
 writable with the designer element's read-only contract, once the embedding contract item
 provides one, so that inspection, navigation and preview remain available.
 
-Migrate the full split authoring and lifecycle smoke and the inclusion-bubbling smoke from the
-legacy Designer's selectors to CED. Carry over their sharing, population, terminology and
-two-user coverage.
+Decide whether the split applications need Update Bubbling. When an element that templates include
+is saved, the combined application offers to write the change into each including draft template,
+and `inclusion-bubbling-smoke.mjs` covers that offer. Neither Workspace nor the Designer host offers
+it. If the split needs it, add it to the host and carry the smoke's cases, including the refusal of
+a published target, into `smoke:workspace:modern:full`.

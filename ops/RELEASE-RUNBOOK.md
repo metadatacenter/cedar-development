@@ -167,11 +167,11 @@ repository, short SHA, attempt, and delay. Authentication or authorization refus
 settled red CI, and a persistently absent run fail immediately or at the end of that short grace. A
 queued or running run is not waited through; the refusal carries its workflow URL.
 
-**The smoke gate is asked about the same commits.** `cedarcli test e2e` runs the REST and browser
-smoke tiers against the native stack and records each run under the `develop` heads it tested, in
+**The smoke gate is asked about the same commits.** `cedarcli test e2e` runs the REST, browser and
+split smoke tiers against the native stack and records each run under the `develop` heads it tested, in
 `cedar-development/ops/e2e/reports/smoke-gate/`. The record that answers for a train therefore
 survives later runs against newer heads, and a release days after its train still finds it. The
-gate refuses when no run covers the train's source, when either tier failed, when the REST run did
+gate refuses when no run covers the train's source, when any tier failed, when the REST run did
 not execute the committed check inventory, or when a repository held uncommitted changes while the
 smoke ran. Unlike a red develop, nothing accepts a missing or failed run. The answer to a flaky run
 is to rerun it.

@@ -201,7 +201,7 @@ changes. Commit/push remains subject to the user’s instruction.
 
 The command runs the component verification gates in the isolated build copies, records the
 successful package selection, restarts all native frontends, verifies their installed reactor
-packages, and runs both whole-stack smoke tiers. A failure at any stage returns nonzero. A
+packages, and runs the whole-stack smoke tiers. A failure at any stage returns nonzero. A
 compilation failure leaves the previous runtime selection intact; a deployment or smoke failure
 leaves the newly selected composition available for diagnosis and does not report completion.
 
@@ -224,7 +224,7 @@ build options before the target; `--jobs 1 --workers 1` provides a serial compar
 The scheduler reads dependencies from nested package manifests (including npm aliases)
 and the inventory's integration bundle inputs. A consumer waits for its current-source
 producers to pass all checks and publish their immutable local artifacts. Other build
-commands remain exclusive barriers, and deployment and both smoke tiers run after all
+commands remain exclusive barriers, and deployment and the smoke tiers run after all
 frontend checks pass. A failed producer blocks its consumers, including in continue mode.
 
 The CEE gate overlaps independent build, domain, unit, lint and type-check stages within

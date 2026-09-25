@@ -91,11 +91,11 @@ rerun --failed` command that repeats only its failed jobs. A release advances `d
 repositories at once, so run it after a release lands and before the next train, rather than
 learning about a red repository from the dispatch preflight hours later.
 
-The smoke question has its own command as well. `cedarcli test e2e` runs both whole-stack tiers
-under `cedar-development/ops/e2e`, the REST suite and the browser smoke, against the native stack,
-and records the run under the `develop` head of every train repository at that moment, in
-`ops/e2e/reports/smoke-gate/`. The dispatch preflight reads the record for exactly the heads the
-train would capture. It refuses when there is no such record, when either tier failed, when the REST
+The smoke question has its own command as well. `cedarcli test e2e` runs the whole-stack tiers
+under `cedar-development/ops/e2e` against the native stack: the REST suite, the monolith's browser
+smoke and the split applications' journey. It records the run under the `develop` head of every
+train repository at that moment, in `ops/e2e/reports/smoke-gate/`. The dispatch preflight reads the record for exactly the heads the
+train would capture. It refuses when there is no such record, when any tier failed, when the REST
 run did not execute the committed check inventory, or when a repository held uncommitted changes
 while the smoke ran. A run is evidence about commits rather than about a moment, so it never
 expires, and a commit to any train repository after it, a runbook edit included, calls for a rerun

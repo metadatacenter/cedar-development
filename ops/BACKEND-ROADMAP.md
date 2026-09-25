@@ -776,9 +776,9 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   dispatched through Actions is ungated while the same train dispatched from the CLI is not.
 
   Add a scheduled and manually dispatchable whole-stack workflow that brings up a known source, runs
-  both tiers through `cedarcli test e2e`, and retains its report as an artifact. Make the workflow
+  every tier through `cedarcli test e2e`, and retains its report as an artifact. Make the workflow
   train call the same gate implementation the CLI calls rather than a second preflight path. Done
-  when both tiers run unattended on a cadence, their reports are retained, and a train dispatched
+  when every tier runs unattended on a cadence, their reports are retained, and a train dispatched
   through Actions is refused on the same evidence that refuses one dispatched from `cedarcli`.
 
 - **19. Take the dependency upgrades that need code changes.** The versions that could move without

@@ -445,7 +445,7 @@ API key. Resource denials and missing documents stop the workflow before DOI min
 HTTP response is never interpreted as an artifact or validation verdict. Bridge still checks DOI
 eligibility (edit capability, openness and template publication). It needs resource host/port but no
 artifact host/port, and must not receive artifact's internal caller credential. Build config
-before bridge, redeploy bridge, and run both smoke tiers; the backend-free bridge suite also checks
+before bridge, redeploy bridge, and run the smoke tiers; the backend-free bridge suite also checks
 these routes against a resource HTTP stub without contacting DataCite. Before rollout, verify that
 the configured DataCite template is present in the workspace graph and readable by DOI users: a
 Mongo-only template or one they cannot read now produces a 404 or 403 instead of bypassing the ACL.
@@ -499,7 +499,7 @@ header, roll artifact back first or those callers will fail. Returning to an une
 restores the earlier trust gap and requires the existing private-network containment. A rollback
 requires no database restoration.
 
-For the repo rollout, build the config library before the repo server, redeploy repo, and run both
+For the repo rollout, build the config library before the repo server, redeploy repo, and run the
 whole-stack smoke tiers. Also compare repo and resource reads for all four artifact types using an
 owner and another user: permitted bodies and ETags must match, private reads must remain denied,
 and missing identifiers and downstream outages must not produce successful reads. Keep the previous
@@ -2218,15 +2218,14 @@ template, field, instance, mutation folder or mutation group behind;
 `ops/e2e/cleanup-smoke-leftovers.mjs` removes timestamped artifact leftovers, while the smoke's own
 catch path removes every fixture whose identifier it acquired before the failure.
 
-The browser smoke runs against whichever frontends are deployed, and the variant has to match
-them. `npm run smoke` drives the monolith on its single origin. Of the two split variants,
-`npm run smoke:split:hostnames:authenticated` addresses Workspace and Designer on their own
-hostnames, which is how a native or Docker stack serves them here, and
-`npm run smoke:split:authenticated` addresses them on loopback ports, which needs frontends whose
-configuration names those ports. Each application builds its in-app navigation from the origins its
-served `config/url-service.conf.json` carries, so a run pointed anywhere else loses the application
-on its first navigation; the smoke reads that file before the cross-application gesture and says
-which origins are deployed and which the run addressed, rather than waiting out a timeout.
+`npm run smoke` drives the monolith on its single origin. The split applications are separate
+Angular code with a journey of their own, `npm run smoke:workspace:modern:full`, which addresses
+Workspace and Designer on their own hostnames, as a native or Docker stack serves them here. It runs
+the Workspace journey, the Designer host journey, the account pages and the lifecycle routes. The
+Workspace journey covers folders, sharing between two users, ownership transfer in both directions,
+CED authoring with a Disease field constrained to the DOID disease branch through the live term
+picker, recovery from an expired token in both applications, stale-save protection, populating
+with a live DOID suggestion, publication and drafts, downloads, OpenView and conditional deletion.
 
 `ops/e2e` holds the two whole-stack tests, and they answer different questions. `npm run smoke:rest`
 drives the REST API directly (timings below), and reaches what no unit suite can: the artifact
@@ -2248,7 +2247,7 @@ The REST runner uses two workers by default, bounded to one through four. Use
 `cedarcli test e2e --rest-workers 4` for four workers, or `--rest-workers 1` for the
 serial diagnostic path. For an individual REST invocation, the equivalent is
 `npm run smoke:rest -- --workers=4` after loading the normal profile. The standalone
-REST invocation does not replace the two-tier release smoke gate.
+REST invocation does not replace the release smoke gate.
 
 Thirteen audited suites may overlap. Each has its own working folder, asynchronous
 check context, creation tracking and cleanup registry. The `folders`, `groups`,
@@ -2284,11 +2283,11 @@ healthy worker consumers. Mean elapsed time was 51.26 seconds, range 47.3–55.2
 57% less than the serial baseline. Local logs and JSON reports are retained under
 `.cedar/build-reports/rest-repeat-10-20260924T162831Z/`.
 
-`cedarcli test e2e` runs both tiers in one command and records the run as the evidence the train
+`cedarcli test e2e` runs every tier in one command and records the run as the evidence the train
 and release preflights require. Before anything runs it reads the controller's status and refuses
 while any managed service is unhealthy, stale, or served by a process the controller does not
-manage. It then records the `develop` head of every train repository, runs `npm run smoke:rest` and
-`npm run smoke`, and writes `reports/smoke-gate/<digest>.json`, where the digest names the set of
+manage. It then records the `develop` head of every train repository, runs `npm run smoke:rest`,
+`npm run smoke` and `npm run smoke:workspace:modern:full`, and writes `reports/smoke-gate/<digest>.json`, where the digest names the set of
 heads, beside a `latest.json` copy. `cedarcli publish train` and `cedarcli release plan` look up the
 record for exactly the heads they are about to ship, so a rerun against newer heads never displaces
 the record an older train still needs. The REST tier's own report is kept beside it as
@@ -3854,31 +3853,17 @@ gate also verifies that the three application container IDs or native PIDs and t
 do not change. It removes both gateways on exit and deliberately performs no authentication, realm,
 hostname, production Compose, or data change.
 
-After the preview origins are authorized in Keycloak, run the split-aware form of the full
-Playwright journey:
-
-```bash
-cd $CEDAR_HOME/cedar-development/ops/e2e
-npm run smoke:split:authenticated
-# or watch the cross-origin login/navigation journey:
-npm run smoke:split:authenticated:headed
-```
-
-The local authenticated commands run `smoke:split:keycloak` first. That credential-free preflight
-asks Keycloak to accept each `/silent-check-sso.html` callback and verifies the token endpoint's
+After the preview origins are authorized in Keycloak, check them with the credential-free
+`npm run smoke:split:keycloak` before running the split journey. It asks Keycloak to accept each `/silent-check-sso.html` callback and verifies the token endpoint's
 CORS response echoes each exact origin with credentials and POST enabled. A Web Origin is an origin
 only (`http://localhost:4201`), never a route wildcard (`http://localhost:4201/*`); the latter looks
 similar in the admin console but cannot match the browser's `Origin` header. For non-local hosts,
 set `CEDAR_SPLIT_KEYCLOAK_ORIGINS` to a comma-separated list of exact origins.
 
-It first drives Workspace's real **New → Template** gesture, verifies that Designer receives the
-complete Workspace `returnTo` URL, waits for SSO on the Designer origin, and drives Designer's
-create-flow cancel action to prove exact restoration. It then runs the existing
-folder/template/controlled-term/CEE
-create-save-edit/OpenView/cleanup journey with Workspace as `CEDAR_BASE` and Designer as
-`CEDAR_DESIGNER_BASE`. The ordinary `npm run smoke` leaves both values on the production monolith,
-so this extension does not change the production smoke contract. Remote preview hosts can use the
-same journey by setting both variables explicitly instead of using the localhost npm shortcut.
+`npm run smoke:workspace:modern:full` drives Workspace's real **New → Template** gesture, verifies
+that Designer receives the complete Workspace `returnTo` URL and returns to it after saving, and runs
+the rest of the split journey. A remote preview host runs it with `CEDAR_BASE` and
+`CEDAR_DESIGNER_BASE` set to its Workspace and Designer origins.
 
 For a production-shaped local rehearsal, map `workspace.metadatacenter.orgx` and
 `designer.metadatacenter.orgx` to `127.0.0.1`, authorize their exact HTTPS callbacks and Web Origins
@@ -3912,7 +3897,7 @@ docker compose up -d --no-deps --force-recreate nginx
 
 cd $CEDAR_HOME/cedar-development/ops/e2e
 npm run smoke:split:hostnames:deployment
-npm run smoke:split:hostnames:authenticated
+npm run smoke:workspace:modern:full
 ```
 
 This is an intentional coexistence mode, not a routing cutover:
