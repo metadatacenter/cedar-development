@@ -3538,6 +3538,7 @@ Use the tool's `REPAIRS` table for the complete inventory. These are the operati
 
 | Repair | Permitted change and boundary |
 | --- | --- |
+| `complete-schema-bibo-context` | Add `"bibo": "http://purl.org/ontology/bibo/"`, matching Java's model prefix mappings, only to existing schema-owned contexts that omit it. Traverse declared templates, elements and fields (including array items and static fields); preserve existing mappings, annotations, instance-context schemas and required arrays. |
 | `empty-derived-from` | Delete empty-string `pav:derivedFrom` at every depth; preserve populated provenance. |
 | `canonicalise-iri-field-required` | Remove legacy presence requirements only from unambiguous IRI fields. First verify each changed field's Java-rendered counterpart also declares `@id`, not `@value`, and has no `required` list. Preserve `_valueConstraints.requiredValue` and vocabulary constraints; validate the complete template and dependent instances. |
 | `drop-unused-instance-context` | Remove only simple, undeclared context mappings unused throughout their container's scope. Preserve references in nested keys, compact IRIs, datatype values, other context definitions, and attribute-group member lists; keep complex definitions. Compare proposed removals with the Java-rendered template before applying. |

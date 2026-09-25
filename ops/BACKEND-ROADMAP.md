@@ -1067,7 +1067,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   | --- | ---: |
   | Literal fields with orphan vocabulary actions become text in Java but controlled-term in TypeScript | 12: 7 templates, 5 elements |
   | Indexed artifacts whose typed GET returns 404, including on the final retry | 6: 1 template, 1 element, 4 fields |
-  | TypeScript strict-reader diagnostics on Java-validator-valid source schemas; conversions still succeed | 3,646; overlaps one of the 12 above |
+  | TypeScript strict-reader diagnostics on Java-validator-valid source schemas; conversions still succeed | 2,560; overlaps one of the 12 above; full audit plus targeted production recheck on 2026-09-25 |
   | Java 17 and JavaScript choose different decimal spellings for exceptional large floating-point values | None observed in production; a synthetic probe differs |
 
   Decide how to handle the orphan actions before changing these schemas: the 12 artifacts contain
@@ -1078,7 +1078,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   returns 404 under the corresponding `.org` ID.
 
   Reconcile the strict reader's acceptance of legacy context and schema declarations, especially
-  missing `bibo` mappings, required arrays and property/type shapes. Keep these diagnostics separate
+  required arrays, extra context terms and property/type shapes. Keep these diagnostics separate
   from failed conversions. Extend numeric spelling beyond ordinary decimal expansion: the synthetic
   bound `-1.2345e21` renders as `-1234499999999999900000` in Java 17 and
   `-1234500000000000000000` in TypeScript. Match the canonical algorithm without changing values.

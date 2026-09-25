@@ -6593,7 +6593,61 @@ def only_declared_fields(before: Any, after: Any) -> Optional[str]:
     return None
 
 
+SCHEMA_CONTEXT_TYPES = frozenset(
+    "https://schema.metadatacenter.org/core/" + name
+    for name in ("Template", "TemplateElement", "TemplateField", "StaticTemplateField")
+)
+BIBO_NAMESPACE = "http://purl.org/ontology/bibo/"
+
+
+def schema_context_nodes(node: Any, path: str = "") -> Iterator[tuple[str, dict]]:
+    """Visit only schema declarations, never instance-context property schemas or annotations."""
+    if not isinstance(node, dict):
+        return
+    if node.get("type") == "array":
+        yield from schema_context_nodes(node.get("items"), path + "/items")
+        return
+    types = node.get("@type")
+    types = types if isinstance(types, list) else [types]
+    if not any(isinstance(t, str) and t in SCHEMA_CONTEXT_TYPES for t in types):
+        return
+    yield path, node
+    properties = node.get("properties")
+    if isinstance(properties, dict):
+        for name, value in properties.items():
+            yield from schema_context_nodes(value, path + "/properties/" + rest.json_pointer_component(name))
+
+
+def complete_schema_bibo_context(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Supply Java's canonical prefix only where an existing schema context omits it."""
+    result = copy.deepcopy(artifact)
+    changes = []
+    for path, node in schema_context_nodes(result):
+        context = node.get("@context")
+        if isinstance(context, dict) and "bibo" not in context:
+            context["bibo"] = BIBO_NAMESPACE
+            changes.append({"path": path + "/@context/bibo", "wrote": BIBO_NAMESPACE})
+    return result, changes
+
+
+def only_added_schema_bibo_context(before: Any, after: Any) -> Optional[str]:
+    allowed = {
+        path + "/@context/bibo"
+        for path, node in schema_context_nodes(before)
+        if isinstance(node.get("@context"), dict) and "bibo" not in node["@context"]
+    }
+    for path, was, now in differences(before, after):
+        if path not in allowed or was is not ABSENT or now != BIBO_NAMESPACE:
+            return path or "/"
+    return None
+
+
 REPAIRS = {
+    "complete-schema-bibo-context": Repair(
+        name="complete-schema-bibo-context", condition="schema-bibo-context-missing",
+        summary="add Java's bibo prefix to existing schema contexts that omit it",
+        transform=complete_schema_bibo_context, invariant=only_added_schema_bibo_context,
+    ),
     "compact-blank-occurrences": Repair(
         name="compact-blank-occurrences", condition="",
         summary="put a multi-instance field's values first so the stored order is the order a round trip returns",
