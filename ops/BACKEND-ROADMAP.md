@@ -1051,17 +1051,25 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   reduced to one without a decision. Empty representations and populated data need separate rules,
   each with a narrow invariant and validation of the complete candidate.
 
-  A revalidation on 2026-09-25 of the 1,290 instances an earlier walk had flagged separates two
-  failures that had been counted as one, and they barely overlap:
+  Revalidation on 2026-09-25 of the 1,290 instances an earlier walk had flagged leaves 703 valid,
+  586 invalid and one whose template cannot be resolved. The remaining work has two populations:
 
   | | instances | |
   | --- | ---: | --- |
-  | Stored-invalid | 638 | over 238 templates; a data defect |
-  | Stored-valid, refused on the write path | 651 | of which 198 the library cannot read at all |
+  | Stored-invalid | 586 | over 216 templates; distinguish instance defects from noncanonical schema declarations |
+  | Stored-valid, refused on the write path | 19 | 15 read failures, three post-conversion validation failures, one completion failure |
 
-  The second group is the larger of the two and belongs to the libraries rather than to the data:
-  the deployment holds a valid document that a YAML write would not store. It wants its own
-  classification by failing stage before any of it is called a data repair.
+  Resolve the second group against Java's canonical model before changing data. Its three
+  post-conversion validation failures come from two templates whose stored literal declarations
+  disagree with their vocabulary constraints. The read failures include noncanonical literal
+  shapes and an attribute group referring to a missing member. A stored-valid verdict alone does
+  not establish a library defect. Reconcile any TypeScript disagreement with Java and preserve
+  entered information when a stored representation must migrate.
+
+  The completion failure has an attribute group named `type` inside `Channel block`, colliding
+  with the YAML element discriminator. It needs a coordinated schema/instance rename with a
+  confirmed replacement name; rejecting the ambiguous rendering protects the data but does not
+  migrate it.
 
   These counts cover the flagged subset, not the corpus. An instance clean on both axes at the last
   full walk is not in them, and neither is anything created since.
@@ -1072,7 +1080,6 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   | Template | Invalid instances |
   | --- | ---: |
   | Migrant-Interviews (`ad459f36…`) | 34 |
-  | CCP Digital Object (`62c8b5f2…`) | 29 |
   | LINCS DSGC Dataset Submission (`70b010f2…`) | 26 |
   | Adverse Events V2 | 25 |
   | VODAN-COVID-Migrants-Tunisia (`1988902f…`) | 22 |
@@ -1091,9 +1098,10 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   | Citation | 7 |
   | COVID Project Content | 6 |
   | COVID-19_Project-Admin_V4 (`337cb6f3…`) | 6 |
+  | File Metadata | 6 |
 
-  Another 213 templates carry 1–4 invalid instances each, 313 between them: 149 have one, 40 have
-  two, 12 have three, and 12 have four. These groups include *Cell*, with four remaining instances:
+  Another 192 templates carry 1–4 invalid instances each, 290 between them: 131 have one, 36 have
+  two, 13 have three, and 12 have four. These groups include *Cell*, with four remaining instances:
   resolve ontology assertions in the text-only `Reporter_type`/`Mod_type` fields and the undeclared,
   malformed `Publication_title` structure without discarding populated data.
 
@@ -1204,24 +1212,13 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   artifact before changing anything, repair the projection from the authoritative stores, and rerun
   the audit. Never delete a store artifact merely because its search entry is inconsistent.
 
-  **Decide the instance properties two templates do not declare.** Ten instances of *CCP Digital
-  Object* (`62c8b5f2…`) and *UPDATED HEAL Study Core Metadata* (`a91e12b0…`) remain invalid, the
-  last of a set of 68 whose other 58 are clean. Seven carry properties their template never
-  declared - `untitled`, bare UUID keys, `Additional Information1`, and one holding an array where
-  the template declares an object. Whether each is data belonging under a declared field or an
-  editing artefact to drop is a decision per property rather than a rule. The other three fail on
-  `@context` enum mismatches.
-
-  Six instances elsewhere wait on the same decision. They carry `pav:version` and `bibo:status`,
-  which belong to the artifact that declares a shape rather than to one that fills it in, and
-  `drop-schema-keys-from-instance` refuses them because each is separately invalid for the reasons
-  above. A read of all 150,576 instances on 2026-09-23 found nine such carriers and cleared three;
-  these are the rest.
-
-  Expect each repair on this set to reveal the next. A validator reports the first thing that stops
-  an instance being read, so a defect behind another is invisible until the first is gone: narrowing
-  one `@value` uncovered fourteen blank occurrences and eight stray artifact-level keys, and
-  removing those uncovered eight more blank occurrences. Re-read the whole set after every write.
+  **Resolve the remaining CCP and HEAL instance properties.** Five instances of *CCP Digital
+  Object* (`62c8b5f2…`) and eight of *UPDATED HEAL Study Core Metadata* (`a91e12b0…`) remain
+  invalid in the flagged subset. Review populated undeclared fields, cardinality and conflicting
+  context predicates individually. A dynamic attribute member remains meaningful when a group
+  names it, even if its value is null; deleting it is not a substitute for reconciling the group
+  declaration with the canonical model. Revalidate after each repair because an earlier failure
+  can hide another defect.
 
 
   **Decide what seven pasted constraints were meant to constrain.** Seven templates constrain a

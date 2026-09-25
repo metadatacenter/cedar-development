@@ -864,12 +864,119 @@ def canonical_required(definition: Any) -> tuple[Optional[list[str]], str]:
     return [AT_VALUE], "literal"
 
 
+def canonicalise_iri_field_required(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Remove legacy IRI-field required lists, as the Java model renders them.
+
+    This only relaxes JSON Schema presence requirements. It does not change the field's
+    properties, entered values, vocabulary constraints or requiredValue authoring constraint.
+    Select targets only after checking their Java-rendered counterparts have the same IRI
+    value shape and no required list; a literal/IRI disagreement is a separate repair.
+    """
+    changes = []
+    def walk(node: Any, path: str) -> Any:
+        if isinstance(node, list):
+            return [walk(value, f"{path}/{index}") for index, value in enumerate(node)]
+        if not isinstance(node, dict):
+            return node
+        wanted, shape = canonical_required(node)
+        result = {}
+        for name, value in node.items():
+            here = f"{path}/{rest.json_pointer_component(name)}"
+            if name == REQUIRED_KEY and shape == "IRI" and isinstance(value, list) and value:
+                changes.append({"path": here, "replaced": value, "wrote": None})
+            else:
+                result[name] = walk(value, here)
+        return result
+    return walk(artifact, ""), changes
+
+
+def only_canonicalised_iri_field_required(before: Any, after: Any) -> Optional[str]:
+    """Every difference must remove a required list from an unambiguous IRI field."""
+    for path, old, new in differences(before, after):
+        if not path.endswith("/required") or new is not ABSENT or not isinstance(old, list) or not old:
+            return path or "/"
+        parent = value_at(before, path.rsplit("/", 1)[0])
+        if not isinstance(parent, dict):
+            return path
+        kind = parent.get(AT_TYPE)
+        properties = parent.get("properties")
+        if not isinstance(kind, str) or kind not in FIELD_AT_TYPES or kind == STATIC_FIELD_AT_TYPE \
+                or not isinstance(properties, dict) or AT_ID not in properties or AT_VALUE in properties:
+            return path
+    return None
+
+
 def term_constrained(definition: Any) -> bool:
     """Whether the field draws its value from a vocabulary, which only an IRI field can."""
     constraints = definition.get("_valueConstraints") if isinstance(definition, dict) else None
     if not isinstance(constraints, dict):
         return False
     return any(constraints.get(group) for group in TERM_CONSTRAINT_GROUPS)
+
+
+def noncanonical_context_demands(container: Any) -> set[str]:
+    """Only orphan child names and attribute-group names; preserve namespace requirements."""
+    if not isinstance(container, dict):
+        return set()
+    children = {name: child for name, child, _ in container_children(container)}
+    required = container.get('properties', {}).get('@context', {}).get('required', [])
+    namespaces = {'xsd', 'rdfs', 'pav', 'schema', 'oslc', 'skos', 'bibo'}
+    return {name for name in required if isinstance(name, str) and not name.startswith('@')
+            and ':' not in name and name not in namespaces
+            and (name not in children or children[name].get('_ui', {}).get('inputType') == 'attribute-value')}
+
+
+def drop_noncanonical_context_demands(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Relax context requirements for absent children and attribute-value groups.
+
+    Apply only to targets compared with the Java-rendered schema. Keep all mappings and
+    instance values; only the obligation to repeat these mappings is removed.
+    """
+    changes = []
+    def walk(node: Any, path: str) -> Any:
+        if isinstance(node, list):
+            return [walk(value, f'{path}/{index}') for index, value in enumerate(node)]
+        if not isinstance(node, dict):
+            return node
+        result = {key: walk(value, f'{path}/{rest.json_pointer_component(key)}') for key, value in node.items()}
+        kind = node.get('@type')
+        if isinstance(kind, str) and kind in {'https://schema.metadatacenter.org/core/Template', rest.TEMPLATE_ELEMENT}:
+            removed = noncanonical_context_demands(node)
+            if removed:
+                old = node['properties']['@context']['required']
+                new = [name for name in old if name not in removed]
+                result['properties']['@context']['required'] = new
+                changes.append({'path': path + '/properties/@context/required', 'replaced': old, 'wrote': new})
+        return result
+    return walk(artifact, ''), changes
+
+
+def only_dropped_noncanonical_context_demands(before: Any, after: Any) -> Optional[str]:
+    def walk(old: Any, new: Any, path: str) -> Optional[str]:
+        if isinstance(old, dict):
+            if not isinstance(new, dict) or set(old) != set(new):
+                return path or '/'
+            for key in old:
+                here = f'{path}/{rest.json_pointer_component(key)}'
+                if here.endswith('/properties/@context/required'):
+                    parent_path = here[:-len('/properties/@context/required')]
+                    parent = before if not parent_path else value_at(before, parent_path)
+                    kind = parent.get('@type') if isinstance(parent, dict) else None
+                    removable = noncanonical_context_demands(parent) if isinstance(kind, str) and kind in {'https://schema.metadatacenter.org/core/Template', rest.TEMPLATE_ELEMENT} else set()
+                    if not isinstance(old[key], list) or new[key] != [name for name in old[key] if name not in removable]:
+                        return here
+                else:
+                    fault = walk(old[key], new[key], here)
+                    if fault is not None:return fault
+            return None
+        if isinstance(old, list):
+            if not isinstance(new, list) or len(old) != len(new):return path
+            for index, value in enumerate(old):
+                fault = walk(value, new[index], f'{path}/{index}')
+                if fault is not None:return fault
+            return None
+        return None if json_equal(old, new) else path or '/'
+    return walk(before, after, '')
 
 
 def unfillable(demanded: Any, properties: Any) -> bool:
@@ -4292,14 +4399,20 @@ def explicitly_empty(value: Any) -> bool:
 
 
 def drop_empty_undeclared_keys(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
-    """Remove empty undeclared top-level slots, never an entered value or identifier."""
+    """Remove empty undeclared top-level slots, preserving attribute-group members."""
     if not isinstance(instance, dict) or not isinstance(template, dict):
         raise TransformRefused("instance and template must be objects")
     declared = set(template.get("properties", {}))
+    # Attribute-value groups name sibling fields in a string array. Those dynamic names need
+    # not appear in properties: even a null member is still referenced by the group. Preserve
+    # every possible reference, including when the group's own declaration is malformed.
+    referenced = {name for value in instance.values() if isinstance(value, list)
+                  for name in value if isinstance(name, str)}
     result = copy.deepcopy(instance)
     changes = []
     for key, value in instance.items():
-        if key in declared or key.startswith("@") or ":" in key or not explicitly_empty(value):
+        if key in declared or key in referenced or key.startswith("@") or ":" in key \
+                or not explicitly_empty(value):
             continue
         del result[key]
         if isinstance(result.get("@context"), dict):
@@ -4316,6 +4429,8 @@ def only_dropped_empty_undeclared_keys(before: Any, after: Any, template: Any) -
     for key in removed:
         if key in template.get("properties", {}) or key.startswith("@") or ":" in key \
                 or not explicitly_empty(before[key]):
+            return f"/{rest.json_pointer_component(key)}"
+        if any(isinstance(value, list) and key in value for value in before.values()):
             return f"/{rest.json_pointer_component(key)}"
     restored = copy.deepcopy(after)
     for key in removed:
@@ -4342,6 +4457,76 @@ def complete_empty_literal(instance: Any, template: Any) -> tuple[Any, list[dict
             changes.append({"path": path + "/@value", "replaced": None, "wrote": None})
         return value
     return walk_instance(result, template, "", fill), changes
+
+
+def context_name_used(node: Any, name: str) -> bool:
+    """Conservatively retain terms used as keys, compact IRIs or attribute-group members."""
+    if isinstance(node, str):
+        return node == name or node.startswith(name + ":")
+    if isinstance(node, list):
+        return any(context_name_used(value, name) for value in node)
+    if isinstance(node, dict):
+        return any(context_name_used(key, name) or context_name_used(value, name)
+                   for key, value in node.items())
+    return False
+
+
+def drop_unused_instance_context(instance: Any, template: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Remove only undeclared simple context terms that nothing in their scope references."""
+    if not isinstance(instance, dict) or not isinstance(template, dict):
+        raise TransformRefused("instance and template must be objects")
+    changes = []
+    def walk(node: Any, schema: Any, path: str) -> Any:
+        if not isinstance(node, dict):
+            return node
+        result = copy.deepcopy(node)
+        context = node.get("@context")
+        declared = schema.get("properties", {}).get("@context", {}).get("properties", {})
+        if isinstance(context, dict) and isinstance(declared, dict):
+            for name, value in context.items():
+                if name in declared or name.startswith("@") or ":" in name \
+                        or not rest.is_absolute_iri(value):
+                    continue
+                scope = copy.deepcopy(node)
+                del scope['@context'][name]
+                if context_name_used(scope, name):
+                    continue
+                del result['@context'][name]
+                changes.append({'path': f'{path}/@context/{rest.json_pointer_component(name)}',
+                                'replaced': value, 'wrote': None})
+        for name, child, multiple in container_children(schema):
+            if not is_element(child) or name not in result:
+                continue
+            value = result[name]
+            here = f'{path}/{rest.json_pointer_component(name)}'
+            if multiple and isinstance(value, list):
+                result[name] = [walk(item, child, f'{here}/{index}') for index, item in enumerate(value)]
+            elif not multiple and isinstance(value, dict):
+                result[name] = walk(value, child, here)
+        return result
+    return walk(instance, template, ''), changes
+
+
+def only_dropped_unused_context(before: Any, after: Any, template: Any) -> Optional[str]:
+    for path, old, new in differences(before, after):
+        context_path, _, encoded = path.rpartition('/')
+        if not context_path.endswith('/@context') or new is not ABSENT or not rest.is_absolute_iri(old):
+            return path or '/'
+        name = encoded.replace('~1', '/').replace('~0', '~')
+        scope_path = context_path[:-len('/@context')]
+        schema = template if not scope_path else declaration_at(template, scope_path)
+        if not isinstance(schema, dict) or name.startswith('@') or ':' in name:
+            return path
+        declared = schema.get('properties', {}).get('@context', {}).get('properties', {})
+        if name in declared:
+            return path
+        scope = copy.deepcopy(before if not scope_path else value_at(before, scope_path))
+        if not isinstance(scope, dict) or not isinstance(scope.get('@context'), dict):
+            return path
+        scope['@context'].pop(name, None)
+        if context_name_used(scope, name):
+            return path
+    return None
 
 
 def normalized_spaced_orcid(value: Any) -> Optional[str]:
@@ -6427,6 +6612,12 @@ REPAIRS = {
         transform=drop_empty_undeclared_keys, invariant=only_dropped_empty_undeclared_keys,
         needs_template=True, error_pattern=UNDECLARED_KEY_ERROR,
     ),
+    "drop-unused-instance-context": Repair(
+        name="drop-unused-instance-context", condition="",
+        summary="remove undeclared context mappings with no references in their scope",
+        transform=drop_unused_instance_context, invariant=only_dropped_unused_context,
+        needs_template=True, error_pattern=UNDECLARED_KEY_ERROR,
+    ),
     "complete-empty-literal": Repair(
         name="complete-empty-literal", condition="",
         summary="state explicit null in otherwise empty nullable literal slots",
@@ -6673,6 +6864,19 @@ REPAIRS = {
         summary="write a draft's prerelease version as its release, discarding the tag",
         transform=settle_prerelease_version,
         invariant=only_settled_prerelease_version,
+    ),
+    "canonicalise-iri-field-required": Repair(
+        name="canonicalise-iri-field-required",
+        condition="iri-field-required",
+        summary="remove legacy IRI-field presence requirements to match the Java model",
+        transform=canonicalise_iri_field_required,
+        invariant=only_canonicalised_iri_field_required,
+    ),
+    "drop-noncanonical-context-demands": Repair(
+        name="drop-noncanonical-context-demands", condition="noncanonical-context-demands",
+        summary="stop demanding context entries for absent children or attribute-value groups",
+        transform=drop_noncanonical_context_demands,
+        invariant=only_dropped_noncanonical_context_demands,
     ),
     "canonicalise-field-required": Repair(
         name="canonicalise-field-required",

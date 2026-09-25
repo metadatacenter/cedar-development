@@ -3483,7 +3483,9 @@ Preserving provenance timestamps is appropriate for correcting a proven stored d
 make a substantive migration meaning-preserving.
 
 `drop-empty-undeclared-instance-keys` removes only explicit empty top-level slots and their context
-entries. `complete-empty-literal` adds null only to otherwise empty literal slots whose declaration
+entries. It preserves names referenced by sibling string arrays: attribute-value groups can name
+dynamic fields absent from the template's `properties`, even when those fields hold null.
+`complete-empty-literal` adds null only to otherwise empty literal slots whose declaration
 permits null. Neither supplies an entered term, date, number or other missing required value.
 Completion's invariant permits only declared empty shapes, required context additions and fresh
 element identities. Run the repair suites with
@@ -3496,6 +3498,9 @@ Use the tool's `REPAIRS` table for the complete inventory. These are the operati
 | Repair | Permitted change and boundary |
 | --- | --- |
 | `empty-derived-from` | Delete empty-string `pav:derivedFrom` at every depth; preserve populated provenance. |
+| `canonicalise-iri-field-required` | Remove legacy presence requirements only from unambiguous IRI fields. First verify each changed field's Java-rendered counterpart also declares `@id`, not `@value`, and has no `required` list. Preserve `_valueConstraints.requiredValue` and vocabulary constraints; validate the complete template and dependent instances. |
+| `drop-unused-instance-context` | Remove only simple, undeclared context mappings unused throughout their container's scope. Preserve references in nested keys, compact IRIs, datatype values, other context definitions, and attribute-group member lists; keep complex definitions. Compare proposed removals with the Java-rendered template before applying. |
+| `drop-noncanonical-context-demands` | Remove context-presence requirements naming absent children or attribute-value groups, only after Java-rendered comparison confirms each removal. Keep the mappings, regular child requirements, namespace requirements and instance data; validate dependent instances. |
 | `mint-child-ids` | Replace missing/unusable child IDs with the correct type prefix; do not change property IRIs. |
 | `mint-property-iris` | Replace present but unusable property mappings; absent mappings are out of scope. Review every dependent instance and exclude unsafe targets with `--exclude-ids`. |
 | `align-instance-context-iris` | Use reviewed template mappings at every element depth. This changes predicates: require the explicit migration scope and decision described above. |

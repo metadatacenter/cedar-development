@@ -122,6 +122,127 @@ class WriteSafetyTest(unittest.TestCase):
 
 
 class EmptySlotSafetyTest(unittest.TestCase):
+    def test_preserve_empty_dynamic_attribute_members_and_their_context(self):
+        for slot in ({'@value': None}, {}, []):
+            with self.subTest(slot=slot):
+                before = {'@context': {'Extra1': 'urn:extra', 'unused': 'urn:unused'},
+                          'Extra': ['Extra1'], 'Extra1': slot, 'unused': {'@value': None}}
+                t = template({'Extra': {'type': 'array', 'items': {'type': 'string'}}})
+                after, changes = r.drop_empty_undeclared_keys(before, t)
+                self.assertEqual(after['Extra1'], slot)
+                self.assertEqual(after['@context']['Extra1'], 'urn:extra')
+                self.assertEqual([c['path'] for c in changes], ['/unused'])
+                self.assertIsNone(r.only_dropped_empty_undeclared_keys(before, after, t))
+                del after['Extra1']
+                del after['@context']['Extra1']
+                self.assertIsNotNone(r.only_dropped_empty_undeclared_keys(before, after, t))
+
+    def test_preserve_referenced_members_even_when_group_is_undeclared(self):
+        before = {'Group': ['member'], 'member': {'@value': None}}
+        self.assertEqual(r.drop_empty_undeclared_keys(before, template({})), (before, []))
+        self.assertIsNotNone(r.only_dropped_empty_undeclared_keys(
+            before, {'Group': ['member']}, template({})))
+
+
+class CanonicalIriRequiredSafetyTest(unittest.TestCase):
+    def test_relaxes_only_iri_presence_and_preserves_author_constraints(self):
+        iri = child()
+        iri['properties'] = {'@id': {'type': 'string'}, 'rdfs:label': {'type': 'string'}}
+        iri['required'] = ['@id', 'rdfs:label']
+        iri['_valueConstraints'] = {'requiredValue': True, 'ontologies': [{'acronym': 'DOID'}]}
+        before = template({'Term': iri})
+        after, changes = r.canonicalise_iri_field_required(before)
+        self.assertEqual(len(changes), 1)
+        self.assertNotIn('required', after['properties']['Term'])
+        self.assertEqual(after['properties']['Term']['_valueConstraints'], iri['_valueConstraints'])
+        self.assertIsNone(r.only_canonicalised_iri_field_required(before, after))
+        self.assertEqual(r.canonicalise_iri_field_required(after)[1], [])
+        after['properties']['Term']['_valueConstraints']['requiredValue'] = False
+        self.assertIsNotNone(r.only_canonicalised_iri_field_required(before, after))
+
+    def test_preserves_literal_ambiguous_and_container_requirements(self):
+        for properties in ({'@value': {}}, {'@id': {}, '@value': {}}, {}):
+            field = child()
+            field.update(properties=properties, required=['@value'])
+            before = template({'Field': field})
+            self.assertEqual(r.canonicalise_iri_field_required(before), (before, []))
+            bad = copy.deepcopy(before)
+            del bad['properties']['Field']['required']
+            self.assertIsNotNone(r.only_canonicalised_iri_field_required(before, bad))
+
+
+class UnusedContextSafetyTest(unittest.TestCase):
+    def test_removes_only_unused_undeclared_simple_mapping(self):
+        before = {'@context': {'gone': 'urn:gone', 'Field': 'urn:field',
+                               'complex': {'@id': 'urn:complex'}}, 'Field': {'@value': 'data'}}
+        t = template({'Field': child()})
+        after, changes = r.drop_unused_instance_context(before, t)
+        self.assertEqual([x['path'] for x in changes], ['/@context/gone'])
+        self.assertEqual(after['Field'], before['Field'])
+        self.assertIsNone(r.only_dropped_unused_context(before, after, t))
+        self.assertEqual(r.drop_unused_instance_context(after, t)[1], [])
+
+
+class NoncanonicalContextDemandSafetyTest(unittest.TestCase):
+    def test_removes_orphan_and_attribute_demands_without_removing_mappings(self):
+        attr = child()
+        attr['_ui'] = {'inputType': 'attribute-value'}
+        before = template({'Name': child(), 'Attributes': {'type': 'array', 'items': attr}})
+        before['properties']['@context'] = {
+            'properties': {'Old': {'enum': ['urn:old']}, 'Attributes': {'enum': ['urn:attributes']}},
+            'required': ['schema', 'rdfs:label', 'Name', 'Old', 'Attributes']}
+        after, changes = r.drop_noncanonical_context_demands(before)
+        self.assertEqual(after['properties']['@context']['required'], ['schema', 'rdfs:label', 'Name'])
+        self.assertEqual(after['properties']['@context']['properties'], before['properties']['@context']['properties'])
+        self.assertEqual(len(changes), 1)
+        self.assertIsNone(r.only_dropped_noncanonical_context_demands(before, after))
+        after['properties']['@context']['required'].remove('Name')
+        self.assertIsNotNone(r.only_dropped_noncanonical_context_demands(before, after))
+
+    def test_does_not_change_field_requirements_or_other_schema_content(self):
+        field = child()
+        field['required'] = ['@value']
+        before = template({'Field': field})
+        self.assertEqual(r.drop_noncanonical_context_demands(before), (before, []))
+        bad = copy.deepcopy(before)
+        bad['properties']['Field']['required'] = []
+        self.assertIsNotNone(r.only_dropped_noncanonical_context_demands(before, bad))
+
+
+class UnusedContextReferenceSafetyTest(unittest.TestCase):
+    def test_retains_references_in_keys_types_groups_and_nested_content(self):
+        for content in ({'Term': {}}, {'@type': 'Term'}, {'@type': 'Term:Type'},
+                        {'Group': ['Term']}, {'Nested': {'Term': {'@value': None}}},
+                        {'@context': {'alias': 'Term:Type'}}):
+            before = copy.deepcopy(content)
+            before.setdefault('@context', {})['Term'] = 'urn:term'
+            after, changes = r.drop_unused_instance_context(before, template({}))
+            self.assertEqual(after['@context']['Term'], 'urn:term')
+            self.assertFalse(any(x['path'] == '/@context/Term' for x in changes))
+            self.assertEqual({k: v for k, v in after.items() if k != '@context'},
+                             {k: v for k, v in before.items() if k != '@context'})
+            bad = copy.deepcopy(before)
+            del bad['@context']['Term']
+            self.assertIsNotNone(r.only_dropped_unused_context(before, bad, template({})))
+
+    def test_preserves_declared_mapping_without_a_value(self):
+        t = template({})
+        t['properties']['@context'] = {'properties': {'Declared': {'enum': ['urn:d']}}}
+        before = {'@context': {'Declared': 'urn:d'}}
+        self.assertEqual(r.drop_unused_instance_context(before, t), (before, []))
+
+    def test_nested_element_context(self):
+        e = child(ELEMENT_TYPE)
+        e['properties'] = {}
+        t = template({'Element': e})
+        before = {'Element': {'@context': {'gone': 'urn:gone'}}}
+        after, changes = r.drop_unused_instance_context(before, t)
+        self.assertEqual(len(changes), 1)
+        self.assertIsNone(r.only_dropped_unused_context(before, after, t))
+
+
+class EmptySlotCompletionSafetyTest(unittest.TestCase):
+
     def test_prune_only_explicit_undeclared_empties(self):
         before = {'@context': {'empty': 'urn:e', 'iri': 'urn:i'},
                   'empty': {'@value': None}, 'iri': {'@id': 'urn:term'},
