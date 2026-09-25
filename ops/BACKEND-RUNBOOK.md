@@ -3355,6 +3355,36 @@ All 528 reviewed schema bodies pass the four conversion paths, generated JSON co
 YAML byte equality. Plans, preimages, write receipts and the production-verified matrix are under
 `$CEDAR_HOME/.cedar/repairs/2026-09-25-child-required/`.
 
+### Repairing instance-context additional-property declarations
+
+`ops/repairs/context_additional.py` compares stored schema declarations with Java's JSON → YAML →
+JSON output. At each template or element container, `properties.@context.additionalProperties`
+must be `{"type":"string","format":"uri"}` when that container directly declares an
+attribute-value field, otherwise `false`. Descendant containers follow their own children.
+The invariant permits only replacement between these two shapes at this exact schema location;
+it preserves the schema-owned `@context`, outer `additionalProperties`, field constraints,
+required arrays and all instance data.
+
+For tightening or mixed changes, require every dependent instance to validate unchanged against
+the candidate. Keep templates with any failing dependent instance out of that write set; extra
+context mappings must not be deleted merely to make a narrower rule pass. A separately proven
+pure relaxation (`false` → the URI rule everywhere changed) cannot invalidate a previously valid
+instance and may proceed despite recorded, unrelated pre-existing instance errors. The complete
+schema candidate must validate in either case. Record existing instance failures separately.
+
+Re-fetch dependents and verify their fingerprints and index membership before the schema write.
+Use strong ETags, preimages and exact GET readback. No instance write is part of this repair.
+Verify the stored schema bodies against a four-path Java/TypeScript matrix with generated JSON
+content/order and byte-identical YAML checks. Tests are in `test_context_additional.py`.
+
+The 2026-09-25 run reviewed 709 schemas and 3,294 dependent instances. It repaired 663 schemas
+(404 templates, 259 elements), changing 906 declarations without any instance writes. Among
+611 dependents of repaired templates, 593 validate; 18 retain unrelated pre-existing errors under
+four pure relaxations. Two formerly invalid instances now validate without data edits. All 709
+reviewed schema bodies pass the four-path matrix and match fresh production reads. Plans,
+preimages, receipts and verification evidence are retained under
+`$CEDAR_HOME/.cedar/repairs/2026-09-25-context-additional/`.
+
 ### Namespace-bound schema metadata
 
 Both model libraries retain custom namespace prefixes from a schema's own `@context` and the

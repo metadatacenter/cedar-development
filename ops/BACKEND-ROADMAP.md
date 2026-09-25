@@ -1066,14 +1066,20 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   | Remaining issue | Schema artifacts |
   | --- | ---: |
   | Indexed artifacts whose typed GET returns 404, including on the final retry | 6: 1 template, 1 element, 4 fields |
-  | TypeScript strict-reader diagnostics on Java-validator-valid source schemas; conversions still succeed | 713: 709 context additional-properties declarations and 4 missing-child requirements; targeted rechecks on 2026-09-25 |
+  | TypeScript strict-reader diagnostics on Java-validator-valid source schemas; conversions still succeed | 50: 46 context additional-properties declarations and 4 missing-child requirements; targeted rechecks on 2026-09-25 |
   | Standalone attribute-value JSON rendering: Java includes the array wrapper; TypeScript returns its field schema | None observed in the production matrix; a synthetic standalone-field probe differs |
   | Java 17 and JavaScript choose different decimal spellings for exceptional large floating-point values | None observed in production; a synthetic probe differs |
 
   Reconcile the unavailable search/graph entries with the store; the legacy `.net` template also
   returns 404 under the corresponding `.org` ID.
 
-  Reconcile the 709 remaining instance-context `additionalProperties` declarations with Java.
+  Reconcile instance-context `additionalProperties` declarations in 46 remaining templates.
+  For 44 of them, resolve extra mappings and other failures in 198 dependent instances before tightening:
+  65 currently valid instances would become invalid, while 133 already fail validation. Preserve
+  meaningful mappings and values; do not delete them merely to satisfy the canonical declaration.
+  The other two, Human Cognitive Neuroscience Data and FAIR-EuMon metadata template,
+  need document/graph DOI reconciliation: the write endpoint rejects their unchanged document DOI
+  because it reports a null stored DOI. Preserve the DOI while resolving that inconsistency.
   Missing child names in `required` remain in four templates: SWATH-DIA Experimental
   Specifications, Cell, Chemical Tool and Expression. Resolve their 24 blocking instances before
   tightening the templates; their errors include undeclared fields, conflicting property mappings
