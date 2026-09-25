@@ -3470,6 +3470,20 @@ source and completed validation counts are unchanged. The replay is offline and 
 production artifacts. Full YAML preserves derivation provenance; compact YAML deliberately
 omits it with the other repository provenance. Java's 1,203 tests and 249 corpus fixtures pass.
 
+The subsequent label repair preserves literal labels (including empty strings) and label-only
+fields in TypeScript, and preserves an explicit null literal beside label metadata in both YAML
+writers. Java's YAML reader accepts that decorated null while ordinary unset fields continue to
+be omitted. Built controlled-term labels do not acquire an invented literal value. The final
+replay is `.cedar/audits/2026-09-25-instance-random-1000-label-confirmation/`: all 1,000 instances
+agree across all four paths on JSON content and generated key order, and all 1,000 YAML pairs
+are byte-identical. All 997 valid sources validate after template completion in every lane;
+the three already-invalid sources remain two invalid and one completion error. This establishes
+parity for this sample, not identity with raw stored JSON (template-supplied contexts and empty
+fields still require completion). No production artifacts were written. Regression coverage is
+1,209 Java tests and 3,736 TypeScript tests; all 249 Java corpus fixtures and the 166 YAML / 83 JSON
+shared parity fixtures remain current.
+
+
 
 ### Repairing instance-context additional-property declarations
 
