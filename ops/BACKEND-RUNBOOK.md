@@ -3374,7 +3374,8 @@ YAML byte equality. Plans, preimages, write receipts and the production-verified
 `ops/cedar_instance_matrix_smoke.py` runs a bounded GET-only instance sample through Java and
 TypeScript YAML writers and all four JSON reader pairings. Pass `--directory` (a new ignored
 local evidence directory), `--classpath` (a classpath file), `--library` (a built TypeScript
-bundle), `--java` (Java 17), and optionally `--limit` (default 100). It samples the first readable
+bundle), `--java` (Java 17), and optionally `--limit` (default 100). Use `--sources` with a
+previous evidence directory to replay its saved instances and templates without HTTP. It samples the first readable
 search results, not a random or representative production population. It retains source JSON,
 templates, both YAML documents, every JSON result, reader diagnostics and validation findings.
 
@@ -3400,6 +3401,14 @@ Among the 53 valid sources, 45 passed every agreement gate. After Java template 
 all 53 remained valid in each produced lane; the TypeScript-YAML-to-Java-JSON lane produced only
 52 because of the multiple-datatype case. On the already-invalid sources, 24 had completion
 shape conflicts. Completion accepting a result does not prove preservation of every source value.
+
+Replaying the same 100 saved sources after preserving explicit linked-value datatypes in the
+TypeScript model, JSON/YAML readers and writers resolved all 22 datatype-dropping cases.
+Evidence: `.cedar/audits/2026-09-25-instance-linked-type-fixed/`. All 99 instances for which
+all four conversions produce JSON now agree on content and generated order; 97 have identical
+YAML bytes. The three remaining discrepancies are the two key-quoting cases and the one
+multiple-datatype literal. The sample's source validity remains 53 valid / 47 invalid; every
+produced lane from those 53 valid sources still validates after Java template completion.
 
 ### Repairing instance-context additional-property declarations
 

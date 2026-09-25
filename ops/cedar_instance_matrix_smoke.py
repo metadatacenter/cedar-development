@@ -21,30 +21,41 @@ def encoded(value, sort=False):
 def run(args):
     directory = args.directory
     directory.mkdir(parents=True, exist_ok=False)
-    client = matrix.rest.GetOnlyClient('https://resource.metadatacenter.org',
-        args.key_file.read_text().strip(), timeout=60, retries=3)
-    page = matrix.rest.search_deep_page(client, 'instance', min(500, args.limit * 2), 0, None)
-    rows = page['resources']
-    (directory / 'selection.json').write_text(json.dumps({
-        'method': 'first search-deep page; smoke sample, not random or representative',
-        'totalIndexed': page['totalCount'], 'resources': rows}, indent=2))
-    refs = [matrix.rest.ArtifactRef('instance', row['@id'], row.get('schema:name', '')) for row in rows]
-    def fetch(ref):
-        try:
-            return ref, client.get_json(matrix.rest.typed_artifact_path(ref)), None
-        except Exception as error:
-            return ref, None, str(error)
-    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
-        fetched = list(pool.map(fetch, refs))
-    sources = [(ref, source) for ref, source, error in fetched if not error][:args.limit]
-    (directory / 'fetch-errors.json').write_text(json.dumps([{'id': ref.artifact_id, 'error': error}
-        for ref, source, error in fetched if error], indent=2))
-    templates = {}
-    for _, source in sources:
-        identifier = source['schema:isBasedOn']
-        if identifier not in templates:
-            templates[identifier] = client.get_json(matrix.rest.typed_artifact_path(
-                matrix.rest.ArtifactRef('template', identifier, '')))
+    fetched = []
+    if args.sources:
+        folders = sorted(args.sources.glob('*/source.json'))[:args.limit]
+        sources = []
+        for file in folders:
+            source = json.loads(file.read_text())
+            sources.append((matrix.rest.ArtifactRef('instance', source['@id'], source.get('schema:name', '')), source))
+        templates = json.loads((args.sources / 'templates.json').read_text())
+        (directory / 'selection.json').write_text(json.dumps({'replayedFrom': str(args.sources.resolve()),
+            'ids': [ref.artifact_id for ref, _ in sources]}, indent=2))
+    else:
+        client = matrix.rest.GetOnlyClient('https://resource.metadatacenter.org',
+            args.key_file.read_text().strip(), timeout=60, retries=3)
+        page = matrix.rest.search_deep_page(client, 'instance', min(500, args.limit * 2), 0, None)
+        rows = page['resources']
+        (directory / 'selection.json').write_text(json.dumps({
+            'method': 'first search-deep page; smoke sample, not random or representative',
+            'totalIndexed': page['totalCount'], 'resources': rows}, indent=2))
+        refs = [matrix.rest.ArtifactRef('instance', row['@id'], row.get('schema:name', '')) for row in rows]
+        def fetch(ref):
+            try:
+                return ref, client.get_json(matrix.rest.typed_artifact_path(ref)), None
+            except Exception as error:
+                return ref, None, str(error)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+            fetched = list(pool.map(fetch, refs))
+        sources = [(ref, source) for ref, source, error in fetched if not error][:args.limit]
+        (directory / 'fetch-errors.json').write_text(json.dumps([{'id': ref.artifact_id, 'error': error}
+            for ref, source, error in fetched if error], indent=2))
+        templates = {}
+        for _, source in sources:
+            identifier = source['schema:isBasedOn']
+            if identifier not in templates:
+                templates[identifier] = client.get_json(matrix.rest.typed_artifact_path(
+                    matrix.rest.ArtifactRef('template', identifier, '')))
     (directory / 'templates.json').write_text(json.dumps(templates, ensure_ascii=False, indent=2))
     cp = args.classpath.read_text().strip()
     bridges = {}
@@ -131,6 +142,7 @@ if __name__ == '__main__':
     parser.add_argument('--classpath', type=pathlib.Path, required=True)
     parser.add_argument('--library', type=pathlib.Path, required=True)
     parser.add_argument('--java', default='java')
+    parser.add_argument('--sources', type=pathlib.Path, help='replay saved source.json files and templates.json without HTTP')
     parser.add_argument('--key-file', type=pathlib.Path, default=pathlib.Path.home() / '.cedar-admin-key')
     parser.add_argument('--limit', type=int, default=100)
     run(parser.parse_args())
