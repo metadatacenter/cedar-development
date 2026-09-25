@@ -96,38 +96,7 @@ configuration and tests. Either form must carry every rule the sanitizer enforce
 those beyond the tag and attribute allowlists, such as forbidden event handlers and non-raster
 data images.
 
-### 6. RDF Instance Export
-
-Add an RDF serialization to the download contract, using a JSON-LD processor rather than a
-handwritten serializer. Decide first whether the output is N-Quads or Turtle and whether
-`downloadContentFor` becomes asynchronous or gains a separate asynchronous producer. Carry that
-decision through the menu, filename, media type, failure handling and harness tests.
-
-Use the TypeScript library's JSON-LD instance output as the input to the conversion. Candidate
-dependencies and browser payload estimates measured on 2026-09-15 with esbuild 0.28.2, browser
-target ES2022, minification and gzip level 9:
-
-| Conversion | Dependencies | Minified JavaScript | Gzipped addition to CEE |
-| --- | --- | ---: | ---: |
-| JSON-LD → N-Quads | `jsonld` 9.0.0 | 120,943 bytes | 35,042 bytes |
-| N-Quads → Turtle | `n3` 2.7.12 (Parser and Writer) | 80,080 bytes | 22,491 bytes |
-| JSON-LD → Turtle | Both libraries | 200,487 bytes | 56,684 bytes |
-
-These are isolated browser bundles with their dependencies and conversion wrappers; each
-conversion was smoke-tested in Chromium. The gzip additions were measured by appending each
-bundle to the CEE bundle of that date and recompressing the whole payload. CEE's standard bundle
-measured 580,104 gzip bytes on 2026-09-23, so N-Quads would total approximately 615,146 bytes
-(+6.0%) and Turtle 636,788 bytes (+9.8%), both below the 840,000-byte gzip budget. Treat these
-as planning estimates, not final Angular integration measurements; remeasure the production
-build with `check:size` before accepting the dependency.
-
-Install a document loader that rejects remote context fetches, so that exporting an instance
-introduces no network access beyond CEE's embedding contract. Test type coercion, nested and
-repeated elements, attribute-value property IRIs and malformed contexts against a reference
-processor. Coordinate with the font-payload work if the added processor exceeds the packaging
-budget.
-
-### 7. Reduce Embedded Font Payload
+### 6. Reduce Embedded Font Payload
 
 CEE, CED and the term picker all resolve one font source,
 `@org.metadatacenter/cedar-design-tokens/fonts`, so the Roboto question is a single edit that
@@ -160,10 +129,10 @@ shared family from `CEE Roboto` in the same pass, coordinated across the three c
 stylesheets. Preserve namespaced font faces and the single-artifact embedding contract, since
 serving fonts as extra files changes that contract.
 
-The RDF instance export item's Turtle option adds 56,684 gzip bytes to CEE, which dropping the
-five subsets would more than offset, so this is worth taking first.
+CEE's RDF downloads added 57,019 gzip bytes to its standard bundle, which dropping the five subsets
+would more than offset.
 
-### 8. Localize Numeric and Temporal Validation
+### 7. Localize Numeric and Temporal Validation
 
 Replace the numeric widget's `describeNumberType` sentence and the temporal widget's validator
 messages and English required-value fallback with translation keys and parameters. Decide
@@ -172,7 +141,7 @@ preserve each problem's machine-readable `code`. Check Hungarian and English for
 values, numeric type and precision failures and temporal errors, including language changes
 while an error is visible.
 
-### 9. Define Handling of Out-of-Range Stored UTC Offsets
+### 8. Define Handling of Out-of-Range Stored UTC Offsets
 
 Decide what to show and report when a host supplies offsets such as `-13:00` or `-13:45`, which
 `TimezonePickerComponent.zoneForOffset` accepts but the picker does not offer. Preserve the
@@ -190,7 +159,7 @@ editing, rendering, local validation and host-facing UI contracts. The embedding
 host owns storage, authentication, permissions, server validation requests,
 publishing, version allocation and provenance.
 
-### 10. Display Host-Supplied Validation Findings in CED
+### 9. Display Host-Supplied Validation Findings in CED
 
 Add an input for findings supplied by the embedding host. Map artifact paths to nodes and
 settings, show the messages beside the affected controls and in CED's validation summary, and
@@ -201,7 +170,7 @@ Specify when host findings become stale after an edit or artifact replacement. P
 input and cover correction, clearing and replacement of reports. The host calls the schema
 server and decides whether an artifact may be saved.
 
-### 11. Define the Three Profiles
+### 10. Define the Three Profiles
 
 Basic, Semantic and Modular are the product structure, and each should be a distinct interface
 with its own field types, constraint editors and guidance. Replace the presets that carry their
@@ -221,7 +190,7 @@ Moving between profiles has to leave the template intact, which is what makes th
 hard. A template authored in Modular and opened in Basic still contains everything Basic does
 not show. Every control on a card is a decision this item has to absorb.
 
-### 12. Add Host Restrictions and Preferences to the CED Embedding Contract
+### 11. Add Host Restrictions and Preferences to the CED Embedding Contract
 
 Add read-only mode, language and allowed field types to the designer element. Host
 restrictions bound what the author may edit or select; profile and preference settings can
@@ -235,14 +204,14 @@ the host replaces the artifact or supplies an editable draft.
 Add conformance and browser tests for these inputs and events, including read-only published
 content and the transition to a host-supplied editable document.
 
-### 13. Keyboard and Screen-Reader Access
+### 12. Keyboard and Screen-Reader Access
 
 Verify keyboard focus order across settings, palette actions and nested elements. Add
 live-region announcements for constraint changes, accepted or rejected local Apply actions and
 host-supplied validation results. Exercise those workflows with a screen reader and verify that
 focus returns to a useful control after each action.
 
-### 14. Complete the Template Designer
+### 13. Complete the Template Designer
 
 Replace the inert surface that the Template Designer shows for an artifact that is not writable
 with the designer element's read-only contract, once the embedding contract item provides one, so
