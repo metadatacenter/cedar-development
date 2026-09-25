@@ -216,7 +216,11 @@ function convert(request, answer) {
     const writer = kind === 'template' ? writers.getTemplateWriter()
       : kind === 'element' ? writers.getTemplateElementWriter()
         : writers.getFieldWriterForField(artifact);
-    answer.json = JSON.parse(writer.getAsJsonString(artifact));
+    const jsonText = writer.getAsJsonString(artifact);
+    answer.json = JSON.parse(jsonText);
+    // Parsing and re-stringifying in JS moves numeric property names ahead of other keys.
+    // Audits of generated order must observe the writer's original text.
+    if (request.includeJsonText) answer.jsonText = jsonText;
     answer.status = 'ok';
     answer.readErrors = report.errors;
     answer.readWarnings = report.warnings;

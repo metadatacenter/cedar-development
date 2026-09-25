@@ -3226,6 +3226,48 @@ reported rather than repaired: typed GETs that return 404 for a search row, dupl
 a search total that changed during the walk. As with the REST audit, `COMPLETE_FOR_KEY` means
 complete for what this key can enumerate and read.
 
+## Comparing Both Schema Libraries over the Full Stored Corpus
+
+`ops/cedar_schema_matrix_audit.py` caches every enumerated template, element and field, then
+checks stored JSON → Java/TypeScript YAML → Java/TypeScript JSON in all four pairings.
+It uses the GET-only REST client and the existing conversion bridges. The cache is a local
+`corpus.sqlite`: compressed sources, per-artifact verdicts, and complete outputs for failures.
+Do not commit this production evidence. It contains artifact content visible to the supplied key.
+
+Run the three resumable stages from `$CEDAR_HOME` with a built Java classpath file and TypeScript
+bundle. `--classpath` takes a **file**, unlike the older matrix script's inline classpath argument:
+
+```bash
+for stage in enumerate fetch convert; do
+  python3 cedar-development/ops/cedar_schema_matrix_audit.py \
+    --directory .cedar/audits/schema-matrix-full \
+    --classpath /path/to/classpath.txt \
+    --ts-library cedar-model-typescript-library/dist/index.js \
+    --key-file ~/.cedar-admin-key --stage "$stage" --workers 4 || break
+done
+```
+
+Enumeration checkpoints complete artifact kinds and requires the enumerated count to match the
+search total. Fetching resumes missing sources, including previous errors. Conversion resumes
+missing results, copies the TypeScript bundle into the evidence directory and records its hash and
+repository revisions. After changing a library, rerun conversion with `--reset-results` to recheck
+all cached sources; fetching again is unnecessary. Each conversion worker owns its Java and Node
+bridges, retries a failed bridge once, and records infrastructure failures separately. Batches keep
+memory bounded. The three stages may overlap, but rerun fetching/conversion after enumeration
+finishes: each invocation takes the pending IDs available at its start.
+
+`summary.json` and `failures.json` are regenerated after conversion. A concordance pass requires
+all four outputs, Java-validator validity, equal JSON content, equal generated JSON key order and
+byte-identical YAML. **Every array retains its order**, including `required`; the older
+`cedar_stored_json_matrix_audit.py` treats `required` as a set and is not this stricter gate.
+The TypeScript bridge returns the writer's original JSON text for the order check: parsing and
+re-stringifying it in JavaScript would move numeric field names to the front again.
+
+Source validity, reader diagnostics and exact source equality remain separate measurements.
+Converter agreement is not proof that every stored detail survives model normalization. Coverage
+is the key's search-visible corpus, and an indexed artifact returning 404 remains an unresolved
+inventory entry, not a successful conversion.
+
 ## Round-Tripping Every Instance Through YAML
 
 `ops/cedar_instance_roundtrip_audit.py` asks three questions about every template instance a key
