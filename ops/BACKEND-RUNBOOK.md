@@ -2492,6 +2492,45 @@ reported no residue. Together with the completed 30-minute soak and 20-minute st
 the current native-stack performance baseline. The burst profile's 50-user pool is identity and VU
 capacity; it does not mean that fifty requests execute continuously throughout an arrival-rate run.
 
+A run of every profile on 2026-09-25, one at a time with default rates and named seeds, gave the
+current figures. The app-log queue was emptied after each run, and during the soak whenever Redis
+passed 1 GB:
+
+| Profile | Seconds | Requests | Requests/s | HTTP p95 ms | p99 ms | Result |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| permissions | 14 | 284 | 21.0 | 146.6 | 179.6 | Passed |
+| quick | 270 | 35,027 | 129.5 | 141.8 | 224.4 | Passed |
+| contention | 54 | 1,502 | 27.7 | 1,317.6 | 1,484.6 | Passed |
+| hotset | 601 | 153,462 | 255.2 | 247.9 | 1,027.1 | Thresholds passed; 118 checks failed |
+| churn | 301 | 3,015 | 10.0 | 224.1 | 277.9 | Passed |
+| burst | 105 | 2,122 | 20.2 | 183.8 | 260.4 | Passed; recovery p95 231.5 ms against a 288.6 ms limit |
+| resilience | 90 | 14,462 | 159.9 | 206.8 | 298.0 | Passed |
+| soak | 1,802 | 515,784 | 286.2 | 1,028.2 | 2,835.8 | Failed three route thresholds |
+
+The hot-set failures were conditional PUTs answered with `500`: 47 field, 30 instance, 25 template
+and 16 element writes. They come from two races in the resource server's restore outbox, which the
+backend roadmap tracks.
+
+The soak failed on conditional artifact moves, artifact ACL updates and folder ACL updates, whose
+p95 was 3,625, 3,604 and 3,571 ms against a 1.5 s threshold, with maxima near 10 s. Every check
+passed, and artifact conditional PUTs stayed near 650 ms. The resource server's own access-log
+durations show the same routes at a p95 of 2–5 s from the first minute, when Redis held 150 MB, and
+they did not follow the Redis size, so the app-log backlog does not cause them. Every valid 50-VU
+soak recorded since 2026-09-05 shows the same figures, and they scale with concurrency: about 170 ms at
+five VUs, 640 ms at fifteen and 3.8 s at fifty. The cause is the search-permission outbox relay.
+Since `39af8ad0` of 2026-08-29, every move, ACL change and group-membership change appends its
+event and then relays the pending batch on the request thread. `relayPending` is `synchronized`
+and takes the single `CedarSearchPermissionOutboxRelayLock` in Neo4j, so these requests queue
+behind one another. The 2026-08-29 baseline above was recorded on the day that commit landed, and
+no 50-VU soak recorded since has passed.
+
+At fifty VUs the soak enqueues about 215,000 app-log messages a minute, about 1 GB of Redis every
+five minutes. Left alone it reached 2.44 million messages and 2.6 GB after twelve minutes, and one
+Redis snapshot then took 168 seconds. Empty the queue with `redis-cli del CEDAR-QUEUE-app-log`
+alone. `CEDAR-QUEUE-app-log-processing` holds the message the worker is consuming. Deleting it
+makes the worker's acknowledgement fail, logs an error and marks the worker unhealthy in
+`cedarcli native status`.
+
 A 30-minute soak is the routine qualification gate. Do not run an overnight soak merely to repeat
 the same concurrency coverage: contention, churn, resilience and burst create useful failure modes
 far more efficiently. Use a six-to-eight-hour soak when investigating a suspected slow heap,
