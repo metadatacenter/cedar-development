@@ -195,8 +195,19 @@ export MODEL_PREP_COMMIT=$(git rev-parse HEAD)
 gh pr create --base main --head develop --title "Release ${MODEL_VERSION}"
 ```
 
-Omit unchanged paths from `git add`. Wait for the required checks, merge the pull request, and
-confirm `main` contains exactly the prepared tree:
+Omit unchanged paths from `git add`. The push runs the Test workflow on the preparation commit
+itself, and the pull request runs it again against `main`. Do not merge until the run on the exact
+preparation commit has passed, because the steps after the merge publish what `main` holds:
+
+```bash
+MODEL_PREP_RUN=$(gh run list --workflow test.yml --commit "$MODEL_PREP_COMMIT" --event push \
+  --json databaseId --jq '.[0].databaseId')
+gh run watch "$MODEL_PREP_RUN" --exit-status
+gh pr checks --watch --fail-fast
+```
+
+A run that has not started yet leaves `MODEL_PREP_RUN` empty; list it again after a few seconds.
+Then merge the pull request and confirm `main` contains exactly the prepared tree:
 
 ```bash
 gh pr merge --merge

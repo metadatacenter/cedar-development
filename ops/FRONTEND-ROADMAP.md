@@ -180,13 +180,6 @@ stored value until an explicit correction; rejecting it must not silently blank 
 rewrite the instance. Update the tests that document the lenient behavior once the display and
 validation behavior is decided.
 
-### 10. Run the Model Library's Continuous Integration on `main`
-
-Every public release of `cedar-model-typescript-library` is cut from, published from and tagged
-on `main`, so CI should check that branch before it reaches npmjs. Add `main` to the push and
-pull-request triggers in `.github/workflows/test.yml` once it is in a passing state, so a release
-pull request reports the same gate development reports.
-
 <a id="ced"></a>
 
 ## CED
@@ -197,7 +190,7 @@ editing, rendering, local validation and host-facing UI contracts. The embedding
 host owns storage, authentication, permissions, server validation requests,
 publishing, version allocation and provenance.
 
-### 11. Display Host-Supplied Validation Findings in CED
+### 10. Display Host-Supplied Validation Findings in CED
 
 Add an input for findings supplied by the embedding host. Map artifact paths to nodes and
 settings, show the messages beside the affected controls and in CED's validation summary, and
@@ -208,7 +201,7 @@ Specify when host findings become stale after an edit or artifact replacement. P
 input and cover correction, clearing and replacement of reports. The host calls the schema
 server and decides whether an artifact may be saved.
 
-### 12. Define the Three Profiles
+### 11. Define the Three Profiles
 
 Basic, Semantic and Modular are the product structure, and each should be a distinct interface
 with its own field types, constraint editors and guidance. Replace the presets that carry their
@@ -228,7 +221,7 @@ Moving between profiles has to leave the template intact, which is what makes th
 hard. A template authored in Modular and opened in Basic still contains everything Basic does
 not show. Every control on a card is a decision this item has to absorb.
 
-### 13. Add Host Restrictions and Preferences to the CED Embedding Contract
+### 12. Add Host Restrictions and Preferences to the CED Embedding Contract
 
 Add read-only mode, language and allowed field types to the designer element. Host
 restrictions bound what the author may edit or select; profile and preference settings can
@@ -242,14 +235,14 @@ the host replaces the artifact or supplies an editable draft.
 Add conformance and browser tests for these inputs and events, including read-only published
 content and the transition to a host-supplied editable document.
 
-### 14. Keyboard and Screen-Reader Access
+### 13. Keyboard and Screen-Reader Access
 
 Verify keyboard focus order across settings, palette actions and nested elements. Add
 live-region announcements for constraint changes, accepted or rejected local Apply actions and
 host-supplied validation results. Exercise those workflows with a screen reader and verify that
 focus returns to a useful control after each action.
 
-### 15. Move the Split Host and Its Smokes onto CED
+### 14. Move the Split Host and Its Smokes onto CED
 
 Replace the inert surface that `cedar-template-designer` shows for an artifact that is not
 writable with the designer element's read-only contract, once the embedding contract item
