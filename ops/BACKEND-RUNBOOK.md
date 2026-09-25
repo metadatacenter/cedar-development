@@ -3451,6 +3451,15 @@ for all 997 valid sources, but validity did not imply preservation of labels or 
 The previous two-datatype case was not in this sample and remains unresolved. No production
 writes were performed. The evidence report lists examples and the overlap between findings.
 
+The TypeScript description-order correction is verified against the same saved 1,000 instances
+in `.cedar/audits/2026-09-25-instance-random-1000-order-fixed/`. All 864 order-only mismatches
+are resolved: 990 now agree on JSON content, generated order and YAML bytes. All 2,000 YAML
+outputs and the parsed content of all 4,000 JSON outputs are unchanged from the original sweep.
+The remaining ten are the same five provenance losses and five label losses, including the
+labelled-null completion issue above. Source and completed validation results are unchanged.
+The writer matches Java's separate positions for an explicit description and a synthesized
+empty description. Replay performed no production reads or writes.
+
 ### Repairing instance-context additional-property declarations
 
 `ops/repairs/context_additional.py` compares stored schema declarations with Java's JSON → YAML →
