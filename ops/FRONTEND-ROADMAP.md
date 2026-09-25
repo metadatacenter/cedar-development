@@ -57,8 +57,8 @@ full mint and attach contract and the credential check.
 A rejected create or update should show the user what the server refused. Render the problems
 in the server's `validationReport` with their paths and messages in Workspace's metadata editor,
 keep the document dirty, and provide navigation to the affected field across pages and repeated
-elements where possible. Introduce a localization mechanism for Workspace and use it for the
-validation summary and the missing-required-field message.
+elements where possible. State the validation summary and the missing-required-field message
+through the language files the localization item gives Workspace.
 
 Establish which CEE findings predict REST rejection and which are advisory, and gate Save only on
 the former. The `requiredValue: true` / `minItems: 0` case in CEE's
@@ -70,11 +70,38 @@ Cover invalid-to-valid and valid-to-invalid transitions, advisory-only reports, 
 creates and updates, correction followed by a successful save, and differing client and server
 reports, in `src/app/metadata-editor.spec.ts` and the Playwright interaction suite.
 
+## Localization
+
+### 4. Establish Localization Across the Browser Applications
+
+A Hungarian user should read every application in Hungarian, and dates and numbers in the form
+their locale uses. Only CEE is localized today, through ngx-translate with English and Hungarian
+language files and a language its host configures. Workspace, CED, the term picker and the Template
+Designer have no localization mechanism, and between them hold roughly 800 hard-coded English
+strings: about 400 in CED, 300 in Workspace, 80 in the term picker and 30 in the Template Designer.
+
+Adopt ngx-translate in each of them, so that every application states its text the same way CEE
+does, and give each one English and Hungarian language files. Give CED and the term picker a
+language input, as CEE has, and have each host pass its own language down: Workspace to CEE, and the
+Template Designer to CED and the term picker. Workspace currently sends CEE `"en"` whatever its
+user reads.
+
+Move CEE's remaining literals into its language files. About 40 bypass translation, among them the
+attribute-name errors, several `aria-label` values, the time picker's `HH`, `MM` and `SS`
+placeholders, and the static image and video text. Keep the data quality report's English
+diagnostics, which hosts read as data.
+
+Format dates and numbers from the configured locale rather than from fixed patterns. Workspace
+hard-codes `en-GB` in some places and `en-US` in others, CED's date pipe renders en-US whatever the
+language, and CEE's date picker reads and writes `MM/DD/YYYY`. Give each repository the parity test
+CEE's harness applies to its language files, so a string present in one language and missing from
+another fails the build.
+
 <a id="cee"></a>
 
 ## Embeddable Editor and Model Library
 
-### 4. Whole-Component Runtime Theme Overrides
+### 5. Whole-Component Runtime Theme Overrides
 
 Define host-facing CSS properties for brand, surface, text, muted and border roles beyond the
 compact-control API in `STYLING.md`. Wire them through the M3 adapter to every affected control
@@ -83,7 +110,7 @@ brand override and which semantic status colors must remain invariant. Add brows
 set custom role values and check rendered foregrounds, backgrounds and focus states before
 documenting the properties as supported.
 
-### 5. Authoring Feedback for Unsupported Markup
+### 6. Authoring Feedback for Unsupported Markup
 
 Expose CEE's rendering policy to authors in the Template Editor's rich-text `Source` mode and
 CED's markup input. Configure those surfaces to produce supported markup and warn when CEE's
@@ -96,7 +123,7 @@ configuration and tests. Either form must carry every rule the sanitizer enforce
 those beyond the tag and attribute allowlists, such as forbidden event handlers and non-raster
 data images.
 
-### 6. Reduce Embedded Font Payload
+### 7. Reduce Embedded Font Payload
 
 CEE, CED and the term picker all resolve one font source,
 `@org.metadatacenter/cedar-design-tokens/fonts`, so the Roboto question is a single edit that
@@ -131,15 +158,6 @@ serving fonts as extra files changes that contract.
 
 CEE's RDF downloads added 57,019 gzip bytes to its standard bundle, which dropping the five subsets
 would more than offset.
-
-### 7. Localize Numeric and Temporal Validation
-
-Replace the numeric widget's `describeNumberType` sentence and the temporal widget's validator
-messages and English required-value fallback with translation keys and parameters. Decide
-separately whether data-quality-report messages remain stable diagnostic text or are localized;
-preserve each problem's machine-readable `code`. Check Hungarian and English for required
-values, numeric type and precision failures and temporal errors, including language changes
-while an error is visible.
 
 ### 8. Define Handling of Out-of-Range Stored UTC Offsets
 
