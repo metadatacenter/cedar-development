@@ -7068,7 +7068,88 @@ def only_reviewed_standard_context(before: Any, after: Any) -> Optional[str]:
     return None
 
 
+SCHEMA_CONTEXT_REMOVAL_PLANS: dict[str, Any] = {}
+STATIC_CONTEXT_TYPES = {
+    **CONTEXT_OBJECT_DATATYPES, "skos:prefLabel": "xsd:string", "skos:altLabel": "xsd:string",
+}
+REMOVABLE_SCHEMA_PREFIXES = {
+    "xsd": "http://www.w3.org/2001/XMLSchema#",
+    "skos": "http://www.w3.org/2004/02/skos/core#",
+    "openminds": "https://openminds.om-i.org/vocab/",
+}
+
+
+def schema_prefix_is_used(node: Any, prefix: str, root: bool = True) -> bool:
+    """Conservatively keep prefixes referenced by keys or strings; respect nested context bindings."""
+    if isinstance(node, dict):
+        context = node.get("@context")
+        if not root and isinstance(context, dict) and prefix in context:
+            return False
+        schema = node.get("@type") in SCHEMA_CONTEXT_TYPES if isinstance(node.get("@type"), str) else False
+        # JSON Schema property names and required entries describe instance syntax; they do not
+        # use this schema artifact's JSON-LD prefix bindings. Actual child artifacts do inherit it.
+        excluded = {"@context", "properties", "required"} if schema else {"@context"}
+        return any(key.startswith(prefix + ":") or schema_prefix_is_used(value, prefix, False)
+                   for key, value in node.items() if key not in excluded) \
+            or (schema and any(schema_prefix_is_used(child, prefix, False)
+                               for _, child, _ in container_children(node))) \
+            or (isinstance(context, dict) and any(schema_prefix_is_used(v, prefix, False)
+                                                for k, v in context.items() if k != prefix))
+    if isinstance(node, list):
+        return any(schema_prefix_is_used(value, prefix, False) for value in node)
+    return isinstance(node, str) and prefix + ":" in node
+
+
+def only_removed_extra_schema_context(before: Any, after: Any) -> Optional[str]:
+    nodes = dict(schema_context_nodes(before))
+    for path, old, new in differences(before, after):
+        if "/@context/" not in path or new is not ABSENT:
+            return path or "/"
+        parent, term = path.rsplit("/@context/", 1)
+        node = nodes.get(parent)
+        if node is None or "/" in term:
+            return path
+        term = term.replace("~1", "/").replace("~0", "~")
+        kind = node.get("@type")
+        if kind == STATIC_AT_TYPE and term in STATIC_CONTEXT_TYPES \
+                and json_equal(old, {"@type": STATIC_CONTEXT_TYPES[term]}):
+            continue
+        permitted = term == "openminds" or (term == "xsd" and kind == STATIC_AT_TYPE) \
+            or (term == "skos" and kind in (STATIC_AT_TYPE, "https://schema.metadatacenter.org/core/Template"))
+        candidate = value_at(after, parent) if parent else after
+        if not permitted or old != REMOVABLE_SCHEMA_PREFIXES.get(term) \
+                or schema_prefix_is_used(candidate, term):
+            return path
+    return None
+
+
+def remove_reviewed_extra_schema_context(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    plan = SCHEMA_CONTEXT_REMOVAL_PLANS.get(artifact.get("@id")) if isinstance(artifact, dict) else None
+    if not isinstance(plan, dict):
+        raise TransformRefused("no Java-reviewed schema context removal plan")
+    if artifact_fingerprint(artifact) == plan.get("afterSha256"):
+        return copy.deepcopy(artifact), []
+    if artifact_fingerprint(artifact) != plan.get("beforeSha256"):
+        raise TransformRefused("schema changed since context review")
+    result = copy.deepcopy(artifact)
+    for change in plan.get("changes", []):
+        path = change["path"]
+        if "/@context/" not in path:
+            raise TransformRefused("not a schema-context removal")
+        parent, key = path.rsplit("/", 1)
+        del value_at(result, parent)[key.replace("~1", "/").replace("~0", "~")]
+    if only_removed_extra_schema_context(artifact, result) is not None \
+            or artifact_fingerprint(result) != plan.get("afterSha256"):
+        raise TransformRefused("schema context removal violates its invariant or reviewed hash")
+    return result, copy.deepcopy(plan.get("changes", []))
+
+
 REPAIRS = {
+    "remove-reviewed-extra-schema-context": Repair(
+        name="remove-reviewed-extra-schema-context", condition="extra-schema-context",
+        summary="remove Java-confirmed extra schema-context datatype mappings and unused prefixes",
+        transform=remove_reviewed_extra_schema_context, invariant=only_removed_extra_schema_context,
+    ),
     "repair-unambiguous-instance-structure": Repair(
         name="repair-unambiguous-instance-structure", condition="",
         summary="remove dangling blank attribute references, match whitespace renames by IRI, and mint empty element IDs",
@@ -7977,6 +8058,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--schema-shape-plan",
                         help="Java-reviewed nullable @id/UI-order changes keyed by artifact IRI, "
                              "with beforeSha256, afterSha256 and changes (path, before, after)")
+    parser.add_argument("--schema-context-removal-plan", help="Java-reviewed schema-context removal plan with pinned fingerprints")
     parser.add_argument("--standard-context-plan",
                         help="fingerprint-pinned standard context additions and dependent-instance checks")
     parser.add_argument("--context-object-plan",
@@ -8061,6 +8143,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         parser.error("drop-reviewed-required-entries requires --required-removals")
     if "apply-reviewed-schema-shapes" in names and not arguments.schema_shape_plan:
         parser.error("apply-reviewed-schema-shapes requires --schema-shape-plan")
+    if "remove-reviewed-extra-schema-context" in names and not arguments.schema_context_removal_plan:
+        parser.error("remove-reviewed-extra-schema-context requires --schema-context-removal-plan")
     if "complete-reviewed-standard-context" in names and not arguments.standard_context_plan:
         parser.error("complete-reviewed-standard-context requires --standard-context-plan")
     if "complete-reviewed-context-object-types" in names and not arguments.context_object_plan:
@@ -8144,6 +8228,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                                  ("--schema-shape-plan", arguments.schema_shape_plan, SCHEMA_SHAPE_PLANS),
                                  ("--context-object-plan", arguments.context_object_plan, CONTEXT_OBJECT_PLANS),
                                  ("--standard-context-plan", arguments.standard_context_plan, STANDARD_CONTEXT_PLANS),
+                                 ("--schema-context-removal-plan", arguments.schema_context_removal_plan, SCHEMA_CONTEXT_REMOVAL_PLANS),
                                  ("--acronyms", arguments.acronyms, ACRONYMS),
                                  ("--branches", arguments.branches, BRANCHES),
                                  ("--terms", arguments.terms, TERMS),

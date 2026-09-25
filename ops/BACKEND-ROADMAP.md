@@ -1066,7 +1066,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   | Remaining issue | Schema artifacts |
   | --- | ---: |
   | Indexed artifacts whose typed GET returns 404, including on the final retry | 6: 1 template, 1 element, 4 fields |
-  | TypeScript strict-reader diagnostics on Java-validator-valid source schemas; conversions still succeed | 1,427; full audit plus targeted production rechecks on 2026-09-25 |
+  | TypeScript strict-reader diagnostics on Java-validator-valid source schemas; conversions still succeed | 1,396; full audit plus targeted production rechecks on 2026-09-25 |
   | Java 17 and JavaScript choose different decimal spellings for exceptional large floating-point values | None observed in production; a synthetic probe differs |
 
   Reconcile the unavailable search/graph entries with the store; the legacy `.net` template also
@@ -1075,6 +1075,10 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Reconcile the strict reader's acceptance of legacy context and schema declarations, especially
   missing required entries, extra context terms and property/type shapes. Keep these diagnostics separate
   from failed conversions.
+  The remaining extra-context diagnostics are 71 `openminds` prefix mappings across 64 schemas.
+  These prefixes interpret existing extension metadata such as schema versions, generation dates,
+  source types and term mappings. Preserve that metadata and its names while deciding how both
+  libraries should represent it; deleting the used prefixes is not a safe cleanup.
   Extend numeric spelling beyond ordinary decimal expansion: the synthetic
   bound `-1.2345e21` renders as `-1234499999999999900000` in Java 17 and
   `-1234500000000000000000` in TypeScript. Match the canonical algorithm without changing values.
