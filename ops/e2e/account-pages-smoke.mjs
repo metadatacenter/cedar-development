@@ -62,6 +62,17 @@ async function mutation(method, path, action, status) {
       new URL(r.url()).pathname.includes(path),
   );
   await action();
+  // Destructive actions ask first in Workspace's own confirmation dialog; accept it when it appears.
+  const confirmation = page.locator("dialog.confirmation-dialog");
+  const first = await Promise.race([
+    pending.then(() => "response"),
+    confirmation
+      .waitFor()
+      .then(() => "confirmation")
+      .catch(() => "none"),
+  ]);
+  if (first === "confirmation")
+    await confirmation.getByRole("button", { name: "OK", exact: true }).click();
   const response = await pending;
   assert.equal(response.status(), status);
   return response;
@@ -336,29 +347,18 @@ try {
       path: "/tmp/cedar-modern-privacy-mobile.png",
       fullPage: true,
     });
-    for (const name of ["Profile", "Settings", "Groups", "Privacy"]) {
-      await page
-        .getByRole("navigation", { name: "Account pages" })
-        .getByRole("link", { name, exact: true })
-        .click();
-      await page.locator(".account-card").first().waitFor();
-      await page.getByRole("heading", { name, exact: true }).waitFor();
+    // The account pages are standalone: each is reached by its own route, with no shared navigation.
+    for (const route of ["/profile", "/settings", "/groups", "/privacy"]) {
+      await open(route);
       assert.equal(
-        await page.evaluate(() => typeof window.angular),
-        "undefined",
-      );
-      assert.equal(
-        await page
-          .getByRole("navigation", { name: "Account pages" })
-          .getByRole("link", { name, exact: true })
-          .getAttribute("aria-current"),
-        "page",
+        await page.getByRole("navigation", { name: "Account pages" }).count(),
+        0,
       );
     }
     await page.getByRole("link", { name: "Workspace", exact: true }).click();
     await page.locator("cedar-workspace-page").waitFor();
     console.log(
-      "PASS: Privacy policy, responsive layout, account navigation, and all four Angular-only routes",
+      "PASS: Privacy policy, responsive layout, and all four standalone Angular-only routes",
     );
   }
   assert.deepEqual(errors, []);

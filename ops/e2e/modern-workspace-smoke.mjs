@@ -18,7 +18,7 @@ const names = Object.fromEntries(
     "copy",
   ].map((k) => [k, `Angular journey ${k} ${stamp}`]),
 );
-const { user1 } = await actors();
+const { user1, user2 } = await actors();
 const browser = await chromium.launch({ headless: !process.env.HEADED });
 const created = [];
 const bodies = new Map();
@@ -33,6 +33,9 @@ const row = (p, name) =>
     .locator("tbody tr")
     .filter({ has: p.getByRole("link", { name, exact: true }) })
     .first();
+// Selecting a row opens its information. Click the date cell, since the name cell's link opens the artifact.
+const showInformation = (p, name) =>
+  row(p, name).locator("td").nth(1).click();
 async function ready(p) {
   await p.getByRole("button", { name: "New", exact: true }).waitFor();
   await p.waitForFunction(
@@ -152,12 +155,17 @@ async function write(
     );
   return bodies.get(method + " " + response.url());
 }
+// OpenView changes confirm with "Ok" rather than "Save".
+const confirmLabel = (path) => (path.includes("-open") ? "Ok" : "Save");
 async function save(p, method, path, status = 200, conditional = false) {
   const data = await write(
     p,
     method,
     path,
-    () => modal(p).getByRole("button", { name: "Save", exact: true }).click(),
+    () =>
+      modal(p)
+        .getByRole("button", { name: confirmLabel(path), exact: true })
+        .click(),
     status,
     conditional,
   );
@@ -175,7 +183,7 @@ async function editor(p, name) {
   await row(p, name).getByRole("link", { name, exact: true }).click();
   await p
     .locator("#state")
-    .filter({ hasText: /Ready|Unsaved changes/ })
+    .filter({ hasText: /^(No unsaved changes|Unsaved changes)$/ })
     .waitFor();
 }
 async function editorSave(p, method, collection, status = 200) {
@@ -275,6 +283,100 @@ async function grant(p, role) {
   await listed(p, names.template);
   await menu(p, names.template, "Permissions…");
   await setPermission(p, "/templates/", role);
+}
+const DOID_DISEASE = "http://purl.obolibrary.org/obo/DOID_4";
+// Add a controlled-term field and constrain it, in the real term picker against the local
+// terminology server, to the "disease" branch of DOID.
+async function constrainToDoidDiseaseBranch(p) {
+  await p.getByRole("button", { name: /^Add field$/ }).last().click();
+  await p
+    .locator("app-field-type-picker")
+    .getByRole("button", { name: "Controlled Terms", exact: true })
+    .click();
+  await p.locator('input[aria-label="Field name"]:focus').fill("Disease");
+  const settings = p
+    .locator("app-field-card")
+    .filter({ has: p.locator("app-controlled-term-config") })
+    .locator("app-field-settings");
+  const toggle = settings.locator(".settings-toggle");
+  if ((await toggle.getAttribute("aria-expanded")) === "false") await toggle.click();
+  await settings.getByRole("tab", { name: "Constraints", exact: true }).click();
+  await settings
+    .getByRole("button", { name: /Edit controlled-term constraints/ })
+    .click();
+  const picker = p.locator("cedar-embeddable-term-picker");
+  await picker.getByText("narrow to…", { exact: true }).click();
+  await picker
+    .getByRole("button", { name: /^DOID Human Disease Ontology/ })
+    .click();
+  await picker.getByRole("button", { name: "done", exact: true }).click();
+  await picker.getByRole("tab", { name: /^branches/ }).click();
+  await picker
+    .getByRole("button", { name: "disease 1 ontology", exact: true })
+    .click();
+  await picker
+    .getByRole("option", { name: /^DOID · Human Disease Ontology/ })
+    .dblclick();
+  await picker
+    .getByRole("region", { name: "Field constraints" })
+    .getByRole("row")
+    .filter({ hasText: "DOID" })
+    .filter({ hasText: /Branch\s*disease/ })
+    .waitFor();
+  await picker.getByRole("button", { name: "Done", exact: true }).click();
+  await picker.waitFor({ state: "hidden" });
+}
+// Answer the designer's first template save with an expired-token refusal. The host must refresh
+// through Keycloak and retry once, and the edit must reach the server.
+async function saveThroughExpiredToken(p, templateId) {
+  const saves = [];
+  const refreshes = [];
+  const observe = (response) => {
+    const url = new URL(response.url());
+    if (response.request().method() === "PUT" && url.pathname.startsWith("/templates/"))
+      saves.push(response.status());
+    // After the save succeeds the host returns to Workspace, whose own sign-in also calls the
+    // token endpoint; only the calls before that success belong to the designer's recovery.
+    if (url.pathname.endsWith("/protocol/openid-connect/token") && !saves.includes(200))
+      refreshes.push(response.status());
+  };
+  let expired = false;
+  const templateUrl = (url) => url.pathname.startsWith("/templates/");
+  const expire = async (route) => {
+    if (route.request().method() !== "PUT" || expired) return route.fallback();
+    expired = true;
+    return route.fulfill({
+      status: 401,
+      contentType: "application/json",
+      body: JSON.stringify({ errorType: "authorization", suggestedAction: "refreshToken" }),
+      headers: { "Access-Control-Allow-Origin": new URL(designer).origin },
+    });
+  };
+  p.on("response", observe);
+  await p.route(templateUrl, expire);
+  try {
+    const saved = p.waitForResponse(
+      (response) =>
+        response.request().method() === "PUT" &&
+        templateUrl(new URL(response.url())) &&
+        response.status() === 200,
+    );
+    await p.locator("#save").click();
+    await saved;
+    await ready(p);
+  } finally {
+    // The interception answers only the first save and then defers. Removing it while a request is
+    // in flight races the context's capture route, so it stays installed.
+    p.off("response", observe);
+  }
+  assert.deepEqual(saves, [401, 200], "one refused save, then one retried save");
+  assert.equal(
+    refreshes.filter((status) => status >= 200 && status < 300).length,
+    1,
+    `exactly one Keycloak refresh; saw ${JSON.stringify(refreshes)}`,
+  );
+  const stored = await call(user1.auth, "GET", "/templates/" + enc(templateId));
+  assert.equal(stored.body["schema:description"], "Updated by journey");
 }
 function pass(message) {
   checks.push(message);
@@ -422,12 +524,12 @@ try {
     if (kind === "field")
       await page.getByRole("button", { name: "Number", exact: true }).click();
     const input =
-      kind === "field"
-        ? page.getByRole("textbox", { name: "Field name", exact: true })
-        : page.getByPlaceholder(
-            kind === "template" ? "Template name" : "Element name",
-            { exact: true },
-          );
+      kind === "template"
+        ? page.getByPlaceholder("Template name", { exact: true })
+        : page.getByRole("textbox", {
+            name: kind === "field" ? "Field name" : "Element name",
+            exact: true,
+          });
     await input.fill(names[kind]);
     if (kind === "template") {
       await page.getByRole("button", { name: /^Add field$/ }).click();
@@ -438,14 +540,26 @@ try {
       await page
         .getByRole("textbox", { name: "Field name", exact: true })
         .fill("Notes");
+      await constrainToDoidDiseaseBranch(page);
     }
     artifacts[kind] = (await editorSave(page, "POST", collection, 201))["@id"];
+    if (kind === "template") {
+      const created = await call(user1.auth, "GET", "/templates/" + enc(artifacts.template));
+      assert.equal(
+        created.body.properties?.disease?._valueConstraints?.branches?.[0]?.uri,
+        DOID_DISEASE,
+        "the Disease field is constrained to the DOID disease branch",
+      );
+    }
     assert.equal(page.url(), returnUrl);
     await editor(page, names[kind]);
     if (kind === "field") {
-      await page
-        .getByRole("button", { name: "Expand field settings", exact: true })
-        .click();
+      // Settings open expanded; expand them only if a later default collapses them again.
+      const expand = page.getByRole("button", {
+        name: "Expand field settings",
+        exact: true,
+      });
+      if (await expand.isVisible().catch(() => false)) await expand.click();
       await page.getByRole("tab", { name: "Constraints", exact: true }).click();
     }
     await page
@@ -456,8 +570,13 @@ try {
         { exact: true },
       )
       .fill("Updated by journey");
-    await editorSave(page, "PUT", collection);
+    if (kind === "template") await saveThroughExpiredToken(page, artifacts.template);
+    else await editorSave(page, "PUT", collection);
     pass(`${label}: CED/CEFD create, reopen, conditional update, exact return`);
+    if (kind === "template") {
+      pass("CED authors a Disease field constrained to the DOID disease branch through the live term picker");
+      pass("Designer save recovers from an expired access token through one refresh and one retry");
+    }
   }
   step = "designer-conflict";
   await editor(page, names.template);
@@ -501,9 +620,7 @@ try {
     .click();
   await ready(reader);
   await row(reader, names.template).waitFor();
-  await row(reader, names.template)
-    .getByRole("button", { name: "Show information", exact: true })
-    .click();
+  await showInformation(reader, names.template);
   await reader
     .getByRole("heading", { name: names.template, exact: true })
     .waitFor();
@@ -650,11 +767,111 @@ try {
   pass(
     "Permissions: viewer access, immediate role saves, Everyone restrictions, stale revisions, and two-user revocation",
   );
+  step = "ownership";
+  // Ownership moves through Workspace's own control in both directions, each confirmed in the page.
+  const transferOwnership = async (p, toName, toUser) => {
+    const confirmation = p.locator("dialog.confirmation-dialog");
+    const permissions = await write(
+      p,
+      "POST",
+      "/command/transfer-resource-ownership",
+      async () => {
+        await modal(p)
+          .getByRole("checkbox", { name: `Make ${toName} the owner`, exact: true })
+          .click();
+        await confirmation.getByRole("button", { name: "OK", exact: true }).click();
+      },
+      200,
+    );
+    assert.equal(permissions?.owner?.["@id"], toUser.profile["@id"]);
+    assert.ok(
+      !(permissions?.userPermissions ?? []).some(
+        (g) => g.user?.["@id"] === toUser.profile["@id"],
+      ),
+      "the new owner does not also keep a direct role",
+    );
+    await modal(p).waitFor({ state: "hidden" });
+  };
+  await grant(page, "editor");
+  await listed(page, names.template);
+  await menu(page, names.template, "Permissions…");
+  await transferOwnership(page, "Test User 2", user2);
+  // The new owner no longer sees the template under Shared with Me and cannot open the folder
+  // holding it, so reach it through search. The index follows the transfer, so retry.
+  await reader
+    .getByRole("textbox", { name: "Search workspace", exact: true })
+    .fill(names.template);
+  for (let i = 0; ; i++) {
+    const searched = reader.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return (
+        url.pathname === "/search" &&
+        url.searchParams.get("q") === names.template &&
+        response.status() === 200
+      );
+    });
+    // Submitting the same search again changes no route, so later attempts refresh the listing.
+    await reader
+      .getByRole("button", {
+        name: i === 0 ? "Search" : "Refresh workspace",
+        exact: true,
+      })
+      .click();
+    await searched;
+    await ready(reader);
+    if (await row(reader, names.template).count()) break;
+    assert.ok(i < 20, "the transferred template never appeared in the new owner's search");
+    await reader.waitForTimeout(1000);
+  }
+  await menu(reader, names.template, "Permissions…");
+  await modal(reader)
+    .getByRole("combobox", { name: "User or group", exact: true })
+    .fill("Test User 1");
+  await modal(reader)
+    .getByRole("option", { name: "Test User 1", exact: true })
+    .click();
+  await modal(reader)
+    .getByRole("combobox", { name: "Role", exact: true })
+    .selectOption("editor");
+  await write(
+    reader,
+    "PUT",
+    "/templates/",
+    () => modal(reader).getByRole("button", { name: "Add", exact: true }).click(),
+    200,
+    true,
+  );
+  await transferOwnership(reader, "Test User 1", user1);
+  const returned = await call(user1.auth, "GET", permissionPath);
+  assert.equal(returned.body.owner["@id"], user1.profile["@id"]);
+  // Leave the template owned by Test User 1 alone, as the later steps expect.
+  if (returned.body.userPermissions.length)
+    assert.equal(
+      (
+        await mutate(user1.auth, "PUT", permissionPath, {
+          owner: { "@id": user1.profile["@id"] },
+          userPermissions: [],
+          groupPermissions: [],
+        })
+      ).status,
+      200,
+    );
+  pass("Ownership transfers to another user and back through Workspace");
   step = "metadata";
   await listed(page, names.template);
   await menu(page, names.template, "Populate");
   const cee = page.locator("cedar-embeddable-editor");
   await cee.getByLabel("Notes", { exact: false }).first().fill("First notes");
+  // The constrained field offers live DOID terms from the terminology server as the user types.
+  const disease = cee.getByLabel("Disease", { exact: false }).first();
+  const influenza = page.getByRole("option", { name: /influenza/i }).first();
+  for (let attempt = 0; ; attempt++) {
+    await disease.fill("");
+    await disease.pressSequentially("influenza", { delay: 40 });
+    if (await influenza.waitFor({ timeout: 15000 }).then(() => true, () => false)) break;
+    assert.ok(attempt < 2, "no DOID suggestion offered for influenza");
+  }
+  await influenza.click();
   assert.equal(await page.evaluate(() => typeof window.angular), "undefined");
   assert.deepEqual(
     await page.evaluate(() =>
@@ -677,6 +894,20 @@ try {
     201,
   );
   await page.waitForURL(/\/instances\/edit\//);
+  const suggestedTerm = (
+    await call(
+      user1.auth,
+      "GET",
+      "/template-instances/" +
+        enc(decodeURIComponent(new URL(page.url()).pathname.split("/instances/edit/")[1])),
+    )
+  ).body.disease?.["@id"];
+  assert.match(
+    suggestedTerm ?? "",
+    /^http:\/\/purl\.obolibrary\.org\/obo\/DOID_\d+$/,
+    "the chosen suggestion is stored as a DOID term",
+  );
+  pass("Populate offers live DOID suggestions for the constrained field and stores the chosen term");
   assert.equal(
     await page.evaluate(
       () =>
@@ -698,10 +929,14 @@ try {
     200,
     true,
   );
+  // CED derives a field's key from its name, normalized: the field labelled "Notes" is stored as `notes`.
+  const storedInstance = (
+    await call(user1.auth, "GET", "/template-instances/" + enc(instanceId))
+  ).body;
   assert.equal(
-    (await call(user1.auth, "GET", "/template-instances/" + enc(instanceId)))
-      .body.Notes["@value"],
+    storedInstance.notes?.["@value"],
     "Updated notes",
+    `stored instance fields: ${Object.keys(storedInstance).filter((k) => !k.includes(":") && !k.startsWith("@"))}`,
   );
   await page
     .locator(".metadata-toolbar [role=status]")
@@ -715,10 +950,15 @@ try {
     .locator(".metadata-toolbar [role=status]")
     .filter({ hasText: "Unsaved changes" })
     .waitFor();
-  page.removeAllListeners("dialog");
-  page.once("dialog", (dialog) => dialog.dismiss());
   await page.getByRole("button", { name: "Workspace", exact: true }).click();
+  const discard = page
+    .locator("dialog.confirmation-dialog")
+    .filter({ hasText: "Discard unsaved metadata changes?" });
+  await discard.getByRole("button", { name: "Cancel", exact: true }).click();
+  await discard.waitFor({ state: "detached" });
   assert.equal(page.url(), metadataUrl);
+  // The in-page confirmation guards Workspace navigation; the browser's own prompt guards unloading.
+  page.removeAllListeners("dialog");
   page.on("dialog", (dialog) => dialog.accept());
   await cee.getByLabel("Notes", { exact: false }).first().fill("Updated notes");
   await page
@@ -738,7 +978,7 @@ try {
     (
       await mutate(user1.auth, "PUT", instancePath, {
         ...beforeConflict.body,
-        Notes: { "@value": "Concurrent metadata" },
+        notes: { "@value": "Concurrent metadata" },
       })
     ).status,
     200,
@@ -761,7 +1001,7 @@ try {
     "My unsaved metadata",
   );
   assert.equal(
-    (await call(user1.auth, "GET", instancePath)).body.Notes["@value"],
+    (await call(user1.auth, "GET", instancePath)).body.notes["@value"],
     "Concurrent metadata",
   );
   pass(
@@ -848,17 +1088,17 @@ try {
   );
   pass("Publish/new draft preserves metadata template identity");
   await listed(page, names.template);
-  await row(page, names.template)
-    .getByRole("button", { name: "Show information", exact: true })
-    .click();
+  await showInformation(page, names.template);
   await page.getByRole("tab", { name: "Version", exact: true }).click();
   await page
     .getByRole("tabpanel")
-    .getByRole("link", { name: /1\.0\.0/ })
+    .locator("dd")
+    .filter({ hasText: /^1\.0\.0$/ })
     .waitFor();
   await page
     .getByRole("tabpanel")
-    .getByRole("link", { name: /1\.1\.0/ })
+    .locator("dd")
+    .filter({ hasText: /^1\.1\.0$/ })
     .waitFor();
   await page.getByRole("tab", { name: "Info", exact: true }).click();
   pass("Info and Version panels show the published/draft chain");
@@ -938,7 +1178,7 @@ try {
   await row(page, names.copy)
     .getByRole("link", { name: names.copy, exact: true })
     .click();
-  await page.locator("#state").filter({ hasText: "Ready" }).waitFor();
+  await page.locator("#state").filter({ hasText: /^No unsaved changes$/ }).waitFor();
   assert.equal(
     (await mutate(user1.auth, "DELETE", "/templates/" + enc(copy["@id"])))
       .status,
@@ -1017,7 +1257,7 @@ try {
       "/" + collection,
       () =>
         modal(page)
-          .getByRole("button", { name: "Delete", exact: true })
+          .getByRole("button", { name: "Yes, delete it!", exact: true })
           .click(),
       204,
       true,
