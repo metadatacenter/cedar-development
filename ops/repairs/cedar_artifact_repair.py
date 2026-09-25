@@ -6706,7 +6706,66 @@ def only_dropped_reviewed_required_entries(before: Any, after: Any) -> Optional[
     return None
 
 
+SCHEMA_SHAPE_PLANS: dict[str, Any] = {}
+
+
+def apply_reviewed_schema_shapes(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Apply Java-reviewed nullable identifiers and stale UI-order removals to a pinned source."""
+    plan = SCHEMA_SHAPE_PLANS.get(artifact.get("@id")) if isinstance(artifact, dict) else None
+    if not isinstance(plan, dict):
+        raise TransformRefused("no Java-reviewed schema-shape plan for this artifact")
+    digest = artifact_fingerprint(artifact)
+    if digest == plan.get("afterSha256"):
+        return copy.deepcopy(artifact), []
+    if digest != plan.get("beforeSha256"):
+        raise TransformRefused("source changed since Java schema-shape comparison; regenerate the plan")
+    result = copy.deepcopy(artifact)
+    changes = []
+    for change in plan.get("changes", []):
+        path = change["path"]
+        if not path.endswith(("/properties/@id/type", "/_ui/order")):
+            raise TransformRefused("schema-shape plan contains an unsupported path")
+        parent_path, key = path.rsplit("/", 1)
+        parent = value_at(result, parent_path)
+        if not isinstance(parent, dict) or not json_equal(parent.get(key), change["before"]):
+            raise TransformRefused("schema-shape plan does not match " + path)
+        parent[key] = copy.deepcopy(change["after"])
+        changes.append({"path": path, "replaced": change["before"], "wrote": change["after"]})
+    if artifact_fingerprint(result) != plan.get("afterSha256"):
+        raise TransformRefused("schema-shape candidate does not match the reviewed digest")
+    return result, changes
+
+
+def only_reviewed_schema_shapes(before: Any, after: Any) -> Optional[str]:
+    nodes = dict(schema_context_nodes(before))
+    for path, old, new in differences(before, after):
+        if path.endswith("/properties/@id/type"):
+            if path[:-len("/properties/@id/type")] not in nodes \
+                    or old != "string" or new != ["string", "null"]:
+                return path
+        elif path.endswith("/_ui/order"):
+            node = nodes.get(path[:-len("/_ui/order")])
+            if not node or not isinstance(node.get("@type"), str) \
+                    or node["@type"] not in PARENT_REQUIRED_BASE \
+                    or not isinstance(node.get("properties"), dict) \
+                    or not isinstance(old, list) or not isinstance(new, list) \
+                    or not all(isinstance(v, str) for v in old + new):
+                return path
+            removed = set(old) - set(new)
+            if not removed or removed & set(node["properties"]) \
+                    or new != [v for v in old if v not in removed]:
+                return path
+        else:
+            return path or "/"
+    return None
+
+
 REPAIRS = {
+    "apply-reviewed-schema-shapes": Repair(
+        name="apply-reviewed-schema-shapes", condition="reviewed-schema-shapes",
+        summary="allow null identifiers and remove undeclared UI-order entries as confirmed by Java",
+        transform=apply_reviewed_schema_shapes, invariant=only_reviewed_schema_shapes,
+    ),
     "drop-reviewed-required-entries": Repair(
         name="drop-reviewed-required-entries", condition="unexpected-parent-required",
         summary="remove Java-reviewed legacy parent requirements without changing properties or values",
@@ -7575,6 +7634,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--required-removals",
                         help="Java-reviewed parent required-list removals keyed by artifact IRI, "
                              "with beforeSha256, afterSha256 and changes (path, before, after)")
+    parser.add_argument("--schema-shape-plan",
+                        help="Java-reviewed nullable @id/UI-order changes keyed by artifact IRI, "
+                             "with beforeSha256, afterSha256 and changes (path, before, after)")
     parser.add_argument("--declare-fields",
                         help="JSON: template IRI -> the field declarations to add, for "
                              "declare-instance-field; nothing is declared without it")
@@ -7652,6 +7714,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     repairs = [REPAIRS[name] for name in names]
     if "drop-reviewed-required-entries" in names and not arguments.required_removals:
         parser.error("drop-reviewed-required-entries requires --required-removals")
+    if "apply-reviewed-schema-shapes" in names and not arguments.schema_shape_plan:
+        parser.error("apply-reviewed-schema-shapes requires --schema-shape-plan")
     if arguments.apply and not arguments.verify:
         parser.error("production writes require read-back verification; --no-verify is dry-run only")
     if arguments.apply and "align-instance-context-iris" in names \
@@ -7728,6 +7792,7 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     for flag, supplied, into in (("--mapping", arguments.mapping, RENAMES),
                                  ("--required-removals", arguments.required_removals, REQUIRED_REMOVALS),
+                                 ("--schema-shape-plan", arguments.schema_shape_plan, SCHEMA_SHAPE_PLANS),
                                  ("--acronyms", arguments.acronyms, ACRONYMS),
                                  ("--branches", arguments.branches, BRANCHES),
                                  ("--terms", arguments.terms, TERMS),
