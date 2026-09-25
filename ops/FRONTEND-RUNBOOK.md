@@ -2174,6 +2174,14 @@ and the panel says which key is missing, because an embedder should reach a CEDA
 service because it asked to rather than because a component it loaded had an
 address compiled into it.
 
+`language` selects the interface language, `en` (the default) or `hu`, as a property
+or an attribute, and can change at any time; any other value falls back to `en`.
+Each designer element keeps its own language, and both translation maps are compiled
+into the bundle. CED passes the language on to the term picker and to the CEE and CEF
+elements it embeds. The Template Designer host sets it from the browser's preferred
+language. `npm test` runs a guard that fails on a user-visible string written outside
+the maps; deliberate exceptions go in `src/app/i18n/i18n-allowlist.json` with a reason.
+
 ### CED in the Split Designer Host
 
 Workspace's template and element links open `cedar-template-designer` on the
