@@ -3629,6 +3629,29 @@ not a second full production sweep. No production writes. Checks: 1,212 Java tes
 Java corpus fixtures, 3,774 TS tests, 166 YAML / 83 JSON parity fixtures, lint, type checking,
 source-lock verification and packaged-consumer smoke passed.
 
+The subsequent strict-shape replay uses the same 1,634 retained instances under
+`.cedar/audits/2026-09-25-instance-strict-shapes-replay/`. TypeScript matches Java's explicit YAML
+key layout at 128 UTF-16 code units: all five long-key cases now agree. Both JSON/YAML readers
+reject fields containing both identifier and literal properties, including null or identical values;
+all 11 known mixed-value sources are consistently refused. TypeScript also rejects all 11 known
+URI acceptance gaps (Unicode spacing/control characters, malformed schemes, repeated fragment
+markers). These are measured Java URI checks, not a claim of complete URI-parser equivalence.
+The 1,000 clean controls remain valid after completion and agree across all paths.
+
+`ops/repairs/repair_instance_values.py` plans schema-checked source corrections and applies only
+fully valid, Java-readable candidates. It checks unchanged source/template bodies, uses conditional
+verbatim writes, saves originals, and validates exact readbacks. Its pure transform and invariant
+live in `instance_values.py`. The 51-candidate plan is retained in
+`.cedar/repairs/2026-09-25-instance-values/`: two instances were repaired by removing surrounding
+clipboard whitespace from three URL values. Fourteen proposed narrow repairs remain blocked by
+other validation errors; 35 have no unambiguous correction under these rules. No populated
+conflicting values were removed. The two readbacks pass all four paths, generated order, identical
+YAML and completed validation in `.cedar/audits/2026-09-25-instance-values-repaired-confirmation/`.
+Generated JSON still requires the normal server completion step. The retained primary findings now
+leave 66 affected instances, three with valid sources; this was not another production-wide sweep.
+Checks: 1,213 Java tests, 249 Java corpus fixtures, 3,790 TypeScript tests and all TS CI gates,
+plus six repair regression tests.
+
 ### Repairing instance-context additional-property declarations
 
 `ops/repairs/context_additional.py` compares stored schema declarations with Java's JSON → YAML →

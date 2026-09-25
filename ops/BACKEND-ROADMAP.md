@@ -1204,36 +1204,36 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   [backend runbook](./BACKEND-RUNBOOK.md#comparing-both-schema-libraries-over-the-full-stored-corpus)
   describes how to resume and recheck it after a library change.
 
-  **Resolve the full-production instance pipeline findings.** Keep these primary categories
-  separate from the 612 already-invalid sources; counts include valid and invalid instances.
-  The retained-corpus replay leaves 73 distinct pipeline/completion findings, seven on valid sources.
+  **Resolve the remaining production instance sources and pipeline findings.** The retained
+  findings and checked repairs leave 66 affected instances, three with valid stored sources.
+  Consistent reader rejection of an invalid source still requires a source repair.
 
   | Remaining issue | Instances |
   | --- | ---: |
   | Multiple literal datatypes: Java emits the first, TS emits an array Java cannot read | 4 |
-  | Template completion loses a required root context mapping | 1 |
+  | Template demands a root context mapping for an undeclared child | 1 |
   | Valid attribute-value member named `type` cannot be rendered as YAML | 1 |
-  | Long-key YAML formatting differs | 5 |
-  | Mixed `@id`/`@value` fields read differently | 11 |
-  | Malformed/empty URI is the first Java rejection | 37 |
+  | Stored mixed `@id`/`@value` fields | 11 |
+  | Malformed/empty stored URI is the first Java rejection | 35 |
   | Malformed annotation objects | 11 |
   | Numeric JSON literals or an unexpected nested field array | 3 |
 
-  Reconcile readers without silently discarding data, and follow Java's generated ordering and
-  YAML spelling. Extend TS URI rejection beyond ASCII whitespace: ten of the 37 URI cases still
-  load in TS, as does an additional malformed URI in a numeric-literal case. Preserve URI values
-  until a checked repair establishes the intended replacement. The four unresolved index entries
-  return 404 even after retry; reconcile the index and store rather than declaring them converted.
-  Investigate the other 546 invalid sources without a parity discrepancy separately from library
-  disagreements. Revalidate against their actual templates before any source repair.
+  Reconcile the remaining library behavior without silently discarding data. Resolve the template's
+  dangling root-context requirement against its actual child declaration before changing completion.
+  Fourteen instances have narrow source corrections prepared but still fail validation for other
+  reasons; resolve those blockers before writing. Preserve conflicting populated values and ambiguous
+  URI spellings until the intended replacement is established. The GeoExposure CASTNET link fields
+  can lose their exact duplicate `@value`, but unrelated template errors block the complete write.
+  Preserve DOI annotations while resolving the document/graph write guard before retrying the HEAL
+  annotation repair. Plans, validation errors, backups and readbacks are under
+  `$CEDAR_HOME/.cedar/repairs/2026-09-25-instance-values/REPORT.md`.
 
-  The GeoExposure CASTNET source's `PROJECT/project_url` and `RESOURCE/resource_url` are
-  link fields: retain their `@id` and remove the duplicate `@value` in a checked source repair.
-  Its narrow repair remains blocked by 59 unrelated validation errors. Do not remove other values
-  to make the write pass. Preserve DOI annotations while resolving the document/graph write guard
-  before retrying the HEAL annotation repair. Exact IDs, per-category source verdicts, and evidence
-  are in `$CEDAR_HOME/.cedar/audits/2026-09-25-instance-four-repairs-confirmation/REPORT.md` and the
-  [instance pipeline runbook](./BACKEND-RUNBOOK.md#full-production-instance-matrix).
+  The four unresolved index entries return 404 even after retry; reconcile the index and store
+  rather than declaring them converted. Investigate already-invalid sources without a pipeline
+  discrepancy separately from library disagreements. Revalidate against actual templates before
+  any source repair. Retained replay evidence is under
+  `$CEDAR_HOME/.cedar/audits/2026-09-25-instance-strict-shapes-replay/`; the
+  [instance pipeline runbook](./BACKEND-RUNBOOK.md#full-production-instance-matrix) describes coverage.
 
   **Permit well-formed optional annotations on every template instance.** Make Java and TS
   generated template schemas include the canonical optional `_annotations` declaration, and
