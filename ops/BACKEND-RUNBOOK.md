@@ -3436,6 +3436,21 @@ four-path JSON content/order matches. The two quoting mismatches are resolved; t
 remaining pipeline discrepancy is the multiple-datatype literal. Evidence is retained in
 `.cedar/audits/2026-09-25-instance-key-policy-fixed/`. Production is unchanged.
 
+A random 1,000-instance sweep is recorded in
+`.cedar/audits/2026-09-25-instance-random-1000/`. Use `--random-seed` with `--limit` to sample
+search-index positions across the key-visible population and retain the exact selection for
+replay. Seed `9251739` sampled from 150,584 indexed instances, covering 64 templates with
+no fetch failures. Sampling is by instance: 811 selected instances belong to the NCBI BioSample
+Human Package template. Source validity was 997 valid / 3 invalid. All 1,000 produced all four
+JSON outputs; 990 agreed on content and YAML bytes, but only 126 agreed on generated JSON order.
+There were 864 order-only differences, all due to the position of root `schema:description`;
+five Java provenance losses (`pav:derivedFrom`); and five TS label losses on literals or
+label-only nodes. One of the latter also became invalid through Java YAML after completion,
+because a labelled null literal lost its required `@value`. The TS-YAML lanes remained valid
+for all 997 valid sources, but validity did not imply preservation of labels or provenance.
+The previous two-datatype case was not in this sample and remains unresolved. No production
+writes were performed. The evidence report lists examples and the overlap between findings.
+
 ### Repairing instance-context additional-property declarations
 
 `ops/repairs/context_additional.py` compares stored schema declarations with Java's JSON → YAML →
