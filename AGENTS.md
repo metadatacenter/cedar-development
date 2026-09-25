@@ -19,7 +19,7 @@ releases. Reach for it before any script, and before setting an environment vari
 ```bash
 cedarcli env status            # mode, profile, host — start here when a value is not what you expect
 cedarcli cheat                 # the command cheatsheet
-cedarcli build java            # authoritative full build
+cedarcli build java            # authoritative full build; Maven threads default to the CPU count (max 16)
 cedarcli native start all      # infra + microservices + frontends, headless
 cedarcli native status         # health + BINARY column; every row must read `current` after a redeploy
 cedarcli native restart microservice <svc>  # redeploy one service
@@ -32,7 +32,7 @@ cedarcli check ci-env          # every Java repository's CI environment block; -
 cedarcli build frontends       # full frontend reactor; completion contract below
 cedarcli check components      # what each browser application serves against the component sources beside it
 cedarcli publish components    # publish each component's current source and advance the pins that follow it
-cedarcli test e2e              # every whole-stack smoke tier; records the run the train and release gates require
+cedarcli test e2e              # every whole-stack smoke tier; records the run the train and release gates require; --rest-workers 4 on the 16-core workstation
 ```
 
 The alias sources `cedar-cli/cli.sh`, which activates the CLI's own virtualenv. When an alias is not

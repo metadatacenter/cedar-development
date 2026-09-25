@@ -1669,8 +1669,13 @@ seven build commands that can reach Java — `this`, `parent`, `libraries`, `pro
 explicitly for a fast compile/install loop. Frontend-only build commands do not expose an inert
 Java-test option.
 
-**Bounded parallel Maven builds.** `cedarcli build --jobs 2 java` passes `-T 2` to
-Maven (the default); `--jobs 1` retains serial execution. Maven schedules modules by
+**Bounded parallel Maven builds.** `cedarcli build java` passes Maven one reactor thread per
+detected CPU, at least one and capped at sixteen, so a plain build uses the whole machine: `-T 16`
+on the 16-core workstation, where the full build takes about 166 seconds against 305 at two
+threads. `--jobs N` overrides the count with `-T N`, and `--jobs 1` retains serial execution.
+Frontend builds do not follow the host this way. Their repository concurrency stays at two
+unless `--jobs` is given, because each concurrent repository also spends its own worker budget.
+Maven schedules modules by
 its dependency graph inside each reactor. The parent, libraries, project and clients
 commands remain ordered and run in separate owning processes, so the embedded-Mongo
 preflight/cleanup guards still surround one reactor at a time. Test classes remain serial
@@ -1702,9 +1707,8 @@ and outbox restart lifecycle. The 15 deletion/restore outbox tests fell from 113
 
 Each run reported 5,581 tests across 494 class summaries, zero failures/errors and
 12 skips. Runs were sequential, one measurement per setting; cache warmth and machine
-load can affect comparisons. Eight threads is the fastest measured setting on this
-workstation, with only ten seconds gained over six. The portable default remains two.
-Reports: `.cedar/build-reports/20260924T150746Z-f7104ba3.json`,
+load can affect comparisons. Of these three settings, eight threads was fastest, with only
+ten seconds gained over six. Reports: `.cedar/build-reports/20260924T150746Z-f7104ba3.json`,
 `20260924T151221Z-baeb23a2.json`, and `20260924T151629Z-8a1fbc2f.json`.
 
 **Resource test JVM isolation.** The resource application distributes test classes over
@@ -1733,6 +1737,25 @@ trees remained unchanged. Mean build time was 173.6 seconds, median 173.5, and r
 failure appeared in this sample. Logs, source revisions, JSON results and archived
 test reports are retained locally under
 `.cedar/build-reports/java-repeat-10-20260924T153125Z/`.
+
+A sweep on 2026-09-25 extended these measurements past eight threads, with two resource test
+JVMs throughout:
+
+| Maven threads | Full build seconds | `cedar-project` seconds |
+| --- | ---: | ---: |
+| 2 | 304.9 | 283.4 |
+| 8 | 172.7 | 156.8 |
+| 12 | 170.5 | 154.1 |
+| 16 | 165.8 | 150.0 |
+
+Every setting passed. The sixteen-thread run's Surefire reports held 495 class summaries and
+5,596 tests, with zero failures or errors and 12 skips. Past eight threads the gain is small.
+Most of the remaining time lies inside a few long server test modules, which more reactor
+threads cannot shorten. Sixteen threads was nonetheless the fastest setting, and it is the
+default this workstation now receives. Each setting was measured once, so a difference of a
+few seconds is within noise. Reports: `.cedar/build-reports/20260925T142927Z-e311b7bd.json`,
+`20260925T143456Z-7b2104dd.json`, `20260925T143833Z-2e8b3674.json` and
+`20260925T144130Z-1bb25430.json`.
 
 **Build temporary storage must permit execution.** `cedarcli` creates a private, unique
 workspace per Maven task or frontend build under `$CEDAR_HOME/.cedar/build-tmp/`, and probes
@@ -2251,9 +2274,9 @@ terminology store is absent by recording its seven checks as skipped rather than
 them. `download` includes JSON / YAML / compact-YAML export and read-negotiation across all four
 artifact kinds.
 
-The REST runner uses two workers by default, bounded to one through four. Use
-`cedarcli test e2e --rest-workers 4` for four workers, or `--rest-workers 1` for the
-serial diagnostic path. For an individual REST invocation, the equivalent is
+On the 16-core workstation, run `cedarcli test e2e --rest-workers 4`. The REST runner uses two
+workers by default, bounded to one through four, and four is both the ceiling and the fastest
+measured setting. Use `--rest-workers 1` for the serial diagnostic path. For an individual REST invocation, the equivalent is
 `npm run smoke:rest -- --workers=4` after loading the normal profile. The standalone
 REST invocation does not replace the release smoke gate.
 
@@ -2290,6 +2313,11 @@ zero failures/skips, the exact serial check identities and verdicts, no leftover
 healthy worker consumers. Mean elapsed time was 51.26 seconds, range 47.3–55.2: about
 57% less than the serial baseline. Local logs and JSON reports are retained under
 `.cedar/build-reports/rest-repeat-10-20260924T162831Z/`.
+
+Only the REST tier runs concurrently, so it is no longer where a whole run spends most of its
+time. On 2026-09-25, `cedarcli test e2e --rest-workers 4` took 279 seconds: 51 for the REST tier,
+149 for the browser smoke and 78 for the split-frontend journey. Both browser tiers run serially,
+and together they account for more than four fifths of the run.
 
 `cedarcli test e2e` runs every tier in one command and records the run as the evidence the train
 and release preflights require. Before anything runs it reads the controller's status and refuses
@@ -2980,20 +3008,19 @@ theme are a coordinate change, no change at all, and two FreeMarker files respec
 and the two routes forward are on the roadmap under upgrading the persistence and infrastructure
 servers; do not restate them here.
 
-Current framework baseline (Jakarta EE 10, all on Java 17): Dropwizard 5.0.2, Jetty 12.1.9, Jersey
-3.1.11, Hibernate 6.6.52.Final, Servlet 6, Persistence 3.1 and Jackson 2.21.4. Recently modernized
-client libraries: jedis 5.2, Apache HttpClient 5 (the exceptions are the OpenSearch low-level REST
-client and the Keycloak event listener, which stay on HttpClient 4 because those external APIs
-require v4 types), slf4j 2.0
-with logback 1.5, swagger-core v3 (OpenAPI 3), mysql-connector-j 8.4, log4j 2.24, commons-lang3.
+Current framework baseline (Jakarta EE 10, all on Java 17): Dropwizard 5.0.2, Jetty 12.1.13, Jersey
+3.1.12, Hibernate 6.6.58.Final, Servlet 6, Persistence 3.1 and Jackson 2.22.3. Jetty, Jersey,
+Hibernate and Jackson run ahead of the versions the Dropwizard 5.0.2 bundle names, each within the
+same line. Recently modernized client libraries: jedis 5.2, Apache HttpClient 5 (the exceptions are
+the OpenSearch low-level REST client and the Keycloak event listener, which stay on HttpClient 4
+because those external APIs require v4 types), slf4j 2.0 with logback 1.5, swagger-core v3
+(OpenAPI 3), mysql-connector-j 8.4, log4j 2.26, commons-lang3.
 
-The test stack pins Mockito 5.23.0 and manages both `byte-buddy` and `byte-buddy-agent` at
-1.18.8-jdk5 in `cedar-parent`. Mockito's own POM names byte-buddy 1.17.7; the newer managed pair is
-intentional so Mockito and Dropwizard Hibernate share one version. Keep the core and agent
-together, and verify a change against the complete `cedar-microservice-libraries`,
-`cedar-bridge-server` and
-`cedar-worker-server` reactors rather than compile alone. The current pairing passes all 1,083 tests
-in those reactors with no failures, errors or skips.
+The test stack pins Mockito 5.24.0 and manages both `byte-buddy` and `byte-buddy-agent` at
+1.18.14-jdk5 in `cedar-parent`. Mockito's own POM names byte-buddy 1.17.7 and Dropwizard Hibernate
+names 1.18.8-jdk5. The managed pair is intentional, so that both share one version. Keep the core and
+agent together, and verify a change against the full Java build rather than compile alone. The
+current pairing passed the full `cedarcli build java` at sixteen threads on 2026-09-25 with no failures or errors.
 
 JSON Schema validation uses the maintained networknt validator, not the abandoned java-json-tools
 (FGE) fork. networknt's built-in `uri` and `date-time` formats are stricter than FGE's and would
