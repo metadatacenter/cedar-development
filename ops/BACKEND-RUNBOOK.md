@@ -3557,6 +3557,56 @@ shared parity fixtures current. No production writes.
 
 
 
+### Full production instance matrix
+
+`ops/cedar_instance_matrix_full.py` audits every key-visible production instance through stored
+JSON → Java/TS YAML → Java/TS JSON, with source validation and Java template completion in all
+four lanes. It is GET-only. `--directory`, `--classpath` (a file containing the Java classpath),
+`--library` (the frozen TS bundle), and `--java` identify the run and runtimes; `--resume` reuses
+cached inventory pages, compressed source snapshots, templates, and completed records. It uses
+eight concurrent reads, delivers ready reads without waiting for an earlier slow read, and retries
+unread instances and failed template fetches at the end. Reconcile `records.jsonl` by the latest
+record per artifact ID because retry verdicts are appended. An indexed total changing between
+pages or incomplete enumeration stops the run instead of claiming full coverage.
+
+The completed 2026-09-25 run is
+`$CEDAR_HOME/.cedar/audits/2026-09-25-instance-full-matrix-current/`, with its frozen runtime in
+`../2026-09-25-instance-full-runtime/`: Java artifact library `7b658d2`, TypeScript `412e01f`.
+It resumed after 47,104 records to improve read scheduling without changing the libraries or
+raising request concurrency. The inventory contains 150,584 distinct IDs; 150,580 were readable,
+and four legacy `.net` entries still return HTTP 404 after retry. All 1,533 referenced templates
+were fetched. No production writes were attempted.
+
+| Measurement | Instances |
+| --- | ---: |
+| Valid stored source | 149,968 |
+| Invalid stored source | 612 |
+| All four JSON outputs produced | 150,524 |
+| All four JSON contents agree | 150,511 |
+| All four generated JSON key orders agree | 150,503 |
+| Java/TS YAML byte-identical | 150,493 |
+| All production/parity checks pass together | 150,486 |
+| Distinct production/parity exceptions | 94 |
+| Additional completion-only exception | 1 |
+
+Of valid sources, 149,965 validate after completion in all four lanes. The three blockers are
+multiple literal datatypes, an attribute-value member named `type` refused by both YAML writers,
+and a required root context mapping lost during completion. Separately, TS drops `Title/@language:
+en` on one valid source (`23e37ba7-5009-4681-8fb2-1d109ab7c3ae`) without making the result invalid;
+18 further valid sources have presentation/order differences. Thus 22 valid instances have an
+outstanding finding. Of the 612 invalid sources, 61 validate after completion in all four lanes,
+while 551 do not. The 95 primary pipeline/completion findings contain 73 invalid sources and
+22 valid sources; the other 539 invalid sources have no parity discrepancy.
+
+`REPORT.md` contains category counts and links to every affected instance. `issue-categories.json`
+contains the exact grouped IDs; `findings.json` contains all 634 readable instances with invalid
+sources or pipeline/completion findings. `unread.json` identifies the four persistent 404s.
+`summary.json` separates final-process runtime counters from cumulative cached template coverage.
+The audit records source differences but does not equate cross-library agreement with source
+preservation: contexts and unset fields require normalization/completion, and only 30 raw source
+JSON documents equal all four uncompleted outputs. This read-only test does not exercise the
+production write endpoint or its DOI guard.
+
 ### Repairing instance-context additional-property declarations
 
 `ops/repairs/context_additional.py` compares stored schema declarations with Java's JSON → YAML →

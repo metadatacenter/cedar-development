@@ -22,8 +22,8 @@ def encoded(value, sort=False):
 def evaluate_instance(bridges, validator, templates, ref, source):
     def validate(value):
         return validator.ask({'op': 'validate', 'kind': 'instance',
-            'templateId': source['schema:isBasedOn'], 'artifact': value})
-    record = {'id': ref.artifact_id, 'name': ref.name, 'template': source['schema:isBasedOn'],
+            'templateId': source.get('schema:isBasedOn'), 'artifact': value})
+    record = {'id': ref.artifact_id, 'name': ref.name, 'template': source.get('schema:isBasedOn'),
         'sourceValidation': validate(source), 'rendered': {}, 'pairings': {}}
     outputs = {}
     yamls = {}
@@ -43,7 +43,7 @@ def evaluate_instance(bridges, validator, templates, ref, source):
                 outputs[lane] = value
                 result['validation'] = validate(value)
                 completed = bridges['java'].ask({'op': 'complete-instance', 'json': value,
-                    'template': templates[source['schema:isBasedOn']]}) if source['schema:isBasedOn'] in templates else {'status': 'template-missing'}
+                    'template': templates[source.get('schema:isBasedOn')]}) if source.get('schema:isBasedOn') in templates else {'status': 'template-missing'}
                 result['completedValidation'] = {k: v for k, v in completed.items() if k != 'json'}
                 result['sourceDifferences'] = list(matrix.differences(source, value))
             record['pairings'][lane] = result

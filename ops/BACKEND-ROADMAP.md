@@ -1197,21 +1197,40 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   [backend runbook](./BACKEND-RUNBOOK.md#comparing-both-schema-libraries-over-the-full-stored-corpus)
   describes how to resume and recheck it after a library change.
 
-  **Resolve the random 10,000-instance pipeline discrepancies.** Three instances remain:
+  **Resolve the full-production instance pipeline findings.** Keep these primary categories
+  separate from the 612 already-invalid sources; counts include valid and invalid instances.
 
-  | Issue | Instances |
+  | Remaining issue | Instances |
   | --- | ---: |
-  | A field carries both `@id` and `@value`; readers choose different representations | 1 |
-  | Malformed URI rejected by both libraries; verify and repair the stored URL | 1 |
-  | Stray string-valued `_annotations/@id`; narrow source repair blocked by DOI document/graph disagreement | 1 |
+  | TS loses populated `@language` on a valid literal | 1 |
+  | Multiple literal datatypes: Java emits the first, TS emits an array Java cannot read | 4 |
+  | Template completion loses a required root context mapping | 1 |
+  | Valid attribute-value member named `type` cannot be rendered as YAML | 1 |
+  | Nested attribute-value YAML metadata order differs | 13 |
+  | Long-key YAML formatting differs | 5 |
+  | Numeric attribute-name JSON key order differs | 6 |
+  | Attribute-group JSON member placement differs | 1 |
+  | Mixed `@id`/`@value` fields read differently | 11 |
+  | Empty repeated element retained only by TS | 1 |
+  | Malformed/empty URI is the first Java rejection | 37 |
+  | Malformed annotation objects | 11 |
+  | Numeric JSON literals or an unexpected nested field array | 3 |
+
+  Reconcile readers without silently discarding data, and follow Java's generated ordering and
+  YAML spelling. Extend TS URI rejection beyond ASCII whitespace: ten of the 37 URI cases still
+  load in TS, as does an additional malformed URI in a numeric-literal case. Preserve URI values
+  until a checked repair establishes the intended replacement. The four unresolved index entries
+  return 404 even after retry; reconcile the index and store rather than declaring them converted.
+  Investigate the other 539 invalid sources without a parity discrepancy separately from library
+  disagreements. Revalidate against their actual templates before any source repair.
 
   The GeoExposure CASTNET source's `PROJECT/project_url` and `RESOURCE/resource_url` are
-  declared as link fields by template `ce1436c0-2847-490b-9604-cb20a8602e84`: retain their `@id`
-  and remove the duplicate `@value` in a checked source repair.
-  Reconcile reader behavior on malformed stored shapes without silently choosing or deleting
-  information. All three affected sources are already invalid. Keep the sample's 43 already-invalid
-  sources separate from library regressions;
-  details and identifiers are in the [instance pipeline runbook](./BACKEND-RUNBOOK.md).
+  link fields: retain their `@id` and remove the duplicate `@value` in a checked source repair.
+  Its narrow repair remains blocked by 59 unrelated validation errors. Do not remove other values
+  to make the write pass. Preserve DOI annotations while resolving the document/graph write guard
+  before retrying the HEAL annotation repair. Exact IDs, per-category source verdicts, and evidence
+  are in `$CEDAR_HOME/.cedar/audits/2026-09-25-instance-full-matrix-current/REPORT.md` and the
+  [instance pipeline runbook](./BACKEND-RUNBOOK.md#full-production-instance-matrix).
 
   **Permit well-formed optional annotations on every template instance.** Make Java and TS
   generated template schemas include the canonical optional `_annotations` declaration, and
