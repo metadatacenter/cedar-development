@@ -1060,37 +1060,38 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   These counts cover the flagged subset, not the corpus. An instance clean on both axes at the last
   full walk is not in them, and neither is anything created since.
 
-  **Harden schema conversion across both model libraries.** Resolve the remaining differences in
-  the latest random-offset 2,000-schema sample:
+  **Resolve the remaining schema conversion and source issues.** Outstanding findings from the
+  151,834-schema production inventory measured 2026-09-25:
 
-  | Remaining discrepancy | Schema artifacts |
+  | Remaining issue | Schema artifacts |
   | --- | ---: |
-  | YAML writes `1e-7` where Java writes `0.0000001`; the numeric values agree | 4 templates |
-  | A field with only a delete action and no active vocabulary constraints becomes text in Java but controlled-term in TypeScript | 1 template |
+  | Literal fields with orphan vocabulary actions become text in Java but controlled-term in TypeScript | 12: 7 templates, 5 elements |
+  | Indexed artifacts whose typed GET returns 404, including on the final retry | 6: 1 template, 1 element, 4 fields |
+  | TypeScript strict-reader diagnostics on Java-validator-valid source schemas; conversions still succeed | 3,646; overlaps one of the 12 above |
+  | Java 17 and JavaScript choose different decimal spellings for exceptional large floating-point values | None observed in production; a synthetic probe differs |
 
-  For `Random Template` (`1afed550…`), inspect the literal `@value` declaration and the orphan
-  delete action together before deciding what to preserve; agreeing by silently losing source
-  information is insufficient. Add regression fixtures for both cases. Expand beyond the retained
-  5,100 schema artifacts and classify source-to-output changes before claiming corpus-wide agreement.
-  Render each stored JSON document to YAML with
-  Java and TypeScript independently, then read each YAML rendering with both libraries to produce
-  four JSON Schema results. Validate the source and all four results with the Java validator; keep
-  reader diagnostics and failures distinct from successful conversions. Compare all four results
-  with one another and with the stored source so shared information loss cannot masquerade as
-  agreement. Require byte-identical UTF-8 YAML from both writers, including key order, quoting,
-  escaping, indentation, line endings and the final newline; do not normalize away differences.
-  For JSON, compare semantic content independently of object-key ordering, and check generated
-  object-key order as a separate gate. Preserve array ordering in the initial comparison and
-  classify any order-only differences explicitly rather than globally sorting arrays. Java is the
-  canonical reference, but agreement with Java does not excuse loss from the stored source.
-  Turn each proven library defect into a regression fixture, reconcile the implementations, and
-  classify the source-to-output differences in all 5,100 sampled artifacts before treating agreement
-  between converters as evidence of preservation. Reconcile TypeScript's source-reader diagnostics
-  on 1,298 of these Java-validator-valid artifacts (67 in the original 100, 647 in the next 1,000,
-  118 in the first random-offset 2,000 and 466 in the second); a successful render does not settle those reports. Expand the sample before claiming
-  corpus-wide agreement. Keep data defects and documented
-  representation normalizations separate from library failures; no production writes belong to
-  this audit.
+  Decide how to handle the orphan actions before changing these schemas: the 12 artifacts contain
+  13 affected field occurrences and seven distinct field IDs. Java drops the actions; TypeScript's
+  controlled-term interpretation can instead drop literal rules such as the publications field's
+  regex. Java remains canonical, but agreement by silently losing source information is insufficient.
+  Reconcile the unavailable search/graph entries with the store; the legacy `.net` template also
+  returns 404 under the corresponding `.org` ID.
+
+  Reconcile the strict reader's acceptance of legacy context and schema declarations, especially
+  missing `bibo` mappings, required arrays and property/type shapes. Keep these diagnostics separate
+  from failed conversions. Extend numeric spelling beyond ordinary decimal expansion: the synthetic
+  bound `-1.2345e21` renders as `-1234499999999999900000` in Java 17 and
+  `-1234500000000000000000` in TypeScript. Match the canonical algorithm without changing values.
+
+  Classify source-to-output normalizations and losses before asserting preservation. Pairwise
+  converter agreement is insufficient: compare each result with its stored source as well. Preserve
+  every array's order, check generated JSON key order separately from JSON content, and require
+  byte-identical YAML. Turn each further proven library defect into a regression fixture. Keep this
+  audit GET-only and distinguish key-visible search coverage from authoritative store/index parity.
+  The retained corpus, per-artifact evidence and full issue list are under
+  `$CEDAR_HOME/.cedar/audits/2026-09-25-schema-matrix-full/`; the
+  [backend runbook](./BACKEND-RUNBOOK.md#comparing-both-schema-libraries-over-the-full-stored-corpus)
+  describes how to resume and recheck it after a library change.
 
   **Prioritize the largest remaining groups.** Measured 2026-09-25 over the flagged subset.
   Repeated names identify distinct templates; ID prefixes distinguish them.
