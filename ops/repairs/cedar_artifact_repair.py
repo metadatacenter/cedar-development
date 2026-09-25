@@ -6851,7 +6851,44 @@ def only_restored_null_standard_context(before: Any, after: Any, template: Any) 
     return None
 
 
+def has_orphan_literal_actions(node: Any) -> bool:
+    if not isinstance(node, dict) or node.get("@type") != FIELD_AT_TYPE \
+            or node.get("_ui", {}).get("inputType") != "textfield":
+        return False
+    properties = node.get("properties")
+    constraints = node.get("_valueConstraints")
+    return (isinstance(properties, dict) and "@value" in properties and "@id" not in properties
+            and isinstance(constraints, dict) and isinstance(constraints.get("actions"), list)
+            and bool(constraints["actions"])
+            and all(group not in constraints or constraints[group] == [] for group in TERM_CONSTRAINT_GROUPS))
+
+
+def drop_orphan_literal_actions(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Remove approved orphan vocabulary actions only from unambiguous literal text fields."""
+    result = copy.deepcopy(artifact)
+    changes = []
+    for path, node in schema_context_nodes(result):
+        if has_orphan_literal_actions(node):
+            removed = node["_valueConstraints"].pop("actions")
+            changes.append({"path": path + "/_valueConstraints/actions", "replaced": removed, "wrote": None})
+    return result, changes
+
+
+def only_dropped_orphan_literal_actions(before: Any, after: Any) -> Optional[str]:
+    allowed = {path + "/_valueConstraints/actions" for path, node in schema_context_nodes(before)
+               if has_orphan_literal_actions(node)}
+    for path, old, new in differences(before, after):
+        if path not in allowed or new is not ABSENT:
+            return path or "/"
+    return None
+
+
 REPAIRS = {
+    "drop-orphan-literal-actions": Repair(
+        name="drop-orphan-literal-actions", condition="orphan-literal-actions",
+        summary="remove approved orphan vocabulary actions from literal fields without active vocabularies",
+        transform=drop_orphan_literal_actions, invariant=only_dropped_orphan_literal_actions,
+    ),
     "restore-null-standard-context": Repair(
         name="restore-null-standard-context", condition="null-standard-context",
         summary="restore approved null metadata context definitions from the template's canonical datatypes",

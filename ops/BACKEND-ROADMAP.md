@@ -1065,15 +1065,10 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
 
   | Remaining issue | Schema artifacts |
   | --- | ---: |
-  | Literal fields with orphan vocabulary actions become text in Java but controlled-term in TypeScript | 12: 7 templates, 5 elements |
   | Indexed artifacts whose typed GET returns 404, including on the final retry | 6: 1 template, 1 element, 4 fields |
-  | TypeScript strict-reader diagnostics on Java-validator-valid source schemas; conversions still succeed | 1,438; overlaps one of the 12 above; full audit plus targeted production rechecks on 2026-09-25 |
+  | TypeScript strict-reader diagnostics on Java-validator-valid source schemas; conversions still succeed | 1,438; full audit plus targeted production rechecks on 2026-09-25 |
   | Java 17 and JavaScript choose different decimal spellings for exceptional large floating-point values | None observed in production; a synthetic probe differs |
 
-  Decide how to handle the orphan actions before changing these schemas: the 12 artifacts contain
-  13 affected field occurrences and seven distinct field IDs. Java drops the actions; TypeScript's
-  controlled-term interpretation can instead drop literal rules such as the publications field's
-  regex. Java remains canonical, but agreement by silently losing source information is insufficient.
   Reconcile the unavailable search/graph entries with the store; the legacy `.net` template also
   returns 404 under the corresponding `.org` ID.
 
