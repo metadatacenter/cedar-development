@@ -3502,6 +3502,19 @@ incomplete attempt as the 10,000-instance result. `selected-ids.json` identifies
 sample, separate from spare candidates. The shared evaluation function has regression tests
 separating JSON content, key order, YAML bytes, failed conversions and completion verdicts.
 
+The notation and attribute-group fixes replay the same 10,000 sources under
+`.cedar/audits/2026-09-25-instance-random-10000-notation-order-fixed/`. TypeScript preserves
+`skos:notation` in JSON and YAML, including empty notation, literals and metadata-only fields.
+Java's nested-element builder uses an insertion-ordered defensive copy of attribute groups;
+`Map.copyOf` had randomized member iteration. All seven affected notation values and all 12
+affected membership arrays now match their sources in all four paths. The replay yields 9,997
+matching JSON contents/orders and 9,997 byte-identical YAML pairs; all 9,957 valid sources still
+validate after completion. Three malformed-source cases remain. The CDE record with notation
+prohibited by its template now remains invalid in every lane instead of appearing repaired by
+TS's data loss. Tests: 1,210 Java, 3,745 TypeScript; 249 Java corpus fixtures and 166 YAML / 83 JSON
+shared parity fixtures current. No production writes.
+
+
 
 
 

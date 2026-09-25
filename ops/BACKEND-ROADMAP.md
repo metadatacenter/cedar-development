@@ -1142,19 +1142,17 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   [backend runbook](./BACKEND-RUNBOOK.md#comparing-both-schema-libraries-over-the-full-stored-corpus)
   describes how to resume and recheck it after a library change.
 
-  **Resolve the random 10,000-instance pipeline discrepancies.** Eight instances remain:
+  **Resolve the random 10,000-instance pipeline discrepancies.** Three instances remain:
 
   | Issue | Instances |
   | --- | ---: |
-  | TypeScript drops `skos:notation` metadata | 4 |
-  | Java changes an attribute-value group's membership-array order | 1 |
   | A field carries both `@id` and `@value`; readers choose different representations | 1 |
   | Malformed URI accepted by TS but rejected by Java | 1 |
   | Stray string-valued `_annotations/@id` rejected by Java and discarded by TS | 1 |
 
-  Preserve notation and source array order; reconcile reader behavior on malformed stored shapes
-  without silently choosing or deleting information. Four affected sources are valid and four
-  already invalid. Keep the sample's 43 already-invalid sources separate from library regressions;
+  Reconcile reader behavior on malformed stored shapes without silently choosing or deleting
+  information. All three affected sources are already invalid. Keep the sample's 43 already-invalid
+  sources separate from library regressions;
   details and identifiers are in the [instance pipeline runbook](./BACKEND-RUNBOOK.md).
 
   **Resolve the deferred multi-datatype instance literal.** The earlier 100-instance smoke found
