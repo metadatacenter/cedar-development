@@ -1060,17 +1060,27 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   These counts cover the flagged subset, not the corpus. An instance clean on both axes at the last
   full walk is not in them, and neither is anything created since.
 
-  **Harden schema conversion across both model libraries.** Start with a read-only 100-artifact
-  pilot covering templates, elements and fields. Render each stored JSON document to YAML with
+  **Harden schema conversion across both model libraries.** Resolve the two disagreements in the
+  read-only 100-artifact pilot (40 templates, 30 elements, 30 fields): TypeScript must escape the
+  control characters in template `4dd49ba9…` as Java does, so Java can read its YAML, and preserve
+  `valueRecommendation: true` for field `de5768a9…`. Add regression fixtures for both.
+  Render each stored JSON document to YAML with
   Java and TypeScript independently, then read each YAML rendering with both libraries to produce
   four JSON Schema results. Validate the source and all four results with the Java validator; keep
   reader diagnostics and failures distinct from successful conversions. Compare all four results
   with one another and with the stored source so shared information loss cannot masquerade as
-  agreement. Ignore object-key ordering; preserve array ordering in the initial comparison and
+  agreement. Require byte-identical UTF-8 YAML from both writers, including key order, quoting,
+  escaping, indentation, line endings and the final newline; do not normalize away differences.
+  For JSON, compare semantic content independently of object-key ordering, and check generated
+  object-key order as a separate gate. Preserve array ordering in the initial comparison and
   classify any order-only differences explicitly rather than globally sorting arrays. Java is the
   canonical reference, but agreement with Java does not excuse loss from the stored source.
   Turn each proven library defect into a regression fixture, reconcile the implementations, and
-  expand the sample before claiming corpus-wide agreement. Keep data defects and documented
+  classify the source-to-output differences in all 100 pilot artifacts before treating agreement
+  between converters as evidence of preservation. Reconcile TypeScript's source-reader diagnostics
+  on 67 of these Java-validator-valid artifacts; a successful render does not settle those reports.
+  Expand the sample before claiming corpus-wide
+  agreement. Keep data defects and documented
   representation normalizations separate from library failures; no production writes belong to
   this audit.
 
