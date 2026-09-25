@@ -43,6 +43,7 @@ from __future__ import annotations
 import argparse
 import collections
 import copy
+import hashlib
 import json
 import os
 import re
@@ -6642,7 +6643,75 @@ def only_added_schema_bibo_context(before: Any, after: Any) -> Optional[str]:
     return None
 
 
+REQUIRED_REMOVALS: dict[str, Any] = {}
+# ModelNodeNames.TEMPLATE_SCHEMA_ARTIFACT_JSON_SCHEMA_REQUIRED / ELEMENT_... in Java.
+PARENT_REQUIRED_BASE = {
+    "https://schema.metadatacenter.org/core/Template": frozenset({
+        "@context", "@id", "schema:isBasedOn", "schema:name", "schema:description",
+        "pav:createdOn", "pav:createdBy", "pav:lastUpdatedOn", "oslc:modifiedBy",
+    }),
+    ELEMENT_AT_TYPE: frozenset({"@context", "@id"}),
+}
+
+
+def artifact_fingerprint(artifact: Any) -> str:
+    return hashlib.sha256(json.dumps(artifact, sort_keys=True, ensure_ascii=True,
+                                    separators=(",", ":"), allow_nan=False).encode()).hexdigest()
+
+
+def drop_reviewed_required_entries(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Apply an exact, Java-compared plan; refuse any source drift since the comparison."""
+    plan = REQUIRED_REMOVALS.get(artifact.get("@id")) if isinstance(artifact, dict) else None
+    if not isinstance(plan, dict):
+        raise TransformRefused("no Java-reviewed required-removals plan for this artifact")
+    digest = artifact_fingerprint(artifact)
+    if digest == plan.get("afterSha256"):
+        return copy.deepcopy(artifact), []
+    if digest != plan.get("beforeSha256"):
+        raise TransformRefused("source changed since Java required-list comparison; regenerate the plan")
+    result = copy.deepcopy(artifact)
+    changes = []
+    for change in plan.get("changes", []):
+        path = change["path"]
+        if not path.endswith("/required"):
+            raise TransformRefused("required-removals plan contains a non-required path")
+        parent_path = path[:-len("/required")]
+        parent = value_at(result, parent_path) if parent_path else result
+        if not isinstance(parent, dict) or not json_equal(parent.get("required"), change["before"]):
+            raise TransformRefused("required-removals plan does not match " + path)
+        parent["required"] = copy.deepcopy(change["after"])
+        changes.append({"path": path, "replaced": change["before"], "wrote": change["after"]})
+    if artifact_fingerprint(result) != plan.get("afterSha256"):
+        raise TransformRefused("required-removals candidate does not match the reviewed digest")
+    return result, changes
+
+
+def only_dropped_reviewed_required_entries(before: Any, after: Any) -> Optional[str]:
+    """Permit only removal of noncanonical, non-child parent demands; preserve list order."""
+    nodes = dict(schema_context_nodes(before))
+    for path, old, new in differences(before, after):
+        if not path.endswith("/required"):
+            return path or "/"
+        parent = nodes.get(path[:-len("/required")])
+        kind = parent.get("@type") if parent else None
+        if not isinstance(kind, str) or kind not in PARENT_REQUIRED_BASE:
+            return path
+        if not isinstance(old, list) or not isinstance(new, list) \
+                or not all(isinstance(v, str) for v in old + new):
+            return path
+        preserved = PARENT_REQUIRED_BASE[kind] | {name for name, _, _ in container_children(parent)}
+        removed = set(old) - set(new)
+        if not removed or removed & preserved or new != [v for v in old if v not in removed]:
+            return path
+    return None
+
+
 REPAIRS = {
+    "drop-reviewed-required-entries": Repair(
+        name="drop-reviewed-required-entries", condition="unexpected-parent-required",
+        summary="remove Java-reviewed legacy parent requirements without changing properties or values",
+        transform=drop_reviewed_required_entries, invariant=only_dropped_reviewed_required_entries,
+    ),
     "complete-schema-bibo-context": Repair(
         name="complete-schema-bibo-context", condition="schema-bibo-context-missing",
         summary="add Java's bibo prefix to existing schema contexts that omit it",
@@ -7503,6 +7572,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--mapping",
                         help="JSON of confirmed renames, {templateId: {oldKey: newKey}}, which "
                              "rename-instance-keys applies; nothing is renamed without it")
+    parser.add_argument("--required-removals",
+                        help="Java-reviewed parent required-list removals keyed by artifact IRI, "
+                             "with beforeSha256, afterSha256 and changes (path, before, after)")
     parser.add_argument("--declare-fields",
                         help="JSON: template IRI -> the field declarations to add, for "
                              "declare-instance-field; nothing is declared without it")
@@ -7578,6 +7650,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     if len(set(names)) != len(names):
         parser.error("each repair may appear only once in a chain")
     repairs = [REPAIRS[name] for name in names]
+    if "drop-reviewed-required-entries" in names and not arguments.required_removals:
+        parser.error("drop-reviewed-required-entries requires --required-removals")
     if arguments.apply and not arguments.verify:
         parser.error("production writes require read-back verification; --no-verify is dry-run only")
     if arguments.apply and "align-instance-context-iris" in names \
@@ -7653,6 +7727,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         return 0
 
     for flag, supplied, into in (("--mapping", arguments.mapping, RENAMES),
+                                 ("--required-removals", arguments.required_removals, REQUIRED_REMOVALS),
                                  ("--acronyms", arguments.acronyms, ACRONYMS),
                                  ("--branches", arguments.branches, BRANCHES),
                                  ("--terms", arguments.terms, TERMS),
