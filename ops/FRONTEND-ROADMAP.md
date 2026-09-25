@@ -1,6 +1,6 @@
 # CEDAR Frontend — Roadmap
 
-Open work for the Workspace, the split Template Designer host, the Template Editor, the
+Open work for the Workspace, the Template Designer, the Template Editor, the
 embeddable editor (CEE/CEF), the embeddable designer (CED), and their TypeScript model library.
 This roadmap also owns browser workflows whose completion spans a frontend and
 its supporting service.
@@ -242,14 +242,14 @@ live-region announcements for constraint changes, accepted or rejected local App
 host-supplied validation results. Exercise those workflows with a screen reader and verify that
 focus returns to a useful control after each action.
 
-### 14. Complete the Split Designer Host
+### 14. Complete the Template Designer
 
-Replace the inert surface that `cedar-template-designer` shows for an artifact that is not
-writable with the designer element's read-only contract, once the embedding contract item
-provides one, so that inspection, navigation and preview remain available.
+Replace the inert surface that the Template Designer shows for an artifact that is not writable
+with the designer element's read-only contract, once the embedding contract item provides one, so
+that inspection, navigation and preview remain available.
 
-Decide whether the split applications need Update Bubbling. When an element that templates include
-is saved, the combined application offers to write the change into each including draft template,
-and `inclusion-bubbling-smoke.mjs` covers that offer. Neither Workspace nor the Designer host offers
-it. If the split needs it, add it to the host and carry the smoke's cases, including the refusal of
-a published target, into `smoke:workspace:modern:full`.
+Decide whether Workspace and the Template Designer need Update Bubbling. When an element that
+templates include is saved, the Template Editor offers to write the change into each including
+draft template, and `inclusion-bubbling-smoke.mjs` covers that offer. Neither Workspace nor the
+Template Designer offers it. If they need it, add it to the Template Designer and carry the smoke's
+cases, including the refusal of a published target, into `smoke:workspace:modern:full`.
