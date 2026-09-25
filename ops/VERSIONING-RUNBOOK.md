@@ -408,6 +408,11 @@ property accepts any subset as an array; omitted enables all five. The optional
 positive integer `maximumTerms` caps the combined selection table. Trying to add
 another entry at the cap displays an error until an entry is removed. Omitting it
 leaves the table unlimited. Done emits `constraintsSelected` with the whole draft.
+The `language` property or attribute selects `en` (the default) or `hu`, and can change at any
+time; any other value falls back to `en`. Each element keeps its own language, and both translation
+maps in `src/assets/i18n` are compiled into the script. `npm test` also runs a guard that fails on a
+user-visible string written outside those maps; deliberate exceptions go in `i18n-allowlist.json`
+with a reason.
 
 Properties use the local `/properties` API above, and their selected entries carry
 `sourceType: 'ontology-property'`, `propertyKind`, property IRI and an exact ontology
