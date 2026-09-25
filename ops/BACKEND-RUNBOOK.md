@@ -3303,6 +3303,20 @@ Converter agreement is not proof that every stored detail survives model normali
 is the key's search-visible corpus, and an indexed artifact returning 404 remains an unresolved
 inventory entry, not a successful conversion.
 
+The fresh 2026-09-25 rerun rebuilt the current Java model, validation and artifact libraries and
+TypeScript bundle, then froze their runtimes for the audit. It enumerated 151,835 schemas and
+re-read 151,829 successfully. Every readable source validates, and all four conversions produce
+valid, equal JSON with identical generated key order and byte-identical Java/TypeScript YAML.
+The 48 remaining source-reader diagnostic IDs exactly match the reviewed residual set: 44
+instance-context additional-property cases and four child-required cases. The same six indexed
+artifacts still return 404 after retry. One newly indexed template also passes; no new diagnostic
+or conversion failure was found. This was GET-only and did not audit or modify instances.
+
+Evidence, fresh sources, runtime revisions and hashes, and final retry results are under
+`$CEDAR_HOME/.cedar/audits/2026-09-25-schema-matrix-rerun/`. Only 139 generated documents match
+stored JSON content including array order exactly (ignoring object key order); the rest undergo
+model normalization. Converter concordance therefore does not settle source-preservation review.
+
 ### Repairing missing child property IRIs
 
 `ops/repairs/property_iris.py` supplies pure planning and invariant checks for ordinary child

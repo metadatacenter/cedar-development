@@ -1096,12 +1096,12 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   full walk is not in them, and neither is anything created since.
 
   **Resolve the remaining schema conversion and source issues.** Outstanding findings from the
-  151,834-schema production inventory measured 2026-09-25:
+  151,835-schema production inventory freshly re-read on 2026-09-25:
 
   | Remaining issue | Schema artifacts |
   | --- | ---: |
   | Indexed artifacts whose typed GET returns 404, including on the final retry | 6: 1 template, 1 element, 4 fields |
-  | TypeScript strict-reader diagnostics on Java-validator-valid source schemas; conversions still succeed | 48: 44 context additional-properties declarations and 4 missing-child requirements; targeted rechecks on 2026-09-25 |
+  | TypeScript strict-reader diagnostics on Java-validator-valid source schemas; conversions still succeed | 48: 44 context additional-properties declarations and 4 missing-child requirements; fresh full audit on 2026-09-25 |
   | Standalone attribute-value JSON rendering: Java includes the array wrapper; TypeScript returns its field schema | None observed in the production matrix; a synthetic standalone-field probe differs |
   | Java 17 and JavaScript choose different decimal spellings for exceptional large floating-point values | None observed in production; a synthetic probe differs |
 
@@ -1136,7 +1136,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   byte-identical YAML. Turn each further proven library defect into a regression fixture. Keep this
   audit GET-only and distinguish key-visible search coverage from authoritative store/index parity.
   The retained corpus, per-artifact evidence and full issue list are under
-  `$CEDAR_HOME/.cedar/audits/2026-09-25-schema-matrix-full/`; the
+  `$CEDAR_HOME/.cedar/audits/2026-09-25-schema-matrix-rerun/`; the
   [backend runbook](./BACKEND-RUNBOOK.md#comparing-both-schema-libraries-over-the-full-stored-corpus)
   describes how to resume and recheck it after a library change.
 
