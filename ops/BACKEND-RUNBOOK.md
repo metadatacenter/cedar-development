@@ -3276,6 +3276,36 @@ Converter agreement is not proof that every stored detail survives model normali
 is the key's search-visible corpus, and an indexed artifact returning 404 remains an unresolved
 inventory entry, not a successful conversion.
 
+### Namespace-bound schema metadata
+
+Both model libraries retain custom namespace prefixes from a schema's own `@context` and the
+schema-root properties qualified by those prefixes. For example, `openminds:schemaVersion`
+uses the schema's `openminds` prefix. These are schema metadata, separate from
+`properties.@context`, which constrains an instance's context.
+
+In YAML, the same metadata has an explicit block on its template, element or field:
+
+```yaml
+extensions:
+  prefixes:
+    openminds: "https://openminds.om-i.org/vocab/"
+  properties:
+    openminds:schemaVersion: "latest"
+```
+
+Java and TypeScript expose `SchemaExtensions` on schema models and their builders. Full and
+compact YAML retain this block; JSON writers restore the prefixes and qualified root properties.
+Extension properties must bind to a custom prefix; reserved CEDAR namespaces cannot be overridden.
+The prefix and property names are sorted. Nested metadata objects put JSON integer-index keys first,
+then other keys in lexical order; arrays retain their order. Opaque extension values retain JSON
+null, empty objects and empty arrays. CEDAR's own YAML properties keep their existing omission rules.
+
+The focused 2026-09-25 check uses cached production bodies for all 64 affected schemas:
+71 namespace mappings and 201 metadata properties survive all four conversion paths, both full
+and compact (512 conversions), with equal JSON content/key order and byte-identical YAML.
+Evidence is under `$CEDAR_HOME/.cedar/repairs/2026-09-25-schema-extensions/`.
+This check does not establish preservation of unrelated source properties.
+
 ## Round-Tripping Every Instance Through YAML
 
 `ops/cedar_instance_roundtrip_audit.py` asks three questions about every template instance a key
