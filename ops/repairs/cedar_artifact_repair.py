@@ -6760,7 +6760,68 @@ def only_reviewed_schema_shapes(before: Any, after: Any) -> Optional[str]:
     return None
 
 
+CONTEXT_OBJECT_PLANS: dict[str, Any] = {}
+CONTEXT_OBJECT_DATATYPES = {
+    "rdfs:label": "xsd:string", "schema:name": "xsd:string",
+    "schema:description": "xsd:string", "skos:notation": "xsd:string",
+    "pav:createdOn": "xsd:dateTime", "pav:lastUpdatedOn": "xsd:dateTime",
+    "schema:isBasedOn": "@id", "pav:derivedFrom": "@id",
+    "pav:createdBy": "@id", "oslc:modifiedBy": "@id",
+}
+
+
+def complete_reviewed_context_object_types(artifact: Any) -> tuple[Any, list[dict[str, Any]]]:
+    """Add object typing only after Java comparison and a complete dependent-instance check."""
+    plan = CONTEXT_OBJECT_PLANS.get(artifact.get("@id")) if isinstance(artifact, dict) else None
+    if not isinstance(plan, dict):
+        raise TransformRefused("no instance-checked context-object plan for this template")
+    check = plan.get("instanceCheck", {})
+    if check.get("conflicts") != [] or check.get("indexed") != check.get("fetched") \
+            or not isinstance(check.get("indexed"), int) or check["indexed"] < 0:
+        raise TransformRefused("dependent-instance check is incomplete or reports conflicts")
+    digest = artifact_fingerprint(artifact)
+    if digest == plan.get("afterSha256"):
+        return copy.deepcopy(artifact), []
+    if digest != plan.get("beforeSha256"):
+        raise TransformRefused("template changed since the instance check; regenerate the plan")
+    result = copy.deepcopy(artifact)
+    changes = []
+    allowed = {"/properties/@context/properties/" + name + "/type" for name in CONTEXT_OBJECT_DATATYPES}
+    for change in plan.get("changes", []):
+        path = change["path"]
+        if path not in allowed or change.get("wrote") != "object":
+            raise TransformRefused("unsupported context-object addition")
+        parent = value_at(result, path[:-len("/type")])
+        if not isinstance(parent, dict) or "type" in parent:
+            raise TransformRefused("context-object addition is not absent at " + path)
+        parent["type"] = "object"
+        changes.append({"path": path, "wrote": "object"})
+    if artifact_fingerprint(result) != plan.get("afterSha256"):
+        raise TransformRefused("context-object candidate differs from the instance-checked plan")
+    return result, changes
+
+
+def only_completed_context_object_types(before: Any, after: Any) -> Optional[str]:
+    if not isinstance(before, dict) or before.get("@type") != "https://schema.metadatacenter.org/core/Template":
+        return "/"
+    allowed = {"/properties/@context/properties/" + name + "/type": datatype
+               for name, datatype in CONTEXT_OBJECT_DATATYPES.items()}
+    for path, old, new in differences(before, after):
+        if path not in allowed or old is not ABSENT or new != "object":
+            return path or "/"
+        parent = value_at(before, path[:-len("/type")])
+        expected = {"properties": {"@type": {"type": "string", "enum": [allowed[path]]}}}
+        if not json_equal(parent, expected):
+            return path
+    return None
+
+
 REPAIRS = {
+    "complete-reviewed-context-object-types": Repair(
+        name="complete-reviewed-context-object-types", condition="missing-context-object-type",
+        summary="add Java's missing object type to standard instance-context term schemas after instance checks",
+        transform=complete_reviewed_context_object_types, invariant=only_completed_context_object_types,
+    ),
     "apply-reviewed-schema-shapes": Repair(
         name="apply-reviewed-schema-shapes", condition="reviewed-schema-shapes",
         summary="allow null identifiers and remove undeclared UI-order entries as confirmed by Java",
@@ -7637,6 +7698,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--schema-shape-plan",
                         help="Java-reviewed nullable @id/UI-order changes keyed by artifact IRI, "
                              "with beforeSha256, afterSha256 and changes (path, before, after)")
+    parser.add_argument("--context-object-plan",
+                        help="Java-reviewed context object additions with pinned before/after hashes "
+                             "and complete, conflict-free dependent-instance check results")
     parser.add_argument("--declare-fields",
                         help="JSON: template IRI -> the field declarations to add, for "
                              "declare-instance-field; nothing is declared without it")
@@ -7716,6 +7780,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         parser.error("drop-reviewed-required-entries requires --required-removals")
     if "apply-reviewed-schema-shapes" in names and not arguments.schema_shape_plan:
         parser.error("apply-reviewed-schema-shapes requires --schema-shape-plan")
+    if "complete-reviewed-context-object-types" in names and not arguments.context_object_plan:
+        parser.error("complete-reviewed-context-object-types requires --context-object-plan")
     if arguments.apply and not arguments.verify:
         parser.error("production writes require read-back verification; --no-verify is dry-run only")
     if arguments.apply and "align-instance-context-iris" in names \
@@ -7793,6 +7859,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     for flag, supplied, into in (("--mapping", arguments.mapping, RENAMES),
                                  ("--required-removals", arguments.required_removals, REQUIRED_REMOVALS),
                                  ("--schema-shape-plan", arguments.schema_shape_plan, SCHEMA_SHAPE_PLANS),
+                                 ("--context-object-plan", arguments.context_object_plan, CONTEXT_OBJECT_PLANS),
                                  ("--acronyms", arguments.acronyms, ACRONYMS),
                                  ("--branches", arguments.branches, BRANCHES),
                                  ("--terms", arguments.terms, TERMS),
