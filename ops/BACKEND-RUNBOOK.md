@@ -3460,6 +3460,17 @@ labelled-null completion issue above. Source and completed validation results ar
 The writer matches Java's separate positions for an explicit description and a synthesized
 empty description. Replay performed no production reads or writes.
 
+Java now preserves root instance `pav:derivedFrom` in both writers and the YAML reader;
+its model and JSON reader already retained it. Replaying the same 1,000 sources in
+`.cedar/audits/2026-09-25-instance-random-1000-provenance-fixed/` gives 995 matching JSON
+contents, generated key orders and byte-identical YAML pairs. All five populated source references
+survive all four paths, and every other generated JSON value is unchanged from the order-fixed
+replay. The five label-loss cases remain, including the labelled-null completion failure;
+source and completed validation counts are unchanged. The replay is offline and writes no
+production artifacts. Full YAML preserves derivation provenance; compact YAML deliberately
+omits it with the other repository provenance. Java's 1,203 tests and 249 corpus fixtures pass.
+
+
 ### Repairing instance-context additional-property declarations
 
 `ops/repairs/context_additional.py` compares stored schema declarations with Java's JSON → YAML →

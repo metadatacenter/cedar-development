@@ -1142,6 +1142,15 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   [backend runbook](./BACKEND-RUNBOOK.md#comparing-both-schema-libraries-over-the-full-stored-corpus)
   describes how to resume and recheck it after a library change.
 
+  **Preserve the remaining instance labels.** The random 1,000-instance pipeline sample has
+  five remaining conversion disagreements: three Dryad instances lose literal and label-only
+  metadata in TypeScript; one MAG BioSample loses a label on a null literal in TypeScript and
+  loses the explicit null value in Java YAML, causing completion failure; one H-89 instance
+  loses an empty label-only field in TypeScript. Preserve both label metadata and literal shape
+  across all four paths. Keep the three already-invalid source instances separate. The earlier
+  100-instance smoke also found a multi-datatype literal awaiting a representation decision;
+  it was not sampled in this 1,000. Repeat source-preservation checks before expanding coverage.
+
   **Prioritize the largest remaining groups.** Measured 2026-09-25 over the flagged subset.
   Repeated names identify distinct templates; ID prefixes distinguish them.
 
