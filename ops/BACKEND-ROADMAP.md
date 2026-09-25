@@ -1066,17 +1066,18 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   | Remaining issue | Schema artifacts |
   | --- | ---: |
   | Indexed artifacts whose typed GET returns 404, including on the final retry | 6: 1 template, 1 element, 4 fields |
-  | TypeScript strict-reader diagnostics on Java-validator-valid source schemas; conversions still succeed | 50: 46 context additional-properties declarations and 4 missing-child requirements; targeted rechecks on 2026-09-25 |
+  | TypeScript strict-reader diagnostics on Java-validator-valid source schemas; conversions still succeed | 48: 44 context additional-properties declarations and 4 missing-child requirements; targeted rechecks on 2026-09-25 |
   | Standalone attribute-value JSON rendering: Java includes the array wrapper; TypeScript returns its field schema | None observed in the production matrix; a synthetic standalone-field probe differs |
   | Java 17 and JavaScript choose different decimal spellings for exceptional large floating-point values | None observed in production; a synthetic probe differs |
 
   Reconcile the unavailable search/graph entries with the store; the legacy `.net` template also
   returns 404 under the corresponding `.org` ID.
 
-  Reconcile instance-context `additionalProperties` declarations in 46 remaining templates.
-  For 44 of them, resolve extra mappings and other failures in 198 dependent instances before tightening:
-  65 currently valid instances would become invalid, while 133 already fail validation. Preserve
-  meaningful mappings and values; do not delete them merely to satisfy the canonical declaration.
+  Reconcile instance-context `additionalProperties` declarations in 44 remaining templates.
+  For 42 of them, 195 dependent instances block tightening:
+  62 currently valid instances contain populated undeclared fields, while 133 already fail
+  validation. Keep the 62 extra-field cases unresolved; do not delete values or mappings, invent
+  declarations, or infer renames to satisfy the canonical rule.
   The other two, Human Cognitive Neuroscience Data and FAIR-EuMon metadata template,
   need document/graph DOI reconciliation: the write endpoint rejects their unchanged document DOI
   because it reports a null stored DOI. Preserve the DOI while resolving that inconsistency.

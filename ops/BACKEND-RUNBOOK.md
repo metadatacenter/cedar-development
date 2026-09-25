@@ -3385,6 +3385,15 @@ reviewed schema bodies pass the four-path matrix and match fresh production read
 preimages, receipts and verification evidence are retained under
 `$CEDAR_HOME/.cedar/repairs/2026-09-25-context-additional/`.
 
+The follow-up three-case cleanup used the existing `drop_empty_undeclared_keys` and
+`drop_unused_instance_context` transforms with an exact name allowlist. It removed two null-only
+undeclared fields with their mappings and two unused mappings from a third instance. All three
+instances validate; their 39 template dependents were checked. CEDAR Template and Enhanced Gene
+Expression Template 3 could then take canonical context rules. The `test2` instance was cleaned,
+but its template remains unchanged because three other instances contain populated extra fields.
+Preimages, receipts, readback validation and the three-schema conversion matrix are under
+`$CEDAR_HOME/.cedar/repairs/2026-09-25-empty-context-cases/`.
+
 ### Namespace-bound schema metadata
 
 Both model libraries retain custom namespace prefixes from a schema's own `@context` and the
