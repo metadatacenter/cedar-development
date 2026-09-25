@@ -3369,6 +3369,38 @@ All 528 reviewed schema bodies pass the four conversion paths, generated JSON co
 YAML byte equality. Plans, preimages, write receipts and the production-verified matrix are under
 `$CEDAR_HOME/.cedar/repairs/2026-09-25-child-required/`.
 
+### Stored JSON instance matrix smoke
+
+`ops/cedar_instance_matrix_smoke.py` runs a bounded GET-only instance sample through Java and
+TypeScript YAML writers and all four JSON reader pairings. Pass `--directory` (a new ignored
+local evidence directory), `--classpath` (a classpath file), `--library` (a built TypeScript
+bundle), `--java` (Java 17), and optionally `--limit` (default 100). It samples the first readable
+search results, not a random or representative production population. It retains source JSON,
+templates, both YAML documents, every JSON result, reader diagnostics and validation findings.
+
+Compare generated JSON content, generated object order and exact YAML bytes separately. Raw
+instance YAML conversions omit context and empty structures; their uncompleted JSON validation
+is not a repository-write verdict. The audit also completes each result against its fetched
+template using Java's `InstanceInflater` and the repository's element-ID completion rule in
+memory, then validates it. This tests canonical Java completion for all lanes, not TypeScript's
+inflater, and never writes production artifacts.
+
+The 2026-09-25 smoke in `.cedar/audits/2026-09-25-instance-matrix-100-run2/` covered 100 readable
+instances against 36 templates, using the frozen runtime from the same day's full schema audit.
+Three indexed candidates returned 404; readable replacements filled the sample. Of the sources,
+53 validated and 47 were already invalid. All four conversions produced JSON for 99 instances;
+77 agreed on JSON content and order, and 76 had byte-identical YAML. None reproduced raw stored
+JSON exactly; completion and source preservation must be assessed separately.
+
+The mismatches were linked-value `@type: "@id"` dropped by TypeScript in 22 instances, a
+multiple-datatype literal in one instance (Java emits the first datatype, TypeScript emits an
+array that Java's YAML reader rejects), and differing YAML key quoting in two instances, one
+also in the linked-value group. Thus 24 distinct instances failed at least one agreement gate.
+Among the 53 valid sources, 45 passed every agreement gate. After Java template completion,
+all 53 remained valid in each produced lane; the TypeScript-YAML-to-Java-JSON lane produced only
+52 because of the multiple-datatype case. On the already-invalid sources, 24 had completion
+shape conflicts. Completion accepting a result does not prove preservation of every source value.
+
 ### Repairing instance-context additional-property declarations
 
 `ops/repairs/context_additional.py` compares stored schema declarations with Java's JSON → YAML →

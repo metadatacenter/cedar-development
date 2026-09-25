@@ -139,6 +139,10 @@ function render(request, answer) {
       const result = jsonReaders.getTemplateElementReader().readFromObject(request.json);
       artifact = result.element;
       report = readerReport(result.parsingResult);
+    } else if (kind === 'instance') {
+      const result = jsonReaders.getTemplateInstanceReader().readFromObject(request.json);
+      artifact = result.instance;
+      report = readerReport(result.parsingResult);
     } else if (kind === 'field') {
       const result = jsonReaders.getTemplateFieldReader().readFromObject(request.json);
       artifact = result.field;
@@ -160,6 +164,7 @@ function render(request, answer) {
   try {
     const writer = kind === 'template' ? yamlWriters.getTemplateWriter()
       : kind === 'element' ? yamlWriters.getTemplateElementWriter()
+        : kind === 'instance' ? yamlWriters.getTemplateInstanceWriter()
         : yamlWriters.getFieldWriterForField(artifact);
     answer.yaml = writer.getAsYamlString(artifact, compact);
     answer.status = 'ok';
@@ -194,6 +199,10 @@ function convert(request, answer) {
       const result = source.getTemplateElementReader().readFromString(request.yaml);
       artifact = result.element;
       report = readerReport(result.parsingResult);
+    } else if (kind === 'instance') {
+      const result = source.getTemplateInstanceReader().readFromString(request.yaml);
+      artifact = result.instance;
+      report = readerReport(result.parsingResult);
     } else if (kind === 'field') {
       const result = source.getTemplateFieldReader().readFromString(request.yaml);
       artifact = result.field;
@@ -215,6 +224,7 @@ function convert(request, answer) {
   try {
     const writer = kind === 'template' ? writers.getTemplateWriter()
       : kind === 'element' ? writers.getTemplateElementWriter()
+        : kind === 'instance' ? writers.getTemplateInstanceWriter()
         : writers.getFieldWriterForField(artifact);
     const jsonText = writer.getAsJsonString(artifact);
     answer.json = JSON.parse(jsonText);

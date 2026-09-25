@@ -47,6 +47,7 @@ import org.metadatacenter.artifacts.model.reader.JsonArtifactReader;
 import org.metadatacenter.artifacts.model.reader.YamlArtifactReader;
 import org.metadatacenter.artifacts.model.renderer.JsonArtifactRenderer;
 import org.metadatacenter.artifacts.model.core.Artifact;
+import org.metadatacenter.artifacts.model.core.TemplateInstanceArtifact;
 import org.metadatacenter.artifacts.model.tools.YamlSerializer;
 import org.metadatacenter.model.validation.CedarValidator;
 import org.metadatacenter.model.validation.ModelValidator;
@@ -122,6 +123,7 @@ public class CedarYamlConvertBridge {
         case "convert" -> convert(request, answer);
         case "render" -> render(request, answer);
         case "validate" -> validate(request, answer);
+        case "complete-instance" -> completeInstance(request, answer);
         case "shutdown" -> answer.put("status", "ok");
         default -> {
           answer.put("status", "error");
@@ -182,6 +184,7 @@ public class CedarYamlConvertBridge {
         case "template" -> reader.readTemplateSchemaArtifact(sourceNode);
         case "element" -> reader.readElementSchemaArtifact(sourceNode);
         case "field" -> reader.readFieldSchemaArtifact(sourceNode);
+        case "instance" -> reader.readTemplateInstanceArtifact(sourceNode);
         default -> null;
       };
       if (artifact == null) {
@@ -202,6 +205,7 @@ public class CedarYamlConvertBridge {
       ObjectNode rendering = switch (kind) {
         case "template" -> renderer.renderTemplateSchemaArtifact((TemplateSchemaArtifact) artifact);
         case "element" -> renderer.renderElementSchemaArtifact((ElementSchemaArtifact) artifact);
+        case "instance" -> renderer.renderTemplateInstanceArtifact((TemplateInstanceArtifact) artifact);
         default -> renderer.renderFieldSchemaArtifact((FieldSchemaArtifact) artifact);
       };
       answer.put("status", "ok");
@@ -239,6 +243,7 @@ public class CedarYamlConvertBridge {
         case "template" -> jsonReader.readTemplateSchemaArtifact((ObjectNode) source);
         case "element" -> jsonReader.readElementSchemaArtifact((ObjectNode) source);
         case "field" -> jsonReader.readFieldSchemaArtifact((ObjectNode) source);
+        case "instance" -> jsonReader.readTemplateInstanceArtifact((ObjectNode) source);
         default -> null;
       };
       if (artifact == null) {
@@ -265,6 +270,39 @@ public class CedarYamlConvertBridge {
       answer.put("stage", "render");
       answer.put("exception", t.getClass().getName());
       answer.put("message", truncate(String.valueOf(t.getMessage())));
+    }
+  }
+
+  /** Complete a sparse conversion result using the repository's instance completion rules. */
+  private void completeInstance(JsonNode request, ObjectNode answer) throws Exception {
+    JsonArtifactReader reader = new JsonArtifactReader();
+    TemplateSchemaArtifact template = reader.readTemplateSchemaArtifact((ObjectNode) request.get("template"));
+    TemplateInstanceArtifact instance = reader.readTemplateInstanceArtifact((ObjectNode) request.get("json"));
+    TemplateInstanceArtifact complete = org.metadatacenter.artifacts.model.tools.InstanceInflater.inflate(template, instance);
+    ObjectNode json = renderer.renderTemplateInstanceArtifact(complete);
+    mintElementInstanceIds(json);
+    ValidationReport report = validator.validateTemplateInstance(json, request.get("template"));
+    answer.put("status", "true".equals(report.getValidationStatus()) ? "valid" : "invalid");
+    answer.set("json", json);
+    ArrayNode errors = answer.putArray("errors");
+    for (ErrorItem item : report.getErrors()) {
+      ObjectNode error = errors.addObject();
+      error.put("message", truncate(item.getMessage()));
+      error.put("location", item.getLocation());
+    }
+  }
+
+  // Same in-memory identity completion as cedar_instance_roundtrip_bridge; never stored.
+  private void mintElementInstanceIds(JsonNode node) {
+    if (node instanceof ObjectNode object) {
+      if (object.has("@context") && !object.has("schema:isBasedOn") &&
+          (!object.has("@id") || object.get("@id").isNull()))
+        object.put("@id", "https://repo.example/template-element-instances/minted-by-the-bridge");
+      object.fields().forEachRemaining(entry -> {
+        if (!entry.getKey().equals("@context")) mintElementInstanceIds(entry.getValue());
+      });
+    } else if (node != null && node.isArray()) {
+      node.forEach(this::mintElementInstanceIds);
     }
   }
 
