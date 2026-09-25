@@ -2315,9 +2315,22 @@ healthy worker consumers. Mean elapsed time was 51.26 seconds, range 47.3–55.2
 `.cedar/build-reports/rest-repeat-10-20260924T162831Z/`.
 
 Only the REST tier runs concurrently, so it is no longer where a whole run spends most of its
-time. On 2026-09-25, `cedarcli test e2e --rest-workers 4` took 279 seconds: 51 for the REST tier,
-149 for the browser smoke and 78 for the split-frontend journey. Both browser tiers run serially,
-and together they account for more than four fifths of the run.
+time. Five sequential runs of `cedarcli test e2e --rest-workers 4` on 2026-09-25 all passed, and
+their wall-clock times ranged from 276 to 284 seconds. The gate records of four of them give the
+tier breakdown:
+
+| Tier | Checks | Mean seconds | Range |
+| --- | ---: | ---: | --- |
+| REST, four workers | 1,063 | 51.6 | 49.2–54.4 |
+| Browser smoke | 29 | 144.8 | 141–148 |
+| Split-frontend journey | 45 | 76.5 | 74–81 |
+| Whole run, as recorded | | 273.4 | 271.3–275.5 |
+
+The two browser tiers run serially and take about 81% of a run, while the REST tier executes more
+than nine tenths of its checks in under a fifth of the time. The CLI's own preflight adds about
+eight seconds to the recorded time. A gate record is named by the digest of the sources it tested,
+so a second run against unchanged sources replaces the first run's record, which is how the third
+run's breakdown was lost.
 
 `cedarcli test e2e` runs every tier in one command and records the run as the evidence the train
 and release preflights require. Before anything runs it reads the controller's status and refuses
