@@ -1051,28 +1051,28 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   reduced to one without a decision. Empty representations and populated data need separate rules,
   each with a narrow invariant and validation of the complete candidate.
 
-  Revalidation on 2026-09-25 of the 1,290 instances an earlier walk had flagged leaves 703 valid,
-  586 invalid and one whose template cannot be resolved. The remaining work has two populations:
-
-  | | instances | |
-  | --- | ---: | --- |
-  | Stored-invalid | 586 | over 216 templates; distinguish instance defects from noncanonical schema declarations |
-  | Stored-valid, refused on the write path | 19 | 15 read failures, three post-conversion validation failures, one completion failure |
-
-  Resolve the second group against Java's canonical model before changing data. Its three
-  post-conversion validation failures come from two templates whose stored literal declarations
-  disagree with their vocabulary constraints. The read failures include noncanonical literal
-  shapes and an attribute group referring to a missing member. A stored-valid verdict alone does
-  not establish a library defect. Reconcile any TypeScript disagreement with Java and preserve
-  entered information when a stored representation must migrate.
-
-  The completion failure has an attribute group named `type` inside `Channel block`, colliding
-  with the YAML element discriminator. It needs a coordinated schema/instance rename with a
-  confirmed replacement name; rejecting the ambiguous rendering protects the data but does not
-  migrate it.
+  The 2026-09-25 audit and targeted repair rechecks leave 565 stored-invalid instances across
+  213 templates. Distinguish instance defects from noncanonical schema declarations against
+  Java's model. Reconcile any TypeScript disagreement with Java and preserve entered information
+  when a stored representation must migrate; check every dependent instance before changing a
+  template declaration.
 
   These counts cover the flagged subset, not the corpus. An instance clean on both axes at the last
   full walk is not in them, and neither is anything created since.
+
+  **Harden schema conversion across both model libraries.** Start with a read-only 100-artifact
+  pilot covering templates, elements and fields. Render each stored JSON document to YAML with
+  Java and TypeScript independently, then read each YAML rendering with both libraries to produce
+  four JSON Schema results. Validate the source and all four results with the Java validator; keep
+  reader diagnostics and failures distinct from successful conversions. Compare all four results
+  with one another and with the stored source so shared information loss cannot masquerade as
+  agreement. Ignore object-key ordering; preserve array ordering in the initial comparison and
+  classify any order-only differences explicitly rather than globally sorting arrays. Java is the
+  canonical reference, but agreement with Java does not excuse loss from the stored source.
+  Turn each proven library defect into a regression fixture, reconcile the implementations, and
+  expand the sample before claiming corpus-wide agreement. Keep data defects and documented
+  representation normalizations separate from library failures; no production writes belong to
+  this audit.
 
   **Prioritize the largest remaining groups.** Measured 2026-09-25 over the flagged subset.
   Repeated names identify distinct templates; ID prefixes distinguish them.
@@ -1084,7 +1084,6 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   | Adverse Events V2 | 25 |
   | VODAN-COVID-Migrants-Tunisia (`1988902f…`) | 22 |
   | causal pathway | 21 |
-  | DSGC Dataset Template 1.0 | 17 |
   | PGHD_BP_template | 15 |
   | Expression | 14 |
   | VODAN-COVID-Migrants-Tunisia (`05ce128b…`) | 14 |
@@ -1100,7 +1099,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   | COVID-19_Project-Admin_V4 (`337cb6f3…`) | 6 |
   | File Metadata | 6 |
 
-  Another 192 templates carry 1–4 invalid instances each, 290 between them: 131 have one, 36 have
+  Another 190 templates carry 1–4 invalid instances each, 286 between them: 131 have one, 34 have
   two, 13 have three, and 12 have four. These groups include *Cell*, with four remaining instances:
   resolve ontology assertions in the text-only `Reporter_type`/`Mod_type` fields and the undeclared,
   malformed `Publication_title` structure without discarding populated data.
