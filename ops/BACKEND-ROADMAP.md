@@ -1060,12 +1060,19 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   These counts cover the flagged subset, not the corpus. An instance clean on both axes at the last
   full walk is not in them, and neither is anything created since.
 
-  **Harden schema conversion across both model libraries.** Resolve the remaining YAML disagreement
-  in the read-only 100-artifact pilot (40 templates, 30 elements, 30 fields): escape the control
-  characters in template `4dd49ba9…` as Java does, preserving the exact string so both readers can
-  consume it. YAML 1.2 permits non-C0 characters inside quoted scalars, but Java's parser rejects
-  the raw C1 characters here; this is an interoperability and canonical-output requirement.
-  Add regression fixtures covering C0/C1 controls and Unicode line separators.
+  **Harden schema conversion across both model libraries.** Resolve the discrepancies in the
+  additional 1,000-artifact sample (400 templates, 300 elements, 300 fields; no overlap with the
+  original 100), measured 2026-09-25:
+
+  | Remaining discrepancy | Schema artifacts |
+  | --- | ---: |
+  | YAML child configuration orders `hidden` before `required` instead of Java's order | 3 templates |
+  | Static rich-text field defaults differ: Java supplies draft/version 0.0.1 when absent; TypeScript leaves them absent | 1 field |
+  | Generated JSON key order differs despite equal content: actions (3), controlled-term defaults (4), literal constraints (2), provenance (1) | 10 fields |
+
+  Preserve absent-versus-explicit source metadata when deciding how to align defaults for static
+  field `b65c1029…`; this discrepancy is default insertion, not loss of stored metadata. Add
+  regression fixtures for each difference and rerun the retained samples after reconciliation.
   Render each stored JSON document to YAML with
   Java and TypeScript independently, then read each YAML rendering with both libraries to produce
   four JSON Schema results. Validate the source and all four results with the Java validator; keep
@@ -1078,11 +1085,11 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   classify any order-only differences explicitly rather than globally sorting arrays. Java is the
   canonical reference, but agreement with Java does not excuse loss from the stored source.
   Turn each proven library defect into a regression fixture, reconcile the implementations, and
-  classify the source-to-output differences in all 100 pilot artifacts before treating agreement
+  classify the source-to-output differences in all 1,100 sampled artifacts before treating agreement
   between converters as evidence of preservation. Reconcile TypeScript's source-reader diagnostics
-  on 67 of these Java-validator-valid artifacts; a successful render does not settle those reports.
-  Expand the sample before claiming corpus-wide
-  agreement. Keep data defects and documented
+  on 714 of these Java-validator-valid artifacts (67 in the original 100 and 647 in the additional
+  1,000); a successful render does not settle those reports. Expand the sample before claiming
+  corpus-wide agreement. Keep data defects and documented
   representation normalizations separate from library failures; no production writes belong to
   this audit.
 
