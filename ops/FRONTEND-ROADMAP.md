@@ -38,6 +38,8 @@ smoke in staging and production from a browser that previously loaded the old pa
 is complete after two consecutive code deployments require no manual cache token and rollback
 works by restoring payloads and routing without inventing a new modifier.
 
+<a id="doi-minting-recovery"></a>
+
 ### 2. Make DOI Minting Recovery-Safe
 
 A retry after a timeout must be able to tell whether the earlier attempt minted a DOI. Define
@@ -51,6 +53,29 @@ records on the OpenView URL. Move orchestration, configuration and error mapping
 `DataCiteResource`. Add offline tests for create versus update, retry after timeout and repeated
 publish. Extend the opt-in `datacite`-tagged test, or add a sandbox smoke beside it, to cover the
 full mint and attach contract and the credential check.
+
+Reconcile existing document/graph DOI disagreement that blocks unrelated artifact updates.
+Two production templates still need this recovery before their instance-context schema repairs
+can be written:
+
+| Template | Template UUID | Existing DOI |
+| --- | --- | --- |
+| Human Cognitive Neuroscience Data | `0e0e551b-c465-41e6-9392-75803b1b95de` | `10.60745/k2wv-x835` |
+| FAIR-EuMon metadata template | `b530b495-bd45-4ba7-946c-f726b3066ba9` | `10.60745/ng90-tp91` |
+
+Their `PUT ?verbatim=true` requests preserve the stored document's DOI but receive HTTP 400
+`doiCanNotBeAltered`, with that DOI in `doiInRequest` and `storedDoi: null`.
+`AbstractResourceServerResource` compares the request against `folderServerOldResource.getDOI()`,
+so the document and folder/graph metadata disagree. Establish how that disagreement arose;
+do not assume it proves a minting timeout. Provide a verified reconciliation path that preserves
+the existing DOI, restores its attachment consistently, and makes an unrelated update succeed.
+Do not remove the DOI or bypass DOI immutability to unblock the repair.
+
+Add regression coverage for a document DOI with missing graph metadata, interrupted attachment
+and retry, successful unchanged-DOI updates after reconciliation, and continued rejection of DOI
+replacement or deletion through ordinary updates. Recheck the two templates and their dependent
+instances before retrying the pending schema patches. The write-rejection evidence is retained in
+`.cedar/repairs/2026-09-25-context-additional/apply-summary.json` under the local CEDAR root.
 
 ### 3. Show Server Validation Findings in Workspace
 

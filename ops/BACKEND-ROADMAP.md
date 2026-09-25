@@ -1115,7 +1115,9 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   declarations, or infer renames to satisfy the canonical rule.
   The other two, Human Cognitive Neuroscience Data and FAIR-EuMon metadata template,
   need document/graph DOI reconciliation: the write endpoint rejects their unchanged document DOI
-  because it reports a null stored DOI. Preserve the DOI while resolving that inconsistency.
+  because it reports a null stored DOI. Preserve the DOI while resolving that inconsistency through
+  [DOI minting recovery](./FRONTEND-ROADMAP.md#doi-minting-recovery), which tracks the affected IDs,
+  rejection details and regression requirements.
   Missing child names in `required` remain in four templates: SWATH-DIA Experimental
   Specifications, Cell, Chemical Tool and Expression. Resolve their 24 blocking instances before
   tightening the templates; their errors include undeclared fields, conflicting property mappings
