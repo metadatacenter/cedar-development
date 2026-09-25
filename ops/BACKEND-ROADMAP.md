@@ -1045,52 +1045,59 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
 ## Production Data
 
 - **26. Resolve the remaining production artifact defects and review semantic migrations.**
-  Classify the remaining **731 invalid instances across 260 templates** in the reviewed residual
-  (2026-09-17, after verified repairs) by their actual schema declarations,
-  then repair only transformations whose meaning is established. A missing `@id` in a controlled-term
-  field is a missing entered term, not an element identity to mint. Multiple populated occurrences
-  cannot be reduced to one without a decision. Empty representations and populated data need
-  separate rules, each with a narrow invariant and validation of the complete candidate.
+  Classify the remaining invalid instances by their actual schema declarations, then repair only
+  transformations whose meaning is established. A missing `@id` in a controlled-term field is a
+  missing entered term, not an element identity to mint. Multiple populated occurrences cannot be
+  reduced to one without a decision. Empty representations and populated data need separate rules,
+  each with a narrow invariant and validation of the complete candidate.
 
-  **Prioritize the largest remaining groups.** These are maintained residual counts, not a new
-  corpus-wide audit. Repeated names identify distinct templates; ID prefixes distinguish them.
+  A revalidation on 2026-09-25 of the 1,290 instances an earlier walk had flagged separates two
+  failures that had been counted as one, and they barely overlap:
+
+  | | instances | |
+  | --- | ---: | --- |
+  | Stored-invalid | 638 | over 238 templates; a data defect |
+  | Stored-valid, refused on the write path | 651 | of which 198 the library cannot read at all |
+
+  The second group is the larger of the two and belongs to the libraries rather than to the data:
+  the deployment holds a valid document that a YAML write would not store. It wants its own
+  classification by failing stage before any of it is called a data repair.
+
+  These counts cover the flagged subset, not the corpus. An instance clean on both axes at the last
+  full walk is not in them, and neither is anything created since.
+
+  **Prioritize the largest remaining groups.** Measured 2026-09-25 over the flagged subset.
+  Repeated names identify distinct templates; ID prefixes distinguish them.
 
   | Template | Invalid instances |
   | --- | ---: |
-  | CCP Digital Object | 65 |
-  | Migrant-Interviews | 34 |
+  | Migrant-Interviews (`ad459f36…`) | 34 |
+  | CCP Digital Object (`62c8b5f2…`) | 29 |
   | LINCS DSGC Dataset Submission (`70b010f2…`) | 26 |
   | Adverse Events V2 | 25 |
-  | VODAN-COVID-Migrants-Tunisia (`1988902f…`) | 23 |
+  | VODAN-COVID-Migrants-Tunisia (`1988902f…`) | 22 |
   | causal pathway | 21 |
   | DSGC Dataset Template 1.0 | 17 |
   | PGHD_BP_template | 15 |
   | Expression | 14 |
   | VODAN-COVID-Migrants-Tunisia (`05ce128b…`) | 14 |
-  | MiAIRR V1.1.0 | 13 |
-  | DSGC Dataset Template 2.0 | 12 |
-  | GeoExposure_Data_1.5.1_Template (`ce1436c0…`) | 11 |
   | LINCS DSGC Dataset Submission (`f4034b6f…`) | 11 |
+  | GeoExposure_Data_1.5.1_Template (`ce1436c0…`) | 11 |
   | MyFirstTemplate | 10 |
-  | UPDATED HEAL Study Core Metadata | 9 |
   | Updated week X | 8 |
-  | Citation | 7 |
-  | HEAL Study Core Metadata | 7 |
+  | UPDATED HEAL Study Core Metadata (`a91e12b0…`) | 8 |
+  | MiAIRR V1.1.0 | 7 |
   | Human Cognitive Neuroscience Data | 7 |
+  | Citation | 7 |
   | COVID Project Content | 6 |
   | COVID-19_Project-Admin_V4 (`337cb6f3…`) | 6 |
-  | File Metadata | 6 |
-  | INFO 663 — Datasets | 6 |
-  | ID-AMR_Project-Admin_V1 | 5 |
-  | LTER-LIFE (0.0.1) | 5 |
 
-  Another 234 templates have 1–4 invalid instances each: 163 templates have one, 40 have two,
-  19 have three, and 12 have four. These groups include *Cell*, with four remaining instances:
+  Another 213 templates carry 1–4 invalid instances each, 313 between them: 149 have one, 40 have
+  two, 12 have three, and 12 have four. These groups include *Cell*, with four remaining instances:
   resolve ontology assertions in the text-only `Reporter_type`/`Mod_type` fields and the undeclared,
   malformed `Publication_title` structure without discarding populated data.
 
-  **Resolve MiAIRR V1.1.0's legacy representations.** The targeted production review of all 42
-  instances finds 13 invalid and 29 valid. Review old BioSample field names and property mappings,
+  **Resolve MiAIRR V1.1.0's legacy representations.** Seven of its instances are invalid. Review old BioSample field names and property mappings,
   ontology-valued `Sex` against its text declaration, release dates containing `NA`, and unexplained
   numeric strings or URI-shaped values in text fields. Matching property IRIs support several
   renames; `Cell Processing Protocol` → `Processing Protocol` and `Related Subjects` →
