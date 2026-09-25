@@ -3326,6 +3326,35 @@ The 245-schema conversion recheck, including 133 schemas with only attribute-gro
 passes all four paths with identical generated JSON order and byte-identical YAML. Evidence and
 phase-specific backups are under `$CEDAR_HOME/.cedar/repairs/2026-09-25-property-iris/`.
 
+### Repairing missing child presence requirements
+
+`ops/repairs/child_required.py` plans additive repairs to template and element `required` arrays.
+Use the Java JSON → YAML → JSON rendering of each freshly fetched schema as the reference;
+append only missing declared child names that Java requires. Preserve existing array order and
+all other schema declarations. Embedded elements are traversed independently of their standalone
+artifacts because stored templates contain copies.
+
+Enumerate and fetch every dependent instance before tightening a template. Complete absent required
+children with the established empty shapes, including minimum repeated occurrences and empty
+nested elements; add corresponding context mappings without replacing existing predicates.
+Do not change populated values, existing empty values, array lengths or malformed occurrences.
+Validate every complete candidate against both the old and proposed template. If any dependent
+instance still fails, leave that template and its instances outside the write set.
+
+Write the instance additions first, retaining preimages and using strong ETags with exact GET
+readback. Recheck all dependents and the index before writing the stricter schema. A partial run
+leaves additional empty structures valid under the old schema; resume only when stored fingerprints
+match the reviewed originals or candidates. Re-read schemas and rerun all four conversion paths,
+checking generated JSON content and key order separately from byte-identical YAML. The planner
+and its independent invariants are covered by `test_child_required.py` in the repair suite.
+
+The 2026-09-25 run checked 528 schemas and 7,010 dependent instances. It repaired 524 schemas
+(111 templates, 413 elements) and added empty structures to 4,721 instances; all 5,667 instances
+under repaired templates validate. Four templates remain blocked by 24 invalid instances.
+All 528 reviewed schema bodies pass the four conversion paths, generated JSON content/order and
+YAML byte equality. Plans, preimages, write receipts and the production-verified matrix are under
+`$CEDAR_HOME/.cedar/repairs/2026-09-25-child-required/`.
+
 ### Namespace-bound schema metadata
 
 Both model libraries retain custom namespace prefixes from a schema's own `@context` and the

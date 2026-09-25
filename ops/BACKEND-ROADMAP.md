@@ -1066,16 +1066,18 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   | Remaining issue | Schema artifacts |
   | --- | ---: |
   | Indexed artifacts whose typed GET returns 404, including on the final retry | 6: 1 template, 1 element, 4 fields |
-  | TypeScript strict-reader diagnostics on Java-validator-valid source schemas; conversions still succeed | 1,236; full audit plus targeted production rechecks on 2026-09-25 |
+  | TypeScript strict-reader diagnostics on Java-validator-valid source schemas; conversions still succeed | 713: 709 context additional-properties declarations and 4 missing-child requirements; targeted rechecks on 2026-09-25 |
   | Standalone attribute-value JSON rendering: Java includes the array wrapper; TypeScript returns its field schema | None observed in the production matrix; a synthetic standalone-field probe differs |
   | Java 17 and JavaScript choose different decimal spellings for exceptional large floating-point values | None observed in production; a synthetic probe differs |
 
   Reconcile the unavailable search/graph entries with the store; the legacy `.net` template also
   returns 404 under the corresponding `.org` ID.
 
-  Reconcile the strict reader's acceptance of legacy context and schema declarations, especially
-  missing required entries and property/type shapes. Keep these diagnostics separate
-  from failed conversions.
+  Reconcile the 709 remaining instance-context `additionalProperties` declarations with Java.
+  Missing child names in `required` remain in four templates: SWATH-DIA Experimental
+  Specifications, Cell, Chemical Tool and Expression. Resolve their 24 blocking instances before
+  tightening the templates; their errors include undeclared fields, conflicting property mappings
+  and ontology values in text fields. Keep these source diagnostics separate from failed conversions.
   Require property IRIs for ordinary child fields and elements in both Java and TypeScript JSON
   and YAML readers. First complete [MCP property-IRI authoring](./MCP-ROADMAP.md#property-iri-authoring)
   so exchange artifacts have their mappings before another tool reads them, and recheck production
