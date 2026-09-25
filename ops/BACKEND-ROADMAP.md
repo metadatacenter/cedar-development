@@ -1060,19 +1060,8 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   These counts cover the flagged subset, not the corpus. An instance clean on both axes at the last
   full walk is not in them, and neither is anything created since.
 
-  **Harden schema conversion across both model libraries.** Resolve the discrepancies in the
-  additional 1,000-artifact sample (400 templates, 300 elements, 300 fields; no overlap with the
-  original 100), measured 2026-09-25:
-
-  | Remaining discrepancy | Schema artifacts |
-  | --- | ---: |
-  | YAML child configuration orders `hidden` before `required` instead of Java's order | 3 templates |
-  | Static rich-text field defaults differ: Java supplies draft/version 0.0.1 when absent; TypeScript leaves them absent | 1 field |
-  | Generated JSON key order differs despite equal content: actions (3), controlled-term defaults (4), literal constraints (2), provenance (1) | 10 fields |
-
-  Preserve absent-versus-explicit source metadata when deciding how to align defaults for static
-  field `b65c1029…`; this discrepancy is default insertion, not loss of stored metadata. Add
-  regression fixtures for each difference and rerun the retained samples after reconciliation.
+  **Harden schema conversion across both model libraries.** Expand beyond the retained 1,100
+  schema artifacts and classify source-to-output changes before claiming corpus-wide agreement.
   Render each stored JSON document to YAML with
   Java and TypeScript independently, then read each YAML rendering with both libraries to produce
   four JSON Schema results. Validate the source and all four results with the Java validator; keep
