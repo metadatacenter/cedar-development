@@ -65,6 +65,14 @@ whose permitted normalizations are defined in the npmjs runbook.
 `plan` and `start` run the identical complete gate, so a release cannot begin from a state `plan`
 would have refused. It answers in about a minute what previously took a build phase to discover.
 
+Preflight prints elapsed time for each check, including a check that fails. Remote
+release-ref availability and dry-run push-permission probes use four concurrent
+repositories and a 60-second deadline per probe. Findings remain in repository order;
+a timeout blocks the release rather than being treated as permission or availability.
+On the 16-core M4 Max (2026-09-25), these two checks across the release inventory
+measured 62.4 seconds serial and 17.5 seconds with four workers, with identical passing
+findings. Network conditions affect the timing; the actual release pushes remain ordered.
+
 The plan settles four groups of question:
 
 - **The machine can run a release.** Java 17 and Node 24.19.0 are active, `git`, `mvn`, and `npm`
