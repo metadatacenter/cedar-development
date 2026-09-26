@@ -706,10 +706,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   a listing that cannot afford or cannot know an exact total answers `countCapped` and leaves out the
   `last` link, as the monitor's raw logs, the bridge's ROR and NIH RePORTER, integrated search past
   its 1,000-result window and the property hierarchies do; and the bridge keys its rows by term IRI
-  rather than listing them, which is what CEE reads. One gap belongs to the shared link builder:
-  `LinkHeaderUtil.getPagingLinkHeaders` offers a `prev` link only when the offset is at least the
-  limit, so a page at offset 2 with limit 3 has no way back to offset 0, though one exists. Fix it
-  to link to offset 0 there; every listing inherits it.
+  rather than listing them, which is what CEE reads.
 
   **Document the two cursor walks as the exception.** `?continuation=` on `/search-deep`, and the
   monitor's log query with its `"<iso>,<id>"` keyset `cursor` (`SearchContinuation.java`,
@@ -718,8 +715,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   stated exception to the envelope.
 
   Done when every page-number form is withdrawn or carries a recorded withdrawal date, one default and
-  one maximum page size apply everywhere, the `prev` link is fixed, and the variations and cursor
-  walks are documented. The REST smoke has to assert the envelope on a route from each application
+  one maximum page size apply everywhere, and the variations and cursor walks are documented. The REST smoke has to assert the envelope on a route from each application
   that serves one; today it covers only the resource server (`rest/suites/pagination.mjs`).
 
 - **18. Choose the response timeouts from the durations the request log now carries, and give a
