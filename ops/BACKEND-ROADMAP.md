@@ -689,6 +689,14 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   write continue without a durable compensation record, which is the window the 2026-09-15 change
   exists to close. The same `hotset` run logged 1,764 such refusals.
 
+  **The graph update cannot yet tell a superseded write from a restored one.**
+  `ArtifactRestoreTransaction.lockForGraph` returns false both when a newer write has replaced the
+  job and when the relay has already restored the artifact, and `Neo4JProxyArtifact` turns either
+  into the same null. The two need different answers. A superseded write succeeded and earns its
+  `200`; a restored write was undone, and answering `200` would report a change that is no longer
+  stored. The fix for the first race therefore starts by replacing that null with a result that says
+  which case occurred.
+
   A fix must give a superseded writer the status its write earned, must never treat a vanished job
   as a legacy one, and must leave every successful artifact write with a durable compensation record
   until its own graph update commits. Done when a focused test reproduces each race and passes, and
