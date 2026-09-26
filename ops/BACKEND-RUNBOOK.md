@@ -1593,19 +1593,27 @@ children in the current template. Inverse-transform checks preserve all other co
 and five instance writes returned exact readbacks and pass validation, four conversion paths,
 generated JSON content/order agreement and byte-identical YAML.
 
-The COVID Project Content template `f697ab8d-7b71-4d48-9caf-8c256eb8ee13` has 28 dependent
-instances; 26 repeatable-standards-link candidates validate. Two retain unrelated source errors:
-`2b022b0a-6909-4abc-9570-68e0b72cd085` has a stale element name/context and an empty literal in
-an IRI field; SARSLIVA `4ec33287-55d4-4dcd-aacb-c01169561a15` has nine missing element IDs
-and prose stored as a service URL. No COVID artifacts were changed. The approved migration waits
-for those dependencies. Evidence for both audits and the Proteomics writes is under
-`.cedar/repairs/2026-09-26-repeatable-remaining-links/`.
+The COVID Project Content template `f697ab8d-7b71-4d48-9caf-8c256eb8ee13` now makes the
+standards-link field repeatable; all 28 dependent instances were migrated after a fresh inventory
+and complete preflight. The two URLs in `93af0ae5-2558-4c1a-994d-37603588c0df` are separate,
+ordered link objects. On `2b022b0a-6909-4abc-9570-68e0b72cd085`, the stale element name/context
+now matches `ZonMW Project Identifier`, retaining its existing element ID and values; the empty
+literal in `Project Focus Area` is an empty IRI field. Entirely empty elements remain omitted in
+CEDAR YAML, while the verbatim stored body retains its identifier.
 
-The retained primary pipeline count under the latest libraries is now 39: annotations 8,
-malformed/empty IRIs 15, mixed values 11, multiple datatypes 3, numeric literals 2.
-Of these, 23 have known narrow corrections blocked by unrelated validation errors, 13 need further
-triage, two approved migrations await production library adoption (F050TUN) or invalid dependent
-instances (COVID Project Content), and one
+SARSLIVA `4ec33287-55d4-4dcd-aacb-c01169561a15` retains its original description with an appended
+paragraph labelled `Sarsliva biobank collection` containing the exact sentence formerly in the
+service URL. That URL is empty and omitted in YAML. Nine missing biomaterial element-occurrence
+IDs were generated; existing IDs and all entered field values remain unchanged. Inverse-transform
+checks constrain every change. The template and all 28 instance writes read back exactly and pass
+validation, all four conversion paths, generated JSON content/order agreement and byte-identical
+YAML. Evidence is under `.cedar/repairs/2026-09-26-covid-links-migration/covid/`; the earlier blocked
+preflight remains under `.cedar/repairs/2026-09-26-repeatable-remaining-links/covid/`.
+
+The retained primary pipeline count under the latest libraries is now 37: annotations 8,
+malformed/empty IRIs 13, mixed values 11, multiple datatypes 3, numeric literals 2.
+Of these, 23 have known narrow corrections blocked by unrelated validation errors, 12 need further
+triage, the approved F050TUN migration awaits production library adoption, and one
 otherwise-valid HEAL repair is blocked only by DOI inconsistency. Eight additional instances await
 production adoption of the Unicode IRI fix. These are targeted updates, not a fresh full instance census.
 
