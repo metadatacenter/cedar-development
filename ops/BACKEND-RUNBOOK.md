@@ -1632,9 +1632,18 @@ byte-identical. Actual codebook and measurement-scale URLs remain missing: the t
 `requiredValue: true` constraints were not relaxed, and schema-validation success does not supply
 that content. Evidence is under `.cedar/repairs/2026-09-26-cacord-link-placeholders/`.
 
-The retained primary pipeline count under the latest libraries is now 35: annotations 8,
-malformed/empty IRIs 11, mixed values 11, multiple datatypes 3, numeric literals 2.
-Of these, 23 have known narrow corrections blocked by unrelated validation errors, 10 need further
+The Recipe Manifest instance `e151afef-95c5-42cb-bcad-95f3c99f06d3` now retains only the
+literal `Meow mix` in `dinner-name`, matching its textfield schema. The approved SNOMED identifier
+and its `Text < 256 bytes` label were removed. Missing `dummy-before` and `dummy-after` context
+mappings now use the template's property IRIs; their `Before` and `After` values are unchanged.
+The conditional production write returned 200 and exact readback passed stored validation and
+all four completed paths, with identical generated JSON content/order and byte-identical YAML.
+Other populated values are preserved. Originals and verification evidence are under
+`.cedar/repairs/2026-09-26-dinner-name-literal/`.
+
+The retained primary pipeline count under the latest libraries is now 34: annotations 8,
+malformed/empty IRIs 11, mixed values 10, multiple datatypes 3, numeric literals 2.
+Of these, 23 have known narrow corrections blocked by unrelated validation errors, 9 need further
 triage, the approved F050TUN migration awaits production library adoption, and one
 otherwise-valid HEAL repair is blocked only by DOI inconsistency. Eight additional instances await
 production adoption of the Unicode IRI fix. These are targeted updates, not a fresh full instance census.

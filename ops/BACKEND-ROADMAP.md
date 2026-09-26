@@ -1238,7 +1238,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   describes how to resume and recheck it after a library change.
 
   **Resolve the remaining production instance sources and pipeline findings.** The retained
-  findings and checked repairs leave 35 affected instances under the latest libraries. Production
+  findings and checked repairs leave 34 affected instances under the latest libraries. Production
   adoption of the Unicode IRI fix remains pending for eight additional instances.
   Consistent reader rejection of an invalid source still requires a source repair.
 
@@ -1248,14 +1248,14 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Their template is `6a4ac641-f55d-4a48-b00d-1e01de28cc4d`. Establish the intended element/field
   mapping before renaming those groups to `description attributes`; a key-only repair cannot
   validate these sources. Preserve every value. These overlap existing findings; do not add three
-  to the 35-instance baseline. Account for their stricter-reader rejection before production
+  to the 34-instance baseline. Account for their stricter-reader rejection before production
   rollout. Live dependency checks and retained originals are under
   `$CEDAR_HOME/.cedar/audits/2026-09-25-reserved-name-review/migration-apply/`.
 
   | Remaining issue | Instances |
   | --- | ---: |
   | Stored multiple-datatype literals; narrow repairs blocked by other template errors | 3 |
-  | Stored mixed `@id`/`@value` fields | 11 |
+  | Stored mixed `@id`/`@value` fields | 10 |
   | Malformed/empty stored URI is the first Java rejection | 11 |
   | Malformed annotation objects | 8 |
   | Numeric JSON literals | 2 |
@@ -1286,7 +1286,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   fresh preflight validates every proposed body under the updated validator. Production still needs
   Unicode IRI support before eight of those bodies can be written. Do not switch the template
   until the deployed write path accepts all dependents. This approved repair remains within the
-  35-instance backlog; its dependencies overlap existing findings. Audit evidence and proposed
+  34-instance backlog; its dependencies overlap existing findings. Audit evidence and proposed
   bodies are under
   `$CEDAR_HOME/.cedar/repairs/2026-09-26-repeatable-source-hyperlink/`, with targeted dependency
   rechecks under `$CEDAR_HOME/.cedar/repairs/2026-09-26-guardian-source-link/` and
