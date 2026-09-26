@@ -1621,9 +1621,20 @@ verbatim write returned 200 and read back exactly; stored and completed validati
 content/order agreement and byte-identical YAML pass. Evidence is under
 `.cedar/repairs/2026-09-26-moneris-placeholder/`. No template was changed.
 
-The retained primary pipeline count under the latest libraries is now 36: annotations 8,
-malformed/empty IRIs 12, mixed values 11, multiple datatypes 3, numeric literals 2.
-Of these, 23 have known narrow corrections blocked by unrelated validation errors, 11 need further
+The CA-CORD instance `1835f14f-1894-4f41-ae0f-df2507b2ae02` now uses `codebook_link` and
+`data_collect_ints_soc` with their current template mappings. The approved `See link` and `link`
+placeholders were cleared; empty link objects are retained in stored JSON and omitted from YAML.
+`qualitative_coding_inst` preserves `N/A` as literal text, and the `project_description` and
+`stat_weights` context mappings match the template. Other populated values, including the stored
+statistical-weight response `2`, remain unchanged. The exact conditional-write readback passes
+stored validation and all four completed paths; generated JSON content/order agrees and YAML is
+byte-identical. Actual codebook and measurement-scale URLs remain missing: the template's
+`requiredValue: true` constraints were not relaxed, and schema-validation success does not supply
+that content. Evidence is under `.cedar/repairs/2026-09-26-cacord-link-placeholders/`.
+
+The retained primary pipeline count under the latest libraries is now 35: annotations 8,
+malformed/empty IRIs 11, mixed values 11, multiple datatypes 3, numeric literals 2.
+Of these, 23 have known narrow corrections blocked by unrelated validation errors, 10 need further
 triage, the approved F050TUN migration awaits production library adoption, and one
 otherwise-valid HEAL repair is blocked only by DOI inconsistency. Eight additional instances await
 production adoption of the Unicode IRI fix. These are targeted updates, not a fresh full instance census.
