@@ -1641,9 +1641,18 @@ all four completed paths, with identical generated JSON content/order and byte-i
 Other populated values are preserved. Originals and verification evidence are under
 `.cedar/repairs/2026-09-26-dinner-name-literal/`.
 
-The retained primary pipeline count under the latest libraries is now 34: annotations 8,
-malformed/empty IRIs 11, mixed values 10, multiple datatypes 3, numeric literals 2.
-Of these, 23 have known narrow corrections blocked by unrelated validation errors, 9 need further
+The `MetaData metadata` instance `8ae5c275-8564-4461-8548-2090d28ad590` now stores
+`Turkish provinces` as the literal value of its textfield `Province`, replacing the approved
+vocabulary identifier, label and null-literal combination. This preserves the displayed text;
+it does not identify a specific province. Missing `Hypertension`, `Diabetes` and `Hyperlipidemia`
+context mappings now match the template. All other content is unchanged. The conditional
+production write returned 200; exact readback passes stored validation and all four completed
+paths, with identical generated JSON content/order and byte-identical YAML. Evidence is under
+`.cedar/repairs/2026-09-26-province-literal/`.
+
+The retained primary pipeline count under the latest libraries is now 33: annotations 8,
+malformed/empty IRIs 11, mixed values 9, multiple datatypes 3, numeric literals 2.
+Of these, 23 have known narrow corrections blocked by unrelated validation errors, 8 need further
 triage, the approved F050TUN migration awaits production library adoption, and one
 otherwise-valid HEAL repair is blocked only by DOI inconsistency. Eight additional instances await
 production adoption of the Unicode IRI fix. These are targeted updates, not a fresh full instance census.
