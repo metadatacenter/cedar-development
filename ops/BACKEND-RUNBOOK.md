@@ -1546,18 +1546,34 @@ The eight remaining Niger identifiers were then checked against retained VODANA-
 and source Turtle. Submission 1 (version 1, 2021-09-14) contains their exact raw U+00A0 spelling;
 its percent-encoded spelling is absent. Version 2 uses a different namespace and suffix. U+00A0 is
 permitted in IRI paths by RFC 3987, while RDF 1.1 uses simple-string IRI equality without additional
-normalization. Encoding the stored identifier would therefore change RDF identity. Both model
-readers and the validator reject the raw form and accept the encoded form, establishing an
+normalization. Encoding the stored identifier would therefore change RDF identity. The original model
+readers and validator rejected the raw form and accepted the encoded form, establishing an
 IRI/URI acceptance mismatch. Production terminology comparisons returned Cloudflare HTTP 403 /
-1010, so no live equivalence was established. No production write was made. Preserve the original
-IRIs and reconcile acceptance across libraries and validation before retrying the migration.
-Evidence and standard references are under `.cedar/repairs/2026-09-26-niger-term-compatibility/`.
+1010, so no live equivalence was established. No production write was made. Historical lookup
+and standard references are under `.cedar/repairs/2026-09-26-niger-term-compatibility/`.
 
-The retained primary pipeline count is now 50: annotations 8, malformed/empty IRIs 17, vocabulary-authentic
-IRIs rejected by URI handling 8, mixed values 11, multiple datatypes 3, numeric literals/nested array 3. Of these, 23 have known narrow corrections
-blocked by unrelated validation errors, 25 need further triage, F050TUN has an approved migration
-blocked by its template dependencies, and one otherwise-valid HEAL repair is blocked only by DOI
-inconsistency. These are targeted updates, not a fresh full instance census.
+The current Java and TypeScript field readers preserve valid RFC 3987 Unicode identifiers.
+Java's `FieldInstanceArtifact.jsonLdIdIri()` supplies the exact lexical identifier; `jsonLdId()`
+remains a URI compatibility view and may percent-encode characters Java's URI class cannot hold.
+JSON/YAML writers use the lexical identifier, and the controlled-term builder accepts
+`withIriValue(String)`. Raw and percent-encoded strings remain distinct RDF identifiers. CEDAR's
+legacy Draft-04 `uri` format checker admits those IRI characters without changing stored schemas
+or values; generic Draft-04 validators may enforce a narrower URI-only interpretation. Artifact
+and element-occurrence identifiers retain their stricter reader rules.
+
+A fresh GET-only replay of all eight Niger instances passes stored validation and all four
+completed conversion paths; generated JSON content/order agrees and YAML bytes match. Every
+output retains the exact source IRI. A fresh dependency inventory also validates all 368 proposed
+repeatable-link migration bodies under the updated validator. The production deployment still
+needs these libraries before that migration can run. Evidence, classpath, originals and outputs
+are under `.cedar/repairs/2026-09-26-unicode-iri-library/`; no production artifacts were changed.
+
+The retained primary pipeline count under the latest libraries is now 42: annotations 8,
+malformed/empty IRIs 17, mixed values 11, multiple datatypes 3, numeric literals/nested array 3.
+Of these, 23 have known narrow corrections blocked by unrelated validation errors, 17 need further
+triage, F050TUN has an approved migration waiting for production library adoption, and one
+otherwise-valid HEAL repair is blocked only by DOI inconsistency. Eight additional instances await
+production adoption of the Unicode IRI fix. These are targeted updates, not a fresh full instance census.
 
 The TypeScript standalone attribute-value writer emits Java's `type: array`, `minItems: 0`, `items`
 envelope, while retaining compatibility with the historical unwrapped input. Nested groups keep
