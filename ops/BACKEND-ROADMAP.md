@@ -1234,6 +1234,15 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   retained proposals after those blockers are resolved. Current conditional-write and conversion
   evidence is in `$CEDAR_HOME/.cedar/repairs/2026-09-26-annotation-instance-cleanup/`.
 
+  Make `Source Hyperlink` repeatable in `VODAN-COVID-Migrants-Tunisia`
+  (`05ce128b-c631-45c8-bfcf-a229ea1fcce5`) and split F050TUN's two stored URLs after resolving
+  its dependent-instance blockers. All 368 instances require object-to-array migration; 356
+  proposed bodies validate, while 12 retain existing errors (eight country IRIs and four source
+  links, including two with numeric literals). Do not switch the template before those instances
+  can be migrated. This approved repair remains within the 54-instance backlog; its dependencies
+  overlap existing findings. Audit evidence and proposed bodies are under
+  `$CEDAR_HOME/.cedar/repairs/2026-09-26-repeatable-source-hyperlink/`.
+
   The four unresolved index entries return 404 even after retry; reconcile the index and store
   rather than declaring them converted. Investigate already-invalid sources without a pipeline
   discrepancy separately from library disagreements. Revalidate against actual templates before

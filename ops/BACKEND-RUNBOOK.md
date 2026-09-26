@@ -1501,10 +1501,20 @@ all four generated JSON documents agree in content/order, and template completio
 empty entry and validates in every path. The conditional write's exact readback validates too.
 Originals and evidence are under `.cedar/repairs/2026-09-26-empty-not-applicable-link/`.
 
+A dependency audit for making `Source Hyperlink` repeatable in template
+`05ce128b-c631-45c8-bfcf-a229ea1fcce5` found 368 instances requiring object-to-array migration.
+356 proposed bodies validate; 12 retain their existing errors: eight country IRIs and four source
+links, two also with numeric literals. The proposed template and target F050TUN
+(`c59f4f3f-b271-4aae-b568-b6ace06a2406`) pass all four conversion paths, but no production writes
+were made because the full dependent migration cannot validate. Retained sources, proposals,
+ETags, error comparisons and pipeline results are under
+`.cedar/repairs/2026-09-26-repeatable-source-hyperlink/`.
+
 The retained primary pipeline count is now 54: annotations 8, malformed/empty IRIs 29, mixed values
 11, multiple datatypes 3, numeric literals/nested array 3. Of these, 23 have known narrow corrections
-blocked by unrelated validation errors, 30 need further triage, and one otherwise-valid HEAL repair
-is blocked only by DOI inconsistency. These are targeted updates, not a fresh full instance census.
+blocked by unrelated validation errors, 29 need further triage, F050TUN has an approved migration
+blocked by its template dependencies, and one otherwise-valid HEAL repair is blocked only by DOI
+inconsistency. These are targeted updates, not a fresh full instance census.
 
 The TypeScript standalone attribute-value writer emits Java's `type: array`, `minItems: 0`, `items`
 envelope, while retaining compatibility with the historical unwrapped input. Nested groups keep
