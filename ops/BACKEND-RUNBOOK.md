@@ -1480,9 +1480,18 @@ unused required mapping. After the conditional template write, both the source a
 completed outputs validate, generated JSON content/order agree, and YAML bytes match. The patched
 template and all four generated schemas validate too. Backups, ETags, inventory, proposals and exact
 readback checks are in `.cedar/repairs/2026-09-26-idg-context-requirement/`.
-The retained primary pipeline count is now 59: annotations 8, malformed/empty IRIs 34, mixed values
-11, multiple datatypes 3, numeric literals/nested array 3. These are targeted updates, not a fresh
-full instance census.
+Three instances whose repeatable link fields each held several URLs in one `@id` were repaired
+by splitting them into separate entries: `d30f925b-5b96-467e-a4ce-7d97327824eb` (four links),
+`5971b91e-5b77-439b-8845-d1be1688637f` (two) and `f5a13f64-525a-4720-b3e1-e6f12dc6ee9d`
+(two). The eight URLs retain their spelling and order; no templates changed. Conditional verbatim
+writes were read back exactly. All three stored sources and all four completed conversion paths
+validate, generated JSON content/order agree, and YAML bytes match. Evidence is under
+`.cedar/repairs/2026-09-26-split-instance-links/`.
+
+The retained primary pipeline count is now 56: annotations 8, malformed/empty IRIs 31, mixed values
+11, multiple datatypes 3, numeric literals/nested array 3. Of these, 23 have known narrow corrections
+blocked by unrelated validation errors, 32 need further triage, and one otherwise-valid HEAL repair
+is blocked only by DOI inconsistency. These are targeted updates, not a fresh full instance census.
 
 The TypeScript standalone attribute-value writer emits Java's `type: array`, `minItems: 0`, `items`
 envelope, while retaining compatibility with the historical unwrapped input. Nested groups keep

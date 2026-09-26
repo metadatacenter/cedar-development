@@ -1200,7 +1200,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   describes how to resume and recheck it after a library change.
 
   **Resolve the remaining production instance sources and pipeline findings.** The retained
-  findings and checked repairs leave 59 affected instances.
+  findings and checked repairs leave 56 affected instances.
   Consistent reader rejection of an invalid source still requires a source repair.
 
   Resolve three remaining instances whose legacy `description` attribute-value groups sit in
@@ -1209,7 +1209,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Their template is `6a4ac641-f55d-4a48-b00d-1e01de28cc4d`. Establish the intended element/field
   mapping before renaming those groups to `description attributes`; a key-only repair cannot
   validate these sources. Preserve every value. These overlap existing findings; do not add three
-  to the 59-instance baseline. Account for their stricter-reader rejection before production
+  to the 56-instance baseline. Account for their stricter-reader rejection before production
   rollout. Live dependency checks and retained originals are under
   `$CEDAR_HOME/.cedar/audits/2026-09-25-reserved-name-review/migration-apply/`.
 
@@ -1217,7 +1217,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   | --- | ---: |
   | Stored multiple-datatype literals; narrow repairs blocked by other template errors | 3 |
   | Stored mixed `@id`/`@value` fields | 11 |
-  | Malformed/empty stored URI is the first Java rejection | 34 |
+  | Malformed/empty stored URI is the first Java rejection | 31 |
   | Malformed annotation objects | 8 |
   | Numeric JSON literals or an unexpected nested field array | 3 |
 
