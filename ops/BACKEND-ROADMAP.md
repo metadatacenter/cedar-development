@@ -1208,13 +1208,15 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   findings and checked repairs leave 64 affected instances, one with a valid stored source.
   Consistent reader rejection of an invalid source still requires a source repair.
 
-  Before deploying the stricter element-group name rule, migrate legacy groups named `name` or
-  `description` while preserving labels and values. The retained snapshot identifies ten instances
-  (seven previously valid) and nine schema artifacts. These compatibility candidates overlap the
-  earlier findings and are not an additional disjoint category in the 64-instance baseline below.
-  Live validation must gate every write; the proposed keys are `name attributes` and
-  `description attributes`. Evidence and the proposed mapping are under
-  `$CEDAR_HOME/.cedar/audits/2026-09-25-reserved-name-review/MIGRATION-PROPOSAL.md`.
+  Resolve three remaining instances whose legacy `description` attribute-value groups sit in
+  element structures that no longer match their template: `de5299da-97ed-4795-8cc4-5c405314bfce`,
+  `e6cdd723-2f7a-45e1-b062-a6187d615bd1` and `38c3559b-68e6-42ac-97cb-70624f581cb2`.
+  Their template is `6a4ac641-f55d-4a48-b00d-1e01de28cc4d`. Establish the intended element/field
+  mapping before renaming those groups to `description attributes`; a key-only repair cannot
+  validate these sources. Preserve every value. These overlap existing findings; do not add three
+  to the 64-instance baseline. Account for their stricter-reader rejection before production
+  rollout. Live dependency checks and retained originals are under
+  `$CEDAR_HOME/.cedar/audits/2026-09-25-reserved-name-review/migration-apply/`.
 
   | Remaining issue | Instances |
   | --- | ---: |

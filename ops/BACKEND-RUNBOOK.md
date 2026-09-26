@@ -1405,11 +1405,27 @@ the roadmap's 64 outstanding primary findings.
 The reserved-name corrections passed 1,228 Java tests and 249 shared fixtures, 3,828 TypeScript
 tests and the model CI gates, plus CEE's 3,517 domain, 595 unit and 36 Angular coordinator tests.
 CED passed 2,518 unit tests, 306 default browser cases and 72 real-sibling CEE/CEF and picker
-browser checks (the latter run explicitly with both sibling bundles). The full retained production snapshot
-scan covers 150,580 instances and identifies ten users of the newly reserved element group names;
-seven had valid stored sources. This establishes a migration requirement before production rollout,
-not permission to discard those names or values. The proposal and scan are retained under
-`.cedar/audits/2026-09-25-reserved-name-review/`.
+browser checks (the latter run explicitly with both sibling bundles). Final Java, TypeScript, CEE
+and CED CI runs also passed, including CED's real-sibling integration job.
+
+The approved production group-key migration renamed `name` to `name attributes` and `description`
+to `description attributes` in five templates, four reusable elements and seven valid instances.
+It preserved display labels, field values, property IRIs, identifiers and provenance. Every change
+had an exact inverse, a saved original, a Java-validation gate, a strong-ETag conditional verbatim
+PUT and exact readback. A live template-dependency search found 13 instances: the seven repaired
+sources and six already-invalid sources left unchanged. All six retained exactly the same validation
+errors against the patched template. Three of those six still contain legacy groups in structures
+that differ from their template; their repair requires an established field mapping.
+
+For the seven repaired instances, all four Java/TypeScript conversion paths agree on JSON content
+and generated key order, and both YAML writers produce identical bytes. Template completion makes
+all four results valid. Generated JSON before completion is not identical to the stored source;
+these checks do not imply that template-free conversion preserves every stored context/default.
+The nine repaired schemas also pass all four conversion paths with matching JSON content/order,
+byte-identical YAML and valid generated schemas. Original/proposed/readback bodies, dependent
+validation results and conversion evidence are retained under
+`.cedar/audits/2026-09-25-reserved-name-review/migration-apply/`. Production libraries were not
+redeployed by this data repair.
 
 Both readers make the same compatibility concession for `$schema`: an artifact root must carry the
 canonical draft-04 URI, while a nested legacy field or element may omit it on input. Both writers put
