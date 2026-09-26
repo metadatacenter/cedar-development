@@ -779,30 +779,40 @@ are behind the graph for the resources those events name; the other suffixes mea
 log or recommender work needs attention. Nothing retries dead-lettered work on its own.
 
 Resource and group producers first persist each permission event as a
-`CedarSearchPermissionOutbox` node in Neo4j. Redis acceptance removes that node; if Redis is down,
-the request's graph mutation still succeeds and the managed relay retries every five seconds, across
-producer restarts. Delivery can repeat if a producer dies after the Redis push but before the Neo4j
-acknowledgement, which is safe because permission projection is idempotent. To exercise that boundary
-against the native local stack (the command stops and restores the Homebrew Redis service in a
-`finally` block):
+`CedarSearchPermissionOutbox` node in Neo4j, then signal their managed background relay and return.
+The request never reads the backlog or waits for Redis. Signals are coalesced; the outbox is the
+source of truth. The relay checks at startup and at least every five seconds while idle, and wakes
+promptly for new events. It drains full 100-event batches without waiting between them, but backs
+off five seconds after a delivery or acknowledgement failure, even if new requests keep arriving.
+
+Redis acceptance permits acknowledgement; each batch deletes only its successfully delivered
+prefix in one Neo4j transaction. An event survives a Redis failure or producer restart. Delivery can
+repeat if a producer dies after the Redis push but before the Neo4j acknowledgement, which is safe
+because permission projection is idempotent. To exercise that boundary against the native local
+stack (the command stops and restores Homebrew Redis in a `finally` block):
 
 ```bash
 cd $CEDAR_HOME/cedar-development/ops/e2e
 npm run smoke:permission-outbox -- --manage-homebrew-redis
 ```
 
-The producer validates persisted outbox records before relay. A record missing its outbox id,
-resource id or event type, or naming an unknown event type, is relabelled
-`CedarSearchPermissionOutboxDeadLetter` with `deadLetterReason` and `deadLetteredAtTS`; it no longer
-blocks valid records behind it, but remains in Neo4j for inspection. A relay failure after the new
-event has been persisted is contained by the producer and retried in the background rather than
-turning the already-committed REST mutation into a `500`. Resource and group relay the same outbox;
-if one acknowledges and removes an event while the other is materializing it, the losing relay
-ignores Neo4j's null projection because the winning relay has already delivered that event. Their
-outbox scans and acknowledgements also take the same `CedarSearchPermissionOutboxRelayLock` mutex
-in Neo4j, protected by a unique lock-name constraint. This prevents one producer from deleting a
-node while the other is reading it; lock initialization occurs in the contained relay path, so an
-unavailable Neo4j instance does not turn application construction into a startup failure.
+This smoke also measures search convergence within five seconds after a direct ACL revocation,
+an inherited folder grant, and a move removing inherited access. It uses current role-based ACL
+payloads and conditional mutations with the ETag of the representation being changed.
+
+Malformed-record quarantine runs at startup and once a minute per producer, outside the shared
+relay mutex. A record missing its outbox id, resource id, event type or creation timestamp, or naming
+an unknown event type, is relabelled `CedarSearchPermissionOutboxDeadLetter` with `deadLetterReason`
+and `deadLetteredAtTS`; it remains in Neo4j for inspection. Batch selection excludes these records
+before its limit, so they cannot block valid events while awaiting maintenance.
+
+Resource and group relay the same outbox. Selection and batch acknowledgement take the
+`CedarSearchPermissionOutboxRelayLock` mutex in Neo4j, protected by a unique lock-name constraint;
+append does not. Indexes on `outboxId` and `(createdAtTS, outboxId)` support acknowledgement and
+ordered batch selection. The relay installs the indexes and mutex lazily, so a database outage does
+not fail application construction. Lifecycle coordination does not hold a monitor across relay
+I/O: shutdown interrupts the worker, allows five seconds for it to finish, then closes the clients.
+Unacknowledged events remain available to the next producer.
 
 Read what is parked before deciding anything. Each entry is the original JSON event, carrying the
 resource id, the event type and the time it was created:
@@ -1583,13 +1593,29 @@ Its comma-joined GBIF identifiers were split into two ordered link objects witho
 URL. The template and instance candidates passed validation before conditional verbatim writes;
 both readbacks matched exactly and passed all four conversion paths, JSON content/order agreement
 and byte-identical YAML. Identifiers, provenance and unrelated values were preserved. Evidence is
-under `.cedar/repairs/2026-09-26-repeatable-species-url/`. Two other multiple-URL triage instances
-remain: COVID Project Content metadata and Proteomics metadata.
+under `.cedar/repairs/2026-09-26-repeatable-species-url/`. The other multiple-URL migrations are tracked below.
 
-The retained primary pipeline count under the latest libraries is now 40: annotations 8,
-malformed/empty IRIs 16, mixed values 11, multiple datatypes 3, numeric literals 2.
-Of these, 23 have known narrow corrections blocked by unrelated validation errors, 15 need further
-triage, F050TUN has an approved migration waiting for production library adoption, and one
+The Proteomics template `dad8dc2b-98f7-46d7-9e01-2655a2b3f7c0` now makes the two
+`Proteomics General` statistical-processing link fields repeatable. All five dependent instances
+were migrated. Target `175b01b7-3f78-43fd-9c26-da1f28015de4` retains its two and three URLs as
+separate ordered link objects, and its two stale CEDAR property mappings now match the same named
+children in the current template. Inverse-transform checks preserve all other content. The template
+and five instance writes returned exact readbacks and pass validation, four conversion paths,
+generated JSON content/order agreement and byte-identical YAML.
+
+The COVID Project Content template `f697ab8d-7b71-4d48-9caf-8c256eb8ee13` has 28 dependent
+instances; 26 repeatable-standards-link candidates validate. Two retain unrelated source errors:
+`2b022b0a-6909-4abc-9570-68e0b72cd085` has a stale element name/context and an empty literal in
+an IRI field; SARSLIVA `4ec33287-55d4-4dcd-aacb-c01169561a15` has nine missing element IDs
+and prose stored as a service URL. No COVID artifacts were changed. The approved migration waits
+for those dependencies. Evidence for both audits and the Proteomics writes is under
+`.cedar/repairs/2026-09-26-repeatable-remaining-links/`.
+
+The retained primary pipeline count under the latest libraries is now 39: annotations 8,
+malformed/empty IRIs 15, mixed values 11, multiple datatypes 3, numeric literals 2.
+Of these, 23 have known narrow corrections blocked by unrelated validation errors, 13 need further
+triage, two approved migrations await production library adoption (F050TUN) or invalid dependent
+instances (COVID Project Content), and one
 otherwise-valid HEAL repair is blocked only by DOI inconsistency. Eight additional instances await
 production adoption of the Unicode IRI fix. These are targeted updates, not a fresh full instance census.
 

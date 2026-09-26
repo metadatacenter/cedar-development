@@ -1210,7 +1210,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   describes how to resume and recheck it after a library change.
 
   **Resolve the remaining production instance sources and pipeline findings.** The retained
-  findings and checked repairs leave 40 affected instances under the latest libraries. Production
+  findings and checked repairs leave 39 affected instances under the latest libraries. Production
   adoption of the Unicode IRI fix remains pending for eight additional instances.
   Consistent reader rejection of an invalid source still requires a source repair.
 
@@ -1220,7 +1220,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Their template is `6a4ac641-f55d-4a48-b00d-1e01de28cc4d`. Establish the intended element/field
   mapping before renaming those groups to `description attributes`; a key-only repair cannot
   validate these sources. Preserve every value. These overlap existing findings; do not add three
-  to the 40-instance baseline. Account for their stricter-reader rejection before production
+  to the 39-instance baseline. Account for their stricter-reader rejection before production
   rollout. Live dependency checks and retained originals are under
   `$CEDAR_HOME/.cedar/audits/2026-09-25-reserved-name-review/migration-apply/`.
 
@@ -1228,7 +1228,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   | --- | ---: |
   | Stored multiple-datatype literals; narrow repairs blocked by other template errors | 3 |
   | Stored mixed `@id`/`@value` fields | 11 |
-  | Malformed/empty stored URI is the first Java rejection | 16 |
+  | Malformed/empty stored URI is the first Java rejection | 15 |
   | Malformed annotation objects | 8 |
   | Numeric JSON literals | 2 |
 
@@ -1258,7 +1258,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   fresh preflight validates every proposed body under the updated validator. Production still needs
   Unicode IRI support before eight of those bodies can be written. Do not switch the template
   until the deployed write path accepts all dependents. This approved repair remains within the
-  40-instance backlog; its dependencies overlap existing findings. Audit evidence and proposed
+  39-instance backlog; its dependencies overlap existing findings. Audit evidence and proposed
   bodies are under
   `$CEDAR_HOME/.cedar/repairs/2026-09-26-repeatable-source-hyperlink/`, with targeted dependency
   rechecks under `$CEDAR_HOME/.cedar/repairs/2026-09-26-guardian-source-link/` and
@@ -1266,6 +1266,18 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   repairs under `$CEDAR_HOME/.cedar/repairs/2026-09-26-a147-link-numeric/` and
   `$CEDAR_HOME/.cedar/repairs/2026-09-26-e052-link-numeric/`. Refresh the full
   dependency inventory and all proposals before migration.
+
+  Make `Standards / What is the URL of the standard used?` repeatable in COVID Project Content
+  (`f697ab8d-7b71-4d48-9caf-8c256eb8ee13`) and split the two URLs in
+  `93af0ae5-2558-4c1a-994d-37603588c0df`. This migration is approved but blocked: 26 of 28
+  dependent-instance candidates validate. Resolve the stale `ZonMW Project Identifier1` element
+  name/context and empty literal in `Project Focus Area` on `2b022b0a-6909-4abc-9570-68e0b72cd085`.
+  On SARSLIVA `4ec33287-55d4-4dcd-aacb-c01169561a15`, establish where to preserve the sentence
+  stored as `URL of specific service`, and assign the nine missing biomaterial element-occurrence
+  identifiers. Do not switch the template until every dependent can be migrated. SARSLIVA overlaps
+  the prose-in-URL triage cases; do not count that dependency again. Recheck the inventory and
+  current originals before writing. Evidence and exact errors are under
+  `$CEDAR_HOME/.cedar/repairs/2026-09-26-repeatable-remaining-links/covid/`.
 
   The four unresolved index entries return 404 even after retry; reconcile the index and store
   rather than declaring them converted. Investigate already-invalid sources without a pipeline
