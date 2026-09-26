@@ -55,13 +55,18 @@ publish. Extend the opt-in `datacite`-tagged test, or add a sandbox smoke beside
 full mint and attach contract and the credential check.
 
 Reconcile existing document/graph DOI disagreement that blocks unrelated artifact updates.
-Two production templates and one instance need this recovery before their pending repairs
+Seven production templates and one instance need this recovery before their pending repairs
 can be written:
 
 | Artifact | UUID | Existing DOI |
 | --- | --- | --- |
 | Human Cognitive Neuroscience Data | `0e0e551b-c465-41e6-9392-75803b1b95de` | `10.60745/k2wv-x835` |
 | FAIR-EuMon metadata template | `b530b495-bd45-4ba7-946c-f726b3066ba9` | `10.60745/ng90-tp91` |
+| 4 pair template | `1751b5af-306d-4a85-8103-6995b0ab4cc3` | `10.82658/266m-c687` |
+| DataCite V4.4 Aug23 | `4c9720f3-1d45-41ad-887c-5af725b1615f` | `10.82658/rwa3-kp36` |
+| Datacite DOI test template | `a9253f72-dbf2-4d33-85f2-65d663164e98` | `10.82658/qd02-b077` |
+| Another | `11a63aa9-5e4c-439d-adb7-ec9e92f6f36e` | `10.82658/mwtm-3888` |
+| Copy of Environmental Exposure Assessment | `de66a5b7-982c-49a0-a3b9-8a134af1954e` | `10.60745/kys3-pa43` |
 | HEAL study instance, 10453929 – Development of therapeutic antibodies | `44685302-6d30-41fa-b129-6875fb887912` | `10.82658/aqdn-5e14` |
 
 Their `PUT ?verbatim=true` requests preserve the stored document's DOI but receive HTTP 400
@@ -74,11 +79,14 @@ Do not remove the DOI or bypass DOI immutability to unblock the repair.
 
 Add regression coverage for a document DOI with missing graph metadata, interrupted attachment
 and retry, successful unchanged-DOI updates after reconciliation, and continued rejection of DOI
-replacement or deletion through ordinary updates. Recheck the two templates and their dependent
+replacement or deletion through ordinary updates. Recheck the seven templates and their dependent
 instances before retrying the pending schema patches. The HEAL instance needs only its stray
 `_annotations/@id` removed while retaining the DOI annotation; the attempted conditional write
-was rejected with the same unchanged-DOI error. Its template also needs to permit optional instance
-annotations. Evidence is in `.cedar/repairs/2026-09-25-stray-annotation-id/`. The write-rejection evidence is retained in
+was rejected with the same unchanged-DOI error. Evidence is in
+`.cedar/repairs/2026-09-25-stray-annotation-id/`. The seven templates still need optional annotation
+declarations; Human Cognitive Neuroscience Data and FAIR-EuMon also need their pending context
+declaration repairs. Write-rejection evidence is retained in
+`.cedar/repairs/2026-09-26-annotation-backfill/` and
 `.cedar/repairs/2026-09-25-context-additional/apply-summary.json` under the local CEDAR root.
 
 ### 3. Show Server Validation Findings in Workspace

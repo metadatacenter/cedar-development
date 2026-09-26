@@ -1431,8 +1431,32 @@ Both template writers always include the canonical optional instance `_annotatio
 and its optional `@nest` context mapping. Neither is a required instance property or a child field.
 The declaration follows the existing annotation meta-schema; empty value objects, mixed `@id` and
 `@value` objects, and extra properties remain invalid. Legacy templates without these declarations
-remain readable and acquire them when rendered. Stored production templates need a separate audit
-and validated backfill; publishing a library does not modify their stored schemas.
+remain readable and acquire them when rendered. Publishing a library does not modify stored
+schemas. The annotation backfill uses the existing conditional JSON `PUT ?verbatim=true` path;
+it does not require a production library redeploy. Adopt the updated library in backend/editor
+consumers so later model renders retain these declarations automatically.
+
+`ops/repairs/annotation_declarations.py` plans only the two missing root declarations, taking
+their shapes from Java output verified against TypeScript. It refuses conflicting declarations
+and preserves existing property order, requirements, values and metadata. With closed containers,
+the additions only relax validation; open containers require live dependent-instance validation.
+Never replace a stored template with a complete model rendering merely to add these declarations.
+
+The 2026-09-26 UTC production pass enumerated 4,834 templates and patched 4,826 with verified
+readbacks and Java validation. Seven unchanged-document-DOI/null-graph-DOI refusals and one indexed
+404 remain. All five transient DNS/HTTP500 failures succeeded on a checked retry. No instance was
+written. All 2,146 live dependents of 290 open-container templates retained their validation results;
+the other 4,543 candidates only relaxed closed containers. A retained scan of 150,580 instances
+identified 24 annotation-bearing sources, all freshly checked against production: 13 now validate,
+11 retain malformed annotations, and all 24 bodies are unchanged. Their unrelated errors are
+unchanged. These targeted checks do not constitute a new full instance census.
+
+The older TS package pinned by CED/CEE reads each candidate into the same model, or raises the same
+two pre-existing reserved-name failures. Its extra annotation blueprint diagnostic is trace-only in
+CEE and does not gate CED loading; adopting the updated package removes that diagnostic. Production
+YAML negotiation also succeeds after the patch. Backups, ETags, proposals, dependency checks,
+readbacks, the seven blocked IDs and a detailed report are retained under
+`.cedar/repairs/2026-09-26-annotation-backfill/`. The repair helper suite passes 707 tests.
 
 The TypeScript standalone attribute-value writer emits Java's `type: array`, `minItems: 0`, `items`
 envelope, while retaining compatibility with the historical unwrapped input. Nested groups keep
@@ -4611,9 +4635,11 @@ Both TypeScript annotation readers now reject scalar/array/null annotation entri
 without a value/id, matching Java instead of silently dropping them. The exact stored HEAL instance
 `44685302-6d30-41fa-b129-6875fb887912` is rejected by both JSON readers. A proposed patch removing
 only `/_annotations/@id` yields identical four-path output and preserves its DOI annotation.
-The source template `d01330c7-ccd1-4e99-856a-86e08937347c` contains no misplaced identifier;
-it instead lacks the optional instance `_annotations` declaration. The proposed instance patch
-therefore retains the existing validation error that annotations are forbidden.
+The source template `d01330c7-ccd1-4e99-856a-86e08937347c` contains no misplaced identifier.
+The 2026-09-26 annotation backfill added its optional instance annotation declarations; the instance
+is now rejected specifically for malformed `/_annotations/@id`, rather than annotations being
+forbidden. Its body remains unchanged, and the DOI write guard still needs reconciliation before
+the prepared instance correction can be written.
 
 The conditional `PUT ?verbatim=true` was attempted on 2026-09-25 with the current ETag and rejected
 HTTP 400 `doiCanNotBeAltered`: request DOI `https://doi.org/10.82658/aqdn-5e14`, `storedDoi: null`.

@@ -1239,15 +1239,16 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   `$CEDAR_HOME/.cedar/audits/2026-09-25-instance-strict-shapes-replay/`; the
   [instance pipeline runbook](./BACKEND-RUNBOOK.md#full-production-instance-matrix) describes coverage.
 
-  **Backfill optional annotation declarations in stored templates.** Audit stored templates for
-  missing `_annotations` declarations and optional `@nest` context mappings, then prepare a
-  validated production backfill using both libraries' canonical output. Annotations
-  are platform metadata, including DOI attachment; keep malformed entries rejected by both
-  readers. The HEAL Study Core Metadata template `d01330c7-ccd1-4e99-856a-86e08937347c`
-  currently forbids its instance's legitimate DOI annotation. Removing only the stray instance
-  `_annotations/@id` leaves that validation defect. Its conditional write is additionally blocked
-  by [DOI minting recovery](./FRONTEND-ROADMAP.md#doi-minting-recovery); preserve the DOI and
-  reconcile the document/graph state before retrying.
+  **Finish the blocked annotation declarations and deploy the updated writers.** Seven templates
+  still need optional `_annotations` declarations and `@nest` context mappings. Their unchanged
+  document DOIs conflict with null graph DOIs; reconcile the seven IDs tracked in
+  [DOI minting recovery](./FRONTEND-ROADMAP.md#doi-minting-recovery), preserve their DOIs, then
+  refresh the dependent-instance checks and retry the conditional patches. The unavailable `.net`
+  template remains part of the indexed-404 group above. The HEAL instance still needs its malformed
+  `_annotations/@id` repaired after DOI reconciliation. Keep malformed annotation values rejected.
+  Adopt the updated Java/TypeScript writers in backend and editor deployments so subsequent model
+  renders retain these optional declarations. Backups, proposals, validation and readbacks are in
+  `$CEDAR_HOME/.cedar/repairs/2026-09-26-annotation-backfill/`.
 
   **Prioritize the largest remaining groups.** Measured 2026-09-25 over the flagged subset.
   Repeated names identify distinct templates; ID prefixes distinguish them.
