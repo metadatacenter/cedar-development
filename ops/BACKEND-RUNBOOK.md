@@ -1519,9 +1519,17 @@ remaining migration blockers to 11 (eight country IRIs and three source links, t
 literals). Refresh the full dependency inventory and proposals before that migration. Evidence is
 under `.cedar/repairs/2026-09-26-guardian-source-link/`.
 
-The retained primary pipeline count is now 53: annotations 8, malformed/empty IRIs 28, mixed values
+F028TUN (`6dd3f965-8a2a-4bcf-8efd-fc692b05da78`) was repaired by replacing the article title
+stored as its hyperlink with the matching Webmanagercenter article URL. The publisher's live
+headline and the instance's publisher/date agree. The single-scalar conditional write was read
+back exactly and validates; all four completed paths validate, generated JSON content/order agree,
+and YAML bytes match. Its repeatable-link migration proposal now validates too, leaving 10
+migration blockers (eight country IRIs and two source links, both with numeric literal errors).
+Evidence is under `.cedar/repairs/2026-09-26-webmanagercenter-source-link/`.
+
+The retained primary pipeline count is now 52: annotations 8, malformed/empty IRIs 27, mixed values
 11, multiple datatypes 3, numeric literals/nested array 3. Of these, 23 have known narrow corrections
-blocked by unrelated validation errors, 28 need further triage, F050TUN has an approved migration
+blocked by unrelated validation errors, 27 need further triage, F050TUN has an approved migration
 blocked by its template dependencies, and one otherwise-valid HEAL repair is blocked only by DOI
 inconsistency. These are targeted updates, not a fresh full instance census.
 

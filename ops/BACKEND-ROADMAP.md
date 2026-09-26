@@ -1200,7 +1200,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   describes how to resume and recheck it after a library change.
 
   **Resolve the remaining production instance sources and pipeline findings.** The retained
-  findings and checked repairs leave 53 affected instances.
+  findings and checked repairs leave 52 affected instances.
   Consistent reader rejection of an invalid source still requires a source repair.
 
   Resolve three remaining instances whose legacy `description` attribute-value groups sit in
@@ -1209,7 +1209,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Their template is `6a4ac641-f55d-4a48-b00d-1e01de28cc4d`. Establish the intended element/field
   mapping before renaming those groups to `description attributes`; a key-only repair cannot
   validate these sources. Preserve every value. These overlap existing findings; do not add three
-  to the 53-instance baseline. Account for their stricter-reader rejection before production
+  to the 52-instance baseline. Account for their stricter-reader rejection before production
   rollout. Live dependency checks and retained originals are under
   `$CEDAR_HOME/.cedar/audits/2026-09-25-reserved-name-review/migration-apply/`.
 
@@ -1217,7 +1217,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   | --- | ---: |
   | Stored multiple-datatype literals; narrow repairs blocked by other template errors | 3 |
   | Stored mixed `@id`/`@value` fields | 11 |
-  | Malformed/empty stored URI is the first Java rejection | 28 |
+  | Malformed/empty stored URI is the first Java rejection | 27 |
   | Malformed annotation objects | 8 |
   | Numeric JSON literals or an unexpected nested field array | 3 |
 
@@ -1236,13 +1236,14 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
 
   Make `Source Hyperlink` repeatable in `VODAN-COVID-Migrants-Tunisia`
   (`05ce128b-c631-45c8-bfcf-a229ea1fcce5`) and split F050TUN's two stored URLs after resolving
-  its dependent-instance blockers. All 368 instances require object-to-array migration; 357
-  proposed bodies validate, while 11 retain existing errors (eight country IRIs and three source
-  links, including two with numeric literals). Do not switch the template before those instances
-  can be migrated. This approved repair remains within the 53-instance backlog; its dependencies
+  its dependent-instance blockers. All 368 instances require object-to-array migration; 358
+  proposed bodies validate, while 10 retain existing errors (eight country IRIs and two source
+  links, both with numeric literals). Do not switch the template before those instances
+  can be migrated. This approved repair remains within the 52-instance backlog; its dependencies
   overlap existing findings. Audit evidence and proposed bodies are under
-  `$CEDAR_HOME/.cedar/repairs/2026-09-26-repeatable-source-hyperlink/`, with the targeted dependency
-  recheck under `$CEDAR_HOME/.cedar/repairs/2026-09-26-guardian-source-link/`. Refresh the full
+  `$CEDAR_HOME/.cedar/repairs/2026-09-26-repeatable-source-hyperlink/`, with targeted dependency
+  rechecks under `$CEDAR_HOME/.cedar/repairs/2026-09-26-guardian-source-link/` and
+  `$CEDAR_HOME/.cedar/repairs/2026-09-26-webmanagercenter-source-link/`. Refresh the full
   dependency inventory and all proposals before migration.
 
   The four unresolved index entries return 404 even after retry; reconcile the index and store
