@@ -1468,10 +1468,21 @@ both YAML writers produce identical bytes, all four conversions agree on JSON co
 all four completed instances validate. The HEAL correction still receives `doiCanNotBeAltered` and
 its readback is unchanged. All 14 previously prepared value repairs were freshly rechecked; only
 the project-website case became writable, leaving 13 blocked by other validation errors.
-The retained primary pipeline count is now 60: annotations 8, malformed/empty IRIs 34, mixed values
-11, multiple datatypes 3, numeric literals/nested array 3, dangling required mapping 1. This is a
-targeted update, not a fresh full instance census. Evidence is in
+That pass reduced the retained primary pipeline count to 60. Evidence is in
 `.cedar/repairs/2026-09-26-annotation-instance-cleanup/`.
+
+The IDG Genetic Construct template `8d140bd2-32ae-4c64-b29f-33d19b09aa46` was then repaired by
+removing only `IDG DNA Construct Specifications` from `/properties/@context/required`. Its actual
+child is `IDG Genetic Construct Specifications`; the old DNA mapping declaration remains optional.
+The sole live dependent, `b7f62bdf-6f51-4623-88e8-aee3a3f84396`, is unchanged. Before the repair it
+validated as stored but failed all four completed conversion paths because completion dropped the
+unused required mapping. After the conditional template write, both the source and all four
+completed outputs validate, generated JSON content/order agree, and YAML bytes match. The patched
+template and all four generated schemas validate too. Backups, ETags, inventory, proposals and exact
+readback checks are in `.cedar/repairs/2026-09-26-idg-context-requirement/`.
+The retained primary pipeline count is now 59: annotations 8, malformed/empty IRIs 34, mixed values
+11, multiple datatypes 3, numeric literals/nested array 3. These are targeted updates, not a fresh
+full instance census.
 
 The TypeScript standalone attribute-value writer emits Java's `type: array`, `minItems: 0`, `items`
 envelope, while retaining compatibility with the historical unwrapped input. Nested groups keep
