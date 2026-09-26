@@ -672,19 +672,10 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Keycloak login posts this callback. The REST smoke does not exercise the endpoint.
 
 - **17. Finish converging on the body paging envelope.** Every route that pages by offset answers
-  CEDAR's body envelope except the artifact server's: `limit` and `offset` in the request, and
-  `request`, `totalCount`, `currentOffset` and a `paging` block of links in the body, built on
-  `PagedListResponse` and `LinkHeaderUtil`. Three kinds of work remain: moving the artifact server,
-  withdrawing the page-number forms that other routes still accept beside the envelope, and settling
-  what the estate has not yet made uniform.
-
-  **Move the artifact server.** Its template, element, field and instance listings answer a bare
-  JSON array with `Link` and `Total-Count` headers (`AbstractArtifactCrudResource.java:284`), and an
-  offset at or past the total answers 400 rather than an empty page
-  (`AbstractArtifactServerResource.java:105`). Wrapping the array in an object breaks every caller at
-  once, so it needs an opt-in first, a query parameter or a media-type profile, and the switch in a
-  later release. Who calls those listings directly, rather than through the resource server, is
-  unmeasured and sets the cost. The headers can stay on GET listings as a convenience no client needs.
+  CEDAR's body envelope: `limit` and `offset` in the request, and `request`, `totalCount`,
+  `currentOffset` and a `paging` block of links in the body, built on `PagedListResponse` and
+  `LinkHeaderUtil`. Two kinds of work remain: withdrawing the page-number forms that some routes
+  still accept beside the envelope, and settling what the estate has not yet made uniform.
 
   **Withdraw the page-number forms once their clients move.** The terminology server still accepts a
   one-based `page` with `pageSize` or `page_size`, and still answers BioPortal's flat `page`,
@@ -715,7 +706,10 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   a listing that cannot afford or cannot know an exact total answers `countCapped` and leaves out the
   `last` link, as the monitor's raw logs, the bridge's ROR and NIH RePORTER, integrated search past
   its 1,000-result window and the property hierarchies do; and the bridge keys its rows by term IRI
-  rather than listing them, which is what CEE reads.
+  rather than listing them, which is what CEE reads. One gap belongs to the shared link builder:
+  `LinkHeaderUtil.getPagingLinkHeaders` offers a `prev` link only when the offset is at least the
+  limit, so a page at offset 2 with limit 3 has no way back to offset 0, though one exists. Fix it
+  to link to offset 0 there; every listing inherits it.
 
   **Document the two cursor walks as the exception.** `?continuation=` on `/search-deep`, and the
   monitor's log query with its `"<iso>,<id>"` keyset `cursor` (`SearchContinuation.java`,
@@ -723,11 +717,10 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   They are two cursor encodings rather than one, and the API documentation should say both are the
   stated exception to the envelope.
 
-  Done when the artifact server answers the envelope, every page-number form is withdrawn or carries a
-  recorded withdrawal date, one default and one maximum page size apply everywhere, and the
-  variations and cursor walks are documented. The REST smoke has to assert the envelope on a route
-  from each application that serves one; today it covers only the resource and artifact servers'
-  shapes (`rest/suites/pagination.mjs`).
+  Done when every page-number form is withdrawn or carries a recorded withdrawal date, one default and
+  one maximum page size apply everywhere, the `prev` link is fixed, and the variations and cursor
+  walks are documented. The REST smoke has to assert the envelope on a route from each application
+  that serves one; today it covers only the resource server (`rest/suites/pagination.mjs`).
 
 - **18. Choose the response timeouts from the durations the request log now carries, and give a
   user-facing call a deadline.** Outbound calls are bounded by what the call is: an interactive
