@@ -717,6 +717,16 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   lock. The relay's cross-process lock may stay if resource and group servers still share the
   outbox, but it should serialize only the relay, not the requests that produce events.
 
+  **Moving the relay leaves three costs of its own.** `remove` deletes each delivered event in a
+  write transaction of its own, and each one takes the global lock again, so a batch of *n* events
+  costs *n* + 1 locked transactions and *n* Redis enqueues inside the `synchronized` block. One
+  transaction per batch removes that. Nothing creates an index on the outbox label, in the code or
+  in `cedar-development`, so `remove` finds each event by scanning for its `outboxId` and `pending`
+  scans to sort by `createdAtTS`. The outbox is normally small, but a backlog, such as one built while
+  Redis is down, lengthens every lock hold; an index on `outboxId`, or on `outboxId` and
+  `createdAtTS`, bounds it. The same monitor guards `start` and `close`, so a shutdown can wait
+  behind a relay in progress.
+
   Done when the fifty-VU soak passes its move and ACL route thresholds and every other gate, when the
   permission-outbox smoke (`npm run smoke:permission-outbox`) still proves that a committed event
   survives a relay failure, and when search reflects a move or ACL change within the relay's
