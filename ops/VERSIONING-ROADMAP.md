@@ -592,34 +592,31 @@ The controls wait on the backend meaning of both actions, which item 7 settles.
    what each action means for a single large ontology, multiple branches, multiple sources, pinned
    releases and query-ranked results.
 
-   The two paths that serve integrated search treat actions differently, and neither is that
-   contract. On the BioPortal path, a field with actions is answered from a window: up to the first
-   1,000 results of each source, sorted together, with every action applied to the whole window
-   before it is paged (`TerminologyService.integratedSearch`, `IntegratedSearchWindow`). Within the
-   window an exclusion leaves no hole, pages stay full and the total is correct, and a move puts its
-   term at position N of the window's order. The window is also the limit. A source with more than
-   1,000 results is truncated and the answer says `countCapped`, and the order a position refers to
-   is the window's sorted order for one query. So “move this term to position N” is still not a
-   stable global order over a 100,000-term ontology, nor the same position across two queries. The
-   local-store path ignores actions altogether: `SqliteTerminologyService.integratedSearch` never
-   reads them and `RoutingTerminologyService` passes the request through, so a field served from the
-   local store loses its exclusions and moves without any sign that it has. That is a defect however
-   the decision below goes; the local path must apply actions the way the BioPortal path does, or
-   refuse a field that carries them.
+   Neither path that serves integrated search offers that contract yet. Both apply a field's actions
+   the same way, through `ResultActions`: the results are read into a window of up to 1,000 per
+   source, sorted where the path sorts them, and every action is applied to the whole window before
+   it is paged (`TerminologyService.integratedSearch`, `RoutingTerminologyService`,
+   `IntegratedSearchWindow`). Within the window an exclusion leaves no hole, pages stay full and the
+   total is correct, and a move puts its term at position N of the window's order. The window is also
+   the limit. A source with more than 1,000 results is truncated and the answer says `countCapped`,
+   and the order a position refers to is the window's order for one query. So “move this term to
+   position N” is still not a stable global order over a 100,000-term ontology, nor the same position
+   across two queries. On the local path, a moved term the constraint does not return is looked up in
+   the store's latest release even when the field pins an older one, so its label can come from the
+   wrong release.
 
-   Keep exclusion if it can be applied before pagination on both paths, with full pages and correct
-   totals regardless of which constraint admitted the term; the BioPortal path now does this within
-   its window. For ordering, choose one of two explicit products: replace arbitrary moves with a
-   small ordered set of preferred terms whose interaction with query matching is defined, or remove
-   move actions from the supported authoring model. Preserve imported actions while deciding, and
-   provide a migration or compatibility rule for existing actions before changing their stored shape
-   or execution.
+   Keep exclusion if it stays applied before pagination on both paths, with full pages and correct
+   totals regardless of which constraint admitted the term, as it now is within the window. For
+   ordering, choose one of two explicit products: replace arbitrary moves with a small ordered set of
+   preferred terms whose interaction with query matching is defined, or remove move actions from the
+   supported authoring model. Preserve imported actions while deciding, and provide a migration or
+   compatibility rule for existing actions before changing their stored shape or execution.
 
    Prove the chosen contract with a large locally served ontology and with overlapping branches from
-   more than one source. The BioPortal window's paging, exclusions and moves are tested against a
-   scripted BioPortal (`IntegratedSearchPagingTest`); what is not yet tested is the local path,
-   pinned releases, duplicate terms admitted by multiple constraints, stale action targets, and a
-   source larger than the window. The terminology picker should expose a table-level
+   more than one source. Paging, exclusions and moves within the window are tested on both paths
+   (`IntegratedSearchPagingTest`, `LocalResultActionsTest`, `TerminologyPagingResourceTest`); what
+   is not yet tested is pinned releases, duplicate terms admitted by multiple constraints, and a large
+   locally served ontology with overlapping branches. The terminology picker should expose a table-level
    result-customization UI only once the chosen contract is proven. The picker's presentation is
    tracked under
    [Compact Term Exclusions and Ordering in the Picker](#6-compact-term-exclusions-and-ordering-in-the-picker).
