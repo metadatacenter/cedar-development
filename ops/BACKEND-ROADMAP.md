@@ -1205,14 +1205,12 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   describes how to resume and recheck it after a library change.
 
   **Resolve the remaining production instance sources and pipeline findings.** The retained
-  findings and checked repairs leave 66 affected instances, three with valid stored sources.
+  findings and checked repairs leave 61 affected instances, one with a valid stored source.
   Consistent reader rejection of an invalid source still requires a source repair.
 
   | Remaining issue | Instances |
   | --- | ---: |
-  | Multiple literal datatypes: Java emits the first, TS emits an array Java cannot read | 4 |
   | Template demands a root context mapping for an undeclared child | 1 |
-  | Valid attribute-value member named `type` cannot be rendered as YAML | 1 |
   | Stored mixed `@id`/`@value` fields | 11 |
   | Malformed/empty stored URI is the first Java rejection | 35 |
   | Malformed annotation objects | 11 |
@@ -1244,13 +1242,6 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   `_annotations/@id` leaves that validation defect. Its conditional write is additionally blocked
   by [DOI minting recovery](./FRONTEND-ROADMAP.md#doi-minting-recovery); preserve the DOI and
   reconcile the document/graph state before retrying.
-
-  **Resolve the deferred multi-datatype instance literal.** The earlier 100-instance smoke found
-  one literal carrying two ontology-class IRIs in `@type`: Java YAML keeps only the first and
-  Java's YAML reader rejects TypeScript's datatype array. Decide the correct representation
-  before changing the stored value. This instance was not in the random 1,000-instance sample.
-  Expand instance coverage and keep source-preservation checks separate from converter agreement;
-  the 43 already-invalid sources in the larger random sample still need data-level diagnosis.
 
   **Prioritize the largest remaining groups.** Measured 2026-09-25 over the flagged subset.
   Repeated names identify distinct templates; ID prefixes distinguish them.
