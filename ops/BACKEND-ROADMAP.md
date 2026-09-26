@@ -1005,57 +1005,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   the command exists, rewrite the npmjs runbook into a description of what it does and where it
   stops.
 
-- **24. Keep an attribute-value child's declared property IRI in both JSON writers.** Both model
-  libraries read such a child's property IRI out of a template's `@context` and then decline to write
-  it back as JSON, so a read-and-write cycle over `template-022.json` loses
-  `https://schema.metadatacenter.org/properties/d01cb533-265c-474a-95f3-9afb4616a6e1` from the
-  `ATTR-Value` mapping the source document carried. Both YAML writers keep it, so one model yields a
-  document in one format that names the child's property and a document in the other that does not.
-  Three attribute-value children carry one, across templates 022 and 029, and all three are minted
-  identifiers rather than terms an author chose.
-
-  The loss is recorded rather than repaired. `JSON_TEMPLATE_ROUND_TRIP_DIVERGENCES` grants template
-  022 one round-trip error under the reason `legacy attribute-value context mapping is absent`, and
-  the cross-library parity gates stay green because both libraries drop it in the same place.
-  `ParentSchemaArtifact.getChildPropertyUris` excludes static and attribute-value children by name,
-  and the TypeScript writer matches it.
-
-  The exclusion's stated reason is sound as far as it goes: an IRI is identity, the repository assigns
-  it on upload, and deriving one from a child's key would assert an identity nothing granted. That is
-  an argument against minting an IRI, not against preserving one a document already carries.
-
-  **The artifact server already preserves one.** On a create and on an ordinary update,
-  `LinkedDataUtil.addChildPropertyIris` in `cedar-config-library` mints a mapping for every child
-  that lacks one, skips attribute-value children along with the static kinds, and never removes a
-  mapping already present. `repairInheritedDefects` removes an inherited child mapping only when it
-  is not a single absolute IRI, and the three production entries are well-formed IRIs. A verbatim
-  write stores the document as sent. The server therefore neither mints such an IRI nor discards
-  one, and has kept these three through every save; only the libraries' JSON writers drop them. The
-  libraries should do what the server does.
-
-  **One document shows the shape with a term an author chose, and no corpus case covers it.**
-  `template-033-original.json` carries it twice, on `Data Characteristics Table in Key-Value Pairs`
-  and `Data File Descriptive Key-Value Pairs`, and its values are
-  `https://w3id.org/radx/radmo/dataCharacteristicsTableInKeyValuePairs` and
-  `https://w3id.org/radx/radmo/auxiliaryMetadataKeyValuePair` rather than minted identifiers. The
-  shape cannot be treated as debris in general, whatever the three minted entries turn out to be.
-  The canonical `template-033.json` has no attribute-value child at all, because the case was
-  restructured in April 2024, so nothing in the corpus exercises an attribute-value child carrying a
-  vocabulary term.
-
-  This is not the question a requirement on the same type answers, and the difference is the whole of
-  it: a requirement has nowhere to go in the JSON form, because an attribute-value field carries no
-  `_valueConstraints` node at all, so the YAML writers record nothing. A property IRI has somewhere to
-  go, is there in production, and is being dropped on the way out.
-
-  The work is in both libraries. `getChildPropertyUris` and the TypeScript writer should emit an
-  attribute-value child's mapping when the model holds one, and still mint none. The template 022
-  entry leaves `JSON_TEMPLATE_ROUND_TRIP_DIVERGENCES`, and a corpus case adds an attribute-value child
-  carrying a vocabulary term. The three children's generated fixtures change with it, and the Java
-  library's corpus verifier reports them stale until they are regenerated. Whether the three minted
-  entries are worth keeping is a separate question about production data, not about the writers.
-
-- **25. Decide what an ordinary write may change about the artifact it stores.** Every non-verbatim
+- **24. Decide what an ordinary write may change about the artifact it stores.** Every non-verbatim
   write is normalized before it is validated, and two different things travel under that one name.
   One is minting: a child identifier, a property IRI for an attribute the author named, an element
   occurrence identifier, and the JSON Schema `title` and `description` derived from `schema:name`.
@@ -1116,7 +1066,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
 
 ### Shared Libraries
 
-- **26. Take the parse-library tree type out of the public reader and renderer API.** This is a
+- **25. Take the parse-library tree type out of the public reader and renderer API.** This is a
   major-version change. `JsonArtifactReader` and `JsonArtifactRenderer` take and return Jackson's
   `ObjectNode`, and `YamlArtifactReader` and `YamlArtifactRenderer` take and return JDK
   `LinkedHashMap<String, Object>` trees, so the tree representation is part of the public contract
@@ -1141,7 +1091,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   re-parsing, loses direct access. If that need proves real, keep one explicitly
   parse-library-typed opt-in method, so the coupling exists only where it is consciously chosen.
 
-- **27. Translate between an instance and RDF.** The model is designed so an instance maps to RDF:
+- **26. Translate between an instance and RDF.** The model is designed so an instance maps to RDF:
   the schema's `instanceType` gives each instance or element its `rdf:type`, each child's
   `propertyIri` gives the predicate, the instance `id` is the subject, and field values are the
   objects, a controlled term or link contributing its IRI and a literal contributing a plain or
@@ -1158,7 +1108,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
 
 ## Production Data
 
-- **28. Resolve the remaining production artifact defects and review semantic migrations.**
+- **27. Resolve the remaining production artifact defects and review semantic migrations.**
   Classify the remaining invalid instances by their actual schema declarations, then repair only
   transformations whose meaning is established. A missing `@id` in a controlled-term field is a
   missing entered term, not an element identity to mint. Multiple populated occurrences cannot be
@@ -1295,6 +1245,10 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   any source repair. Retained replay evidence is under
   `$CEDAR_HOME/.cedar/audits/2026-09-25-instance-strict-shapes-replay/`; the
   [instance pipeline runbook](./BACKEND-RUNBOOK.md#full-production-instance-matrix) describes coverage.
+
+  Deploy the JSON writers that preserve explicit attribute-value group property IRIs as optional
+  schema context mappings. Check JSON and YAML conversions of an affected template on the deployed
+  resource path; keep these group mappings out of instance context requirements and inflation.
 
   **Finish the blocked annotation declarations and deploy the updated writers.** Seven templates
   still need optional `_annotations` declarations and `@nest` context mappings. Their unchanged
@@ -1468,7 +1422,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
 
 ## Later Decisions
 
-- **29. Enforce the request-body classification, and decide what an open body requires.**
+- **28. Enforce the request-body classification, and decide what an open body requires.**
   `cedarcli check openapi` reads `additionalProperties` only when deciding whether a schema counts
   as a stub, so nothing across the estate fails when a new request schema states neither that it is
   closed nor that it is open. Only the resource server asks, in its own contract test. Add the rule,
@@ -1489,7 +1443,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   subtree outside the named mappers. Sixteen more across the servers and shared libraries read
   responses or build output, where the tolerant mapper is what they want.
 
-- **30. Address artifacts by bare identifier in REST paths, keeping the full IRI as stored
+- **29. Address artifacts by bare identifier in REST paths, keeping the full IRI as stored
   identity.** **Production consequence:** an addressing migration rather than a data one. Stored
   identifiers in MongoDB, Neo4j and OpenSearch do not change, and no reindex is required, but
   clients that build URLs in the current form need the legacy shape kept as an alias until traffic
@@ -1521,7 +1475,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Done when every resource-specific route takes the bare identifier, one parser owns the
   reconstruction, and staging's per-artifact blocks are gone.
 
-- **31. Decide what each compatibility adapter is for, now that neither reads artifacts itself.**
+- **30. Decide what each compatibility adapter is for, now that neither reads artifacts itself.**
   Repo and OpenView exist to preserve URLs rather than to do work: the runbook's account of artifact
   route ownership gives repo the identifier dereferencing URLs and OpenView the anonymous
   presentation and open-artifact URLs, and says neither adapter should own artifact storage or an
@@ -1566,7 +1520,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Done when each of the two hosts has a stated role, an owner, and either a current caller that needs
   the process or a routing arrangement that keeps its URLs resolving without one.
 
-- **32. Validate a write with `cedar-artifact-library`, not the meta-schema alone.** Nothing but
+- **31. Validate a write with `cedar-artifact-library`, not the meta-schema alone.** Nothing but
   `cedar-model-validation-library` stands between a caller and the store: the artifact server's
   `validateTemplate` calls `newModelValidator()`, and the resource classes never mention
   `org.metadatacenter.artifacts.model` at all. The artifact library reads a stored artifact only

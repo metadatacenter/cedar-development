@@ -1251,7 +1251,7 @@ with `ops/cedar_artifact_rest_audit.py`, repair, and only then tighten.
 ### Comparing the Two Model Libraries
 
 `cedar-artifact-library` (Java) and `cedar-model-typescript-library` (TypeScript) implement the same
-model. JSON and both full and compact YAML match over all 83 corpus artifacts.
+model. JSON and both full and compact YAML match over all 84 corpus artifacts.
 Template 029 uses the canonical ontology service URI
 `https://data.bioontology.org/ontologies/MESH`, which both YAML readers reconstruct
 from the MESH acronym. Both YAML writers omit an ontology's service URI; both readers derive
@@ -1261,6 +1261,16 @@ and entries naming another `sourceSystem`. JSON retains the supplied service URI
 YAML preserves `sourceIri` as the separate canonical ontology identity.
 The parity gate permits no current differences and also verifies that the committed
 TypeScript fixtures match freshly generated output.
+
+Both JSON writers preserve an explicitly declared attribute-value group's property IRI in the
+schema's `properties.@context.properties`, as full YAML already does. These mappings remain
+optional: they are excluded from `@context.required` and instance inflation, and a group without
+an IRI gets none invented. This differs from the mappings of attributes entered by a form-filler.
+`AttributeGroupPropertyIriTest` and `AttributeGroupPropertyIri.spec.ts` cover generated and vocabulary
+IRIs, absent mappings, root and nested schemas, JSON/YAML round trips and inflation; the Java test
+also validates an inflated instance without a group context entry. Corpus template 039 carries
+`https://w3id.org/radx/radmo/auxiliaryMetadataKeyValuePair`. Templates 022 and 029 preserve their
+three existing mappings; template 022 has no mapping-loss exception in the round-trip tests.
 
 Template and element instance-type constraints retain an ordered set of IRIs in
 both libraries. Java exposes `instanceJsonLdTypes()` and `withInstanceJsonLdTypes`;
@@ -1293,8 +1303,7 @@ npm run parity:json
 ```
 
 Each reads as a summary — a case with output on only one side is counted and skipped rather than
-thrown — and a green YAML run reports `0 differing` for 18 fields, 6 elements and 21 instances, and the one
-recorded difference among 38 templates. Full and compact output have independent parity gates, so
+thrown — and a green YAML run reports `0 differing` for 18 fields, 6 elements, 21 instances and 39 templates. Full and compact output have independent parity gates, so
 unrecorded drift in either representation fails explicitly.
 
 Both libraries confine each setting a parent decides to the children whose `_ui` has room for it.
