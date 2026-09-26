@@ -740,10 +740,10 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   survives a relay failure, and when search reflects a move or ACL change within the relay's
   five-second interval.
 
-- **19. Converge on one pagination encoding.** Eight paging shapes are in service across seven
-  applications. The artifact, resource, OpenView, monitor and messaging listings all build on the
-  same `PagedQuery` and `LinkHeaderUtil`, so nothing in the code forces even the split between the
-  first two shapes. The shapes
+- **19. Converge on one pagination encoding.** Seven paging shapes are in service across seven
+  applications. The artifact, resource, OpenView, monitor, messaging and bridge listings all build on
+  the same `PagedQuery` and `LinkHeaderUtil`, so nothing in the code forces even the split between
+  the first two shapes. The shapes
   differ on three independent axes: the request parameters, the page base, and where the response
   metadata goes. A client library that can page one of them cannot page the rest.
 
@@ -757,9 +757,16 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
     (`AbstractSearchResource.java:157`, `FolderContentsResource.java:319`,
     `CategoriesResource.java:145`), the OpenView server's folder listing
     (`FoldersResource.java:123`), the monitor server's log explorer and usage breakdowns, and the
-    messaging server's `GET /messages`. The last two build on the shared `PagedListResponse`, which
-    adds `countCapped` and leaves out the `last` link when a listing stops counting at a ceiling, as
-    the monitor's raw request and Cypher logs do at 10,500 rows (`LogExplorerResource.java:51`).
+    messaging server's `GET /messages`, and the bridge server's `/ext-auth/{authority}/search-by-name`.
+    The last three build on the shared `PagedListResponse`, which adds `countCapped` and leaves out
+    the `last` link when a listing stops counting at a ceiling, as the monitor's raw request and
+    Cypher logs do at 10,500 rows (`LogExplorerResource.java:51`). The bridge departs from the shape
+    in three ways. Its rows are an object keyed by term IRI rather than an array, which is what CEE
+    reads. It still accepts zero-based `page` and `pageSize` and still answers `found`, `page` and
+    `pageSize`, though no client in the estate sends or reads the paging pair and they can be
+    withdrawn. And two of its seven registries cannot report an exact total: ROR is read one
+    upstream page deep, and NIH RePORTER narrows its answers after the fact, so both answer
+    `countCapped` (`AuthoritySearchPage.java`).
   - **An opaque forward-only continuation.** `?continuation=` on `/search-deep`, answered with
     `continuation` in the body and first and next links alone in the `paging` block. The token binds
     the user, a query fingerprint, an OpenSearch point-in-time and `search_after`, and a request
@@ -774,9 +781,6 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
     Versioned `POST /search` gives each block its own `totalCount`, `countCapped`, `page` and
     `pageSize` (`SearchRequest.java:22`, `VersionAwareSearchService.java:120`). `POST
     integrated-search` also pages from the body, and answers the flat BioPortal-shaped fields.
-  - **Zero-based `page` and `pageSize`, echoed back with `found`, no links and no total.** The
-    bridge server's `/search-by-name` across the seven external authorities
-    (`ExternalAuthorityResource.java:124`). No other route in the estate bases `page` at zero.
   - **A zero-based `offset` against a page size the server fixes.** `GET /search/hierarchy` returns
     at most `CHILD_LIMIT` children, 50, and echoes the offset so a client can ask for the rest. It
     takes no page size and reports no count (`VersionAwareSearchResource.java:132`,
@@ -795,8 +799,8 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   Defaults and maxima are set per surface and shared by none: 100/500 on the resource server, the
   monitor's log explorer and messaging, 50/500 on the monitor's usage breakdowns, 20/500 on the
   artifact server and on categories (`cedar-main.yml:360`), 50 with a silent clamp in terminology,
-  100 with `pageSize > 1` enforced on the bridge, and a fixed 50 for a hierarchy's children. Bad input is refused three ways, since `PagedQuery` answers 400, terminology clamps, and
-  the bridge answers 400 with a message of its own.
+  100/500 on the bridge, which still refuses a `pageSize` of one, and a fixed 50 for a hierarchy's
+  children. Bad input is refused two ways, since `PagedQuery` answers 400 and terminology clamps.
 
   **The decision is which encoding wins, and it has to come first.** Headers are the conventional
   answer and the artifact server already implements them alongside the ETag, `If-Match` and `Vary`
@@ -825,7 +829,7 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   the total should answer an empty page rather than the artifact server's 400, and one default and
   one maximum page size should replace the per-surface values.
 
-  Six of the eight shapes page by number or offset, and those converge on whichever encoding wins.
+  Five of the seven shapes page by number or offset, and those converge on whichever encoding wins.
   The two cursor walks are the exception and have to be documented as one, because a continuation
   and a keyset cursor buy something an offset cannot: a walk of a whole result set at one request
   per page.
