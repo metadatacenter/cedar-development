@@ -805,6 +805,26 @@ the embeddable editor is in [FRONTEND-ROADMAP.md](./FRONTEND-ROADMAP.md#cee), an
   resource server's shape. Nothing in the code decides this; it is a product call about what a CEDAR
   client should look like.
 
+  **The recommendation is the resource server's shape.** `limit` and `offset` in the query, and a
+  body carrying `totalCount` and a `paging` block of links. Headers cannot express every route that
+  pages: versioned `POST /search` answers one block per constraint type, each with its own total
+  and page, and a header carries one total and one link set. A `Link` header also names a URL to
+  GET, which a POST search does not have. Most clients already read the body, and a body is part of
+  the response schema that the OpenAPI document and the MCP servers' tool descriptions carry, where
+  a header is easily left out. Offset rather than page number, because the artifact, resource and
+  OpenView servers take it already and a page number converts to an offset exactly while the
+  reverse does not; terminology's one-based `page` stays as an alias until the Template Editor and
+  CEE move. The artifact server's `Link` and `Total-Count` headers can stay on GET listings as a
+  convenience that no client needs.
+
+  The artifact server cannot adopt the body additively. Its listing answers a bare JSON array
+  (`AbstractArtifactCrudResource.java:290`), and wrapping that array in an object breaks every
+  caller at once, so it needs an opt-in first, a query parameter or a media-type profile, and the
+  switch in a later release. Who calls those listings directly, rather than through the resource
+  server, is unmeasured and sets the cost. Two behaviours belong to the same decision: an offset past
+  the total should answer an empty page rather than the artifact server's 400, and one default and
+  one maximum page size should replace the per-surface values.
+
   Six of the ten shapes page by number or offset, and those converge on whichever encoding wins. The
   two cursor walks are the exception and have to be documented as one, because a continuation and a
   keyset cursor buy something an offset cannot: a walk of a whole result set at one request per
